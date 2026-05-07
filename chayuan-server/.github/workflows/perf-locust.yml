@@ -1,0 +1,96 @@
+# QA1 · 多并发吞吐基线（locust）
+#
+# 目的：固化"4B chat 模型在 chayuan-gateway 之后的 p95 延迟 / 吞吐"基线，
+# 让性能回归在 PR 阶段就能看见。本 workflow 是 ``workflow_dispatch`` 触发的
+# 手动 baseline；建议在打 release tag 时一并跑一次，把数据写进
+# ``docs/perf-baseline-<tag>.md``。
+#
+# 数据集：locustfile.py 用 OpenAI 兼容 SSE chat，并发用户由 RUN_USERS 输入控制。
+# 上限：runner 是 ubuntu-22.04 (4 vCPU)，CPU 跑 4B 模型本来就慢；阈值
+# p95 < 1500 ms 是"可达成的"基线；要更严请上自托管 / GPU runner。
+
+name: perf-locust
+
+on:
+  workflow_dispatch:
+    inputs:
+      users:
+        description: "并发用户数"
+        required: false
+        default: "10"
+      duration:
+        description: "持续时间（locust -t 格式，如 5m）"
+        required: false
+        default: "5m"
+
+jobs:
+  bench:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install ollama + qwen2:0.5b
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          for i in {1..30}; do curl -fs http://127.0.0.1:11434/api/tags && break; sleep 1; done
+          ollama pull qwen2:0.5b
+
+      - name: install chayuan + locust
+        run: |
+          set -euo pipefail
+          for pkg in chayuan-core chayuan-identify chayuan-modelmgr chayuan-discovery \
+                     chayuan-registry chayuan-runtime chayuan-gateway chayuan-supervisor \
+                     chayuan-preflight chayuan-observability chayuan-packaging; do
+            if [[ -d "libs/$pkg" ]]; then
+              pip install -e "libs/$pkg"
+            fi
+          done
+          pip install locust pytest-benchmark
+
+      - name: spin up gateway
+        run: |
+          # 用 in-memory ModelRepository + 真实 OllamaAdapter 启 gateway
+          # （脚本与 smoke_ollama_chat.py 共用一个 fixture）
+          nohup python scripts/ci/spin_up_gateway.py > /tmp/gateway.log 2>&1 &
+          for i in {1..30}; do curl -fs http://127.0.0.1:8088/healthz && break; sleep 1; done
+
+      - name: run locust headless baseline
+        env:
+          USERS: ${{ inputs.users }}
+          DURATION: ${{ inputs.duration }}
+        run: |
+          locust -f scripts/perf/locustfile.py \
+            --host http://127.0.0.1:8088 \
+            --headless -u "${USERS}" -r "${USERS}" -t "${DURATION}" \
+            --csv perf-out --only-summary \
+            --exit-code-on-error 1
+
+      - name: assert p95 < 1500ms
+        run: |
+          python - <<'PY'
+          import csv, sys
+          with open("perf-out_stats.csv") as f:
+              rows = list(csv.DictReader(f))
+          chat = next((r for r in rows if "chat" in r["Name"].lower()), None)
+          if chat is None:
+              print("no chat row in perf-out_stats.csv"); sys.exit(1)
+          p95 = float(chat.get("95%", chat.get("95%ile (ms)", "999999")))
+          print(f"chat p95={p95}ms")
+          if p95 > 1500:
+              sys.exit(f"perf regression: chat p95={p95}ms > 1500ms threshold")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-out
+          path: |
+            perf-out_*.csv
+            /tmp/gateway.log
+            /tmp/ollama.log

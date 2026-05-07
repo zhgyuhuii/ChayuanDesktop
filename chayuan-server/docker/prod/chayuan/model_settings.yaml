@@ -1,0 +1,77 @@
+# 察元 AI 助手 · 生产模型配置示例（docker/prod）
+# 推理后端：vLLM（OpenAI 兼容接口）；Embedding：TEI（bge-m3）
+# 单 A100/H100 可稳定承载 ~128 concurrent completions / 64 concurrent embeddings。
+
+DEFAULT_LLM_MODEL: qwen2.5-14b
+DEFAULT_EMBEDDING_MODEL: bge-m3
+
+Agent_MODEL: ''
+HISTORY_LEN: 3
+MAX_TOKENS:
+TEMPERATURE: 0.7
+
+SUPPORT_AGENT_MODELS:
+  - qwen2.5-14b
+
+LLM_MODEL_CONFIG:
+  preprocess_model:
+    model: qwen2.5-14b
+    temperature: 0.05
+    max_tokens: 4096
+    history_len: 10
+    prompt_name: default
+    callbacks: false
+  llm_model:
+    model: qwen2.5-14b
+    temperature: 0.9
+    max_tokens: 4096
+    history_len: 10
+    prompt_name: default
+    callbacks: true
+  action_model:
+    model: qwen2.5-14b
+    temperature: 0.01
+    max_tokens: 4096
+    history_len: 10
+    prompt_name: default
+    callbacks: true
+  postprocess_model:
+    model: qwen2.5-14b
+    temperature: 0.01
+    max_tokens: 4096
+    history_len: 10
+    prompt_name: default
+    callbacks: true
+
+MODEL_PLATFORMS:
+  - platform_name: vllm
+    platform_type: openai
+    api_base_url: http://vllm:8000/v1
+    api_key: EMPTY
+    api_proxy: ''
+    api_concurrencies: 128
+    auto_detect_model: false
+    llm_models:
+      - qwen2.5-14b
+    embed_models: []
+    text2image_models: []
+    image2text_models: []
+    rerank_models: []
+    speech2text_models: []
+    text2speech_models: []
+
+  - platform_name: tei
+    platform_type: openai
+    api_base_url: http://tei:80/v1
+    api_key: EMPTY
+    api_proxy: ''
+    api_concurrencies: 64
+    auto_detect_model: false
+    llm_models: []
+    embed_models:
+      - bge-m3
+    text2image_models: []
+    image2text_models: []
+    rerank_models: []
+    speech2text_models: []
+    text2speech_models: []

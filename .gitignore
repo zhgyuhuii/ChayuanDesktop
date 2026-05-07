@@ -1,0 +1,81 @@
+# ===== Node / pnpm =====
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+.npm/
+.yarn/
+
+# Vite / Tauri 前端构建产物
+dist/
+.vite/
+.cache/
+
+# ===== Python / Poetry =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.venv/
+venv/
+env/
+.eggs/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ===== Rust / Cargo / Tauri =====
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# ===== PyInstaller =====
+build/
+*.manifest
+*.spec.bak
+
+# ===== Tauri sidecar 二进制(bundle 时再生成) =====
+chayuan-client/apps/desktop/src-tauri/binaries/*.exe
+chayuan-client/apps/desktop/src-tauri/binaries/chayuan-server-*
+!chayuan-client/apps/desktop/src-tauri/binaries/.gitkeep
+
+# ===== 用户数据 / 运行时 =====
+chayuan_data/
+*.sqlite
+*.sqlite3
+*.db-journal
+logs/
+*.log
+tmp/
+.tmp/
+
+# ===== 顶层备份文件 =====
+server.zip
+*.zip
+*.tar.gz
+*.7z
+
+# ===== 配置 / 密钥 =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+.secrets/
+
+# ===== IDE / OS =====
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== Claude Code 内部 =====
+.claude/

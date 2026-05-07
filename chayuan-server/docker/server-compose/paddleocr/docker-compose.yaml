@@ -1,0 +1,26 @@
+# PaddleOCR — PaddleCloud 预装环境（含 PaddleOCR 依赖，适合开发/批处理）
+# 默认镜像入口偏交互与 Jupyter；启动后可 docker exec 进入 /mnt 挂载目录运行脚本。
+# 镜像: https://hub.docker.com/r/paddlecloud/paddleocr
+version: "3.8"
+
+services:
+  paddleocr:
+    image: paddlecloud/paddleocr:2.6-cpu-latest
+    container_name: paddleocr
+    restart: unless-stopped
+    shm_size: "8gb"
+    ports:
+      - "8888:8888"
+    volumes:
+      - paddleocr-work:/mnt
+    # GPU 版本可改用 paddlecloud/paddleocr:2.6-gpu-cuda11.2-cudnn8-latest 并取消下方注释
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  paddleocr-work:

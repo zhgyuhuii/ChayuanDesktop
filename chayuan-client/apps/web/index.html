@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>察元 AI</title>
+    <!--
+      CSP 总览:
+      - 默认收紧到 'self',让大部分资源走同源。
+      - OnlyOffice DocumentServer 集成需要松绑下面这几条:
+          script-src(-elem)  api.js 跨域加载
+          frame-src           DocEditor 内部 iframe(实际编辑器渲染层)
+          connect-src + ws    DocsAPI 调 REST + WebSocket 协作通道
+          style-src / font-src / img-src
+                              DS 注入的 CSS / 字体 / 图标
+          worker-src          编辑器内的 Web Worker
+        放开范围只到 ``localhost:* / 127.0.0.1:* / host.docker.internal:*`` —
+        覆盖三种常见部署:本机直跑 / Docker bridge / Docker Desktop。
+        生产部署若把 DS 挂到自有域名,需要 nginx 配 CSP 响应头单独加白(见
+        chayuan-server/docker/prod/nginx.conf)。
+      - 保留 ``https:`` 让生产 https DS 直接通过(同源策略仍兜底)。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' 'unsafe-eval'
+          http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
+          https:;
+        script-src-elem 'self' 'unsafe-inline'
+          http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
+          https:;
+        style-src 'self' 'unsafe-inline'
+          http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
+          https:;
+        style-src-elem 'self' 'unsafe-inline'
+          http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
+          https:;
+        img-src 'self' data: blob:
+          http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
+          https:;
+        font-src 'self' data:
+          http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
+          https:;
+        connect-src 'self'
+          http://127.0.0.1:7861 http://127.0.0.1:3000
+          http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
+          ws://localhost:* ws://127.0.0.1:* ws://host.docker.internal:* ws://43.110.110.15:*
+          wss: https:;
+        frame-src 'self'
+          http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
+          https:;
+        worker-src 'self' blob:
+          http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*;
+        media-src 'self' blob:
+          http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*;
+      "
+    />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

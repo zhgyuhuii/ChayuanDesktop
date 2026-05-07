@@ -1,0 +1,133 @@
+# M1 · ComfyUI SD1.5 NF4 CPU smoke
+#
+# 目的：验证"装上 ComfyUI + sd_v15 nf4 量化模型 → 通过 chayuan-gateway 一句
+# `POST /v1/images/generations` 真能产出 PNG bytes"。CPU 跑 30 步在 GitHub
+# 标准 ubuntu runner 上约 60-90s；total job 上限 12 min，能跑得动。
+#
+# 触发方式：默认 manual（``workflow_dispatch``）；不阻塞 PR。
+# 一旦稳定，可加 ``schedule`` 做周级回归。
+#
+# 占位状态：本 workflow 在落 v6.1 backlog 时只跑"框架探活"——下载真模型 + 推理
+# 在 stable runner 上需要 ~6 GB，要确认 GitHub-hosted runner 的磁盘配额够用；
+# 自托管 runner 更合适。
+
+name: smoke-comfyui-cpu
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 周一 02:30 UTC（北京 10:30）
+    - cron: "30 2 * * 1"
+
+jobs:
+  comfyui-sd15:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install ComfyUI (CPU)
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git ~/ComfyUI
+          cd ~/ComfyUI
+          python -m pip install --upgrade pip
+          # CPU torch 包小很多（~200MB vs CUDA ~2GB），符合 runner 限额
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: pull SD1.5 nf4 quantized
+        env:
+          HF_ENDPOINT: https://hf-mirror.com
+        run: |
+          python -m pip install huggingface_hub
+          # nf4 量化版 ~1.4 GB，相比 fp16 的 4.2 GB 节省巨多
+          python -c "
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+              'sayakpaul/sd_v15_nf4_unet',
+              local_dir='/home/runner/ComfyUI/models/checkpoints/sd15_nf4',
+              local_dir_use_symlinks=False,
+          )
+          "
+
+      - name: start ComfyUI in background
+        run: |
+          cd ~/ComfyUI
+          nohup python main.py --listen 127.0.0.1 --port 18188 --cpu \
+            > /tmp/comfyui.log 2>&1 &
+          # 等待端口就绪（最多 90s，CPU 启动慢）
+          for i in {1..90}; do
+            if curl -fsS http://127.0.0.1:18188/system_stats > /dev/null 2>&1; then
+              echo "ComfyUI up after ${i}s"; break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18188/system_stats | head -c 500
+
+      - name: install chayuan stack
+        run: |
+          set -euo pipefail
+          for pkg in chayuan-core chayuan-identify chayuan-modelmgr chayuan-discovery \
+                     chayuan-registry chayuan-runtime chayuan-gateway chayuan-supervisor \
+                     chayuan-preflight chayuan-observability chayuan-packaging; do
+            if [[ -d "libs/$pkg" ]]; then
+              pip install -e "libs/$pkg"
+            fi
+          done
+
+      - name: run smoke
+        env:
+          COMFYUI_URL: http://127.0.0.1:18188
+        run: |
+          # smoke_comfyui_image.py 还在 v6.1 backlog；这里先用 ComfyUI 自带 prompt
+          # API 直接探活，确保整条线通的；待 smoke 脚本落地后改成调
+          # /v1/images/generations 的端到端版本。
+          python - <<'PY'
+          import json, time, sys, urllib.request, urllib.error
+          # 最小工作流：单层 noise + KSampler；纯探活，不强求图质量
+          workflow = {"prompt": {
+              "3": {"class_type": "EmptyLatentImage",
+                    "inputs": {"width": 256, "height": 256, "batch_size": 1}},
+              "4": {"class_type": "CheckpointLoaderSimple",
+                    "inputs": {"ckpt_name": "sd15_nf4"}},
+              "5": {"class_type": "CLIPTextEncode",
+                    "inputs": {"text": "a green dog", "clip": ["4", 1]}},
+              "6": {"class_type": "CLIPTextEncode",
+                    "inputs": {"text": "blurry", "clip": ["4", 1]}},
+              "7": {"class_type": "KSampler",
+                    "inputs": {"seed": 42, "steps": 6, "cfg": 7.0,
+                               "sampler_name": "euler", "scheduler": "normal",
+                               "denoise": 1.0,
+                               "model": ["4", 0], "positive": ["5", 0],
+                               "negative": ["6", 0], "latent_image": ["3", 0]}},
+              "8": {"class_type": "VAEDecode",
+                    "inputs": {"samples": ["7", 0], "vae": ["4", 2]}},
+              "9": {"class_type": "SaveImage",
+                    "inputs": {"images": ["8", 0], "filename_prefix": "smoke"}},
+          }}
+          req = urllib.request.Request(
+              "http://127.0.0.1:18188/prompt",
+              data=json.dumps(workflow).encode(),
+              headers={"Content-Type": "application/json"})
+          rid = json.loads(urllib.request.urlopen(req).read())["prompt_id"]
+          for _ in range(180):
+              time.sleep(1)
+              try:
+                  hist = json.loads(urllib.request.urlopen(
+                      f"http://127.0.0.1:18188/history/{rid}").read())
+                  if hist.get(rid, {}).get("status", {}).get("completed"):
+                      print("smoke ok"); sys.exit(0)
+              except urllib.error.URLError:
+                  continue
+          print("smoke timed out", file=sys.stderr); sys.exit(1)
+          PY
+
+      - name: dump comfy log on failure
+        if: failure()
+        run: |
+          tail -n 200 /tmp/comfyui.log || true

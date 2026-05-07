@@ -1,0 +1,49 @@
+# Chromatic visual regression
+#
+# 触发: PR + main push (后者用于刷新 baseline)
+# 行为: 构建 storybook,推到 Chromatic,在 PR 评论回视觉差异链接。
+#
+# 前置: 需要在 GitHub Actions Secrets 里配 CHROMATIC_PROJECT_TOKEN。
+# 没配时 workflow 自动 skip,不会失败 PR。
+#
+# 设计:
+#   * 只跑 packages/app (其它 package 没有 storybook)
+#   * --exit-zero-on-changes: 视觉差异不阻塞 PR (只提示);破坏性 baseline
+#     更新由维护者在 Chromatic 网页确认即可。
+
+name: chromatic
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  visual:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    if: ${{ vars.ENABLE_CHROMATIC == 'true' || secrets.CHROMATIC_PROJECT_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Chromatic 需要完整历史以做 baseline 对比
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: chromatic
+        working-directory: packages/app
+        env:
+          CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+        run: pnpm chromatic

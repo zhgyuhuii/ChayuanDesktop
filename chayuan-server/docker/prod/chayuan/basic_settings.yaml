@@ -1,0 +1,53 @@
+# 察元 AI 助手 · 生产基础配置示例（docker/prod）
+#
+# 关键点：
+#   - DEPLOYMENT_MODE=prod，体检页所有瓶颈会亮红
+#   - 使用 Postgres 作元数据库；连接池按 8 worker 预估
+#   - 启用 Redis + 限流
+#   - API 绑 0.0.0.0 给 nginx 连；面板保持 localhost（如果在生产开）
+
+version: 1.0.0
+
+log_verbose: false
+HTTPX_DEFAULT_TIMEOUT: 300.0
+
+KB_ROOT_PATH: /root/chayuan_data/data/knowledge_base
+DB_ROOT_PATH: /root/chayuan_data/data/knowledge_base/info.db
+
+# 元数据库：Postgres（docker-compose 同网络内）
+SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://chayuan:chayuan@postgres:5432/chayuan
+
+OPEN_CROSS_DOMAIN: true
+DEFAULT_BIND_HOST: 0.0.0.0
+
+API_SERVER:
+  host: 0.0.0.0
+  port: 7861
+  public_host: chayuan.example.com
+  public_port: 443
+
+CONFIG_SERVER:
+  host: 127.0.0.1
+  port: 8502
+
+# 面板账号：请在首次部署后用 `chayuan update username/password` 设置
+PANEL_USERNAME: ''
+PANEL_PASSWORD_HASH: ''
+PANEL_SESSION_SECRET: ''
+PANEL_LOGIN_PATH: ''
+
+# ---- 性能 / 可扩展性 ----
+DEPLOYMENT_MODE: prod
+UVICORN_WORKERS: 8              # 宿主机 4 核：8 ≈ 2*C+1 可略放大或缩小
+
+DB_POOL_SIZE: 20
+DB_MAX_OVERFLOW: 20
+DB_POOL_RECYCLE: 3600
+DB_POOL_PRE_PING: true
+DB_POOL_TIMEOUT: 30
+
+REDIS_URL: redis://redis:6379/0
+
+RATE_LIMIT_ENABLED: true
+RATE_LIMIT_PER_MINUTE: 120
+REQUEST_ID_HEADER: X-Request-ID

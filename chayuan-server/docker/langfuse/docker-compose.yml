@@ -1,0 +1,64 @@
+version: "3.9"
+
+# Langfuse v3 自托管（离线可用）。
+#
+# 启动：
+#   cd docker/langfuse
+#   cp .env.example .env   # 首次；生成 secret / 口令
+#   docker compose up -d
+#
+# 端口：
+#   - 3000  Langfuse Web UI  (http://localhost:3000)
+#
+# 首次启动后：
+#   1. 浏览器打开 http://localhost:3000 → 注册首个管理员
+#   2. 登录后点右上角 Settings → API Keys → Create → 拷贝 pk-lf-... / sk-lf-...
+#   3. 把 3 个环境变量写入察元 basic_settings.yaml 或 export：
+#        LANGFUSE_PUBLIC_KEY=pk-lf-xxx
+#        LANGFUSE_SECRET_KEY=sk-lf-xxx
+#        LANGFUSE_HOST=http://127.0.0.1:3000
+#   4. 重启察元服务即可
+#
+# 断网场景：
+#   若 langfuse 容器暂时不可达，察元的 SafeCallbackHandler 会吞掉 SDK 异常，
+#   业务不中断，只在日志里打一次 warn。
+
+services:
+  langfuse-db:
+    image: postgres:15
+    container_name: chayuan-langfuse-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: langfuse
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD:-langfuse_pw}
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: chayuan-langfuse
+    restart: unless-stopped
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_DB_PASSWORD:-langfuse_pw}@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-http://localhost:3000}
+      # openssl rand -hex 32 / 首次启动前必换
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-please_change_me_32bytes_hex_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
+      SALT: ${LANGFUSE_SALT:-please_change_me_32bytes_hex_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+      # 关闭自动 signup，第一次启动后改为 true 前先注册 admin
+      AUTH_DISABLE_SIGNUP: "false"
+
+volumes:
+  langfuse_db_data:

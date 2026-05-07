@@ -1,0 +1,41 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: chayuan-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --save
+      - "900 1"
+      - --save
+      - "300 10"
+      - --save
+      - "60 10000"
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - redis-net
+
+volumes:
+  redis-data:
+    driver: local
+
+networks:
+  redis-net:
+    driver: bridge

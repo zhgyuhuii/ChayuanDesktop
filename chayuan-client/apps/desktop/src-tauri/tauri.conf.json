@@ -1,0 +1,61 @@
+{
+  "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Chayuan AI",
+  "version": "0.1.0",
+  "identifier": "ai.chayuan.client",
+  "build": {
+    "beforeDevCommand": "pnpm dev:vite",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build:vite",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "察元 AI",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 880,
+        "minHeight": 560,
+        "decorations": true,
+        "fullscreen": false,
+        "resizable": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' http://127.0.0.1:7861 http://127.0.0.1:3000 https://* ipc: https://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis", "deb", "appimage", "rpm", "dmg", "app"],
+    "externalBin": ["binaries/chayuan-server"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "wix": { "language": ["zh-CN", "en-US"] },
+      "nsis": { "languages": ["SimpChinese", "English"] }
+    },
+    "linux": {
+      "deb": { "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"] },
+      "appimage": { "bundleMediaFramework": true }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "hardenedRuntime": true
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": false,
+      "endpoints": ["https://example.com/updates/{{target}}/{{current_version}}"],
+      "pubkey": ""
+    }
+  }
+}

@@ -1,0 +1,85 @@
+@import "tailwindcss";
+/* 走 monorepo 相对路径:Tailwind v4 Vite 插件在 Windows 下解析 pnpm
+   workspace 的 package.json#exports 不稳,改相对路径绕过 */
+@import "../../../design-tokens/src/tokens.css";
+
+/**
+ * Tailwind v4 auto content detection 仅扫 entry app(apps/web) 根目录;
+ * 我们的 JSX 全在 packages/{app,ui,...}/src 里,且 vite.config.ts 把
+ * @chayuan/* alias 到 packages/*\/src/index.ts,Tailwind 看不到这些文件,
+ * 不会生成对应 utility。显式 @source 把整个 monorepo packages/apps 纳入扫描。
+ * 路径相对当前文件: packages/ui/src/styles/globals.css → ../../../.. = repo root
+ */
+@source "../../../../packages/**/*.{ts,tsx,js,jsx}";
+@source "../../../../apps/**/*.{ts,tsx,js,jsx,html}";
+
+/**
+ * 兼容补丁:旧组件用的语义类(border/body/font-feature)。
+ * --background / --primary 等变量与 @theme 桥接已由 design-tokens/tokens.css 提供。
+ */
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+    font-family: "PingFang SC", "HarmonyOS Sans", "Microsoft YaHei", system-ui, sans-serif;
+  }
+
+  /* 字号设置接管 root font-size,Tailwind 的 rem 自然全站缩放 */
+  html {
+    font-size: 14px;
+  }
+
+  /* embed.js 浮动球内嵌模式：隐藏 Shell 外壳（Sidebar / TabBar / 顶栏），
+     让 iframe 内只看到应用本体。由 PublicAppPage 触发添加 body 类。 */
+  body.cy-embed-mode [data-shell="sidebar"],
+  body.cy-embed-mode [data-shell="tab-bar"],
+  body.cy-embed-mode [data-shell="topbar"] {
+    display: none !important;
+  }
+  body.cy-embed-mode [data-shell="main"] {
+    margin: 0 !important;
+    height: 100vh !important;
+    width: 100vw !important;
+  }
+
+  /* 工作区"专注模式"(F11):隐藏 Sidebar / TabBar / 顶栏,Main 区占满。
+     与 cy-embed-mode 不同的是:embed 是嵌入在第三方页面里;fullscreen 是用户
+     主动按 F11 进入,Esc 退出。两者样式效果相似,但触发与生命周期独立。 */
+  body.cy-fullscreen [data-shell="sidebar"],
+  body.cy-fullscreen [data-shell="tab-bar"],
+  body.cy-fullscreen [data-shell="topbar"] {
+    display: none !important;
+  }
+  body.cy-fullscreen [data-shell="main"] {
+    height: 100vh !important;
+  }
+  /* 进入 fullscreen 时把右栏(main-column)的网格行简化成单行,Main 占满 */
+  body.cy-fullscreen [data-shell="main-column"] {
+    grid-template-rows: 1fr !important;
+  }
+
+  /* KB 检索高亮:点击"预览"后跳转并标黄;800ms 后渐隐为浅黄保留底色。
+     深色模式下用低饱和度黄,避免刺眼。 */
+  .cy-kb-highlight {
+    background: #FFF59D;
+    transition: background 600ms;
+    border-radius: 2px;
+    padding: 0 2px;
+  }
+  .cy-kb-highlight--faded {
+    background: #FFF9C4;
+  }
+  .dark .cy-kb-highlight,
+  [data-theme='dark'] .cy-kb-highlight {
+    background: rgba(250, 204, 21, 0.35);
+    color: #FEFCE8;
+  }
+  .dark .cy-kb-highlight--faded,
+  [data-theme='dark'] .cy-kb-highlight--faded {
+    background: rgba(250, 204, 21, 0.18);
+  }
+}

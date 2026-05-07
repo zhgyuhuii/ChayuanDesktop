@@ -1,0 +1,75 @@
+name: cli-cross-platform
+
+# 察元 CLI（start / stop / restart + process_utils）跨平台门禁。
+# Linux / macOS / Windows × Python 3.11 / 3.12 全矩阵跑——时间短，每 PR 都跑。
+
+on:
+  pull_request:
+    paths:
+      - "libs/chayuan-server/chayuan/cli.py"
+      - "libs/chayuan-server/chayuan/startup.py"
+      - "libs/chayuan-server/chayuan/server/shared/process_utils.py"
+      - "libs/chayuan-server/chayuan/server/config_panel/stop.py"
+      - "libs/chayuan-server/chayuan/server/config_panel/restart.py"
+      - "libs/chayuan-server/chayuan/server/config_panel/restart_helper.py"
+      - "libs/chayuan-server/chayuan/server/config_panel/api_gate.py"
+      - "libs/chayuan-server/tests/unit_tests/test_stop_command.py"
+      - "libs/chayuan-server/tests/unit_tests/test_restart_command.py"
+      - "libs/chayuan-server/tests/unit_tests/test_process_utils_cross_platform.py"
+      - "libs/chayuan-server/tests/unit_tests/test_config_panel_api_gate.py"
+      - ".github/workflows/cli_cross_platform.yml"
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  cli-tests:
+    name: CLI tests · ${{ matrix.os }} · py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+    defaults:
+      run:
+        working-directory: libs/chayuan-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install（最小依赖，避开 heavy 可选）
+        run: |
+          python -m pip install -U pip
+          pip install -e .
+          pip install pytest pytest-asyncio psutil httpx
+
+      - name: Sanity import
+        run: |
+          python -c "from chayuan.server.shared.process_utils import is_pid_alive, terminate_pid, find_pids_listening_on, detached_popen_kwargs; print('process_utils OK')"
+          python -c "from chayuan.server.config_panel.stop import stop_role, stop_all, status_snapshot; print('stop OK')"
+          python -c "from chayuan.server.config_panel.restart import restart_role, restart_all; print('restart OK')"
+
+      - name: CLI help works on all platforms
+        run: |
+          python -m chayuan.cli --help
+          python -m chayuan.cli stop --help
+          python -m chayuan.cli restart --help
+          python -m chayuan.cli stop --dry-run
+
+      - name: Pytest · process_utils + stop + restart + api_gate
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          pytest -v \
+            tests/unit_tests/test_process_utils_cross_platform.py \
+            tests/unit_tests/test_stop_command.py \
+            tests/unit_tests/test_restart_command.py \
+            tests/unit_tests/test_config_panel_api_gate.py \
+            tests/unit_tests/test_webui_menu_slimmed.py \
+            -p no:cacheprovider

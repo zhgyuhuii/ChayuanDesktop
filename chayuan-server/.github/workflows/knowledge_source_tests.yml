@@ -1,0 +1,98 @@
+name: knowledge-source-tests
+
+# 知识源子系统的 CI 门禁：
+# - 默认 job：unit tests + cache + orchestrator + crypto + safety（无外部依赖；≈ 1 分钟）
+# - extended job：testcontainers + golden dataset（需要 Docker / OpenAI 凭据；nightly 跑）
+# PR 上跑 default；main 合并后 + 每日 02:00 UTC 跑 extended。
+
+on:
+  pull_request:
+    paths:
+      - "libs/chayuan-server/chayuan/server/knowledge_source/**"
+      - "libs/chayuan-server/chayuan/server/file_rag/**"
+      - "libs/chayuan-server/chayuan/server/db/**"
+      - "libs/chayuan-server/chayuan/server/observability/**"
+      - "libs/chayuan-server/tests/knowledge_source/**"
+      - "libs/chayuan-server/pyproject.toml"
+      - ".github/workflows/knowledge_source_tests.yml"
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 2 * * *"   # 每日 02:00 UTC nightly extended
+  workflow_dispatch: {}
+
+jobs:
+  unit:
+    name: Unit & Integration (no external deps)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+    defaults:
+      run:
+        working-directory: libs/chayuan-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install -U pip
+          # 安装核心 + 测试 extras；不装 heavy 可选依赖
+          pip install -e .
+          pip install pytest pytest-cov pytest-asyncio pytest-mock fakeredis sqlglot cryptography
+      - name: Lint quick check
+        run: |
+          python -c "import chayuan.server.knowledge_source; import chayuan.server.knowledge_source.cache; import chayuan.server.knowledge_source.sql.connector; import chayuan.server.knowledge_source.mongo.connector; import chayuan.server.knowledge_source.es.connector; print('imports OK')"
+      - name: Pytest (knowledge_source)
+        env:
+          CHAYUAN_SOURCE_SECRET_KEY: ci-fixed-key-for-tests
+        run: |
+          pytest tests/knowledge_source -v -x \
+            --ignore=tests/knowledge_source/test_sql_containers.py \
+            --ignore=tests/knowledge_source/test_text2sql_golden.py \
+            --cov=chayuan/server/knowledge_source \
+            --cov=chayuan/server/file_rag/hybrid_service \
+            --cov-report=term-missing
+
+  extended:
+    name: Extended (testcontainers + golden)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        working-directory: libs/chayuan-server
+    services:
+      docker:
+        image: docker:dind
+        options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install -U pip
+          pip install -e .
+          pip install pytest pytest-asyncio fakeredis sqlglot cryptography \
+                       "testcontainers[mysql,postgres,elasticsearch]" \
+                       pymysql psycopg2-binary elasticsearch langgraph
+      - name: testcontainers suite
+        env:
+          CHAYUAN_SOURCE_SECRET_KEY: ci-fixed-key-for-tests
+        run: |
+          pytest tests/knowledge_source/test_sql_containers.py -v --only-extended
+      - name: Text2SQL golden (requires LLM)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CHAYUAN_LLM_ENDPOINT: ${{ secrets.CHAYUAN_LLM_ENDPOINT }}
+          CHAYUAN_SOURCE_SECRET_KEY: ci-fixed-key-for-tests
+        if: env.OPENAI_API_KEY != '' || env.CHAYUAN_LLM_ENDPOINT != ''
+        run: |
+          pytest tests/knowledge_source/test_text2sql_golden.py -v --only-extended

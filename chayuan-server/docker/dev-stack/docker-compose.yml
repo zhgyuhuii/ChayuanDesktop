@@ -1,0 +1,358 @@
+# ===============================================================
+# 察元本地开发 — 基础支撑服务（Postgres / Redis / MinIO / Milvus 等）
+# ===============================================================
+# 全部账号密码集中在 **本目录的 .env**（勿提交到 git，见 .gitignore）。
+# 推荐首次启动先生成强随机密码：./bootstrap-secrets.sh
+# 或：cp .env.example .env 后自行编辑
+#
+# 前置要求：
+#   - Docker engine ≥ 20.10.21（OnlyOffice 9.x base = ubuntu:24.04，老 docker 不兼容）
+#   - 内存 ≥ 8 GB（默认 4 件套约 2 GB；+OnlyOffice ≈ +2 GB；+Ollama 取决于模型）
+#
+# 默认 profile（chayuan 必需的 4 件套）：postgres + redis + minio + milvus
+#   docker compose up -d
+#
+# 可选 profile（按需安装）：
+#   docker compose --profile ollama     up -d   # 本地 LLM；不开则用云模型
+#   docker compose --profile attu       up -d   # Milvus 可视化管理（Attu）
+#   docker compose --profile onlyoffice up -d   # 文档协同；复用主 postgres 建独立库 onlyoffice
+#   docker compose --profile full       up -d   # = ollama + attu + onlyoffice，一键全开
+#
+# Langfuse：已移到 ../langfuse/，独立运行
+#   cd ../langfuse && cp .env.example .env && docker compose up -d
+#
+# 服务 bind 127.0.0.1。就绪后在本仓库根目录执行：
+#   python scripts/setup_local.py   # 默认同上；若 .env 里为 Redis 设了密码，先 source .env
+#   python scripts/smoke_test.py
+# ===============================================================
+
+name: chayuan-dev
+
+services:
+
+  # ---------------------------------------------------------------
+  # 核心：Postgres
+  # ---------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: chayuan-dev-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-chayuan}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - chayuan_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ---------------------------------------------------------------
+  # 核心：Redis
+  # ---------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: chayuan-dev-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    # 有 REDIS_PASSWORD 时启用 requirepass；无则与旧本机无密码行为一致
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy allkeys-lru --requirepass "$$REDIS_PASSWORD"
+        else
+          exec redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy allkeys-lru
+        fi
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - chayuan_redis_data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          if [ -n "$$REDIS_PASSWORD" ]; then
+            redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG
+          else
+            redis-cli ping | grep -q PONG
+          fi
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ---------------------------------------------------------------
+  # 核心：MinIO（统一文件存储）
+  # ---------------------------------------------------------------
+  minio:
+    # 锁定最后一版带完整 Web Console（Access Keys / 用户 / 策略 / 生命周期 全可视化）。
+    # MinIO 从 RELEASE.2025-05-24 起正式废弃 Console 管理面，把功能挪到付费 AIStor。
+    # 我们停在 2025-04-22，可视化建 access key 等功能保留；安全补丁停留在 2025-04。
+    # 如需更新版本：要么自己用 mc 命令建 key，要么评估 OpenMaxIO 等社区分叉。
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: chayuan-dev-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:9000:9000"    # S3 API
+      - "127.0.0.1:9001:9001"    # Web Console
+    volumes:
+      - chayuan_minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsSL", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # 启动一次性任务：创建察元所需 4 个 bucket
+  minio-setup:
+    image: minio/mc:RELEASE.2024-10-08T09-37-26Z
+    container_name: chayuan-dev-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    # MinIO 2025-02 起 Console 砍掉了 access key 管理 UI，必须用 mc 建。
+    # 这里一次性建好：buckets + 业务用 service-account（access key / secret），
+    # 已存在则跳过，再次启动幂等。
+    environment:
+      CHAYUAN_MINIO_AK: ${CHAYUAN_MINIO_AK:-chayuan-app}
+      CHAYUAN_MINIO_SK: ${CHAYUAN_MINIO_SK:-chayuan-app-secret-change-me-32}
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin} &&
+      for bucket in chayuan-kb-content chayuan-chat-temp chayuan-image-files chayuan-misc chayuan-office; do
+        /usr/bin/mc mb -p local/$$bucket || true;
+      done &&
+      if /usr/bin/mc admin user svcacct info local $$CHAYUAN_MINIO_AK >/dev/null 2>&1; then
+        echo '↺ MinIO service account 已存在，跳过创建';
+      else
+        /usr/bin/mc admin user svcacct add local $$MINIO_ROOT_USER \
+          --access-key $$CHAYUAN_MINIO_AK \
+          --secret-key $$CHAYUAN_MINIO_SK \
+        && echo '✅ MinIO service account 创建成功 ak='\"$$CHAYUAN_MINIO_AK\";
+      fi &&
+      echo '✅ MinIO buckets + service account 就绪';
+      exit 0;
+      "
+
+  # ---------------------------------------------------------------
+  # 核心：Milvus standalone（etcd + minio 已在上；milvus 共用它们）
+  # ---------------------------------------------------------------
+  milvus-etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: chayuan-dev-milvus-etcd
+    restart: unless-stopped
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: >
+      etcd -advertise-client-urls=http://milvus-etcd:2379
+           -listen-client-urls http://0.0.0.0:2379
+           --data-dir /etcd
+    volumes:
+      - chayuan_milvus_etcd:/etcd
+
+  milvus:
+    # ⚠️ 从 v2.4.x 升级到 v2.6.x **必须先经过 v2.5.16**（官方约束）。
+    # dev-stack 数据可丢，建议清卷直接重建：
+    #   docker compose stop milvus milvus-etcd
+    #   docker volume rm chayuan-dev_chayuan_milvus_etcd chayuan-dev_chayuan_milvus_data
+    #   docker compose pull milvus && docker compose up -d milvus
+    # 应用侧 chayuan-server 已为 Milvus 2.6 / MilvusClient URI 风格做好适配，
+    # 仅需把 pymilvus 升到 2.6.x（见 libs/chayuan-server/pyproject.toml）。
+    image: milvusdb/milvus:v2.6.15
+    container_name: chayuan-dev-milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: milvus-etcd:2379
+      MINIO_ADDRESS: minio:9000           # 复用同一个 minio
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    depends_on:
+      minio:
+        condition: service_healthy
+      milvus-etcd:
+        condition: service_started
+    ports:
+      - "127.0.0.1:19530:19530"   # gRPC
+      - "127.0.0.1:9091:9091"     # metrics
+    volumes:
+      - chayuan_milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-fsSL", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  # ---------------------------------------------------------------
+  # 可选：Attu（profile=attu / full）
+  # Milvus v2.6.x 对应 Attu v2.6.x；浏览器访问：http://127.0.0.1:8000
+  # ---------------------------------------------------------------
+  # attu:
+  #   image: zilliz/attu:v2.6.5
+  #   container_name: chayuan-dev-attu
+  #   restart: unless-stopped
+  #   profiles: ["attu", "full"]
+  #   depends_on:
+  #     milvus:
+  #       condition: service_healthy
+  #   environment:
+  #     MILVUS_URL: milvus:19530
+  #   ports:
+  #     - "127.0.0.1:8000:3000"
+
+  # ---------------------------------------------------------------
+  # 可选：Ollama（profile=ollama / full）
+  # ---------------------------------------------------------------
+  # ollama:
+  #   image: ollama/ollama:0.21.2
+  #   container_name: chayuan-dev-ollama
+  #   restart: unless-stopped
+  #   profiles: ["ollama", "full"]
+  #   ports:
+  #     - "127.0.0.1:11434:11434"
+  #   volumes:
+  #     - chayuan_ollama_data:/root/.ollama
+    # GPU 如果可用，取消下面 4 行注释：
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{capabilities: [gpu], count: all}]
+
+  # 启动时自动 pull 默认模型（可注释）
+  # ollama-setup:
+  #   image: ollama/ollama:0.21.2
+  #   container_name: chayuan-dev-ollama-setup
+  #   profiles: ["ollama", "full"]
+  #   depends_on:
+  #     - ollama
+  #   entrypoint: >
+  #     /bin/sh -c "
+  #     sleep 8 &&
+  #     OLLAMA_HOST=ollama:11434 ollama pull qwen3:4b &&
+  #     OLLAMA_HOST=ollama:11434 ollama pull nomic-embed-text &&
+  #     echo '✅ Ollama 模型拉取完成';
+  #     "
+  #   restart: "no"
+
+  # ---------------------------------------------------------------
+  # Langfuse 已移到独立目录: ../langfuse/docker-compose.yml
+  #   cd ../langfuse && cp .env.example .env && docker compose up -d
+  # 理由：Langfuse 自带专用 PG15 + 独立升级周期，与本开发栈解耦。
+  # ---------------------------------------------------------------
+
+  # ---------------------------------------------------------------
+  # 可选：OnlyOffice Document Server（profile=onlyoffice / full）
+  # 复用主 postgres 容器：独立库 onlyoffice + 独立角色 onlyoffice
+  # 浏览器访问：http://127.0.0.1:8080
+  # 容器间访问（chayuan → DS / DS callback → chayuan）：http://onlyoffice/
+  # ---------------------------------------------------------------
+  onlyoffice-pg-init:
+    image: postgres:16-alpine
+    container_name: chayuan-dev-onlyoffice-pg-init
+    profiles: ["onlyoffice", "full"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      OO_DB_NAME: ${ONLYOFFICE_DB_NAME:-onlyoffice}
+      OO_DB_USER: ${ONLYOFFICE_DB_USER:-onlyoffice}
+      OO_DB_PWD: ${ONLYOFFICE_DB_PASSWORD:-onlyoffice}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        psql -v ON_ERROR_STOP=1 -d postgres -tAc \
+          "SELECT 1 FROM pg_roles WHERE rolname='$$OO_DB_USER'" | grep -q 1 || \
+          psql -v ON_ERROR_STOP=1 -d postgres -c \
+          "CREATE ROLE \"$$OO_DB_USER\" LOGIN PASSWORD '$$OO_DB_PWD';"
+        psql -v ON_ERROR_STOP=1 -d postgres -tAc \
+          "SELECT 1 FROM pg_database WHERE datname='$$OO_DB_NAME'" | grep -q 1 || \
+          psql -v ON_ERROR_STOP=1 -d postgres -c \
+          "CREATE DATABASE \"$$OO_DB_NAME\" OWNER \"$$OO_DB_USER\";"
+        psql -v ON_ERROR_STOP=1 -d postgres -c \
+          "GRANT ALL PRIVILEGES ON DATABASE \"$$OO_DB_NAME\" TO \"$$OO_DB_USER\";"
+        echo '✅ OnlyOffice 库/角色就绪'
+    restart: "no"
+
+  onlyoffice:
+    # 锁定 9.3.x 系列，自动获取该 minor 内的 patch 修复（当前 = 9.3.1.2）
+    # 想完全钉死可改 9.3.1.2；想跟主版本浮动可改 9
+    image: onlyoffice/documentserver:9.3
+    container_name: chayuan-dev-onlyoffice
+    profiles: ["onlyoffice", "full"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      onlyoffice-pg-init:
+        condition: service_completed_successfully
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${ONLYOFFICE_DB_NAME:-onlyoffice}
+      DB_USER: ${ONLYOFFICE_DB_USER:-onlyoffice}
+      DB_PWD:  ${ONLYOFFICE_DB_PASSWORD:-onlyoffice}
+      REDIS_SERVER_HOST: redis
+      REDIS_SERVER_PORT: "6379"
+      REDIS_SERVER_PASS: ${REDIS_PASSWORD:-}
+      # ⚠️ 仅本地开发临时关闭。生产必须 JWT_ENABLED=true 并设置强随机 JWT_SECRET。
+      JWT_ENABLED: "${ONLYOFFICE_JWT_ENABLED:-false}"
+      JWT_SECRET:  ${ONLYOFFICE_JWT_SECRET:-}
+      JWT_HEADER:  Authorization
+      # JWT 关闭时必须开，否则 DS 拒绝来自 chayuan 的本地 storage URL
+      USE_UNAUTHORIZED_STORAGE: "true"
+      # 本地开发 chayuan 在宿主机、回调 URL 常为 host.docker.internal → 私网 IP，DS 的 SSRF 保护会拒绝拉取
+      # 官方: ALLOW_PRIVATE_IP_ADDRESS / ALLOW_META_IP_ADDRESS。生产用公网 URL+JWT 时可设为 false
+      ALLOW_PRIVATE_IP_ADDRESS: "${ONLYOFFICE_ALLOW_PRIVATE_IP_ADDRESS:-true}"
+      ALLOW_META_IP_ADDRESS: "${ONLYOFFICE_ALLOW_META_IP_ADDRESS:-true}"
+      # 我们走 callback 协议，不接 WOPI；关掉减少端口暴露
+      WOPI_ENABLED: "false"
+      # 没接 prometheus，关掉省进程
+      METRICS_ENABLED: "false"
+    ports:
+      - "8080:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - chayuan_oo_data:/var/www/onlyoffice/Data
+      - chayuan_oo_log:/var/log/onlyoffice
+      - chayuan_oo_lib:/var/lib/onlyoffice
+    healthcheck:
+      test: ["CMD", "curl", "-fsSL", "http://localhost/healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+volumes:
+  chayuan_pg_data:
+  chayuan_redis_data:
+  chayuan_minio_data:
+  chayuan_milvus_etcd:
+  chayuan_milvus_data:
+  # chayuan_ollama_data:
+  chayuan_oo_data:
+  chayuan_oo_log:
+  chayuan_oo_lib:

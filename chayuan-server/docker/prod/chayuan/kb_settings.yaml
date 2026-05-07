@@ -1,0 +1,59 @@
+# 察元 AI 助手 · 生产知识库配置示例（docker/prod）
+# 向量库：Milvus（compose 内 standalone 示例）；生产请切集群。
+
+DEFAULT_KNOWLEDGE_BASE: default
+DEFAULT_VS_TYPE: milvus
+
+CACHED_VS_NUM: 8
+CACHED_MEMO_VS_NUM: 20
+
+CHUNK_SIZE: 750
+OVERLAP_SIZE: 150
+
+VECTOR_SEARCH_TOP_K: 5
+SCORE_THRESHOLD: 0.5
+
+DEFAULT_SEARCH_ENGINE: duckduckgo
+SEARCH_ENGINE_TOP_K: 3
+
+ZH_TITLE_ENHANCE: false
+PDF_OCR_THRESHOLD:
+  - 0.6
+  - 0.6
+
+KB_INFO:
+  default: 默认知识库
+
+kbs_config:
+  faiss: {}
+  milvus:
+    # Milvus 2.6 / langchain-milvus 0.3+：uri 是头等公民
+    uri: http://milvus:19530
+    user: ''
+    password: ''
+    secure: false
+  milvus_kwargs:
+    # AUTOINDEX：server 端按数据规模自动挑 HNSW / DISKANN / IVF 等。
+    # COSINE：与 OpenAI / BGE / sentence-transformers 等已 L2-normalized 的文本/图像
+    # embedding 默认匹配（COSINE = IP for normalized vectors）。
+    search_params:
+      metric_type: COSINE
+      params: {}
+    index_params:
+      metric_type: COSINE
+      index_type: AUTOINDEX
+      params: {}
+  pg:
+    connection_uri: postgresql+psycopg2://chayuan:chayuan@postgres:5432/chayuan
+  chromadb: {}
+
+text_splitter_dict:
+  ChineseRecursiveTextSplitter:
+    source: ''
+    tokenizer_name_or_path: ''
+  RecursiveCharacterTextSplitter:
+    source: tiktoken
+    tokenizer_name_or_path: cl100k_base
+
+TEXT_SPLITTER_NAME: ChineseRecursiveTextSplitter
+EMBEDDING_KEYWORD_FILE: embedding_keywords.txt

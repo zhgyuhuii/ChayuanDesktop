@@ -1,0 +1,49 @@
+[package]
+name = "chayuan-desktop"
+version = "0.1.0"
+description = "察元 AI 桌面客户端"
+authors = ["Chayuan AI"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "chayuan_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.1.0", features = ["tray-icon", "image-png"] }
+tauri-plugin-clipboard-manager = "2.2.1"
+tauri-plugin-dialog = "2.2.0"
+tauri-plugin-fs = "2.2.0"
+tauri-plugin-global-shortcut = "2.2.0"
+tauri-plugin-http = { version = "2.2.0", features = ["unsafe-headers"] }
+tauri-plugin-notification = "2.2.1"
+tauri-plugin-os = "2.2.0"
+tauri-plugin-process = "2.2.0"
+tauri-plugin-shell = "2.2.0"
+tauri-plugin-sql = { version = "2.2.0", features = ["sqlite"] }
+tauri-plugin-stronghold = "2.2.0"
+tauri-plugin-updater = "2.3.0"
+tauri-plugin-window-state = "2.2.0"
+machine-uid = "0.5"
+sha2 = "0.10"
+hex = "0.4"
+xcap = "0.0.14"
+image = "0.25"
+# Stronghold 内部用 ChaCha20-Poly1305,密钥需要确定的 32 byte。raw password 传字符串
+# bytes 在长度 / 字符集不匹配时 libsodium 会抛 "illegal non-contiguous size"。
+# 用 argon2id 把 vault password 派生成稳定 32 byte 后再喂给 Stronghold。
+argon2 = "0.5"
+# 跨平台用户目录解析(macOS Application Support / Windows %APPDATA% / Linux XDG)。
+# 与服务端 ``chayuan.paths`` 算法对齐,确保前后端默认数据目录一致。
+dirs = "5"
+# 同步 HTTP(Phase 3 sidecar 健康探测 /healthz,只 localhost 不需要 TLS)。
+ureq = { version = "2", default-features = false }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

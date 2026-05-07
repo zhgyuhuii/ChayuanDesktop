@@ -1,0 +1,173 @@
+/**
+ * ModelLineEditor —— 一类模型的"按行编辑"列表。
+ *
+ * 取代 ModelTypeAccordion 内部的单一 textarea:
+ *   - 每行一个 model_id input + ✕ 删除按钮
+ *   - 底部 "+ 添加模型" 按钮新增空行,自动 focus
+ *   - 失焦时去重 + trim;空行不入库
+ *   - 受控 value: string[]; onChange 把当前 ids 完整回传父级
+ *
+ * 设计:
+ *   - 不再做内存 vs 受控的双状态机;UI 全程受控,父级单向数据流。
+ *   - 用 nanoid 生成行 react key 避免"重命名时整行 unmount/remount"导致 input 失焦。
+ *   - 模型 id 允许任意字符(包括 / 和 :),仅前后 trim;不做硬校验。
+ */
+
+import { Button, Input, cn } from '@chayuan/ui';
+import { Plus, X } from 'lucide-react';
+import * as React from 'react';
+
+interface Row {
+  /** 稳定 key —— react 列表 key 用,不参与业务 */
+  rid: string;
+  value: string;
+}
+
+let _rid = 0;
+const nextRid = (): string => `r${(++_rid).toString(36)}_${Date.now().toString(36)}`;
+
+export interface ModelLineEditorProps {
+  /** 当前模型 id 列表(去重 / 已 trim 的稳定形态) */
+  value: string[];
+  /** 用户编辑后的列表(去重 / 已 trim);父级直接当 next state */
+  onChange(next: string[]): void;
+  /** 占位符示例(每个 ModelType 不同;一行一个 id) */
+  placeholder?: string;
+  /** 用空状态文案替代 "暂无模型" */
+  emptyHint?: string;
+  className?: string;
+}
+
+/** 把外部 value[] 同步进内部 rows;只在 value 集合变化时重建 rid,
+ *  避免每次输入都重置 react key 导致 input 失焦。 */
+function useSyncedRows(value: string[]): [Row[], React.Dispatch<React.SetStateAction<Row[]>>] {
+  const [rows, setRows] = React.useState<Row[]>(() => value.map((v) => ({ rid: nextRid(), value: v })));
+  // 当外部 value 与当前 rows.value 不一致(例如父级用"一键填入"覆盖)→ 重建
+  const sig = React.useMemo(() => value.join(''), [value]);
+  const rowsSig = React.useMemo(() => rows.map((r) => r.value).join(''), [rows]);
+  React.useEffect(() => {
+    if (sig !== rowsSig) {
+      setRows(value.map((v) => ({ rid: nextRid(), value: v })));
+    }
+    // 故意只看 sig:rowsSig 仅用作"是否需要同步"哨兵
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+  return [rows, setRows];
+}
+
+/** 去重 + trim + 过滤空 —— 受控对外的稳定形态 */
+function normalize(rows: Row[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of rows) {
+    const v = r.value.trim();
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
+export const ModelLineEditor: React.FC<ModelLineEditorProps> = ({
+  value,
+  onChange,
+  placeholder,
+  emptyHint = '暂无模型,点击下方"+ 添加模型"开始',
+  className,
+}) => {
+  const [rows, setRows] = useSyncedRows(value);
+  // 新增行后,把焦点交给那行的 input
+  const pendingFocusRid = React.useRef<string | null>(null);
+
+  const commit = (nextRows: Row[]) => {
+    setRows(nextRows);
+    onChange(normalize(nextRows));
+  };
+
+  const onAdd = () => {
+    const rid = nextRid();
+    pendingFocusRid.current = rid;
+    setRows((prev) => [...prev, { rid, value: '' }]);
+    // 不立即 onChange;空行不入库,等用户敲了字再触发
+  };
+
+  const onRemove = (rid: string) => {
+    commit(rows.filter((r) => r.rid !== rid));
+  };
+
+  const onEdit = (rid: string, v: string) => {
+    const next = rows.map((r) => (r.rid === rid ? { ...r, value: v } : r));
+    commit(next);
+  };
+
+  return (
+    <div className={cn('flex flex-col gap-1.5', className)}>
+      {rows.length === 0 ? (
+        <p className="px-1 py-2 text-[11px] text-[var(--cy-text-tertiary)]">{emptyHint}</p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {rows.map((r) => (
+            <ModelRow
+              key={r.rid}
+              row={r}
+              autoFocus={pendingFocusRid.current === r.rid}
+              onCommitFocus={() => {
+                if (pendingFocusRid.current === r.rid) pendingFocusRid.current = null;
+              }}
+              placeholder={placeholder}
+              onChange={(v) => onEdit(r.rid, v)}
+              onRemove={() => onRemove(r.rid)}
+            />
+          ))}
+        </ul>
+      )}
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={onAdd}
+        className="h-7 self-start text-[11px]"
+      >
+        <Plus className="h-3 w-3" />
+        添加模型
+      </Button>
+    </div>
+  );
+};
+
+const ModelRow: React.FC<{
+  row: Row;
+  autoFocus?: boolean;
+  onCommitFocus?(): void;
+  placeholder?: string;
+  onChange(v: string): void;
+  onRemove(): void;
+}> = ({ row, autoFocus, onCommitFocus, placeholder, onChange, onRemove }) => {
+  const ref = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    if (autoFocus && ref.current) {
+      ref.current.focus();
+      onCommitFocus?.();
+    }
+  }, [autoFocus, onCommitFocus]);
+
+  return (
+    <li className="flex items-center gap-1.5">
+      <Input
+        ref={ref}
+        value={row.value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-8 font-mono text-xs"
+      />
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label="删除该模型"
+        className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[var(--cy-text-tertiary)] transition-colors hover:bg-[var(--cy-surface-2)] hover:text-red-600"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </li>
+  );
+};

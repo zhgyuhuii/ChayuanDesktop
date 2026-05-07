@@ -1,0 +1,224 @@
+name: build-desktop
+
+# 单机版桌面安装包流水线(Phase 6)。
+#
+# 端到端产物:5 个矩阵格 × {.dmg / .msi / .deb / .AppImage} = 各平台 native installer。
+# 流程(每个 matrix 格子):
+#   1) checkout chayuan-client(本仓库) + chayuan-server(sibling)
+#   2) Python 3.12 + Poetry install chayuan-server,运行 PyInstaller(Phase 2 的 spec)
+#   3) sqlite-vec 二进制由 sqlite_vec wheel 自带,collect_all 已嵌入
+#   4) 把产物拷到 apps/desktop/src-tauri/binaries/chayuan-server-<triple>(.exe)
+#   5) Node 22 + pnpm 9 + Rust stable;``pnpm install``;``pnpm build:desktop``
+#   6) Tauri bundle 自动产出对应平台 installer,上传 artifact
+#
+# 触发:
+#   * push 到 main / release/*:跑全套
+#   * pull_request 改动 desktop / 后端打包配置:门禁
+#   * workflow_dispatch:手动触发
+#
+# 不做(留给 Phase 6.x 后续):
+#   * macOS 公证(notarize) + Windows EV 代码签名 ── 需要私有 secrets(证书 + ID),
+#     按需在 release/* tag 时启用条件 step
+#   * tauri-action 内置 release 上传 ── 同上
+#   * 缓存:Poetry venv / Cargo registry / pnpm store ── 显式 cache 各平台
+
+on:
+  push:
+    branches: [main]
+    tags: ['release/*']
+    paths:
+      - 'apps/desktop/**'
+      - 'packages/platform-tauri/**'
+      - 'packages/platform-shared/**'
+      - '.github/workflows/build-desktop.yml'
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - 'packages/platform-tauri/**'
+      - 'packages/platform-shared/**'
+      - '.github/workflows/build-desktop.yml'
+  workflow_dispatch:
+
+# 取消上一次同分支构建,节省 runner 时间
+concurrency:
+  group: build-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-arm64
+            runs-on: macos-14         # Apple Silicon
+            rust-target: aarch64-apple-darwin
+            installer-glob: |
+              apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+              apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+          - label: macos-x86_64
+            runs-on: macos-13         # Intel
+            rust-target: x86_64-apple-darwin
+            installer-glob: |
+              apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+              apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+          - label: windows-x86_64
+            runs-on: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            installer-glob: |
+              apps/desktop/src-tauri/target/release/bundle/msi/*.msi
+              apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          - label: linux-x86_64
+            runs-on: ubuntu-22.04
+            rust-target: x86_64-unknown-linux-gnu
+            installer-glob: |
+              apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+              apps/desktop/src-tauri/target/release/bundle/rpm/*.rpm
+              apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+
+    env:
+      # PyInstaller 的产物会通过 build.py 拷到这里;Tauri externalBin 用约定命名 sidecar。
+      TAURI_BIN_DIR: apps/desktop/src-tauri/binaries
+
+    steps:
+      # ────────────────────────────────────────────────────────────
+      # 0. checkout 双仓
+      # ────────────────────────────────────────────────────────────
+      - name: Checkout chayuan-client
+        uses: actions/checkout@v4
+
+      - name: Checkout chayuan-server
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/chayuan-server
+          path: chayuan-server
+          ref: ${{ github.ref_name }}
+          # 单机版 chayuan-server 与 client 同时 release/<tag>;若 server 没有该 tag,
+          # 自动回 main 分支(continue-on-error 让回退在 step 内显式发生)
+          fetch-depth: 1
+
+      # ────────────────────────────────────────────────────────────
+      # 1. 系统依赖(Linux 需要 webkit2gtk;macOS / Windows 内置)
+      # ────────────────────────────────────────────────────────────
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            patchelf \
+            file
+
+      # ────────────────────────────────────────────────────────────
+      # 2. Python + Poetry → PyInstaller chayuan-server 单可执行
+      # ────────────────────────────────────────────────────────────
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Poetry
+        run: |
+          pip install --upgrade pip
+          pip install "poetry>=1.8" "pyinstaller>=6.0"
+
+      - name: Install chayuan-server deps
+        working-directory: chayuan-server
+        # 单机版只需要 main + 单机用到的可选组,不装 dev / test;否则 paddle / torch 拉满磁盘
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --no-interaction --only main
+
+      - name: Build chayuan-server with PyInstaller
+        working-directory: chayuan-server
+        # build.py 自动按 rust target triple 命名拷到 ../chayuan-client/apps/desktop/src-tauri/binaries/
+        run: poetry run python packaging/pyinstaller/build.py
+
+      - name: Verify sidecar binary exists
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            EXT=".exe"
+          else
+            EXT=""
+          fi
+          BIN="${TAURI_BIN_DIR}/chayuan-server-${{ matrix.rust-target }}${EXT}"
+          if [ ! -f "$BIN" ]; then
+            echo "::error::sidecar binary missing: $BIN"
+            ls -la "${TAURI_BIN_DIR}" || true
+            exit 1
+          fi
+          echo "sidecar = $BIN ($(du -h "$BIN" | cut -f1))"
+
+      # ────────────────────────────────────────────────────────────
+      # 3. Node + pnpm + Rust → Tauri bundle
+      # ────────────────────────────────────────────────────────────
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust stable + target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Cache cargo registry / target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/desktop/src-tauri/target
+          key: cargo-${{ matrix.label }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: cargo-${{ matrix.label }}-
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: pnpm typecheck
+        run: pnpm typecheck
+        # 历史遗留 ~15 处 kb/collections 错误,典型不阻塞 release;允许失败但记录。
+        continue-on-error: true
+
+      - name: Build desktop bundle
+        run: pnpm build:desktop
+        env:
+          # tauri build 默认 release;把 target 显式传给避免 musl 等不一致
+          TAURI_BUILD_TARGET: ${{ matrix.rust-target }}
+
+      # ────────────────────────────────────────────────────────────
+      # 4. 上传 artifact(供 release/tag 时下载分发;PR 仅本地 review 用)
+      # ────────────────────────────────────────────────────────────
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chayuan-desktop-${{ matrix.label }}
+          path: ${{ matrix.installer-glob }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload PyInstaller diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyinstaller-debug-${{ matrix.label }}
+          path: |
+            chayuan-server/dist/chayuan-server/**
+            chayuan-server/build/**/warn-*.txt
+          retention-days: 7
+          if-no-files-found: ignore

@@ -1,0 +1,115 @@
+name: smoke-ollama-chat
+
+# 真启 ollama → 真过 chayuan-gateway → 验证 OpenAI SSE wire format。
+#
+# 单元测试用 ``httpx.MockTransport`` 验证字段拼接，但 socket 早关 / Starlette
+# threadpool / NDJSON ↔ OpenAI chunk 转换之类的问题，只有跑一次真后端才能
+# 暴露。这个 workflow 是 PR 必跑的"端到端 chat 流式"门禁。
+#
+# 用一个最小 chat 模型（qwen2:0.5b ≈ 350 MB）换最快的 CI 时间——通常 4 分钟
+# 内能完成 install + pull + smoke。
+#
+# 触发：
+#   * 任何改动 chayuan-gateway / chayuan-runtime / 流式相关测试的 PR；
+#   * push 到 main；
+#   * workflow_dispatch。
+
+on:
+  pull_request:
+    paths:
+      - "chayuan-server/libs/chayuan-gateway/**"
+      - "chayuan-server/libs/chayuan-runtime/**"
+      - "chayuan-server/scripts/ci/smoke_ollama_chat.py"
+      - ".github/workflows/smoke-ollama.yml"
+  push:
+    branches: [main]
+    paths:
+      - "chayuan-server/libs/chayuan-gateway/**"
+      - "chayuan-server/libs/chayuan-runtime/**"
+      - "chayuan-server/scripts/ci/smoke_ollama_chat.py"
+      - ".github/workflows/smoke-ollama.yml"
+  workflow_dispatch:
+    inputs:
+      model:
+        description: '要拉的最小 chat 模型'
+        required: false
+        default: 'qwen2:0.5b'
+        type: string
+
+env:
+  SMOKE_MODEL: ${{ github.event.inputs.model || 'qwen2:0.5b' }}
+  SMOKE_TIMEOUT: '90'
+  OLLAMA_HOST: http://127.0.0.1:11434
+
+jobs:
+  smoke-linux:
+    name: smoke chat-stream (linux-x86_64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      # 1) 装 ollama（官方 install.sh 体积小、速度快，自带 systemd）
+      - name: install ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          # 在 GitHub Actions runner 没 systemd init，启用一个后台进程即可
+          nohup ollama serve > /tmp/ollama.log 2>&1 &
+          # 等 ollama API ready
+          for i in $(seq 1 30); do
+            if curl -fsS "$OLLAMA_HOST/api/tags" >/dev/null 2>&1; then
+              echo "ollama up"; break
+            fi
+            sleep 1
+          done
+          curl -fsS "$OLLAMA_HOST/api/tags"
+        shell: bash
+
+      # 2) 拉一个最小 chat 模型，~350 MB
+      - name: ollama pull
+        run: |
+          ollama pull "$SMOKE_MODEL"
+          ollama list
+        shell: bash
+
+      # 3) 装 chayuan 11 个 sibling 包到 CI venv
+      - name: pip install chayuan stack
+        working-directory: chayuan-server
+        run: |
+          python -m pip install -U pip
+          # 装 ai-platform 11 个包 + chayuan-server 自己（编辑模式）
+          pip install -e "libs/chayuan-core[dev]" || pip install -e libs/chayuan-core
+          pip install -e libs/chayuan-identify
+          pip install -e libs/chayuan-registry
+          pip install -e libs/chayuan-discovery
+          pip install -e libs/chayuan-modelmgr
+          pip install -e libs/chayuan-runtime
+          pip install -e libs/chayuan-supervisor
+          pip install -e libs/chayuan-gateway
+          pip install -e libs/chayuan-preflight
+          pip install -e libs/chayuan-packager
+          pip install -e libs/chayuan-cli
+          pip install httpx pytest
+        shell: bash
+
+      # 4) 跑 smoke 脚本：真起 gateway → 真请求 ollama → 验证 SSE wire
+      - name: chayuan smoke chat-stream
+        working-directory: chayuan-server
+        run: |
+          python scripts/ci/smoke_ollama_chat.py \
+            --model "$SMOKE_MODEL" \
+            --ollama "$OLLAMA_HOST" \
+            --timeout "$SMOKE_TIMEOUT"
+        shell: bash
+
+      # 5) 失败时打印 ollama 日志，便于排错
+      - name: dump ollama log on failure
+        if: failure()
+        run: tail -200 /tmp/ollama.log || true
+        shell: bash

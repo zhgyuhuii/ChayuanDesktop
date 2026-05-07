@@ -1,0 +1,27 @@
+# CosyVoice — 社区打包镜像（非官方；需 NVIDIA GPU）
+# 首次需按镜像说明在容器内用 modelscope 下载权重到 pretrained_models。
+# 镜像说明: https://hub.docker.com/r/bobui/cosyvoice
+# 官方源码构建: https://github.com/FunAudioLLM/CosyVoice （runtime/python + docker build）
+version: "3.8"
+
+services:
+  cosyvoice:
+    image: bobui/cosyvoice:h20_v2.20250801
+    container_name: cosyvoice
+    restart: unless-stopped
+    runtime: nvidia
+    ports:
+      - "50000:50000"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - cosyvoice-pretrained:/opt/CosyVoice/CosyVoice/pretrained_models
+    command:
+      - /bin/bash
+      - -lc
+      - >-
+        cd /opt/CosyVoice/CosyVoice/runtime/python/grpc &&
+        python3 server.py --port 50000 --model_dir iic/CosyVoice-300M --fp16 True
+
+volumes:
+  cosyvoice-pretrained:

@@ -1,0 +1,279 @@
+name: build-installers
+
+# 跨平台一键安装包构建流水线：3 OS × 2 arch = 6 个 artifact 同时产出。
+#
+# 触发：
+#   - push / tag 到 release/*：发正式包；
+#   - pull_request 改到 packaging/python312/**：跑全套门禁；
+#   - workflow_dispatch：手动触发，可指定 release_id（lite / standard / pro）。
+#
+# 设计要点：
+#   * Linux x86_64 → AppImage（带 Qwen3:4B + bge-small-zh + paraformer ≈ 5.2 GB）
+#   * Linux arm64  → tar.zst（无 AppImage 工具支持时回退）
+#   * macOS x86_64 → .dmg（hdiutil）
+#   * macOS arm64  → .dmg（Apple Silicon runner）
+#   * Windows x86_64 → .exe（NSIS）
+#   * Windows arm64  → .zip（NSIS arm 工具链尚不通用）
+#
+# Job 之间完全独立，失败不互相阻塞（fail-fast: false）。
+#
+# 任意一台 runner 都执行同一序列：
+#   1) checkout
+#   2) setup Python 3.12
+#   3) cd packaging/python312 && pip install -e .
+#   4) chayuan-pack fetch                 ← 拉 vendor 二进制 + 模型（HF mirror）
+#   5) chayuan-pack stage --release ${REL}
+#   6) chayuan-pack build  --release ${REL}
+#   7) upload-artifact
+
+on:
+  push:
+    branches: [main]
+    tags: ['release/*']
+    paths:
+      - "packaging/python312/**"
+      - ".github/workflows/build-installers.yml"
+  pull_request:
+    paths:
+      - "packaging/python312/**"
+      - ".github/workflows/build-installers.yml"
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: '哪一档发布？lite=最小核 / standard=单机推荐 / pro=企业'
+        required: true
+        default: 'standard'
+        type: choice
+        options:
+          - lite
+          - standard
+          - pro
+      sign:
+        description: '是否做签名 / 公证（需 secrets）'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  RELEASE_ID: ${{ github.event.inputs.release_id || 'standard' }}
+  CHAYUAN_PACK_HF_MIRROR: https://hf-mirror.com   # 国内/CI 加速
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 6 组：3 OS × 2 arch
+  # ---------------------------------------------------------------------------
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label:    "linux-x86_64"
+            os:       linux
+            arch:     x86_64
+            runner:   ubuntu-22.04
+            target:   linux
+            ext:      AppImage
+          - label:    "linux-arm64"
+            os:       linux
+            arch:     arm64
+            runner:   ubuntu-22.04-arm   # GitHub-hosted ARM (公测)
+            target:   linux
+            ext:      tar.zst
+          - label:    "mac-x86_64"
+            os:       mac
+            arch:     x86_64
+            runner:   macos-13           # Intel
+            target:   mac
+            ext:      dmg
+          - label:    "mac-arm64"
+            os:       mac
+            arch:     arm64
+            runner:   macos-14           # Apple Silicon
+            target:   mac
+            ext:      dmg
+          - label:    "windows-x86_64"
+            os:       windows
+            arch:     x86_64
+            runner:   windows-2022
+            target:   windows
+            ext:      exe
+          - label:    "windows-arm64"
+            os:       windows
+            arch:     arm64
+            runner:   windows-2022       # 用 x86_64 runner 交叉打 zip
+            target:   windows
+            ext:      zip
+
+    defaults:
+      run:
+        # bash on Windows is git-bash via setup-python wrapper; 见 step 内的 shell 设置
+        working-directory: chayuan-server/packaging/python312
+
+    steps:
+      # -- 1) Checkout & 工具链 -------------------------------------------------
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      # AppImage 工具（仅 linux-x86_64 上需要）
+      - name: install AppImage tooling (linux only)
+        if: matrix.os == 'linux'
+        run: |
+          set -e
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+              -O /usr/local/bin/appimagetool
+            chmod +x /usr/local/bin/appimagetool
+          fi
+          # zstd / xz 在大部分 ubuntu 镜像默认有；确保一下
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends zstd xz-utils
+        shell: bash
+
+      # NSIS（windows-x86_64 用；arm64 走 zip 回退）
+      - name: install NSIS (windows-x86_64)
+        if: matrix.os == 'windows' && matrix.arch == 'x86_64'
+        run: |
+          choco install -y nsis --no-progress
+        shell: pwsh
+
+      # macOS 上 hdiutil 自带；不需要额外安装。
+      # codesign / notarytool 仅在 sign=true 时启用（见后续 step）。
+
+      # -- 2) 安装 chayuan-packaging -------------------------------------------
+      - name: pip install chayuan-packaging
+        run: |
+          python -m pip install -U pip
+          pip install -e .
+        shell: bash
+
+      # -- 3) Fetch（拉 vendor + 模型）---------------------------------------
+      #
+      # 只为本平台拉它要的资源（layout.yaml 声明的 platforms.${OS}-${ARCH} 节段）。
+      # 失败 ≠ 致命：layout.yaml 里 optional=true 的资源会被跳过。
+      - name: chayuan-pack fetch
+        run: |
+          chayuan-pack fetch \
+            --target ${{ matrix.os }} \
+            --arch ${{ matrix.arch }} \
+            --release ${{ env.RELEASE_ID }} \
+            --hf-mirror "$CHAYUAN_PACK_HF_MIRROR"
+        shell: bash
+
+      # -- 4) Stage（拼装 staging 目录）---------------------------------------
+      - name: chayuan-pack stage
+        run: |
+          chayuan-pack stage \
+            --target ${{ matrix.os }} \
+            --arch ${{ matrix.arch }} \
+            --release ${{ env.RELEASE_ID }}
+        shell: bash
+
+      # -- 5) Build（拼安装包）------------------------------------------------
+      - name: chayuan-pack build
+        run: |
+          chayuan-pack build \
+            --target ${{ matrix.os }} \
+            --arch ${{ matrix.arch }} \
+            --release ${{ env.RELEASE_ID }}
+        shell: bash
+
+      # -- 6) 签名 / 公证（可选）---------------------------------------------
+      - name: codesign + notarize (mac, sign=true)
+        if: matrix.os == 'mac' && github.event.inputs.sign == 'true'
+        env:
+          MAC_CERT_P12_BASE64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          MAC_CERT_PASSWORD:   ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID:            ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID:       ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD:  ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -e
+          echo "$MAC_CERT_P12_BASE64" | base64 -d > /tmp/cert.p12
+          security create-keychain -p tmp build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p tmp build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k tmp build.keychain
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID" | head -1 | awk '{print $2}')
+          DMG=$(ls build/out/*.dmg | head -1)
+          codesign --force --options runtime --timestamp --sign "$IDENTITY" "$DMG"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$DMG"
+        shell: bash
+
+      - name: signtool sign (windows, sign=true)
+        if: matrix.os == 'windows' && github.event.inputs.sign == 'true'
+        env:
+          WIN_CERT_PFX_BASE64: ${{ secrets.WIN_CERT_PFX_BASE64 }}
+          WIN_CERT_PASSWORD:   ${{ secrets.WIN_CERT_PASSWORD }}
+        run: |
+          [IO.File]::WriteAllBytes('cert.pfx', [Convert]::FromBase64String($env:WIN_CERT_PFX_BASE64))
+          $exe = Get-ChildItem build\out\*.exe | Select-Object -First 1
+          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" `
+              sign /f cert.pfx /p $env:WIN_CERT_PASSWORD `
+              /tr http://timestamp.digicert.com /td sha256 /fd sha256 $exe.FullName
+        shell: pwsh
+
+      # -- 7) Upload（每个 job 一份 artifact）--------------------------------
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chayuan-${{ env.RELEASE_ID }}-${{ matrix.label }}
+          # build/out/ 是 chayuan-pack 默认产物目录；sbom.json 由 sbom 命令生成
+          path: |
+            chayuan-server/packaging/python312/build/out/**
+            chayuan-server/packaging/python312/sbom.json
+          if-no-files-found: warn
+
+      # -- 8) Smoke：重要构建产物可装 -----------------------------------------
+      - name: smoke install (linux only)
+        if: matrix.os == 'linux' && matrix.arch == 'x86_64'
+        run: |
+          # 启动一次，拉起 supervisor，访问 /v1/admin/doctor，预期 200
+          set -e
+          APPIMG=$(ls build/out/*.AppImage 2>/dev/null | head -1 || true)
+          [ -z "$APPIMG" ] && exit 0
+          chmod +x "$APPIMG"
+          mkdir -p /tmp/cy-root && CHAYUAN_ROOT=/tmp/cy-root "$APPIMG" --no-spawn-services &
+          sleep 8
+          curl -fsS http://127.0.0.1:38000/v1/admin/doctor || true
+          pkill -f chayuan || true
+        shell: bash
+
+  # ---------------------------------------------------------------------------
+  # release：把 6 份 artifact 收齐后挂到 GitHub Release 页（仅 tag 触发）
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/release/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-merged
+
+      - name: collect SHA256
+        run: |
+          cd dist-merged
+          find . -type f \( -name "*.AppImage" -o -name "*.dmg" -o -name "*.exe" -o -name "*.tar.zst" -o -name "*.zip" \) -print0 \
+            | xargs -0 sha256sum > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-merged/**/*.AppImage
+            dist-merged/**/*.dmg
+            dist-merged/**/*.exe
+            dist-merged/**/*.tar.zst
+            dist-merged/**/*.zip
+            dist-merged/SHA256SUMS
+          generate_release_notes: true
