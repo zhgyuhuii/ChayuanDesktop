@@ -83,14 +83,27 @@ def _decode_id(ku_id: str) -> Tuple[str, str]:
     return head, raw
 
 
+def _is_guest_mode(user: Any) -> bool:
+    """单机 / AUTH_REQUIRED=false 且未登录:user 为 None。
+
+    此时整个进程只有一个隐含的"本地用户",对所有 KB / source 都应视为
+    mine + owner。否则前端会把上传 / 删除 / 重建向量 等 owner-only UI 全藏掉,
+    用户看不到入口(实际后端 _require_write 在 user=None 时也会放行,纯展示问题)。
+    """
+    return user is None
+
+
 def _doc_kb_to_universe(row: Dict[str, Any], current_uid: Optional[int], user: Any = None) -> Dict[str, Any]:
     """文档 KB row → 统一 item"""
+    guest_mode = _is_guest_mode(user)
     access_role = None
     try:
         from chayuan.server.auth.access import kb_access_for
         access_role = kb_access_for(user, row.get("kb_name") or "") if user is not None else None
     except Exception:  # noqa: BLE001
         access_role = None
+    if guest_mode:
+        access_role = "owner"
     return {
         "ku_id": _encode_id("document", row.get("kb_name")),
         "kind": "document",
@@ -99,9 +112,9 @@ def _doc_kb_to_universe(row: Dict[str, Any], current_uid: Optional[int], user: A
         "description": row.get("kb_info") or "",
         "count": int(row.get("file_count") or 0),
         "owner_id": row.get("owner_id"),
-        "mine": (current_uid is not None and row.get("owner_id") == current_uid),
+        "mine": guest_mode or (current_uid is not None and row.get("owner_id") == current_uid),
         "access_role": access_role or "",
-        "can_write": access_role in ("owner", "editor"),
+        "can_write": guest_mode or access_role in ("owner", "editor"),
         "visibility": row.get("visibility") or "private",
         "vs_type": row.get("vs_type"),
         "embed_model": row.get("embed_model"),
@@ -113,12 +126,15 @@ def _source_to_universe(row: Dict[str, Any], current_uid: Optional[int], user: A
     """knowledge_source row → 统一 item"""
     raw_kind = (row.get("kind") or "").lower()
     universe_kind = _SOURCE_KIND_MAP.get(raw_kind, raw_kind)
+    guest_mode = _is_guest_mode(user)
     access_role = None
     try:
         from chayuan.server.auth.source_access import source_access_for
         access_role = source_access_for(user, int(row.get("id"))) if user is not None else None
     except Exception:  # noqa: BLE001
         access_role = None
+    if guest_mode:
+        access_role = "owner"
     return {
         "ku_id": _encode_id("source", row.get("id")),
         "kind": universe_kind,
@@ -128,9 +144,9 @@ def _source_to_universe(row: Dict[str, Any], current_uid: Optional[int], user: A
         "description": row.get("description") or "",
         "count": int(row.get("counts", {}).get("items", 0)) if row.get("counts") else None,
         "owner_id": row.get("owner_id"),
-        "mine": (current_uid is not None and row.get("owner_id") == current_uid),
+        "mine": guest_mode or (current_uid is not None and row.get("owner_id") == current_uid),
         "access_role": access_role or "",
-        "can_write": access_role in ("owner", "editor"),
+        "can_write": guest_mode or access_role in ("owner", "editor"),
         "visibility": row.get("visibility") or "private",
         "create_time": row.get("create_time"),
     }
@@ -367,7 +383,11 @@ def universe_detail(
             raise HTTPException(404, f"source #{raw} not found")
         sub_kind = (src.get("kind") or "").lower()
         universe_kind = _SOURCE_KIND_MAP.get(sub_kind, sub_kind)
-        meta = _source_to_universe(src, user.get("id") if isinstance(user, dict) else None)
+        meta = _source_to_universe(
+            src,
+            user.get("id") if isinstance(user, dict) else None,
+            user,
+        )
 
         payload: Dict[str, Any] = {"kind": universe_kind, "sub_kind": sub_kind,
                                    "ku_id": ku_id, "meta": meta}
