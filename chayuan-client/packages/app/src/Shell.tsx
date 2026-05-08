@@ -105,9 +105,16 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
     setThinClientEnabled, requireServerLoginGate, finishServerLogin,
   ]);
 
+  // 单机模式 sidecar 永远跑在 127.0.0.1:7861,baseURL 直接走 env.apiBase
+  // (= apps/desktop/src/main.tsx 里写死的 SINGLE_MACHINE_BASE)。
+  // apiBaseOverride 只在 thin-client / 多用户场景下生效,避免 SidecarGate 异步
+  // 设置 override 与 first-render configureClient 之间的 race(导致前几次请求
+  // 拼空 baseURL → ipc.localhost/plugin:* 假象)。
+  const sm = isSingleMachineMode();
   React.useEffect(() => {
     const p = getPlatform();
-    configureClient({ baseURL: apiOverride || env.apiBase, timeoutMs: 30_000 });
+    const effectiveBase = sm ? env.apiBase : (apiOverride || env.apiBase);
+    configureClient({ baseURL: effectiveBase, timeoutMs: 30_000 });
     configureObservability({
       enabled: telemetry && env.langfuse.enabled,
       host: env.langfuse.host,
@@ -127,7 +134,7 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
     if (telemetry) void startWebVitals();
     void hydrate();
     logEvent(Events.AppBoot, { metadata: { release: p.runtime.release, kind: p.kind } });
-  }, [env, telemetry, apiOverride, hydrate]);
+  }, [env, telemetry, apiOverride, hydrate, sm]);
 
   React.useEffect(() => {
     if (isLoggedIn) void prefetchCatalog(queryClient);

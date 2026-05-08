@@ -15,9 +15,14 @@ const APP_VERSION =
 //   * 不附带任何 Python sidecar（产物只有 webview shell + js bundle，~15 MB）
 //   * 启动后弹出 ``ServerLoginModal``，由用户填入远端服务地址 + 凭据
 //   * 默认 ``apiBase`` 留空（让 ``apiBaseOverride`` 接管）
+//
+// 单机桌面默认形态(THIN_CLIENT=0):sidecar 永远跑在 127.0.0.1:7861(sidecar.rs
+// 写死的 DEFAULT_PORT,IP 固定),写死即可,不再走 SidecarGate → apiBaseOverride
+// 这条间接链路 — 减少首屏 race。VITE_API_BASE 仍然支持在 dev 时本地覆盖。
 const THIN_CLIENT = String(import.meta.env.VITE_THIN_CLIENT || '') === '1';
+const SINGLE_MACHINE_BASE = 'http://127.0.0.1:7861';
 const FALLBACK_API_BASE =
-  import.meta.env.VITE_API_BASE || (THIN_CLIENT ? '' : 'http://127.0.0.1:7861');
+  import.meta.env.VITE_API_BASE || (THIN_CLIENT ? '' : SINGLE_MACHINE_BASE);
 
 (async () => {
   const platform = await createTauriPlatform({
