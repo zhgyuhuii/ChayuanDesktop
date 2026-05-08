@@ -20,44 +20,36 @@ from sqlalchemy.orm import sessionmaker
 from chayuan.settings import Settings
 
 
-def _build_engine():
-    bs = Settings.basic_settings
-    uri = bs.SQLALCHEMY_DATABASE_URI
-    is_sqlite = uri.startswith("sqlite:")
-
-    common = dict(
-        json_serializer=lambda obj: json.dumps(obj, ensure_ascii=False),
+def _create_sqlite_engine(uri: str, bs):
+    """SQLite engine — 跨线程安全 + 不走连接池(避免 writer 锁/超时)。"""
+    common = dict(json_serializer=lambda obj: json.dumps(obj, ensure_ascii=False))
+    if getattr(bs, "DEPLOYMENT_MODE", "dev") == "prod":
+        sys.stderr.write(
+            "[chayuan][db] ⚠️  DEPLOYMENT_MODE=prod 但 SQLALCHEMY_DATABASE_URI 仍为 sqlite:"
+            "——SQLite 单写者锁在高并发下会导致请求失败。"
+            "请参考 docs/scalability.md 切 PostgreSQL。\n"
+        )
+    else:
+        sys.stderr.write(
+            "[chayuan][db] 使用 SQLite(单机/桌面默认)。上生产前请切 Postgres,详见 docs/scalability.md。\n"
+        )
+    sys.stderr.flush()
+    return create_engine(
+        uri,
+        connect_args={"check_same_thread": False},
+        pool_pre_ping=bool(getattr(bs, "DB_POOL_PRE_PING", True)),
+        **common,
     )
 
-    if is_sqlite:
-        # SQLite：跨线程安全 + 不做连接池（避免 writer 锁/超时）。
-        # 生产场景请切 PG/MySQL；这里打一行 stderr 让运维看到。
-        if getattr(bs, "DEPLOYMENT_MODE", "dev") == "prod":
-            sys.stderr.write(
-                "[chayuan][db] ⚠️  DEPLOYMENT_MODE=prod 但 SQLALCHEMY_DATABASE_URI 仍为 sqlite:"
-                "——SQLite 单写者锁在高并发下会导致请求失败。"
-                "请参考 docs/scalability.md 切 PostgreSQL。\n"
-            )
-        else:
-            sys.stderr.write(
-                "[chayuan][db] 使用 SQLite（仅限开发/单机）。上生产前请切 Postgres，"
-                "详见 docs/scalability.md。\n"
-            )
-        sys.stderr.flush()
-        return create_engine(
-            uri,
-            connect_args={"check_same_thread": False},
-            pool_pre_ping=bool(getattr(bs, "DB_POOL_PRE_PING", True)),
-            **common,
-        )
 
-    # 非 SQLite：按配置建池。
+def _create_pooled_engine(uri: str, bs):
+    """非 SQLite engine — 按 DB_POOL_* 配建池(PG/MySQL/...)。"""
+    common = dict(json_serializer=lambda obj: json.dumps(obj, ensure_ascii=False))
     pool_size = int(getattr(bs, "DB_POOL_SIZE", 10) or 10)
     max_overflow = int(getattr(bs, "DB_MAX_OVERFLOW", 20) or 20)
     pool_recycle = int(getattr(bs, "DB_POOL_RECYCLE", 3600) or 3600)
     pool_timeout = int(getattr(bs, "DB_POOL_TIMEOUT", 30) or 30)
     pool_pre_ping = bool(getattr(bs, "DB_POOL_PRE_PING", True))
-
     return create_engine(
         uri,
         pool_size=pool_size,
@@ -67,6 +59,49 @@ def _build_engine():
         pool_pre_ping=pool_pre_ping,
         **common,
     )
+
+
+def _build_engine():
+    """构造全局 engine。
+
+    桌面单机版只 bundle sqlite3 驱动;若 ``SQLALCHEMY_DATABASE_URI`` 指向
+    PG/MySQL 但运行时缺对应驱动(``psycopg2`` / ``pymysql`` 等),会在 import
+    阶段抛 ``ModuleNotFoundError``,把整条 ``db/models/__init__.py`` 副作用
+    导入链条拉爆,后端 sidecar 进程根本起不来。
+
+    单机产品默认应该 sqlite,这里加一道 fallback:
+      - 用户选了 sqlite → 正常
+      - 用户填了 PG/MySQL URI 但驱动可用 → 正常
+      - 用户填了 PG/MySQL URI 但驱动缺失 → stderr 大声告警 + 回退到默认 sqlite,
+        让单机用户至少能起服务,自己再去配置面板修 URI
+
+    生产部署有真 PG 的场景下 psycopg2 必然装好,不会触发 fallback。
+    """
+    bs = Settings.basic_settings
+    uri = bs.SQLALCHEMY_DATABASE_URI
+
+    if uri.startswith("sqlite:"):
+        return _create_sqlite_engine(uri, bs)
+
+    try:
+        return _create_pooled_engine(uri, bs)
+    except ModuleNotFoundError as e:
+        # 桌面 sidecar 没打包 PG/MySQL 驱动;回退到默认 sqlite。
+        from chayuan.settings import _default_sqlalchemy_uri
+        fallback_uri = _default_sqlalchemy_uri()
+        sys.stderr.write(
+            f"[chayuan][db] ⚠️  SQLALCHEMY_DATABASE_URI={uri!r} 加载失败:{e};"
+            f"该驱动未安装(单机版默认仅 bundle sqlite3),回退到 {fallback_uri!r}。"
+            f"如需 PG/MySQL,请安装对应驱动包(psycopg2 / pymysql 等)后重启。\n"
+        )
+        sys.stderr.flush()
+        # 同步把 URI 写回 settings 内存里,后续路径(create_tables / ensure_database_from_uri)读到的也是 sqlite,
+        # 不然 startup 用的是新 engine、其它代码用 Settings 直读 URI 会两边不一致。
+        try:
+            bs.SQLALCHEMY_DATABASE_URI = fallback_uri  # type: ignore[misc]
+        except Exception:  # noqa: BLE001
+            pass
+        return _create_sqlite_engine(fallback_uri, bs)
 
 
 engine = _build_engine()
