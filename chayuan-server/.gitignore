@@ -33,6 +33,10 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# 单机版打包流程的 spec 是源代码,必须入库 —— 加例外覆盖上面的通配。
+!packaging/pyinstaller/*.spec
+!packaging/pyinstaller/hooks/
+!packaging/pyinstaller/hooks/**
 
 # Installer logs
 pip-log.txt
