@@ -51,6 +51,8 @@ export interface ModelTypeAccordionProps {
    * 底部"+ 显示其他类型(N)"按钮可展开。默认 true。
    */
   hideEmpty?: boolean;
+  /** 内置(catalog 默认)模型 id 集合,按 ModelType 分类;命中行 ModelLineEditor 不渲染删除按钮 */
+  builtin?: Partial<Record<ModelType, ReadonlySet<string>>>;
   className?: string;
 }
 
@@ -60,6 +62,7 @@ export const ModelTypeAccordion: React.FC<ModelTypeAccordionProps> = ({
   detected,
   autoExpandNonEmpty = true,
   hideEmpty = true,
+  builtin,
   className,
 }) => {
   // 展开状态：受控但允许用户手动覆盖；初始按 autoExpandNonEmpty + 数据决定
@@ -133,6 +136,7 @@ export const ModelTypeAccordion: React.FC<ModelTypeAccordionProps> = ({
           isOpen={expanded.has(meta.key)}
           onToggle={() => toggle(meta.key)}
           onModelsChange={(next) => onChange({ ...value, [meta.key]: next })}
+          builtinSet={builtin?.[meta.key]}
         />
       ))}
 
@@ -213,7 +217,9 @@ const Section: React.FC<{
   isOpen: boolean;
   onToggle(): void;
   onModelsChange(next: string[]): void;
-}> = ({ meta, models, detectedCount, isOpen, onToggle, onModelsChange }) => {
+  /** 该 type 下内置(catalog 默认)模型 id 集合;命中行隐藏删除按钮 */
+  builtinSet?: ReadonlySet<string>;
+}> = ({ meta, models, detectedCount, isOpen, onToggle, onModelsChange, builtinSet }) => {
   const { t } = useTranslation();
   const Icon = meta.icon;
   const colors = modelTypeColors(meta.hue);
@@ -279,6 +285,7 @@ const Section: React.FC<{
             value={models}
             onChange={onModelsChange}
             placeholder={placeholder}
+            lockedIds={builtinSet}
           />
         </div>
       )}

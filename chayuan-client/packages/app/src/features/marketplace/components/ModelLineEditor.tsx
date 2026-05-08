@@ -35,6 +35,11 @@ export interface ModelLineEditorProps {
   placeholder?: string;
   /** 用空状态文案替代 "暂无模型" */
   emptyHint?: string;
+  /**
+   * 内置 model id 集合(catalog ``default_models`` 派生)。命中行不渲染删除按钮,
+   * 防止误删 yaml seed 自带的主流模型。用户自加的 id 不在此处,正常可删。
+   */
+  lockedIds?: ReadonlySet<string>;
   className?: string;
 }
 
@@ -73,6 +78,7 @@ export const ModelLineEditor: React.FC<ModelLineEditorProps> = ({
   onChange,
   placeholder,
   emptyHint = '暂无模型,点击下方"+ 添加模型"开始',
+  lockedIds,
   className,
 }) => {
   const [rows, setRows] = useSyncedRows(value);
@@ -117,6 +123,7 @@ export const ModelLineEditor: React.FC<ModelLineEditorProps> = ({
               placeholder={placeholder}
               onChange={(v) => onEdit(r.rid, v)}
               onRemove={() => onRemove(r.rid)}
+              locked={lockedIds?.has(r.value.trim()) ?? false}
             />
           ))}
         </ul>
@@ -142,7 +149,9 @@ const ModelRow: React.FC<{
   placeholder?: string;
   onChange(v: string): void;
   onRemove(): void;
-}> = ({ row, autoFocus, onCommitFocus, placeholder, onChange, onRemove }) => {
+  /** 内置模型行 = 不渲染 X 删除按钮(catalog 默认带的不让删) */
+  locked?: boolean;
+}> = ({ row, autoFocus, onCommitFocus, placeholder, onChange, onRemove, locked }) => {
   const ref = React.useRef<HTMLInputElement>(null);
   React.useEffect(() => {
     if (autoFocus && ref.current) {
@@ -160,6 +169,15 @@ const ModelRow: React.FC<{
         onChange={(e) => onChange(e.target.value)}
         className="h-8 font-mono text-xs"
       />
+      {locked ? (
+        // 内置模型 — 占位保留布局对齐(等同 X 按钮宽度),用户能识别是"不让删"
+        <span
+          className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[10px] text-[var(--cy-text-tertiary)]"
+          title="内置模型,不可删除"
+        >
+          内置
+        </span>
+      ) : (
       <button
         type="button"
         onClick={onRemove}
@@ -168,6 +186,7 @@ const ModelRow: React.FC<{
       >
         <X className="h-3.5 w-3.5" />
       </button>
+      )}
     </li>
   );
 };

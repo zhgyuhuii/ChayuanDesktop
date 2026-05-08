@@ -384,6 +384,19 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
     return out;
   }, [testResult, draft]);
 
+  /** 把后端注入的 ``builtin_models`` (key=PlatformConfig 字段名) 转成
+   *  ``ModelType -> Set<string>``,给 ModelTypeAccordion 派发到对应 ModelLineEditor;
+   *  命中 set 的行 = catalog 默认带的内置模型,UI 不渲染删除按钮。 */
+  const builtinByType = React.useMemo<Partial<Record<ModelType, ReadonlySet<string>>>>(() => {
+    const src = (platform?.builtin_models ?? {}) as Partial<Record<string, string[]>>;
+    const out: Partial<Record<ModelType, ReadonlySet<string>>> = {};
+    for (const meta of MODEL_TYPES) {
+      const list = src[meta.field];
+      if (list && list.length) out[meta.key] = new Set(list);
+    }
+    return out;
+  }, [platform]);
+
   if (!platform || !draft) return null;
 
   return (
@@ -512,6 +525,7 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
               value={draft.models}
               onChange={(next) => set('models', next)}
               detected={detectedCounts}
+              builtin={builtinByType}
             />
           </Field>
 

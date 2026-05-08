@@ -240,12 +240,30 @@ def get_config_platforms() -> Dict[str, Dict]:
 
 
 def get_all_platforms_with_state() -> List[Dict]:
-    """admin 视图：把全部平台（包括 enabled=False 被隐藏的）返回。"""
+    """admin 视图：把全部平台（包括 enabled=False 被隐藏的）返回。
+
+    新增 ``builtin_models`` 字段:从 ``PROVIDER_CATALOG`` 的 ``default_models``
+    拿该厂商内置主流模型清单,前端据此判断哪些 model id 是"内置"
+    (yaml seed / catalog 默认带的) — 不允许在 UI 里删除,删除按钮不渲染。
+    用户自加的 model id 不在 ``builtin_models`` 里 → UI 渲染删除按钮。
+    """
+    # PROVIDER_CATALOG 在 import 时构造,这里 lazy import 避免 utils.py
+    # 启动期循环依赖(config_panel.model_config 反过来会用 utils.py 的 helper)。
+    try:
+        from chayuan.server.config_panel.model_config import _PROVIDER_BY_ID
+        _builtin_index: Dict[str, Dict[str, List[str]]] = {
+            pid: dict(meta.default_models or {})
+            for pid, meta in _PROVIDER_BY_ID.items()
+        }
+    except Exception:  # noqa: BLE001
+        _builtin_index = {}
+
     merged = _resolved_platforms(_get_platform_version_safe())
     out: List[Dict] = []
     for d in merged:
+        pname = d.get("platform_name") or ""
         out.append({
-            "platform_name": d.get("platform_name"),
+            "platform_name": pname,
             "platform_type": d.get("platform_type"),
             "api_base_url": d.get("api_base_url"),
             "api_key": d.get("api_key"),  # 让 admin 表单可回显
@@ -262,6 +280,7 @@ def get_all_platforms_with_state() -> List[Dict]:
             "text2speech_models": list(d.get("text2speech_models") or []),
             "disabled_models": list(d.get("disabled_models") or []),
             "description": d.get("description") or "",
+            "builtin_models": _builtin_index.get(pname, {}),
         })
     return out
 

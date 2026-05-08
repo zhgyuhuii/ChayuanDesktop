@@ -45,6 +45,14 @@ export interface PlatformConfig {
   extra?: Record<string, unknown>;
   create_time?: string | null;
   update_time?: string | null;
+  /**
+   * 内置模型 baseline:key = PlatformConfig 字段名(llm_models / embed_models / ...)、
+   * value = 该字段下 catalog 内置主流模型 id 列表。后端 ``get_all_platforms_with_state``
+   * 从 ``PROVIDER_CATALOG.default_models`` 注入,用户自定义新增的 id **不在**此处。
+   * 前端 UI 据此判断:在 ModelLineEditor 里隐藏 builtin id 行的"X 删除"按钮,
+   * 防止误删 catalog 自带模型。空 dict / 缺字段 = 该厂商无 baseline 数据。
+   */
+  builtin_models?: Partial<Record<string, string[]>>;
 }
 
 /** 创建/更新时可省略未变字段;name 在 path 上,body 不再带 */
