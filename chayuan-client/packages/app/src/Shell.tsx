@@ -111,6 +111,17 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
   // 设置 override 与 first-render configureClient 之间的 race(导致前几次请求
   // 拼空 baseURL → ipc.localhost/plugin:* 假象)。
   const sm = isSingleMachineMode();
+
+  // 同步早配置:client.ts cfg.baseURL 默认是 '',如果只在 useEffect 里 configureClient,
+  // 子组件 mount 时如果有 useQuery 提前打的请求(react-query 在 mount 时立刻发),
+  // 那一波拿到的 cfg.baseURL 是空,请求拼成相对路径走到 ipc.localhost。
+  // useState 的 initializer 只跑一次,在 children 渲染之前就完成 — 关键的零延迟点。
+  React.useState(() => {
+    const effectiveBase = sm ? env.apiBase : (apiOverride || env.apiBase);
+    configureClient({ baseURL: effectiveBase, timeoutMs: 30_000 });
+    return null;
+  });
+
   React.useEffect(() => {
     const p = getPlatform();
     const effectiveBase = sm ? env.apiBase : (apiOverride || env.apiBase);
