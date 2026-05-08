@@ -41,7 +41,7 @@ interface SettingsState {
 
 const FONT_MIN = 12;
 const FONT_MAX = 22;
-const FONT_DEFAULT = 14;
+const FONT_DEFAULT = 16;
 
 const DEFAULTS: Pick<
   SettingsState,
