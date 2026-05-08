@@ -1011,92 +1011,15 @@ class ApiModelSettings(BaseFileSettings):
     `model` 如果留空则自动使用 DEFAULT_LLM_MODEL
     """
 
-    MODEL_PLATFORMS: t.List[PlatformConfig] = [
-            PlatformConfig(**{
-                "platform_name": "xinference",
-                "platform_type": "xinference",
-                "api_base_url": "http://127.0.0.1:9997/v1",
-                "api_key": "EMPTY",
-                "api_concurrencies": 5,
-                "auto_detect_model": True,
-                "llm_models": [],
-                "embed_models": [],
-                "text2image_models": [],
-                "image2text_models": [],
-                "rerank_models": [],
-                "speech2text_models": [],
-                "text2speech_models": [],
-            }),
-            PlatformConfig(**{
-                "platform_name": "ollama",
-                "platform_type": "ollama",
-                "api_base_url": "http://127.0.0.1:11434/v1",
-                "api_key": "EMPTY",
-                "api_concurrencies": 5,
-                # Ollama 默认开自动检测:server 启动时 GET /api/tags 拉真实安装清单
-                # (60s TTL 缓存),避免每次新拉一个模型就要回头改配置。失败软回落到下方 llm_models / embed_models。
-                "auto_detect_model": True,
-                "llm_models": [
-                    "qwen:7b",
-                    "qwen2:7b",
-                ],
-                "embed_models": [
-                    "quentinz/bge-large-zh-v1.5",
-                ],
-            }),
-            PlatformConfig(**{
-                "platform_name": "oneapi",
-                "platform_type": "oneapi",
-                "api_base_url": "http://127.0.0.1:3000/v1",
-                "api_key": "sk-",
-                "api_concurrencies": 5,
-                "llm_models": [
-                    # 智谱 API
-                    "chatglm_pro",
-                    "chatglm_turbo",
-                    "chatglm_std",
-                    "chatglm_lite",
-                    # 千问 API
-                    "qwen-turbo",
-                    "qwen-plus",
-                    "qwen-max",
-                    "qwen-max-longcontext",
-                    # 千帆 API
-                    "ERNIE-Bot",
-                    "ERNIE-Bot-turbo",
-                    "ERNIE-Bot-4",
-                    # 星火 API
-                    "SparkDesk",
-                ],
-                "embed_models": [
-                    # 千问 API
-                    "text-embedding-v1",
-                    # 千帆 API
-                    "Embedding-V1",
-                ],
-                "text2image_models": [],
-                "image2text_models": [],
-                "rerank_models": [],
-                "speech2text_models": [],
-                "text2speech_models": [],
-            }),
-            PlatformConfig(**{
-                "platform_name": "openai",
-                "platform_type": "openai",
-                "api_base_url": "https://api.openai.com/v1",
-                "api_key": "sk-proj-",
-                "api_concurrencies": 5,
-                "llm_models": [
-                    "gpt-4o",
-                    "gpt-3.5-turbo",
-                ],
-                "embed_models": [
-                    "text-embedding-3-small",
-                    "text-embedding-3-large",
-                ],
-            }),
-        ]
-    """模型平台配置"""
+    MODEL_PLATFORMS: t.List[PlatformConfig] = []
+    """模型平台配置。
+
+    单机版默认空列表 — 用户在「模型广场」里按需添加(DeepSeek / OpenAI / Ollama
+    等),而非启动就显示一堆没填 key 的占位条目造成"是不是已经配好了?"的误解。
+    厂商目录(PROVIDER_CATALOG)仍然在 UI 上展示可选品牌,只是不会预先注入到 DB
+    /yaml。SaaS / 服务端部署需要预置默认时,通过 model_settings.yaml 的
+    MODEL_PLATFORMS 字段在部署期注入即可,Pydantic 会读 yaml 覆盖这里的空默认。
+    """
 
 
 class ToolSettings(BaseFileSettings):
