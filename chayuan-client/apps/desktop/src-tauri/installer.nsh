@@ -23,22 +23,42 @@
 
 !macro NSIS_HOOK_POSTINSTALL
   ; --- 桌面快捷方式 ---
+  ; Tauri 2 NSIS 模板会按 productName / mainBinaryName 创建一个 ASCII 名 .lnk;
+  ; 不同版本里这个变量名可能是 ${PRODUCTNAME} / ${MAINBINARYNAME},甚至两个都用。
+  ; 这里把可能出现的几种名字全删一遍,再创建自己想要的中文图标,避免桌面双图标。
   Delete "$DESKTOP\${PRODUCTNAME}.lnk"
+  Delete "$DESKTOP\${MAINBINARYNAME}.lnk"
+  Delete "$DESKTOP\Chayuan.lnk"
+  Delete "$DESKTOP\chayuan.lnk"
   CreateShortCut "$DESKTOP\察元AI.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
 
   ; --- 开始菜单(Tauri 默认放在 SMPROGRAMS\${PRODUCTNAME}\ 子目录下) ---
   Delete "$SMPROGRAMS\${PRODUCTNAME}\${PRODUCTNAME}.lnk"
+  Delete "$SMPROGRAMS\${PRODUCTNAME}\${MAINBINARYNAME}.lnk"
+  Delete "$SMPROGRAMS\Chayuan\Chayuan.lnk"
+  Delete "$SMPROGRAMS\chayuan\chayuan.lnk"
   RMDir  "$SMPROGRAMS\${PRODUCTNAME}"
+  RMDir  "$SMPROGRAMS\Chayuan"
+  RMDir  "$SMPROGRAMS\chayuan"
   CreateDirectory "$SMPROGRAMS\察元AI"
   CreateShortCut  "$SMPROGRAMS\察元AI\察元AI.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  ; 卸载时清理我们手动创建的中文快捷方式(Tauri 自带的清理只认 ASCII 名字,
-  ; 不清的话残留无效快捷方式)
+  ; 卸载时清理可能残留的所有图标(中文 + 英文,以防之前装的版本只有英文图标)
   Delete "$DESKTOP\察元AI.lnk"
+  Delete "$DESKTOP\${PRODUCTNAME}.lnk"
+  Delete "$DESKTOP\${MAINBINARYNAME}.lnk"
+  Delete "$DESKTOP\Chayuan.lnk"
+  Delete "$DESKTOP\chayuan.lnk"
+
   Delete "$SMPROGRAMS\察元AI\察元AI.lnk"
   RMDir  "$SMPROGRAMS\察元AI"
+  Delete "$SMPROGRAMS\${PRODUCTNAME}\${PRODUCTNAME}.lnk"
+  Delete "$SMPROGRAMS\${PRODUCTNAME}\${MAINBINARYNAME}.lnk"
+  RMDir  "$SMPROGRAMS\${PRODUCTNAME}"
+  Delete "$SMPROGRAMS\Chayuan\Chayuan.lnk"
+  RMDir  "$SMPROGRAMS\Chayuan"
 
   ; --- 清理"记忆的数据目录路径" ---
   ; 数据目录的指针存在 ``%APPDATA%\chayuan\desktop.json``(见 src/data_dir.rs);
