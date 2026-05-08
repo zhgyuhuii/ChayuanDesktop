@@ -17,6 +17,7 @@ import { configureClient } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
 import { useSettingsStore, type ThemeMode, type LocalePreference } from '../../store/settings';
 import { useAuthStore } from '../../store/auth';
+import { useSingleMachineMode } from '../first-run/useSingleMachineMode';
 import { SUPPORTED_LOCALES, useTranslation } from '../../i18n';
 import { AddStructuredSourceDialog } from '../kb/AddStructuredSourceDialog';
 import { notifySuccess } from '../../store/errorDialog';
@@ -26,6 +27,7 @@ export const SettingsAsPage: React.FC = () => {
   const settings = useSettingsStore();
   const auth = useAuthStore();
   const platform = getPlatform();
+  const singleMachine = useSingleMachineMode();
   const defaultApi = platform.runtime.defaultApiBase;
   const [apiInput, setApiInput] = React.useState(settings.apiBaseOverride);
   const [localModel, setLocalModel] = React.useState(false);
@@ -45,9 +47,14 @@ export const SettingsAsPage: React.FC = () => {
         {t('settings.title')}
       </h1>
 
-      {/* 个人 */}
+      {/* 个人 —— 单机版无登录概念,显示"本地用户"占位,不渲染登录/退出按钮 */}
       <Section label={t('settings.personal')}>
-        {auth.user ? (
+        {singleMachine ? (
+          <Row
+            title="本地用户"
+            description="数据保存在本机"
+          />
+        ) : auth.user ? (
           <Row
             title={auth.user.username}
             description={auth.user.role}

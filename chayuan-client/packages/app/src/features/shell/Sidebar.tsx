@@ -113,13 +113,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
         // 列宽由外层 grid 决定;width 仅在外层不接管时生效(向后兼容)
       )}
     >
-      {/* 用户区 */}
+      {/* 用户区 —— 单机版无登录,缺省显示 "察元用户" 而不是 "游客" */}
       <div className={cn('flex items-center gap-2 px-3 py-3', collapsed && 'justify-center px-2')}>
-        <Avatar name={user?.username ?? '游'} size={32} />
+        <Avatar name={user?.username ?? '察'} size={32} />
         {!collapsed && (
           <>
             <p className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--cy-text-primary)]">
-              {user?.username ?? '游客'}
+              {user?.username ?? '察元用户'}
             </p>
             <button
               type="button"
