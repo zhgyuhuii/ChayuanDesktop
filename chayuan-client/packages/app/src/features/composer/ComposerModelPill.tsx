@@ -12,8 +12,10 @@
 
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { ChevronDown, Cpu } from 'lucide-react';
 import {
+  Button,
   cn,
   DropdownMenu,
   DropdownMenuContent,
@@ -66,15 +68,19 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   iconOnly = false,
 }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const modelId = useComposerS((s) => s.modelId);
   const platformName = useComposerS((s) => s.platformName);
   const setModel = useComposerS((s) => s.setModel);
   const [open, setOpen] = React.useState(false);
 
+  // 单机/桌面版关闭 check_access:每个不可达厂商会触发 OpenAI client 4 次重试
+  // (~5s),多厂商累加可让下拉打开几十秒看着像"没加载"。改用快速读+按需重试,
+  // 真正不可达的模型会在调用时由 chat 路径报错(可定位的明确错误)。
   const { data = [] } = useQuery<RawModelItem[]>({
-    queryKey: ['v1.models', { checkAccess: true }],
-    queryFn: () => models.list({ checkAccess: true, type: 'llm' }),
-    staleTime: 5 * 60_000,
+    queryKey: ['v1.models', { type: 'llm' }],
+    queryFn: () => models.list({ type: 'llm' }),
+    staleTime: 60_000,
     retry: 0,
   });
   useLogosManifest();
@@ -138,6 +144,19 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
           currentPlatform={platformName}
           resolveLogo={resolveLogo}
           emptyLabel={t('chat.noModelAvailable')}
+          emptyAction={
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setOpen(false);
+                void navigate({ to: '/marketplace' });
+              }}
+            >
+              <Cpu className="h-3.5 w-3.5" />
+              去模型广场
+            </Button>
+          }
           maxHeight={menuMaxHeight}
           onPick={(m) => {
             if (m.available === false) return;

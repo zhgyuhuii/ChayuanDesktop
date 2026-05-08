@@ -7,6 +7,8 @@
 
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
+import { Cpu } from 'lucide-react';
 import { models, type RawModelItem } from '@chayuan/api';
 import {
   Button,
@@ -50,6 +52,7 @@ interface ModelPickerProps {
 }
 
 export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => {
+  const navigate = useNavigate();
   const storeModelId = useComposerS((s) => s.modelId);
   const storePlatformName = useComposerS((s) => s.platformName);
   const storeSetModel = useComposerS((s) => s.setModel);
@@ -58,10 +61,11 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
   const setModel = onChange ?? storeSetModel;
   const [open, setOpen] = React.useState(false);
 
+  // 与 ComposerModelPill 同步:快速读,不带 check_access(避免探活拖慢下拉)。
   const { data = [] } = useQuery<RawModelItem[]>({
-    queryKey: ['v1.models', { checkAccess: true }],
-    queryFn: () => models.list({ checkAccess: true, type: 'llm' }),
-    staleTime: 5 * 60_000,
+    queryKey: ['v1.models', { type: 'llm' }],
+    queryFn: () => models.list({ type: 'llm' }),
+    staleTime: 60_000,
   });
   useLogosManifest();
   const resolveLogo = useResolveLogo();
@@ -91,6 +95,19 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
           currentId={modelId}
           currentPlatform={platformName}
           resolveLogo={resolveLogo}
+          emptyAction={
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setOpen(false);
+                void navigate({ to: '/marketplace' });
+              }}
+            >
+              <Cpu className="h-3.5 w-3.5" />
+              去模型广场
+            </Button>
+          }
           onPick={(m) => {
             if (m.available === false) return;
             // 77 题:传 platform_name 让 server 精确路由,避免跨平台同名 model_id 被覆盖

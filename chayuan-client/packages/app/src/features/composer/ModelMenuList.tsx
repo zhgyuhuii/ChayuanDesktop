@@ -140,6 +140,8 @@ export interface ModelMenuListProps {
   resolveLogo(platform?: string, modelId?: string): string | undefined;
   /** 空列表占位文案;不传用默认 */
   emptyLabel?: string;
+  /** 空列表时渲染在 emptyLabel 下方的可选操作(如"去模型广场"按钮) */
+  emptyAction?: React.ReactNode;
   /** dropdown 容器最大高度(默认 384px) */
   maxHeight?: number;
 }
@@ -165,6 +167,7 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
   onPick,
   resolveLogo,
   emptyLabel = '暂无可用模型',
+  emptyAction,
   maxHeight = 384,
 }) => {
   const [keyword, setKeyword] = React.useState('');
@@ -257,9 +260,10 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
 
       <div className="flex-1 overflow-y-auto p-1">
         {allGroups.length === 0 && (
-          <p className="px-3 py-6 text-center text-xs text-[var(--cy-text-tertiary)]">
-            {emptyLabel}
-          </p>
+          <div className="flex flex-col items-center gap-2 px-3 py-6 text-center">
+            <p className="text-xs text-[var(--cy-text-tertiary)]">{emptyLabel}</p>
+            {emptyAction}
+          </div>
         )}
         {allGroups.length > 0 && totalShown === 0 && (
           <p className="px-3 py-6 text-center text-xs text-[var(--cy-text-tertiary)]">
