@@ -19,6 +19,7 @@
  * 用户希望"对话内容在两边都能看到"是 P2 范围。MVP:子窗就像新开的小聊天窗。
  */
 import * as React from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { ChatWindow } from '../chat/ChatWindow';
 import { useModelArenaStore, type Lane as LaneState } from '../../store/modelArena';
 
@@ -204,4 +205,32 @@ export function openDetachedLaneWindow(scope: string, laneId: string, modelId?: 
     }, 200);  // 等子窗 mount 后再推
   }
   return win;
+}
+
+
+/**
+ * Chrome 层全局 reattach 监听 — 跨路由生命周期不解绑。
+ *
+ * 与 ``useDetachedLaneSync(scope)`` 区别:
+ *   - per-scope 版本仅在 MultiLaneShell 挂载时活跃,且只处理本 scope
+ *   - global 版本不过滤 scope,只处理 reattach,并在主窗当前在 /home 时跳回 /chat
+ *
+ * 设计:Chrome 是路由 Outlet 的父容器,生命周期 = 整个 app,适合全局订阅。
+ */
+export function useGlobalDetachedLaneSync(): void {
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+    const ch = new BroadcastChannel(DETACHED_CHANNEL);
+    ch.onmessage = (ev: MessageEvent<DetachedMsg>) => {
+      const msg = ev.data;
+      if (!msg || msg.type !== 'lane:reattach') return;
+      useModelArenaStore.getState().setDetached(msg.scope, msg.laneId, false);
+      // 用户在 /home 时关掉独立窗口意味着想回到聊天 — 自动 nav 回 /chat
+      if (typeof window !== 'undefined' && window.location.pathname === '/home') {
+        void navigate({ to: '/chat' });
+      }
+    };
+    return () => ch.close();
+  }, [navigate]);
 }
