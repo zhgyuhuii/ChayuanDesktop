@@ -82,6 +82,27 @@ def _resolve_data_dir() -> Path:
     return Path.home() / ".chayuan" / "nltk_data"
 
 
+def _bundled_nltk_data_dirs() -> List[Path]:
+    """单机版 PyInstaller onefile bundle 时,nltk 资源直接随包带,
+    解压后位于 ``<sys._MEIPASS>/chayuan/data/nltk_data/`` 或开发态
+    ``<chayuan_pkg>/data/nltk_data/``。运行时把这些目录加到 nltk.data.path,
+    避免任何网络下载。
+    """
+    candidates: List[Path] = []
+    # 1) PyInstaller frozen:sys._MEIPASS 是解压临时目录
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / "chayuan" / "data" / "nltk_data")
+    # 2) 开发态:chayuan/data/nltk_data 在 chayuan 包旁边
+    try:
+        import chayuan  # type: ignore
+        pkg_root = Path(chayuan.__file__).resolve().parent
+        candidates.append(pkg_root / "data" / "nltk_data")
+    except Exception:  # noqa: BLE001
+        pass
+    return [c for c in candidates if c.is_dir()]
+
+
 def _resource_present(name: str, search_paths: List[Path]) -> bool:
     """探测某个 resource 是否已存在(任一搜索路径下)。"""
     try:
@@ -192,28 +213,40 @@ def ensure_nltk_data(force: bool = False) -> None:
     _BOOTSTRAPPED = True
 
     cache_dir = _resolve_data_dir()
-    # 把缓存目录加到 NLTK 搜索路径头部 + 同步到环境变量(子进程可见)
+    bundled_dirs = _bundled_nltk_data_dirs()
+
+    # 把"包内打好的 nltk_data" + "用户缓存"全部加进 NLTK 搜索路径。
+    # 单机版 onefile 已经把 nltk 资源烤进 chayuan/data/nltk_data/,这里
+    # 应该直接命中 _resource_present,根本不会进 _try_download —— 启动加速 20-60s
+    # 而且下线打包机也可用。
     try:
         import nltk  # type: ignore
-        if str(cache_dir) not in nltk.data.path:
-            nltk.data.path.insert(0, str(cache_dir))
+        for p in (*bundled_dirs, cache_dir):
+            if str(p) not in nltk.data.path:
+                nltk.data.path.insert(0, str(p))
     except ImportError:
         # nltk 都没装就不用闹,下游也不会用到 unstructured
         return
 
-    # NLTK_DATA 让其它进程 / pytest 等也找到我们的缓存
+    # NLTK_DATA 让其它进程 / pytest 等也找到我们的缓存(包内 + 用户缓存都列上)
     existing = os.environ.get("NLTK_DATA", "")
-    if str(cache_dir) not in existing.split(os.pathsep):
+    extra = os.pathsep.join(str(p) for p in (*bundled_dirs, cache_dir))
+    if extra and extra not in existing:
         os.environ["NLTK_DATA"] = (
-            f"{cache_dir}{os.pathsep}{existing}" if existing else str(cache_dir)
+            f"{extra}{os.pathsep}{existing}" if existing else extra
         )
 
-    search_paths = [cache_dir, Path.home() / "nltk_data", Path("/usr/share/nltk_data"),
-                    Path("/usr/local/share/nltk_data")]
+    search_paths = [
+        *bundled_dirs,
+        cache_dir,
+        Path.home() / "nltk_data",
+        Path("/usr/share/nltk_data"),
+        Path("/usr/local/share/nltk_data"),
+    ]
 
     missing = [r for r in _REQUIRED_RESOURCES if not _resource_present(r, search_paths)]
     if not missing:
-        logger.info("nltk 资源齐全 (cache=%s)", cache_dir)
+        logger.info("nltk 资源齐全 (bundled=%d, cache=%s)", len(bundled_dirs), cache_dir)
         return
 
     logger.info("nltk 缺失资源:%s,开始下载到 %s", missing, cache_dir)

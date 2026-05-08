@@ -24,16 +24,30 @@ export function useDesktopIntegrations(): void {
     const platform = getPlatform();
     if (!platform.shortcut) return;
 
+    // 包一层 safe wrapper:register() 在快捷键已被占用时会 reject
+    // ("HotKey already registered ..."),原代码直接 push promise 不 catch,
+    // 启动期就在 console 里堆 unhandled rejection。常见触发:上一进程
+    // 异常退出 OS 级 hotkey 还在注册表里(Tauri 2 plugin-global-shortcut 不
+    // 强制清理)。这里把失败降级成 noop unregister,不阻塞其它逻辑。
+    const safeRegister = (
+      accelerator: string,
+      handler: () => void | Promise<void>,
+    ): Promise<() => Promise<void>> =>
+      platform.shortcut!.register(accelerator, handler).catch((e: unknown) => {
+        console.warn(`[shortcut] register ${accelerator} failed:`, e);
+        return (async () => {}) as () => Promise<void>;
+      });
+
     const offers: Array<Promise<() => Promise<void>>> = [];
     offers.push(
-      platform.shortcut.register('CmdOrCtrl+Shift+Space', () => {
+      safeRegister('CmdOrCtrl+Shift+Space', () => {
         // 让 CommandPalette 自己监听该事件；与 ⌘K 复用
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }));
       }),
     );
     if (platform.capture) {
       offers.push(
-        platform.shortcut.register('CmdOrCtrl+Shift+S', async () => {
+        safeRegister('CmdOrCtrl+Shift+S', async () => {
           try {
             const blob = await platform.capture!.screenshot();
             // 粘贴到 composer：转 File → 走 useAttachments 不容易（需要在 composer 范围）；

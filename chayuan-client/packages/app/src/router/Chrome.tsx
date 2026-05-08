@@ -25,9 +25,12 @@ import { Sidebar } from '../features/shell/Sidebar';
 import { TabBar } from '../features/shell/TabBar';
 import { TabHost } from '../features/shell/TabHost';
 import { UserMenuPopover } from '../features/shell/UserMenuPopover';
-import { WindowControls } from '../features/shell/WindowControls';
-import { FullscreenButton } from '../features/shell/FullscreenButton';
+// Tauri 2 配置 ``decorations: true`` 已经走 OS 原生 min/max/close 标题栏,
+// 自定义 WindowControls 重复了。FullscreenButton 单机版用户场景用不到,移除。
+// import { WindowControls } from '../features/shell/WindowControls';
+// import { FullscreenButton } from '../features/shell/FullscreenButton';
 import { useFullscreenWorkspace } from '../features/shell/useFullscreenWorkspace';
+import { isSingleMachineMode } from '../features/first-run/useSingleMachineMode';
 import { useCrossWindowSync } from '../features/shell/useCrossWindowSync';
 import { DetachedToolbar } from '../features/shell/DetachedToolbar';
 import { ArtifactPanel } from '../features/artifact/ArtifactPanel';
@@ -77,8 +80,11 @@ export const Chrome: React.FC = () => {
             <TabBar />
           </div>
           <div className="flex items-center gap-1 px-3 [-webkit-app-region:no-drag]">
-            <FullscreenButton />
-            {isLoggedIn ? (
+            {/* 单机版:无登录,直接展示 UserMenuPopover(后端注入 LocalUser);
+                非单机版保留旧行为 —— 已登录用 UserMenu,未登录显示登录按钮。 */}
+            {isSingleMachineMode() ? (
+              <UserMenuPopover />
+            ) : isLoggedIn ? (
               <UserMenuPopover />
             ) : (
               <button
@@ -94,7 +100,7 @@ export const Chrome: React.FC = () => {
               </button>
             )}
           </div>
-          <WindowControls />
+          {/* 自定义 min/max/close 已删 —— Tauri ``decorations: true`` 用 OS 原生标题栏 */}
         </header>
 
         {/* 主区 */}

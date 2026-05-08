@@ -50,9 +50,10 @@ const MarketplacePage = React.lazy(() =>
 const HistoryPage = React.lazy(() =>
   import('../history/HistoryPage').then((m) => ({ default: m.HistoryPage })),
 );
-const AnnotationPage = React.lazy(() =>
-  import('../annotation/AnnotationPage').then((m) => ({ default: m.AnnotationPage })),
-);
+// 单机版移除训练数据中心:
+// const AnnotationPage = React.lazy(() =>
+//   import('../annotation/AnnotationPage').then((m) => ({ default: m.AnnotationPage })),
+// );
 const SettingsAsPage = React.lazy(() =>
   import('../placeholders/SettingsAsPage').then((m) => ({ default: m.SettingsAsPage })),
 );
@@ -136,12 +137,13 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     defaultTitle: 'nav.history',
     defaultIcon: 'clock',
   },
-  {
-    pattern: /^\/annotation$/,
-    render: () => <AnnotationPage />,
-    defaultTitle: '训练数据中心',
-    defaultIcon: 'tag',
-  },
+  // 单机版移除训练数据中心(/annotation):
+  // {
+  //   pattern: /^\/annotation$/,
+  //   render: () => <AnnotationPage />,
+  //   defaultTitle: '训练数据中心',
+  //   defaultIcon: 'tag',
+  // },
   {
     pattern: /^\/settings$/,
     render: () => <SettingsAsPage />,

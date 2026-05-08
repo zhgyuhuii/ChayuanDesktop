@@ -28,9 +28,10 @@
     font-family: "PingFang SC", "HarmonyOS Sans", "Microsoft YaHei", system-ui, sans-serif;
   }
 
-  /* 字号设置接管 root font-size,Tailwind 的 rem 自然全站缩放 */
+  /* 字号设置接管 root font-size,Tailwind 的 rem 自然全站缩放。
+     桌面 Tauri WebView 在 Windows 高 DPI 下 14px 偏小,提到 16px。 */
   html {
-    font-size: 14px;
+    font-size: 16px;
   }
 
   /* embed.js 浮动球内嵌模式：隐藏 Shell 外壳（Sidebar / TabBar / 顶栏），

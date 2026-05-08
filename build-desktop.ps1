@@ -476,9 +476,9 @@ if ($SkipHealthcheck) {
         -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput $stdoutLog `
         -RedirectStandardError  $stderrLog
-    Write-Note "PID=$($proc.Id);最长等 90s 直到 /healthz 200"
+    Write-Note "PID=$($proc.Id);最长等 180s 直到 /healthz 200(onefile 解压 + bootstrap 慢)"
 
-    $deadline = (Get-Date).AddSeconds(90)
+    $deadline = (Get-Date).AddSeconds(180)
     $ready = $false
     while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
         try {

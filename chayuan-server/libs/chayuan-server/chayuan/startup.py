@@ -92,7 +92,16 @@ def _audit_prompt_templates() -> None:
 
 
 def _pid_alive(pid: int) -> bool:
-    """`os.kill(pid, 0)` 只做存活探测，不发信号。"""
+    """`os.kill(pid, 0)` 只做存活探测，不发信号。
+
+    本函数是上一实例清理的优化路径,**任何**探测异常都当作"不可判定 → 跳过清理",
+    绝不能挡住本次启动。
+
+    历史踩坑:Windows + PyInstaller frozen exe + .chayuan_runtime.json 里残留
+    旧 PID(被系统回收给特殊进程)时,``os.kill(pid, 0)`` 抛
+    ``SystemError: <class 'OSError'> returned a result with an exception set``
+    —— 不是 OSError 子类,原 ``except OSError`` 捕不住,sidecar 整个挂掉。
+    """
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -100,7 +109,9 @@ def _pid_alive(pid: int) -> bool:
     except PermissionError:
         # 进程存在但不是我们的——当作存活，后续 kill 可能会失败并被忽略
         return True
-    except OSError:
+    except Exception:  # noqa: BLE001
+        # OSError / SystemError / ValueError(pid 越界)/ 其它任何探测异常:
+        # 都当"测不出来 → 不存在",让上层跳过清理。
         return False
     return True
 

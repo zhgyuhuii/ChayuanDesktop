@@ -224,6 +224,12 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
     [],
   );
 
+  // **必须**在任何 early return 之前调用所有 hook,否则首次/后续 render
+  // 之间 hook 数量不一致,React 抛 #310 (Rendered more hooks than during the
+  // previous render)。useSingleMachineMode 内部调 useThinClientStore (zustand
+  // hook),也算 hook。 — 单机版 v0 排查白屏踩到的坑。
+  const singleMachine = useSingleMachineMode();
+
   if (!i18nReady || !hydrated || authRequired === null) {
     return <AuthBootScreen />;
   }
@@ -238,8 +244,6 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
 
   // 瘦客户端门禁：在 ServerLoginModal 闭合前不挂载主路由（避免业务请求打到没配置的 baseURL）
   const thinClientGateActive = thinClientEnabled && requireServerLogin;
-  // 单机模式不挂 LoginModal —— 后端无登录页 / 注册页 / 工作区切换(CLAUDE.md §3.4)。
-  const singleMachine = useSingleMachineMode();
 
   return (
     <QueryClientProvider client={queryClient}>

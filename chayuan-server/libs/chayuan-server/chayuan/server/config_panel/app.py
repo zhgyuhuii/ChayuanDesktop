@@ -323,7 +323,7 @@ def run_config_panel(
             state_cache,
             runtime_subpage,
             providers_subpage,
-            marketplace_subpage,
+            # 单机版已移除 marketplace 模块(CLAUDE.md §0.1 第 (3) 条)。
             defaults_subpage,
         )
         _log("warmup imports done")

@@ -1,6 +1,6 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Chayuan AI",
+  "productName": "察元AI",
   "version": "0.1.0",
   "identifier": "ai.chayuan.client",
   "build": {
@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' http://127.0.0.1:7861 http://127.0.0.1:3000 https://* ipc: https://ipc.localhost"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' http://127.0.0.1:7861 http://127.0.0.1:3000 https://* ipc: http://ipc.localhost https://ipc.localhost"
     }
   },
   "bundle": {

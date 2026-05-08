@@ -23,7 +23,6 @@ import {
   Library,
   Box,
   Clock,
-  Tags,
   Shield,
   Plug,
   Wrench,
@@ -69,7 +68,7 @@ const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { to: '/marketplace', labelKey: 'nav.modelMarket', icon: Box },
   { to: '/mcp', labelKey: 'nav.mcp', icon: Plug },
   { to: '/tools', labelKey: 'nav.tools', icon: Wrench },
-  { to: '/annotation', labelKey: '训练数据中心', icon: Tags },
+  // 单机版移除训练数据中心(/annotation)
   { to: '/history', labelKey: 'nav.history', icon: Clock },
 ];
 
