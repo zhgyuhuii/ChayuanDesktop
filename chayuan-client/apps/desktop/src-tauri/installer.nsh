@@ -39,4 +39,13 @@
   Delete "$DESKTOP\察元AI.lnk"
   Delete "$SMPROGRAMS\察元AI\察元AI.lnk"
   RMDir  "$SMPROGRAMS\察元AI"
+
+  ; --- 清理"记忆的数据目录路径" ---
+  ; 数据目录的指针存在 ``%APPDATA%\chayuan\desktop.json``(见 src/data_dir.rs);
+  ; 不清的话用户卸载重装时,首启动会自动复用上次路径,跳过 FirstRunSetup 向导。
+  ; 用户明确要求每次重装都强制弹一次目录选择,所以这里删整个 ``%APPDATA%\chayuan\``。
+  ;
+  ; 注意:**只删 desktop config 目录**,不动 CHAYUAN_ROOT 真实用户数据(那个由
+  ; 用户在向导里自选的 D:\chayuan_data 之类持久路径,卸载完整保留)。
+  RMDir /r "$APPDATA\chayuan"
 !macroend
