@@ -231,3 +231,48 @@ export const modelPlatform = {
     return r.data?.data ?? [];
   },
 };
+
+
+// ---------------------------------------------------------------------------
+// Capability defaults — 9 类默认模型(chat / embedding / clip / rerank / ...)
+//
+// 单机版后端入口:``/admin/capability_defaults``(chayuan-server)。
+// gateway 路径 ``/v1/admin/defaults``(``aiPlatformDefaults`` in aiPlatform.ts)
+// 仅在多用户 SaaS 拓扑下可用,本接口与 gateway 字段语义保持一致。
+// ---------------------------------------------------------------------------
+
+export interface CapabilityDefaultsCandidate {
+  id: string;
+  runtime: string | null;
+  format: string | null;
+  size_bytes: number;
+  is_default: boolean;
+}
+
+export interface CapabilityDefaultsResponse {
+  capabilities: string[];                                     // chat / embedding / clip / ...
+  defaults: Record<string, string | null>;                    // 当前默认 model id
+  candidates: Record<string, CapabilityDefaultsCandidate[]>;  // 各 cap 候选
+}
+
+const CAP_DEFAULTS_BASE = '/admin/capability_defaults';
+
+export const serverCapabilityDefaults = {
+  /** 列出 9 类 capability 的默认 + 候选(无登录态 / 单机零配置可读) */
+  async list(): Promise<CapabilityDefaultsResponse> {
+    const r = await request<{ data: CapabilityDefaultsResponse }>(CAP_DEFAULTS_BASE, {
+      raw: true,
+    });
+    return r.data?.data ?? { capabilities: [], defaults: {}, candidates: {} };
+  },
+
+  /** 批量设置;后端逐条写盘失败也会单独返回,不会一票否决其它 cap */
+  async setMany(payload: Record<string, string>): Promise<{
+    results: Record<string, { ok: boolean; model?: string; error?: string }>;
+  }> {
+    const r = await request<{
+      data: { results: Record<string, { ok: boolean; model?: string; error?: string }> };
+    }>(CAP_DEFAULTS_BASE, { method: 'POST', body: payload, raw: true });
+    return r.data?.data ?? { results: {} };
+  },
+};

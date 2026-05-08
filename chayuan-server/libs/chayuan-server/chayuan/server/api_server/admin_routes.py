@@ -779,6 +779,107 @@ async def install_sibling(
     }
 
 
+# ── capability_defaults:9 类默认模型 (chat/embedding/clip/...) ─────────────
+#
+# 单机版没有 chayuan-gateway,gateway 的 /v1/admin/defaults 不可达。
+# 这里给前端一个等价 shape 的服务端实现:capability_router 的 yaml 真源 +
+# 已配置的全部 model_platform 汇总作为候选。
+
+@admin_router.get(
+    "/capability_defaults",
+    summary="[public] 列出 9 类 capability 的默认模型 + 候选",
+)
+async def get_capability_defaults(
+    _user=Depends(get_current_user_optional),
+) -> Dict[str, Any]:
+    """返回 ``{ capabilities, defaults, candidates }``,前端模型广场 / 设置页直接消费。
+
+    candidates 来源:遍历 ``model_platform`` 表,按 ``_CAP_TO_GROUP_KEY``
+    把每个平台对应字段的模型扁平化为 ``{id, runtime, format, size_bytes, is_default}``。
+    """
+    from chayuan.server.config_panel.runtime_framework_panel import (
+        CAPABILITY_LABELS,
+        _CAP_TO_YAML_KEY,
+        _CAP_TO_GROUP_KEY,
+        _load_capability_defaults,
+    )
+    from chayuan.server.db.repository import model_platform_repository as repo
+
+    capabilities = [cap for cap, _ in CAPABILITY_LABELS]
+    defaults_raw = _load_capability_defaults()  # {cap: model_id_or_""}
+    defaults: Dict[str, Optional[str]] = {
+        cap: (defaults_raw.get(cap) or None) for cap in capabilities
+    }
+
+    # 汇总所有平台的模型清单
+    candidates: Dict[str, List[Dict[str, Any]]] = {cap: [] for cap in capabilities}
+    try:
+        platforms = repo.list_platforms() or []
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[capability_defaults] list_platforms 失败: %r", e)
+        platforms = []
+
+    seen: Dict[str, set] = {cap: set() for cap in capabilities}
+    # list_platforms() 返回 Dict[str, Any] 列表(ORM.to_dict),用 .get() 访问
+    for p in platforms:
+        if not p.get("enabled", True):
+            continue
+        platform_type = p.get("platform_type")
+        for cap in capabilities:
+            field = _CAP_TO_GROUP_KEY.get(cap)
+            if not field:
+                continue
+            models = p.get(field) or []
+            if isinstance(models, str):
+                models = [m.strip() for m in models.split(",") if m.strip()]
+            for mid in models:
+                if not isinstance(mid, str) or not mid or mid in seen[cap]:
+                    continue
+                seen[cap].add(mid)
+                candidates[cap].append({
+                    "id": mid,
+                    "runtime": platform_type,
+                    "format": None,
+                    "size_bytes": 0,
+                    "is_default": defaults.get(cap) == mid,
+                })
+
+    return {
+        "code": 0,
+        "msg": "ok",
+        "data": {
+            "capabilities": capabilities,
+            "defaults": defaults,
+            "candidates": candidates,
+        },
+    }
+
+
+@admin_router.post(
+    "/capability_defaults",
+    summary="[admin] 批量设置 capability 默认模型",
+)
+async def set_capability_defaults(
+    payload: Dict[str, str] = Body(...,
+                                    description="{cap: model_id, ...},如 {chat: deepseek-chat}"),
+    _user=Depends(get_current_user_optional),
+) -> Dict[str, Any]:
+    """每条独立写盘,失败逐条返回原因,不让一个错挡住其它写入。"""
+    from chayuan.server.config_panel.runtime_framework_panel import (
+        _save_capability_default,
+    )
+
+    results: Dict[str, Dict[str, Any]] = {}
+    for cap, model_id in (payload or {}).items():
+        if not isinstance(cap, str) or not isinstance(model_id, str):
+            results[str(cap)] = {"ok": False, "error": "类型不合法"}
+            continue
+        ok, msg = _save_capability_default(cap, model_id)
+        results[cap] = {"ok": ok, "model": model_id} if ok else {"ok": False, "error": msg}
+
+    return {"code": 0, "msg": "ok", "data": {"results": results}}
+
+
 # ── 进程退出回收 ──────────────────────────────────────────────────
 
 

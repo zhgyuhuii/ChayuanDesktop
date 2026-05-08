@@ -9,18 +9,20 @@
  */
 
 import * as React from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Sun, Moon, Monitor, RotateCcw, Volume2, User as UserIcon, Database, Plus,
+  Sun, Moon, Monitor, RotateCcw, Volume2, User as UserIcon, Database, Plus, Cpu,
 } from 'lucide-react';
 import { Button, cn, Input, Slider, Switch, Pill } from '@chayuan/ui';
-import { configureClient } from '@chayuan/api';
+import { configureClient, serverCapabilityDefaults, type CapabilityDefaultsResponse } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
 import { useSettingsStore, type ThemeMode, type LocalePreference } from '../../store/settings';
 import { useAuthStore } from '../../store/auth';
 import { useSingleMachineMode } from '../first-run/useSingleMachineMode';
 import { SUPPORTED_LOCALES, useTranslation } from '../../i18n';
 import { AddStructuredSourceDialog } from '../kb/AddStructuredSourceDialog';
-import { notifySuccess } from '../../store/errorDialog';
+import { notifySuccess, reportError } from '../../store/errorDialog';
 
 export const SettingsAsPage: React.FC = () => {
   const { t } = useTranslation();
@@ -181,6 +183,9 @@ export const SettingsAsPage: React.FC = () => {
         />
       </Section>
 
+      {/* 默认模型 — 模型广场配好厂商后,这里挑哪一个用做默认 */}
+      <DefaultModelsSection />
+
       {/* 知识库管理 */}
       <Section label={t('nav.knowledge')}>
         <Row
@@ -321,3 +326,109 @@ const THEME_OPTS: Array<{
   { value: 'dark', icon: Moon },
   { value: 'system', icon: Monitor },
 ];
+
+// 设置页"默认模型"分组 — 与模型广场保持单向数据流:
+// 广场配好厂商/模型 → list() 候选刷新 → 这里挑选 → setMany() 写盘 → 业务读真源。
+//
+// 显示哪几类:对应 UI 上"聊天 / 文本嵌入 / 图像嵌入 / 重排"等用户最常配置的能力;
+// 其它(t2i/t2v/tts/asr/ocr)留在 RuntimeCenter 全量面板,这里只暴露 4 类高频。
+const VISIBLE_CAPS: Array<{ cap: string; label: string; hint: string }> = [
+  { cap: 'chat',      label: '聊天模型',     hint: '问答 / 写作 / 多轮对话' },
+  { cap: 'embedding', label: '文本向量模型', hint: '知识库索引 / 语义检索' },
+  { cap: 'clip',      label: '图像向量模型', hint: '图片知识库 / 多模态检索' },
+  { cap: 'rerank',    label: '重排模型',     hint: '检索后精排提升相关性' },
+];
+
+const DefaultModelsSection: React.FC = () => {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const { data, isLoading, error } = useQuery<CapabilityDefaultsResponse>({
+    queryKey: ['serverCapabilityDefaults'],
+    queryFn: () => serverCapabilityDefaults.list(),
+    staleTime: 30_000,
+  });
+
+  const onPick = React.useCallback(
+    async (cap: string, modelId: string) => {
+      try {
+        const res = await serverCapabilityDefaults.setMany({ [cap]: modelId });
+        const r = res.results?.[cap];
+        if (r?.ok) {
+          notifySuccess('已设为默认', `${VISIBLE_CAPS.find((c) => c.cap === cap)?.label ?? cap} → ${modelId}`);
+          await qc.invalidateQueries({ queryKey: ['serverCapabilityDefaults'] });
+        } else {
+          reportError(new Error(r?.error || '保存失败'), '保存默认模型失败');
+        }
+      } catch (e) {
+        reportError(e, '保存默认模型失败');
+      }
+    },
+    [qc],
+  );
+
+  return (
+    <Section label="默认模型">
+      {error ? (
+        <Row
+          title="无法读取默认模型"
+          description={`后端服务可能未就绪;${(error as Error)?.message ?? error}`}
+        />
+      ) : isLoading || !data ? (
+        <Row title="加载中…" description="正在读取已配置的厂商和模型清单" />
+      ) : (
+        VISIBLE_CAPS.map(({ cap, label, hint }) => {
+          const candidates = data.candidates[cap] ?? [];
+          const current = data.defaults[cap] ?? '';
+          if (candidates.length === 0) {
+            return (
+              <Row
+                key={cap}
+                title={label}
+                description={`${hint} · 暂无可选模型`}
+                trailing={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void navigate({ to: '/marketplace' })}
+                  >
+                    <Cpu className="h-3.5 w-3.5" />
+                    去模型广场
+                  </Button>
+                }
+              />
+            );
+          }
+          return (
+            <Row
+              key={cap}
+              title={label}
+              description={hint}
+              trailing={
+                <select
+                  value={current}
+                  onChange={(e) => void onPick(cap, e.target.value)}
+                  className={cn(
+                    'min-w-[180px] max-w-[260px] rounded-md border border-[var(--cy-border-default)]',
+                    'bg-[var(--cy-surface-base)] px-2 py-1 text-sm',
+                  )}
+                  data-testid={`settings-default-${cap}`}
+                >
+                  {!current && (
+                    <option value="" disabled>
+                      请选择
+                    </option>
+                  )}
+                  {candidates.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.id}{c.runtime ? ` · ${c.runtime}` : ''}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
+          );
+        })
+      )}
+    </Section>
+  );
+};

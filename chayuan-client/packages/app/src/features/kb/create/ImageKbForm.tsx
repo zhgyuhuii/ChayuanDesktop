@@ -13,21 +13,47 @@
  */
 
 import * as React from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { Button, Input, Switch, Textarea } from '@chayuan/ui';
+import { serverCapabilityDefaults } from '@chayuan/api';
 import { useCreateImageKb } from './useCreateKb';
 import { reportError, notifySuccess } from '../../../store/errorDialog';
 
 export const ImageKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({ onSubmitted }) => {
+  const navigate = useNavigate();
   const [name, setName] = React.useState('');
   const [info, setInfo] = React.useState('');
   const [isPublic, setIsPublic] = React.useState(false);
+  const [checking, setChecking] = React.useState(false);
   const create = useCreateImageKb();
 
   const validName = isValidKbName(name);
 
   const onSubmit = async () => {
     if (!validName) return;
+
+    // 守卫:无 clip(图像嵌入)模型时,引导到模型广场。失败则放过让原错误兜底。
+    setChecking(true);
+    let needConfig = false;
+    try {
+      const d = await serverCapabilityDefaults.list();
+      const hasDefault = !!d.defaults?.clip;
+      const hasCandidate = (d.candidates?.clip ?? []).length > 0;
+      needConfig = !hasDefault && !hasCandidate;
+    } catch {
+      needConfig = false;
+    } finally {
+      setChecking(false);
+    }
+    if (needConfig) {
+      const go = window.confirm(
+        '尚未配置图像嵌入(clip)模型,无法创建图像库。\n\n是否前往「模型广场」选择并启用一个图像 embedding 模型?',
+      );
+      if (go) void navigate({ to: '/marketplace' });
+      return;
+    }
+
     try {
       // 不传 embedder_model:走 image_source/connector.default_model_name() 默认。
       const r = await create.mutateAsync({
@@ -81,9 +107,9 @@ export const ImageKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({
       </div>
 
       <div className="flex justify-end gap-2 border-t border-[var(--cy-border-subtle)] pt-3">
-        <Button size="sm" onClick={onSubmit} disabled={!validName || create.isPending}>
-          {create.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          创建图像库
+        <Button size="sm" onClick={onSubmit} disabled={!validName || create.isPending || checking}>
+          {(create.isPending || checking) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          {checking ? '检查模型配置…' : '创建图像库'}
         </Button>
       </div>
     </div>

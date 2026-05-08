@@ -15,15 +15,19 @@
  */
 
 import * as React from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { Button, Input, Switch, Textarea } from '@chayuan/ui';
+import { serverCapabilityDefaults } from '@chayuan/api';
 import { useCreateDocumentKb } from './useCreateKb';
 import { reportError, notifySuccess } from '../../../store/errorDialog';
 
 export const DocumentKbForm: React.FC<{ onSubmitted(kbName: string): void }> = ({ onSubmitted }) => {
+  const navigate = useNavigate();
   const [name, setName] = React.useState('');
   const [info, setInfo] = React.useState('');
   const [isPublic, setIsPublic] = React.useState(false);
+  const [checking, setChecking] = React.useState(false);
 
   const create = useCreateDocumentKb();
 
@@ -31,6 +35,30 @@ export const DocumentKbForm: React.FC<{ onSubmitted(kbName: string): void }> = (
 
   const onSubmit = async () => {
     if (!validName) return;
+
+    // 守卫:无向量化模型时不让走后端 create(后端会因 embed_model 为空抛 404
+    // 之类的难懂错误)。先 list 一次默认 / 候选,缺失就引导到模型广场。
+    setChecking(true);
+    let needConfig = false;
+    try {
+      const d = await serverCapabilityDefaults.list();
+      const hasDefault = !!d.defaults?.embedding;
+      const hasCandidate = (d.candidates?.embedding ?? []).length > 0;
+      needConfig = !hasDefault && !hasCandidate;
+    } catch {
+      // 接口不可达 / 后端未起来 — 让 create 走原路径,错误由 reportError 兜底。
+      needConfig = false;
+    } finally {
+      setChecking(false);
+    }
+    if (needConfig) {
+      const go = window.confirm(
+        '尚未配置文本向量(embedding)模型,无法创建文档库。\n\n是否前往「模型广场」选择并启用一个 embedding 模型?',
+      );
+      if (go) void navigate({ to: '/marketplace' });
+      return;
+    }
+
     try {
       // 不传 vector_store_type / embed_model:让服务器读 Settings 默认。
       // 改设置走「设置 → 知识库 / 文件存储」,这里不重复造轮子。
@@ -89,10 +117,10 @@ export const DocumentKbForm: React.FC<{ onSubmitted(kbName: string): void }> = (
         <Button
           size="sm"
           onClick={onSubmit}
-          disabled={!validName || create.isPending}
+          disabled={!validName || create.isPending || checking}
         >
-          {create.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          创建文档库
+          {(create.isPending || checking) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          {checking ? '检查模型配置…' : '创建文档库'}
         </Button>
       </div>
     </div>
