@@ -183,11 +183,13 @@ export default {
       ctaAddModel: '点击 ⚙️ 添加模型',
       unconfigured: '未配置',
       disabled: '已禁用',
+      enabled: '已启用',
       noModelsForCapability: '此能力无可用模型',
       noModelsAvailable: '暂无可用模型',
       moreTypes: '+ {n} 类（点击 ⚙️ 查看全部）',
       titleUnconfigured: '未配置 api_key 或 base_url',
       titleDisabled: '平台总开关关闭',
+      titleEnabled: '平台已启用,可用模型 {n} 个',
     },
     accordion: {
       newDetected: '新增 {n}',

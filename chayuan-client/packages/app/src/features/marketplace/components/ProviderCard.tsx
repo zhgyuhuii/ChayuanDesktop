@@ -152,20 +152,31 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
               <p className="min-w-0 truncate text-sm font-semibold text-[var(--cy-text-primary)]">
                 {showName}
               </p>
-              {/* 状态徽:active 隐身,仅未配置/已禁用显示 */}
+              {/* 状态徽 — 三态都显式标记,让用户一眼看出"已启用 / 未配置 / 已禁用" */}
+              {status === 'active' && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 ring-1 ring-emerald-200/70"
+                  title={t('modelMarket.card.titleEnabled', { n: groups.reduce((s, g) => s + g.models.length, 0) })}
+                >
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  {t('modelMarket.card.enabled')}
+                </span>
+              )}
               {status === 'unconfigured' && (
                 <span
-                  className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 ring-1 ring-amber-200/70"
+                  className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 ring-1 ring-amber-200/70"
                   title={t('modelMarket.card.titleUnconfigured')}
                 >
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
                   {t('modelMarket.card.unconfigured')}
                 </span>
               )}
               {status === 'disabled' && (
                 <span
-                  className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-600"
+                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-600 ring-1 ring-slate-200"
                   title={t('modelMarket.card.titleDisabled')}
                 >
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-400" />
                   {t('modelMarket.card.disabled')}
                 </span>
               )}

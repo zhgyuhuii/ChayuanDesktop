@@ -18,6 +18,7 @@ import { AlertTriangle } from 'lucide-react';
 import * as React from 'react';
 import { getPlatform } from '@chayuan/platform-shared';
 import type { SidecarStatus } from '@chayuan/platform-shared';
+import { CHAYUAN_LOGO_URL } from '../../lib/brandAssets';
 
 export interface SidecarGateProps {
   /** FirstRunSetup 选定的数据目录;sidecar 通过 CHAYUAN_ROOT 注入子进程 */
@@ -154,16 +155,21 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
       />
 
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-8 px-6">
-        {/* 中央品牌 logo —— 脉动光晕 + 主体 */}
+        {/* 中央品牌 logo —— 脉动光晕 + 真实 logo.png */}
         <div className="relative">
           {/* 外圈光晕(脉动) */}
           <div
             className="absolute -inset-8 animate-ping rounded-full bg-[var(--cy-brand-500,#6366f1)]/30 blur-2xl"
             style={{ animationDuration: '2.4s' }}
           />
-          {/* 主体卡片 */}
-          <div className="relative flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-[var(--cy-brand-500,#6366f1)] to-[var(--cy-brand-700,#4338ca)] text-4xl font-bold text-white shadow-[0_20px_60px_rgba(99,102,241,0.45)]">
-            察
+          {/* 主体卡片 — 用项目 logo.png(packages/app/src/images/logo.png) */}
+          <div className="relative flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-[0_20px_60px_rgba(99,102,241,0.45)] ring-1 ring-[var(--cy-border-subtle,#e2e8f0)]">
+            <img
+              src={CHAYUAN_LOGO_URL}
+              alt="察元 AI"
+              className="h-16 w-16 object-contain"
+              draggable={false}
+            />
           </div>
         </div>
 

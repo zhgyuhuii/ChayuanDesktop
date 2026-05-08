@@ -166,11 +166,13 @@ export default {
       ctaAddModel: 'Click ⚙️ to add models',
       unconfigured: 'Unconfigured',
       disabled: 'Disabled',
+      enabled: 'Enabled',
       noModelsForCapability: 'No models for this capability',
       noModelsAvailable: 'No models available',
       moreTypes: '+ {n} more types (click ⚙️ to view all)',
       titleUnconfigured: 'api_key or base_url not configured',
       titleDisabled: 'Platform globally disabled',
+      titleEnabled: 'Platform enabled, {n} models available',
     },
     accordion: {
       newDetected: '+{n} new',
