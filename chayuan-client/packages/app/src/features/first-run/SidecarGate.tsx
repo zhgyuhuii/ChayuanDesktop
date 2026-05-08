@@ -14,7 +14,7 @@
  */
 
 import { Button } from '@chayuan/ui';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import * as React from 'react';
 import { getPlatform } from '@chayuan/platform-shared';
 import type { SidecarStatus } from '@chayuan/platform-shared';
@@ -147,27 +147,72 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-[var(--cy-surface-2,#f8fafc)]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(99,102,241,0.10),transparent_32%),radial-gradient(circle_at_75%_75%,rgba(14,165,233,0.10),transparent_30%)]" />
-      <div className="absolute inset-0 flex items-center justify-center px-6">
-        <div className="w-full max-w-md rounded-3xl border border-[var(--cy-border-subtle,#e2e8f0)] bg-[var(--cy-surface-base,#fff)]/95 p-8 shadow-[var(--cy-shadow-lg,0_24px_80px_rgba(15,23,42,0.12))] backdrop-blur-xl">
-          <div className="mb-3 flex items-center gap-3">
-            <Loader2 className="h-5 w-5 animate-spin text-[var(--cy-brand-500,#6366f1)]" />
-            <div>
-              <h1 className="text-base font-semibold text-[var(--cy-text-primary,#0f172a)]">
-                正在启动后端服务...
-              </h1>
-              <p className="text-xs text-[var(--cy-text-tertiary,#94a3b8)]">
-                首次启动需要 10-30 秒(数据库迁移 / 索引初始化)
-              </p>
-            </div>
+      {/* 渐变光斑背景 —— pulse 慢呼吸增加层次感 */}
+      <div
+        className="absolute inset-0 animate-pulse bg-[radial-gradient(circle_at_30%_25%,rgba(99,102,241,0.18),transparent_38%),radial-gradient(circle_at_75%_75%,rgba(14,165,233,0.18),transparent_35%)]"
+        style={{ animationDuration: '6s' }}
+      />
+
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-8 px-6">
+        {/* 中央品牌 logo —— 脉动光晕 + 主体 */}
+        <div className="relative">
+          {/* 外圈光晕(脉动) */}
+          <div
+            className="absolute -inset-8 animate-ping rounded-full bg-[var(--cy-brand-500,#6366f1)]/30 blur-2xl"
+            style={{ animationDuration: '2.4s' }}
+          />
+          {/* 主体卡片 */}
+          <div className="relative flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-[var(--cy-brand-500,#6366f1)] to-[var(--cy-brand-700,#4338ca)] text-4xl font-bold text-white shadow-[0_20px_60px_rgba(99,102,241,0.45)]">
+            察
           </div>
-          {logTail.length > 0 && (
-            <pre className="mt-4 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-[var(--cy-surface-1,#f1f5f9)] p-3 text-[10px] text-[var(--cy-text-tertiary,#64748b)]">
+        </div>
+
+        {/* 标题 + 动态点点 */}
+        <div className="text-center">
+          <h1 className="text-xl font-semibold text-[var(--cy-text-primary,#0f172a)] sm:text-2xl">
+            正在启动后端服务
+            <span className="ml-1 inline-flex">
+              <span className="animate-bounce" style={{ animationDelay: '-0.3s' }}>.</span>
+              <span className="animate-bounce" style={{ animationDelay: '-0.15s' }}>.</span>
+              <span className="animate-bounce">.</span>
+            </span>
+          </h1>
+          <p className="mt-2 text-sm text-[var(--cy-text-tertiary,#94a3b8)]">
+            首次启动需要 10-30 秒，正在迁移数据库 / 初始化索引
+          </p>
+        </div>
+
+        {/* 不确定进度条:无限循环左→右滑 */}
+        <div className="relative h-1.5 w-72 overflow-hidden rounded-full bg-[var(--cy-surface-1,#e2e8f0)]">
+          <div
+            className="absolute inset-y-0 w-1/3 rounded-full bg-gradient-to-r from-[var(--cy-brand-500,#6366f1)] to-[var(--cy-brand-700,#4338ca)] cy-loader-slide"
+          />
+        </div>
+
+        {/* 滚动日志(选展开,默认收起,不抢眼但留诊断入口) */}
+        {logTail.length > 0 && (
+          <details className="w-full max-w-md text-xs text-[var(--cy-text-tertiary,#64748b)]">
+            <summary className="cursor-pointer text-center transition-colors hover:text-[var(--cy-text-secondary,#475569)]">
+              查看启动日志
+            </summary>
+            <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-[var(--cy-surface-base,#fff)]/80 p-3 text-[10px] backdrop-blur">
               {logTail.join('\n')}
             </pre>
-          )}
-        </div>
+          </details>
+        )}
       </div>
+
+      {/* keyframes —— 进度条左右循环;Tailwind 没现成 indeterminate animation 用内联 */}
+      <style>{`
+        @keyframes cy-loader-slide {
+          0%   { transform: translateX(-100%); }
+          50%  { transform: translateX(220%); }
+          100% { transform: translateX(-100%); }
+        }
+        .cy-loader-slide {
+          animation: cy-loader-slide 1.8s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   );
 };

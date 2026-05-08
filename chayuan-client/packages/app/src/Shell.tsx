@@ -274,8 +274,30 @@ const ThinClientGateBackdrop: React.FC = () => (
 );
 
 const AuthBootScreen: React.FC = () => (
-  <div className="flex h-screen w-screen items-center justify-center bg-[var(--cy-surface-base,#fff)] text-sm text-[var(--cy-text-tertiary,#64748b)]">
-    正在检查登录状态...
+  <div className="relative h-screen w-screen overflow-hidden bg-[var(--cy-surface-2,#f8fafc)]">
+    <div
+      className="absolute inset-0 animate-pulse bg-[radial-gradient(circle_at_30%_25%,rgba(99,102,241,0.18),transparent_38%),radial-gradient(circle_at_75%_75%,rgba(14,165,233,0.18),transparent_35%)]"
+      style={{ animationDuration: '6s' }}
+    />
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-6">
+      <div className="relative">
+        <div
+          className="absolute -inset-6 animate-ping rounded-full bg-[var(--cy-brand-500,#6366f1)]/30 blur-2xl"
+          style={{ animationDuration: '2.4s' }}
+        />
+        <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--cy-brand-500,#6366f1)] to-[var(--cy-brand-700,#4338ca)] text-2xl font-bold text-white shadow-[0_12px_40px_rgba(99,102,241,0.45)]">
+          察
+        </div>
+      </div>
+      <p className="text-sm text-[var(--cy-text-secondary,#64748b)]">
+        正在初始化
+        <span className="ml-0.5 inline-flex">
+          <span className="animate-bounce" style={{ animationDelay: '-0.3s' }}>.</span>
+          <span className="animate-bounce" style={{ animationDelay: '-0.15s' }}>.</span>
+          <span className="animate-bounce">.</span>
+        </span>
+      </p>
+    </div>
   </div>
 );
 
