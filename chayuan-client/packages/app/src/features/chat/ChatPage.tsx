@@ -9,7 +9,8 @@
  */
 
 import * as React from 'react';
-import { Plus } from 'lucide-react';
+import { ExternalLink, Plus } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { AdvancedParams } from './AdvancedParams';
 import { StreamMetrics } from './StreamMetrics';
 import { ConversationView } from './ConversationView';
@@ -21,6 +22,7 @@ import {
 } from '../../store/modelArena';
 import { useArenaScope } from '../../store/arenaScope';
 import { MultiLaneShell } from '../model-arena/MultiLaneShell';
+import { openDetachedLaneWindow } from '../model-arena/DetachedLaneRoute';
 
 export const ChatPage: React.FC = () => {
   const activeId = useComposerStore((s) => s.activeConversationId);
@@ -49,6 +51,8 @@ export const ChatPage: React.FC = () => {
   const lanes = useModelArenaStore(selectScopedLanes(scope));
   const unifiedSend = useModelArenaStore(selectScopedUnifiedSend(scope));
   const setUnifiedSend = useModelArenaStore((s) => s.setUnifiedSend);
+  const setDetached = useModelArenaStore((s) => s.setDetached);
+  const navigate = useNavigate();
 
   // lanes 数组空(本 scope 未初始化 / 用户全删完)→ 自动重建 main 道,避免空白页
   React.useEffect(() => {
@@ -56,6 +60,29 @@ export const ChatPage: React.FC = () => {
       useModelArenaStore.getState().resetToSingleLane(scope);
     }
   }, [lanes.length, scope]);
+
+  // 非 detached lane 数 = 0 → 主窗口聊天页空,跳 /home
+  // (单泳道 detach / 多泳道全 detach 都走这条;条件 lanes.length > 0 防止
+  //  初始化空数组误触,那条由上面的 resetToSingleLane effect 接管)
+  React.useEffect(() => {
+    const activeCount = lanes.filter((l) => !l.detached).length;
+    if (activeCount === 0 && lanes.length > 0) {
+      void navigate({ to: '/home' });
+    }
+  }, [lanes, navigate]);
+
+  /**
+   * 页级"拖出独立窗口"按钮的 onClick:
+   *   - 单泳道:lanes[0] 就是 main 道,直接 detach 它
+   *   - 多泳道:取第一条非 detached 的 lane(v1 简化:不跟踪 focused)
+   *   - detach 后由上面 effect 监听 active 数 = 0 跳 /home,本回调不重复跳
+   */
+  const onPopout = React.useCallback(() => {
+    const target = lanes.find((l) => !l.detached);
+    if (!target) return;
+    openDetachedLaneWindow(scope, target.id, target.modelId);
+    setDetached(scope, target.id, true);
+  }, [lanes, scope, setDetached]);
 
   // 顶栏右侧:[Artifact 切换?] [☐ 统一发送(仅多道显示)] [高级] [+ 添加]
   // 顶栏左侧不放任何东西 — ModelPicker 已在 ChatComposer 内部,顶栏只留功能控件
@@ -82,6 +109,15 @@ export const ChatPage: React.FC = () => {
           <span>统一发送</span>
         </label>
       )}
+      <button
+        type="button"
+        onClick={onPopout}
+        title="拖出独立窗口"
+        aria-label="拖出独立窗口"
+        className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
+      >
+        <ExternalLink className="h-3.5 w-3.5" />
+      </button>
       <AdvancedParams />
       <button
         type="button"
