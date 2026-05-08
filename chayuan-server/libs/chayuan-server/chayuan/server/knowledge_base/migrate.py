@@ -6,6 +6,12 @@ from dateutil.parser import parse
 
 from chayuan.settings import Settings
 from chayuan.server.db.base import Base, engine
+
+# 副作用 import:把全部 ORM model 类挂到 ``Base.metadata`` 上,
+# 否则 ``create_all`` 漏建 model_platform / model_metadata / annotation 等表,
+# 单机 SQLite 启动会出现 ``no such table: model_platform``。
+from chayuan.server.db import models as _all_models  # noqa: F401
+
 from chayuan.server.db.models.conversation_model import ConversationModel
 from chayuan.server.db.models.message_model import MessageModel
 from chayuan.server.db.repository.knowledge_file_repository import (
