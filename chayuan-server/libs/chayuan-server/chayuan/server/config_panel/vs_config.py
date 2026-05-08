@@ -286,7 +286,13 @@ def _validate_sqlalchemy(values: Dict[str, Any], timeout: float = 5.0) -> Dict[s
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "message": f"未安装 SQLAlchemy：{e}", "detail": ""}
     try:
-        eng = create_engine(uri, pool_pre_ping=True, connect_args={"connect_timeout": int(timeout)})
+        # connect_timeout 仅 PG/MySQL 接受;SQLite 会抛 TypeError
+        _connect_args = (
+            {"connect_timeout": int(timeout)}
+            if uri.startswith(("postgresql", "postgres", "mysql"))
+            else {}
+        )
+        eng = create_engine(uri, pool_pre_ping=True, connect_args=_connect_args)
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "message": f"URI 解析失败：{type(e).__name__}: {e}", "detail": ""}
     try:

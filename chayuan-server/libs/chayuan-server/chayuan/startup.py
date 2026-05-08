@@ -389,8 +389,14 @@ def _probe_db_status(connect_timeout: int = 1) -> tuple[bool, str]:
         uri = getattr(Settings.basic_settings, "SQLALCHEMY_DATABASE_URI", "") or ""
         if not uri:
             return False, "basic_settings.SQLALCHEMY_DATABASE_URI 为空"
-        # connect_args.connect_timeout 仅 psycopg2/pg 起作用;其它驱动忽略
-        eng = create_engine(uri, pool_pre_ping=True, connect_args={"connect_timeout": connect_timeout})
+        # connect_args.connect_timeout 仅 psycopg2/MySQL 接受;**SQLite 会抛**
+        # ``TypeError: 'connect_timeout' is an invalid keyword argument for Connection()``
+        # 所以按 URI scheme 走条件传参 — 不再"假设其它驱动忽略"。
+        connect_args: dict = {}
+        if uri.startswith(("postgresql", "postgres", "mysql")):
+            connect_args["connect_timeout"] = connect_timeout
+        # SQLite 没等价参数(本地文件 IO 几乎不会卡),不传即可
+        eng = create_engine(uri, pool_pre_ping=True, connect_args=connect_args)
         with eng.connect() as conn:
             conn.execute(text("SELECT 1"))
         return True, uri

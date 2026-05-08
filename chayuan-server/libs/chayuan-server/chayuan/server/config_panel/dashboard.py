@@ -818,7 +818,13 @@ def _probe_business_db() -> Tuple[bool, str]:
         uri = getattr(Settings.basic_settings, "SQLALCHEMY_DATABASE_URI", "") or ""
         if not uri:
             return False, "basic_settings.SQLALCHEMY_DATABASE_URI 为空"
-        eng = create_engine(uri, pool_pre_ping=True, connect_args={"connect_timeout": 3})
+        # connect_timeout 只对 PG/MySQL 有效;SQLite 会抛 TypeError(driver 不接受)
+        _connect_args = (
+            {"connect_timeout": 3}
+            if uri.startswith(("postgresql", "postgres", "mysql"))
+            else {}
+        )
+        eng = create_engine(uri, pool_pre_ping=True, connect_args=_connect_args)
         with eng.connect() as conn:
             conn.execute(text("SELECT 1"))
         return True, uri

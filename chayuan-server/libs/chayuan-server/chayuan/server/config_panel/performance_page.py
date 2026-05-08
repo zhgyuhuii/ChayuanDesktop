@@ -380,6 +380,10 @@ def _dir_size_fast(path: Path, *, max_depth: int = 3) -> int:
 
 
 def _pg_db_size(uri: str) -> int:
+    # 函数名明确针对 PG;调用方传非 PG URI 时直接返 0,避免对 SQLite 传
+    # connect_timeout 触发 TypeError。
+    if not uri.startswith(("postgresql", "postgres")):
+        return 0
     try:
         from sqlalchemy import create_engine, text  # type: ignore
     except Exception:
@@ -401,6 +405,9 @@ def _pg_db_size(uri: str) -> int:
 
 
 def _mysql_db_size(uri: str) -> int:
+    # 同 _pg_db_size:仅对 MySQL URI 生效
+    if not uri.startswith("mysql"):
+        return 0
     try:
         from sqlalchemy import create_engine, text  # type: ignore
     except Exception:
