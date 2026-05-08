@@ -509,39 +509,7 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
             </Field>
           </div>
 
-          <Field label="厂商描述(hero / 卡片副标题)" optional>
-            <Input
-              value={draft.description}
-              placeholder="混合推理架构,更高的思考效率"
-              onChange={(e) => set('description', e.target.value)}
-            />
-          </Field>
-
-          <Field
-            label={t('modelMarket.settings.models.label')}
-            hint={t('modelMarket.settings.models.hint')}
-          >
-            <ModelTypeAccordion
-              value={draft.models}
-              onChange={(next) => set('models', next)}
-              detected={detectedCounts}
-              builtin={builtinByType}
-            />
-          </Field>
-
-          <Field
-            label={t('modelMarket.settings.blacklist.label')}
-            hint={t('modelMarket.settings.blacklist.hint')}
-          >
-            <Textarea
-              rows={3}
-              value={draft.disabled_models_text}
-              onChange={(e) => set('disabled_models_text', e.target.value)}
-              className="font-mono text-xs"
-              placeholder={t('modelMarket.settings.blacklist.placeholder')}
-            />
-          </Field>
-
+          {/* 自动检测开关 + 测试结果(含一键填入) — 放在模型清单上方,先看连通性再编模型 */}
           <div className="flex items-center gap-2 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 py-2">
             <Switch
               checked={draft.auto_detect_model}
@@ -555,7 +523,6 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
             </div>
           </div>
 
-          {/* 测试结果区 */}
           {testResult && (
             <div
               className={cn(
@@ -599,6 +566,40 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
               )}
             </div>
           )}
+
+          <Field
+            label={t('modelMarket.settings.models.label')}
+            hint={t('modelMarket.settings.models.hint')}
+          >
+            <ModelTypeAccordion
+              value={draft.models}
+              onChange={(next) => set('models', next)}
+              detected={detectedCounts}
+              builtin={builtinByType}
+            />
+          </Field>
+
+          <Field
+            label={t('modelMarket.settings.blacklist.label')}
+            hint={t('modelMarket.settings.blacklist.hint')}
+          >
+            <Textarea
+              rows={3}
+              value={draft.disabled_models_text}
+              onChange={(e) => set('disabled_models_text', e.target.value)}
+              className="font-mono text-xs"
+              placeholder={t('modelMarket.settings.blacklist.placeholder')}
+            />
+          </Field>
+
+          {/* 厂商描述放在底部 — 仅作展示文案,不影响功能 */}
+          <Field label="厂商描述(hero / 卡片副标题)" optional>
+            <Input
+              value={draft.description}
+              placeholder="混合推理架构,更高的思考效率"
+              onChange={(e) => set('description', e.target.value)}
+            />
+          </Field>
         </div>
 
         <footer className="flex items-center justify-between border-t border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-5 py-3">
