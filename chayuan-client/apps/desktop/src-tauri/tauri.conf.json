@@ -1,6 +1,6 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "察元AI",
+  "productName": "Chayuan",
   "version": "0.1.0",
   "identifier": "ai.chayuan.client",
   "build": {
@@ -40,7 +40,10 @@
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },
       "wix": { "language": ["zh-CN", "en-US"] },
-      "nsis": { "languages": ["SimpChinese", "English"] }
+      "nsis": {
+        "languages": ["SimpChinese", "English"],
+        "installerHooks": "./installer.nsh"
+      }
     },
     "linux": {
       "deb": { "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"] },
