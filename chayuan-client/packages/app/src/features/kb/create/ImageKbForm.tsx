@@ -14,7 +14,7 @@
 
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Loader2, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Cpu, Loader2, ShieldCheck } from 'lucide-react';
 import { Button, Input, Switch, Textarea } from '@chayuan/ui';
 import { serverCapabilityDefaults } from '@chayuan/api';
 import { useCreateImageKb } from './useCreateKb';
@@ -26,6 +26,7 @@ export const ImageKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({
   const [info, setInfo] = React.useState('');
   const [isPublic, setIsPublic] = React.useState(false);
   const [checking, setChecking] = React.useState(false);
+  const [missingModel, setMissingModel] = React.useState(false);
   const create = useCreateImageKb();
 
   const validName = isValidKbName(name);
@@ -33,8 +34,10 @@ export const ImageKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({
   const onSubmit = async () => {
     if (!validName) return;
 
-    // 守卫:无 clip(图像嵌入)模型时,引导到模型广场。失败则放过让原错误兜底。
+    // 守卫:无 clip(图像嵌入)模型时,显示内联横幅引导到模型广场。
+    // 不用 window.confirm — Tauri 下会触发 dialog plugin ACL 错误。
     setChecking(true);
+    setMissingModel(false);
     let needConfig = false;
     try {
       const d = await serverCapabilityDefaults.list();
@@ -47,10 +50,7 @@ export const ImageKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({
       setChecking(false);
     }
     if (needConfig) {
-      const go = window.confirm(
-        '尚未配置图像嵌入(clip)模型,无法创建图像库。\n\n是否前往「模型广场」选择并启用一个图像 embedding 模型?',
-      );
-      if (go) void navigate({ to: '/marketplace' });
+      setMissingModel(true);
       return;
     }
 
@@ -105,6 +105,30 @@ export const ImageKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({
           创建后把图片拖入卡片即可自动 embed 入索引(PNG / JPG / WEBP)。
         </div>
       </div>
+
+      {missingModel && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50/70 px-3 py-2.5 text-[12px] leading-relaxed text-amber-900"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">尚未配置图像嵌入(clip)模型</p>
+            <p className="mt-0.5 text-[11px] text-amber-800/80">
+              在「模型广场」选择支持 image2text / clip 的厂商并启用一个图像 embedding 模型后,即可创建图像库。
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex-shrink-0"
+            onClick={() => void navigate({ to: '/marketplace' })}
+          >
+            <Cpu className="h-3.5 w-3.5" />
+            去模型广场
+          </Button>
+        </div>
+      )}
 
       <div className="flex justify-end gap-2 border-t border-[var(--cy-border-subtle)] pt-3">
         <Button size="sm" onClick={onSubmit} disabled={!validName || create.isPending || checking}>

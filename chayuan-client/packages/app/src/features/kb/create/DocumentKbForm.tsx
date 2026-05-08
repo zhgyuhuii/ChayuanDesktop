@@ -16,7 +16,7 @@
 
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Loader2, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Cpu, Loader2, ShieldCheck } from 'lucide-react';
 import { Button, Input, Switch, Textarea } from '@chayuan/ui';
 import { serverCapabilityDefaults } from '@chayuan/api';
 import { useCreateDocumentKb } from './useCreateKb';
@@ -28,6 +28,7 @@ export const DocumentKbForm: React.FC<{ onSubmitted(kbName: string): void }> = (
   const [info, setInfo] = React.useState('');
   const [isPublic, setIsPublic] = React.useState(false);
   const [checking, setChecking] = React.useState(false);
+  const [missingModel, setMissingModel] = React.useState(false);
 
   const create = useCreateDocumentKb();
 
@@ -37,8 +38,10 @@ export const DocumentKbForm: React.FC<{ onSubmitted(kbName: string): void }> = (
     if (!validName) return;
 
     // 守卫:无向量化模型时不让走后端 create(后端会因 embed_model 为空抛 404
-    // 之类的难懂错误)。先 list 一次默认 / 候选,缺失就引导到模型广场。
+    // 之类的难懂错误)。先 list 一次默认 / 候选,缺失就在表单内显示横幅
+    // (不用 window.confirm — Tauri 下会触发 dialog plugin ACL 错误)。
     setChecking(true);
+    setMissingModel(false);
     let needConfig = false;
     try {
       const d = await serverCapabilityDefaults.list();
@@ -52,10 +55,7 @@ export const DocumentKbForm: React.FC<{ onSubmitted(kbName: string): void }> = (
       setChecking(false);
     }
     if (needConfig) {
-      const go = window.confirm(
-        '尚未配置文本向量(embedding)模型,无法创建文档库。\n\n是否前往「模型广场」选择并启用一个 embedding 模型?',
-      );
-      if (go) void navigate({ to: '/marketplace' });
+      setMissingModel(true);
       return;
     }
 
@@ -112,6 +112,30 @@ export const DocumentKbForm: React.FC<{ onSubmitted(kbName: string): void }> = (
           统一修改。
         </div>
       </div>
+
+      {missingModel && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50/70 px-3 py-2.5 text-[12px] leading-relaxed text-amber-900"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">尚未配置文本向量(embedding)模型</p>
+            <p className="mt-0.5 text-[11px] text-amber-800/80">
+              在「模型广场」选择任一支持 embedding 的厂商并启用一个 embedding 模型后,即可创建文档库。
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex-shrink-0"
+            onClick={() => void navigate({ to: '/marketplace' })}
+          >
+            <Cpu className="h-3.5 w-3.5" />
+            去模型广场
+          </Button>
+        </div>
+      )}
 
       <div className="flex justify-end gap-2 border-t border-[var(--cy-border-subtle)] pt-3">
         <Button
