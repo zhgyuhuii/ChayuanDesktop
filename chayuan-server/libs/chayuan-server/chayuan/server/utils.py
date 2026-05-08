@@ -813,6 +813,21 @@ def get_Embeddings(
         LocalAIEmbeddings,
     )
 
+    # 单机版 short-circuit:CHAYUAN_ONNX_EMBED_DIR 配置就走本地 ONNX,
+    # 完全无视 platform 路由 — 因为本地 ONNX 不属于任何 HTTP platform,且单机
+    # 用户没配 ollama/openai 时这是唯一可用 embedding。
+    # 只有 local_wrap=False(普通业务调用)才走;local_wrap=True 时上层意图明确
+    # 要走 chayuan-server 自己的 /v1 代理,绕开。
+    if not local_wrap:
+        try:
+            from chayuan.server.embeddings.onnx_local import try_get_local_onnx_embeddings
+            _onnx = try_get_local_onnx_embeddings()
+            if _onnx is not None:
+                logger.debug("[get_Embeddings] 使用本地 ONNX(env CHAYUAN_ONNX_EMBED_DIR)")
+                return _onnx
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[get_Embeddings] ONNX short-circuit 探测失败,继续走 HTTP 路由: %r", e)
+
     embed_model = embed_model or get_default_embedding()
     model_info = get_model_info(model_name=embed_model) or {}
     params = dict(model=embed_model)
