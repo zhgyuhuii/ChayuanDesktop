@@ -32,6 +32,7 @@ import { UserMenuPopover } from '../features/shell/UserMenuPopover';
 import { useFullscreenWorkspace } from '../features/shell/useFullscreenWorkspace';
 import { isSingleMachineMode } from '../features/first-run/useSingleMachineMode';
 import { useCrossWindowSync } from '../features/shell/useCrossWindowSync';
+import { useGlobalDetachedLaneSync } from '../features/model-arena/DetachedLaneRoute';
 import { DetachedToolbar } from '../features/shell/DetachedToolbar';
 import { ArtifactPanel } from '../features/artifact/ArtifactPanel';
 import { CommandPaletteRoot } from '../features/cmdk/CommandPalette';
@@ -48,6 +49,8 @@ export const Chrome: React.FC = () => {
   useDesktopIntegrations();
   useFullscreenWorkspace();
   useCrossWindowSync();
+  // Chrome 是 Router Outlet 的父容器,挂这里 = 整个 app 生命周期都监听 lane:reattach
+  useGlobalDetachedLaneSync();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const showLogin = useLoginModalStore((s) => s.show);
   const { t } = useTranslation();
