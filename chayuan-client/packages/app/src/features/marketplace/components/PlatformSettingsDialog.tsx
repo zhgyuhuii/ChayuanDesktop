@@ -28,7 +28,7 @@ import {
   Textarea,
   cn,
 } from '@chayuan/ui';
-import { Eye, EyeOff, Save, Sparkles, Trash2, Wand2, Wifi } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw, Save, Sparkles, Trash2, Wand2, Wifi } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from '../../../i18n';
 import { notifyInfo, notifySuccess, reportError } from '../../../store/errorDialog';
@@ -51,6 +51,17 @@ const PLATFORM_TYPES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'xinference', label: 'Xinference' },
   { value: 'ollama', label: 'Ollama' },
 ];
+
+/** 本地推理后端 — 不需要 API Key 即可探测/调用 */
+const KEYLESS_PLATFORM_TYPES: ReadonlySet<string> = new Set([
+  'ollama',
+  'xinference',
+  'fastchat',
+]);
+
+function isKeylessType(t: string): boolean {
+  return KEYLESS_PLATFORM_TYPES.has(t);
+}
 
 export interface PlatformSettingsDialogProps {
   /** 非 null 即打开弹窗 */
@@ -236,7 +247,8 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
     if (!platform || !draft) return;
     try {
       if (!persisted) {
-        if (!draft.api_key) {
+        // 本地厂商(ollama / xinference / fastchat)不强制要求 API Key
+        if (!draft.api_key && !isKeylessType(draft.platform_type)) {
           notifyInfo('请先填入 API Key', '新厂商必须先填 API Key 才能测试连通');
           return;
         }
@@ -254,6 +266,66 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
       setTestResult(r);
     } catch (e) {
       reportError(e, '测试失败');
+    }
+  };
+
+  /**
+   * 模型清单右上"刷新"按钮 — 用户主动重新探测可用模型,不依赖 key blur 触发。
+   * 对所有厂商可用(本地厂商无 key 也能跑);流程同 onTest 但额外把 detected
+   * 直接合并进 draft.models,免去再点"一键填入"。
+   */
+  const onRefreshModels = async () => {
+    if (!platform || !draft) return;
+    if (autoFetching) return;
+    setAutoFetching(true);
+    try {
+      if (!persisted) {
+        if (!draft.api_key && !isKeylessType(draft.platform_type)) {
+          notifyInfo('请先填入 API Key', '新厂商必须先填 API Key 才能拉取模型');
+          return;
+        }
+        await createMut.mutateAsync(draftToCreate(platform.platform_name, draft));
+        setPersisted(true);
+        setDraft((d) => (d ? { ...d, api_key_dirty: false } : d));
+      } else if (draft.api_key_dirty || isFieldDirty(platform, draft)) {
+        await updateMut.mutateAsync({
+          name: platform.platform_name,
+          patch: draftToPatch(draft),
+        });
+        setDraft((d) => (d ? { ...d, api_key_dirty: false } : d));
+      }
+      const r = await testMut.mutateAsync(platform.platform_name);
+      setTestResult(r);
+      if (r.reachable) {
+        setDraft((prev) => {
+          if (!prev) return prev;
+          const merged: ModelsByType = { ...prev.models };
+          let added = 0;
+          for (const meta of MODEL_TYPES) {
+            const detected = (r.detected[meta.field] ?? []) as string[];
+            if (!detected.length) continue;
+            const before = new Set(prev.models[meta.key] ?? []);
+            const next = [...new Set([...(prev.models[meta.key] ?? []), ...detected])];
+            merged[meta.key] = next;
+            added += next.filter((m) => !before.has(m)).length;
+          }
+          if (added === 0) {
+            notifyInfo('未发现新模型', '当前模型清单已与服务端探测结果一致');
+          } else {
+            notifySuccess(`已刷新模型清单 — 新增 ${added} 个`);
+          }
+          return { ...prev, models: merged };
+        });
+      } else {
+        reportError(
+          new Error(r.error || '探测失败,请检查 base_url 与网络'),
+          '刷新模型清单失败',
+        );
+      }
+    } catch (e) {
+      reportError(e, '刷新模型清单失败');
+    } finally {
+      setAutoFetching(false);
     }
   };
 
@@ -448,13 +520,20 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
 
           <Field
             label="API Key"
-            hint={autoFetching ? '正在自动拉取模型清单…' : '失焦后自动拉取并归类该厂商的可用模型'}
+            optional={isKeylessType(draft.platform_type)}
+            hint={
+              isKeylessType(draft.platform_type)
+                ? '本地推理后端通常不需要 Key,留空即可'
+                : autoFetching
+                  ? '正在自动拉取模型清单…'
+                  : '失焦后自动拉取并归类该厂商的可用模型'
+            }
           >
             <div className="relative">
               <Input
                 type={showKey ? 'text' : 'password'}
                 value={draft.api_key}
-                placeholder="sk-..."
+                placeholder={isKeylessType(draft.platform_type) ? '可留空(本地后端无需 Key)' : 'sk-...'}
                 onFocus={(e) => {
                   // 第一次聚焦时,如果是 mask,清空让用户重新输入
                   if (!draft.api_key_dirty && draft.api_key === MASK) {
@@ -570,6 +649,23 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
           <Field
             label={t('modelMarket.settings.models.label')}
             hint={t('modelMarket.settings.models.hint')}
+            action={
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                onClick={onRefreshModels}
+                disabled={autoFetching}
+                title={
+                  isKeylessType(draft.platform_type)
+                    ? '重新探测厂商可用模型(本地后端无需 Key)'
+                    : '重新探测厂商可用模型(需先填好 base_url 和 API Key)'
+                }
+              >
+                <RefreshCw className={cn('h-3 w-3', autoFetching && 'animate-spin')} />
+                {autoFetching ? '刷新中…' : '刷新'}
+              </Button>
+            }
           >
             <ModelTypeAccordion
               value={draft.models}
@@ -685,17 +781,22 @@ const Field: React.FC<{
   label: string;
   hint?: string;
   optional?: boolean;
+  /** 字段标题右侧操作槽(如"刷新"按钮) — 与 hint 同位置,优先 action,有 hint 则降到下一行 */
+  action?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ label, hint, optional, children }) => (
+}> = ({ label, hint, optional, action, children }) => (
   <div className="space-y-1">
-    <div className="flex items-baseline justify-between">
+    <div className="flex items-baseline justify-between gap-2">
       <label className="text-xs font-medium text-[var(--cy-text-secondary)]">
         {label}
         {optional && (
           <span className="ml-1 text-[10px] text-[var(--cy-text-tertiary)]">(可选)</span>
         )}
       </label>
-      {hint && <span className="text-[10px] text-[var(--cy-text-tertiary)]">{hint}</span>}
+      <div className="flex items-center gap-2">
+        {hint && <span className="text-[10px] text-[var(--cy-text-tertiary)]">{hint}</span>}
+        {action}
+      </div>
     </div>
     {children}
   </div>
