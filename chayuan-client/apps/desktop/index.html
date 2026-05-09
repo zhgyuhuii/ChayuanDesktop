@@ -23,15 +23,20 @@
     />
     <style>
       /* 第 2 层:html / body 背景 — 必须在 head 里设,才能在 head 解析完的瞬间生效。
-         之前放在 body 里的 style 是次优,首次绘制还是会闪默认白底。 */
+         之前放在 body 里的 style 是次优,首次绘制还是会闪默认白底。
+         注意:**只**在 html 上声明 splash 期间用的深色背景与默认字体;
+         body 不写 background / color,留给 Tailwind `@layer base` 在 bundle
+         加载完后接管(否则 inline 样式优先级压过 layer,浅色主题下 body
+         文字色被锁成 #e2e8f0,所有 <input>/<textarea> 的输入字符灰白看不清)。 */
+      html {
+        background: #0f172a;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+          "Microsoft YaHei", "Helvetica Neue", sans-serif;
+      }
       html, body {
         margin: 0;
         padding: 0;
         height: 100%;
-        background: #0f172a;
-        color: #e2e8f0;
-        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
-          "Microsoft YaHei", "Helvetica Neue", sans-serif;
       }
       #app { height: 100vh; width: 100vw; }
 

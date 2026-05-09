@@ -58,14 +58,18 @@
     />
     <!-- 启动 splash:与 apps/desktop/index.html 同形,详见那里注释。 -->
     <style>
+      /* 只在 html 上声明 splash 期间的深色背景;body 不写 color/background,
+         避免 inline 样式压过 Tailwind @layer base,导致浅色主题下输入框
+         文字色继承 #e2e8f0 而灰白看不清。 */
+      html {
+        background: #0f172a;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+          "Microsoft YaHei", "Helvetica Neue", sans-serif;
+      }
       html, body {
         margin: 0;
         padding: 0;
         height: 100%;
-        background: #0f172a;
-        color: #e2e8f0;
-        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
-          "Microsoft YaHei", "Helvetica Neue", sans-serif;
       }
       #app { height: 100vh; width: 100vw; }
       #chayuan-splash {
