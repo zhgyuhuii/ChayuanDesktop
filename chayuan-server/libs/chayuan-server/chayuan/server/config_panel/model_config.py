@@ -245,6 +245,12 @@ PROVIDER_CATALOG: List[ProviderMeta] = [
     ProviderMeta("openllm",         "OpenLLM",               "openai",
                  "http://127.0.0.1:3000/v1",
                  "openllm.png", "#FB7185", ("本地",)),
+    # Infinity:michaelfeil/infinity 高性能 embedding / reranker 推理服务,OpenAI 兼容。
+    # 后端 install_recipes / infinity_inventory / local_infinity_pip 都已支持,
+    # 这里把它列入 catalog 让模型广场"本地"分类下能看到并配置。
+    ProviderMeta("infinity",        "Infinity",              "openai",
+                 "http://127.0.0.1:7997/v1",
+                 "infinity.png", "#0EA5E9", ("本地",)),
 
     # --- 聚合 / 中转 / 其它 ---
     # One API / New API:本地部署的 LLM 网关 — 用户确认归类到 "本地"
@@ -360,6 +366,7 @@ _PROVIDER_LINKS: Dict[str, Dict[str, str]] = {
     "jan":              {"install": "https://jan.ai/docs/quickstart",                                    "site": "https://jan.ai"},
     "gpt4all":          {"install": "https://docs.gpt4all.io/gpt4all_desktop/quickstart.html",           "site": "https://www.nomic.ai/gpt4all"},
     "openllm":          {"install": "https://github.com/bentoml/OpenLLM#quickstart",                     "site": "https://github.com/bentoml/OpenLLM"},
+    "infinity":         {"install": "https://michaelfeil.github.io/infinity/latest/deploy/",             "site": "https://github.com/michaelfeil/infinity"},
     # —— 自定义 / 兼容 ——
     "oneapi":           {"install": "https://github.com/songquanpeng/one-api#%E9%83%A8%E7%BD%B2",        "site": "https://github.com/songquanpeng/one-api"},
     "new-api":          {"install": "https://docs.newapi.pro/installation/",                             "site": "https://github.com/Calcium-Ion/new-api"},
