@@ -21,22 +21,20 @@
 ;    Delete 静默跳过,不报错。
 ; ====================================================================
 
-!macro NSIS_HOOK_PREINSTALL
-  ; 阻止 Tauri 默认的桌面快捷方式 — 不同 Tauri 版本里这个变量可能叫
-  ; $AddDesktopShortcut 或 $INSTALL_DESKTOP_SHORTCUT,两个都尝试置 0。
-  ; 避免「Tauri 创了一个 ASCII .lnk + hook 又创了一个中文 .lnk」的双图标。
-  ClearErrors
-  StrCpy $AddDesktopShortcut 0
-  ClearErrors
-!macroend
+; PREINSTALL 钩子留空 —— 之前尝试过 ``StrCpy $AddDesktopShortcut 0`` 想阻止
+; Tauri 默认创建快捷方式,但当前 Tauri 2 NSIS 模板里 ``$AddDesktopShortcut``
+; 不再作为顶层 ``Var`` 声明,直接 StrCpy 一个未声明变量会让 makensis 报
+; ``Usage: StrCpy $(user_var: output) ...`` 终止整个脚本生成。
+;
+; 当前策略改为「让 Tauri 默认创建 ASCII 快捷方式 → POSTINSTALL 阶段把它
+; 整批删掉 → 同位置创建中文快捷方式」,POSTINSTALL 在 Tauri 自己的
+; CreateShortcut 之后执行,Delete 命中,最终用户桌面只看到中文图标。
 
 !macro NSIS_HOOK_POSTINSTALL
   ; --- 桌面快捷方式 ---
-  ; 即便 PREINSTALL 已经把 Tauri 默认快捷方式禁掉,这里仍把所有可能名字
-  ; (productName / mainBinaryName / 不同大小写 / 中英带连字符)兜底删一遍,
-  ; 再统一创建中文「察元AI.lnk」。覆盖以下场景:
-  ;   * Tauri 升级后变量改名,PREINSTALL 没拦住默认创建
-  ;   * 老版本安装包残留旧 .lnk(用户升级覆盖装)
+  ; Tauri 2 NSIS 模板会按 productName / mainBinaryName 创建一个 ASCII .lnk;
+  ; 不同版本 / 升级覆盖装可能留下不同名字。这里把所有可能候选名兜底删一
+  ; 遍,再统一创建中文「察元AI.lnk」。
   Delete "$DESKTOP\${PRODUCTNAME}.lnk"
   Delete "$DESKTOP\${MAINBINARYNAME}.lnk"
   Delete "$DESKTOP\Chayuan.lnk"

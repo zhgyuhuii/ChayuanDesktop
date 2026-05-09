@@ -138,6 +138,9 @@ impl SidecarManager {
 }
 
 /// 默认端口与 ``Settings.basic_settings.API_SERVER["port"]`` 对齐。
+/// 实际端口由 ``SidecarManager::new(port)`` 在 ``lib.rs`` 注入,这里仅作
+/// 文档锚点 + 给手动测试用,不会被 import,加 ``#[allow(dead_code)]``。
+#[allow(dead_code)]
 const DEFAULT_PORT: u16 = 62581;
 
 /// 健康探测超时与轮询间隔。``healthz`` 已经包含 DB ping,2s 超时够用。

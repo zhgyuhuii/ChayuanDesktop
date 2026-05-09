@@ -154,6 +154,10 @@ fn check_has_existing_data(path: &Path) -> bool {
 }
 
 /// 当前生效路径:已选则用 persisted,否则 OS 默认。
+///
+/// 暂未被 Rust 侧调用(Tauri 命令直接读 ``chayuan_data_dir_state``),
+/// 留作通用工具函数,加 ``#[allow(dead_code)]`` 防编译告警。
+#[allow(dead_code)]
 pub fn effective_data_dir() -> PathBuf {
     read_persisted()
         .map(|c| PathBuf::from(c.data_dir))
