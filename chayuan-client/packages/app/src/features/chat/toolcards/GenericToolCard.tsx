@@ -3,9 +3,31 @@ import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { ToolCallProps } from './registry';
 
 /** 兜底卡：任何未知工具都用它，展示原始入参与结果 JSON。 */
-export const GenericToolCard: React.FC<ToolCallProps> = ({ name, args, result, status }) => {
+export const GenericToolCard: React.FC<ToolCallProps> = ({ name, args, result, status, embedded }) => {
   const argsText = React.useMemo(() => formatJson(args), [args]);
   const resultText = React.useMemo(() => formatJson(result), [result]);
+
+  const body = (
+    <>
+      {argsText ? (
+        <div>
+          <div className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">入参</div>
+          <pre className="overflow-auto whitespace-pre-wrap rounded bg-background/60 p-2 font-mono text-[11px] text-muted-foreground">{argsText}</pre>
+        </div>
+      ) : null}
+      {resultText ? (
+        <div className={argsText ? 'mt-1.5' : ''}>
+          <div className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">结果</div>
+          <pre className="overflow-auto whitespace-pre-wrap rounded bg-background/60 p-2 font-mono text-[11px]">{resultText}</pre>
+        </div>
+      ) : null}
+      {!argsText && !resultText ? (
+        <span className="text-[11px] text-muted-foreground">无入参与结果数据</span>
+      ) : null}
+    </>
+  );
+
+  if (embedded) return <div className="space-y-1">{body}</div>;
 
   return (
     <div className="rounded-lg border bg-muted/40 px-3 py-2 text-xs">
@@ -22,10 +44,7 @@ export const GenericToolCard: React.FC<ToolCallProps> = ({ name, args, result, s
           {status === 'start' || status === 'delta' ? '调用中…' : status === 'end' ? '已完成' : ''}
         </span>
       </div>
-      {argsText && <pre className="overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">{argsText}</pre>}
-      {resultText && (
-        <pre className="mt-1 overflow-auto rounded bg-background/60 p-2 font-mono text-[11px]">{resultText}</pre>
-      )}
+      {body}
     </div>
   );
 };

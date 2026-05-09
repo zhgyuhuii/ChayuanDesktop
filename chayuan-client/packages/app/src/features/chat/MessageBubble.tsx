@@ -5,7 +5,7 @@ import { deepLinkTrace, logEvent, logScore, Events } from '@chayuan/observabilit
 import { getPlatform } from '@chayuan/platform-shared';
 import { StreamMarkdown } from '../../lib/markdown';
 import type { ChatMessage, ChatCitation } from './useChayuanChat';
-import { ToolCallCard } from './toolcards/registry';
+import { ToolCallsRow } from './toolcards/ToolCallsRow';
 import { chatCitationsToSources } from '@chayuan/api';
 import { KbResultsView } from '../kb/components/KbResultsView';
 
@@ -77,17 +77,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
           </details>
         )}
         {message.toolCalls?.length ? (
-          <div className="space-y-1">
-            {message.toolCalls.map((tc) => (
-              <ToolCallCard
-                key={tc.id}
-                name={tc.name ?? 'unknown'}
-                args={tc.arguments}
-                result={tc.result}
-                status={tc.status}
-              />
-            ))}
-          </div>
+          <ToolCallsRow toolCalls={message.toolCalls} streaming={!!message.streaming} />
         ) : null}
 
         {message.error ? (

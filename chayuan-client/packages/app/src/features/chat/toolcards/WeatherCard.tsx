@@ -16,11 +16,39 @@ interface WeatherResult {
   report_time?: string;
 }
 
-export const WeatherCard: React.FC<ToolCallProps> = ({ name, args, result, status }) => {
+export const WeatherCard: React.FC<ToolCallProps> = ({ name, args, result, status, embedded }) => {
   const a = useParsed<WeatherArgs>(args);
   const r = useParsed<WeatherResult | WeatherResult[]>(result);
   const list: WeatherResult[] = Array.isArray(r) ? r : r ? [r] : [];
   const city = list[0]?.city ?? a?.city ?? a?.location ?? '';
+
+  const body =
+    list.length > 0 ? (
+      <ul className="space-y-1">
+        {list.slice(0, 5).map((w, i) => (
+          <li key={i} className="flex items-center justify-between gap-3 rounded bg-background/60 px-2 py-1">
+            <div>
+              <p className="font-medium">{w.weather ?? '—'}</p>
+              <p className="text-[11px] text-muted-foreground">
+                {(w.windDirection ?? w.wind_direction) ?? ''} {(w.windPower ?? w.wind_power) ?? ''} · 湿度 {w.humidity ?? '—'}%
+              </p>
+            </div>
+            <div className="text-2xl font-bold text-sky-600">{w.temperature ?? '—'}°</div>
+          </li>
+        ))}
+      </ul>
+    ) : status === 'end' ? (
+      <p className="text-muted-foreground">无天气数据</p>
+    ) : null;
+
+  if (embedded) {
+    return (
+      <div>
+        {city ? <div className="mb-1 text-[11px] text-muted-foreground">城市: {city}</div> : null}
+        {body}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border bg-gradient-to-br from-sky-50 to-blue-100 px-3 py-2 text-xs dark:from-sky-950 dark:to-blue-950">
@@ -29,23 +57,7 @@ export const WeatherCard: React.FC<ToolCallProps> = ({ name, args, result, statu
         <span className="font-medium">{name}</span>
         {city && <span className="text-muted-foreground">· {city}</span>}
       </div>
-      {list.length > 0 ? (
-        <ul className="space-y-1">
-          {list.slice(0, 5).map((w, i) => (
-            <li key={i} className="flex items-center justify-between gap-3 rounded bg-background/60 px-2 py-1">
-              <div>
-                <p className="font-medium">{w.weather ?? '—'}</p>
-                <p className="text-[11px] text-muted-foreground">
-                  {(w.windDirection ?? w.wind_direction) ?? ''} {(w.windPower ?? w.wind_power) ?? ''} · 湿度 {w.humidity ?? '—'}%
-                </p>
-              </div>
-              <div className="text-2xl font-bold text-sky-600">{w.temperature ?? '—'}°</div>
-            </li>
-          ))}
-        </ul>
-      ) : status === 'end' ? (
-        <p className="text-muted-foreground">无天气数据</p>
-      ) : null}
+      {body}
     </div>
   );
 };

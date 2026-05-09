@@ -22,6 +22,12 @@ export interface ToolCallProps {
   args?: unknown;
   result?: unknown;
   status?: 'start' | 'delta' | 'end';
+  /**
+   * 嵌入模式 — 由外层 ToolCallsRow 提供 chevron + 名称 + 状态时,
+   * 卡片自己跳过外层圆角壳和重复的 name/status 头,只渲染主体内容。
+   * 默认 false:仍按独立卡片渲染,保留对老调用点的零回归。
+   */
+  embedded?: boolean;
 }
 
 export type ToolCard = React.FC<ToolCallProps>;

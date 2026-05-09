@@ -27,20 +27,13 @@
  *   - 流式过程中**不**写库,仅 isStreaming true→false 落最后两条,避免 token 级 IO 抖动
  */
 
-import * as React from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { uuid } from '@chayuan/platform-shared';
-import { useChayuanChat } from './useChayuanChat';
-import { buildChatRequest } from './buildRequest';
-import { ChatComposer } from '../composer/ChatComposer';
-import { Thread } from './Thread';
-import { AttachmentBar } from './AttachmentBar';
-import { useAttachments } from './useAttachments';
-import { useArtifactSync } from '../artifact/useArtifactSync';
+import { useQueryClient } from '@tanstack/react-query';
+import * as React from 'react';
 import { CHAYUAN_LOGO_URL } from '../../lib/brandAssets';
-import {
-  useComposerScopedStore, useComposerStore, useComposerS,
-} from '../../store/composer';
+import { useComposerS, useComposerScopedStore } from '../../store/composer';
+import { useArtifactSync } from '../artifact/useArtifactSync';
+import { ChatComposer } from '../composer/ChatComposer';
 import {
   appendMessage,
   getConversation,
@@ -48,6 +41,11 @@ import {
   upsertConversation,
 } from '../conversations/persistence';
 import { CONVERSATION_KEYS } from '../conversations/useConversations';
+import { AttachmentBar } from './AttachmentBar';
+import { Thread } from './Thread';
+import { buildChatRequest } from './buildRequest';
+import { useAttachments } from './useAttachments';
+import { useChayuanChat } from './useChayuanChat';
 
 export interface ConversationViewProps {
   /** 当前激活会话 id;null/undefined = 草稿模式(首条消息时 lazy 创建) */
@@ -118,8 +116,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     conversationId: activeId ?? undefined,
     buildRequest:
       buildRequest ??
-      (({ messages, query }) =>
-        buildChatRequest(query, messages, composer.getState())),
+      (({ messages, query }) => buildChatRequest(query, messages, composer.getState())),
     onBranch: async (newConvId, snapshot) => {
       const now = Date.now();
       await upsertConversation({
@@ -143,6 +140,9 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   const setChatMessages = chat.setMessages;
   const lastLoadedRef = React.useRef<string | null>(null);
   const [convMissing, setConvMissing] = React.useState(false);
+  // 已存在会话首次加载期间(listMessages 异步未返回前)显示骨架动画 — 用户进窗口
+  // 立刻有动画,不会先看到一帧空白欢迎屏然后突然切到消息列表
+  const [initialLoading, setInitialLoading] = React.useState(!!conversationId);
   // 关键:草稿模式 lazy-create 时,父级会把 conversationId 从 null 切到新 id;
   // 这一刻 in-memory 已经有 user 消息(刚 push 的)/ assistant 流式中,但本地
   // 数据库 listMessages(newId) 必然返回 [](还没 upsert);如果无脑 setChatMessages([])
@@ -155,11 +155,13 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       setChatMessages((prev) => (prev.length === 0 ? prev : []));
       lastLoadedRef.current = null;
       setConvMissing(false);
+      setInitialLoading(false);
       return;
     }
     if (lastLoadedRef.current === activeId) return;
     lastLoadedRef.current = activeId;
     setConvMissing(false);
+    setInitialLoading(true);
     let cancelled = false;
     void (async () => {
       const msgs = await listMessages(activeId);
@@ -168,6 +170,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       if (msgs.length > 0 || messagesLenRef.current === 0) {
         setChatMessages(msgs);
       }
+      setInitialLoading(false);
       if (msgs.length !== 0 || !/^[0-9a-f-]{20,}$/i.test(activeId)) return;
       const conv = await getConversation(activeId);
       if (cancelled) return;
@@ -196,8 +199,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       const second = chat.messages[chat.messages.length - 2];
       const now = Date.now();
       const title = chat.messages.find((m) => m.role === 'user')?.content.slice(0, 40) || '新对话';
-      const inferredMode =
-        mode ?? (selectedKbsLen ? 'kb' : selectedToolsLen ? 'agent' : 'plain');
+      const inferredMode = mode ?? (selectedKbsLen ? 'kb' : selectedToolsLen ? 'agent' : 'plain');
       await upsertConversation({
         id: cid,
         remote_id: null,
@@ -236,10 +238,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
    *   先看 unifiedSend,unifiedSend=ON 时由 broadcast 接管(本调用早退);
    *   OFF 时正常走完整流程。
    */
-  const handleSend = async (
-    text: string,
-    opts: { bypassUnified?: boolean } = {},
-  ) => {
+  const handleSend = async (text: string, opts: { bypassUnified?: boolean } = {}) => {
     if (!opts.bypassUnified && onBeforeSend) {
       const shouldSkip = await onBeforeSend(text);
       if (shouldSkip) return;
@@ -249,8 +248,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       const id = uuid();
       const now = Date.now();
       const title = text.slice(0, 40) || '新对话';
-      const inferredMode =
-        mode ?? (selectedKbsLen ? 'kb' : selectedToolsLen ? 'agent' : 'plain');
+      const inferredMode = mode ?? (selectedKbsLen ? 'kb' : selectedToolsLen ? 'agent' : 'plain');
       await upsertConversation({
         id,
         remote_id: null,
@@ -276,8 +274,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   handleSendRef.current = handleSend;
   React.useEffect(() => {
     if (!sendMessageRef) return;
-    sendMessageRef.current = (text: string) =>
-      handleSendRef.current(text, { bypassUnified: true });
+    sendMessageRef.current = (text: string) => handleSendRef.current(text, { bypassUnified: true });
     return () => {
       if (sendMessageRef) sendMessageRef.current = null;
     };
@@ -296,9 +293,18 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
           onBranch={(id) => void chat.branchFrom(id)}
         />
       ) : convMissing ? (
-        missingSlot ?? <DefaultMissing onReset={() => { setActive(null); setConvMissing(false); }} />
+        (missingSlot ?? (
+          <DefaultMissing
+            onReset={() => {
+              setActive(null);
+              setConvMissing(false);
+            }}
+          />
+        ))
+      ) : initialLoading ? (
+        <ChatLoadingSkeleton />
       ) : (
-        emptySlot ?? <DefaultEmpty />
+        (emptySlot ?? <DefaultEmpty />)
       )}
 
       <div className="mx-auto w-full max-w-3xl space-y-2 p-4">
@@ -313,10 +319,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                 onPickFile: () => void attachments.pickFiles(),
                 onPickImage: () => void attachments.pickImages(),
                 topSlot: attachments.attachments.length ? (
-                  <AttachmentBar
-                    items={attachments.attachments}
-                    onRemove={attachments.remove}
-                  />
+                  <AttachmentBar items={attachments.attachments} onRemove={attachments.remove} />
                 ) : null,
               }
             : {})}
@@ -325,6 +328,62 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     </div>
   );
 };
+
+/**
+ * 已存在会话首次加载期间的骨架动画 — 替代之前会闪一帧的"欢迎屏"。
+ *
+ * 三条仿消息条目从天而降,带 shimmer 渐变。用户进窗口的瞬间就有动作,
+ * 即便 listMessages 慢一点也不会让人误以为"对话是空的"。
+ */
+const ChatLoadingSkeleton: React.FC = () => (
+  <div className="flex flex-1 flex-col gap-4 px-6 py-8" aria-busy="true" aria-live="polite">
+    <SkeletonRow side="left" widths={['85%', '70%', '40%']} delay={0} />
+    <SkeletonRow side="right" widths={['60%', '45%']} delay={120} />
+    <SkeletonRow side="left" widths={['80%', '55%']} delay={240} />
+    <span className="sr-only">正在加载对话</span>
+    <style>{`
+      @keyframes cySkelShimmer {
+        0% { background-position: -120% 0; }
+        100% { background-position: 220% 0; }
+      }
+      @keyframes cySkelFadeIn {
+        from { opacity: 0; transform: translateY(4px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+    `}</style>
+  </div>
+);
+
+const SkeletonRow: React.FC<{ side: 'left' | 'right'; widths: string[]; delay: number }> = ({
+  side,
+  widths,
+  delay,
+}) => (
+  <div
+    className={`flex max-w-3xl gap-3 ${side === 'right' ? 'ml-auto flex-row-reverse' : ''}`}
+    style={{
+      opacity: 0,
+      animation: 'cySkelFadeIn 280ms ease-out forwards',
+      animationDelay: `${delay}ms`,
+    }}
+  >
+    <div className="h-8 w-8 flex-shrink-0 rounded-full bg-muted/70" />
+    <div className={`flex flex-col gap-2 ${side === 'right' ? 'items-end' : 'items-start'}`}>
+      {widths.map((w, i) => (
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: widths 是静态数组,渲染期间不重排;index 即唯一稳定键
+          key={`${side}-${i}`}
+          className="h-4 rounded-md bg-gradient-to-r from-muted/40 via-muted/80 to-muted/40 bg-[length:220%_100%]"
+          style={{
+            width: w,
+            animation: 'cySkelShimmer 1.4s linear infinite',
+            animationDelay: `${i * 120}ms`,
+          }}
+        />
+      ))}
+    </div>
+  </div>
+);
 
 /** 默认欢迎屏 — ChatPage 老形态 */
 const DefaultEmpty: React.FC = () => (

@@ -4,10 +4,19 @@ import type { ToolCallProps } from './registry';
 
 interface CalcArgs { expression?: string; expr?: string; query?: string }
 
-export const CalculatorCard: React.FC<ToolCallProps> = ({ name, args, result, status }) => {
+export const CalculatorCard: React.FC<ToolCallProps> = ({ name, args, result, status, embedded }) => {
   const a = useParsed<CalcArgs>(args);
   const expr = a?.expression ?? a?.expr ?? a?.query ?? '';
   const value = formatResult(result);
+
+  const body = (
+    <pre className="rounded bg-background/60 p-2 font-mono text-sm">
+      {expr || '—'} <span className="text-muted-foreground">= </span>
+      <span className="font-bold">{value}</span>
+    </pre>
+  );
+
+  if (embedded) return <div>{body}</div>;
 
   return (
     <div className="rounded-lg border bg-amber-50 px-3 py-2 text-xs dark:bg-amber-950/40">
@@ -15,10 +24,7 @@ export const CalculatorCard: React.FC<ToolCallProps> = ({ name, args, result, st
         {status === 'end' ? <Calculator className="h-3.5 w-3.5 text-amber-500" /> : <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />}
         <span className="font-medium">{name}</span>
       </div>
-      <pre className="rounded bg-background/60 p-2 font-mono text-sm">
-        {expr || '—'} <span className="text-muted-foreground">= </span>
-        <span className="font-bold">{value}</span>
-      </pre>
+      {body}
     </div>
   );
 };
