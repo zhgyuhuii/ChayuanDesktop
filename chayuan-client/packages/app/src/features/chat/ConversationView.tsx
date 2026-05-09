@@ -222,17 +222,25 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     qc,
   ]);
 
-  // 96 题:把 sendMessage 暴露给父级(Lane / SendRegistry 用于 fanout)
-  React.useEffect(() => {
-    if (sendMessageRef) sendMessageRef.current = chat.sendMessage;
-    return () => {
-      if (sendMessageRef) sendMessageRef.current = null;
-    };
-  }, [sendMessageRef, chat.sendMessage]);
-
-  const handleSend = async (text: string) => {
-    // 96 题:外部拦截器(Arena 统一发送时,parent 调 broadcast 后返 true 中止本道)
-    if (onBeforeSend) {
+  /**
+   * 96 题:统一发送 dispatch。
+   *
+   * - opts.bypassUnified:跳过 onBeforeSend 拦截器。
+   *   父级(MultiLaneShell.broadcast)统一发送时,会反过来调每条 lane 的
+   *   ``sendMessageRef.current(text)``,调到的是这个函数本身;如果不 bypass,
+   *   每条 lane 又会触发自己的 onBeforeSend → broadcast → 死循环。
+   *   bypass=true 让父级 dispatch 走完整 handleSend 流程(草稿建 / setActive
+   *   / onConversationCreated / chat.sendMessage),但跳掉拦截器这一步。
+   *
+   * - 用户主动按发送(走 ChatComposer.onSend)→ bypass=false → onBeforeSend
+   *   先看 unifiedSend,unifiedSend=ON 时由 broadcast 接管(本调用早退);
+   *   OFF 时正常走完整流程。
+   */
+  const handleSend = async (
+    text: string,
+    opts: { bypassUnified?: boolean } = {},
+  ) => {
+    if (!opts.bypassUnified && onBeforeSend) {
       const shouldSkip = await onBeforeSend(text);
       if (shouldSkip) return;
     }
@@ -259,6 +267,21 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     await chat.sendMessage(text);
     if (enableAttachments) attachments.reset();
   };
+
+  // 暴露给父级的 sendMessage(给 MultiLaneShell.broadcast 用):
+  // 走完整 handleSend(草稿创建 / 落库 / 流式),但跳过 onBeforeSend 防 broadcast 死循环。
+  // 之前直接绑 chat.sendMessage 是 bug — 那个 raw fn 绕过草稿创建,activeId=null 时
+  // 静默不发,导致"统一发送没反应,输入丢失"。
+  const handleSendRef = React.useRef(handleSend);
+  handleSendRef.current = handleSend;
+  React.useEffect(() => {
+    if (!sendMessageRef) return;
+    sendMessageRef.current = (text: string) =>
+      handleSendRef.current(text, { bypassUnified: true });
+    return () => {
+      if (sendMessageRef) sendMessageRef.current = null;
+    };
+  }, [sendMessageRef]);
 
   return (
     <div className={`flex h-full flex-col ${className ?? ''}`}>
