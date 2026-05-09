@@ -29,6 +29,10 @@ from langchain_openai.chat_models import ChatOpenAI
 from langchain_openai.llms import OpenAI
 from memoization import cached, CachingAlgorithmFlag
 
+# 触发 langchain / openai 等三方库的兼容补丁(reasoning_content 回传 等),
+# 必须在 ChatOpenAI import 之后但任何调用之前;放最早的 utils 文件即可。
+from chayuan.server import compat as _compat  # noqa: F401
+
 from chayuan.settings import CHAYUAN_ROOT, Settings, XF_MODELS_TYPES
 from chayuan.server.pydantic_v2 import BaseModel, Field
 from chayuan.utils import build_logger
