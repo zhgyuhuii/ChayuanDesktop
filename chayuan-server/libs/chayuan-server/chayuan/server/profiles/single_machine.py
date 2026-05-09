@@ -113,3 +113,11 @@ def apply_single_machine() -> None:
     os.environ.setdefault("CHAYUAN_REDIS", "disabled")
     os.environ.setdefault("CHAYUAN_QUEUE", "inproc")
     os.environ.setdefault("CHAYUAN_VECTOR_STORE", "sqlite-vec")
+    # 单机版打包安装产物不应该触发 pip 自动装 redis / arq 等服务依赖 ——
+    # ① 安装目录(C:\Program Files\... / /opt/...)对普通用户只读,pip 必失败;
+    # ② 即使能装,单机模式 ``CHAYUAN_REDIS=disabled`` 已经走 inproc 降级,
+    #    redis/arq 模块根本不会被业务代码调用,装了也是浪费;
+    # ③ 装失败的报错日志(GBK reader 死、镜像不可达)对用户是噪音。
+    # ``CHAYUAN_AUTO_INSTALL_DEPS=false`` 让 ensure_pkg 直接返回 False,业务侧
+    # 走「无 redis 时降级到 inproc」的代码路径。
+    os.environ.setdefault("CHAYUAN_AUTO_INSTALL_DEPS", "false")

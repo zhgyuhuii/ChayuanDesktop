@@ -150,11 +150,17 @@ def _run_pip_install(requirement: str, *, index_url: Optional[str], quiet: bool)
 
     logger.info("chayuan.deps: pip install %s (index=%s)", requirement, index_url or "<default>")
     try:
+        # Windows 上 ``text=True`` 默认走 ``locale.getpreferredencoding()``,中文版
+        # 系统是 GBK;pip 输出 UTF-8 字节会让 subprocess._readerthread 在 .decode()
+        # 时抛 UnicodeDecodeError 把整条 reader 线程崩掉,日志只剩乱码尾巴。
+        # 强制 utf-8 + errors=replace 兜底,日志最差也是问号占位,不丢线程。
         result = subprocess.run(
             cmd,
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=_PIP_TOTAL_TIMEOUT,
         )
     except (subprocess.TimeoutExpired, OSError) as e:

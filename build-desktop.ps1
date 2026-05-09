@@ -482,7 +482,7 @@ if ($SkipHealthcheck) {
     $ready = $false
     while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
         try {
-            $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:7861/healthz' `
+            $r = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:62581/healthz' `
                 -TimeoutSec 2 -ErrorAction Stop
             if ($r.StatusCode -eq 200) {
                 $ready = $true
