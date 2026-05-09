@@ -23,6 +23,22 @@
 .PARAMETER SkipFrontend
   跳过 Step 3。只想出 sidecar 不打 Tauri 包时用。
 
+.PARAMETER SkipInstall
+  跳过 Step 3 内的 ``pnpm install --frozen-lockfile``。lockfile 没动 +
+  node_modules 已经齐时,能省 30s-数分钟(取决于网速 / 缓存命中)。
+
+.PARAMETER SkipTypecheck
+  跳过 Step 3 内的 ``pnpm typecheck``(几十秒到 1 分钟,取决于改动量)。
+  仅在调试 build 流程 / installer.nsh / 后端时用,业务代码改动**不要**跳。
+
+.PARAMETER BundleOnly
+  最快重打:只跑 Tauri bundle 这一步(cargo + vite 走增量缓存,
+  makensis 重做)。等价于
+  ``-SkipServer -SkipHealthcheck -SkipInstall -SkipTypecheck`` +
+  直接到 apps/desktop 跑 ``pnpm exec tauri build``。
+  适合「sidecar 已经存在 + 改了 installer.nsh / 上次 makensis 报错」
+  的场景,通常 1-3 分钟出包。
+
 .PARAMETER Clean
   动手前先删 chayuan-server\dist 与 apps\desktop\src-tauri\target\release\bundle。
 
@@ -42,6 +58,14 @@
   # 改了前端 React 代码,sidecar 不变,只重打 Tauri 包(约 2 分钟)。
 
 .EXAMPLE
+  .\build-desktop.ps1 -BundleOnly
+  # exe 已经编译过,只是上次 makensis 出问题。直接重跑 Tauri bundle。
+
+.EXAMPLE
+  .\build-desktop.ps1 -SkipServer -SkipHealthcheck -SkipInstall
+  # sidecar 已最新 + node_modules 已齐,只想重新跑 typecheck + vite + tauri。
+
+.EXAMPLE
   .\build-desktop.ps1 -Clean -VerboseSubprocess
   # 干净重建 + 完整日志,常用于排查打包问题。
 #>
@@ -52,10 +76,23 @@ param(
     [switch]$SkipServer,
     [switch]$SkipHealthcheck,
     [switch]$SkipFrontend,
+    [switch]$SkipInstall,
+    [switch]$SkipTypecheck,
+    [switch]$BundleOnly,
     [switch]$Clean,
     [switch]$NoColor,
     [switch]$VerboseSubprocess
 )
+
+# ``-BundleOnly`` 是个组合开关:展开后等价于把 sidecar / health / install /
+# typecheck 全跳过,只重做 Tauri bundle 那步(cargo + vite 走增量缓存)。
+# 在所有日常逻辑判断之前就把它展开,后面就没有 BundleOnly 这个名词的味道。
+if ($BundleOnly) {
+    $SkipServer = $true
+    $SkipHealthcheck = $true
+    $SkipInstall = $true
+    $SkipTypecheck = $true
+}
 
 # ====================================================================
 # WorkspaceRoot 兜底:PS 5.1 + .cmd 转发 -File 时,$PSScriptRoot 偶发为空,
@@ -520,17 +557,37 @@ if ($SkipFrontend) {
 } else {
     Write-Step 'Step 3: chayuan-client Tauri bundle'
 
-    Invoke-Step -Name 'pnpm-install' `
-        -WorkDir $ClientDir `
-        -Command 'pnpm' -Arguments @('install', '--frozen-lockfile')
+    if ($SkipInstall) {
+        Write-Skip 'Step 3a [pnpm install] (--SkipInstall)'
+    } else {
+        Invoke-Step -Name 'pnpm-install' `
+            -WorkDir $ClientDir `
+            -Command 'pnpm' -Arguments @('install', '--frozen-lockfile')
+    }
 
-    Invoke-Step -Name 'pnpm-typecheck' `
-        -WorkDir $ClientDir `
-        -Command 'pnpm' -Arguments @('typecheck')
+    if ($SkipTypecheck) {
+        Write-Skip 'Step 3b [pnpm typecheck] (--SkipTypecheck)'
+    } else {
+        Invoke-Step -Name 'pnpm-typecheck' `
+            -WorkDir $ClientDir `
+            -Command 'pnpm' -Arguments @('typecheck')
+    }
 
-    Invoke-Step -Name 'pnpm-build-desktop' `
-        -WorkDir $ClientDir `
-        -Command 'pnpm' -Arguments @('build:desktop')
+    if ($BundleOnly) {
+        # cargo / vite 走增量缓存,只重做 Tauri bundle(makensis 等)。
+        # 注意:不能直接调 ``pnpm --filter @chayuan/desktop build``,因为
+        # 那个里面带 ``tsc + vite build``,与本入口想跳过的 typecheck 重复。
+        # ``pnpm exec tauri build`` 等价于在 apps/desktop 内调 tauri build,
+        # 它会走自身依赖图(vite 增量构建 + cargo 增量编译 + bundle)。
+        $DesktopDir = Join-Path $ClientDir 'apps\desktop'
+        Invoke-Step -Name 'tauri-build (bundle-only)' `
+            -WorkDir $DesktopDir `
+            -Command 'pnpm' -Arguments @('exec', 'tauri', 'build')
+    } else {
+        Invoke-Step -Name 'pnpm-build-desktop' `
+            -WorkDir $ClientDir `
+            -Command 'pnpm' -Arguments @('build:desktop')
+    }
 
     $artifacts = @()
     foreach ($pat in @('msi\*.msi', 'nsis\*.exe')) {
