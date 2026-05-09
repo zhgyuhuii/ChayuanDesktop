@@ -21,15 +21,31 @@
 ;    Delete 静默跳过,不报错。
 ; ====================================================================
 
+!macro NSIS_HOOK_PREINSTALL
+  ; 阻止 Tauri 默认的桌面快捷方式 — 不同 Tauri 版本里这个变量可能叫
+  ; $AddDesktopShortcut 或 $INSTALL_DESKTOP_SHORTCUT,两个都尝试置 0。
+  ; 避免「Tauri 创了一个 ASCII .lnk + hook 又创了一个中文 .lnk」的双图标。
+  ClearErrors
+  StrCpy $AddDesktopShortcut 0
+  ClearErrors
+!macroend
+
 !macro NSIS_HOOK_POSTINSTALL
   ; --- 桌面快捷方式 ---
-  ; Tauri 2 NSIS 模板会按 productName / mainBinaryName 创建一个 ASCII 名 .lnk;
-  ; 不同版本里这个变量名可能是 ${PRODUCTNAME} / ${MAINBINARYNAME},甚至两个都用。
-  ; 这里把可能出现的几种名字全删一遍,再创建自己想要的中文图标,避免桌面双图标。
+  ; 即便 PREINSTALL 已经把 Tauri 默认快捷方式禁掉,这里仍把所有可能名字
+  ; (productName / mainBinaryName / 不同大小写 / 中英带连字符)兜底删一遍,
+  ; 再统一创建中文「察元AI.lnk」。覆盖以下场景:
+  ;   * Tauri 升级后变量改名,PREINSTALL 没拦住默认创建
+  ;   * 老版本安装包残留旧 .lnk(用户升级覆盖装)
   Delete "$DESKTOP\${PRODUCTNAME}.lnk"
   Delete "$DESKTOP\${MAINBINARYNAME}.lnk"
   Delete "$DESKTOP\Chayuan.lnk"
   Delete "$DESKTOP\chayuan.lnk"
+  Delete "$DESKTOP\Chayuan AI.lnk"
+  Delete "$DESKTOP\Chayuan-AI.lnk"
+  Delete "$DESKTOP\chayuan-desktop.lnk"
+  Delete "$DESKTOP\察元.lnk"
+  Delete "$DESKTOP\察元 AI.lnk"
   CreateShortCut "$DESKTOP\察元AI.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
 
   ; --- 开始菜单(Tauri 默认放在 SMPROGRAMS\${PRODUCTNAME}\ 子目录下) ---
@@ -47,10 +63,15 @@
 !macro NSIS_HOOK_PREUNINSTALL
   ; 卸载时清理可能残留的所有图标(中文 + 英文,以防之前装的版本只有英文图标)
   Delete "$DESKTOP\察元AI.lnk"
+  Delete "$DESKTOP\察元.lnk"
+  Delete "$DESKTOP\察元 AI.lnk"
   Delete "$DESKTOP\${PRODUCTNAME}.lnk"
   Delete "$DESKTOP\${MAINBINARYNAME}.lnk"
   Delete "$DESKTOP\Chayuan.lnk"
   Delete "$DESKTOP\chayuan.lnk"
+  Delete "$DESKTOP\Chayuan AI.lnk"
+  Delete "$DESKTOP\Chayuan-AI.lnk"
+  Delete "$DESKTOP\chayuan-desktop.lnk"
 
   Delete "$SMPROGRAMS\察元AI\察元AI.lnk"
   RMDir  "$SMPROGRAMS\察元AI"
