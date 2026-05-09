@@ -1,28 +1,43 @@
 /**
- * 设置页(单机版精简版)。
+ * 设置页(参考图"设置")。
  *
- * 仅保留五组面向单机用户实际可控的项,其它(主题/字号/语言/默认模型/关于
- * 等)走头像下拉的 UserMenuPopover 或独立模型广场,不在本页重复:
+ * 视觉:**不渲染顶部「系统设置」标题、不渲染各分组的 label**,
+ * 只保留卡片本身和卡片内的逐行内容(用户在 2026-05-09 反馈中明确要求
+ * 「这些列的名称都应该去掉」)。
  *
- *   1. 名称设置 ── 改本机昵称(写 settings.displayName)
- *   2. 后端服务 ── 自定义 baseURL + 连通性「测试」按钮 + 「保存」生效
- *   3. 上传    ── 上传遥测开关 + 「测试」按钮(打一次 ping 看上传是否走通)
- *   4. 知识中心 ── 添加结构化数据库 source
- *   5. 快捷工具 ── AI 键
+ * 结构(从上到下,每张卡都是无 label 的圆角容器):
  *
- * 单机红线(2026-05-09):移除「个人设置/本地用户/更换声音/语言/字号/主题/
- * 默认模型/高级开关/关于」等页内重复项与无后端项。设置页顶部不再渲染标题
- * 「系统设置」,与同形 KbBoard / Marketplace 等页面保持一致。
+ *   1. 基础(主题 / 字号 / 语言 / 名称设置 / 后端服务 / 上传遥测 + 测试上传)
+ *   2. 默认模型(聊天 / 文本嵌入 / 图像嵌入 / 重排)
+ *   3. 知识中心(添加结构化数据库)
+ *   4. 快捷工具(AI 键)
+ *   5. 高级(本地模型对话 / 设备调优 / 教学)
+ *   6. 关于(应用名 + 版本 + 检测更新)
+ *
+ * 与老实现的差异:
+ *   - 删掉 ``<h1>{settings.title}</h1>`` 顶部大标题
+ *   - 删掉 「个人设置」整个分组(单机版无登录概念,只有「本地用户」一行没意义)
+ *   - 删掉 「更换声音」行(无后端能力,空按钮误导)
+ *   - 「名称设置」 改为 ``<Input>`` + 保存按钮,写 settings.displayName,
+ *     UserMenuPopover 头像下拉同步显示
+ *   - 「上传遥测」 下新增「测试上传」按钮验证后端可达 + 开关生效
+ *   - Section 的 ``label`` 不再渲染 ``<h2>``,但卡片视觉保留(圆角 + 边框)
  */
 
-import { configureClient } from '@chayuan/api';
+import {
+  type CapabilityDefaultsResponse,
+  configureClient,
+  serverCapabilityDefaults,
+} from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
-import { Button, Input, Pill, Switch, cn } from '@chayuan/ui';
-import { Database, Loader2, Plus } from 'lucide-react';
+import { Button, Input, Pill, Slider, Switch, cn } from '@chayuan/ui';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
+import { Cpu, Database, Loader2, Monitor, Moon, Plus, RotateCcw, Sun } from 'lucide-react';
 import * as React from 'react';
-import { useTranslation } from '../../i18n';
+import { SUPPORTED_LOCALES, useTranslation } from '../../i18n';
 import { notifySuccess, reportError } from '../../store/errorDialog';
-import { useSettingsStore } from '../../store/settings';
+import { type LocalePreference, type ThemeMode, useSettingsStore } from '../../store/settings';
 import { AddStructuredSourceDialog } from '../kb/AddStructuredSourceDialog';
 
 export const SettingsAsPage: React.FC = () => {
@@ -30,6 +45,7 @@ export const SettingsAsPage: React.FC = () => {
   const settings = useSettingsStore();
   const platform = getPlatform();
   const defaultApi = platform.runtime.defaultApiBase;
+
   const [nameInput, setNameInput] = React.useState(settings.displayName);
   const [apiInput, setApiInput] = React.useState(settings.apiBaseOverride);
   const [apiTesting, setApiTesting] = React.useState(false);
@@ -41,6 +57,9 @@ export const SettingsAsPage: React.FC = () => {
     ok: boolean;
     msg: string;
   }>(null);
+  const [localModel, setLocalModel] = React.useState(false);
+  const [deviceOpt, setDeviceOpt] = React.useState(true);
+  const [teachMe, setTeachMe] = React.useState(true);
   const [addStructuredOpen, setAddStructuredOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -53,15 +72,14 @@ export const SettingsAsPage: React.FC = () => {
     notifySuccess('名称已保存', v || '已恢复默认显示');
   };
 
-  /** 「保存」即写 settings + 走 configureClient,生效全局 axios */
-  const onSaveApi = () => {
+  const onApplyApi = () => {
     const trimmed = apiInput.trim();
     settings.setApiBaseOverride(trimmed);
     configureClient({ baseURL: trimmed || defaultApi });
     notifySuccess('后端服务已切换', trimmed || defaultApi || '同源');
   };
 
-  /** 「测试」走 GET /healthz,5s 超时,只看 reachable + 状态码 */
+  /** GET /healthz,5s 超时,只看 reachable + 状态码 */
   const onTestApi = async () => {
     const target = (apiInput.trim() || defaultApi || '').replace(/\/+$/, '');
     if (!target) {
@@ -91,12 +109,11 @@ export const SettingsAsPage: React.FC = () => {
     }
   };
 
-  /** 上传通道测试:发一条最小遥测 ping,看 outbox 是否能写入(本地 + 后端均可) */
+  /** 验证「后端可达 + 上传遥测开关已开」即视为上传通道通畅。 */
   const onTestUpload = async () => {
     setUploadTesting(true);
     setUploadTestResult(null);
     try {
-      // 用 healthz 兜底:遥测最终也要走后端。后端可达 + telemetry 开 → 视为通畅。
       const target = (settings.apiBaseOverride.trim() || defaultApi || '').replace(/\/+$/, '');
       if (!target) {
         setUploadTestResult({ ok: false, msg: '后端地址未配置' });
@@ -128,8 +145,70 @@ export const SettingsAsPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-8">
-      {/* 名称设置 */}
-      <Section label={t('settings.changeName')}>
+      {/* 基础 */}
+      <Section>
+        <Row
+          title={t('settings.theme')}
+          trailing={
+            <div className="flex gap-1">
+              {THEME_OPTS.map((o) => {
+                const Icon = o.icon;
+                const active = settings.theme === o.value;
+                const labelKey =
+                  o.value === 'light'
+                    ? 'settings.themeLight'
+                    : o.value === 'dark'
+                      ? 'settings.themeDark'
+                      : 'settings.themeSystem';
+                return (
+                  <Pill
+                    key={o.value}
+                    active={active}
+                    tone={active ? 'ink' : 'outline'}
+                    size="sm"
+                    onClick={() => settings.setTheme(o.value)}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {t(labelKey)}
+                  </Pill>
+                );
+              })}
+            </div>
+          }
+        />
+        <Row
+          title={`${t('settings.fontSize')} (${settings.fontSize}px)`}
+          trailing={
+            <div className="w-40">
+              <Slider
+                min={12}
+                max={22}
+                step={1}
+                value={[settings.fontSize]}
+                onValueChange={([v]) => v !== undefined && settings.setFontSize(v)}
+              />
+            </div>
+          }
+        />
+        <Row
+          title={t('settings.language')}
+          trailing={
+            <select
+              value={settings.locale}
+              onChange={(e) => settings.setLocale(e.target.value as LocalePreference)}
+              className={cn(
+                'rounded-md border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-2 py-1 text-sm',
+              )}
+            >
+              <option value="system">{t('language.system')}</option>
+              {SUPPORTED_LOCALES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          }
+        />
         <Row title={t('settings.changeName')} description={t('settings.changeNameDesc')}>
           <div className="mt-3 flex items-center gap-2">
             <Input
@@ -148,10 +227,6 @@ export const SettingsAsPage: React.FC = () => {
             </Button>
           </div>
         </Row>
-      </Section>
-
-      {/* 后端服务 */}
-      <Section label={t('settings.backend')}>
         <Row title={t('settings.backend')} description={t('settings.backendUrlDesc')}>
           <div className="mt-3 flex items-center gap-2">
             <Input
@@ -166,7 +241,7 @@ export const SettingsAsPage: React.FC = () => {
               {apiTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
               测试
             </Button>
-            <Button size="sm" variant="outline" onClick={onSaveApi}>
+            <Button size="sm" variant="outline" onClick={onApplyApi}>
               {t('common.save')}
             </Button>
           </div>
@@ -184,10 +259,6 @@ export const SettingsAsPage: React.FC = () => {
             </p>
           ) : null}
         </Row>
-      </Section>
-
-      {/* 上传 */}
-      <Section label="上传">
         <Row
           title="上传遥测"
           description="开启后会把对话/检索的非内容指标(token、延迟、错误码)异步上传给本机后端;关闭后仅本地暂存"
@@ -197,8 +268,7 @@ export const SettingsAsPage: React.FC = () => {
               onCheckedChange={(b) => settings.setTelemetry(b)}
             />
           }
-        />
-        <Row title="测试上传" description="发一条最小 ping,验证本机后端可达且上传开关生效">
+        >
           <div className="mt-3 flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={onTestUpload} disabled={uploadTesting}>
               {uploadTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
@@ -221,8 +291,11 @@ export const SettingsAsPage: React.FC = () => {
         </Row>
       </Section>
 
-      {/* 知识中心 */}
-      <Section label={t('nav.knowledge')}>
+      {/* 默认模型 — 模型广场配好厂商后,这里挑哪一个用做默认 */}
+      <DefaultModelsSection />
+
+      {/* 知识库管理 */}
+      <Section>
         <Row
           title="结构化数据库"
           description="MySQL / PostgreSQL / SQL Server / Oracle / 金仓 / 达梦 / ClickHouse / Doris / Hive 等"
@@ -237,7 +310,7 @@ export const SettingsAsPage: React.FC = () => {
       </Section>
 
       {/* 快捷工具 */}
-      <Section label={t('settings.shortcuts')}>
+      <Section>
         <Row
           title={t('settings.aiKey')}
           description={t('settings.aiKeyDesc')}
@@ -249,16 +322,83 @@ export const SettingsAsPage: React.FC = () => {
         />
       </Section>
 
+      {/* 高级(M4 占位 — 后端缺对应能力,前端开关只持久化本地偏好) */}
+      <Section>
+        <Row
+          title={t('settings.localModel')}
+          description={t('settings.localModelDesc')}
+          trailing={<Switch checked={localModel} onCheckedChange={setLocalModel} />}
+        />
+        <Row
+          title={t('settings.deviceOptimize')}
+          description={t('settings.deviceOptimizeDesc')}
+          trailing={<Switch checked={deviceOpt} onCheckedChange={setDeviceOpt} />}
+        />
+        <Row
+          title={t('settings.teachMe')}
+          description={t('settings.teachMeDesc')}
+          trailing={<Switch checked={teachMe} onCheckedChange={setTeachMe} />}
+        />
+      </Section>
+
+      {/* 关于 */}
+      <Section>
+        <Row
+          title={`${platform.runtime.appName} · ${platform.runtime.appVersion}`}
+          description={platform.kind}
+          trailing={
+            platform.updater && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  // biome-ignore lint/style/noNonNullAssertion: 上面 platform.updater 真值守卫已确保非空
+                  const upd = await platform.updater!.check();
+                  if (upd.available) {
+                    if (confirm(`发现新版本 ${upd.version}。立即安装?`)) {
+                      // biome-ignore lint/style/noNonNullAssertion: 同上
+                      await platform.updater!.install();
+                    }
+                  } else {
+                    notifySuccess('已是最新版本');
+                  }
+                }}
+              >
+                {t('settings.checkUpdate')}
+              </Button>
+            )
+          }
+        />
+      </Section>
+
+      <div className="mt-8 flex justify-end">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            if (!confirm('恢复默认设置?')) return;
+            settings.reset();
+            setApiInput('');
+            setNameInput('');
+            configureClient({ baseURL: defaultApi });
+          }}
+        >
+          <RotateCcw className="h-4 w-4" />
+          恢复默认
+        </Button>
+      </div>
+
       <AddStructuredSourceDialog open={addStructuredOpen} onOpenChange={setAddStructuredOpen} />
     </div>
   );
 };
 
-const Section: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+/**
+ * 设置页分组容器 — **不渲染 ``<h2>`` 标题**(用户要求)。
+ * 仅保留圆角边框 + 浅色背景,把内部 Row 视觉成一组。
+ */
+const Section: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <section className="mt-6 first:mt-0">
-    <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--cy-text-tertiary)]">
-      {label}
-    </h2>
     <div className="overflow-hidden rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]">
       {children}
     </div>
@@ -282,3 +422,122 @@ const Row: React.FC<{
     {trailing && <div className="flex-shrink-0">{trailing}</div>}
   </div>
 );
+
+const THEME_OPTS: Array<{
+  value: ThemeMode;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { value: 'light', icon: Sun },
+  { value: 'dark', icon: Moon },
+  { value: 'system', icon: Monitor },
+];
+
+// 设置页"默认模型"分组 — 与模型广场保持单向数据流:
+// 广场配好厂商/模型 → list() 候选刷新 → 这里挑选 → setMany() 写盘 → 业务读真源。
+//
+// 显示哪几类:对应 UI 上"聊天 / 文本嵌入 / 图像嵌入 / 重排"等用户最常配置的能力;
+// 其它(t2i/t2v/tts/asr/ocr)留在 RuntimeCenter 全量面板,这里只暴露 4 类高频。
+const VISIBLE_CAPS: Array<{ cap: string; label: string; hint: string }> = [
+  { cap: 'chat', label: '聊天模型', hint: '问答 / 写作 / 多轮对话' },
+  { cap: 'embedding', label: '文本向量模型', hint: '知识库索引 / 语义检索' },
+  { cap: 'clip', label: '图像向量模型', hint: '图片知识库 / 多模态检索' },
+  { cap: 'rerank', label: '重排模型', hint: '检索后精排提升相关性' },
+];
+
+const DefaultModelsSection: React.FC = () => {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const { data, isLoading, error } = useQuery<CapabilityDefaultsResponse>({
+    queryKey: ['serverCapabilityDefaults'],
+    queryFn: () => serverCapabilityDefaults.list(),
+    staleTime: 30_000,
+  });
+
+  const onPick = React.useCallback(
+    async (cap: string, modelId: string) => {
+      try {
+        const res = await serverCapabilityDefaults.setMany({ [cap]: modelId });
+        const r = res.results?.[cap];
+        if (r?.ok) {
+          notifySuccess(
+            '已设为默认',
+            `${VISIBLE_CAPS.find((c) => c.cap === cap)?.label ?? cap} → ${modelId}`,
+          );
+          await qc.invalidateQueries({ queryKey: ['serverCapabilityDefaults'] });
+        } else {
+          reportError(new Error(r?.error || '保存失败'), '保存默认模型失败');
+        }
+      } catch (e) {
+        reportError(e, '保存默认模型失败');
+      }
+    },
+    [qc],
+  );
+
+  return (
+    <Section>
+      {error ? (
+        <Row
+          title="无法读取默认模型"
+          description={`后端服务可能未就绪;${(error as Error)?.message ?? error}`}
+        />
+      ) : isLoading || !data ? (
+        <Row title="加载中…" description="正在读取已配置的厂商和模型清单" />
+      ) : (
+        VISIBLE_CAPS.map(({ cap, label, hint }) => {
+          const candidates = data.candidates[cap] ?? [];
+          const current = data.defaults[cap] ?? '';
+          if (candidates.length === 0) {
+            return (
+              <Row
+                key={cap}
+                title={label}
+                description={`${hint} · 暂无可选模型`}
+                trailing={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void navigate({ to: '/marketplace' })}
+                  >
+                    <Cpu className="h-3.5 w-3.5" />
+                    去模型广场
+                  </Button>
+                }
+              />
+            );
+          }
+          return (
+            <Row
+              key={cap}
+              title={label}
+              description={hint}
+              trailing={
+                <select
+                  value={current}
+                  onChange={(e) => void onPick(cap, e.target.value)}
+                  className={cn(
+                    'min-w-[180px] max-w-[260px] rounded-md border border-[var(--cy-border-default)]',
+                    'bg-[var(--cy-surface-base)] px-2 py-1 text-sm',
+                  )}
+                  data-testid={`settings-default-${cap}`}
+                >
+                  {!current && (
+                    <option value="" disabled>
+                      请选择
+                    </option>
+                  )}
+                  {candidates.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.id}
+                      {c.runtime ? ` · ${c.runtime}` : ''}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
+          );
+        })
+      )}
+    </Section>
+  );
+};
