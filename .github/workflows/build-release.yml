@@ -1,0 +1,236 @@
+name: Build desktop installers
+
+# 触发方式:
+#   1. push 了 ``v<x.y.z>`` 形式的 tag → 走完整 5 路矩阵 + 上传到 GitHub Release。
+#   2. workflow_dispatch 手动触发 → 同样跑矩阵但不发布,产物作为 artifacts 留 14 天。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '可选:写入 GitHub Release 的 tag(留空则只跑矩阵不发布)'
+        required: false
+
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write   # 创建 GitHub Release 用
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 五路矩阵:三平台 × x86_64/ARM64 主流组合。
+          # 任一节点失败不阻塞其它节点(fail-fast=false),便于先放出能成功的部分。
+          - label: macos-x64
+            os: macos-13
+            triple: x86_64-apple-darwin
+            shell: bash
+            build_cmd: ./build-desktop.sh
+            artifact_glob: |
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+          - label: macos-arm64
+            os: macos-14
+            triple: aarch64-apple-darwin
+            shell: bash
+            build_cmd: ./build-desktop.sh
+            artifact_glob: |
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+          - label: linux-x64
+            os: ubuntu-22.04
+            triple: x86_64-unknown-linux-gnu
+            shell: bash
+            build_cmd: ./build-desktop.sh
+            artifact_glob: |
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/rpm/*.rpm
+          - label: linux-arm64
+            os: ubuntu-24.04-arm
+            triple: aarch64-unknown-linux-gnu
+            shell: bash
+            build_cmd: ./build-desktop.sh
+            artifact_glob: |
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/rpm/*.rpm
+          - label: windows-x64
+            os: windows-2022
+            triple: x86_64-pc-windows-msvc
+            shell: cmd
+            build_cmd: build-desktop.cmd
+            artifact_glob: |
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+              chayuan-client/apps/desktop/src-tauri/target/release/bundle/msi/*.msi
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # ── 工具链:Python 3.11 / pnpm 9 / Rust stable / Poetry ──────────
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node + pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Setup pnpm cache (Node 20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: chayuan-client/pnpm-lock.yaml
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.triple }}
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: chayuan-client/apps/desktop/src-tauri -> target
+          key: ${{ matrix.triple }}
+
+      # ── 系统依赖(仅 Linux):Tauri webkit2gtk + AppImage 工具链 ──────
+      - name: Install Linux system deps
+        if: startsWith(matrix.os, 'ubuntu-')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            patchelf \
+            libssl-dev \
+            curl \
+            wget \
+            file
+
+      - name: Install Poetry
+        run: pip install --upgrade pip "poetry>=1.8,<2.0"
+
+      - name: Install PyInstaller
+        run: pip install "pyinstaller>=6.0"
+
+      - name: Poetry install (chayuan-server)
+        working-directory: chayuan-server
+        run: poetry install --no-interaction
+
+      # ── macOS 公证(可选):配了 secrets 才走 ─────────────────────────
+      # 没配也不阻塞,Tauri 会跳过 codesign / notarize。
+      - name: Set Apple signing env (macOS only)
+        if: startsWith(matrix.os, 'macos-')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          echo "如果上面 5 个 secret 都为空,本步是 no-op,Tauri 会输出未签名 .dmg。"
+          if [ -n "${APPLE_CERTIFICATE:-}" ]; then
+            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE" >> "$GITHUB_ENV"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+            echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD" >> "$GITHUB_ENV"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+          fi
+
+      # ── 主入口:每个平台跑各自的 build script ────────────────────────
+      - name: Build (Unix)
+        if: matrix.shell == 'bash'
+        shell: bash
+        run: |
+          chmod +x ./build-desktop.sh
+          ${{ matrix.build_cmd }}
+
+      - name: Build (Windows)
+        if: matrix.shell == 'cmd'
+        shell: cmd
+        run: |
+          ${{ matrix.build_cmd }}
+
+      # ── 收集产物 + 校验非空 ──────────────────────────────────────────
+      - name: Collect artifacts
+        id: collect
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _release_out
+          shopt -s nullglob
+          patterns="${{ matrix.artifact_glob }}"
+          count=0
+          while IFS= read -r p; do
+            [ -z "$p" ] && continue
+            for f in $p; do
+              cp "$f" _release_out/
+              echo "  picked $f"
+              count=$((count+1))
+            done
+          done <<< "$patterns"
+          if [ "$count" = "0" ]; then
+            echo "::error::没有产物可收集 (matrix=${{ matrix.label }})"
+            exit 1
+          fi
+          ls -la _release_out/
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chayuan-${{ matrix.label }}
+          path: _release_out/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: chayuan-*
+          merge-multiple: true
+          path: dist
+
+      - name: List final artifacts
+        run: ls -la dist/
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: ${{ inputs.release_tag || github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
