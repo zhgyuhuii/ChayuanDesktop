@@ -608,18 +608,35 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
             </Field>
           </div>
 
-          {/* 自动检测开关 + 测试结果(含一键填入) — 放在模型清单上方,先看连通性再编模型 */}
-          <div className="flex items-center gap-2 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 py-2">
+          {/* 自动检测开关 + 测试连通按钮 — 同一行左右对称
+              左:开关 + 标题 + 简短副标(单行,长则截断)
+              右:[测试连通] 固定宽度,与左侧描述区视觉等量,不再让开关行独占整行
+              测试结果 / 一键填入仍在下方独立块展示,不挤同一行 */}
+          <div className="flex items-center gap-3 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 py-2">
             <Switch
               checked={draft.auto_detect_model}
               onCheckedChange={(v) => set('auto_detect_model', v)}
             />
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-[var(--cy-text-primary)]">自动检测可用模型</p>
-              <p className="text-[10px] text-[var(--cy-text-tertiary)]">
-                启用后,服务侧周期性探测厂商可用模型清单(适合 ollama / xinference)
+              <p className="truncate text-[10px] text-[var(--cy-text-tertiary)]" title="启用后,服务侧周期性探测厂商可用模型清单(适合 ollama / xinference)">
+                周期性探测(ollama / xinference)
               </p>
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 shrink-0 px-3"
+              onClick={onTest}
+              disabled={testMut.isPending || createMut.isPending || updateMut.isPending}
+            >
+              {testMut.isPending || createMut.isPending || updateMut.isPending ? (
+                <AssistantBrandLogo running className="h-3.5 w-3.5 rounded-full" />
+              ) : (
+                <Wifi className="h-3.5 w-3.5" />
+              )}
+              {!persisted ? '保存并测试' : '测试连通'}
+            </Button>
           </div>
 
           {testResult && (
@@ -756,19 +773,7 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
             </span>
           )}
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onTest}
-              disabled={testMut.isPending || createMut.isPending || updateMut.isPending}
-            >
-              {testMut.isPending || createMut.isPending || updateMut.isPending ? (
-                <AssistantBrandLogo running className="h-3.5 w-3.5 rounded-full" />
-              ) : (
-                <Wifi className="h-3.5 w-3.5" />
-              )}
-              {!persisted ? '保存并测试' : '测试连通'}
-            </Button>
+            {/* 测试连通已移到「自动检测」开关同行右侧,这里页脚只保留「取消 / 保存」 */}
             <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
               取消
             </Button>

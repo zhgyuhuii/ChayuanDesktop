@@ -16,6 +16,7 @@
 import { Button, Input, cn } from '@chayuan/ui';
 import { ArrowRightLeft, Plus, X } from 'lucide-react';
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 
 interface Row {
   /** 稳定 key —— react 列表 key 用,不参与业务 */
@@ -198,24 +199,53 @@ const ModelRow: React.FC<{
 
   // "移到其他类型" 菜单 — 自包含的弹出菜单(不引外部 Popover 依赖);
   // 点外部 / 选完一项 / Esc 都关闭。
+  //
+  // 菜单走 React Portal 挂到 document.body 用 ``position: fixed``,绕开
+  // ModelTypeAccordion 容器的 ``overflow-hidden``(那是为了裁圆角带的)
+  // 否则下拉会被裁掉一半。
   const [moveOpen, setMoveOpen] = React.useState(false);
   const moveRootRef = React.useRef<HTMLDivElement>(null);
+  const moveBtnRef = React.useRef<HTMLButtonElement>(null);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = React.useState<{ top: number; left: number } | null>(null);
+
+  // 计算菜单位置:贴在按钮下方右对齐(菜单 w-40 = 10rem,按 1rem=16px → 160px)
+  const computeMenuPos = React.useCallback(() => {
+    const btn = moveBtnRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    const menuWidth = 160;
+    const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, r.right - menuWidth));
+    setMenuPos({ top: r.bottom + 4, left });
+  }, []);
+
   React.useEffect(() => {
-    if (!moveOpen) return;
+    if (!moveOpen) {
+      setMenuPos(null);
+      return;
+    }
+    computeMenuPos();
     const onDoc = (e: MouseEvent) => {
-      if (!moveRootRef.current) return;
-      if (!moveRootRef.current.contains(e.target as Node)) setMoveOpen(false);
+      if (moveRootRef.current?.contains(e.target as Node)) return;
+      if (menuRef.current?.contains(e.target as Node)) return;
+      setMoveOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setMoveOpen(false);
     };
+    const onScrollOrResize = () => computeMenuPos();
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onScrollOrResize);
+    // capture 监听任意祖先滚动(scroll 事件不冒泡,改用 capture)
+    window.addEventListener('scroll', onScrollOrResize, true);
     return () => {
       document.removeEventListener('mousedown', onDoc);
       document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onScrollOrResize);
+      window.removeEventListener('scroll', onScrollOrResize, true);
     };
-  }, [moveOpen]);
+  }, [moveOpen, computeMenuPos]);
 
   const showMoveBtn = !!moveTargets?.length && !!onMoveToType && !!row.value.trim();
 
@@ -229,8 +259,9 @@ const ModelRow: React.FC<{
         className="h-8 font-mono text-xs"
       />
       {showMoveBtn && (
-        <div ref={moveRootRef} className="relative flex-shrink-0">
+        <div ref={moveRootRef} className="flex-shrink-0">
           <button
+            ref={moveBtnRef}
             type="button"
             onClick={() => setMoveOpen((v) => !v)}
             aria-label="移到其他类型"
@@ -242,8 +273,13 @@ const ModelRow: React.FC<{
           >
             <ArrowRightLeft className="h-3.5 w-3.5" />
           </button>
-          {moveOpen && (
-            <div className="absolute right-0 top-full z-30 mt-1 w-40 overflow-hidden rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] py-1 shadow-[var(--cy-shadow-md)]">
+          {moveOpen && menuPos && typeof document !== 'undefined' && createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, zIndex: 1000 }}
+              className="w-40 overflow-hidden rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] py-1 shadow-[var(--cy-shadow-md)]"
+            >
               <p className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-[var(--cy-text-tertiary)]">
                 移到其他类型
               </p>
@@ -260,7 +296,8 @@ const ModelRow: React.FC<{
                   {t.label}
                 </button>
               ))}
-            </div>
+            </div>,
+            document.body,
           )}
         </div>
       )}
