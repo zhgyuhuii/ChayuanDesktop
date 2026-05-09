@@ -43,7 +43,7 @@
           http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
           https:;
         connect-src 'self'
-          http://127.0.0.1:7861 http://127.0.0.1:3000
+          http://127.0.0.1:62581 http://127.0.0.1:3000
           http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
           ws://localhost:* ws://127.0.0.1:* ws://host.docker.internal:* ws://43.110.110.15:*
           wss: https:;
@@ -56,26 +56,35 @@
           http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*;
       "
     />
-  </head>
-  <body>
     <!-- 启动 splash:与 apps/desktop/index.html 同形,详见那里注释。 -->
     <style>
-      html, body { margin: 0; padding: 0; height: 100%; background: #0f172a; }
-      #app { height: 100vh; width: 100vw; }
-      .cy-splash {
-        position: relative;
-        display: flex;
+      html, body {
+        margin: 0;
+        padding: 0;
         height: 100%;
-        width: 100%;
+        background: #0f172a;
+        color: #e2e8f0;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+          "Microsoft YaHei", "Helvetica Neue", sans-serif;
+      }
+      #app { height: 100vh; width: 100vw; }
+      #chayuan-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483646;
+        display: flex;
         align-items: center;
         justify-content: center;
         overflow: hidden;
         background:
           radial-gradient(ellipse at center,
-            rgba(99,102,241,0.18), rgba(14,165,233,0.10) 45%, transparent 70%),
+            rgba(99,102,241,0.20), rgba(14,165,233,0.10) 45%, transparent 70%),
           #0f172a;
+        opacity: 1;
+        transition: opacity 360ms ease-out;
       }
-      .cy-splash * { box-sizing: border-box; }
+      #chayuan-splash.cy-splash-fading { opacity: 0; pointer-events: none; }
+      #chayuan-splash * { box-sizing: border-box; }
       .cy-splash-ring {
         position: absolute;
         width: 132px; height: 132px;
@@ -104,8 +113,11 @@
         animation: cy-splash-orbit-3 3.4s linear infinite;
       }
       .cy-splash-core {
-        position: relative; display: flex; align-items: center; justify-content: center;
-        overflow: hidden; width: 56px; height: 56px; border-radius: 50%;
+        position: relative;
+        display: flex; align-items: center; justify-content: center;
+        overflow: hidden;
+        width: 56px; height: 56px;
+        border-radius: 50%;
         background: radial-gradient(circle at 30% 30%, #a5b4fc, #6366f1 60%, #4338ca);
         box-shadow: 0 0 24px rgba(99,102,241,0.55), inset 0 0 12px rgba(255,255,255,0.35);
         animation: cy-splash-pulse 1.6s ease-in-out infinite;
@@ -117,9 +129,12 @@
         filter: blur(2px);
       }
       .cy-splash-tag {
-        position: absolute; bottom: 8vh; left: 0; right: 0; text-align: center;
-        font: 500 13px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-        color: rgba(226,232,240,0.85); letter-spacing: 0.06em;
+        position: absolute;
+        bottom: 8vh; left: 0; right: 0;
+        text-align: center;
+        font-size: 13px; font-weight: 500; line-height: 1.6;
+        color: rgba(226,232,240,0.85);
+        letter-spacing: 0.06em;
       }
       .cy-splash-tag-sub { margin-top: 6px; font-size: 11px; color: rgba(148,163,184,0.85); }
       @keyframes cy-splash-spin     { to { transform: rotate(360deg); } }
@@ -145,23 +160,24 @@
         100% { transform: translateX( 120%); }
       }
     </style>
-    <div id="app">
-      <div class="cy-splash" aria-busy="true" aria-live="polite">
-        <div class="cy-splash-ring"></div>
-        <div class="cy-splash-orbits">
-          <span class="cy-splash-orbit cy-splash-o1"></span>
-          <span class="cy-splash-orbit cy-splash-o2"></span>
-          <span class="cy-splash-orbit cy-splash-o3"></span>
-        </div>
-        <div class="cy-splash-core">
-          <span class="cy-splash-shimmer"></span>
-        </div>
-        <div class="cy-splash-tag">
-          察元 AI
-          <div class="cy-splash-tag-sub">正在加载…</div>
-        </div>
+  </head>
+  <body>
+    <div id="chayuan-splash" aria-busy="true" aria-live="polite">
+      <div class="cy-splash-ring"></div>
+      <div class="cy-splash-orbits">
+        <span class="cy-splash-orbit cy-splash-o1"></span>
+        <span class="cy-splash-orbit cy-splash-o2"></span>
+        <span class="cy-splash-orbit cy-splash-o3"></span>
+      </div>
+      <div class="cy-splash-core">
+        <span class="cy-splash-shimmer"></span>
+      </div>
+      <div class="cy-splash-tag">
+        察元 AI
+        <div class="cy-splash-tag-sub">正在加载…</div>
       </div>
     </div>
+    <div id="app"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
