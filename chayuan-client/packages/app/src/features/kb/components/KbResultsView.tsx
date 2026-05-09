@@ -40,6 +40,7 @@ import {
   type RetrievalSource,
   summarizeSources,
 } from '@chayuan/api';
+import { getPlatform } from '@chayuan/platform-shared';
 import { usePreviewStore } from '../../preview/previewStore';
 
 const KIND_META: Record<
@@ -248,12 +249,13 @@ const GroupCard: React.FC<{
       });
       const tok = await getAccessToken();
       if (tok) qs.set('token', tok);
-      const a = document.createElement('a');
-      a.href = `${base}/knowledge_base/download_doc?${qs.toString()}`;
-      a.download = group.download.fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      const url = `${base}/knowledge_base/download_doc?${qs.toString()}`;
+      // Tauri webview 下 ``<a download>`` 不可靠 — WebView2 默认拦截下载、不走
+      // 标准浏览器下载流程,用户感知就是"点了下载没反应"。改走 platform.shell.openExternal
+      // 把 URL 交给系统默认浏览器,浏览器拿到 Content-Disposition: attachment 自然
+      // 触发下载,文件落到用户的下载目录。
+      // platform-web 的 openExternal 兜底 window.open,行为对 Web 端也合理(新 tab 触发下载)。
+      void getPlatform().shell.openExternal(url);
     },
     [group.download],
   );
