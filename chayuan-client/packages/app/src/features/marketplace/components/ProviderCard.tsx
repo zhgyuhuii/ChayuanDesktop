@@ -30,6 +30,8 @@ import {
   modelTypeColors,
 } from '../lib/modelTypes';
 import { ModelTagsRow } from './ModelTagsRow';
+import { getInstallGuide } from '../installGuides/data';
+import { InstallGuideDialog } from './InstallGuideDialog';
 
 export interface ProviderCardProps {
   platform: PlatformConfig;
@@ -121,6 +123,14 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
       if (activeCapability === CAPABILITY_ANY) return groups;
       return groups.filter((g) => g.type === activeCapability);
     }, [groups, activeCapability]);
+
+    // 本地厂商「安装指南」按钮:有内置 InstallGuide 数据的厂商弹离线 dialog,
+    // 否则回退到 openExternal 跳官网。data 在 installGuides/data.ts 维护。
+    const installGuide = React.useMemo(
+      () => getInstallGuide(platform.platform_name),
+      [platform.platform_name],
+    );
+    const [guideOpen, setGuideOpen] = React.useState(false);
 
     return (
       <div
@@ -281,24 +291,28 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
 
         {/* 右下行动条:本地厂商优先「安装指南」,否则「申请 Key」;再后面是 ⚙️ 设置(admin) */}
         <div className="absolute right-1.5 bottom-1.5 flex items-center gap-0.5">
-          {(installGuideUrl || applyKeyUrl) && (
+          {(installGuide || installGuideUrl || applyKeyUrl) && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
+                // 本地厂商有内置 InstallGuide 数据 → 弹离线 dialog,无需联网
+                if (installGuide) {
+                  setGuideOpen(true);
+                  return;
+                }
+                // 否则:云厂商「申请 Key」/ 没有内置指南的本地厂商「安装指南外链」
+                // 走 openExternal 唤起系统浏览器(Tauri webview 下 a target=_blank 不响应)
                 const url = installGuideUrl || applyKeyUrl;
                 if (!url) return;
-                // Tauri webview 下 <a target="_blank"> 不会唤起系统浏览器,必须走
-                // plugin-shell.open。Web 平台 platform-web 的 openExternal 兜底
-                // window.open(url, '_blank'),行为一致。
                 void getPlatform().shell.openExternal(url);
               }}
               aria-label={
-                installGuideUrl
+                installGuide || installGuideUrl
                   ? `${platform.platform_name} 安装指南`
                   : `${platform.platform_name} 申请 API Key`
               }
-              title={installGuideUrl ? '安装指南' : '申请 API Key'}
+              title={installGuide || installGuideUrl ? '安装指南' : '申请 API Key'}
               className={cn(
                 'inline-flex h-7 w-7 items-center justify-center rounded-full text-[var(--cy-text-tertiary)] transition-all',
                 'hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]',
@@ -308,12 +322,19 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
                   : 'opacity-0 group-hover:opacity-100',
               )}
             >
-              {installGuideUrl ? (
+              {installGuide || installGuideUrl ? (
                 <DownloadIcon className="h-3.5 w-3.5" />
               ) : (
                 <KeyRound className="h-3.5 w-3.5" />
               )}
             </button>
+          )}
+          {/* 本地厂商离线安装指南 dialog;guideOpen=false 时不渲染内容,无开销 */}
+          {installGuide && (
+            <InstallGuideDialog
+              guide={guideOpen ? installGuide : null}
+              onOpenChange={(o) => setGuideOpen(o)}
+            />
           )}
           {onOpenSettings && (
             <button
