@@ -18,6 +18,7 @@
 
 import { type ModelMetadata, type PlatformConfig, resolveLogoUrl } from '@chayuan/api';
 import { cn } from '@chayuan/ui';
+import { getPlatform } from '@chayuan/platform-shared';
 import { Download as DownloadIcon, KeyRound, Settings as SettingsIcon } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from '../../../i18n';
@@ -281,11 +282,17 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
         {/* 右下行动条:本地厂商优先「安装指南」,否则「申请 Key」;再后面是 ⚙️ 设置(admin) */}
         <div className="absolute right-1.5 bottom-1.5 flex items-center gap-0.5">
           {(installGuideUrl || applyKeyUrl) && (
-            <a
-              href={installGuideUrl || applyKeyUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              onClick={(e) => e.stopPropagation()}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                const url = installGuideUrl || applyKeyUrl;
+                if (!url) return;
+                // Tauri webview 下 <a target="_blank"> 不会唤起系统浏览器,必须走
+                // plugin-shell.open。Web 平台 platform-web 的 openExternal 兜底
+                // window.open(url, '_blank'),行为一致。
+                void getPlatform().shell.openExternal(url);
+              }}
               aria-label={
                 installGuideUrl
                   ? `${platform.platform_name} 安装指南`
@@ -306,7 +313,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
               ) : (
                 <KeyRound className="h-3.5 w-3.5" />
               )}
-            </a>
+            </button>
           )}
           {onOpenSettings && (
             <button
