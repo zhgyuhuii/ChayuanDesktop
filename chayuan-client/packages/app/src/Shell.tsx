@@ -248,15 +248,24 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
   // hook),也算 hook。 — 单机版 v0 排查白屏踩到的坑。
   const singleMachine = useSingleMachineMode();
 
+  // Tauri 子窗(永道拖出 / 文件预览)运行在主窗同一个 Tauri 进程内,sidecar 已由
+  // 主窗启起并保持 ready;再让子窗自己走 FirstRunSetup → SidecarGate 没意义,
+  // 反而会闪「正在启动后端服务」。这里直接放行进 RouterProvider,baseURL 走
+  // env.apiBase(= SINGLE_MACHINE_BASE,127.0.0.1:7861),沿用主窗已经起好的服务。
+  const isChildWindow =
+    typeof window !== 'undefined' &&
+    (window.location.pathname.startsWith('/arena/detached') ||
+      window.location.pathname.startsWith('/preview-window'));
+
   if (!i18nReady || !hydrated || authRequired === null) {
     return <AuthBootScreen />;
   }
 
-  if (!dataDirReady) {
+  if (!isChildWindow && !dataDirReady) {
     return <FirstRunSetup onConfigured={handleDataDirConfigured} />;
   }
 
-  if (!sidecarReady) {
+  if (!isChildWindow && !sidecarReady) {
     return <SidecarGate dataDir={dataDirPath} onReady={handleSidecarReady} />;
   }
 
