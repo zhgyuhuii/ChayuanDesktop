@@ -20,6 +20,7 @@
  */
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { getPlatform } from '@chayuan/platform-shared';
 import { ChatWindow } from '../chat/ChatWindow';
 import { useModelArenaStore, type Lane as LaneState } from '../../store/modelArena';
 
@@ -179,18 +180,54 @@ export function useDetachedLaneSync(scope: string): void {
 
 
 /**
- * 触发拖出 — 由 LaneHeader [⬈] 按钮调用。
+ * 触发拖出 — 由 LaneHeader [⬈] 按钮 / ChatPage 顶栏拖出按钮调用。
  *
  * 主窗:
- *   1. setDetached(scope, laneId, true) → MultiLaneShell 不再渲染该 lane
- *   2. window.open('/arena/detached?lane=<id>&scope=<id>', name, features)
- *      name 用 laneId,重复点不会再开多个窗;scope 传给子窗,reattach 时回路用
+ *   1. setDetached(scope, laneId, true) → MultiLaneShell 不再渲染该 lane(调用方负责)
+ *   2. 在桌面端用 ``platform.preview.openWindow`` 创建原生 WebviewWindow;
+ *      在 Web 端 platform-web.preview.openWindow 兜底 ``window.open``。
+ *      label 用 ``arena-<laneId>``,Tauri 同 label 已存在则 focus 旧窗口(不重复开)。
+ *
+ * 历史:之前用 ``window.open`` 直接调,在 Tauri webview 下完全不响应(WebView2
+ * 默认不允许 window.open 创建新窗口)。改成走 platform.preview.openWindow 后
+ * Tauri 端用 WebviewWindow 创建真原生子窗,Web 端仍走 window.open,体验一致。
+ *
+ * 返回 boolean:成功打开(或 focus 已有窗) → true;平台不支持 / 调用失败 → false。
+ * 调用方据此决定是否 setDetached(失败时不要切状态,否则 lane 在主窗消失但没有
+ * 独立窗口接管,用户感知就是"按了按钮 lane 消失了")。
  */
-export function openDetachedLaneWindow(scope: string, laneId: string, modelId?: string | null): Window | null {
+export async function openDetachedLaneWindow(
+  scope: string,
+  laneId: string,
+  modelId?: string | null,
+): Promise<boolean> {
   const url = `/arena/detached?lane=${encodeURIComponent(laneId)}&scope=${encodeURIComponent(scope)}`;
-  const features = 'width=520,height=720,resizable=yes,scrollbars=yes';
-  const win = window.open(url, `arena-${laneId}`, features);
-  // 把当前 model 等初始 state 推过去(BroadcastChannel 微秒级延迟)
+  const previewApi = getPlatform().preview;
+  if (!previewApi) {
+    // 平台没有 preview 能力(理论不会发生,Tauri 和 Web 都实现了)— 退化用 window.open
+    try {
+      const win = window.open(url, `arena-${laneId}`, 'width=520,height=720,resizable=yes,scrollbars=yes');
+      if (!win) return false;
+    } catch {
+      return false;
+    }
+  } else {
+    try {
+      await previewApi.openWindow({
+        path: url,
+        label: `arena-${laneId}`,
+        title: '察元 AI · 永道',
+        width: 520,
+        height: 720,
+      });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[arena] open detached lane window failed:', e);
+      return false;
+    }
+  }
+
+  // 把当前 model 等初始 state 推过去(子窗 mount 后接收;BroadcastChannel 跨原生窗口同源工作)
   if (typeof BroadcastChannel !== 'undefined') {
     const ch = new BroadcastChannel(DETACHED_CHANNEL);
     setTimeout(() => {
@@ -202,9 +239,9 @@ export function openDetachedLaneWindow(scope: string, laneId: string, modelId?: 
       } finally {
         ch.close();
       }
-    }, 200);  // 等子窗 mount 后再推
+    }, 200);
   }
-  return win;
+  return true;
 }
 
 

@@ -18,6 +18,7 @@
 import * as React from 'react';
 import { ExternalLink, Plus } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
+import { AdvancedParams } from './AdvancedParams';
 import { StreamMetrics } from './StreamMetrics';
 import { useArtifactStore } from '../../store/artifact';
 import { useTabsStore } from '../../store/tabs';
@@ -108,12 +109,16 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
    *   - 单泳道:lanes[0] 就是 main 道,直接 detach 它
    *   - 多泳道:取第一条非 detached 的 lane(v1 简化:不跟踪 focused)
    *   - detach 后由上面 effect 监听 active 数 = 0 跳 /home,本回调不重复跳
+   *
+   * openDetachedLaneWindow 是 async(走 platform.preview.openWindow 走 Tauri
+   * WebviewWindow 创建原生子窗);只有成功(返 true)才 setDetached,失败时
+   * 保持 lane 在主窗,避免"按了按钮 lane 消失但没有窗口接管"的悬停态。
    */
-  const onPopout = React.useCallback(() => {
+  const onPopout = React.useCallback(async () => {
     const target = lanes.find((l) => !l.detached);
     if (!target) return;
-    openDetachedLaneWindow(scope, target.id, target.modelId);
-    setDetached(scope, target.id, true);
+    const ok = await openDetachedLaneWindow(scope, target.id, target.modelId);
+    if (ok) setDetached(scope, target.id, true);
   }, [lanes, scope, setDetached]);
 
   // 顶栏右侧:[Artifact 切换?] [☐ 统一发送(仅多道显示)] [拖出] [+ 添加]
@@ -146,7 +151,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
           )}
           <button
             type="button"
-            onClick={onPopout}
+            onClick={() => void onPopout()}
             title="拖出独立窗口"
             aria-label="拖出独立窗口"
             className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
@@ -162,6 +167,9 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
             <Plus className="h-3.5 w-3.5" />
             添加
           </button>
+          {/* 高级参数 — 放「+ 添加」右侧。Lane 内 ChatWindow 顶栏已 showHeader=false,
+              这里成为唯一入口,作用域是当前 chat 路由的全局 composer state */}
+          <AdvancedParams />
         </div>
       </header>
       <div className="min-h-0 flex-1">

@@ -15,11 +15,12 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  Languages, Library, Layers3, Plug, Wrench,
+  Library, Layers3, Plug, Wrench,
   AlertCircle, ExternalLink, Github, Globe,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
+import { cn } from '@chayuan/ui';
 import { useAuthStore } from '../../store/auth';
 import { useTabsStore } from '../../store/tabs';
 import { useTranslation } from '../../i18n';
@@ -41,15 +42,6 @@ interface CapItem {
 }
 
 const CAPS: ReadonlyArray<CapItem> = [
-  {
-    id: 'translate',
-    icon: Languages,
-    title: 'AI 翻译',
-    subtitle: '中英日韩互译,长文档批量翻译',
-    to: '/skill/translate',
-    gradient: 'from-cyan-50 to-sky-100 dark:from-cyan-900/30 dark:to-sky-800/40',
-    iconBg: 'bg-gradient-to-br from-cyan-400 to-sky-500',
-  },
   {
     id: 'kb',
     icon: Library,
@@ -154,42 +146,66 @@ export const HomePage: React.FC = () => {
   };
 
   // ── 流式产品介绍 ────────────────────────────────────────────────
-  // 进首页时拉一次;LLM 不可用就抛 error → catch 后用静态文案兜底。
-  // 切走再切回(KeepAlive)不会重新拉,因为 effect 只跑一次(组件实例 mount 一次)。
-  // 如果用户想"再来一份",留个手动刷新按钮触发重新生成。
+  // 行为:进首页 / 切回 tab → 拉一段 LLM 流式介绍;每段流完 4s 后**自动启下一段**,
+  // 让用户在主页停留期间一直有"机器人不停在介绍产品"的现场感。
+  // 离开 tab(unmount / KeepAlive 切到背景)→ AbortController 中止,清掉 timer。
+  // LLM 不可用时 catch 后从 5 段静态文案随机一段兜底,自动循环切换静态文案。
   const [intro, setIntro] = React.useState('');
   const [introDone, setIntroDone] = React.useState(false);
   const [introError, setIntroError] = React.useState<string | null>(null);
   const introAbortRef = React.useRef<AbortController | null>(null);
+  const introLoopTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const introLoopAlive = React.useRef(true);
+
   const startIntro = React.useCallback(() => {
     introAbortRef.current?.abort();
+    if (introLoopTimerRef.current) clearTimeout(introLoopTimerRef.current);
     const ctl = new AbortController();
     introAbortRef.current = ctl;
     setIntro('');
     setIntroDone(false);
     setIntroError(null);
+
+    const scheduleNext = () => {
+      if (!introLoopAlive.current) return;
+      // 流完后 4s 自动开下一段;期间 cursor 暂停,文案静态停留供用户阅读
+      introLoopTimerRef.current = setTimeout(() => {
+        if (introLoopAlive.current) startIntro();
+      }, 4000);
+    };
+
     void home.introStream(
       {
         onChunk: (text) => setIntro((prev) => prev + text),
-        onDone: () => setIntroDone(true),
+        onDone: () => {
+          setIntroDone(true);
+          scheduleNext();
+        },
       },
       { signal: ctl.signal },
     ).catch((e: unknown) => {
       if ((e as { name?: string })?.name === 'AbortError' || ctl.signal.aborted) return;
-      // LLM 不可用 / 调用失败 → 静态文案兜底
+      // LLM 不可用 / 调用失败 → 静态文案兜底,继续循环换文案
       setIntro(pickStaticIntro());
       setIntroDone(true);
       setIntroError(e instanceof Error ? e.message : String(e));
+      scheduleNext();
     });
   }, []);
+
   React.useEffect(() => {
+    introLoopAlive.current = true;
     startIntro();
-    return () => introAbortRef.current?.abort();
+    return () => {
+      introLoopAlive.current = false;
+      introAbortRef.current?.abort();
+      if (introLoopTimerRef.current) clearTimeout(introLoopTimerRef.current);
+    };
   }, [startIntro]);
 
   return (
     <div className="mx-auto flex h-full max-w-5xl flex-col gap-8 px-6 py-10 overflow-y-auto">
-      {/* ── 1. Greeting ───────────────────────────────────────── */}
+      {/* ── 1. Greeting + 流式介绍气泡 ─────────────────────────── */}
       <div className="flex items-center gap-3">
         <img
           src={CHAYUAN_LOGO_URL}
@@ -206,6 +222,28 @@ export const HomePage: React.FC = () => {
             )}
           </h1>
           <p className="text-sm text-[var(--cy-text-tertiary)]">察元 AI · 本地优先的办公 AI 工作台</p>
+        </div>
+      </div>
+
+      {/* 流式介绍气泡 — 像机器人发了一条消息,留在 logo 下方,持续不停换内容 */}
+      <div className="flex max-w-3xl items-start gap-3 -mt-3">
+        <div className="h-7 w-7 shrink-0 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] flex items-center justify-center text-[11px] font-semibold text-white shadow-sm">
+          AI
+        </div>
+        <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm bg-[var(--cy-surface-base)] px-4 py-3 ring-1 ring-[var(--cy-border-subtle)] shadow-sm">
+          <p
+            className={cn(
+              'min-h-[2.5rem] text-sm leading-relaxed text-[var(--cy-text-secondary)]',
+              !introDone && "after:ml-0.5 after:inline-block after:h-3.5 after:w-1.5 after:translate-y-0.5 after:animate-pulse after:bg-[var(--cy-text-tertiary)] after:content-['']",
+            )}
+          >
+            {intro || (introDone ? '' : '正在生成介绍…')}
+          </p>
+          {introError && (
+            <p className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]" title={introError}>
+              (LLM 不可用,已用本地文案兜底)
+            </p>
+          )}
         </div>
       </div>
 
@@ -272,35 +310,11 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* ── 5. 流式产品介绍 + 特性 chips + 外链 ─────────────────── */}
+      {/* ── 5. 特性 chips + 外链 ──────────────────────────────────
+       * 流式介绍已经移到顶部 greeting 下方(气泡形式 + 自动循环),
+       * 这里只剩"特性高亮 chip + 外链按钮",信息密度低、不抢眼,放页底收尾 */}
       <section className="rounded-3xl border border-[var(--cy-border-subtle)] bg-gradient-to-br from-[var(--cy-surface-base)] to-[var(--cy-surface-1)] p-6">
-        <div className="mb-3 flex items-baseline justify-between gap-3">
-          <h2 className="text-sm font-semibold text-[var(--cy-text-primary)]">关于察元 AI</h2>
-          <button
-            type="button"
-            onClick={startIntro}
-            className="text-xs text-[var(--cy-text-tertiary)] transition-colors hover:text-[var(--cy-text-primary)]"
-            title="重新生成介绍"
-          >
-            ✨ 换一段
-          </button>
-        </div>
-
-        <p
-          className={`min-h-[5rem] text-sm leading-relaxed text-[var(--cy-text-secondary)] ${
-            !introDone ? "after:ml-0.5 after:inline-block after:h-3.5 after:w-1.5 after:translate-y-0.5 after:animate-pulse after:bg-[var(--cy-text-tertiary)] after:content-['']" : ''
-          }`}
-        >
-          {intro || (introDone ? '' : '正在生成介绍…')}
-        </p>
-
-        {introError && (
-          <p className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]" title={introError}>
-            (LLM 不可用,已用本地文案兜底)
-          </p>
-        )}
-
-        <div className="mt-4 flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           {FEATURES.map((f) => (
             <span
               key={f}

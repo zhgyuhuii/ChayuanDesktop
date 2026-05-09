@@ -12,7 +12,7 @@
  * 折叠时只显示头部一根竖条;拖出时主窗口不渲染(由父级处理)。
  */
 import * as React from 'react';
-import { ChevronDown, ChevronRight, ExternalLink, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ExternalLink, GripVertical, X } from 'lucide-react';
 import { cn } from '@chayuan/ui';
 import {
   selectScopedUnifiedSend, useModelArenaStore, type Lane as LaneState,
@@ -121,9 +121,19 @@ export function Lane({
       {!isSingle && (
         <div
           {...dragHandleProps}
-          className="flex items-center justify-end gap-0.5 border-b bg-muted/30 px-1.5 py-1 select-none"
-          title="按住拖动 → 调整顺序"
+          className="flex items-center gap-0.5 border-b bg-muted/30 px-1.5 py-1 select-none"
+          title="按住此区域拖动 → 调整顺序"
         >
+          {/* 拖动手柄 — 左侧明显的 grip 图标 + 文字提示,告诉用户这里能拖。
+              整条 div 都挂了 dragHandleProps,但只有这一块视觉上是"手柄"。 */}
+          <span
+            className="flex h-5 items-center gap-1 rounded px-1 text-[10px] text-muted-foreground/70 hover:text-foreground"
+            aria-hidden
+          >
+            <GripVertical className="h-3 w-3" />
+            <span className="truncate font-mono">{lane.modelId || '未选'}</span>
+          </span>
+          <span className="flex-1" />
           <button
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
@@ -136,9 +146,9 @@ export function Lane({
           <button
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => {
-              const win = openDetachedLaneWindow(scope, lane.id, lane.modelId);
-              if (win) setDetached(scope, lane.id, true);
+            onClick={async () => {
+              const ok = await openDetachedLaneWindow(scope, lane.id, lane.modelId);
+              if (ok) setDetached(scope, lane.id, true);
             }}
             className="rounded p-1 hover:bg-accent"
             title="拖出独立窗口"
@@ -157,7 +167,9 @@ export function Lane({
         </div>
       )}
 
-      {/* 完整聊天窗口 — 用 lane.id 作 scope,model/draft/KB 各 lane 独立 */}
+      {/* 完整聊天窗口 — 用 lane.id 作 scope,model/draft/KB 各 lane 独立。
+          showHeader=false:Lane 已经有自己的顶部工具条,且模型选择 / 高级参数
+          已经在 ChatComposer 内部 + ChatPage 全局顶栏,这里再挂一份是冗余。 */}
       <div className="min-h-0 flex-1">
         <ChatWindow
           scope={`lane.${lane.id}`}
@@ -165,6 +177,7 @@ export function Lane({
           onConversationCreated={onConversationCreated}
           sendMessageRef={sendMessageRef}
           onBeforeSend={onBeforeSend}
+          showHeader={false}
         />
       </div>
     </div>
