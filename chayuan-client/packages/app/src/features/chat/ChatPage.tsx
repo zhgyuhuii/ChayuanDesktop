@@ -117,7 +117,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
   const onPopout = React.useCallback(async () => {
     const target = lanes.find((l) => !l.detached);
     if (!target) return;
-    const ok = await openDetachedLaneWindow(scope, target.id, target.modelId);
+    const ok = await openDetachedLaneWindow(scope, target.id, target.modelId, target.conversationId);
     if (ok) setDetached(scope, target.id, true);
   }, [lanes, scope, setDetached]);
 

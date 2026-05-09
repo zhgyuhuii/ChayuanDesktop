@@ -147,7 +147,7 @@ export function Lane({
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={async () => {
-              const ok = await openDetachedLaneWindow(scope, lane.id, lane.modelId);
+              const ok = await openDetachedLaneWindow(scope, lane.id, lane.modelId, lane.conversationId);
               if (ok) setDetached(scope, lane.id, true);
             }}
             className="rounded p-1 hover:bg-accent"

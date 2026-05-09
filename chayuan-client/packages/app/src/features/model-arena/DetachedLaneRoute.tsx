@@ -39,12 +39,16 @@ export const DetachedLaneRoute: React.FC = () => {
   const params = new URLSearchParams(window.location.search);
   const laneId = params.get('lane') || 'unknown';
   const scope = params.get('scope') || '';
+  // URL 上由主窗 openDetachedLaneWindow 注入,子窗 mount 立刻拿到正确的会话 id,
+  // 不必等 BroadcastChannel 'lane:state' 的 200ms 延时;消息历史立刻能加载。
+  const initialConversationId = params.get('cid') || null;
+  const initialModelId = params.get('mid') || null;
 
   // 子窗自己持 lane state(由主窗推送初始值;关闭时通知主窗 reattach)
   const [lane, setLane] = React.useState<LaneState>(() => ({
     id: laneId,
-    conversationId: null,
-    modelId: null,
+    conversationId: initialConversationId,
+    modelId: initialModelId,
     collapsed: false,
     detached: true,
   }));
@@ -200,8 +204,17 @@ export async function openDetachedLaneWindow(
   scope: string,
   laneId: string,
   modelId?: string | null,
+  conversationId?: string | null,
 ): Promise<boolean> {
-  const url = `/arena/detached?lane=${encodeURIComponent(laneId)}&scope=${encodeURIComponent(scope)}`;
+  // cid / mid 直接放 URL 上,子窗 mount 即可读到,不依赖 BroadcastChannel 推送 —
+  // 避免历史消息因 200ms 延时未加载、Composer 初始 modelId 为空。
+  const qs = new URLSearchParams({
+    lane: laneId,
+    scope,
+  });
+  if (conversationId) qs.set('cid', conversationId);
+  if (modelId) qs.set('mid', modelId);
+  const url = `/arena/detached?${qs.toString()}`;
   const previewApi = getPlatform().preview;
   if (!previewApi) {
     // 平台没有 preview 能力(理论不会发生,Tauri 和 Web 都实现了)— 退化用 window.open
