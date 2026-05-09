@@ -25,7 +25,7 @@ def news_api(
     ),
     country: Optional[str] = Field(None, description="ISO 2 字母国家码，如 us / cn / jp"),
 ):
-    """Fetch recent news via newsapi.org (requires API Key)."""
+    """通过 newsapi.org 拉最新新闻(需 API Key),支持按关键词 / 国家 / 分类过滤;头条留空 query 即可。"""
     cfg = get_tool_config("news_api") or {}
     api_key = (cfg.get("api_key") or "").strip()
     if not api_key:

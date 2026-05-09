@@ -9,9 +9,9 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
     BaseToolOutput,
 )
 
-@regist_tool
-def wolfram(query: str = Field(description="The formula to be calculated")):
-    """Useful for when you need to calculate difficult formulas"""
+@regist_tool(title="Wolfram Alpha 计算")
+def wolfram(query: str = Field(description="WolframAlpha 计算公式或自然语言查询(英文表达更稳),如 ``solve x^2-4=0`` / ``integrate sin x dx``")):
+    """调用 Wolfram Alpha 解决复杂数学 / 物理 / 化学 / 单位换算等需要符号运算的问题,比纯 LLM 更可靠。"""
 
     from langchain_community.utilities.wolfram_alpha import WolframAlphaAPIWrapper
 

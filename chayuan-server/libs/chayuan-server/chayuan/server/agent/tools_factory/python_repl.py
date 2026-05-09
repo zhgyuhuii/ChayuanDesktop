@@ -22,7 +22,7 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 def python_repl(
     code: str = Field(description="要执行的 Python 代码；标准输出会返回给 LLM"),
 ):
-    """Execute arbitrary Python code. HIGHLY DANGEROUS. Use sandboxed envs only."""
+    """执行任意 Python 代码,标准输出会回给 LLM。【高危】生产环境务必只在沙箱里启用,默认 use=false。"""
     cfg = get_tool_config("python_repl") or {}
     if not bool(cfg.get("confirm_dangerous", False)):
         return BaseToolOutput({

@@ -17,7 +17,7 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 def semantic_scholar(
     query: str = Field(description="英文研究主题 / 关键词"),
 ):
-    """Search academic papers via Semantic Scholar (broader than arXiv)."""
+    """Semantic Scholar 学术论文搜索(覆盖比 arXiv 更广,跨学科),适合英文研究主题检索。"""
     try:
         from langchain_community.tools.semanticscholar.tool import (
             SemanticScholarQueryRun,

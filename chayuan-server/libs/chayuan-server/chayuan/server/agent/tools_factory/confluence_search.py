@@ -22,7 +22,7 @@ def confluence_search(
         None, description="可选：限定 space key，只在该空间内搜索",
     ),
 ):
-    """Search Atlassian Confluence pages via CQL."""
+    """搜索 Atlassian Confluence 页面(走 CQL),适合查企业内部 wiki / 项目文档。"""
     cfg = get_tool_config("confluence_search") or {}
     url = (cfg.get("url") or "").strip()
     if not url:

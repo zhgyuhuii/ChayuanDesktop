@@ -191,6 +191,6 @@ def search_engine(query: str, top_k:int=0, engine_name: str="", config: dict={})
 
 
 @regist_tool(title="互联网搜索")
-def search_internet(query: str = Field(description="query for Internet search")):
-    """Use this tool to use bing search engine to search the internet and get information."""
+def search_internet(query: str = Field(description="互联网搜索关键词(中英文均可),用于查询大模型未掌握的最新信息")):
+    """走配置的搜索引擎(Bing / DuckDuckGo / Tavily / Serper / SearxNG / Metaphor)抓取互联网摘要,补足 LLM 知识时效。"""
     return BaseToolOutput(search_engine(query=query), format=format_context)

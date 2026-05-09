@@ -118,7 +118,6 @@ def text2promql(
                         "just input the natural language that you want to chat with prometheus"
         )
 ):
-    """Use this tool to chat with prometheus, Input natural language,
-    then it will convert it into PromQL and execute it in the prometheus, then return the execution result."""
+    """用自然语言提问 Prometheus 监控数据(自动转 PromQL 查询)。比如"过去 1 小时 API P99 延迟趋势"。"""
     tool_config = get_tool_config("text2promql")
     return BaseToolOutput(query_prometheus(query=query, config=tool_config))

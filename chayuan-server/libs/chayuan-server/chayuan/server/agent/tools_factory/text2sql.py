@@ -158,6 +158,6 @@ def text2sql(
         description="No need for SQL statements,just input the natural language that you want to chat with database"
     ),
 ):
-    """Use this tool to chat with  database,Input natural language, then it will convert it into SQL and execute it in the database, then return the execution result."""
+    """用自然语言提问数据库(自动转 SQL 只读查询并执行)。比如"最近 30 天注册用户数",适合 BI / 运营自助查询。"""
     tool_config = get_tool_config("text2sql")
     return BaseToolOutput(query_database(query=query, config=tool_config))

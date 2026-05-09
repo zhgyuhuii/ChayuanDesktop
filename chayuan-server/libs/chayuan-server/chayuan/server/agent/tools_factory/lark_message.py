@@ -31,7 +31,7 @@ def lark_message(
         None, description="可选：all 艾特全体 / @user_id / 不传则不艾特",
     ),
 ):
-    """Send a text message to a Lark (Feishu) bot webhook."""
+    """向飞书(Lark)群机器人 webhook 推送文本消息,适合通知 / 告警 / 工作流回执。"""
     cfg = get_tool_config("lark_message") or {}
     webhook = (cfg.get("webhook") or "").strip()
     if not webhook:

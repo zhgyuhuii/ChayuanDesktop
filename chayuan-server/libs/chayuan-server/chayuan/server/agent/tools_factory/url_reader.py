@@ -21,7 +21,7 @@ def url_reader(
         url: str = Field(
             description="The URL to be processed, so that its web content can be made more clear to read. Then provide a detailed description of the content in about 500 words. As structured as possible. ONLY THE LINK SHOULD BE PASSED IN."),
 ):
-    """Use this tool to get the clear content of a URL."""
+    """抓取指定 URL 的网页正文(走 jina.ai 反代),让 LLM 能"点开链接"读内容。适合论坛长帖 / 博客 / 新闻摘要。"""
 
     tool_config = get_tool_config("url_reader")
     timeout = tool_config.get("timeout")

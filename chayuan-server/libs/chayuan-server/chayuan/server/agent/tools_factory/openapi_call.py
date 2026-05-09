@@ -72,7 +72,7 @@ def openapi_call(
         None, description="请求体（POST/PUT/PATCH）",
     ),
 ):
-    """Execute an OpenAPI operation by its operationId."""
+    """按 operationId 调用 OpenAPI / Swagger spec 中定义的接口;先 list_operations 看有哪些操作再 call。"""
     cfg = get_tool_config("openapi_call") or {}
     spec_url = (cfg.get("spec_url") or "").strip()
     if not spec_url:

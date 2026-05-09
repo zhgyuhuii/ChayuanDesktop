@@ -32,7 +32,7 @@ def _new_parse_input(
     self,
     tool_input: Union[str, Dict],
 ) -> Union[str, Dict[str, Any]]:
-    """Convert tool input to pydantic model."""
+    """把工具输入字典转成 pydantic 模型(替换 langchain 默认实现以兼容 v1/v2)。"""
     input_args = self.args_schema
     if isinstance(tool_input, str):
         if input_args is not None:
@@ -81,10 +81,8 @@ def regist_tool(
     args_schema: Optional[Type[BaseModel]] = None,
     infer_schema: bool = True,
 ) -> Union[Callable, BaseTool]:
-    """
-    wrapper of langchain tool decorator
-    add tool to regstiry automatically
-    """
+    """LangChain @tool 装饰器的薄壳:自动把函数注册到全局 ``_TOOLS_REGISTRY`` 里,
+    便于 ``get_tool(name)`` 与 ``/tools`` REST 端点统一暴露。"""
 
     def _parse_tool(t: BaseTool):
         nonlocal description, title

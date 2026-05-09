@@ -24,7 +24,7 @@ def notion_search(
         "any", description="限定对象类型",
     ),
 ):
-    """Search Notion pages / databases via official API."""
+    """通过 Notion 官方 API 搜索 workspace 中的页面 / 数据库条目,适合查工作笔记 / 项目库。"""
     cfg = get_tool_config("notion_search") or {}
     token = (cfg.get("token") or "").strip()
     if not token:

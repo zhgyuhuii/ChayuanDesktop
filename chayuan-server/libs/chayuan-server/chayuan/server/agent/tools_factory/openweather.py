@@ -17,7 +17,7 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 def openweather(
     location: str = Field(description="城市名称（建议英文 / 拼音，如 Beijing, Shanghai, New York）"),
 ):
-    """Query current weather via OpenWeatherMap (global coverage)."""
+    """OpenWeatherMap 天气查询(全球城市覆盖,需 API Key),适合查询海外城市当前天气。"""
     cfg = get_tool_config("openweather") or {}
     api_key = (cfg.get("api_key") or "").strip()
     if not api_key:

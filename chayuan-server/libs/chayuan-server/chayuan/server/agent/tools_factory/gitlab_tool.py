@@ -26,7 +26,7 @@ def gitlab_tool(
     path: str = Field("", description="文件路径（get_file 需要）"),
     ref: str = Field("main", description="分支或 tag（get_file 使用）"),
 ):
-    """Read-only GitLab queries; supports self-hosted instances."""
+    """只读 GitLab 查询(支持私有部署):查 issue / MR / 文件 / 分支等只读资源,不写入。"""
     cfg = get_tool_config("gitlab_tool") or {}
     token = (cfg.get("token") or "").strip()
     url = (cfg.get("url") or "https://gitlab.com").strip()

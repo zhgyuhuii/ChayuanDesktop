@@ -25,7 +25,7 @@ def github_tool(
     number: int = Field(0, description="issue / PR 的编号（仅 get_issue / get_pr 需要）"),
     path: str = Field("", description="文件路径（仅 get_file 需要）"),
 ):
-    """Read-only GitHub queries: issues / PRs / files / branches."""
+    """只读 GitHub 查询:查 issue / PR / 文件 / 分支等公共信息,不修改仓库。"""
     cfg = get_tool_config("github_tool") or {}
     token = (cfg.get("token") or "").strip()
     if not token:

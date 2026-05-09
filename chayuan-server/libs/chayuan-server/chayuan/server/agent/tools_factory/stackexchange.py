@@ -17,7 +17,7 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 def stackexchange(
     query: str = Field(description="英文技术问题或关键词"),
 ):
-    """Search StackExchange (stackoverflow etc.) for technical Q&A."""
+    """StackExchange(StackOverflow 为主)编程问答检索,适合查报错信息 / 技术疑难解答。"""
     try:
         from langchain_community.tools.stackexchange.tool import (
             StackExchangeTool,

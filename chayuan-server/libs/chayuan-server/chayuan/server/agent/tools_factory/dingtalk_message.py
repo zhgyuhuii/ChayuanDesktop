@@ -43,7 +43,7 @@ def dingtalk_message(
         None, description="逗号分隔手机号；传 @all 艾特全体",
     ),
 ):
-    """Send message to a DingTalk custom robot webhook (with optional HMAC sign)."""
+    """向钉钉自定义机器人 webhook 推送消息(可选 HMAC 签名),用于通知 / 告警 / 工作流回执。"""
     cfg = get_tool_config("dingtalk_message") or {}
     webhook = (cfg.get("webhook") or "").strip()
     secret = (cfg.get("secret") or "").strip()

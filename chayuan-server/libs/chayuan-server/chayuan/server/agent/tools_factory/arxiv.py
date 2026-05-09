@@ -8,8 +8,8 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 )
 
 @regist_tool(title="ARXIV论文")
-def arxiv(query: str = Field(description="The search query title")):
-    """A wrapper around Arxiv.org for searching and retrieving scientific articles in various fields."""
+def arxiv(query: str = Field(description="arXiv 论文搜索关键词(英文为主,可含中文)")):
+    """arXiv.org 学术论文搜索,适合查 AI / 物理 / 数学 / CS 等领域的最新预印本论文摘要与作者。"""
     from langchain_community.tools.arxiv.tool import ArxivQueryRun
 
     tool = ArxivQueryRun()

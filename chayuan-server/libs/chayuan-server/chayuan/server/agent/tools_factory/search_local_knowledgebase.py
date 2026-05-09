@@ -18,8 +18,8 @@ from chayuan.server.utils import get_tool_config
 logger = logging.getLogger(__name__)
 
 template = (
-    "Use local knowledgebase from one or more of these:\n{KB_info}\n to get information，Only local data on "
-    "this knowledge use this tool. The 'database' should be one of the above [{key}]."
+    "从以下本地知识库之一检索信息(仅适用于本地已建好的知识):\n{KB_info}\n"
+    "调用时 ``database`` 必须是上面列出的某一项,例如 [{key}]。"
 )
 KB_info_str = "\n".join([f"{key}: {value}" for key, value in Settings.kb_settings.KB_INFO.items()])
 template_knowledge = template.format(KB_info=KB_info_str, key="samples")
@@ -59,10 +59,10 @@ def search_knowledgebase(query: str, database: str, config: dict):
 @regist_tool(description=template_knowledge, title="本地知识库")
 def search_local_knowledgebase(
     database: str = Field(
-        description="Database for Knowledge Search",
+        description="要检索的本地知识库名(必须是已建好的 KB 之一,见 prompt 中的清单)",
         choices=_safe_kb_choices(),
     ),
-    query: str = Field(description="Query for Knowledge Search"),
+    query: str = Field(description="检索关键词,会做语义搜索召回 Top-K 文档片段拼入 prompt"),
 ):
     """"""
     tool_config = get_tool_config("search_local_knowledgebase")

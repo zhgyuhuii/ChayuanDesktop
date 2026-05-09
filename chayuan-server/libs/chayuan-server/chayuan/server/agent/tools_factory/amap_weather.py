@@ -11,7 +11,7 @@ BASE_DISTRICT_URL = "https://restapi.amap.com/v3/config/district"
 BASE_WEATHER_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
 
 def get_adcode(city: str, config: dict) -> str:
-    """Get the adcode"""
+    """获取城市行政编码 adcode(高德 API 用)。"""
     API_KEY = config["api_key"]
     params = {
         "keywords": city,
@@ -27,7 +27,7 @@ def get_adcode(city: str, config: dict) -> str:
         return None
 
 def get_weather(adcode: str, config: dict) -> dict:
-    """Get  weather information."""
+    """根据 adcode 拉取高德天气详情。"""
     API_KEY = config["api_key"]
     params = {
         "city": adcode,
@@ -42,7 +42,7 @@ def get_weather(adcode: str, config: dict) -> dict:
 
 @regist_tool(title="高德地图天气查询")
 def amap_weather(city: str = Field(description="城市名")):
-    """A wrapper that uses Amap to get weather information."""
+    """高德地图天气查询:按城市名拿当前天气 + 几日预报(国内城市覆盖,需配 api_key)。"""
     tool_config = get_tool_config("amap")
     adcode = get_adcode(city, tool_config)
     if adcode:

@@ -7,8 +7,8 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 )
 
 @regist_tool(title="油管视频")
-def search_youtube(query: str = Field(description="Query for Videos search")):
-    """use this tools_factory to search youtube videos"""
+def search_youtube(query: str = Field(description="YouTube 视频搜索关键词(中英文均可)")):
+    """搜索 YouTube 视频,返回若干条相关视频链接。需要外网访问。"""
     from langchain_community.tools import YouTubeSearchTool
 
     tool = YouTubeSearchTool()

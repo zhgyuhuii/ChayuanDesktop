@@ -15,7 +15,7 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 def yahoo_finance_news(
     query: str = Field(description="股票代码或公司简称，如 AAPL / TSLA / 00700.HK"),
 ):
-    """Search recent finance news for a given ticker via Yahoo Finance."""
+    """查询 Yahoo Finance 上指定股票代码 / 公司的最近财经新闻(如 AAPL / TSLA / 00700.HK)。"""
     try:
         from langchain_community.tools.yahoo_finance_news import (
             YahooFinanceNewsTool,

@@ -23,7 +23,7 @@ def wechat_work_message(
         None, description="逗号分隔手机号，艾特指定人；传 @all 艾特全体",
     ),
 ):
-    """Send message to a WeChat Work bot webhook."""
+    """向企业微信群机器人 webhook 推送消息(默认 text;markdown 需在 yaml 切 msgtype),适合通知 / 告警。"""
     cfg = get_tool_config("wechat_work_message") or {}
     webhook = (cfg.get("webhook") or "").strip()
     if not webhook:

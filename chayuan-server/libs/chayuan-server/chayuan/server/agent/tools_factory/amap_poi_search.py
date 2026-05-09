@@ -27,6 +27,6 @@ def amap_poi_search_engine(keywords: str,types: str,config: dict):
 @regist_tool(title="高德地图POI搜索")
 def amap_poi_search(location: str = Field(description="'实际地名'或者'具体的地址',不能使用简称或者别称"),
                 types: str = Field(description="POI类型，比如商场、学校、医院等等")):
-    """ A wrapper that uses Amap to search."""
+    """高德地图 POI 搜索:按地名 / 地址 + 类型(商场 / 学校 / 医院 等)查附近兴趣点。"""
     tool_config = get_tool_config("amap")
     return BaseToolOutput(amap_poi_search_engine(keywords=location,types=types,config=tool_config))

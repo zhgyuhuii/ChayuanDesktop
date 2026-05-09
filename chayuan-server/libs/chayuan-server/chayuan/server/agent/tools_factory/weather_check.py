@@ -14,9 +14,9 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 
 @regist_tool(title="天气查询")
 def weather_check(
-    city: str = Field(description="City name,include city and county,like '厦门'"),
+    city: str = Field(description="城市名(精确到市/县,如 \"厦门\" / \"北京\" / \"杭州\")"),
 ):
-    """Use this tool to check the weather at a specific city"""
+    """查询指定城市的实时天气(走心知天气 API,需配置 api_key)。"""
 
     tool_config = get_tool_config("weather_check")
     api_key = tool_config.get("api_key")
@@ -30,4 +30,4 @@ def weather_check(
         }
         return BaseToolOutput(weather)
     else:
-        raise Exception(f"Failed to retrieve weather: {response.status_code}")
+        raise Exception(f"获取天气失败: HTTP {response.status_code}")
