@@ -171,6 +171,113 @@ export interface ToolInfo {
   config?: Record<string, unknown>;
 }
 
+/** 单个字段的 widget — 与 catalog.json 里的 ``widget`` 字段一一对应 */
+export type ToolFieldWidget =
+  | 'text'
+  | 'textarea'
+  | 'switch'
+  | 'number'
+  | 'password'
+  | 'select'
+  | 'model_select';
+
+/** 工具配置字段(与后端 ``ToolFieldDoc`` 镜像) */
+export interface ToolField {
+  path: string;
+  label: string;
+  widget: ToolFieldWidget;
+  help?: string;
+  placeholder?: string;
+  choices?: string[] | null;
+  model_type?: string | null;
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
+  password_toggle?: boolean;
+  default?: unknown;
+  /** 当前 yaml 里的实际值;如果用户没设过则等于 default */
+  value?: unknown;
+}
+
+/** 工具卡片完整视图(catalog meta + 当前 yaml 值)。后端 ``ToolCardDoc`` 镜像 */
+export interface ToolCard {
+  key: string;
+  title: string;
+  icon: string;
+  category: string;
+  summary: string;
+  description: string;
+  tags: string[];
+  docs_url: string;
+  fields: ToolField[];
+  defaults: Record<string, unknown>;
+  enabled: boolean;
+  description_override?: string | null;
+  builtin: boolean;
+}
+
+/** ``GET /tools/catalog`` 响应 */
+export interface ToolCatalogResp {
+  cards: ToolCard[];
+  categories: Record<string, string>;
+}
+
+/** ``PUT /tools/{key}/config`` 请求体 */
+export interface ToolConfigUpdate {
+  enabled?: boolean | null;
+  description_override?: string | null;
+  values?: Record<string, unknown>;
+}
+
+/** 自定义 HTTP 工具的参数(P3+) */
+export interface CustomToolParam {
+  name: string;
+  type: 'string' | 'integer' | 'number' | 'boolean';
+  description?: string;
+  required?: boolean;
+  default?: unknown;
+  enum?: unknown[];
+}
+
+/** 自定义工具完整定义 */
+export interface CustomToolSpec {
+  name: string;
+  title: string;
+  description: string;
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  url: string;
+  params: CustomToolParam[];
+  headers: Record<string, string>;
+  body_template: string | null;
+  timeout: number;
+  enabled: boolean;
+}
+
+/** OpenAPI 草稿(P4+) */
+export interface OpenApiDraft extends CustomToolSpec {
+  operation_id?: string | null;
+  tags?: string[];
+  source_path?: string | null;
+  issues?: string[];
+}
+
+export interface OpenApiPreview {
+  base_url: string;
+  title: string;
+  version: string;
+  drafts: OpenApiDraft[];
+  skipped: string[];
+}
+
+export interface OpenApiCommitResult {
+  created: string[];
+  updated: string[];
+  skipped: { name: string; reason: string }[];
+  total_created: number;
+  total_updated: number;
+  total_skipped: number;
+}
+
 export const tools = {
   async listEnabled(): Promise<ToolInfo[]> {
     const data = await http.get<Record<string, ToolInfo>>('/tools', { query: { enabled: true } });
@@ -182,6 +289,32 @@ export const tools = {
   },
   call: (name: string, toolInput: Record<string, unknown>) =>
     http.post<unknown>('/tools/call', { name, tool_input: toolInput }),
+
+  // ── P1 / P2 新接口 ────────────────────────────────────────────
+  /** 拉取工具目录卡片(catalog meta + 当前 yaml 值) */
+  getCatalog: () => http.get<ToolCatalogResp>('/tools/catalog'),
+
+  /** 单个工具的当前完整配置 */
+  getConfig: (key: string) => http.get<ToolCard>(`/tools/${encodeURIComponent(key)}/config`),
+
+  /** 更新单个工具的配置(部分字段;只传改过的) */
+  updateConfig: (key: string, update: ToolConfigUpdate) =>
+    http.put<ToolCard>(`/tools/${encodeURIComponent(key)}/config`, update),
+
+  // ── P3:自定义工具 CRUD ───────────────────────────────────────
+  listCustom: () => http.get<CustomToolSpec[]>('/tools/custom'),
+  createCustom: (spec: CustomToolSpec) =>
+    http.post<CustomToolSpec>('/tools/custom', spec),
+  updateCustom: (name: string, spec: CustomToolSpec) =>
+    http.put<CustomToolSpec>(`/tools/custom/${encodeURIComponent(name)}`, spec),
+  deleteCustom: (name: string) =>
+    http.del<{ deleted: string }>(`/tools/custom/${encodeURIComponent(name)}`),
+
+  // ── P4:OpenAPI 批量导入 ──────────────────────────────────────
+  importOpenApiPreview: (req: { spec_url?: string; spec_text?: string }) =>
+    http.post<OpenApiPreview>('/tools/import/openapi/preview', req),
+  importOpenApiCommit: (req: { drafts: OpenApiDraft[]; overwrite?: boolean }) =>
+    http.post<OpenApiCommitResult>('/tools/import/openapi/commit', req),
 };
 
 // ──────────────────────────────────────────────────────────────
