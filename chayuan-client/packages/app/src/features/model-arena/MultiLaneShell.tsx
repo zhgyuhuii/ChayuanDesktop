@@ -1,8 +1,15 @@
 /**
  * 96-4 + 96-5:多永道容器。
  *
- * 单道(默认状态)→ 退化成"零边距透明壳",视觉等价老 ChatPage,零回归。
- * 多道 → 横向布局 + 顶部统一发送 toggle + 拖出窗口由父级处理。
+ * 单/多道**走同一渲染路径**(都是 ``lanes.map(<Lane>)``),区别仅在 Lane 内部
+ * isSingle 控制顶部工具条的显隐。这样从 1 道→2 道时,lane[0] 对应的
+ * ``<Lane key="main">`` React tree 不变,内部 ``<ChatWindow>`` /
+ * ``<ConversationView>`` 不卸载,messages state(包括正在流式输出的内容)完整保留。
+ *
+ * 历史包袱:本组件曾经在单道时直接渲染 ``singleLaneFallback`` (= 父级传进来
+ * 的另一棵 React tree)、多道时切到 ``lanes.map`` 路径,导致加新道瞬间 React
+ * 看到子树类型完全变 → 卸载旧 ConversationView → 已输出的内容被清空。修法
+ * (2026-05-09):去掉 ``singleLaneFallback`` 概念,父级永远只传业务回调进来。
  *
  * "+ 加道" 按钮由父级 Header 控制(点 [+] → arenaStore.addLane(),本壳自动响应)。
  *
@@ -15,7 +22,7 @@
  */
 import * as React from 'react';
 import {
-  selectScopedIsMultiLane, selectScopedLanes, useModelArenaStore,
+  selectScopedLanes, useModelArenaStore,
 } from '../../store/modelArena';
 import { useArenaScope } from '../../store/arenaScope';
 import { Lane, LaneResizer } from './Lane';
@@ -37,14 +44,16 @@ const SendRegistryContext = React.createContext<{
 export const useArenaSendRegistry = () => React.useContext(SendRegistryContext);
 
 interface Props {
-  /** 单道时渲染的 fallback(老 ChatPage 内容) */
-  singleLaneFallback: React.ReactNode;
+  /**
+   * Lane 内部 ConversationView lazy 创建会话后回调。
+   * 父级用它升级 tab.path / 把 lane.conversationId 写回 modelArena store。
+   */
+  onConversationCreated?: (laneId: string, convId: string, title: string) => void;
 }
 
-export function MultiLaneShell({ singleLaneFallback }: Props): React.JSX.Element {
+export function MultiLaneShell({ onConversationCreated }: Props): React.JSX.Element {
   const scope = useArenaScope();
   const lanes = useModelArenaStore(selectScopedLanes(scope));
-  const isMulti = useModelArenaStore(selectScopedIsMultiLane(scope));
 
   // 96-7:监听拖出窗口的 reattach 信号 + 双向 patch(scope 用作回路 key)
   useDetachedLaneSync(scope);
@@ -75,37 +84,32 @@ export function MultiLaneShell({ singleLaneFallback }: Props): React.JSX.Element
     [register, unregister, broadcast],
   );
 
-  // ---- 单道(默认):透明壳 + fallback,等价老 ChatPage ----
-  if (!isMulti) {
-    return (
-      <SendRegistryContext.Provider value={ctxValue}>
-        {singleLaneFallback}
-      </SendRegistryContext.Provider>
-    );
-  }
+  const visibleLanes = lanes.filter((l) => !l.detached);
+  const isSingle = visibleLanes.length <= 1;
 
-  // ---- 多道:横向布局(统一发送 toggle 已移到 ChatPage header)----
   return (
     <SendRegistryContext.Provider value={ctxValue}>
       <div className="flex h-full flex-col">
         <div className="flex h-full min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
-          {(() => {
-            const visibleLanes = lanes.filter((l) => !l.detached);
-            return visibleLanes.map((lane, idx) => (
-              <React.Fragment key={lane.id}>
-                <Lane
-                  lane={lane}
-                  index={idx}
-                  isSingle={false}
-                  registerSendFn={register}
-                  unregisterSendFn={unregister}
-                />
-                {idx < visibleLanes.length - 1 && (
-                  <LaneResizer laneId={lane.id} />
-                )}
-              </React.Fragment>
-            ));
-          })()}
+          {visibleLanes.map((lane, idx) => (
+            <React.Fragment key={lane.id}>
+              <Lane
+                lane={lane}
+                index={idx}
+                isSingle={isSingle}
+                registerSendFn={register}
+                unregisterSendFn={unregister}
+                onConversationCreated={
+                  onConversationCreated
+                    ? (cid, title) => onConversationCreated(lane.id, cid, title)
+                    : undefined
+                }
+              />
+              {idx < visibleLanes.length - 1 && (
+                <LaneResizer laneId={lane.id} />
+              )}
+            </React.Fragment>
+          ))}
         </div>
       </div>
     </SendRegistryContext.Provider>

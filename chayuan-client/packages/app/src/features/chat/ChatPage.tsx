@@ -1,19 +1,24 @@
 /**
- * 主对话页 — 现在是 ConversationView 的薄壳:
- *   - 顶栏(模型选择 / 高级参数 / Stream 指标 / Artifact 切换)
- *   - 草稿模式首发回调里把 tab path 升级 /chat → /chat/<id>
- *   - 消息状态机 / 落库 / 草稿 lazy 创建会话 等都委托给 ConversationView
+ * 主对话页 — 永远走 MultiLaneShell + Lane 渲染(单道也走这条路径)。
  *
- * 重构动机:KbDetail / Skill / 多模态对话页 都需要"消息列表 + 输入框"形态,
- * 全部共享 ConversationView,行为一致 + 修一处即修所有,不必各自再写一份。
+ * 这样从 1 道→2 道时,lane[0] 的 React tree 不变,内部 ConversationView 不卸载,
+ * 已经流式输出的消息保留下来。换句话说,"添加永道" 是真正的"在旁边追加新窗口",
+ * 不会清掉已有内容。
+ *
+ * 顶栏 [拖出 / + 添加 / unifiedSend toggle / Artifact 切换] 永远挂在外层(本组件
+ * 直接渲染 header,不再走 ConversationView headerSlot),这样 Lane 改变也不会
+ * 撕掉外层 header,布局稳定。
+ *
+ * tab.path 同步:
+ *   - props.conversationId(tab.path 解析)是真源 → useEffect 同步到 lane[0]
+ *   - lane[0] 内部 ChatWindow lazy 创建会话 → 通过 onConversationCreated 回调拿到
+ *     新 cid → 升级 tab.path 为 /chat/<cid>,并写回 lane.conversationId
  */
 
 import * as React from 'react';
 import { ExternalLink, Plus } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
-import { AdvancedParams } from './AdvancedParams';
 import { StreamMetrics } from './StreamMetrics';
-import { ConversationView } from './ConversationView';
 import { useArtifactStore } from '../../store/artifact';
 import { useTabsStore } from '../../store/tabs';
 import {
@@ -38,25 +43,12 @@ export interface ChatPageProps {
 }
 
 export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
-  const activeId = conversationId;
   const artifactOpen = useArtifactStore((s) => s.open);
   const setArtifactOpen = useArtifactStore((s) => s.setOpen);
   const artifactCount = useArtifactStore((s) => Object.keys(s.items).length);
 
-  // ChatPage 专属副作用:草稿模式首发后,把当前 tab 的 path 从 /chat 升到 /chat/<id>,
-  // reload / 切回该 tab 时 onActivate 能恢复 activeConversationId。
-  const onConversationCreated = React.useCallback((id: string, title: string) => {
-    const tabs = useTabsStore.getState();
-    const cur = tabs.activeId
-      ? tabs.tabs.find((tt) => tt.id === tabs.activeId)
-      : undefined;
-    if (cur && cur.path === '/chat') {
-      tabs.updatePath(cur.id, `/chat/${encodeURIComponent(id)}`, title);
-    }
-  }, []);
-
-  // 96 题:多永道(model arena)接入。单道时 UI 完全等价之前(零回归);
-  // 多道时切到 MultiLaneShell 横向布局。
+  // 96 题:多永道(model arena)接入。单/多道**走同一渲染路径**(都进 MultiLaneShell),
+  // 单道差别只在 Lane 内部 isSingle=true 时隐藏顶部工具条,视觉等价老 ChatPage。
   // v2:状态按 tab.id 分桶,各 tab 独立 lanes / unifiedSend。
   const scope = useArenaScope();
   const isMulti = useModelArenaStore(selectScopedIsMultiLane(scope));
@@ -65,7 +57,34 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
   const unifiedSend = useModelArenaStore(selectScopedUnifiedSend(scope));
   const setUnifiedSend = useModelArenaStore((s) => s.setUnifiedSend);
   const setDetached = useModelArenaStore((s) => s.setDetached);
+  const setLaneConversationId = useModelArenaStore((s) => s.setConversationId);
   const navigate = useNavigate();
+
+  // ── props.conversationId(tab.path 真源)→ lane[0].conversationId 单方向同步 ──
+  // 用户从 sidebar 点已有会话 / refresh 后 tab.path 都会变化,需要把它喂给 lane[0]
+  // 让 ChatWindow 能加载对应消息。lane[0] 必须存在(下面有 effect 保底重建)。
+  React.useEffect(() => {
+    const mainLane = lanes[0];
+    if (!mainLane) return;
+    if (mainLane.conversationId === conversationId) return;
+    setLaneConversationId(scope, mainLane.id, conversationId);
+    // 这里只关心 conversationId 变化,lanes 变化由其它 effect 处理
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, lanes[0]?.id]);
+
+  // lane[0] 内部 ChatWindow lazy 创建会话:升级 tab.path + 把 cid 写回 lane state。
+  // 其他 lane 创建的会话目前不升级 tab.path(对抗模式下每道 cid 独立,只在自己 lane 持有)。
+  const onConversationCreated = React.useCallback((laneId: string, cid: string, title: string) => {
+    setLaneConversationId(scope, laneId, cid);
+    if (lanes[0]?.id !== laneId) return;
+    const tabs = useTabsStore.getState();
+    const cur = tabs.activeId
+      ? tabs.tabs.find((tt) => tt.id === tabs.activeId)
+      : undefined;
+    if (cur && cur.path === '/chat') {
+      tabs.updatePath(cur.id, `/chat/${encodeURIComponent(cid)}`, title);
+    }
+  }, [scope, setLaneConversationId, lanes]);
 
   // lanes 数组空(本 scope 未初始化 / 用户全删完)→ 自动重建 main 道,避免空白页
   React.useEffect(() => {
@@ -97,79 +116,59 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
     setDetached(scope, target.id, true);
   }, [lanes, scope, setDetached]);
 
-  // 顶栏右侧:[Artifact 切换?] [☐ 统一发送(仅多道显示)] [高级] [+ 添加]
-  // 顶栏左侧不放任何东西 — ModelPicker 已在 ChatComposer 内部,顶栏只留功能控件
-  const renderTopActions = (showUnified: boolean) => (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <ChatPageMetrics />
-      {artifactCount > 0 && (
-        <button
-          type="button"
-          onClick={() => setArtifactOpen(!artifactOpen)}
-          className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
-        >
-          {artifactOpen ? '收起' : '展开'} Artifact ({artifactCount})
-        </button>
-      )}
-      {showUnified && (
-        <label className="flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs select-none hover:bg-accent">
-          <input
-            type="checkbox"
-            checked={unifiedSend}
-            onChange={(e) => setUnifiedSend(scope, e.target.checked)}
-            className="h-3.5 w-3.5"
-          />
-          <span>统一发送</span>
-        </label>
-      )}
-      <button
-        type="button"
-        onClick={onPopout}
-        title="拖出独立窗口"
-        aria-label="拖出独立窗口"
-        className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
-      >
-        <ExternalLink className="h-3.5 w-3.5" />
-      </button>
-      <AdvancedParams />
-      <button
-        type="button"
-        onClick={() => addLane(scope)}
-        className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
-        title="添加永道(模型对抗)"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        添加
-      </button>
+  // 顶栏右侧:[Artifact 切换?] [☐ 统一发送(仅多道显示)] [拖出] [+ 添加]
+  // 顶栏左侧不放任何东西 — ModelPicker 已在 ChatWindow 内部顶栏,这里只留 page-level 控制
+  // AdvancedParams 已经挂在每个 Lane 内 ChatWindow 顶栏(scope 独立),这里不再重复挂
+  return (
+    <div className="flex h-full flex-col">
+      <header className="flex items-center justify-end border-b px-6 py-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <ChatPageMetrics />
+          {artifactCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setArtifactOpen(!artifactOpen)}
+              className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
+            >
+              {artifactOpen ? '收起' : '展开'} Artifact ({artifactCount})
+            </button>
+          )}
+          {isMulti && (
+            <label className="flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs select-none hover:bg-accent">
+              <input
+                type="checkbox"
+                checked={unifiedSend}
+                onChange={(e) => setUnifiedSend(scope, e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              <span>统一发送</span>
+            </label>
+          )}
+          <button
+            type="button"
+            onClick={onPopout}
+            title="拖出独立窗口"
+            aria-label="拖出独立窗口"
+            className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => addLane(scope)}
+            className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
+            title="添加永道(模型对抗)"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            添加
+          </button>
+        </div>
+      </header>
+      <div className="min-h-0 flex-1">
+        <MultiLaneShell onConversationCreated={onConversationCreated} />
+      </div>
     </div>
   );
-
-  const singleLanePane = (
-    <ConversationView
-      conversationId={activeId}
-      onConversationCreated={onConversationCreated}
-      headerSlot={
-        <header className="flex items-center justify-end border-b px-6 py-2">
-          {renderTopActions(/* showUnified */ false)}
-        </header>
-      }
-    />
-  );
-
-  if (isMulti) {
-    return (
-      <div className="flex h-full flex-col">
-        <header className="flex items-center justify-end border-b px-6 py-2">
-          {renderTopActions(/* showUnified */ true)}
-        </header>
-        <div className="min-h-0 flex-1">
-          <MultiLaneShell singleLaneFallback={singleLanePane} />
-        </div>
-      </div>
-    );
-  }
-
-  return <MultiLaneShell singleLaneFallback={singleLanePane} />;
 };
 
 /**

@@ -29,10 +29,15 @@ interface Props {
   isSingle: boolean;
   registerSendFn?: (laneId: string, fn: (text: string) => void) => void;
   unregisterSendFn?: (laneId: string) => void;
+  /**
+   * ChatWindow 内部 ConversationView lazy 创建会话后回调。
+   * Lane 直接转发给 ChatWindow;父级(ChatPage / MultiLaneShell)用它升级 tab.path 等。
+   */
+  onConversationCreated?: (id: string, title: string) => void;
 }
 
 export function Lane({
-  lane, index, isSingle, registerSendFn, unregisterSendFn,
+  lane, index, isSingle, registerSendFn, unregisterSendFn, onConversationCreated,
 }: Props): React.JSX.Element {
   const scope = useArenaScope();
   const removeLane = useModelArenaStore((s) => s.removeLane);
@@ -103,59 +108,61 @@ export function Lane({
     <div
       {...laneContainerProps}
       className={cn(
-        'flex h-full min-w-0 flex-col border-r bg-card transition-opacity',
+        // 单道(isSingle):无右侧分隔线、无 ring 装饰 — 视觉等价老 ChatPage
+        'flex h-full min-w-0 flex-col bg-card transition-opacity',
+        !isSingle && 'border-r',
         isDragging && 'opacity-50',
-        isDropTarget && 'ring-2 ring-primary',
+        !isSingle && isDropTarget && 'ring-2 ring-primary',
       )}
       style={lane.widthPx ? { width: `${lane.widthPx}px`, flex: '0 0 auto' } : { flex: '1 1 0' }}
     >
-      {/* 顶部小工具条:折叠 / 拖出 / 删 + 拖动手柄 */}
-      <div
-        {...dragHandleProps}
-        className="flex items-center justify-end gap-0.5 border-b bg-muted/30 px-1.5 py-1 select-none"
-        title="按住拖动 → 调整顺序"
-      >
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => toggleCollapsed(scope, lane.id)}
-          className="rounded p-1 hover:bg-accent"
-          title="折叠"
+      {/* 单道:整个顶部工具条隐藏 — 折叠/拖出/关闭对单道无意义,而且会跟 ChatPage 顶栏重复;
+          多道:工具条显示,折叠 / 拖出 / 关闭 / 拖动手柄齐全。 */}
+      {!isSingle && (
+        <div
+          {...dragHandleProps}
+          className="flex items-center justify-end gap-0.5 border-b bg-muted/30 px-1.5 py-1 select-none"
+          title="按住拖动 → 调整顺序"
         >
-          <ChevronDown className="h-3.5 w-3.5" />
-        </button>
-        {!isSingle && (
-          <>
-            <button
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => {
-                const win = openDetachedLaneWindow(scope, lane.id, lane.modelId);
-                if (win) setDetached(scope, lane.id, true);
-              }}
-              className="rounded p-1 hover:bg-accent"
-              title="拖出独立窗口"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => removeLane(scope, lane.id)}
-              className="rounded p-1 text-destructive hover:bg-accent"
-              title="关闭永道"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </>
-        )}
-      </div>
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => toggleCollapsed(scope, lane.id)}
+            className="rounded p-1 hover:bg-accent"
+            title="折叠"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => {
+              const win = openDetachedLaneWindow(scope, lane.id, lane.modelId);
+              if (win) setDetached(scope, lane.id, true);
+            }}
+            className="rounded p-1 hover:bg-accent"
+            title="拖出独立窗口"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => removeLane(scope, lane.id)}
+            className="rounded p-1 text-destructive hover:bg-accent"
+            title="关闭永道"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* 完整聊天窗口 — 用 lane.id 作 scope,model/draft/KB 各 lane 独立 */}
       <div className="min-h-0 flex-1">
         <ChatWindow
           scope={`lane.${lane.id}`}
           conversationId={lane.conversationId}
+          onConversationCreated={onConversationCreated}
           sendMessageRef={sendMessageRef}
           onBeforeSend={onBeforeSend}
         />
