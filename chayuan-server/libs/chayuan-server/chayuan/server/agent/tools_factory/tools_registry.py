@@ -31,8 +31,17 @@ except Exception:
 def _new_parse_input(
     self,
     tool_input: Union[str, Dict],
+    tool_call_id: Optional[str] = None,
+    *_args: Any,
+    **_kwargs: Any,
 ) -> Union[str, Dict[str, Any]]:
-    """把工具输入字典转成 pydantic 模型(替换 langchain 默认实现以兼容 v1/v2)。"""
+    """把工具输入字典转成 pydantic 模型(替换 langchain 默认实现以兼容 v1/v2)。
+
+    上游 langchain-core 在 0.3.x 之后给 ``_parse_input`` 加了 ``tool_call_id``
+    第三个位置参数,此处签名跟随它(同时用 ``*_args``/``**_kwargs`` 收尾,
+    避免日后再加参数又抛 TypeError)。``tool_call_id`` 我们用不到,直接吞。
+    """
+    del tool_call_id  # 显式弃用
     input_args = self.args_schema
     if isinstance(tool_input, str):
         if input_args is not None:
@@ -45,7 +54,20 @@ def _new_parse_input(
             return result.dict()
 
 
-def _new_to_args_and_kwargs(self, tool_input: Union[str, Dict]) -> Tuple[Tuple, Dict]:
+def _new_to_args_and_kwargs(
+    self,
+    tool_input: Union[str, Dict],
+    tool_call_id: Optional[str] = None,
+    *_args: Any,
+    **_kwargs: Any,
+) -> Tuple[Tuple, Dict]:
+    """与 ``_new_parse_input`` 一样:同步上游签名,新加的 ``tool_call_id`` 吞掉。
+
+    历史问题:0.3.x 之前签名只有 ``(self, tool_input)``,我们的 patch 也只接两参,
+    升级 langchain 后 runtime 报 ``TypeError: takes 2 positional arguments
+    but 3 were given``。这里加 ``tool_call_id`` + 兜底 ``*args``/``**kwargs``。
+    """
+    del tool_call_id
     # For backwards compatibility, if run_input is a string,
     # pass as a positional argument.
     if isinstance(tool_input, str):

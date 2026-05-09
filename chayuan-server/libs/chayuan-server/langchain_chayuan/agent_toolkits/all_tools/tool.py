@@ -49,19 +49,27 @@ class BaseToolOutput(Serializable):
     """
 
     # 使用 pydantic v1 兼容的字段定义
+    # 注:pydantic v2 收紧了 ``str = None`` 的默认值校验,改成 Optional[str]
+    # 显式允许 None,且 ``__init__`` 里对 callable 类型的 format 不写回字段
+    # (避免 pydantic 拒绝 callable;真正生效是通过 ``_format_callable`` 私有属性)。
     data: Any
-    format: str = None
+    format: Optional[str] = None
     data_alias: str = ""
     extras: dict = {}
 
     def __init__(
         self,
         data: Any,
-        format: str | Callable = None,
+        format: Optional[Union[str, Callable]] = None,
         data_alias: str = "",
         **extras: Any,
     ) -> None:
-        super().__init__(data=data, format=format, data_alias=data_alias, **extras)
+        # callable format → 不写到 pydantic 字段(它要求 str / None),
+        # 改用对象属性 _format_callable 暴露给 ``__str__``
+        format_str: Optional[str] = format if isinstance(format, str) else None
+        super().__init__(data=data, format=format_str, data_alias=data_alias, **extras)
+        if callable(format):
+            object.__setattr__(self, "_format_callable", format)
 
     def __str__(self) -> str:
         if self.format == "json":
