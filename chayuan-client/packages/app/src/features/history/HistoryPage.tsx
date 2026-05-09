@@ -15,6 +15,7 @@ import * as React from 'react';
 import { Loader2, MessageSquareText, Pencil, Trash2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { cn } from '@chayuan/ui';
+import { getPlatform } from '@chayuan/platform-shared';
 import {
   useClearAllConversations,
   useConversationList,
@@ -111,15 +112,20 @@ export const HistoryPage: React.FC = () => {
     void navigate({ to: path as never });
   };
 
-  const onRename = (c: ConversationView) => {
+  const onRename = async (c: ConversationView) => {
     setCtxMenu(null);
-    const name = window.prompt('重命名为?', c.title);
+    // platform.dialog.prompt:Tauri webview 下兜底原生 prompt;Web 端直接 window.prompt
+    const name = await getPlatform().dialog.prompt('重命名为?', { defaultValue: c.title });
     if (name && name.trim()) rename.mutate({ item: c, name: name.trim() });
   };
 
-  const onDelete = (c: ConversationView) => {
+  const onDelete = async (c: ConversationView) => {
     setCtxMenu(null);
-    if (confirm(t('history.deleteConfirm'))) del.mutate(c);
+    // 之前用裸 ``confirm()``,Tauri webview 把它重定向到 plugin-dialog,某些版本下报
+    // "dialog.confirm not allowed. Command not found"。改走 platform.dialog.confirm
+    // 在 Tauri 端用 plugin-dialog.ask(已显式授权 dialog:allow-ask),Web 端走原生 confirm。
+    const ok = await getPlatform().dialog.confirm(t('history.deleteConfirm'), { title: '删除会话' });
+    if (ok) del.mutate(c);
   };
 
   const onContextMenu = (e: React.MouseEvent, c: ConversationView) => {
@@ -132,15 +138,15 @@ export const HistoryPage: React.FC = () => {
   };
 
   const totalCount = (list.data ?? []).length;
-  const onClearAll = () => {
+  const onClearAll = async () => {
     if (totalCount === 0) return;
-    if (
-      !confirm(
-        `确定要清空全部 ${totalCount} 个会话吗?\n本地与已登录端的会话都会被删除,且无法恢复。`,
-      )
-    ) {
-      return;
-    }
+    // 之前用裸 ``confirm()``,Tauri webview 把它重定向到 plugin-dialog,某些版本下报
+    // "dialog.confirm not allowed. Command not found"。改走 platform.dialog.confirm。
+    const ok = await getPlatform().dialog.confirm(
+      `确定要清空全部 ${totalCount} 个会话吗?\n本地与已登录端的会话都会被删除,且无法恢复。`,
+      { title: '清空全部历史' },
+    );
+    if (!ok) return;
     clearAll.mutate(list.data ?? []);
   };
 
@@ -150,7 +156,7 @@ export const HistoryPage: React.FC = () => {
         <h1 className="text-xl font-semibold text-[var(--cy-text-primary)]">{t('history.title')}</h1>
         <button
           type="button"
-          onClick={onClearAll}
+          onClick={() => void onClearAll()}
           disabled={totalCount === 0 || clearAll.isPending}
           className={cn(
             'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors',

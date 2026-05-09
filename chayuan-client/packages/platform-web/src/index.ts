@@ -24,6 +24,7 @@ import type {
   PreviewWindowSpec,
   RuntimeInfo,
   SecureStore,
+  DialogApi,
   ShellApi,
   WindowApi,
 } from '@chayuan/platform-shared';
@@ -376,6 +377,19 @@ const webShell: ShellApi = {
   },
 };
 
+// Web 端原生 confirm/prompt/alert 在浏览器里完全可用,直接走 — 不需要弹 plugin。
+const webDialog: DialogApi = {
+  async confirm(message) {
+    return window.confirm(message);
+  },
+  async prompt(message, opts) {
+    return window.prompt(message, opts?.defaultValue ?? '');
+  },
+  async message(message) {
+    window.alert(message);
+  },
+};
+
 // ──────────────────────────────────────────────────────────────
 // Preview Window (web 用 window.open 弹窗;同源共享 localStorage)
 // ──────────────────────────────────────────────────────────────
@@ -477,6 +491,7 @@ export function createWebPlatform(env: {
     notify: webNotify,
     window: webWindow,
     shell: webShell,
+    dialog: webDialog,
     preview: webPreview,
     // 不提供 shortcut / tray / capture / updater；UI 必须 capability check
   };

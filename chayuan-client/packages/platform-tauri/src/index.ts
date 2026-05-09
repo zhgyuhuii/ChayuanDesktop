@@ -18,6 +18,7 @@ import type {
   DataDirApi,
   DataDirState,
   DbValue,
+  DialogApi,
   FsApi,
   Database as IDatabase,
   NetApi,
@@ -570,6 +571,48 @@ const tauriShell: ShellApi = {
 };
 
 // ──────────────────────────────────────────────────────────────
+// Dialog(plugin-dialog 包装,跨平台 confirm/prompt/message)
+// ──────────────────────────────────────────────────────────────
+//
+// 为什么不用浏览器原生 ``window.confirm``:Tauri 2 webview 把它重定向到
+// plugin-dialog IPC,需要 capabilities 显式授权,某些版本下还会抛 "Command
+// not found"。这里直接用 plugin-dialog 的 ``ask`` / ``message`` JS API,绕开
+// 那条不可靠的 webview 重定向链路;capabilities 已显式授权 ``dialog:allow-ask``
+// / ``dialog:allow-message``,稳定可用。
+//
+// prompt:plugin-dialog 没原生 prompt(Rust 端没单行输入框 widget)。这里用
+// ``window.prompt`` 兜底 — 它在 Tauri webview 是被允许的(WebView2 自带的输入框,
+// 不走 IPC)。如果哪天兜底也失效,可以改成应用内 Modal + Input 组件。
+
+const tauriDialog: DialogApi = {
+  async confirm(message, opts) {
+    const { ask } = await import('@tauri-apps/plugin-dialog');
+    return ask(message, {
+      title: opts?.title ?? '确认',
+      kind: 'info',
+      okLabel: opts?.okLabel ?? '确定',
+      cancelLabel: opts?.cancelLabel ?? '取消',
+    });
+  },
+  async prompt(message, opts) {
+    // Tauri 没有原生 prompt;webview 自带的 window.prompt 在 Tauri 是 fallback 可用的
+    // 反正 prompt 用得很少,不再投资写应用内 Modal
+    if (typeof window !== 'undefined' && typeof window.prompt === 'function') {
+      const r = window.prompt(message, opts?.defaultValue ?? '');
+      return r;
+    }
+    return null;
+  },
+  async message(message, opts) {
+    const { message: msg } = await import('@tauri-apps/plugin-dialog');
+    await msg(message, {
+      title: opts?.title ?? '提示',
+      kind: opts?.kind ?? 'info',
+    });
+  },
+};
+
+// ──────────────────────────────────────────────────────────────
 // Preview Window (multi-window for file preview)
 // ──────────────────────────────────────────────────────────────
 
@@ -851,6 +894,7 @@ export async function createTauriPlatform(env: {
     updater: tauriUpdater,
     window: tauriWindow,
     shell: tauriShell,
+    dialog: tauriDialog,
     preview: tauriPreview,
     dataDir: tauriDataDir,
     sidecar: tauriSidecar,

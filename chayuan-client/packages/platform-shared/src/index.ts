@@ -143,6 +143,24 @@ export interface ShellApi {
 }
 
 /**
+ * 跨平台 confirm / prompt / message 弹窗。
+ *
+ * 不要直接用浏览器原生 ``window.confirm`` / ``window.prompt``:
+ * Tauri 2 webview 把这些 API 重定向到 plugin-dialog 的 IPC command,需要 capabilities 显式
+ * 放行;某些版本 / 配置下重定向链路对不上,会报 "dialog.confirm not allowed. Command not
+ * found"。统一走 ``platform.dialog`` 在 Tauri 端直接用 ``@tauri-apps/plugin-dialog`` 的 ask /
+ * 在 Web 端兜底原生 confirm / prompt,避免跨平台分支。
+ */
+export interface DialogApi {
+  /** Yes/No 确认框。返 true=确认 / false=取消 */
+  confirm(message: string, opts?: { title?: string; okLabel?: string; cancelLabel?: string }): Promise<boolean>;
+  /** 单行文本输入框。返用户输入(取消返 null)。Tauri 端目前没有原生 prompt,会用应用内 fallback。 */
+  prompt(message: string, opts?: { title?: string; defaultValue?: string }): Promise<string | null>;
+  /** 信息提示框。无返回 */
+  message(message: string, opts?: { title?: string; kind?: 'info' | 'warning' | 'error' }): Promise<void>;
+}
+
+/**
  * 子窗口规格(用于文件预览的"独立窗口"模式)。
  *
  * 设计:
@@ -301,6 +319,7 @@ export interface Platform {
   notify: NotifyApi;
   window: WindowApi;
   shell: ShellApi;
+  dialog: DialogApi;
 
   // 可选能力
   shortcut?: ShortcutApi;

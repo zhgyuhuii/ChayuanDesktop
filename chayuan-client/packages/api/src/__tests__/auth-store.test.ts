@@ -31,6 +31,11 @@ beforeEach(() => {
     notify: { show: async () => undefined },
     window: { onThemeChange: () => () => undefined, isDarkSystem: () => false },
     shell: { openExternal: async () => undefined },
+    dialog: {
+      confirm: async () => true,
+      prompt: async () => null,
+      message: async () => undefined,
+    },
   });
 });
 
