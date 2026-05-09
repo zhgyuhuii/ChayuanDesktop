@@ -26,11 +26,17 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from chayuan.server.config_panel import yaml_store
+from chayuan.server.tools.catalog import (
+    ToolField,
+    ToolSpec,
+    bundled_catalog_path as _shared_bundled_path,
+    load_catalog as _shared_load_catalog,
+    override_catalog_path as _shared_override_path,
+)
 from chayuan.settings import CHAYUAN_ROOT
 
 logger = logging.getLogger("chayuan.config_panel.tools")
@@ -41,91 +47,18 @@ _DESC_OVERRIDE_KEY = "_desc"  # tool_settings.yaml 里描述覆盖字段
 
 
 # ---------------------------------------------------------------------------
-# 目录数据类
+# 目录数据类与加载（已迁到 chayuan/server/tools/catalog.py 共享）
+# 此处保留兼容别名,避免下方代码大改;新代码请直接 import 共享版本。
 # ---------------------------------------------------------------------------
 
-@dataclass
-class ToolField:
-    path: str
-    label: str
-    widget: str  # text / textarea / switch / number / password / select / model_select
-    help: str = ""
-    placeholder: str = ""
-    choices: Optional[List[str]] = None
-    model_type: Optional[str] = None
-    min: Optional[float] = None
-    max: Optional[float] = None
-    step: Optional[float] = None
-    password_toggle: bool = True
-    default: Any = None
-
-
-@dataclass
-class ToolSpec:
-    key: str
-    title: str
-    icon: str
-    category: str
-    summary: str
-    description: str
-    tags: List[str] = field(default_factory=list)
-    docs_url: str = ""
-    fields: List[ToolField] = field(default_factory=list)
-    defaults: Dict[str, Any] = field(default_factory=dict)
-
-
-# ---------------------------------------------------------------------------
-# 加载目录
-# ---------------------------------------------------------------------------
-
-def _bundled_catalog_path() -> Path:
-    # chayuan 包根下的 data/tools_catalog.json
-    return Path(__file__).resolve().parent.parent.parent / "data" / "tools_catalog.json"
-
-
-def _override_catalog_path() -> Path:
-    return Path(CHAYUAN_ROOT) / "tools_catalog.override.json"
-
-
-def _load_catalog() -> Tuple[List[ToolSpec], Dict[str, str]]:
-    """返回 (tools, categories)。
-
-    读取顺序：先读 bundled（必须存在），再把 override（可选）按 key merge 进来，
-    override 里有的工具会整体替换 bundled 的对应项，实现「离线扩展 / 企业内部工具」
-    的场景。
-    """
-    bundled = _read_json(_bundled_catalog_path()) or {}
-    override = _read_json(_override_catalog_path()) or {}
-
-    tools_by_key: Dict[str, Dict[str, Any]] = {}
-    categories: Dict[str, str] = {}
-
-    for src in (bundled, override):
-        cats = src.get("categories") or {}
-        if isinstance(cats, dict):
-            categories.update({str(k): str(v) for k, v in cats.items()})
-        for t in src.get("tools") or []:
-            key = t.get("key")
-            if not key:
-                continue
-            tools_by_key[str(key)] = t
-
-    specs: List[ToolSpec] = []
-    for key, raw in tools_by_key.items():
-        try:
-            specs.append(_parse_tool(raw))
-        except Exception:  # noqa: BLE001
-            logger.exception("跳过无法解析的工具目录项：%s", key)
-    # 稳定排序：按分类 → 标题
-    cat_order = list(categories.keys()) or []
-    specs.sort(key=lambda s: (
-        cat_order.index(s.category) if s.category in cat_order else 999,
-        s.title,
-    ))
-    return specs, categories
+# 透传共享路径（NiceGUI 面板里仍按原名调用）
+_bundled_catalog_path = _shared_bundled_path
+_override_catalog_path = _shared_override_path
+_load_catalog = _shared_load_catalog
 
 
 def _read_json(path: Path) -> Optional[Dict[str, Any]]:
+    """局部小工具：只在本文件用,共享版藏在 catalog._read_json 里不公开。"""
     try:
         if not path.is_file():
             return None
@@ -134,37 +67,6 @@ def _read_json(path: Path) -> Optional[Dict[str, Any]]:
     except Exception:  # noqa: BLE001
         logger.exception("读取工具目录 JSON 失败：%s", path)
         return None
-
-
-def _parse_tool(raw: Dict[str, Any]) -> ToolSpec:
-    fields: List[ToolField] = []
-    for f in raw.get("fields") or []:
-        fields.append(ToolField(
-            path=str(f.get("path", "")),
-            label=str(f.get("label", f.get("path", ""))),
-            widget=str(f.get("widget", "text")),
-            help=str(f.get("help", "")),
-            placeholder=str(f.get("placeholder", "")),
-            choices=list(f["choices"]) if isinstance(f.get("choices"), list) else None,
-            model_type=f.get("model_type"),
-            min=f.get("min"),
-            max=f.get("max"),
-            step=f.get("step"),
-            password_toggle=bool(f.get("password_toggle", True)),
-            default=f.get("default"),
-        ))
-    return ToolSpec(
-        key=str(raw["key"]),
-        title=str(raw.get("title", raw["key"])),
-        icon=str(raw.get("icon", "build")),
-        category=str(raw.get("category", "misc")),
-        summary=str(raw.get("summary", "")),
-        description=str(raw.get("description", "")),
-        tags=[str(t) for t in (raw.get("tags") or [])],
-        docs_url=str(raw.get("docs_url", "")),
-        fields=fields,
-        defaults=dict(raw.get("defaults") or {}),
-    )
 
 
 # ---------------------------------------------------------------------------
