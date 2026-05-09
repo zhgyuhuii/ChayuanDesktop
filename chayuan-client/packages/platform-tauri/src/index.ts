@@ -5,7 +5,11 @@
  * - 全部能力 lazy-import，避免启动时同步加载所有 plugin（冷启动性能）。
  * - DB 单例：app 生命周期共享一个连接。
  * - SecureStore 走 Stronghold（Argon2 + ChaCha20），失败软回退 sessionStorage（仅开发兜底）。
- * - net.fetch 走 plugin-http，绕浏览器 CORS；SSE 走原生 fetch，因为 plugin-http 没有流式 body。
+ * - net.fetch / SSE 都走 webview 原生 fetch:
+ *   - 单机版后端 CORS 全开(``allow_origins=["*"]``),不需要 plugin-http 绕 CORS。
+ *   - plugin-http 走 Rust reqwest,在某些 Windows 环境下对 loopback 会被中间层(系统代理 / 杀软网络层 / IPv6 协议栈差异)截到 502,而 webview 原生 fetch 走 WebView2 内置 HTTP 栈,跟浏览器一致 — 用户能在浏览器打开 ``127.0.0.1:7861`` 就一定走得通。
+ *   - 副作用:DevTools Network 现在能看到全部业务请求(plugin-http 请求只暴露 IPC invocation,不显示真实 HTTP),排查问题更直观。
+ *   - 历史代价:plugin-http 之前还能拦截 CSP 之外的 host;现在 connect-src 必须把后端 host 列全(已在 ``tauri.conf.json`` 列了 ``http://127.0.0.1:7861``)。
  */
 
 import type {
@@ -368,17 +372,27 @@ function optsToFilters(opts?: PickOptions) {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Net（plugin-http for REST + 原生 fetch for SSE）
+// Net(全部走 webview 原生 fetch — 含 REST + SSE)
 // ──────────────────────────────────────────────────────────────
+//
+// 历史:这里曾经把 REST 走 ``@tauri-apps/plugin-http``(Rust reqwest)、SSE 走原生
+// fetch。原因是当时担心浏览器 CORS。但单机版后端 CORS 全开 + tauri.conf.json
+// 的 ``connect-src`` 已经把 ``http://127.0.0.1:7861`` 列入,跨域不再是问题。
+//
+// 切回原生 fetch 的强动机是:Windows 上 reqwest 对 loopback 在部分用户机器上
+// 会拿到 502 + ``connection: close`` + ``content-length: 0`` 的响应(浏览器和
+// PowerShell 直连同地址都 200);定位过系统代理 / NO_PROXY / IPv6 dual stack
+// 都不命中。WebView2 自带的 HTTP 栈跟浏览器一致,用户能在浏览器打开 7861 就
+// 一定能跑通,直接绕开 reqwest 这一层。
+//
+// 副作用:plugin-http capabilities 仍然保留(没有别处依赖,但移除收益小且会
+// 让旧版 dev 客户端连不上,不动它)。
 
 const tauriNet: NetApi = {
   async fetch(input, init) {
-    const { fetch } = await import('@tauri-apps/plugin-http');
-    return fetch(input as any, init);
+    return globalThis.fetch(input as RequestInfo, init);
   },
   async sse(input, init) {
-    // plugin-http 不支持 ReadableStream；SSE 必须走 webview 原生 fetch。
-    // Tauri 2 默认禁了跨域，需要 tauri.conf.json 的 csp connect-src 加上后端 host。
     return globalThis.fetch(input.toString(), init);
   },
 };
