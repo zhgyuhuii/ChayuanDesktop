@@ -10,10 +10,10 @@
  * - windowDock:left / center / right(参考图"窗口位置";由 platform-tauri 在 M1 接通)
  */
 
-import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import { detectInitialLocale, type AppLocale } from '@chayuan/i18n';
+import { type AppLocale, detectInitialLocale } from '@chayuan/i18n';
 import { getPlatform } from '@chayuan/platform-shared';
+import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 export type { AppLocale } from '@chayuan/i18n';
 
@@ -29,6 +29,8 @@ interface SettingsState {
   telemetry: boolean;
   locale: LocalePreference;
   windowDock: WindowDock;
+  /** 单机版的「本地用户」显示名;UserMenu 头像 + 设置页「名称设置」共用 */
+  displayName: string;
 
   setTheme(t: ThemeMode): void;
   setFontSize(n: number): void;
@@ -36,6 +38,7 @@ interface SettingsState {
   setTelemetry(b: boolean): void;
   setLocale(l: LocalePreference): void;
   setWindowDock(d: WindowDock): void;
+  setDisplayName(name: string): void;
   reset(): void;
 }
 
@@ -45,7 +48,7 @@ const FONT_DEFAULT = 16;
 
 const DEFAULTS: Pick<
   SettingsState,
-  'theme' | 'fontSize' | 'apiBaseOverride' | 'telemetry' | 'locale' | 'windowDock'
+  'theme' | 'fontSize' | 'apiBaseOverride' | 'telemetry' | 'locale' | 'windowDock' | 'displayName'
 > = {
   theme: 'system',
   fontSize: FONT_DEFAULT,
@@ -54,6 +57,7 @@ const DEFAULTS: Pick<
   // 默认跟随系统;LocaleBridge 在运行时解析为具体 AppLocale
   locale: 'system',
   windowDock: 'center',
+  displayName: '',
 };
 
 /**
@@ -98,6 +102,7 @@ export const useSettingsStore = create<SettingsState>()(
       setTelemetry: (telemetry) => set({ telemetry }),
       setLocale: (locale) => set({ locale }),
       setWindowDock: (windowDock) => set({ windowDock }),
+      setDisplayName: (displayName) => set({ displayName: displayName.slice(0, 30) }),
       reset: () => set(DEFAULTS),
     }),
     {

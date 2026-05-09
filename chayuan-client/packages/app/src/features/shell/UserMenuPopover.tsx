@@ -111,10 +111,12 @@ export const UserMenuPopover: React.FC = () => {
               单机模式(``singleMachine``):隐藏「登录 / 退出」按钮 + 把"未登录"
               文案换成"本地用户",符合 CLAUDE.md §3.4 的红线(不暴露登录概念)。 */}
         <div className="flex items-center gap-3 rounded-xl bg-[var(--cy-surface-1)] p-3">
-          <Avatar name={singleMachine ? '本' : username} size={36} />
+          <Avatar name={singleMachine ? settings.displayName || '本' : username} size={36} />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-[var(--cy-text-primary)]">
-              {singleMachine ? '本地用户' : (username ?? t('settings.notLoggedIn'))}
+              {singleMachine
+                ? settings.displayName || '本地用户'
+                : (username ?? t('settings.notLoggedIn'))}
             </p>
             {!singleMachine && !auth.user && (
               <p className="truncate text-xs text-[var(--cy-text-tertiary)]">
