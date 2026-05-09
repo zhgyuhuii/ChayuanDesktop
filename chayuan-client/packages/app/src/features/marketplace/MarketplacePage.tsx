@@ -7,10 +7,12 @@
  *
  * 信息架构(参考 CLAUDE.md §1.2):
  *
- *     ┌─ 顶部: VendorHeroStrip(8 高频厂商 + 「更多」)─────────┐
- *     ├─ 分类 chips: 推荐 / 全部 / 本地 / 国内 / 国外 / 聚合 / 自定义 ┤
+ *     ┌─ 分类 chips: 推荐 / 全部 / 本地 / 国内 / 国外 / 聚合 / 自定义 ┐
  *     ├─ 工具栏: 搜索框 + 「添加自定义」按钮 ────────────────┤
  *     └─ ProviderCard 网格(按分类 + 搜索过滤后的厂商列表) ──┘
+ *
+ * 历史:本页曾在最上方放过一个 VendorHeroStrip(8 高频厂商 + 「更多」),
+ * 用户反馈视觉冗余 + 跟下方网格信息重复 — 2026-05-09 已删除。
  *
  * 数据源: ``usePlatformCatalogQuery`` —— catalog seed + DB 合并的厂商目录。
  * 写操作通过 PlatformSettingsDialog / PlatformCreateDialog 内部走
@@ -31,12 +33,10 @@ import { usePlatformCatalogQuery } from '../../store/modelPlatform';
 import { PlatformCreateDialog } from './components/PlatformCreateDialog';
 import { PlatformSettingsDialog } from './components/PlatformSettingsDialog';
 import { ProviderCard } from './components/ProviderCard';
-import { VendorHeroStrip } from './components/VendorHeroStrip';
 
 const CATEGORY_RECOMMENDED = '__recommended__';
 const CATEGORY_ALL = '__all__';
 const CATEGORY_CUSTOM = '__custom__';
-const VENDOR_ALL = '__all_vendors__';
 
 /** 分类 chips:与后端 _CATEGORY_TAG_MAP / 后端 PROVIDER_CATALOG.tags 对齐。 */
 const CATEGORY_TABS: ReadonlyArray<{
@@ -147,7 +147,6 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
   const setModel = useComposerStore((s) => s.setModel);
   const currentModel = useComposerStore((s) => s.modelId);
   const [activeCategory, setActiveCategory] = React.useState<string>(CATEGORY_RECOMMENDED);
-  const [selectedVendor, setSelectedVendor] = React.useState<string>(VENDOR_ALL);
   const [search, setSearch] = React.useState('');
   const [settingsTarget, setSettingsTarget] = React.useState<PlatformConfig | null>(null);
   const [settingsExistsInDb, setSettingsExistsInDb] = React.useState(true);
@@ -172,22 +171,12 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
     [excludeLocal],
   );
 
-  // 按分类 + 搜索过滤;再加 vendor pin(hero 选定单个厂商时只显示该厂商卡片)
+  // 按分类 + 搜索过滤
   const filtered = React.useMemo(() => {
     let list = filterByCategory(catalog, activeCategory);
     list = filterBySearch(list, search);
-    if (selectedVendor !== VENDOR_ALL) {
-      list = list.filter((e) => e.pid === selectedVendor);
-    }
     return list;
-  }, [activeCategory, catalog, search, selectedVendor]);
-
-  // hero strip 的厂商顺序:推荐位优先,其余按 catalog 顺序填后面
-  const heroVendors = React.useMemo(() => {
-    const recommended = filterByCategory(catalog, CATEGORY_RECOMMENDED);
-    const recPids = new Set(recommended.map((v) => v.pid));
-    return [...recommended, ...catalog.filter((v) => !recPids.has(v.pid))];
-  }, [catalog]);
+  }, [activeCategory, catalog, search]);
 
   const onOpenSettings = React.useCallback((e: ProviderCatalogEntry) => {
     setSettingsTarget(catalogEntryToPlatformConfig(e));
@@ -224,24 +213,13 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
         embedded ? '' : 'mx-auto h-full max-w-7xl px-6 py-6',
       )}
     >
-      <VendorHeroStrip
-        vendors={heroVendors}
-        selectedVendor={selectedVendor}
-        onSelectVendor={setSelectedVendor}
-        onAddVendor={() => setCreateOpen(true)}
-        onOpenSettings={onOpenSettings}
-      />
-
       <section className="rounded-3xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-4 shadow-[var(--cy-shadow-sm)]">
         <div className="flex flex-wrap items-center gap-2">
           {categoryTabs.map((tab) => (
             <FilterPill
               key={tab.value}
               active={activeCategory === tab.value}
-              onClick={() => {
-                setActiveCategory(tab.value);
-                setSelectedVendor(VENDOR_ALL);
-              }}
+              onClick={() => setActiveCategory(tab.value)}
             >
               {tab.label}
             </FilterPill>
