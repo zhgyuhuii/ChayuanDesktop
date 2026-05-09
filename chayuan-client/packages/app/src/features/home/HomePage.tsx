@@ -3,7 +3,7 @@
  *
  *   1. Greeting(早/午/晚 + 用户名)
  *   2. [可选 banner] 还没配模型 → 跳模型广场
- *   3. 5 张炫酷功能入口卡(AI 翻译 / 知识库 / 模型广场 / MCP 服务 / 工具中心)
+ *   3. 4 张炫酷功能入口卡(知识库 / 模型广场 / MCP 服务 / 工具中心)— 4 列等宽
  *   4. 关注我们 + 收款码 三张二维码
  *   5. 流式产品介绍(每次进入都重新生成,LLM 不可用走静态文案 fallback)
  *   6. 特性 chip + WPS 加载项 / GitHub / 官网链接
@@ -234,10 +234,11 @@ export const HomePage: React.FC = () => {
           <p
             className={cn(
               'min-h-[2.5rem] text-sm leading-relaxed text-[var(--cy-text-secondary)]',
-              !introDone && "after:ml-0.5 after:inline-block after:h-3.5 after:w-1.5 after:translate-y-0.5 after:animate-pulse after:bg-[var(--cy-text-tertiary)] after:content-['']",
+              // 文字开始流出后才挂闪烁光标;空白等待期改用三粒跳动 dots(下方 TypingDots)
+              !introDone && intro && "after:ml-0.5 after:inline-block after:h-3.5 after:w-1.5 after:translate-y-0.5 after:animate-pulse after:bg-[var(--cy-text-tertiary)] after:content-['']",
             )}
           >
-            {intro || (introDone ? '' : '正在生成介绍…')}
+            {intro || (introDone ? '' : <TypingDots />)}
           </p>
           {introError && (
             <p className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]" title={introError}>
@@ -269,8 +270,11 @@ export const HomePage: React.FC = () => {
         </div>
       )}
 
-      {/* ── 3. 五张炫酷功能入口卡 ──────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+      {/* ── 3. 四张炫酷功能入口卡 ────────────────────────────────
+          设计:窄屏 2 列、桌面 4 列等宽并列,卡片高度统一 h-40,
+          gap 略增到 5,卡内 padding p-5,左上图标 + 左下文案的固定网格,
+          上下左右留白对称 — 视觉平衡感比之前 5 列(残余空隙)好。 */}
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {CAPS.map((c) => {
           const Icon = c.icon;
           return (
@@ -278,18 +282,18 @@ export const HomePage: React.FC = () => {
               key={c.id}
               type="button"
               onClick={() => onCapClick(c)}
-              className={`group relative flex h-32 flex-col justify-between overflow-hidden rounded-2xl border border-[var(--cy-border-subtle)] bg-gradient-to-br ${c.gradient} p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-[var(--cy-shadow-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cy-brand-500)]`}
+              className={`group relative flex h-40 flex-col justify-between overflow-hidden rounded-2xl border border-[var(--cy-border-subtle)] bg-gradient-to-br ${c.gradient} p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[var(--cy-shadow-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cy-brand-500)]`}
             >
-              <div className={`flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-sm ${c.iconBg}`}>
-                <Icon className="h-4 w-4" />
+              <div className={`flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-sm ${c.iconBg}`}>
+                <Icon className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-[var(--cy-text-primary)]">{c.title}</p>
-                <p className="mt-0.5 line-clamp-2 text-xs text-[var(--cy-text-secondary)]">{c.subtitle}</p>
+                <p className="text-base font-semibold text-[var(--cy-text-primary)]">{c.title}</p>
+                <p className="mt-1 line-clamp-2 text-xs text-[var(--cy-text-secondary)]">{c.subtitle}</p>
               </div>
               {/* 右上角光斑装饰,hover 微移 */}
               <div
-                className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full bg-white/30 blur-2xl transition-transform group-hover:translate-x-1"
+                className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/30 blur-2xl transition-transform group-hover:translate-x-1"
                 aria-hidden
               />
             </button>
@@ -351,6 +355,22 @@ export const HomePage: React.FC = () => {
     </div>
   );
 };
+
+// ── 三粒跳动 dots — 流式介绍空白等待期的纯动画占位 ────────────────
+// 取代之前的「正在生成介绍…」文字,纯视觉提示 LLM 在思考,文案干净不打断阅读。
+const TypingDots: React.FC = () => (
+  <span className="inline-flex items-center gap-1 align-middle">
+    <span
+      className="h-1.5 w-1.5 rounded-full bg-[var(--cy-text-tertiary)] animate-bounce"
+      style={{ animationDelay: '-0.3s' }}
+    />
+    <span
+      className="h-1.5 w-1.5 rounded-full bg-[var(--cy-text-tertiary)] animate-bounce"
+      style={{ animationDelay: '-0.15s' }}
+    />
+    <span className="h-1.5 w-1.5 rounded-full bg-[var(--cy-text-tertiary)] animate-bounce" />
+  </span>
+);
 
 // ── 二维码小卡 ─────────────────────────────────────────────────────
 const QrCard: React.FC<{ label: string; src: string }> = ({ label, src }) => (
