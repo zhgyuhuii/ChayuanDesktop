@@ -6,45 +6,47 @@
  *   - 窗口位置(WindowDock,仅桌面)
  *   - 主题(浅 / 深 / 跟随系统)
  *   - 字号(Slider)
- *   - 设置 / 帮助中心 / 能量中心 / 反馈 / 关于 / 消息中心 / 检测更新 + 版本号
+ *   - 设置 / 帮助中心 / 反馈 / 关于
  *
  * 与 SettingsAsPage 重复处:菜单是"快捷面板",仅暴露最常用设置;
  * 复杂选项(后端 API base、telemetry)放设置页。
+ *
+ * 单机版红线(2026-05-09):移除「能量中心 / 消息中心 / 检测更新」三项 —
+ * 它们都是 SaaS 形态遗留(余额、推送、auto-update);单机离线产品里没有
+ * 对应的服务端,展示出来反而误导用户。
  */
 
-import * as React from 'react';
-import {
-  Sun,
-  Moon,
-  Monitor,
-  ChevronDown,
-  Settings,
-  HelpCircle,
-  Zap,
-  MessageCircle,
-  Info,
-  Bell,
-  RefreshCw,
-} from 'lucide-react';
+import { isDesktop } from '@chayuan/platform-shared';
 import {
   Avatar,
-  Pill,
-  Slider,
   Button,
-  cn,
+  Pill,
   Popover,
-  PopoverTrigger,
   PopoverContent,
+  PopoverTrigger,
+  Slider,
+  cn,
 } from '@chayuan/ui';
-import { getPlatform, isDesktop } from '@chayuan/platform-shared';
+import { useNavigate } from '@tanstack/react-router';
+import {
+  ChevronDown,
+  HelpCircle,
+  Info,
+  MessageCircle,
+  Monitor,
+  Moon,
+  Settings,
+  Sun,
+} from 'lucide-react';
+import * as React from 'react';
+import { useTranslation } from '../../i18n';
 import { useAuthStore } from '../../store/auth';
 import { useLoginModalStore } from '../../store/loginModal';
-import { useSingleMachineMode } from '../first-run/useSingleMachineMode';
-import { useSettingsStore, type ThemeMode } from '../../store/settings';
+import { type ThemeMode, useSettingsStore } from '../../store/settings';
 import { useTabsStore } from '../../store/tabs';
-import { useNavigate } from '@tanstack/react-router';
-import { useTranslation } from '../../i18n';
-import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
+import { useSingleMachineMode } from '../first-run/useSingleMachineMode';
+import { AboutDialog } from '../help/AboutDialog';
+import { FeedbackDialog } from '../help/FeedbackDialog';
 import { WindowDock } from './WindowDock';
 
 const THEMES: Array<{
@@ -61,11 +63,12 @@ export const UserMenuPopover: React.FC = () => {
   const { t } = useTranslation();
   const auth = useAuthStore();
   const settings = useSettingsStore();
-  const platform = getPlatform();
   const open = useTabsStore((s) => s.open);
   const navigate = useNavigate();
   const showLogin = useLoginModalStore((s) => s.show);
   const [popOpen, setPopOpen] = React.useState(false);
+  const [aboutOpen, setAboutOpen] = React.useState(false);
+  const [feedbackOpen, setFeedbackOpen] = React.useState(false);
 
   const username = auth.user?.username;
   const singleMachine = useSingleMachineMode();
@@ -74,24 +77,18 @@ export const UserMenuPopover: React.FC = () => {
     void navigate({ to: '/settings' as never });
     setPopOpen(false);
   };
-  const onCheckUpdate = async () => {
+  const openHelp = () => {
+    open('/help', { title: 'settings.helpCenter', icon: 'help-circle' });
+    void navigate({ to: '/help' as never });
     setPopOpen(false);
-    try {
-      const upd = await platform.updater?.check();
-      if (!upd) {
-        notifyInfo('当前平台不支持检测更新');
-        return;
-      }
-      if (upd.available) {
-        if (confirm(`发现新版本 ${upd.version}。立即安装?`)) {
-          await platform.updater!.install();
-        }
-      } else {
-        notifySuccess('已是最新版本');
-      }
-    } catch (e) {
-      reportError(e, '检测更新失败');
-    }
+  };
+  const openFeedback = () => {
+    setPopOpen(false);
+    setFeedbackOpen(true);
+  };
+  const openAbout = () => {
+    setPopOpen(false);
+    setAboutOpen(true);
   };
 
   return (
@@ -109,113 +106,93 @@ export const UserMenuPopover: React.FC = () => {
           <ChevronDown className="h-3 w-3 text-[var(--cy-text-tertiary)]" />
         </button>
       </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          sideOffset={8}
-          className="w-80"
-        >
-          {/* Profile row.
+      <PopoverContent align="end" sideOffset={8} className="w-80">
+        {/* Profile row.
               单机模式(``singleMachine``):隐藏「登录 / 退出」按钮 + 把"未登录"
               文案换成"本地用户",符合 CLAUDE.md §3.4 的红线(不暴露登录概念)。 */}
-          <div className="flex items-center gap-3 rounded-xl bg-[var(--cy-surface-1)] p-3">
-            <Avatar name={singleMachine ? '本' : username} size={36} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-[var(--cy-text-primary)]">
-                {singleMachine
-                  ? '本地用户'
-                  : (username ?? t('settings.notLoggedIn'))}
+        <div className="flex items-center gap-3 rounded-xl bg-[var(--cy-surface-1)] p-3">
+          <Avatar name={singleMachine ? '本' : username} size={36} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-[var(--cy-text-primary)]">
+              {singleMachine ? '本地用户' : (username ?? t('settings.notLoggedIn'))}
+            </p>
+            {!singleMachine && !auth.user && (
+              <p className="truncate text-xs text-[var(--cy-text-tertiary)]">
+                {t('settings.loginHint')}
               </p>
-              {!singleMachine && !auth.user && (
-                <p className="truncate text-xs text-[var(--cy-text-tertiary)]">
-                  {t('settings.loginHint')}
-                </p>
-              )}
-              {singleMachine && (
-                <p className="truncate text-xs text-[var(--cy-text-tertiary)]">
-                  数据保存在本机
-                </p>
-              )}
-            </div>
-            {!singleMachine && (
-              auth.user ? (
-                <Button size="sm" variant="ghost" onClick={() => void auth.logout()}>
-                  {t('auth.logout')}
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setPopOpen(false);
-                    showLogin();
-                  }}
-                >
-                  {t('auth.login')}
-                </Button>
-              )
+            )}
+            {singleMachine && (
+              <p className="truncate text-xs text-[var(--cy-text-tertiary)]">数据保存在本机</p>
             )}
           </div>
+          {!singleMachine &&
+            (auth.user ? (
+              <Button size="sm" variant="ghost" onClick={() => void auth.logout()}>
+                {t('auth.logout')}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setPopOpen(false);
+                  showLogin();
+                }}
+              >
+                {t('auth.login')}
+              </Button>
+            ))}
+        </div>
 
-          {/* 窗口位置(仅桌面) */}
-          {isDesktop() && (
-            <Section label={t('settings.windowLayout')}>
-              <WindowDock />
-            </Section>
-          )}
-
-          {/* 主题 */}
-          <Section label={t('settings.theme')}>
-            <div className="flex gap-1">
-              {THEMES.map((th) => {
-                const Icon = th.icon;
-                const active = settings.theme === th.value;
-                return (
-                  <Pill
-                    key={th.value}
-                    size="sm"
-                    tone={active ? 'ink' : 'outline'}
-                    active={active}
-                    onClick={() => settings.setTheme(th.value)}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {t(th.labelKey)}
-                  </Pill>
-                );
-              })}
-            </div>
+        {/* 窗口位置(仅桌面) */}
+        {isDesktop() && (
+          <Section label={t('settings.windowLayout')}>
+            <WindowDock />
           </Section>
+        )}
 
-          {/* 字号 */}
-          <Section label={`${t('settings.fontSize')} (${settings.fontSize}px)`}>
-            <Slider
-              min={12}
-              max={22}
-              step={1}
-              value={[settings.fontSize]}
-              onValueChange={([v]) => v !== undefined && settings.setFontSize(v)}
-            />
-          </Section>
-
-          {/* 菜单项 */}
-          <div className="mt-2 border-t border-[var(--cy-border-subtle)] pt-2">
-            <MenuItem icon={Settings} label={t('nav.settings')} onClick={openSettings} />
-            <MenuItem icon={HelpCircle} label={t('settings.helpCenter')} onClick={() => setPopOpen(false)} />
-            <MenuItem icon={Zap} label={t('settings.energyCenter')} onClick={() => setPopOpen(false)} />
-            <MenuItem icon={MessageCircle} label={t('settings.feedback')} onClick={() => setPopOpen(false)} />
-            <MenuItem icon={Info} label={t('settings.about')} onClick={() => setPopOpen(false)} />
-            <MenuItem icon={Bell} label={t('settings.messageCenter')} onClick={() => setPopOpen(false)} />
-            <MenuItem
-              icon={RefreshCw}
-              label={t('settings.checkUpdate')}
-              onClick={onCheckUpdate}
-              trailing={
-                <span className="text-[11px] text-[var(--cy-text-tertiary)]">
-                  {t('settings.currentVersion')}
-                  {platform.runtime.appVersion}
-                </span>
-              }
-            />
+        {/* 主题 */}
+        <Section label={t('settings.theme')}>
+          <div className="flex gap-1">
+            {THEMES.map((th) => {
+              const Icon = th.icon;
+              const active = settings.theme === th.value;
+              return (
+                <Pill
+                  key={th.value}
+                  size="sm"
+                  tone={active ? 'ink' : 'outline'}
+                  active={active}
+                  onClick={() => settings.setTheme(th.value)}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {t(th.labelKey)}
+                </Pill>
+              );
+            })}
           </div>
-        </PopoverContent>
+        </Section>
+
+        {/* 字号 */}
+        <Section label={`${t('settings.fontSize')} (${settings.fontSize}px)`}>
+          <Slider
+            min={12}
+            max={22}
+            step={1}
+            value={[settings.fontSize]}
+            onValueChange={([v]) => v !== undefined && settings.setFontSize(v)}
+          />
+        </Section>
+
+        {/* 菜单项 */}
+        <div className="mt-2 border-t border-[var(--cy-border-subtle)] pt-2">
+          <MenuItem icon={Settings} label={t('nav.settings')} onClick={openSettings} />
+          <MenuItem icon={HelpCircle} label={t('settings.helpCenter')} onClick={openHelp} />
+          <MenuItem icon={MessageCircle} label={t('settings.feedback')} onClick={openFeedback} />
+          <MenuItem icon={Info} label={t('settings.about')} onClick={openAbout} />
+        </div>
+      </PopoverContent>
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </Popover>
   );
 };

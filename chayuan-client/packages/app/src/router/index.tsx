@@ -13,23 +13,21 @@
  *   /$splat                   工作区,Chrome 渲染 TabHost
  */
 
-import * as React from 'react';
+import type { QueryClient } from '@tanstack/react-query';
 import {
-  createRouter,
-  createRoute,
-  createRootRouteWithContext,
+  type AnyRoute,
   Outlet,
+  createRootRouteWithContext,
+  createRoute,
+  createRouter,
   redirect,
   useNavigate,
-  type AnyRoute,
 } from '@tanstack/react-router';
-import type { QueryClient } from '@tanstack/react-query';
+import * as React from 'react';
 import { useAuthStore } from '../store/auth';
 import { useLoginModalStore } from '../store/loginModal';
 
-const Chrome = React.lazy(() =>
-  import('./Chrome').then((m) => ({ default: m.Chrome })),
-);
+const Chrome = React.lazy(() => import('./Chrome').then((m) => ({ default: m.Chrome })));
 
 /**
  * 文件预览独立子窗(Tauri WebviewWindow / web popup)的根。
@@ -41,9 +39,9 @@ const PreviewStandaloneRoute = React.lazy(() =>
 
 /** 96-7:模型对抗永道拖出后的独立窗口 */
 const DetachedLaneRoute = React.lazy(() =>
-  import('../features/model-arena/DetachedLaneRoute').then(
-    (m) => ({ default: m.DetachedLaneRoute }),
-  ),
+  import('../features/model-arena/DetachedLaneRoute').then((m) => ({
+    default: m.DetachedLaneRoute,
+  })),
 );
 
 export interface RouterContext {
@@ -140,6 +138,7 @@ const workspaceRoutes: ReadonlyArray<{ path: string; id: string }> = [
   { path: '/settings', id: 'settings' },
   { path: '/tools', id: 'tools' },
   { path: '/mcp', id: 'mcp' },
+  { path: '/help', id: 'help' },
 ];
 
 const tabRoutes = workspaceRoutes.map((r) =>
@@ -166,9 +165,7 @@ const adminLayoutRoute = createRoute({
   component: () => null,
 });
 
-const adminTabRoutes = (
-  ['traces', 'outbox', 'prompts', 'platforms'] as const
-).map((tab) =>
+const adminTabRoutes = (['traces', 'outbox', 'prompts', 'platforms'] as const).map((tab) =>
   createRoute({
     getParentRoute: () => adminLayoutRoute,
     path: `/admin/${tab}`,
@@ -217,7 +214,9 @@ const NotFoundRedirect: React.FC = () => {
 
   React.useEffect(() => {
     void import('../store/errorDialog').then(({ useErrorDialog }) => {
-      useErrorDialog.getState().show('页面不存在', '链接可能已失效,已为你回到首页', undefined, 3000);
+      useErrorDialog
+        .getState()
+        .show('页面不存在', '链接可能已失效,已为你回到首页', undefined, 3000);
     });
     void navigate({ to: '/home', replace: true });
   }, [navigate]);
@@ -229,9 +228,14 @@ const NotFoundRedirect: React.FC = () => {
   );
 };
 
-const RouteErrorComponent: React.FC<{ error: unknown; reset?: () => void }> = ({ error, reset }) => {
+const RouteErrorComponent: React.FC<{ error: unknown; reset?: () => void }> = ({
+  error,
+  reset,
+}) => {
   React.useEffect(() => {
-    void import('../store/errorDialog').then(({ reportError }) => reportError(error, '页面渲染失败'));
+    void import('../store/errorDialog').then(({ reportError }) =>
+      reportError(error, '页面渲染失败'),
+    );
   }, [error]);
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
@@ -302,8 +306,7 @@ export const RouteFallback: React.FC = () => (
         width: 132,
         height: 132,
         borderRadius: '50%',
-        background:
-          'conic-gradient(from 0deg, #6366f1, #06b6d4, #ec4899, #f59e0b, #6366f1)',
+        background: 'conic-gradient(from 0deg, #6366f1, #06b6d4, #ec4899, #f59e0b, #6366f1)',
         animation: 'cy-loader-spin 2.4s linear infinite',
         filter: 'blur(0.5px)',
         WebkitMask:
@@ -313,10 +316,7 @@ export const RouteFallback: React.FC = () => (
     />
 
     {/* 三粒轨道粒子(反向旋转 + 不同色) */}
-    <div
-      className="absolute"
-      style={{ animation: 'cy-loader-spin-rev 3.8s linear infinite' }}
-    >
+    <div className="absolute" style={{ animation: 'cy-loader-spin-rev 3.8s linear infinite' }}>
       <span
         className="absolute block rounded-full"
         style={{
@@ -355,10 +355,8 @@ export const RouteFallback: React.FC = () => (
       style={{
         width: 56,
         height: 56,
-        background:
-          'radial-gradient(circle at 30% 30%, #a5b4fc, #6366f1 60%, #4338ca)',
-        boxShadow:
-          '0 0 24px rgba(99,102,241,0.55), inset 0 0 12px rgba(255,255,255,0.35)',
+        background: 'radial-gradient(circle at 30% 30%, #a5b4fc, #6366f1 60%, #4338ca)',
+        boxShadow: '0 0 24px rgba(99,102,241,0.55), inset 0 0 12px rgba(255,255,255,0.35)',
         animation: 'cy-loader-pulse 1.6s ease-in-out infinite',
       }}
     >
@@ -366,8 +364,7 @@ export const RouteFallback: React.FC = () => (
         className="absolute inset-y-0"
         style={{
           width: '60%',
-          background:
-            'linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent)',
+          background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent)',
           animation: 'cy-loader-shimmer 1.8s ease-in-out infinite',
           filter: 'blur(2px)',
         }}

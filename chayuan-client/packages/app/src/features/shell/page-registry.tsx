@@ -38,9 +38,7 @@ const HomePage = React.lazy(() =>
 const ChatPage = React.lazy(() =>
   import('../chat/ChatPage').then((m) => ({ default: m.ChatPage })),
 );
-const KbPage = React.lazy(() =>
-  import('../kb/KbBoard').then((m) => ({ default: m.KbBoard })),
-);
+const KbPage = React.lazy(() => import('../kb/KbBoard').then((m) => ({ default: m.KbBoard })));
 const KbDetailPage = React.lazy(() =>
   import('../kb/detail/KbDetailPage').then((m) => ({ default: m.KbDetailPage })),
 );
@@ -57,9 +55,7 @@ const HistoryPage = React.lazy(() =>
 const SettingsAsPage = React.lazy(() =>
   import('../placeholders/SettingsAsPage').then((m) => ({ default: m.SettingsAsPage })),
 );
-const McpPage = React.lazy(() =>
-  import('../mcp/McpBoard').then((m) => ({ default: m.McpBoard })),
-);
+const McpPage = React.lazy(() => import('../mcp/McpBoard').then((m) => ({ default: m.McpBoard })));
 const ToolsPage = React.lazy(() =>
   import('../tools/ToolsBoard').then((m) => ({ default: m.ToolsBoard })),
 );
@@ -68,6 +64,9 @@ const AdminPage = React.lazy(() =>
 );
 const SkillTemplate = React.lazy(() =>
   import('../skill/SkillTemplate').then((m) => ({ default: m.SkillTemplate })),
+);
+const HelpPage = React.lazy(() =>
+  import('../help/HelpPage').then((m) => ({ default: m.HelpPage })),
 );
 
 export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
@@ -97,9 +96,7 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
   {
     pattern: /^\/chat\/(?<id>[^/]+)$/,
     render: (params) => (
-      <ChatPage
-        conversationId={params.id ? decodeURIComponent(params.id) : null}
-      />
+      <ChatPage conversationId={params.id ? decodeURIComponent(params.id) : null} />
     ),
     onActivate: (params) => {
       // 同步 composerStore(给 sidebar / 模型挑选器等读);
@@ -176,6 +173,12 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     defaultIcon: 'message-square',
   },
   {
+    pattern: /^\/help$/,
+    render: () => <HelpPage />,
+    defaultTitle: 'settings.helpCenter',
+    defaultIcon: 'help-circle',
+  },
+  {
     pattern: /^\/admin\/(?<tab>traces|outbox|prompts|platforms)$/,
     render: (params) => (
       <AdminPage
@@ -188,9 +191,7 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
 ];
 
 /** 解析 path,返回 entry + params;命中不到时返回 null */
-export function resolveRoute(
-  path: string,
-): { entry: RouteEntry; params: RouteParams } | null {
+export function resolveRoute(path: string): { entry: RouteEntry; params: RouteParams } | null {
   const pathname = path.split(/[?#]/, 1)[0] || path;
   for (const entry of ROUTE_ENTRIES) {
     const m = entry.pattern.exec(pathname);
