@@ -52,12 +52,14 @@ root.render(
   </React.StrictMode>,
 );
 
-// 启动 splash 退场:等下一帧 React 已经把首屏 paint 上去后再淡出,避免
-// 「splash 消失 + 业务首帧」之间出现一帧空白。CSS transition 360ms 完成
-// 后从 DOM 删除,彻底放掉动画线程。
-requestAnimationFrame(() => {
+// Splash 退场:Shell 在 useLayoutEffect 里调 ``window.__cyHideSplash`` 触发,
+// 与 React 首屏 paint 自然 crossfade,避免「splash 已淡出 + React 还没挂」
+// 的一帧空白窗口;8s 安全兜底防 splash 永卡。
+const hideSplash = (): void => {
   const splash = document.getElementById('chayuan-splash');
-  if (!splash) return;
+  if (!splash || splash.classList.contains('cy-splash-fading')) return;
   splash.classList.add('cy-splash-fading');
-  setTimeout(() => splash.remove(), 420);
-});
+  window.setTimeout(() => splash.remove(), 420);
+};
+(window as unknown as { __cyHideSplash?: () => void }).__cyHideSplash = hideSplash;
+window.setTimeout(hideSplash, 8000);

@@ -59,6 +59,17 @@ export interface ShellEnv {
  * - 所有页面切换通过 useNavigate；登录/admin 守卫在路由 beforeLoad 完成。
  */
 export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
+  // Shell 一挂载就告诉 main.tsx 可以淡出 splash —— 跟 React 首屏 commit 同帧
+  // 触发,与首帧 paint 自然 crossfade,中间不会露出 ``<div id="app">`` 空白。
+  // useLayoutEffect 在 paint 前同步执行,setTimeout 0 让 fade 排到 paint 之后,
+  // 视觉上 splash 与 Shell 首帧无缝衔接。
+  React.useLayoutEffect(() => {
+    const hide = (window as unknown as { __cyHideSplash?: () => void }).__cyHideSplash;
+    if (typeof hide === 'function') {
+      window.setTimeout(hide, 0);
+    }
+  }, []);
+
   const routerRef = React.useRef<ReturnType<typeof createAppRouter> | null>(null);
   if (!routerRef.current) routerRef.current = createAppRouter(queryClient);
 

@@ -24,6 +24,18 @@ const SINGLE_MACHINE_BASE = 'http://127.0.0.1:62581';
 const FALLBACK_API_BASE =
   import.meta.env.VITE_API_BASE || (THIN_CLIENT ? '' : SINGLE_MACHINE_BASE);
 
+// 暴露给 Shell:首次 useLayoutEffect 时调用,与 React 首屏 paint 自然 crossfade,
+// 避免「splash 已淡出 + React 还没挂」的一帧空白窗口。8 秒安全兜底,防止
+// 极端情况下(异步 import 失败 / sidecar 卡死)splash 永远停在屏幕上。
+const hideSplash = (): void => {
+  const splash = document.getElementById('chayuan-splash');
+  if (!splash || splash.classList.contains('cy-splash-fading')) return;
+  splash.classList.add('cy-splash-fading');
+  window.setTimeout(() => splash.remove(), 420);
+};
+(window as unknown as { __cyHideSplash?: () => void }).__cyHideSplash = hideSplash;
+window.setTimeout(hideSplash, 8000);
+
 (async () => {
   const platform = await createTauriPlatform({
     appName: '察元 AI',
@@ -50,14 +62,4 @@ const FALLBACK_API_BASE =
       />
     </React.StrictMode>,
   );
-
-  // 启动 splash 退场:等下一帧 React 已经把首屏 paint 上去后再淡出,避免
-  // 「splash 消失 + 业务首帧」之间出现一帧空白。CSS transition 360ms 完成
-  // 后从 DOM 删除,彻底放掉动画线程。
-  requestAnimationFrame(() => {
-    const splash = document.getElementById('chayuan-splash');
-    if (!splash) return;
-    splash.classList.add('cy-splash-fading');
-    setTimeout(() => splash.remove(), 420);
-  });
 })();
