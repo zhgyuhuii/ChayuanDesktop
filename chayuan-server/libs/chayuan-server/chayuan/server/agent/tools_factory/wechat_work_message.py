@@ -23,7 +23,11 @@ def wechat_work_message(
         None, description="逗号分隔手机号，艾特指定人；传 @all 艾特全体",
     ),
 ):
-    """向企业微信群机器人 webhook 推送消息(默认 text;markdown 需在 yaml 切 msgtype),适合通知 / 告警。"""
+    """企业微信群机器人 webhook 推送消息。
+调用时机:用户明确要求「发到企微/企业微信」「通知企微群」时。
+输入:text(默认 text 类型,markdown 需在 yaml 切 msgtype)。
+输出:发送结果。
+不要用于:用户没说「企微」的问题、个人微信(企微和个微完全是两套系统)、私聊、其它平台。"""
     cfg = get_tool_config("wechat_work_message") or {}
     webhook = (cfg.get("webhook") or "").strip()
     if not webhook:

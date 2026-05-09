@@ -25,7 +25,11 @@ def news_api(
     ),
     country: Optional[str] = Field(None, description="ISO 2 字母国家码，如 us / cn / jp"),
 ):
-    """通过 newsapi.org 拉最新新闻(需 API Key),支持按关键词 / 国家 / 分类过滤;头条留空 query 即可。"""
+    """通过 newsapi.org 拉取近 30 天的新闻聚合(需 API Key)。
+调用时机:用户问「最近的新闻」「X 领域的头条」「X 国家近期发生了什么」需要新闻聚合的场景。
+输入:query(关键词,空字符串则返头条);country(ISO2 国家码,如 us / cn / jp);category(business / technology / science / health / sports / entertainment)。
+输出:文章标题、来源、发布时间、链接、摘要。
+不要用于:历史事件深度分析(用 search_internet 或 wikipedia)、技术问答、超过 30 天前的内容。"""
     cfg = get_tool_config("news_api") or {}
     api_key = (cfg.get("api_key") or "").strip()
     if not api_key:

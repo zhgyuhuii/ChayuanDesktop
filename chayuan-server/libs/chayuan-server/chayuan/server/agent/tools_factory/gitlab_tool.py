@@ -26,7 +26,11 @@ def gitlab_tool(
     path: str = Field("", description="文件路径（get_file 需要）"),
     ref: str = Field("main", description="分支或 tag（get_file 使用）"),
 ):
-    """只读 GitLab 查询(支持私有部署):查 issue / MR / 文件 / 分支等只读资源,不写入。"""
+    """GitLab 只读查询(支持私有部署实例)。功能与 github_tool 镜像。
+调用时机:用户问「某 GitLab 项目的 issue / MR / 文件」且仓库在 GitLab(非 GitHub)、或在企业私有 GitLab 上时。
+输入:action;project(项目 ID 或 namespace/project,如 ``chayuan/server``);iid(issue/MR 的 iid,与 number 不同);path(文件路径);ref(分支)。
+输出:JSON 结构化结果。
+不要用于:写入、GitHub(用 github_tool)。"""
     cfg = get_tool_config("gitlab_tool") or {}
     token = (cfg.get("token") or "").strip()
     url = (cfg.get("url") or "https://gitlab.com").strip()

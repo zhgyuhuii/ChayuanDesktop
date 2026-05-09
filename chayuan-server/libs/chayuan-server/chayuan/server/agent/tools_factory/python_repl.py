@@ -22,7 +22,11 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 def python_repl(
     code: str = Field(description="要执行的 Python 代码；标准输出会返回给 LLM"),
 ):
-    """执行任意 Python 代码,标准输出会回给 LLM。【高危】生产环境务必只在沙箱里启用,默认 use=false。"""
+    """⚠ 极高危 — 执行任意 Python 代码并返回 stdout。**默认禁用**。
+调用时机:仅在沙箱环境 + 用户**明确**要求「运行这段 python」「用 python 算 X」「画个图(matplotlib)」时。
+输入:Python 代码字符串(标准输出会回给 LLM)。
+输出:stdout。
+不要用于:任何无沙箱的生产环境、LLM 自己探索性写代码、网络/文件 IO 危险操作、简单计算(优先 calculate 比这快且安全)。"""
     cfg = get_tool_config("python_repl") or {}
     if not bool(cfg.get("confirm_dangerous", False)):
         return BaseToolOutput({

@@ -25,7 +25,11 @@ def github_tool(
     number: int = Field(0, description="issue / PR 的编号（仅 get_issue / get_pr 需要）"),
     path: str = Field("", description="文件路径（仅 get_file 需要）"),
 ):
-    """只读 GitHub 查询:查 issue / PR / 文件 / 分支等公共信息,不修改仓库。"""
+    """GitHub 只读查询 — 查 issue / PR / 文件内容 / 分支等公共仓库信息。
+调用时机:用户问「某 GitHub 仓库的 issue 状态」「某 PR 的内容」「某文件在仓库里什么样」「某仓库有哪些分支」时。
+输入:action(``get_issue`` / ``get_pr`` / ``get_file`` / ``list_branches``);repo(owner/repo,如 ``tiangolo/fastapi``);number(issue/PR 编号);path(文件路径);ref(分支或 tag,默认 main)。
+输出:JSON 结构化结果。
+不要用于:写入操作(本工具只读)、非公开/私有仓库需先配 token、GitLab(用 gitlab_tool)。"""
     cfg = get_tool_config("github_tool") or {}
     token = (cfg.get("token") or "").strip()
     if not token:

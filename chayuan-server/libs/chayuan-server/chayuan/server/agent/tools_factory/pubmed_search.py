@@ -23,10 +23,11 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 def pubmed_search(
     query: str = Field(description="英文医学/生物学主题词 / 关键词 / MeSH 词汇"),
 ):
-    """Search PubMed biomedical literature via NCBI Entrez (free, no key required).
-
-    适用：药物 / 疾病 / 治疗方案 / 基因 / 临床研究等问题。
-    """
+    """搜索 PubMed(NCBI 提供)上的医学/生物学文献摘要。
+调用时机:用户问医学症状、疾病、药物、生物机理、临床试验等专业问题且需要循证文献支撑。
+输入:英文医学/生物学关键词、MeSH 词汇或英文研究主题(中文也接受但召回不佳;建议先把中文术语翻成英文医学名词)。
+输出:文献标题、作者、摘要、PMID。
+不要用于:日常健康闲聊、非医学问题、非循证类咨询、最新医学新闻(用 search_internet)。"""
     from langchain_community.tools.pubmed.tool import PubmedQueryRun
     from langchain_community.utilities.pubmed import PubMedAPIWrapper
 

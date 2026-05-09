@@ -24,7 +24,11 @@ def notion_search(
         "any", description="限定对象类型",
     ),
 ):
-    """通过 Notion 官方 API 搜索 workspace 中的页面 / 数据库条目,适合查工作笔记 / 项目库。"""
+    """通过 Notion 官方 API 搜索 workspace 中的页面/数据库条目。
+调用时机:用户问「我的 Notion 里有没有 X」「找一下 Notion 里关于 Y 的笔记」时,前提是已配置 Notion 集成 token。
+输入:中英文搜索关键词。
+输出:页面标题、URL、最近编辑时间、所属数据库。
+不要用于:Notion 之外的笔记(本地 KB / Confluence)、用户没说「Notion」的问题、写入操作。"""
     cfg = get_tool_config("notion_search") or {}
     token = (cfg.get("token") or "").strip()
     if not token:

@@ -21,7 +21,11 @@ def url_reader(
         url: str = Field(
             description="The URL to be processed, so that its web content can be made more clear to read. Then provide a detailed description of the content in about 500 words. As structured as possible. ONLY THE LINK SHOULD BE PASSED IN."),
 ):
-    """抓取指定 URL 的网页正文(走 jina.ai 反代),让 LLM 能"点开链接"读内容。适合论坛长帖 / 博客 / 新闻摘要。"""
+    """抓取并提取指定 URL 网页的纯文本正文(走 r.jina.ai 反代,自动去广告/导航/脚本)。
+调用时机:用户在对话中给出具体链接,要你「读一下」「看看里面写什么」「总结这篇」时。
+输入:完整 URL(http:// 或 https:// 开头)。
+输出:网页正文纯文本。
+不要用于:用户没给具体 URL 的问题、本地文件、PDF/图片(需专门工具)、需要 cookie / 登录态的页面。"""
 
     tool_config = get_tool_config("url_reader")
     timeout = tool_config.get("timeout")

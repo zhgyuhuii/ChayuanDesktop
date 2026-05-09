@@ -118,6 +118,10 @@ def text2promql(
                         "just input the natural language that you want to chat with prometheus"
         )
 ):
-    """用自然语言提问 Prometheus 监控数据(自动转 PromQL 查询)。比如"过去 1 小时 API P99 延迟趋势"。"""
+    """用自然语言查询 Prometheus 监控数据 — 自动转 PromQL。
+调用时机:用户问「过去 N 小时 API P99 延迟」「昨天 CPU 峰值」「X 服务的 QPS」等运维监控指标。
+输入:中英文自然语言指标问题(明确时间窗口、聚合维度、指标名能更稳)。
+输出:PromQL 表达式 + 查询数据(可能含图)。
+不要用于:业务数据查询(用 text2sql)、非监控数据、用户没配 Prometheus 时。"""
     tool_config = get_tool_config("text2promql")
     return BaseToolOutput(query_prometheus(query=query, config=tool_config))

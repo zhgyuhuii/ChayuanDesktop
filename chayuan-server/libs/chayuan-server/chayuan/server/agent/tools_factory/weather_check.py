@@ -16,7 +16,11 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 def weather_check(
     city: str = Field(description="城市名(精确到市/县,如 \"厦门\" / \"北京\" / \"杭州\")"),
 ):
-    """查询指定城市的实时天气(走心知天气 API,需配置 api_key)。"""
+    """心知天气 — 中国大陆城市的实时天气(轻量,只返当前天气)。
+调用时机:用户只问「X 现在天气」、不需要预报、对延迟敏感时,作为 amap_weather 的降级备选。
+输入:中国大陆城市名(如 ``厦门`` / ``北京``)。
+输出:当前温度 + 天气描述。
+不要用于:多日预报(用 amap_weather)、海外城市(用 openweather)。amap_weather 信息更全,优先它。"""
 
     tool_config = get_tool_config("weather_check")
     api_key = tool_config.get("api_key")

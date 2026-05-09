@@ -43,7 +43,11 @@ def dingtalk_message(
         None, description="逗号分隔手机号；传 @all 艾特全体",
     ),
 ):
-    """向钉钉自定义机器人 webhook 推送消息(可选 HMAC 签名),用于通知 / 告警 / 工作流回执。"""
+    """钉钉自定义机器人 webhook 推送消息(可选 HMAC 签名)。
+调用时机:用户明确要求「发到钉钉」「通知钉钉群」时。
+输入:text(消息内容);mention_mobile(逗号分隔手机号或 ``@all`` 艾特全员)。
+输出:发送结果。
+不要用于:用户没说「钉钉」的问题、私聊、其它平台。"""
     cfg = get_tool_config("dingtalk_message") or {}
     webhook = (cfg.get("webhook") or "").strip()
     secret = (cfg.get("secret") or "").strip()

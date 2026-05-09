@@ -22,7 +22,11 @@ def confluence_search(
         None, description="可选：限定 space key，只在该空间内搜索",
     ),
 ):
-    """搜索 Atlassian Confluence 页面(走 CQL),适合查企业内部 wiki / 项目文档。"""
+    """搜索 Atlassian Confluence 页面(走 CQL)。
+调用时机:用户问「公司 wiki 里有没有 X」「Confluence 上 X 项目的文档」且部署是 Confluence 时。
+输入:query(搜索关键词作为 CQL 的 text 字段);space_key(可选,限定空间)。
+输出:页面标题、空间、链接、摘要。
+不要用于:其它 wiki(MediaWiki / Notion / Outline / 飞书文档)、写入、个人笔记。"""
     cfg = get_tool_config("confluence_search") or {}
     url = (cfg.get("url") or "").strip()
     if not url:

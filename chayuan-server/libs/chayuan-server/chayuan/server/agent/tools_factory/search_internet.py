@@ -192,5 +192,9 @@ def search_engine(query: str, top_k:int=0, engine_name: str="", config: dict={})
 
 @regist_tool(title="互联网搜索")
 def search_internet(query: str = Field(description="互联网搜索关键词(中英文均可),用于查询大模型未掌握的最新信息")):
-    """走配置的搜索引擎(Bing / DuckDuckGo / Tavily / Serper / SearxNG / Metaphor)抓取互联网摘要,补足 LLM 知识时效。"""
+    """通过搜索引擎(Bing / DuckDuckGo / Tavily / Serper / SearxNG / Metaphor)查询互联网公开信息。
+调用时机:用户问题涉及 LLM 训练数据可能过时或未覆盖的最新信息——时事新闻、新发布的产品/版本/事件、当前价格、公众人物近况、特定网站现存内容。
+输入:中英文搜索关键词。
+输出:相关网页摘要列表(标题/摘要/链接,不含完整正文)。
+不要用于:本地知识库、用户上传文件、私域信息、数学计算、数据库查询。"""
     return BaseToolOutput(search_engine(query=query), format=format_context)

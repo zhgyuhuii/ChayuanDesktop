@@ -31,7 +31,11 @@ def lark_message(
         None, description="可选：all 艾特全体 / @user_id / 不传则不艾特",
     ),
 ):
-    """向飞书(Lark)群机器人 webhook 推送文本消息,适合通知 / 告警 / 工作流回执。"""
+    """飞书(Lark)群机器人 webhook 推送消息。
+调用时机:用户**明确要求**「发到飞书」「通知飞书群」且配置了 webhook 时,适合通知/告警/工作流回执。
+输入:text(消息文本,支持 markdown)。
+输出:发送结果(成功/失败 + API 返回)。
+不要用于:用户没说「飞书」的问题、私聊(本工具只发群机器人 webhook)、其它消息平台(用 wechat_work_message / dingtalk_message)。"""
     cfg = get_tool_config("lark_message") or {}
     webhook = (cfg.get("webhook") or "").strip()
     if not webhook:

@@ -17,7 +17,11 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 def openweather(
     location: str = Field(description="城市名称（建议英文 / 拼音，如 Beijing, Shanghai, New York）"),
 ):
-    """OpenWeatherMap 天气查询(全球城市覆盖,需 API Key),适合查询海外城市当前天气。"""
+    """OpenWeatherMap 全球城市天气 — 海外城市优先。
+调用时机:用户问海外城市天气(伦敦/纽约/东京等)。中国大陆城市建议优先 amap_weather。
+输入:城市名(英文/拼音更稳,如 ``London`` / ``New York`` / ``Tokyo`` / ``Beijing``;支持 ``City,CountryCode`` 形式如 ``Paris,FR``)。
+输出:实时天气 + 几日预报(温度/天气/风力/湿度,默认摄氏)。
+不要用于:中国大陆城市(amap_weather 更准)、地名搜索、非天气问题。"""
     cfg = get_tool_config("openweather") or {}
     api_key = (cfg.get("api_key") or "").strip()
     if not api_key:

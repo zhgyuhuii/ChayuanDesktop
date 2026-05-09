@@ -64,7 +64,11 @@ def search_local_knowledgebase(
     ),
     query: str = Field(description="检索关键词,会做语义搜索召回 Top-K 文档片段拼入 prompt"),
 ):
-    """"""
+    """检索「察元本地知识库」中已建好的文档(用户上传的文件、企业内部资料、产品手册、合同等私域非公开内容)。
+调用时机:用户问题指向自己已上传的文件 / 公司内部知识 / 私域资料,且明确不是公开互联网信息时。
+输入:database 必须是已建好的 KB 名(从 prompt 列表中选);query 是检索关键词,做语义/向量召回。
+输出:Top-K 相关文档片段 + 来源文件名。
+不要用于:互联网公开信息、新闻、网页内容、数学计算、结构化数据查询。"""
     tool_config = get_tool_config("search_local_knowledgebase")
     ret = search_knowledgebase(query=query, database=database, config=tool_config)
     return BaseToolOutput(ret, format=format_context)

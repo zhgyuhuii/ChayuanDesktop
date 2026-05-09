@@ -42,7 +42,11 @@ def get_weather(adcode: str, config: dict) -> dict:
 
 @regist_tool(title="高德地图天气查询")
 def amap_weather(city: str = Field(description="城市名")):
-    """高德地图天气查询:按城市名拿当前天气 + 几日预报(国内城市覆盖,需配 api_key)。"""
+    """高德地图天气查询 — 中国大陆城市实时 + 几日预报。本土数据源,精度优于 OpenWeather。
+调用时机:用户问中国大陆城市的「今天天气」「未来几天预报」时**优先调用此工具**。
+输入:中国大陆城市名(精确到市/区/县,如 ``北京`` / ``厦门`` / ``深圳市南山区``)。
+输出:实时天气 + 未来 3-4 天预报(温度/天气状况/风力/湿度)。
+不要用于:海外城市(用 openweather)、地名搜索(用 amap_poi_search)、非天气问题。"""
     tool_config = get_tool_config("amap")
     adcode = get_adcode(city, tool_config)
     if adcode:

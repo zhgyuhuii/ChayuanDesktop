@@ -17,7 +17,11 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 def semantic_scholar(
     query: str = Field(description="英文研究主题 / 关键词"),
 ):
-    """Semantic Scholar 学术论文搜索(覆盖比 arXiv 更广,跨学科),适合英文研究主题检索。"""
+    """Semantic Scholar 跨学科学术论文搜索(覆盖比 arXiv 更广,涵盖 CS/物理/生物/社会科学/经济学等,自带引用关系)。
+调用时机:用户想找综述、特定主题代表作、引用网络、跨学科研究时。
+输入:英文研究主题或关键词(英文召回明显更好)。
+输出:论文标题、作者、年份、引用数、摘要、DOI / arXiv ID。
+不要用于:工业产品资讯、新闻;纯 AI/物理 优先 arXiv(更新更快),纯医学优先 pubmed_search。"""
     try:
         from langchain_community.tools.semanticscholar.tool import (
             SemanticScholarQueryRun,

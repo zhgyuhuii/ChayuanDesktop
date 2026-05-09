@@ -31,7 +31,11 @@ def text2images(
     n: int = Field(1, description="需生成图片的数量"),
     size: Literal["1024x1024", "768x1344", "864x1152", "1344x768", "1152x864", "1440x720", "720x1440"] = Field(description="图片尺寸"),
 ):
-    """根据用户的描述生成图片"""
+    """文生图 — 调用图像生成模型(DALL-E / Stable Diffusion / Flux 等)生成图片。
+调用时机:用户**明确要求**「画一张 X」「生成 Y 的图片」「做一张 Z 的封面/插画」时。
+输入:prompt(中英文描述,英文表达对多数模型更稳;描述越具体效果越好);n(生成数量,默认 1);size(``1024x1024`` 正方 / ``768x1344`` 竖 / ``1344x768`` 横 / 其它支持的比例)。
+输出:图片 URL/本地路径列表(用户可点开查看)。
+不要用于:用户只是描述场景但没说「画/生成」的问题、图像识别/理解(走 vision 模型)、图片编辑/抠图。"""
 
     tool_config = get_tool_config("text2images")
     model_config = get_model_info(tool_config["model"])

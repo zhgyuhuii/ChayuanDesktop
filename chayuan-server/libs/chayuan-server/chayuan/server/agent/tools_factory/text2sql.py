@@ -158,6 +158,10 @@ def text2sql(
         description="No need for SQL statements,just input the natural language that you want to chat with database"
     ),
 ):
-    """用自然语言提问数据库(自动转 SQL 只读查询并执行)。比如"最近 30 天注册用户数",适合 BI / 运营自助查询。"""
+    """用自然语言提问数据库 — LLM 自动转 SQL 只读查询并执行。
+调用时机:用户问「统计/查询数据库里的 X」「最近 N 天的 Y」「按 Z 分组求总数/均值」等结构化数据问题。
+输入:中文/英文自然语言数据问题(尽量明确表名、时间范围、分组维度,LLM 能生成更稳的 SQL)。
+输出:SQL 语句 + 查询结果表(行数过多会被截断)。
+不要用于:文档检索(用本地知识库)、写操作 / DDL(本工具仅 SELECT)、未配置数据源时、监控指标(用 text2promql)。"""
     tool_config = get_tool_config("text2sql")
     return BaseToolOutput(query_database(query=query, config=tool_config))

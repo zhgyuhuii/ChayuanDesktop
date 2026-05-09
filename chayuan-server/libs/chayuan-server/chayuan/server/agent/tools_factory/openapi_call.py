@@ -72,7 +72,12 @@ def openapi_call(
         None, description="请求体（POST/PUT/PATCH）",
     ),
 ):
-    """按 operationId 调用 OpenAPI / Swagger spec 中定义的接口;先 list_operations 看有哪些操作再 call。"""
+    """按 operationId 调用 OpenAPI / Swagger spec 中定义的接口。
+调用时机:yaml 已配置 spec_url(后端 openapi.json 地址)且用户问「调用 X 接口」「用 API 做 Y」「查询 Z」时。
+**两步走**:先 ``action=list_operations`` 看有哪些 operationId,再 ``action=call`` + ``operation_id=...`` + ``query_params/json_body=...`` 实际调用。
+输入:action(``list_operations`` 或 ``call``);operation_id(call 必填);path_params / query_params / json_body。
+输出:接口 JSON 响应。
+不要用于:未配置 spec_url、用户没说调用什么接口的问题、需要白名单管理的随意 URL(用 http_request)。"""
     cfg = get_tool_config("openapi_call") or {}
     spec_url = (cfg.get("spec_url") or "").strip()
     if not spec_url:

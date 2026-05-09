@@ -17,7 +17,11 @@ from langchain_chayuan.agent_toolkits.all_tools.tool import (
 def stackexchange(
     query: str = Field(description="英文技术问题或关键词"),
 ):
-    """StackExchange(StackOverflow 为主)编程问答检索,适合查报错信息 / 技术疑难解答。"""
+    """搜索 StackExchange(以 StackOverflow 为主)上的技术问答。
+调用时机:用户问编程报错、代码片段、库/框架/工具用法、配置问题、性能优化、线上故障排查等技术问题。
+输入:英文技术问题或关键词(SO 99% 答案是英文,英文召回显著优于中文;中文报错信息建议保留原文)。
+输出:相关问题标题、最高票答案摘要、链接。
+不要用于:非技术问题、纯概念解释(用 wikipedia_search)、最新框架版本(用 search_internet)。"""
     try:
         from langchain_community.tools.stackexchange.tool import (
             StackExchangeTool,

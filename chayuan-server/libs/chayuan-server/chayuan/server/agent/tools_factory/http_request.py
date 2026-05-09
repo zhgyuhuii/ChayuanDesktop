@@ -74,10 +74,11 @@ def http_request(
         None, description="附加请求头（会与 yaml default_headers 合并）"
     ),
 ):
-    """调用白名单内的任意 HTTP 接口。
-
-    返回：``{status, content_type, body}``；``body`` 为解析后的 JSON 或截断后的字符串。
-    """
+    """通用 HTTP 请求工具 — **只允许命中 yaml allowlist 白名单**的 URL。
+调用时机:用户给出白名单内 API URL,要「调一下接口」「测一下返回」或做轻量集成时。
+输入:url(必须命中 allowlist,否则报错);method(GET/POST/PUT/PATCH/DELETE);headers / params / body。
+输出:状态码 + 响应文本(过长会截断)。
+不要用于:白名单外 URL(SSRF 风险)、用户没指定 URL 的问题、内网探测;若已配置 OpenAPI spec 优先用 openapi_call(更结构化)。"""
     cfg = get_tool_config("http_request") or {}
     raw_allow = cfg.get("allowlist") or []
     # 兼容两种来源：yaml list 原生、或面板 textarea 的多行字符串
