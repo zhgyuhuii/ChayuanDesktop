@@ -82,11 +82,12 @@ const CAPS: ReadonlyArray<CapItem> = [
 
 // ── 产品特性 chip ─────────────────────────────────────────────────
 const FEATURES: ReadonlyArray<string> = [
-  '多模型对话 · 永道对抗',
+  '多模型对话 ',
+  '模型对抗',
   '本地知识库',
   '离线运行 · 数据不出本机',
   '兼容国产操作系统',
-  'WPS 加载项联动',
+  'WPS AI 助手联动',
   'OpenAI / Ollama / Infinity / vLLM',
 ];
 
