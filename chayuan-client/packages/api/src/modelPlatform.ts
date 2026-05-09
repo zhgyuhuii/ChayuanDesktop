@@ -12,7 +12,9 @@
  * 前端只需 mutation 成功后 invalidate ['marketplace.platforms'] 与 ['marketplace.models']。
  */
 
-import { request } from './client';
+import { getPlatform } from '@chayuan/platform-shared';
+import { getClientConfig, request } from './client';
+import { getAccessToken } from './auth-store';
 
 export type PlatformType =
   | 'xinference'
@@ -220,6 +222,109 @@ export const modelPlatform = {
     );
     if (!r.data?.data) throw new Error('enrich 返回为空');
     return r.data.data;
+  },
+
+  /**
+   * 流式给厂商生成简介(SSE)。后端: ``POST /admin/model_platforms/{name}/describe/stream``
+   *
+   * 协议:
+   *   - ``event: chunk``  data ``{"text": "..."}``  → 把 text 拼到 description 文本框
+   *   - ``event: done``   data ``{}``               → 流结束
+   *   - ``event: error``  data ``{"message": "..."}`` → 抛 Error,UI 展示
+   *
+   * 调用方负责把 onChunk 回调里的文本累积到 textarea state;onDone 调用后整段简介可保存。
+   * abort 后 SSE 解析循环立即返回,reqwest 路径失败时本调用走 webview 原生 fetch,
+   * 同 askStream 一致。
+   */
+  async describeStream(
+    name: string,
+    handlers: {
+      onChunk(text: string): void;
+      onDone?(): void;
+      onError?(err: Error): void;
+    },
+    opts: { signal?: AbortSignal } = {},
+  ): Promise<void> {
+    const cfg = getClientConfig();
+    const url = `${(cfg.baseURL || '').replace(/\/+$/, '')}${BASE}/${encodeURIComponent(name)}/describe/stream`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    };
+    if ((cfg.authMode ?? 'bearer') === 'bearer') {
+      const tok = await getAccessToken();
+      if (tok) headers.Authorization = `Bearer ${tok}`;
+    }
+    const res = await getPlatform().net.fetch(url, {
+      method: 'POST',
+      headers,
+      signal: opts.signal,
+      credentials: cfg.authMode === 'cookie' ? 'include' : 'same-origin',
+    } as RequestInit);
+    if (!res.ok || !res.body) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`describe/stream HTTP ${res.status}: ${txt || res.statusText}`);
+    }
+    // 极简 SSE 解析(同 kbUniverse.askStream 模式;按 \n\n 切帧)。
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    try {
+      while (true) {
+        if (opts.signal?.aborted) return;
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let sepIdx: number;
+        // eslint-disable-next-line no-cond-assign
+        while (
+          (sepIdx = (() => {
+            const a = buf.indexOf('\n\n');
+            const b = buf.indexOf('\r\n\r\n');
+            if (a === -1) return b;
+            if (b === -1) return a;
+            return Math.min(a, b);
+          })()) !== -1
+        ) {
+          const isCRLF = buf.startsWith('\r\n\r\n', sepIdx);
+          const frame = buf.slice(0, sepIdx);
+          buf = buf.slice(sepIdx + (isCRLF ? 4 : 2));
+          let event = 'message';
+          const dataLines: string[] = [];
+          for (const rawLine of frame.split(/\r?\n/)) {
+            if (!rawLine || rawLine.startsWith(':')) continue;
+            const colon = rawLine.indexOf(':');
+            const field = colon === -1 ? rawLine : rawLine.slice(0, colon);
+            let val = colon === -1 ? '' : rawLine.slice(colon + 1);
+            if (val.startsWith(' ')) val = val.slice(1);
+            if (field === 'event') event = val;
+            else if (field === 'data') dataLines.push(val);
+          }
+          if (dataLines.length === 0) continue;
+          const dataStr = dataLines.join('\n');
+          if (event === 'chunk') {
+            try {
+              const obj = JSON.parse(dataStr) as { text?: string };
+              if (obj.text) handlers.onChunk(obj.text);
+            } catch (e) {
+              handlers.onError?.(e as Error);
+            }
+          } else if (event === 'done') {
+            handlers.onDone?.();
+            return;
+          } else if (event === 'error') {
+            try {
+              const obj = JSON.parse(dataStr) as { message?: string };
+              throw new Error(obj.message || 'describe stream error');
+            } catch (e) {
+              throw e instanceof Error ? e : new Error(String(e));
+            }
+          }
+        }
+      }
+    } finally {
+      try { reader.releaseLock(); } catch { /* ignore */ }
+    }
   },
 
   /** 列出指定厂商已写入 model_metadata 的全部模型元信息 */

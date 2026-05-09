@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from chayuan.server.auth.deps import (
     get_current_user_optional,
@@ -695,6 +696,69 @@ async def enrich_model_platform(
         raise HTTPException(502, f"LLM 调用失败: {type(e).__name__}: {e}") from e
 
     return {"code": 0, "msg": "ok", "data": result}
+
+
+@admin_router.post(
+    "/model_platforms/{name}/describe/stream",
+    summary="[auth] 用 LLM 流式生成厂商简介(用于设置弹窗的描述字段)",
+)
+async def describe_model_platform_stream(
+    name: str,
+    _=Depends(require_auth_enabled()),
+) -> StreamingResponse:
+    """SSE 流式输出厂商简介。
+
+    协议(text/event-stream):
+      - 每个 token: ``event: chunk`` + ``data: <json {"text": "..."}>`` + 空行
+      - 流结束:    ``event: done``  + ``data: {}`` + 空行
+      - 出错:      ``event: error`` + ``data: <json {"message": "..."}>`` + 空行
+
+    前端: ``modelPlatform.describeStream`` 消费,把每个 chunk.text 拼接到 description Input。
+    """
+    import json as _json
+
+    from chayuan.server.api_server._platform_describe_stream import (
+        describe_platform_stream,
+    )
+    from chayuan.server.config_panel.model_config import _PROVIDER_BY_ID
+
+    target_meta = _PROVIDER_BY_ID.get(name)
+    target_display = target_meta.display_name if target_meta else name
+
+    async def _gen():
+        try:
+            async for piece in describe_platform_stream(
+                target_platform=name,
+                target_display_name=target_display,
+            ):
+                # 每个 chunk 用独立 SSE frame;data 必须是单行 JSON,不含裸换行
+                yield (
+                    "event: chunk\n"
+                    f"data: {_json.dumps({'text': piece}, ensure_ascii=False)}\n\n"
+                )
+            yield "event: done\ndata: {}\n\n"
+        except RuntimeError as e:
+            # 找不到可用 LLM
+            yield (
+                "event: error\n"
+                f"data: {_json.dumps({'message': str(e), 'code': 503}, ensure_ascii=False)}\n\n"
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception("describe stream %s failed", name)
+            yield (
+                "event: error\n"
+                f"data: {_json.dumps({'message': f'{type(e).__name__}: {e}', 'code': 502}, ensure_ascii=False)}\n\n"
+            )
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={
+            # 避免代理 buffering 把流憋住;Tauri webview 不会经过代理,保险起见仍设
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @admin_router.get(

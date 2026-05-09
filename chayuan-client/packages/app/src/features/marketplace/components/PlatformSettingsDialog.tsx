@@ -35,10 +35,10 @@ import { notifyInfo, notifySuccess, reportError } from '../../../store/errorDial
 import {
   useCreatePlatform,
   useDeletePlatform,
-  useEnrichPlatform,
   useTestPlatform,
   useUpdatePlatform,
 } from '../../../store/modelPlatform';
+import { modelPlatform } from '@chayuan/api';
 import { MODEL_TYPES, type ModelType } from '../lib/modelTypes';
 import { EMPTY_MODELS_BY_TYPE, ModelTypeAccordion, type ModelsByType } from './ModelTypeAccordion';
 import { AssistantBrandLogo } from '../../../components/AssistantBrandLogo';
@@ -179,9 +179,11 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
   const updateMut = useUpdatePlatform();
   const deleteMut = useDeletePlatform();
   const testMut = useTestPlatform();
-  const enrichMut = useEnrichPlatform();
   // 自动拉取(blur 触发)态:防止重复并发 + 给 input 显 loading spinner
   const [autoFetching, setAutoFetching] = React.useState(false);
+  // 厂商简介 AI 流式生成态:isPending 期间禁用按钮 + 显示 loading;abortRef 用于关 dialog 时取消
+  const [describing, setDescribing] = React.useState(false);
+  const describeAbortRef = React.useRef<AbortController | null>(null);
   // 上次自动拉取用过的 api_key,避免同一个 key 重复 blur 反复 fetch
   const lastAutoKey = React.useRef<string>('');
 
@@ -409,38 +411,56 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
   };
 
   /**
-   * 一键 AI 补全 —— 把 draft 里全部模型 id 喂给后端,后端选一个已配置的 LLM
-   * 出 JSON,落到 model_metadata 表;成功后 catalog query invalidate,卡片
-   * hover tooltip 自动显示新写入的简介 / 发布日期 / 上下文长度 / 性能短评。
+   * AI 一键写厂商简介 —— SSE 流式接收 LLM token,逐字写入 ``draft.description``。
+   *
+   * 后端: ``POST /admin/model_platforms/{name}/describe/stream``,选一个已配齐 key
+   * 的 LLM 厂商(skip 自身防循环依赖)生成中文 hero 副标题(2-3 句话,≤120 字)。
+   *
+   * 前提:厂商必须已落库(persisted=true)— 否则后端按 platform_name 查不到 display_name。
+   *
+   * 用户预期:点击 → 输入框开始打字 → 几秒钟内出现完整简介,可以再手编 → 点保存。
    */
-  const onEnrich = async () => {
+  const onAiDescribe = async () => {
     if (!platform || !draft) return;
     if (!persisted) {
-      notifyInfo('请先保存厂商', 'AI 补全需要厂商已落库,先保存再补全');
+      notifyInfo('请先保存厂商', 'AI 生成简介需要厂商已落库,先保存再使用');
       return;
     }
-    const allModels: string[] = [];
-    for (const meta of MODEL_TYPES) {
-      for (const m of draft.models[meta.key] ?? []) {
-        if (m && !allModels.includes(m)) allModels.push(m);
-      }
-    }
-    if (allModels.length === 0) {
-      notifyInfo('暂无模型', '请先在上方"模型清单"里添加 model id 再用 AI 补全');
-      return;
-    }
+    if (describing) return;
+    // 同一个 dialog 重复点 → 取消上一次,接最新
+    describeAbortRef.current?.abort();
+    const ctl = new AbortController();
+    describeAbortRef.current = ctl;
+    setDescribing(true);
+    // 清空原描述再开始流式,避免拼接到旧文案后面
+    setDraft((d) => (d ? { ...d, description: '' } : d));
     try {
-      const r = await enrichMut.mutateAsync({
-        name: platform.platform_name,
-        models: allModels,
-      });
-      notifySuccess(
-        `AI 补全完成:已补 ${r.updated.length} 个 / 跳过 ${r.skipped.length} 个 (LLM: ${r.llm_used})`,
+      await modelPlatform.describeStream(
+        platform.platform_name,
+        {
+          onChunk: (text) => {
+            setDraft((d) => (d ? { ...d, description: (d.description || '') + text } : d));
+          },
+          onDone: () => {
+            notifySuccess('AI 已生成简介,可手动编辑后保存');
+          },
+        },
+        { signal: ctl.signal },
       );
     } catch (e) {
-      reportError(e, 'AI 补全失败 — 请确保已配置任意一个有 LLM 的厂商');
+      if ((e as { name?: string })?.name === 'AbortError' || ctl.signal.aborted) return;
+      reportError(e, 'AI 生成简介失败 — 请确保已配置任意一个有 LLM 的厂商');
+    } finally {
+      setDescribing(false);
+      if (describeAbortRef.current === ctl) describeAbortRef.current = null;
     }
   };
+
+  // 关 dialog / 卸载 → 取消进行中的 SSE,避免后台继续累积写入已被丢弃的 draft
+  React.useEffect(() => {
+    if (!open) describeAbortRef.current?.abort();
+  }, [open]);
+  React.useEffect(() => () => describeAbortRef.current?.abort(), []);
 
   /** 把 detected 转成 ModelType -> count 给 accordion 显示"新增 N" 角标 */
   const detectedCounts = React.useMemo<Partial<Record<ModelType, number>>>(() => {
@@ -688,13 +708,34 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
             />
           </Field>
 
-          {/* 厂商描述放在底部 — 仅作展示文案,不影响功能 */}
+          {/* 厂商描述放在底部 — 旁边带 AI 生成按钮:点击后流式写入,可再手编 */}
           <Field label="厂商描述(hero / 卡片副标题)" optional>
-            <Input
-              value={draft.description}
-              placeholder="混合推理架构,更高的思考效率"
-              onChange={(e) => set('description', e.target.value)}
-            />
+            <div className="flex items-center gap-2">
+              <Input
+                value={draft.description}
+                placeholder="混合推理架构,更高的思考效率"
+                onChange={(e) => set('description', e.target.value)}
+                disabled={describing}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onAiDescribe}
+                disabled={describing || !persisted}
+                title={
+                  persisted
+                    ? '用 LLM 流式生成简介(2-3 句话,可再编辑)'
+                    : '先保存厂商再用 AI 生成简介'
+                }
+              >
+                {describing ? (
+                  <AssistantBrandLogo running className="h-3.5 w-3.5 rounded-full" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                AI 生成
+              </Button>
+            </div>
           </Field>
         </div>
 
@@ -715,24 +756,6 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
             </span>
           )}
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onEnrich}
-              disabled={enrichMut.isPending || !persisted}
-              title={
-                persisted
-                  ? '用 LLM 给当前模型清单批量生成简介 / 发布日期 / 上下文长度 / 性能短评'
-                  : '先保存厂商再用 AI 补全'
-              }
-            >
-              {enrichMut.isPending ? (
-                <AssistantBrandLogo running className="h-3.5 w-3.5 rounded-full" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              AI 补全简介
-            </Button>
             <Button
               size="sm"
               variant="outline"
