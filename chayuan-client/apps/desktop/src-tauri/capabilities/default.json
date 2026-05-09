@@ -46,7 +46,7 @@
     {
       "identifier": "http:default",
       "allow": [
-        { "url": "http://127.0.0.1:7861/*" },
+        { "url": "http://127.0.0.1:62581/*" },
         { "url": "http://127.0.0.1:3000/*" },
         { "url": "https://*/*" }
       ]

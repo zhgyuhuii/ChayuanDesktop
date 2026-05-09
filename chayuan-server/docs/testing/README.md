@@ -32,7 +32,7 @@ pwsh -File scripts/run_full_test.ps1 -Python D:\soft\conda_envs\py312\python.exe
 | 黑盒 smoke | `python scripts/smoke_test.py` | 退出码 0 |
 | Langfuse trace | 打开 http://localhost:3000 | 看到对话 trace |
 | MinIO 对象 | http://localhost:9001 → chayuan-kb-content | 能看到上传文件 |
-| /metrics | `curl http://localhost:7861/metrics | grep chayuan_` | 业务 metric 齐全 |
+| /metrics | `curl http://localhost:62581/metrics | grep chayuan_` | 业务 metric 齐全 |
 
 ## 端点清单（smoke 覆盖）
 

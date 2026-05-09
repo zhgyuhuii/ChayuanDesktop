@@ -105,7 +105,7 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
     setThinClientEnabled, requireServerLoginGate, finishServerLogin,
   ]);
 
-  // 单机模式 sidecar 永远跑在 127.0.0.1:7861,baseURL 直接走 env.apiBase
+  // 单机模式 sidecar 永远跑在 127.0.0.1:62581,baseURL 直接走 env.apiBase
   // (= apps/desktop/src/main.tsx 里写死的 SINGLE_MACHINE_BASE)。
   // apiBaseOverride 只在 thin-client / 多用户场景下生效,避免 SidecarGate 异步
   // 设置 override 与 first-render configureClient 之间的 race(导致前几次请求
@@ -251,7 +251,7 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
   // Tauri 子窗(永道拖出 / 文件预览)运行在主窗同一个 Tauri 进程内,sidecar 已由
   // 主窗启起并保持 ready;再让子窗自己走 FirstRunSetup → SidecarGate 没意义,
   // 反而会闪「正在启动后端服务」。这里直接放行进 RouterProvider,baseURL 走
-  // env.apiBase(= SINGLE_MACHINE_BASE,127.0.0.1:7861),沿用主窗已经起好的服务。
+  // env.apiBase(= SINGLE_MACHINE_BASE,127.0.0.1:62581),沿用主窗已经起好的服务。
   const isChildWindow =
     typeof window !== 'undefined' &&
     (window.location.pathname.startsWith('/arena/detached') ||

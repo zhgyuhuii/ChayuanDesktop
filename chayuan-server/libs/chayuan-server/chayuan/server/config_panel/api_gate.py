@@ -1,7 +1,7 @@
 """Config Panel · API 可达性门闸（API Gate）。
 
 **用途**：Config Panel 的某些页面（知识库 / 数据源 / 文件存储 / 数据治理）要
-通过 7861 API Server 才能实际落地写。如果 API 没启动，这些页面应当**整体灰显**、
+通过 62581 API Server 才能实际落地写。如果 API 没启动，这些页面应当**整体灰显**、
 按钮禁用，而不是让用户点下去出现一堆连接错误。
 
 设计：
@@ -40,17 +40,17 @@ _CACHE_TTL_SEC = 1.0
 
 
 def api_base_url() -> str:
-    """拼 ``http://<API_SERVER.host>:<API_SERVER.port>``，默认 ``127.0.0.1:7861``。"""
+    """拼 ``http://<API_SERVER.host>:<API_SERVER.port>``，默认 ``127.0.0.1:62581``。"""
     try:
         from chayuan.settings import Settings
         srv = getattr(Settings.basic_settings, "API_SERVER", {}) or {}
         host = str(srv.get("host") or "127.0.0.1")
         if host in ("0.0.0.0", ""):
             host = "127.0.0.1"
-        port = int(srv.get("port") or 7861)
+        port = int(srv.get("port") or 62581)
         return f"http://{host}:{port}"
     except Exception:  # noqa: BLE001
-        return "http://127.0.0.1:7861"
+        return "http://127.0.0.1:62581"
 
 
 def probe_api_status(base_url: Optional[str] = None,

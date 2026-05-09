@@ -62,14 +62,14 @@ pip install psutil
 
 ```bash
 # Linux (任一)
-sudo ss -tlnp 'sport = :7861'
-sudo lsof -iTCP:7861 -sTCP:LISTEN
+sudo ss -tlnp 'sport = :62581'
+sudo lsof -iTCP:62581 -sTCP:LISTEN
 
 # macOS
-lsof -iTCP:7861 -sTCP:LISTEN -P
+lsof -iTCP:62581 -sTCP:LISTEN -P
 
 # Windows (PowerShell)
-Get-NetTCPConnection -LocalPort 7861 -State Listen | Select-Object OwningProcess
+Get-NetTCPConnection -LocalPort 62581 -State Listen | Select-Object OwningProcess
 ```
 
 ### Windows 下 `chayuan stop` 权限不足

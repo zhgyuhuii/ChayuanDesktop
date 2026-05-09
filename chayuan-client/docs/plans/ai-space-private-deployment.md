@@ -117,7 +117,7 @@ volumes: { pgdata: {}, miniodata: {}, redisdata: {} }
 ```nginx
 # /api/* → chayuan-server，注意 SSE 关 buffer
 location /api/ {
-    proxy_pass http://chayuan-server:7861/;
+    proxy_pass http://chayuan-server:62581/;
     proxy_buffering off;            # SSE 必须
     proxy_read_timeout 1d;          # /run / /tasks/{token}/complete 长连接
     proxy_set_header X-Forwarded-For $remote_addr;
@@ -126,7 +126,7 @@ location /api/ {
 
 # embed.js 静态产物 + 高 cache
 location = /api/embed/ai-space.js {
-    proxy_pass http://chayuan-server:7861/embed/ai-space.js;
+    proxy_pass http://chayuan-server:62581/embed/ai-space.js;
     add_header Cache-Control "public, max-age=3600";
     gzip on; gzip_types application/javascript;
 }

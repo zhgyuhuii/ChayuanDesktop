@@ -22,7 +22,7 @@ DEFAULT_BIND_HOST: 0.0.0.0
 
 API_SERVER:
   host: 0.0.0.0
-  port: 7861
+  port: 62581
   public_host: chayuan.example.com
   public_port: 443
 

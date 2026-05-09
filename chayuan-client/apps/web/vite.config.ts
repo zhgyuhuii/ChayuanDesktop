@@ -78,7 +78,7 @@ const BACKEND_PROXY_PREFIXES = [
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const backend = env.VITE_BACKEND_URL || 'http://127.0.0.1:7861';
+  const backend = env.VITE_BACKEND_URL || 'http://127.0.0.1:62581';
 
   const proxy = Object.fromEntries(
     BACKEND_PROXY_PREFIXES.map((p) => [

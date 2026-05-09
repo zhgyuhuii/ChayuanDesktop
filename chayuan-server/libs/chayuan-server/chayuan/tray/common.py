@@ -31,7 +31,7 @@ def _safe_load_settings() -> Tuple[str, int, str, int]:
 
         bs = Settings.basic_settings
         api_host = bs.API_SERVER.get("host", "127.0.0.1")
-        api_port = int(bs.API_SERVER.get("port", 7861))
+        api_port = int(bs.API_SERVER.get("port", 62581))
         cfg_host = bs.CONFIG_SERVER.get("host", "127.0.0.1")
         cfg_port = int(bs.CONFIG_SERVER.get("port", 8502))
         # 127.0.0.1 优于 0.0.0.0 / 空串用于浏览器访问
@@ -39,7 +39,7 @@ def _safe_load_settings() -> Tuple[str, int, str, int]:
         cfg_host = _browser_host(cfg_host)
         return api_host, api_port, cfg_host, cfg_port
     except Exception:
-        return "127.0.0.1", 7861, "127.0.0.1", 8502
+        return "127.0.0.1", 62581, "127.0.0.1", 8502
 
 
 def _browser_host(host: str) -> str:

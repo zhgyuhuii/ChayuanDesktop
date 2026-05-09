@@ -19,7 +19,7 @@
 //!    内部用 ``kill_on_drop`` + 显式 kill)。
 //!
 //! 开发态(``cfg!(debug_assertions)``)默认**不 spawn**:开发者自己跑
-//! ``poetry run chayuan start -a``。前端探测到 dev 时直接走 7861。
+//! ``poetry run chayuan start -a``。前端探测到 dev 时直接走 62581。
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -138,7 +138,7 @@ impl SidecarManager {
 }
 
 /// 默认端口与 ``Settings.basic_settings.API_SERVER["port"]`` 对齐。
-const DEFAULT_PORT: u16 = 7861;
+const DEFAULT_PORT: u16 = 62581;
 
 /// 健康探测超时与轮询间隔。``healthz`` 已经包含 DB ping,2s 超时够用。
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(2);

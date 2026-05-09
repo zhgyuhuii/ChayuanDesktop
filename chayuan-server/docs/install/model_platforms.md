@@ -56,7 +56,7 @@ MODEL_PLATFORMS:
 ```bash
 ollama pull qwen3:8b
 # 60s 内
-curl http://127.0.0.1:7861/v1/models | jq '.data[] | select(.platform_name=="ollama")'
+curl http://127.0.0.1:62581/v1/models | jq '.data[] | select(.platform_name=="ollama")'
 ```
 
 ## xinference auto_detect

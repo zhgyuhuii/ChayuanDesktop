@@ -879,7 +879,7 @@ def _render_status_page(ui) -> None:
     with ui.card().classes("w-full q-mb-md"):
         ui.label("后台服务").classes("text-base font-semibold")
         rows = [
-            ("API",    api.get("host", "127.0.0.1"), api.get("port", 7861)),
+            ("API",    api.get("host", "127.0.0.1"), api.get("port", 62581)),
             ("配置面板", cfg.get("host", "127.0.0.1"), cfg.get("port", 8502)),
         ]
         for name, h, p in rows:

@@ -45,7 +45,7 @@ cp .env.example .env
 cp apps/web/.env.example apps/web/.env
 cp apps/desktop/.env.example apps/desktop/.env
 
-# 3. 启动后端（默认 127.0.0.1:7861；需 Python 3.10–3.12 + Poetry）
+# 3. 启动后端（默认 127.0.0.1:62581；需 Python 3.10–3.12 + Poetry）
 cd server
 poetry -C libs/chayuan-server install --with lint,test
 # 首次：poetry -C libs/chayuan-server run chayuan init
@@ -55,7 +55,7 @@ cd ..
 #    可选：在 server/docker 下 docker compose 启 Langfuse / 全栈
 
 # 4. 拉 OpenAPI 类型
-API_BASE=http://127.0.0.1:7861 pnpm gen:api
+API_BASE=http://127.0.0.1:62581 pnpm gen:api
 
 # 5. Web 端（浏览器）
 pnpm dev:web

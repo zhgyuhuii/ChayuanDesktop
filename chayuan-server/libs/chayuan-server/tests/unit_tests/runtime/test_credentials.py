@@ -71,7 +71,7 @@ def test_mask_password_in_url_redis():
 
 
 def test_mask_returns_input_when_no_password():
-    assert mask_password_in_url("http://localhost:7861/v1") == "http://localhost:7861/v1"
+    assert mask_password_in_url("http://localhost:62581/v1") == "http://localhost:62581/v1"
     assert mask_password_in_url("") == ""
 
 

@@ -92,7 +92,7 @@ pub fn run() {
             key.to_vec()
         }).build())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(Arc::new(sidecar::SidecarManager::new(7861)))
+        .manage(Arc::new(sidecar::SidecarManager::new(62581)))
         .invoke_handler(tauri::generate_handler![
             chayuan_vault_password,
             chayuan_tray_set_menu,

@@ -182,14 +182,14 @@ const BACKEND_PROXY_PREFIXES = [
 ```nginx
 # 已有
 location /api/ {
-    proxy_pass http://chayuan-server:7861/;
+    proxy_pass http://chayuan-server:62581/;
     proxy_buffering off;
     proxy_read_timeout 1d;
 }
 
 # embed.js 单独 cache（高优先级匹配）
 location = /api/embed/ai-space.js {
-    proxy_pass http://chayuan-server:7861/embed/ai-space.js;
+    proxy_pass http://chayuan-server:62581/embed/ai-space.js;
     add_header Cache-Control "public, max-age=3600";
     gzip on;
 }
@@ -315,7 +315,7 @@ CI 必跑；漏一条直接挂。
 
 ```sh
 # CI 步骤
-npx openapi-typescript http://localhost:7861/openapi.json \
+npx openapi-typescript http://localhost:62581/openapi.json \
   -o packages/api/src/generated/types.ts
 
 # 同时生成路由清单
@@ -329,7 +329,7 @@ node scripts/extract-prefixes.js openapi.json > packages/api/src/routes-manifest
 
 ### 4.2 dev/prod 环境一致性
 
-**当前状态**：dev 走 vite proxy（`/api` 转 7861），prod 走 nginx。两套配置各自演化。
+**当前状态**：dev 走 vite proxy（`/api` 转 62581），prod 走 nginx。两套配置各自演化。
 
 **目标**：dev 也走 nginx（docker-compose dev profile）：
 ```yaml

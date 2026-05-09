@@ -38,7 +38,7 @@ def test_register_child_requires_existing_meta_file(isolated_runtime_meta):
     from chayuan.server.config_panel.restart import (
         list_children, register_child,
     )
-    register_child("api", 12345, port=7861, name="test-api")
+    register_child("api", 12345, port=62581, name="test-api")
     # 未记录（因为没有 meta）
     assert list_children() == {}
     assert not isolated_runtime_meta.exists()
@@ -52,12 +52,12 @@ def test_register_child_roundtrip(isolated_runtime_meta):
     record_runtime(argv=["chayuan", "start", "-a"])
     assert isolated_runtime_meta.is_file()
 
-    register_child("api", 111, port=7861, name="API")
+    register_child("api", 111, port=62581, name="API")
     register_child("config", 333, port=8502, name="Config")
 
     got = list_children()
     assert set(got.keys()) == {"api", "config"}
-    assert got["api"]["pid"] == 111 and got["api"]["port"] == 7861
+    assert got["api"]["pid"] == 111 and got["api"]["port"] == 62581
     assert got["config"]["pid"] == 333
 
     # meta 里的主 pid 不应被 children 扰动
@@ -75,8 +75,8 @@ def test_register_child_invalid_pid_is_noop(isolated_runtime_meta):
         list_children, record_runtime, register_child,
     )
     record_runtime(argv=["chayuan", "start", "-a"])
-    register_child("api", 0, port=7861)      # pid=0 无效
-    register_child("", 9999, port=7861)      # role 空
+    register_child("api", 0, port=62581)      # pid=0 无效
+    register_child("", 9999, port=62581)      # role 空
     assert list_children() == {}
 
 

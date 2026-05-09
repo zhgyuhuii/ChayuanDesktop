@@ -79,7 +79,7 @@ def allocate_core_ports(*, runtime: Optional[RuntimeInfo] = None) -> BootstrapRe
     warnings: List[str] = []
 
     # API 主服务 ----------------------------------------------------------
-    api_pref = int((bs.API_SERVER or {}).get("port") or 7861)
+    api_pref = int((bs.API_SERVER or {}).get("port") or 62581)
     api_host = (bs.API_SERVER or {}).get("host") or bs.DEFAULT_BIND_HOST
     try:
         api_port = alloc.allocate(
@@ -91,7 +91,7 @@ def allocate_core_ports(*, runtime: Optional[RuntimeInfo] = None) -> BootstrapRe
         api_port = api_pref
     if api_port != api_pref:
         # 用 ``is_port_free`` 单独探一次确认是真"被占"还是"超出 range / 历史 named 命中其它端口"
-        # 别再像旧版那样无脑写"被占"——曾导致 7861 / 8509 完全空闲时也提示用户。
+        # 别再像旧版那样无脑写"被占"——曾导致 62581 / 8509 完全空闲时也提示用户。
         from chayuan.server.runtime.port_allocator import (
             DEFAULT_PORT_RANGE,
             is_port_free,

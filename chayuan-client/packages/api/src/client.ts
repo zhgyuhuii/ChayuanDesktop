@@ -18,7 +18,7 @@ import {
 } from './auth-store';
 
 export interface ClientConfig {
-  /** 后端 API base，如 'http://127.0.0.1:7861' 或 '/api' */
+  /** 后端 API base，如 'http://127.0.0.1:62581' 或 '/api' */
   baseURL: string;
   /** 默认超时毫秒 */
   timeoutMs?: number;

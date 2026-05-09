@@ -28,7 +28,7 @@ test.describe('黄金路径 7：瘦客户端登录', () => {
     // 提交按钮初始 disable
     await expect(page.getByTestId('server-login-submit')).toBeDisabled();
 
-    await page.getByTestId('server-url-input').fill('http://my-srv.local:7861/');
+    await page.getByTestId('server-url-input').fill('http://my-srv.local:62581/');
     await page.getByTestId('server-username-input').fill('admin');
     await page.getByTestId('server-password-input').fill('pa55w0rd');
 
@@ -49,7 +49,7 @@ test.describe('黄金路径 7：瘦客户端登录', () => {
 
     await page.goto('/?thinClient=1');
 
-    await page.getByTestId('server-url-input').fill('http://my-srv.local:7861');
+    await page.getByTestId('server-url-input').fill('http://my-srv.local:62581');
     await page.getByTestId('server-username-input').fill('admin');
     await page.getByTestId('server-password-input').fill('wrong-password');
     await page.getByTestId('server-login-submit').click();
@@ -74,7 +74,7 @@ test.describe('黄金路径 7：瘦客户端登录', () => {
     await expect(page.getByTestId('server-login-submit')).toBeDisabled();
 
     // 写裸 host 也能通过（normalizeServerUrl 会自动补 http://）
-    await page.getByTestId('server-url-input').fill('my-srv.local:7861');
+    await page.getByTestId('server-url-input').fill('my-srv.local:62581');
     await expect(page.getByTestId('server-login-submit')).toBeEnabled();
   });
 });

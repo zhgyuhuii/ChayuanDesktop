@@ -260,7 +260,7 @@ poetry -C libs/chayuan-server run chayuan start -a
 
 | 命令 | 说明 | 默认端口 |
 | :-- | :-- | :-- |
-| `chayuan start --api` | 仅启动后端 API | 7861 |
+| `chayuan start --api` | 仅启动后端 API | 62581 |
 | `chayuan start -w` / `--webui` | 仅启动对话界面（Streamlit） | 8501 |
 | `chayuan start -c` / `--config` | 仅启动配置面板（NiceGUI） | 8502 |
 | `chayuan start -a` / `--all` | 三者一起启动 | — |

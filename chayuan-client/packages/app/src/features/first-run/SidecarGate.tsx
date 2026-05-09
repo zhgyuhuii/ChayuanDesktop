@@ -7,7 +7,7 @@
  * 行为:
  *   - ``platform.sidecar`` 不存在(Web 构建)→ 直接 onReady,使用默认 ``baseUrl``
  *     (兜底:Web 构建一般不依赖本地后端,Shell 已有 ``apiBaseOverride`` 路径)
- *   - ``status() === 'disabled'``(dev 模式)→ 直接 onReady,前端走 7861 等
+ *   - ``status() === 'disabled'``(dev 模式)→ 直接 onReady,前端走 62581 等
  *     开发者自己跑 ``poetry run chayuan start -a``
  *   - 否则:订阅事件 + 调 ``start()``,UI 显示启动日志,直至 state=ready 调
  *     ``onReady``;state=failed 时停在错误屏(显示退出码 / 最后 log + "重试")

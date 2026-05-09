@@ -664,7 +664,7 @@ async def start_main_server(args):
             p.start()
             p.name = f"{p.name} ({p.pid})"
             _register_child_quiet(
-                "api", int(p.pid or 0), _port_of("API_SERVER", 7861), p.name,
+                "api", int(p.pid or 0), _port_of("API_SERVER", 62581), p.name,
             )
             if not _wait_child_started("API", p, api_started, _WAIT_TIMEOUT):
                 logger.warning(

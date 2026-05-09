@@ -2,8 +2,8 @@
  * 契约同步桥:openapi-typescript 生成的 paths 类型从这里导出。
  *
  * 工作流:
- *   1. 启动 chayuan-server: uvicorn ... --port 7861
- *   2. 跑 `pnpm gen:api`(默认连 127.0.0.1:7861)
+ *   1. 启动 chayuan-server: uvicorn ... --port 62581
+ *   2. 跑 `pnpm gen:api`(默认连 127.0.0.1:62581)
  *   3. packages/api/generated/types.ts 出现
  *   4. 业务侧通过 `ApiBody<'/auth/login','post'>` 取强类型
  *

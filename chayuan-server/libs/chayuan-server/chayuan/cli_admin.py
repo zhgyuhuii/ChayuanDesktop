@@ -86,7 +86,7 @@ def _server_dict(name: str) -> Dict[str, Any]:
 
 @click.command(
     "status",
-    help="查看服务状态：core=API(7861)，config=配置面板(8502)。不带参数时两项都查。",
+    help="查看服务状态：core=API(62581)，config=配置面板(8502)。不带参数时两项都查。",
 )
 @click.argument(
     "target",
@@ -99,7 +99,7 @@ def status_cmd(target: Optional[str]):
 
     if "core" in targets:
         api = _server_dict("API_SERVER")
-        host, port = str(api.get("host", "127.0.0.1")), api.get("port", 7861)
+        host, port = str(api.get("host", "127.0.0.1")), api.get("port", 62581)
         ok = _probe_tcp(host, port)
         _status_line("core", ok, f"API  {host}:{port} {'运行中' if ok else '未运行'}")
 

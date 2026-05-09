@@ -927,7 +927,7 @@ def _check_healthz(bs) -> HealthCheck:
     host = str(cfg.get("host") or "127.0.0.1")
     if host == "0.0.0.0":
         host = "127.0.0.1"
-    port = cfg.get("port") or 7861
+    port = cfg.get("port") or 62581
     if not _probe_tcp(host, port, timeout=0.6):
         return HealthCheck(
             id="api.healthz",
@@ -960,7 +960,7 @@ def _check_readyz(bs) -> HealthCheck:
     host = str(cfg.get("host") or "127.0.0.1")
     if host == "0.0.0.0":
         host = "127.0.0.1"
-    port = cfg.get("port") or 7861
+    port = cfg.get("port") or 62581
     if not _probe_tcp(host, port, timeout=0.6):
         return HealthCheck(
             id="api.readyz",
@@ -1234,7 +1234,7 @@ def build_report(categories: Optional[Iterable[str]] = None) -> HealthReport:
     _safe("connectivity", _check_llm_platforms_connect, model, list_mode=True)
 
     # --- api ---
-    _safe("api", _check_service_port, bs, "API_SERVER",   7861, "API 服务",    "api.core")
+    _safe("api", _check_service_port, bs, "API_SERVER",   62581, "API 服务",    "api.core")
     _safe("api", _check_service_port, bs, "CONFIG_SERVER", 8502, "配置面板", "api.config_panel")
     _safe("api", _check_healthz, bs)
     _safe("api", _check_readyz, bs)

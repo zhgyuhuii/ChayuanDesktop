@@ -188,7 +188,7 @@ print(signed_request("GET", "/openapi/v1/ping").json())
 | GET | `/ws/stats` | — | WS 连接数 / 分布 / 限额（运维用） |
 | WS | `/ws` | `events:subscribe` + 事件 scope | 长连接事件推送（详见 §3） |
 
-> **查看 / 尝试**：浏览器打开 `http://<host>:7861/docs` 就是 Swagger 全量交互式文档；每个接口都能填三头签名 + body，一键「Try it out」。
+> **查看 / 尝试**：浏览器打开 `http://<host>:62581/docs` 就是 Swagger 全量交互式文档；每个接口都能填三头签名 + body，一键「Try it out」。
 
 ### 2.6 给开放平台加新端点的最佳姿势
 

@@ -260,7 +260,7 @@ export type SidecarStateName =
 export interface SidecarStatus {
   state: SidecarStateName;
   port: number;
-  /** 业务侧直接拿这个填 ``configureClient({ baseURL })``;dev/disabled 时也是 7861 */
+  /** 业务侧直接拿这个填 ``configureClient({ baseURL })``;dev/disabled 时也是 62581 */
   baseUrl: string;
   restarts: number;
   error: string | null;

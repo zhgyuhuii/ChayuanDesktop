@@ -2,8 +2,8 @@
 """察元黑盒 smoke test —— 探活 50+ 端点。
 
 用法：
-    python scripts/smoke_test.py                         # 默认 http://127.0.0.1:7861
-    python scripts/smoke_test.py --base http://host:7861 # 远程服务
+    python scripts/smoke_test.py                         # 默认 http://127.0.0.1:62581
+    python scripts/smoke_test.py --base http://host:62581 # 远程服务
     python scripts/smoke_test.py --token eyJhbGc...      # 外部 token
     python scripts/smoke_test.py --junit report.xml      # CI 格式输出
 
@@ -348,7 +348,7 @@ class SmokeClient:
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--base", default="http://127.0.0.1:7861",
+    p.add_argument("--base", default="http://127.0.0.1:62581",
                     help="察元 API base URL")
     p.add_argument("--token", default="", help="可选：外部 bearer token")
     p.add_argument("--timeout", type=float, default=30.0)

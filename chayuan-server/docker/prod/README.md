@@ -61,9 +61,9 @@ docker compose logs -f chayuan-api
 ## 健康检查
 
 ```bash
-curl -fsS http://127.0.0.1:7861/healthz    # liveness
-curl -fsS http://127.0.0.1:7861/readyz     # 依赖就绪
-curl -fsS http://127.0.0.1:7861/metrics    # Prometheus
+curl -fsS http://127.0.0.1:62581/healthz    # liveness
+curl -fsS http://127.0.0.1:62581/readyz     # 依赖就绪
+curl -fsS http://127.0.0.1:62581/metrics    # Prometheus
 ```
 
 NiceGUI 配置面板：http://host:8502
@@ -93,7 +93,7 @@ docker build -f docker/prod/Dockerfile -t chayuan-server:${VERSION} .
 
 # 也可以直接 run，手动提供 pg/redis/milvus 连接信息
 docker run --rm -it \
-  -p 7861:7861 \
+  -p 62581:62581 \
   -e JWT_SECRET="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')" \
   -e CHAYUAN_PG_HOST=host.docker.internal \
   -e CHAYUAN_REDIS_URL=redis://host.docker.internal:6379/0 \

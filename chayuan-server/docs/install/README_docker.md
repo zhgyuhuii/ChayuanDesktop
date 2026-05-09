@@ -63,12 +63,12 @@ root-chayuan-1      chatimage/chatchat:0.3.1.2-2024-0720   "chayuan start -a"   
 root-xinference-1   xprobe/xinference:v0.12.1       "/opt/nvidia/nvidia_…"   xinference   3 minutes ago   Up 3 minutes
 ```
 ```shell
-ss -anptl | grep -E '(8501|7861|9997)'
+ss -anptl | grep -E '(8501|62581|9997)'
 ```
 ```text
 LISTEN 0      128          0.0.0.0:9997       0.0.0.0:*    users:(("pt_main_thread",pid=1489804,fd=21))
 LISTEN 0      128          0.0.0.0:8501       0.0.0.0:*    users:(("python",pid=1490078,fd=10))        
-LISTEN 0      128          0.0.0.0:7861       0.0.0.0:*    users:(("python",pid=1490014,fd=9))
+LISTEN 0      128          0.0.0.0:62581       0.0.0.0:*    users:(("python",pid=1490014,fd=9))
 ```
 如上, 服务均已正常启动, 即可体验使用.
 
@@ -165,8 +165,8 @@ WARN[0000] /root/docker-compose.yaml: `version` is obsolete
 NAME                IMAGE                           COMMAND                  SERVICE      CREATED          STATUS          PORTS
 root-chayuan-1      chatimage/chatchat:0.3.1.2-2024-0720   "chayuan start -a"       chayuan      33 seconds ago   Up 32 seconds   
 root-xinference-1   xprobe/xinference:v0.12.1       "/opt/nvidia/nvidia_…"   xinference   45 minutes ago   Up 45 minutes   
-[root@VM-2-15-centos ~]# ss -anptl | grep -E '(8501|7861|9997)'
+[root@VM-2-15-centos ~]# ss -anptl | grep -E '(8501|62581|9997)'
 LISTEN 0      128          0.0.0.0:9997       0.0.0.0:*    users:(("pt_main_thread",pid=1489804,fd=21))
 LISTEN 0      128          0.0.0.0:8501       0.0.0.0:*    users:(("python",pid=1515944,fd=10))        
-LISTEN 0      128          0.0.0.0:7861       0.0.0.0:*    users:(("python",pid=1515878,fd=9))
+LISTEN 0      128          0.0.0.0:62581       0.0.0.0:*    users:(("python",pid=1515878,fd=9))
 ```

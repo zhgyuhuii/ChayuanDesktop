@@ -90,41 +90,41 @@ def test_default_range_in_high_band():
 # 用户 2026-05-02 报告：
 #
 #   服务刚启动报：
-#     ⚠ API 偏好端口 7861 被占，已自动改用 40000（写入 runtime.json）
+#     ⚠ API 偏好端口 62581 被占，已自动改用 40000（写入 runtime.json）
 #     ⚠ 配置面板偏好端口 8509 被占，已自动改用 40001
 #
-#   但 ``ss -lntp`` 看上去 7861 / 8509 完全空闲。
+#   但 ``ss -lntp`` 看上去 62581 / 8509 完全空闲。
 #
 # 根因：旧版 ``PortAllocator.allocate`` 第 165 行把 ``preferred`` 加入候选时
 # 检查了 ``self._lo <= p <= self._hi``。默认 range=(40000, 60999)；当
-# ``preferred=7861`` 时这个判断为 False，preferred 被**直接跳过**——
+# ``preferred=62581`` 时这个判断为 False，preferred 被**直接跳过**——
 # 然后 fallback 走 40000 + 顺序探，得 40000 / 40001。日志却写"已被占用"，
 # 完全不准确。
 #
 # 修复后：preferred 即使在 range 外也单独 bind 探一次。空闲就直接返回它。
 def test_allocate_preferred_outside_range_is_still_returned_when_free():
-    """preferred=7861 + range=(40000, 60999)：7861 空闲就该用它，不能 bump 到 40000。"""
+    """preferred=62581 + range=(40000, 60999)：62581 空闲就该用它，不能 bump 到 40000。"""
     alloc = PortAllocator(
         port_range=(40000, 60999),
         bind_check=lambda _p: True,  # 全部空闲
     )
-    port = alloc.allocate(preferred=7861, name="api")
-    assert port == 7861, (
-        "preferred=7861 在默认 range (40000-60999) 之外，但完全空闲；"
-        "应该返回 7861 本身，而不是 fallback 到 40000。"
+    port = alloc.allocate(preferred=62581, name="api")
+    assert port == 62581, (
+        "preferred=62581 在默认 range (40000-60999) 之外，但完全空闲；"
+        "应该返回 62581 本身，而不是 fallback 到 40000。"
     )
 
 
 def test_allocate_preferred_outside_range_falls_back_when_busy():
     """preferred 在 range 外 + 真被占：仍然应当 fallback 到 range 内。"""
-    busy = {7861}
+    busy = {62581}
     alloc = PortAllocator(
         port_range=(40000, 40010),
         bind_check=lambda p: p not in busy,
     )
-    port = alloc.allocate(preferred=7861, name="api")
+    port = alloc.allocate(preferred=62581, name="api")
     assert 40000 <= port <= 40010, (
-        "preferred=7861 真被占时，应该回到配置的 [40000, 40010] 范围里找。"
+        "preferred=62581 真被占时，应该回到配置的 [40000, 40010] 范围里找。"
     )
 
 
@@ -142,7 +142,7 @@ def test_allocate_preferred_outside_range_logs_helpful_warning(caplog):
     alloc.reserve(40005, name="api")
 
     with caplog.at_level(logging.INFO, logger="chayuan.runtime.port_allocator"):
-        port = alloc.allocate(preferred=7861, name="api")
+        port = alloc.allocate(preferred=62581, name="api")
     assert port == 40005
     # 这条 case 不该出现"已被占用"字样（preferred 根本没探过）
     msgs = [rec.getMessage() for rec in caplog.records]

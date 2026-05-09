@@ -231,7 +231,7 @@ export default {
     teachMeDesc: '不定期通过小提醒帮助我更好的使用智能体的能力',
     backend: '后端服务',
     backendUrl: '服务地址',
-    backendUrlDesc: '例如 http://192.168.1.10:7861；留空走 .env/config.json；保存后将刷新页面',
+    backendUrlDesc: '例如 http://192.168.1.10:62581；留空走 .env/config.json；保存后将刷新页面',
     backendResolved: '当前生效',
     backendSaved: '已保存，即将刷新以应用新地址',
     shortcuts: '快捷工具',

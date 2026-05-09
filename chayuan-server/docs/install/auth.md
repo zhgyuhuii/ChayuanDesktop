@@ -39,7 +39,7 @@ JWT_REFRESH_TTL_DAY: 14         # refresh token 14 天
 
 **1) Web 注册(若 `AUTH_ALLOW_REGISTRATION=true`)**
 ```bash
-curl -X POST http://127.0.0.1:7861/auth/register \
+curl -X POST http://127.0.0.1:62581/auth/register \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"adminpwd"}'
 ```

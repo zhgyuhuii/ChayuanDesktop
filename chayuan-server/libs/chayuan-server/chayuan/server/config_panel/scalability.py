@@ -418,7 +418,7 @@ def _check_health_endpoints(bs) -> Check:
 
     api = dict(getattr(bs, "API_SERVER", {}) or {})
     host = (api.get("host") or "127.0.0.1").strip()
-    port = api.get("port") or 7861
+    port = api.get("port") or 62581
     if host == "0.0.0.0":
         host = "127.0.0.1"
 
@@ -785,7 +785,7 @@ def _check_reverse_proxy(bs) -> Check:
             snippet=(
                 "# nginx 关键片段\n"
                 "upstream chayuan_api { least_conn;\n"
-                "  server 127.0.0.1:7861; }\n"
+                "  server 127.0.0.1:62581; }\n"
                 "server { listen 443 ssl http2;\n"
                 "  location / { proxy_pass http://chayuan_api; proxy_http_version 1.1;\n"
                 "    proxy_set_header Connection ''; proxy_buffering off;\n"

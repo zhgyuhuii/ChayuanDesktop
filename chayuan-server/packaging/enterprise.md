@@ -117,7 +117,7 @@ Chayuan Enterprise.app/
               │   ├── 把 basic_settings.yaml 里的 @postgres:5432 → @/chayuan?host=<socket_dir>
               │   └── 把 kb_settings.yaml 里的 milvus.host=milvus → milvus-lite.db 路径
               └── exec chayuan.cli start -a
-                  ├── API :7861 （psycopg2 连 unix socket 的 PG）
+                  ├── API :62581 （psycopg2 连 unix socket 的 PG）
                   ├── WebUI Streamlit :8501
                   └── 配置面板 NiceGUI :8502
 退出 tray (⌘Q)

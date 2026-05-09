@@ -30,7 +30,7 @@ services:
     # image: ccr.ccs.tencentyun.com/chatchat/chatchat:0.3.1.2-2024-0720
     restart: always
     # ports: # 不使用 host network 时可打开.
-    #   - "7861:7861"
+    #   - "62581:62581"
     network_mode: "host"
     # 将本地数据目录挂载到容器内 CHAYUAN_ROOT（示例）
     # volumes:

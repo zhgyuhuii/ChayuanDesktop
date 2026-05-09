@@ -47,7 +47,7 @@ export const Default: Story = {
 export const PrefilledServer: Story = {
   render: () => {
     React.useEffect(() => {
-      useSettingsStore.getState().setApiBaseOverride('http://chayuan.example.local:7861');
+      useSettingsStore.getState().setApiBaseOverride('http://chayuan.example.local:62581');
       return () => {
         useSettingsStore.getState().setApiBaseOverride('');
       };

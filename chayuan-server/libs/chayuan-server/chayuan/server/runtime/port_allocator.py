@@ -8,7 +8,7 @@
 * **vendor 二进制 / docker 服务**（Postgres / Redis / MinIO / Milvus / Ollama
   …）—— 第一次启动时按 ``preferred_port`` 申请；端口被占就在指定范围
   里递增直到找到一个空闲的，结果落库到 ``runtime.json`` 让下次重启复用。
-* **chayuan 自身的 API / 配置面板**—— 默认 7861 / 8502 已经写在
+* **chayuan 自身的 API / 配置面板**—— 默认 62581 / 8502 已经写在
   ``settings.basic_settings``，但 dev 环境同时跑两套实例时也希望"端口被占自
   动让位"。
 
@@ -160,9 +160,9 @@ class PortAllocator:
 
             # 2) preferred → 直接探一次。
             # 关键：无论 preferred 是不是在 [lo, hi]，**都先单独试一次**。
-            # 这是过去的一个 bug：当 ``preferred=7861``（API 默认）但
+            # 这是过去的一个 bug：当 ``preferred=62581``（API 默认）但
             # ``port_range=(40000, 60999)`` 时，旧版本会在第 165 行把它过滤掉，
-            # 然后日志谎报"7861 已被占用"。事实上根本没探过它。
+            # 然后日志谎报"62581 已被占用"。事实上根本没探过它。
             #
             # 现在：preferred 即使在 range 之外也尝试 bind；如果它确实空闲，
             # 直接返回；否则再走 range 内顺序探。

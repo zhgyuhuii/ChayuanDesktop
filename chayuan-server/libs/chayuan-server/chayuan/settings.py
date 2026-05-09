@@ -243,7 +243,7 @@ class BasicSettings(BaseFileSettings):
     Windows 下助手界面自动弹出浏览器时，如果地址为 "0.0.0.0" 是无法访问的，需要手动修改地址栏
     """
 
-    API_SERVER: dict = {"host": DEFAULT_BIND_HOST, "port": 7861, "public_host": "127.0.0.1", "public_port": 7861}
+    API_SERVER: dict = {"host": DEFAULT_BIND_HOST, "port": 62581, "public_host": "127.0.0.1", "public_port": 62581}
     """API 服务器地址。其中 public_host 用于生成云服务公网访问链接（如知识库文档链接）"""
 
     CONFIG_SERVER: dict = {"host": DEFAULT_BIND_HOST, "port": 8502}
@@ -271,7 +271,7 @@ class BasicSettings(BaseFileSettings):
     VENDOR_PREFERRED_PORTS: t.Dict[str, int] = {
         # 开箱默认全部 +30000：postgres 5432→35432、redis 6379→36379、minio 9000→39000……
         # 任意被占用都会被 PortAllocator 自动改成下一个空闲端口，并写到 runtime.json。
-        "api":          7861,
+        "api":          62581,
         "config_panel": 8502,
         "postgres":     35432,
         "redis":        36379,
@@ -622,7 +622,7 @@ class KBSettings(BaseFileSettings):
     部署:`docker run -d -p 8012:8012 keking/kkfileview` —— Docker 镜像已自带
     LibreOffice + ffmpeg + 3D loaders;客户端浏览器要能直连这个地址,
     kkFileView 后端也要能访问到 chayuan 服务的文件下载 URL(同机部署时
-    通常配 ``http://host.docker.internal:7861``)。"""
+    通常配 ``http://host.docker.internal:62581``)。"""
 
     CACHED_VS_NUM: int = 1
     """缓存向量库数量（针对FAISS）"""

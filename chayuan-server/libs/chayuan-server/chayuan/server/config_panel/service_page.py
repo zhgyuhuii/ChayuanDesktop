@@ -492,7 +492,7 @@ def build_snapshot(*, probe: bool = True) -> Topology:
 
     # === 收集探针入参(无论 probe=True/False 都需要,for 后续节点 summary 渲染)===
     api_host = api.get("host") or "127.0.0.1"
-    api_port = api.get("port") or 7861
+    api_port = api.get("port") or 62581
     cfg_host = cfg.get("host") or "127.0.0.1"
     cfg_port = cfg.get("port") or 8502
     mv_host = str(milvus_cfg.get("host") or "")
@@ -2126,7 +2126,7 @@ def _render_nginx_dialog(ui, svc: ServiceSnapshot) -> None:
         "w-full q-mt-sm"
     ):
         snippet = (
-            "upstream chayuan_api { least_conn; server 127.0.0.1:7861; }\n"
+            "upstream chayuan_api { least_conn; server 127.0.0.1:62581; }\n"
             "server {\n"
             "  listen 443 ssl http2;\n"
             "  server_name chayuan.example.com;\n"

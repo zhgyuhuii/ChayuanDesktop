@@ -62,7 +62,7 @@ server:
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
-    port: 7861
+    port: 62581
   ingress:
     enabled: false
     className: "nginx"

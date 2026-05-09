@@ -149,7 +149,7 @@ export const ServerLoginModal: React.FC = () => {
           <Input
             value={server}
             onChange={(e) => setServer(e.target.value)}
-            placeholder="http(s)://your-chayuan-server.example:7861"
+            placeholder="http(s)://your-chayuan-server.example:62581"
             autoFocus
             required
             className="h-12 rounded-xl border-0 bg-[var(--cy-surface-1)] px-4 font-mono text-sm focus-visible:ring-2"

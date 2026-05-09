@@ -23,7 +23,7 @@ const THIN_CLIENT = (() => {
 })();
 
 // baseURL 取空串时,fetch 走同源相对路径:
-//   - dev 模式:vite dev server 5173 端口的 proxy 把 /v1/* 等转发到 7861(见 vite.config.ts)
+//   - dev 模式:vite dev server 5173 端口的 proxy 把 /v1/* 等转发到 62581(见 vite.config.ts)
 //   - prod 模式:nginx/任意反代把 client 与 server 部署到同 host
 // VITE_API_BASE 显式覆盖优先(用于跨主机部署)
 const platform = createWebPlatform({

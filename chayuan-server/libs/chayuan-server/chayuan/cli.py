@@ -542,7 +542,7 @@ def _render_stop_outcome(outcome) -> None:
     "-a", "--all", "all_flag", is_flag=True,
     help="整体停（等价不加任何选项的默认行为）",
 )
-@click.option("--api", "stop_api", is_flag=True, help="仅停 API 服务（7861）")
+@click.option("--api", "stop_api", is_flag=True, help="仅停 API 服务（62581）")
 @click.option(
     "-c", "--config", "stop_config", is_flag=True,
     help="仅停配置面板（8502）",
@@ -663,7 +663,7 @@ def _render_restart_role(result: dict) -> None:
     "-a", "--all", "all_flag", is_flag=True,
     help="整体重启（等价不加任何选项的默认行为）",
 )
-@click.option("--api", "r_api", is_flag=True, help="仅重启 API 服务（7861）")
+@click.option("--api", "r_api", is_flag=True, help="仅重启 API 服务（62581）")
 @click.option(
     "-c", "--config", "r_config", is_flag=True,
     help="仅重启配置面板（8502）",

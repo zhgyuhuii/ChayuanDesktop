@@ -16,7 +16,7 @@
 | ① 后端 | **chayuan-server** sidecar | Python 解释器 + 全部 wheels + 模型权重 + sqlite-vec 扩展 | **PyInstaller** | 单可执行(onedir) |
 | ② 前端外壳 | **chayuan-client** 桌面应用 | React UI + Rust 主进程 + 嵌入 ① 作为 sidecar | **Tauri 2** | `.dmg` / `.msi` / `.deb` / `.AppImage` |
 
-启动时:Tauri 主进程 spawn ① 子进程,通过 `CHAYUAN_ROOT=<用户首启动选定目录>` 注入数据路径,Tauri webview 与 ① 通过 `127.0.0.1:7861` HTTP 通信。
+启动时:Tauri 主进程 spawn ① 子进程,通过 `CHAYUAN_ROOT=<用户首启动选定目录>` 注入数据路径,Tauri webview 与 ① 通过 `127.0.0.1:62581` HTTP 通信。
 
 详细架构见 [`CLAUDE.md`](./CLAUDE.md) §3。
 
@@ -118,7 +118,7 @@ cd chayuan-server
 poetry install
 poetry run chayuan start -a --single-machine
 
-# 终端 2:启动前端(Tauri dev,默认跳过 sidecar spawn,连本机 7861)
+# 终端 2:启动前端(Tauri dev,默认跳过 sidecar spawn,连本机 62581)
 cd chayuan-client
 pnpm install
 pnpm dev:desktop
@@ -198,7 +198,7 @@ triple 表(`build.py:rust_target_triple()` 自动判断):
 ./chayuan-server/dist/chayuan-server/chayuan-server start -a --single-machine &
 SERVER_PID=$!
 sleep 30                                   # 等 alembic upgrade + uvicorn 就绪
-curl -s http://127.0.0.1:7861/healthz | jq # {"status":"ok",...}
+curl -s http://127.0.0.1:62581/healthz | jq # {"status":"ok",...}
 kill $SERVER_PID
 ```
 

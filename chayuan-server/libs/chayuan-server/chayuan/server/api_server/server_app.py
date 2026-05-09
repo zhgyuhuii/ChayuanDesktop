@@ -339,7 +339,7 @@ if __name__ == "__main__":
         " ｜ 基于本地知识库的 ChatGLM 问答",
     )
     parser.add_argument("--host", type=str, default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=7861)
+    parser.add_argument("--port", type=int, default=62581)
     parser.add_argument("--ssl_keyfile", type=str)
     parser.add_argument("--ssl_certfile", type=str)
     # 初始化消息

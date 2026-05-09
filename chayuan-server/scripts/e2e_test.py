@@ -522,7 +522,7 @@ class E2ERunner:
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--api-base", default="http://127.0.0.1:7861")
+    p.add_argument("--api-base", default="http://127.0.0.1:62581")
     p.add_argument("--langfuse-base", default="http://127.0.0.1:3000")
     p.add_argument("--minio-base", default="http://127.0.0.1:9001")
     p.add_argument("--headed", action="store_true", help="显示浏览器窗口")

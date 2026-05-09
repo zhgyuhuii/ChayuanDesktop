@@ -72,7 +72,7 @@ CHAYUAN_QUEUE=inproc
 CHAYUAN_VECTOR_STORE=sqlite-vec
 ```
 
-服务端默认监听 ``127.0.0.1:7861``;Phase 3 的健康探测用 ``GET /health``。
+服务端默认监听 ``127.0.0.1:62581``;Phase 3 的健康探测用 ``GET /health``。
 
 ## 已知体积来源
 

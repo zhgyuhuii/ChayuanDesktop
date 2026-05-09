@@ -1188,10 +1188,10 @@ def api_address(is_public: bool = False) -> str:
     server = Settings.basic_settings.API_SERVER
     if is_public:
         host = server.get("public_host", "127.0.0.1")
-        port = server.get("public_port", "7861")
+        port = server.get("public_port", "62581")
     else:
         host = server.get("host", "127.0.0.1")
-        port = server.get("port", "7861")
+        port = server.get("port", "62581")
         if host == "0.0.0.0":
             host = "127.0.0.1"
     return f"http://{host}:{port}"

@@ -454,7 +454,7 @@ def _render_services_strip(ui) -> None:
     api = dict(getattr(bs, "API_SERVER", {}) or {})
     cfg = dict(getattr(bs, "CONFIG_SERVER", {}) or {})
     rows = [
-        ("API", api.get("host", "127.0.0.1"), api.get("port", 7861)),
+        ("API", api.get("host", "127.0.0.1"), api.get("port", 62581)),
         ("配置面板", cfg.get("host", "127.0.0.1"), cfg.get("port", 8502)),
     ]
     with ui.card().classes("w-full q-pa-sm"):

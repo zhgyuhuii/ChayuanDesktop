@@ -3,7 +3,7 @@
 #
 # 起来以后对外暴露：
 #   - 80    → nginx → chayuan-api（默认禁用；启用改 ports: 且写好 nginx.conf）
-#   - 7861  → chayuan-api（/docs、/metrics、/healthz）
+#   - 62581  → chayuan-api（/docs、/metrics、/healthz）
 #   - 8502  → chayuan-panel（NiceGUI 配置面板）
 #
 # 用法：
@@ -147,9 +147,9 @@ services:
     environment:
       <<: *chayuan-env
     ports:
-      - "${API_PORT:-7861}:7861"
+      - "${API_PORT:-62581}:62581"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7861/healthz"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:62581/healthz"]
       interval: 15s
       timeout: 5s
       retries: 20

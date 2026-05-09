@@ -58,7 +58,7 @@ def test_credentials_persisted(tmp_path: Path):
 def test_remove_endpoint(tmp_path: Path):
     p = tmp_path / "runtime.json"
     ri = RuntimeInfo(path=p)
-    ri.set_endpoint("api", host="127.0.0.1", port=7861)
+    ri.set_endpoint("api", host="127.0.0.1", port=62581)
     assert ri.get_endpoint("api") is not None
     ri.remove_endpoint("api")
     assert ri.get_endpoint("api") is None
