@@ -915,6 +915,7 @@ async def get_capability_defaults(
         _CAP_TO_YAML_KEY,
         _CAP_TO_GROUP_KEY,
         _load_capability_defaults,
+        _save_capability_default,
     )
     from chayuan.server.db.repository import model_platform_repository as repo
 
@@ -957,6 +958,33 @@ async def get_capability_defaults(
                     "is_default": defaults.get(cap) == mid,
                 })
 
+    # 自动落默认 — 用户在模型广场配好了厂商和模型,但还没去设置页里
+    # 选「默认聊天/文本嵌入/图像嵌入/重排」时,把每个 cap 的第一个候选
+    # promote 成默认并持久化。前端拿到的 defaults 已经填好,业务侧一调
+    # ``_load_capability_defaults`` 也命中,无需用户多走一步。
+    auto_assigned: List[str] = []
+    for cap in capabilities:
+        if defaults.get(cap):
+            continue
+        if not candidates[cap]:
+            continue
+        first_id = candidates[cap][0]["id"]
+        try:
+            ok, _msg = _save_capability_default(cap, first_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[capability_defaults] auto-assign %s failed: %r", cap, e)
+            continue
+        if not ok:
+            continue
+        defaults[cap] = first_id
+        candidates[cap][0]["is_default"] = True
+        auto_assigned.append(cap)
+    if auto_assigned:
+        logger.info(
+            "[capability_defaults] auto-assigned first candidate as default: %s",
+            ", ".join(f"{c}={defaults[c]}" for c in auto_assigned),
+        )
+
     return {
         "code": 0,
         "msg": "ok",
@@ -964,6 +992,7 @@ async def get_capability_defaults(
             "capabilities": capabilities,
             "defaults": defaults,
             "candidates": candidates,
+            "auto_assigned": auto_assigned,
         },
     }
 

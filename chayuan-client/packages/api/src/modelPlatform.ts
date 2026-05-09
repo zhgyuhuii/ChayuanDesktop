@@ -358,6 +358,12 @@ export interface CapabilityDefaultsResponse {
   capabilities: string[];                                     // chat / embedding / clip / ...
   defaults: Record<string, string | null>;                    // 当前默认 model id
   candidates: Record<string, CapabilityDefaultsCandidate[]>;  // 各 cap 候选
+  /**
+   * 服务端在本次响应里自动落默认的 cap 列表(用户没主动设、但有候选时,
+   * 后端 promote 第一个 candidate 成默认)。前端可以据此提示「已为你自动
+   * 选择 X 个默认模型」。
+   */
+  auto_assigned?: string[];
 }
 
 const CAP_DEFAULTS_BASE = '/admin/capability_defaults';

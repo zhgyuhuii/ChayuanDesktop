@@ -38,9 +38,9 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ open, onOpenChange }) 
             </p>
             <p>
               <span className="text-[var(--cy-text-secondary)]">厂商 </span>
-              北京智灵鸟科技有限公司
+              北京智灵鸟科技中心
             </p>
-            <p className="mt-1">© {year} 北京智灵鸟科技有限公司 版权所有</p>
+            <p className="mt-1">© {year} 北京智灵鸟科技中心 版权所有</p>
             <p>All rights reserved.</p>
           </div>
         </div>

@@ -44,7 +44,8 @@ interface SettingsState {
 
 const FONT_MIN = 12;
 const FONT_MAX = 22;
-const FONT_DEFAULT = 16;
+// 17px 是各显示密度下中英文混排都最舒服的折衷值,2026-05-09 用户体验调整。
+const FONT_DEFAULT = 17;
 
 const DEFAULTS: Pick<
   SettingsState,
@@ -108,13 +109,14 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'cy.settings',
       storage: createJSONStorage(() => localStorage),
-      version: 5,
+      version: 6,
       migrate: (state, fromVersion) => {
         if (state && typeof state === 'object') {
           const s = state as {
             locale?: string;
             windowDock?: WindowDock;
             marketplaceVerifyRequired?: boolean;
+            fontSize?: number;
           };
           // v1 → v2: 老版 locale 'en-US' → 'en';补 windowDock 默认
           if (fromVersion < 2) {
@@ -130,6 +132,11 @@ export const useSettingsStore = create<SettingsState>()(
           // v4 → v5: 单机版重构后移除 marketplaceVerifyRequired 字段(不再有登录系统)。
           if (fromVersion < 5) {
             delete s.marketplaceVerifyRequired;
+          }
+          // v5 → v6: 默认字号从 16 → 17。仅当用户值正好停在 v5 默认 16 时升级;
+          // 用户主动调过(<>16)的值原样保留。
+          if (fromVersion < 6) {
+            if (s.fontSize === 16) s.fontSize = 17;
           }
         }
         return state as SettingsState;
