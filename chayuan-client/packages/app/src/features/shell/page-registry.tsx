@@ -79,11 +79,14 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
   },
   {
     pattern: /^\/chat$/,
-    render: () => <ChatPage />,
+    // 草稿模式:conversationId={null} 让 ChatPage 渲染空态/欢迎屏。
+    // 不依赖全局 useComposerStore.activeConversationId 渲染 — 因为多 chat tab 共享
+    // 同一全局 store,后台 tab 会被前台 tab 的 setActive 污染,出现"两个 tab 显示同
+    // 一会话"的 bug(2026-05-09 报修)。conversationId 必须由各自 tab.path 决定。
+    render: () => <ChatPage conversationId={null} />,
     onActivate: () => {
-      // 草稿入口:清空 activeConversationId,让 ChatPage 渲染欢迎屏。
-      // 用户首次发消息时 handleSend 才 lazy upsert + 把本 tab 的 path
-      // 替换成 /chat/<id>,reload 后能正确定位到该会话。
+      // onActivate 仍然同步全局 store —— sidebar 高亮当前会话等 UI 还在读它。
+      // ChatPage 自身不再依赖该值。
       void import('../../store/composer').then(({ useComposerStore }) => {
         useComposerStore.getState().setActive(null);
       });
@@ -93,10 +96,15 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
   },
   {
     pattern: /^\/chat\/(?<id>[^/]+)$/,
-    render: () => <ChatPage />,
+    render: (params) => (
+      <ChatPage
+        conversationId={params.id ? decodeURIComponent(params.id) : null}
+      />
+    ),
     onActivate: (params) => {
-      // 同步 composerStore;ChatPage 内部据此恢复历史消息
-      const id = params.id;
+      // 同步 composerStore(给 sidebar / 模型挑选器等读);
+      // ChatPage 渲染由 prop 决定,不依赖此处的 setActive 完成时机。
+      const id = params.id ? decodeURIComponent(params.id) : '';
       if (!id) return;
       void import('../../store/composer').then(({ useComposerStore }) => {
         useComposerStore.getState().setActive(id);

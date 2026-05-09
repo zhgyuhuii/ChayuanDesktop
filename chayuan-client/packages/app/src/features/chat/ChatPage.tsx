@@ -15,7 +15,6 @@ import { AdvancedParams } from './AdvancedParams';
 import { StreamMetrics } from './StreamMetrics';
 import { ConversationView } from './ConversationView';
 import { useArtifactStore } from '../../store/artifact';
-import { useComposerStore } from '../../store/composer';
 import { useTabsStore } from '../../store/tabs';
 import {
   selectScopedIsMultiLane, selectScopedLanes, selectScopedUnifiedSend, useModelArenaStore,
@@ -24,8 +23,22 @@ import { useArenaScope } from '../../store/arenaScope';
 import { MultiLaneShell } from '../model-arena/MultiLaneShell';
 import { openDetachedLaneWindow } from '../model-arena/DetachedLaneRoute';
 
-export const ChatPage: React.FC = () => {
-  const activeId = useComposerStore((s) => s.activeConversationId);
+export interface ChatPageProps {
+  /**
+   * 当前 tab 渲染的会话 id。由 page-registry 从 tab.path 解析后传入:
+   *   - `/chat` → null(草稿模式,首发消息时 lazy 建会话)
+   *   - `/chat/<id>` → 该 id
+   *
+   * 为什么不读全局 useComposerStore.activeConversationId:
+   * 多个 chat tab 共享 __global__ scope 的 composer store,激活某 tab 时
+   * setActive 会污染其它后台 tab,导致"两个 tab 显示同一会话"。tab.path 才是
+   * 各 tab 独立的真源,通过 prop 注入能保证渲染严格按 tab 隔离。
+   */
+  conversationId: string | null;
+}
+
+export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
+  const activeId = conversationId;
   const artifactOpen = useArtifactStore((s) => s.open);
   const setArtifactOpen = useArtifactStore((s) => s.setOpen);
   const artifactCount = useArtifactStore((s) => Object.keys(s.items).length);
