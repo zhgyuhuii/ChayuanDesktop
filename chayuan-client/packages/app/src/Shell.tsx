@@ -1,37 +1,37 @@
-import * as React from 'react';
-import { QueryClientProvider } from '@tanstack/react-query';
-import { RouterProvider } from '@tanstack/react-router';
-import { TooltipProvider } from '@chayuan/ui';
 import { configureClient } from '@chayuan/api';
+import { auth as authApi } from '@chayuan/api';
+import { initI18n } from '@chayuan/i18n';
 import {
-  configureObservability,
   Events,
+  configureObservability,
   initSentry,
   logEvent,
   startWebVitals,
 } from '@chayuan/observability';
 import { getPlatform } from '@chayuan/platform-shared';
-import { initI18n } from '@chayuan/i18n';
-import { queryClient } from './lib/queryClient';
-import { useAuthStore } from './store/auth';
-import { useSettingsStore, resolveLocale } from './store/settings';
-import { ThemeBridge } from './features/settings/ThemeBridge';
-import { LocaleBridge } from './features/settings/LocaleBridge';
-import { prefetchCatalog } from './features/catalog/useCatalog';
-import { reportError } from './store/errorDialog';
-import { useLoginModalStore } from './store/loginModal';
-import { auth as authApi } from '@chayuan/api';
-import { createAppRouter } from './router';
-import { PreviewMount } from './features/preview';
+import { TooltipProvider } from '@chayuan/ui';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { RouterProvider } from '@tanstack/react-router';
+import * as React from 'react';
 import { LoginModal } from './features/auth/LoginModal';
 import { ServerLoginModal } from './features/auth/ServerLoginModal';
-import { useThinClientStore } from './store/thinClient';
+import { prefetchCatalog } from './features/catalog/useCatalog';
 import { FirstRunSetup } from './features/first-run/FirstRunSetup';
 import { SidecarGate } from './features/first-run/SidecarGate';
 import {
   isSingleMachineMode,
   useSingleMachineMode,
 } from './features/first-run/useSingleMachineMode';
+import { PreviewMount } from './features/preview';
+import { LocaleBridge } from './features/settings/LocaleBridge';
+import { ThemeBridge } from './features/settings/ThemeBridge';
+import { queryClient } from './lib/queryClient';
+import { createAppRouter } from './router';
+import { useAuthStore } from './store/auth';
+import { reportError } from './store/errorDialog';
+import { useLoginModalStore } from './store/loginModal';
+import { resolveLocale, useSettingsStore } from './store/settings';
+import { useThinClientStore } from './store/thinClient';
 
 export interface ShellEnv {
   apiBase: string;
@@ -101,8 +101,13 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
       finishServerLogin();
     }
   }, [
-    thinClientEnabled, hydrated, apiOverride, isLoggedIn,
-    setThinClientEnabled, requireServerLoginGate, finishServerLogin,
+    thinClientEnabled,
+    hydrated,
+    apiOverride,
+    isLoggedIn,
+    setThinClientEnabled,
+    requireServerLoginGate,
+    finishServerLogin,
   ]);
 
   // 单机模式 sidecar 永远跑在 127.0.0.1:62581,baseURL 直接走 env.apiBase
@@ -117,14 +122,14 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
   // 那一波拿到的 cfg.baseURL 是空,请求拼成相对路径走到 ipc.localhost。
   // useState 的 initializer 只跑一次,在 children 渲染之前就完成 — 关键的零延迟点。
   React.useState(() => {
-    const effectiveBase = sm ? env.apiBase : (apiOverride || env.apiBase);
+    const effectiveBase = sm ? env.apiBase : apiOverride || env.apiBase;
     configureClient({ baseURL: effectiveBase, timeoutMs: 30_000 });
     return null;
   });
 
   React.useEffect(() => {
     const p = getPlatform();
-    const effectiveBase = sm ? env.apiBase : (apiOverride || env.apiBase);
+    const effectiveBase = sm ? env.apiBase : apiOverride || env.apiBase;
     configureClient({ baseURL: effectiveBase, timeoutMs: 30_000 });
     configureObservability({
       enabled: telemetry && env.langfuse.enabled,
@@ -158,8 +163,7 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
     // 单机模式:后端 ``apply_single_machine`` 已经把 AUTH_REQUIRED 关掉,
     // 这里跳过 ``/auth/config`` 探测,直接置零防止任何 lock 触发。
     if (isSingleMachineMode()) {
-      const { setLocked, setAllowRegistration, setAuthRequired } =
-        useLoginModalStore.getState();
+      const { setLocked, setAllowRegistration, setAuthRequired } = useLoginModalStore.getState();
       setAuthRequired(false);
       setLocked(false);
       setAllowRegistration(false);
@@ -170,7 +174,8 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
       try {
         const cfg = await authApi.config();
         if (cancelled) return;
-        const { lock, setLocked, setAllowRegistration, setAuthRequired } = useLoginModalStore.getState();
+        const { lock, setLocked, setAllowRegistration, setAuthRequired } =
+          useLoginModalStore.getState();
         setAllowRegistration(cfg.auth_allow_registration);
         setAuthRequired(Boolean(cfg.auth_required));
         if (cfg.auth_required && !useAuthStore.getState().isLoggedIn) {
@@ -223,24 +228,18 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
   const [dataDirReady, setDataDirReady] = React.useState(false);
   const [dataDirPath, setDataDirPath] = React.useState<string>('');
   const [sidecarReady, setSidecarReady] = React.useState(false);
-  const handleDataDirConfigured = React.useCallback(
-    (s: { path: string }) => {
-      setDataDirPath(s.path);
-      setDataDirReady(true);
-    },
-    [],
-  );
-  const handleSidecarReady = React.useCallback(
-    (baseUrl: string) => {
-      // 已知 sidecar baseUrl(disabled / web 时为空字符串)→ 覆盖 apiBaseOverride,
-      // useEffect 监听到变更会自动重新 configureClient。
-      if (baseUrl) {
-        useSettingsStore.getState().setApiBaseOverride(baseUrl);
-      }
-      setSidecarReady(true);
-    },
-    [],
-  );
+  const handleDataDirConfigured = React.useCallback((s: { path: string }) => {
+    setDataDirPath(s.path);
+    setDataDirReady(true);
+  }, []);
+  const handleSidecarReady = React.useCallback((baseUrl: string) => {
+    // 已知 sidecar baseUrl(disabled / web 时为空字符串)→ 覆盖 apiBaseOverride,
+    // useEffect 监听到变更会自动重新 configureClient。
+    if (baseUrl) {
+      useSettingsStore.getState().setApiBaseOverride(baseUrl);
+    }
+    setSidecarReady(true);
+  }, []);
 
   // **必须**在任何 early return 之前调用所有 hook,否则首次/后续 render
   // 之间 hook 数量不一致,React 抛 #310 (Rendered more hooks than during the
@@ -252,10 +251,16 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
   // 主窗启起并保持 ready;再让子窗自己走 FirstRunSetup → SidecarGate 没意义,
   // 反而会闪「正在启动后端服务」。这里直接放行进 RouterProvider,baseURL 走
   // env.apiBase(= SINGLE_MACHINE_BASE,127.0.0.1:62581),沿用主窗已经起好的服务。
+  // Tab 右键「在新窗口打开」走 openDetachedTab(),URL 会带 ?detached=1 标记;
+  // 这条统一识别覆盖三类子窗:lane 拖出(/arena/detached)、文件预览
+  // (/preview-window)、Tab 拖出(任意 path + ?detached=1)。漏掉 ?detached=1
+  // 会让子窗跳进 SidecarGate 重启 sidecar,主窗 sidecar 还在跑导致死锁,
+  // 表现为子窗一直停在「正在启动后端服务」。
   const isChildWindow =
     typeof window !== 'undefined' &&
     (window.location.pathname.startsWith('/arena/detached') ||
-      window.location.pathname.startsWith('/preview-window'));
+      window.location.pathname.startsWith('/preview-window') ||
+      new URLSearchParams(window.location.search).get('detached') === '1');
 
   if (!i18nReady || !hydrated || authRequired === null) {
     return <AuthBootScreen />;
@@ -319,8 +324,12 @@ const AuthBootScreen: React.FC = () => (
       <p className="text-sm text-[var(--cy-text-secondary,#64748b)]">
         正在初始化
         <span className="ml-0.5 inline-flex">
-          <span className="animate-bounce" style={{ animationDelay: '-0.3s' }}>.</span>
-          <span className="animate-bounce" style={{ animationDelay: '-0.15s' }}>.</span>
+          <span className="animate-bounce" style={{ animationDelay: '-0.3s' }}>
+            .
+          </span>
+          <span className="animate-bounce" style={{ animationDelay: '-0.15s' }}>
+            .
+          </span>
           <span className="animate-bounce">.</span>
         </span>
       </p>
@@ -336,7 +345,9 @@ const AuthRequiredMask: React.FC = () => (
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--cy-brand-500,#6366f1)] text-lg font-bold text-white">
           察
         </div>
-        <h1 className="text-xl font-semibold text-[var(--cy-text-primary,#0f172a)]">需要登录后使用</h1>
+        <h1 className="text-xl font-semibold text-[var(--cy-text-primary,#0f172a)]">
+          需要登录后使用
+        </h1>
         <p className="mt-2 text-sm leading-relaxed text-[var(--cy-text-secondary,#475569)]">
           当前系统已开启登录验证。登录前不会加载或展示任何业务数据。
         </p>
