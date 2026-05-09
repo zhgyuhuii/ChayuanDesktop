@@ -292,11 +292,19 @@ def detect_ollama_models(base_url: str) -> Dict[str, List[str]]:
     base_url 接受 ``http://host:port`` 或 ``http://host:port/v1`` 两种形式;
     后者剥掉 ``/v1`` 再拼 ``/api/tags``。
 
-    把模型按名字粗略分到 ``llm_models`` / ``embed_models``:
-    - 名字含 bge / embed / m3e / nomic-embed / mxbai-embed → embed
-    - 其他 → llm
+    Ollama 的 /api/tags 只返 ``name`` + ``size`` + ``modified_at``,**没有**模型类型字段;
+    这里按名字做启发式分类。优先级依次:
+      1. ``rerank`` / ``reranker`` / ``cross-encoder`` → rerank_models
+         (必须**优先**于 embed,因为 ``bge-reranker-v2-m3`` / ``dengcao/bge-reranker-...``
+          这种命名同时含 bge,如果 embed 优先匹配会被错分到嵌入模型)
+      2. ``bge`` / ``embed`` / ``embedding`` / ``m3e`` / ``nomic-embed`` / ``mxbai-embed``
+         / ``gte-`` / ``e5-`` / ``jina-embed`` → embed_models
+      3. 其余 → llm_models
 
-    失败(连不上 Ollama / 解析异常)返回空 dict,调用方继续用配置文件里的列表。
+    分类错了不致命:用户在前端可以用「移到其他类型」按钮手动改正(2026-05 加)。
+    本函数尽力分对,但毕竟是启发式,不要指望 100% 准。
+
+    返回 dict 含三个 key(rerank_models 字段对齐 PlatformConfig);失败返回空。
     60s TTL 缓存,避免热路径反复打 Ollama。
     """
     parsed = urlparse(base_url)
@@ -307,7 +315,11 @@ def detect_ollama_models(base_url: str) -> Dict[str, List[str]]:
         base = f"{parsed.scheme}://{parsed.netloc}"
     url = f"{base.rstrip('/')}/api/tags"
 
-    out: Dict[str, List[str]] = {"llm_models": [], "embed_models": []}
+    out: Dict[str, List[str]] = {
+        "llm_models": [],
+        "embed_models": [],
+        "rerank_models": [],
+    }
     try:
         resp = requests.get(url, timeout=3.0)
         resp.raise_for_status()
@@ -316,12 +328,21 @@ def detect_ollama_models(base_url: str) -> Dict[str, List[str]]:
         logger.warning(f"detect_ollama_models({url}) 失败:{type(e).__name__}: {e}")
         return out
 
+    rerank_kws = ("rerank", "reranker", "re-rank", "cross-encoder")
+    embed_kws = (
+        "bge", "embed", "embedding", "m3e", "nomic-embed", "mxbai-embed",
+        "gte-", "e5-", "jina-embed",
+    )
+
     for item in data.get("models", []) or []:
         name = (item.get("name") or "").strip()
         if not name:
             continue
         low = name.lower()
-        if any(kw in low for kw in ("bge", "embed", "m3e", "nomic-embed", "mxbai-embed")):
+        # 顺序敏感:rerank 关键词必须先匹配,避免被 bge 误吞
+        if any(kw in low for kw in rerank_kws):
+            out["rerank_models"].append(name)
+        elif any(kw in low for kw in embed_kws):
             out["embed_models"].append(name)
         else:
             out["llm_models"].append(name)
