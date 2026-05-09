@@ -1,72 +1,136 @@
 /**
- * HomePage —— 首页(参考图"首页 / 首页1")。
+ * HomePage — 主页(单机版重构 2026-05-09):
  *
- * 段:
- *   1. WelcomeOrb + Greeting(早/午/晚 + 用户名)
- *   2. CapabilityRail(7 张能力 pill + "全部")
- *   3. ChatComposer(中心,glow 常亮)
- *   4. SuggestionCards(推荐卡 3 张,中央 + 末尾 AI 渐变)
+ *   1. Greeting(早/午/晚 + 用户名)
+ *   2. [可选 banner] 还没配模型 → 跳模型广场
+ *   3. 5 张炫酷功能入口卡(AI 翻译 / 知识库 / 模型广场 / MCP 服务 / 工具中心)
+ *   4. 关注我们 + 收款码 三张二维码
+ *   5. 流式产品介绍(每次进入都重新生成,LLM 不可用走静态文案 fallback)
+ *   6. 特性 chip + WPS 加载项 / GitHub / 官网链接
  *
- * 数据:
- *   - greeting 按本地时间
- *   - 能力快捷条:packages/api/src/fixtures/skills 后续 M3 起;此处先用本地常量
- *   - 推荐卡:可拉取后端"猜你想问",缺失则用 fixture
+ * 历史:旧版主页有 Composer + AI 操控/AI 妙计/同传字幕/AI 修图 等"占位能力",
+ * 单机版没有这些功能,2026-05-09 全部移除,首页职能改为产品入口 + 介绍。
  */
 
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  Bot,
-  Languages,
-  PenSquare,
-  StickyNote,
-  Captions,
-  ImageIcon,
-  Sparkles,
+  Languages, Library, Layers3, Plug, Wrench,
+  AlertCircle, ExternalLink, Github, Globe,
 } from 'lucide-react';
-import { Pill } from '@chayuan/ui';
+import { home, type ProviderCatalogEntry } from '@chayuan/api';
+import { getPlatform } from '@chayuan/platform-shared';
 import { useAuthStore } from '../../store/auth';
-import { useComposerStore } from '../../store/composer';
-import { CHAYUAN_LOGO_URL } from '../../lib/brandAssets';
 import { useTabsStore } from '../../store/tabs';
 import { useTranslation } from '../../i18n';
-import { ChatComposer } from '../composer/ChatComposer';
+import { usePlatformCatalogQuery } from '../../store/modelPlatform';
+import {
+  ALIPAY_QR_URL, CHAYUAN_LOGO_URL, FOLLOW_QR_URL, WXPAY_QR_URL,
+} from '../../lib/brandAssets';
 
+// ── 5 张功能入口卡定义 ──────────────────────────────────────────────
 interface CapItem {
   id: string;
   icon: React.ComponentType<{ className?: string }>;
-  labelKey: string;
-  /** 跳转路径 */
+  title: string;
+  subtitle: string;
   to: string;
+  /** 卡片渐变 — 视觉系列从冷到暖排序,不同卡有"专属色" */
+  gradient: string;
+  iconBg: string;
 }
 
 const CAPS: ReadonlyArray<CapItem> = [
-  { id: 'control', icon: Bot, labelKey: 'home.capabilities.control', to: '/skill/control' },
-  { id: 'translate', icon: Languages, labelKey: 'home.capabilities.translate', to: '/skill/translate' },
-  { id: 'write', icon: PenSquare, labelKey: 'home.capabilities.write', to: '/skill/write' },
-  { id: 'memo', icon: StickyNote, labelKey: 'home.capabilities.memo', to: '/skill/memo' },
-  { id: 'subtitle', icon: Captions, labelKey: 'home.capabilities.subtitle', to: '/skill/subtitle' },
-  { id: 'imageEdit', icon: ImageIcon, labelKey: 'home.capabilities.imageEdit', to: '/skill/image-edit' },
+  {
+    id: 'translate',
+    icon: Languages,
+    title: 'AI 翻译',
+    subtitle: '中英日韩互译,长文档批量翻译',
+    to: '/skill/translate',
+    gradient: 'from-cyan-50 to-sky-100 dark:from-cyan-900/30 dark:to-sky-800/40',
+    iconBg: 'bg-gradient-to-br from-cyan-400 to-sky-500',
+  },
+  {
+    id: 'kb',
+    icon: Library,
+    title: '知识库',
+    subtitle: '文档 / 结构化 / 向量统一查询',
+    to: '/kb',
+    gradient: 'from-emerald-50 to-teal-100 dark:from-emerald-900/30 dark:to-teal-800/40',
+    iconBg: 'bg-gradient-to-br from-emerald-400 to-teal-500',
+  },
+  {
+    id: 'marketplace',
+    icon: Layers3,
+    title: '模型广场',
+    subtitle: '云端 / 本地 / 聚合厂商一键接入',
+    to: '/marketplace',
+    gradient: 'from-violet-50 to-fuchsia-100 dark:from-violet-900/30 dark:to-fuchsia-800/40',
+    iconBg: 'bg-gradient-to-br from-violet-400 to-fuchsia-500',
+  },
+  {
+    id: 'mcp',
+    icon: Plug,
+    title: 'MCP 服务',
+    subtitle: '接入 stdio / sse 工具协议',
+    to: '/mcp',
+    gradient: 'from-amber-50 to-orange-100 dark:from-amber-900/30 dark:to-orange-800/40',
+    iconBg: 'bg-gradient-to-br from-amber-400 to-orange-500',
+  },
+  {
+    id: 'tools',
+    icon: Wrench,
+    title: '工具中心',
+    subtitle: '内置常用 agent 工具,可启停',
+    to: '/tools',
+    gradient: 'from-rose-50 to-pink-100 dark:from-rose-900/30 dark:to-pink-800/40',
+    iconBg: 'bg-gradient-to-br from-rose-400 to-pink-500',
+  },
 ];
 
-interface Suggestion {
-  icon: string;
-  text: string;
-  featured?: boolean;
+// ── 产品特性 chip ─────────────────────────────────────────────────
+const FEATURES: ReadonlyArray<string> = [
+  '多模型对话 · 永道对抗',
+  '本地知识库',
+  '离线运行 · 数据不出本机',
+  '兼容国产操作系统',
+  'WPS 加载项联动',
+  'OpenAI / Ollama / Infinity / vLLM',
+];
+
+// ── 静态介绍文案 fallback(LLM 不可用时随机一段)────────────────────
+const STATIC_INTROS: ReadonlyArray<string> = [
+  '察元 AI · 单机版,把多模型对话、本地知识库、离线推理装进同一个桌面应用。装完即用,数据全程留在本机;Ollama / Infinity / vLLM 等本地服务跟云端 LLM 一起摆在桌面上,随时切换、对比试用。',
+  '一个面向办公场景的本地 AI 工作台。支持多模型并排对话、文档 / 结构化数据 / 向量库统一检索;不联网也能跑,跟 WPS 加载项「察元 AI 文档助手」共用同一份知识库,文档操作直接在 Office 内完成。',
+  '为离线 / 内网场景设计:多 LLM 永道对比、按需切到本地 Ollama / Infinity / vLLM,知识库文件、向量索引、对话历史全部存本机 SQLite,不上传任何 SaaS。可在统信 UOS / 麒麟 / openKylin 等国产桌面顺畅运行。',
+  '把"装完一个 AI 应用"做到极致:零配置启动,Web / Tauri 桌面 / WPS 加载项 三端共用同一份知识库与对话状态。云模型与本地推理可随时切换,不强制联网,不强制登录。',
+  '面向办公的本地优先 AI 助手。多 LLM 同屏对比、知识库一站式检索、MCP 工具集中托管。WPS 加载项「察元 AI 文档助手」直接复用本端配置,文档处理无须跳转。',
+];
+
+function pickStaticIntro(): string {
+  return STATIC_INTROS[Math.floor(Math.random() * STATIC_INTROS.length)] ?? STATIC_INTROS[0]!;
 }
 
-const SUGGESTIONS: ReadonlyArray<Suggestion> = [
-  { icon: '💪', text: '节食减肥如何避免伤代谢' },
-  { icon: '🎙️', text: '播客:成熟的标志,是学会情绪稳定' },
-  { icon: '✨', text: '生成高清星空壁纸', featured: true },
-];
+// ── 是否已配置任意可用 LLM 模型 ────────────────────────────────────
+function hasUsableLLM(catalog: ProviderCatalogEntry[]): boolean {
+  return catalog.some(
+    (e) => e.configured && e.enabled && (e.llm_models ?? []).length > 0,
+  );
+}
+
+// ── 外链 ───────────────────────────────────────────────────────────
+const WPS_REPO_URL = 'https://github.com/zhgyuhuii/chayuan';
+const OFFICIAL_SITE_URL = 'https://aidooo.com';
 
 export const HomePage: React.FC = () => {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
-  const setDraft = useComposerStore((s) => s.setDraft);
   const open = useTabsStore((s) => s.open);
   const navigate = useNavigate();
+
+  const catalogQ = usePlatformCatalogQuery();
+  const catalog = catalogQ.data ?? [];
+  const ready = hasUsableLLM(catalog);
 
   const greeting = React.useMemo(() => {
     const h = new Date().getHours();
@@ -75,89 +139,214 @@ export const HomePage: React.FC = () => {
     return t('home.greeting.evening');
   }, [t]);
 
-  const onSend = async (content: string) => {
-    // 进入 chat 路径,首次没有 conversationId — ChatPage 会自建
-    open('/chat', { title: t('chat.newConversation'), icon: 'message-square' });
-    void navigate({ to: '/chat' as never });
-    // 把草稿留给 ChatPage 自动 submit:这里直接把内容作为 draft,ChatPage 不会自动发送
-    // 简单实现:复用 setDraft;真实自动 submit 留 M5 体验打磨
-    setDraft(content);
-  };
-
   const onCapClick = (cap: CapItem) => {
-    open(cap.to, { title: cap.labelKey, icon: 'message-square' });
+    open(cap.to, { title: cap.title, icon: cap.id });
     void navigate({ to: cap.to as never });
   };
 
+  const onConfigureModel = () => {
+    open('/marketplace', { title: '模型广场', icon: 'box' });
+    void navigate({ to: '/marketplace' as never });
+  };
+
+  const onOpenExternal = (url: string) => {
+    void getPlatform().shell.openExternal(url);
+  };
+
+  // ── 流式产品介绍 ────────────────────────────────────────────────
+  // 进首页时拉一次;LLM 不可用就抛 error → catch 后用静态文案兜底。
+  // 切走再切回(KeepAlive)不会重新拉,因为 effect 只跑一次(组件实例 mount 一次)。
+  // 如果用户想"再来一份",留个手动刷新按钮触发重新生成。
+  const [intro, setIntro] = React.useState('');
+  const [introDone, setIntroDone] = React.useState(false);
+  const [introError, setIntroError] = React.useState<string | null>(null);
+  const introAbortRef = React.useRef<AbortController | null>(null);
+  const startIntro = React.useCallback(() => {
+    introAbortRef.current?.abort();
+    const ctl = new AbortController();
+    introAbortRef.current = ctl;
+    setIntro('');
+    setIntroDone(false);
+    setIntroError(null);
+    void home.introStream(
+      {
+        onChunk: (text) => setIntro((prev) => prev + text),
+        onDone: () => setIntroDone(true),
+      },
+      { signal: ctl.signal },
+    ).catch((e: unknown) => {
+      if ((e as { name?: string })?.name === 'AbortError' || ctl.signal.aborted) return;
+      // LLM 不可用 / 调用失败 → 静态文案兜底
+      setIntro(pickStaticIntro());
+      setIntroDone(true);
+      setIntroError(e instanceof Error ? e.message : String(e));
+    });
+  }, []);
+  React.useEffect(() => {
+    startIntro();
+    return () => introAbortRef.current?.abort();
+  }, [startIntro]);
+
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col px-6 py-12">
-      {/* Greeting */}
+    <div className="mx-auto flex h-full max-w-5xl flex-col gap-8 px-6 py-10 overflow-y-auto">
+      {/* ── 1. Greeting ───────────────────────────────────────── */}
       <div className="flex items-center gap-3">
         <img
           src={CHAYUAN_LOGO_URL}
           alt="察元 AI"
           className="h-12 w-12 bg-transparent object-contain"
         />
-        <h1 className="text-2xl font-semibold text-[var(--cy-text-primary)]">
-          {greeting}
-          {user?.username && (
-            <span className="ml-2 text-base font-normal text-[var(--cy-text-secondary)]">
-              {user.username}
-            </span>
-          )}
-        </h1>
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--cy-text-primary)]">
+            {greeting}
+            {user?.username && (
+              <span className="ml-2 text-base font-normal text-[var(--cy-text-secondary)]">
+                {user.username}
+              </span>
+            )}
+          </h1>
+          <p className="text-sm text-[var(--cy-text-tertiary)]">察元 AI · 本地优先的办公 AI 工作台</p>
+        </div>
       </div>
 
-      {/* CapabilityRail */}
-      <div className="mt-6 flex flex-wrap gap-2">
+      {/* ── 2. 未配模型时的引导 banner ────────────────────────── */}
+      {!ready && catalogQ.isFetched && (
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-200/60 bg-amber-50/80 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-900/20">
+          <AlertCircle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+              还没配置任何可用模型
+            </p>
+            <p className="text-xs text-amber-700/90 dark:text-amber-200/80">
+              先去模型广场接入云厂商或本地推理服务(Ollama / Infinity / vLLM 等),才能开始对话。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onConfigureModel}
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500 px-4 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-amber-600"
+          >
+            去配置模型
+          </button>
+        </div>
+      )}
+
+      {/* ── 3. 五张炫酷功能入口卡 ──────────────────────────────── */}
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         {CAPS.map((c) => {
           const Icon = c.icon;
           return (
-            <Pill
+            <button
               key={c.id}
-              tone="outline"
-              size="md"
+              type="button"
               onClick={() => onCapClick(c)}
+              className={`group relative flex h-32 flex-col justify-between overflow-hidden rounded-2xl border border-[var(--cy-border-subtle)] bg-gradient-to-br ${c.gradient} p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-[var(--cy-shadow-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cy-brand-500)]`}
             >
-              <Icon className="h-3.5 w-3.5" />
-              {t(c.labelKey)}
-            </Pill>
+              <div className={`flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-sm ${c.iconBg}`}>
+                <Icon className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[var(--cy-text-primary)]">{c.title}</p>
+                <p className="mt-0.5 line-clamp-2 text-xs text-[var(--cy-text-secondary)]">{c.subtitle}</p>
+              </div>
+              {/* 右上角光斑装饰,hover 微移 */}
+              <div
+                className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full bg-white/30 blur-2xl transition-transform group-hover:translate-x-1"
+                aria-hidden
+              />
+            </button>
           );
         })}
       </div>
 
-      {/* Composer */}
-      <div className="mt-6">
-        <ChatComposer
-          isStreaming={false}
-          onSend={onSend}
-          autoFocus
-          minHeight={120}
-        />
-      </div>
+      {/* ── 4. 关注我们 / 收款码 ───────────────────────────────── */}
+      <section className="rounded-3xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-6">
+        <div className="mb-4 flex items-baseline justify-between">
+          <h2 className="text-sm font-semibold text-[var(--cy-text-primary)]">支持我们</h2>
+          <p className="text-xs text-[var(--cy-text-tertiary)]">扫码关注 / 赞助开发者</p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <QrCard label="关注我们" src={FOLLOW_QR_URL} />
+          <QrCard label="支付宝赞助" src={ALIPAY_QR_URL} />
+          <QrCard label="微信赞助" src={WXPAY_QR_URL} />
+        </div>
+      </section>
 
-      {/* Suggestions */}
-      <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {SUGGESTIONS.map((s, i) => (
+      {/* ── 5. 流式产品介绍 + 特性 chips + 外链 ─────────────────── */}
+      <section className="rounded-3xl border border-[var(--cy-border-subtle)] bg-gradient-to-br from-[var(--cy-surface-base)] to-[var(--cy-surface-1)] p-6">
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold text-[var(--cy-text-primary)]">关于察元 AI</h2>
           <button
-            key={i}
             type="button"
-            onClick={() => void onSend(s.text)}
-            className="relative flex items-center gap-2 overflow-hidden rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-4 text-left text-sm text-[var(--cy-text-primary)] transition-colors hover:border-[var(--cy-brand-300)]"
+            onClick={startIntro}
+            className="text-xs text-[var(--cy-text-tertiary)] transition-colors hover:text-[var(--cy-text-primary)]"
+            title="重新生成介绍"
           >
-            <span className="text-lg">{s.icon}</span>
-            <span className="line-clamp-2 flex-1">{s.text}</span>
-            {s.featured && (
-              <span
-                className="ml-2 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-white"
-                style={{ background: 'var(--cy-iris-gradient)' }}
-              >
-                <Sparkles className="h-4 w-4" />
-              </span>
-            )}
+            ✨ 换一段
           </button>
-        ))}
-      </div>
+        </div>
+
+        <p
+          className={`min-h-[5rem] text-sm leading-relaxed text-[var(--cy-text-secondary)] ${
+            !introDone ? "after:ml-0.5 after:inline-block after:h-3.5 after:w-1.5 after:translate-y-0.5 after:animate-pulse after:bg-[var(--cy-text-tertiary)] after:content-['']" : ''
+          }`}
+        >
+          {intro || (introDone ? '' : '正在生成介绍…')}
+        </p>
+
+        {introError && (
+          <p className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]" title={introError}>
+            (LLM 不可用,已用本地文案兜底)
+          </p>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          {FEATURES.map((f) => (
+            <span
+              key={f}
+              className="inline-flex items-center rounded-full bg-[var(--cy-surface-base)] px-2.5 py-1 text-[11px] text-[var(--cy-text-secondary)] ring-1 ring-[var(--cy-border-subtle)]"
+            >
+              {f}
+            </span>
+          ))}
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onOpenExternal(WPS_REPO_URL)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-1.5 text-xs text-[var(--cy-text-primary)] transition-all hover:border-[var(--cy-brand-300)] hover:text-[var(--cy-brand-600)]"
+            title="WPS 加载项「察元 AI 文档助手」开源地址"
+          >
+            <Github className="h-3.5 w-3.5" />
+            WPS 加载项 · GitHub
+            <ExternalLink className="h-3 w-3 opacity-60" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenExternal(OFFICIAL_SITE_URL)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-1.5 text-xs text-[var(--cy-text-primary)] transition-all hover:border-[var(--cy-brand-300)] hover:text-[var(--cy-brand-600)]"
+            title="察元 AI 官网"
+          >
+            <Globe className="h-3.5 w-3.5" />
+            aidooo.com
+            <ExternalLink className="h-3 w-3 opacity-60" />
+          </button>
+        </div>
+      </section>
     </div>
   );
 };
+
+// ── 二维码小卡 ─────────────────────────────────────────────────────
+const QrCard: React.FC<{ label: string; src: string }> = ({ label, src }) => (
+  <div className="flex flex-col items-center gap-2 rounded-2xl bg-[var(--cy-surface-base)] p-3 ring-1 ring-[var(--cy-border-subtle)]">
+    <img
+      src={src}
+      alt={label}
+      className="h-32 w-32 rounded-lg object-contain"
+      draggable={false}
+    />
+    <p className="text-xs font-medium text-[var(--cy-text-secondary)]">{label}</p>
+  </div>
+);

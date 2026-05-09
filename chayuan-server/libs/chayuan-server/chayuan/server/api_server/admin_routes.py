@@ -761,6 +761,55 @@ async def describe_model_platform_stream(
     )
 
 
+@admin_router.post(
+    "/home/intro/stream",
+    summary="[public] 用 LLM 流式生成首页产品介绍(每次不同视角)",
+)
+async def home_intro_stream_route() -> StreamingResponse:
+    """SSE 流式输出察元 AI 产品介绍(150 字内)。
+
+    协议同 ``/admin/model_platforms/{name}/describe/stream``:
+      - ``event: chunk`` + ``data: {"text": "..."}`` 每个 token
+      - ``event: done`` + ``data: {}``                 流结束
+      - ``event: error`` + ``data: {"message": "..."}`` 出错(LLM 不可用 / 失败)
+
+    前端 ``home.introStream`` 消费;LLM 不可用时前端会捕获 error 事件并 fallback
+    到本地随机静态文案,所以本端点对 503 / 502 都直接 emit error 即可。
+    """
+    import json as _json
+
+    from chayuan.server.api_server._home_intro_stream import home_intro_stream
+
+    async def _gen():
+        try:
+            async for piece in home_intro_stream():
+                yield (
+                    "event: chunk\n"
+                    f"data: {_json.dumps({'text': piece}, ensure_ascii=False)}\n\n"
+                )
+            yield "event: done\ndata: {}\n\n"
+        except RuntimeError as e:
+            yield (
+                "event: error\n"
+                f"data: {_json.dumps({'message': str(e), 'code': 503}, ensure_ascii=False)}\n\n"
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception("home intro stream failed")
+            yield (
+                "event: error\n"
+                f"data: {_json.dumps({'message': f'{type(e).__name__}: {e}', 'code': 502}, ensure_ascii=False)}\n\n"
+            )
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @admin_router.get(
     "/model_platforms/{name}/metadata",
     summary="[public] 列出指定厂商已写入 model_metadata 的全部模型元信息",
