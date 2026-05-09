@@ -125,6 +125,21 @@ export const ModelTypeAccordion: React.FC<ModelTypeAccordionProps> = ({
     (m) => !finalVisible.some((v) => v.key === m.key),
   );
 
+  // 跨类型搬运 — ModelLineEditor 内部"移到其他类型"按钮触发的回调。
+  // 本组件持有完整 ModelsByType,在这里统一做 from→to 的搬运,Section / Editor 都不用感知 from。
+  // 使用 latest value via setState callback 避免闭包陈旧(用户连续移多个时一次 commit 才不会丢)。
+  const onMoveModel = React.useCallback(
+    (modelId: string, from: ModelType, to: ModelType) => {
+      if (from === to) return;
+      // 注:ModelLineEditor 已经在自己的 onChange 里把这一行从 from 数组移除并通知父级;
+      // 这里只负责把 modelId 加到 to 数组(去重)。
+      const targetArr = value[to] ?? [];
+      if (targetArr.includes(modelId)) return;
+      onChange({ ...value, [to]: [...targetArr, modelId] });
+    },
+    [value, onChange],
+  );
+
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
       {finalVisible.map((meta) => (
@@ -137,6 +152,7 @@ export const ModelTypeAccordion: React.FC<ModelTypeAccordionProps> = ({
           onToggle={() => toggle(meta.key)}
           onModelsChange={(next) => onChange({ ...value, [meta.key]: next })}
           builtinSet={builtin?.[meta.key]}
+          onMoveToType={(modelId, target) => onMoveModel(modelId, meta.key, target)}
         />
       ))}
 
@@ -219,7 +235,9 @@ const Section: React.FC<{
   onModelsChange(next: string[]): void;
   /** 该 type 下内置(catalog 默认)模型 id 集合;命中行隐藏删除按钮 */
   builtinSet?: ReadonlySet<string>;
-}> = ({ meta, models, detectedCount, isOpen, onToggle, onModelsChange, builtinSet }) => {
+  /** 跨类型搬运:用户在某行按"移到"选了别的类型 */
+  onMoveToType?(modelId: string, target: ModelType): void;
+}> = ({ meta, models, detectedCount, isOpen, onToggle, onModelsChange, builtinSet, onMoveToType }) => {
   const { t } = useTranslation();
   const Icon = meta.icon;
   const colors = modelTypeColors(meta.hue);
@@ -286,6 +304,18 @@ const Section: React.FC<{
             onChange={onModelsChange}
             placeholder={placeholder}
             lockedIds={builtinSet}
+            moveTargets={
+              onMoveToType
+                ? MODEL_TYPES
+                    .filter((m) => m.key !== meta.key)
+                    .map((m) => ({ key: m.key, label: t(`${m.i18nKey}.label`) }))
+                : undefined
+            }
+            onMoveToType={
+              onMoveToType
+                ? (modelId, target) => onMoveToType(modelId, target as ModelType)
+                : undefined
+            }
           />
         </div>
       )}
