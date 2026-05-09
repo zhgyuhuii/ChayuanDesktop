@@ -176,7 +176,7 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
         {/* 标题 + 动态点点 */}
         <div className="text-center">
           <h1 className="text-xl font-semibold text-[var(--cy-text-primary,#0f172a)] sm:text-2xl">
-            正在启动后端服务
+            正在加载
             <span className="ml-1 inline-flex">
               <span className="animate-bounce" style={{ animationDelay: '-0.3s' }}>.</span>
               <span className="animate-bounce" style={{ animationDelay: '-0.15s' }}>.</span>
@@ -184,7 +184,7 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
             </span>
           </h1>
           <p className="mt-2 text-sm text-[var(--cy-text-tertiary,#94a3b8)]">
-            首次启动需要 10-30 秒，正在迁移数据库 / 初始化索引
+            首次启动需要 10-30 秒，正在加载本地知识库 / 初始化模型
           </p>
         </div>
 
@@ -196,7 +196,7 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
         </div>
 
         {/* 滚动日志(选展开,默认收起,不抢眼但留诊断入口) */}
-        {logTail.length > 0 && (
+        {/* {logTail.length > 0 && (
           <details className="w-full max-w-md text-xs text-[var(--cy-text-tertiary,#64748b)]">
             <summary className="cursor-pointer text-center transition-colors hover:text-[var(--cy-text-secondary,#475569)]">
               查看启动日志
@@ -205,7 +205,7 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
               {logTail.join('\n')}
             </pre>
           </details>
-        )}
+        )} */}
       </div>
 
       {/* keyframes —— 进度条左右循环;Tailwind 没现成 indeterminate animation 用内联 */}
