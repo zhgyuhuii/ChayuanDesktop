@@ -250,6 +250,51 @@ a = Analysis(
 )
 
 
+# ──────────────────────────────────────────────────────────────
+# macOS:剔除 opencv-python 自带的 libcrypto / libssl
+#
+# 现象(2026-05-10 macOS arm64 健康探测失败):
+#   ImportError: dlopen(_ssl.cpython-312-darwin.so, 0x0002):
+#     Symbol not found: _X509_STORE_get1_objects
+#     Expected in: cv2/.dylibs/libcrypto.3.dylib
+#
+# 根因:
+#   * Python 3.12 的 ``_ssl.cpython-312-darwin.so`` 是用 OpenSSL 3.2+ 链接的;
+#     ``X509_STORE_get1_objects`` 是 OpenSSL 3.2.0(2023-11)新增的符号。
+#   * opencv-python 的 mac wheel 在 ``cv2/.dylibs/`` 自带一份 OpenSSL 3.0.x 的
+#     ``libcrypto.3.dylib``(给内嵌 ffmpeg 用),没这个符号。
+#   * PyInstaller 把两份 dylib 都打进 bundle;dyld 按 rpath 顺序解析
+#     ``@rpath/libcrypto.3.dylib``,因 cv2 通常先被 import,``cv2/.dylibs/``
+#     被加进搜索路径在前,_ssl 命中旧版 → 符号缺失,start 子命令直接挂。
+#
+# 修法:
+#   把 ``cv2/.dylibs/libcrypto*`` 与 ``libssl*`` 从 a.binaries 删掉。两份
+#   dylib install_name 都是 ``@rpath/libcrypto.3.dylib``,删掉旧版后 dyld
+#   会回退到 Python runtime 自带的新版,符号齐全。OpenSSL 3.x 系列只追加
+#   不删除符号,cv2 自身的 native 模块 link 新版完全兼容。
+#
+# 仅 darwin 触发;Windows / Linux 没这个问题(对应平台的 wheel 不带 .dylibs)。
+# ──────────────────────────────────────────────────────────────
+if sys.platform == "darwin":
+    def _is_cv2_bundled_openssl(entry):
+        # PyInstaller TOC entry: (dest_in_bundle, src_path, typecode)
+        dest = entry[0].replace("\\", "/")
+        if not dest.startswith("cv2/.dylibs/"):
+            return False
+        name = dest.rsplit("/", 1)[-1]
+        return name.startswith("libcrypto.") or name.startswith("libssl.")
+
+    before = len(a.binaries)
+    a.binaries = [b for b in a.binaries if not _is_cv2_bundled_openssl(b)]
+    after = len(a.binaries)
+    if before != after:
+        print(
+            f"[chayuan-spec] 已剔除 cv2/.dylibs/ 下的旧版 OpenSSL "
+            f"(libcrypto/libssl) {before - after} 个,避免与 Python 3.12 _ssl "
+            f"链接的新版 OpenSSL 3.2 在符号 X509_STORE_get1_objects 上冲突。"
+        )
+
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 
