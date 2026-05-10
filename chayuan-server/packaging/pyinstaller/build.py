@@ -128,14 +128,12 @@ def main() -> None:
         action="store_true",
         help="只打包,不拷贝到 chayuan-client/apps/desktop/src-tauri/binaries/",
     )
-    parser.add_argument(
-        "extra",
-        nargs=argparse.REMAINDER,
-        help="`--` 之后的参数转发给 PyInstaller",
-    )
-    args = parser.parse_args()
-
-    extra: list[str] = list(args.extra or [])
+    # 用 parse_known_args:任何 build.py 不认识的参数(--clean / --log-level=DEBUG /
+    # --noupx / 等)都直接转发给 PyInstaller。免得用户记错 ``--`` 分隔符位置 ──
+    # poetry / argparse REMAINDER 组合下 ``--`` 经常被吃掉,导致 ``--clean`` 报
+    # "unrecognized arguments"。
+    args, extra = parser.parse_known_args()
+    # 兼容老用法:如果用户仍写了 ``-- --clean``,把开头的 ``--`` 剥掉
     if extra and extra[0] == "--":
         extra = extra[1:]
 
