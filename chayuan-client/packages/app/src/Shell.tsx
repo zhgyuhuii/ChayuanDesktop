@@ -59,17 +59,6 @@ export interface ShellEnv {
  * - 所有页面切换通过 useNavigate；登录/admin 守卫在路由 beforeLoad 完成。
  */
 export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
-  // Shell 一挂载就告诉 main.tsx 可以淡出 splash —— 跟 React 首屏 commit 同帧
-  // 触发,与首帧 paint 自然 crossfade,中间不会露出 ``<div id="app">`` 空白。
-  // useLayoutEffect 在 paint 前同步执行,setTimeout 0 让 fade 排到 paint 之后,
-  // 视觉上 splash 与 Shell 首帧无缝衔接。
-  React.useLayoutEffect(() => {
-    const hide = (window as unknown as { __cyHideSplash?: () => void }).__cyHideSplash;
-    if (typeof hide === 'function') {
-      window.setTimeout(hide, 0);
-    }
-  }, []);
-
   const routerRef = React.useRef<ReturnType<typeof createAppRouter> | null>(null);
   if (!routerRef.current) routerRef.current = createAppRouter(queryClient);
 
@@ -273,8 +262,25 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
       window.location.pathname.startsWith('/preview-window') ||
       new URLSearchParams(window.location.search).get('detached') === '1');
 
-  if (!i18nReady || !hydrated || authRequired === null) {
-    return <AuthBootScreen />;
+  // Splash 退场触发器:让 HTML 启动 splash 一直撑到 i18n / hydrate / auth 三件
+  // 都齐了再淡出,中间不再让 AuthBootScreen 那套样式出场(用户反馈"样式不
+  // 正确的那一版优先加载了" 就是它)。useLayoutEffect 必须放在 early-return
+  // 之前才不会违反 hook 数量一致原则。
+  const bootReady = i18nReady && hydrated && authRequired !== null;
+  React.useLayoutEffect(() => {
+    if (!bootReady) return;
+    const hide = (window as unknown as { __cyHideSplash?: () => void }).__cyHideSplash;
+    if (typeof hide === 'function') {
+      window.setTimeout(hide, 0);
+    }
+  }, [bootReady]);
+
+  if (!bootReady) {
+    // 这一档以前渲染的是另一套样式的 AuthBootScreen("正在初始化"+ 跳跳点),
+    // 现在改成 null,让 HTML splash(position:fixed 盖住整窗)继续承担动画;
+    // 一旦 bootReady 翻 true,上面的 useLayoutEffect 才触发淡出,FirstRunSetup
+    // / SidecarGate / Router 中的某一个接力渲染。
+    return null;
   }
 
   if (!isChildWindow && !dataDirReady) {
@@ -313,38 +319,6 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
 const ThinClientGateBackdrop: React.FC = () => (
   <div className="relative h-screen w-screen overflow-hidden bg-[var(--cy-surface-2,#f8fafc)]">
     <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(99,102,241,0.10),transparent_32%),radial-gradient(circle_at_75%_75%,rgba(14,165,233,0.10),transparent_30%)]" />
-  </div>
-);
-
-const AuthBootScreen: React.FC = () => (
-  <div className="relative h-screen w-screen overflow-hidden bg-[var(--cy-surface-2,#f8fafc)]">
-    <div
-      className="absolute inset-0 animate-pulse bg-[radial-gradient(circle_at_30%_25%,rgba(99,102,241,0.18),transparent_38%),radial-gradient(circle_at_75%_75%,rgba(14,165,233,0.18),transparent_35%)]"
-      style={{ animationDuration: '6s' }}
-    />
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-6">
-      <div className="relative">
-        <div
-          className="absolute -inset-6 animate-ping rounded-full bg-[var(--cy-brand-500,#6366f1)]/30 blur-2xl"
-          style={{ animationDuration: '2.4s' }}
-        />
-        <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--cy-brand-500,#6366f1)] to-[var(--cy-brand-700,#4338ca)] text-2xl font-bold text-white shadow-[0_12px_40px_rgba(99,102,241,0.45)]">
-          察
-        </div>
-      </div>
-      <p className="text-sm text-[var(--cy-text-secondary,#64748b)]">
-        正在初始化
-        <span className="ml-0.5 inline-flex">
-          <span className="animate-bounce" style={{ animationDelay: '-0.3s' }}>
-            .
-          </span>
-          <span className="animate-bounce" style={{ animationDelay: '-0.15s' }}>
-            .
-          </span>
-          <span className="animate-bounce">.</span>
-        </span>
-      </p>
-    </div>
   </div>
 );
 
