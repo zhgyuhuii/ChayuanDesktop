@@ -34,10 +34,22 @@ def _run(cmd: list[str], timeout: int = 5) -> str:
 
 def _diagnose_file(path: str) -> None:
     _log(f"--- 诊断 {path} ---")
+    # 0) lstat / readlink:区分"普通文件"vs"悬空 symlink"。
+    #    悬空 symlink 是这次定罪的根因 ── os.walk/find 看见,os.stat 跟随后 ENOENT。
+    try:
+        lst = os.lstat(path)
+        is_link = (lst.st_mode & 0o170000) == 0o120000
+        _log(f"  lstat OK: size={lst.st_size}  mode={oct(lst.st_mode)}  symlink? {is_link}")
+        if is_link:
+            tgt = os.readlink(path)
+            full = tgt if tgt.startswith("/") else os.path.join(os.path.dirname(path), tgt)
+            _log(f"  symlink 指向 → {tgt}  (完整路径 {full},target exists? {os.path.exists(full)})")
+    except Exception as e:
+        _log(f"  lstat 失败:{e}")
     # 1) 文件元数据
     try:
         st = os.stat(path)
-        _log(f"  size={st.st_size}  mode={oct(st.st_mode)}  uid={st.st_uid}")
+        _log(f"  stat OK: size={st.st_size}  mode={oct(st.st_mode)}  uid={st.st_uid}")
     except Exception as e:
         _log(f"  os.stat 失败:{e}")
         return

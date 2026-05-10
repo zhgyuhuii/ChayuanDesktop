@@ -279,9 +279,32 @@ if sys.platform == "darwin":
             "或者 ``export OPENSSL_LIBDIR=/opt/homebrew/opt/openssl@3/lib`` 后重跑构建。"
         )
 
+    # ⚠ 关键修复:_src 通常是 symlink(libssl.3.dylib → libssl.3.5.dylib)。
+    # PyInstaller 6.20 处理 symlink 源时会把 symlink 关系存进 bundle,但目标
+    # 文件 ``libssl.3.5.dylib`` 没跟着进去 ── runtime os.walk / find 看得到
+    # ``libssl.3.dylib``(目录条目),os.stat 跟随后 ENOENT,dyld 同理报
+    # "Library not loaded @rpath/libssl.3.dylib"。
+    #
+    # 解法:在构建期就把 symlink resolve 到真实字节,以 canonical 名拷贝到
+    # tmpdir,生成"叫 libssl.3.dylib 的真实 Mach-O 文件"。然后以这个 tmp 路径
+    # 作为 src 喂 PyInstaller ── PyInstaller 看到的是普通文件,没 symlink 可玩。
+    import shutil as _shutil
+    import tempfile as _tempfile
+    _ossl_tmpdir = Path(_tempfile.mkdtemp(prefix="chayuan-ossl-"))
+    print(f"[chayuan-spec] 临时落盘目录:{_ossl_tmpdir}")
+    _ossl_resolved: list[tuple[str, str]] = []
+    for _dest_name, _src in _ossl_entries:
+        _real = Path(_src).resolve()      # 跟随 symlink 到真实字节
+        _dst = _ossl_tmpdir / _dest_name  # canonical 名 + 真实字节 = 普通文件
+        _shutil.copy2(str(_real), str(_dst), follow_symlinks=True)
+        _ossl_resolved.append((_dest_name, str(_dst)))
+        print(f"[chayuan-spec]   {_dest_name}: symlink {_src} → 真实 {_real} → 拷贝到 {_dst}")
+    # 把 resolved 之后的 (canonical 名, tmp 普通文件路径) 替换原 entries
+    _ossl_entries = _ossl_resolved
+
     # 把 OpenSSL 通过 (src, dest_dir) 2-元组塞 binaries(走 Analysis 的标准依赖归一化通道)。
-    # 不依赖 PyInstaller 自动跟随 symlink ── 把 canonical 名作为 src 可保证 dest 也叫 canonical。
-    print("[chayuan-spec] 即将注入 OpenSSL(canonical SONAME → 源文件):")
+    # 此时 src 已是 tmpdir 里的普通文件,basename 就是 canonical 名,不会被 symlink 误导。
+    print("[chayuan-spec] 即将注入 OpenSSL(canonical SONAME → tmp 真实文件):")
     for _dest_name, _src in _ossl_entries:
         binaries.append((_src, "."))
         print(f"  + {_dest_name} ← {_src}")
@@ -546,14 +569,12 @@ if sys.platform == "darwin":
     a.binaries = _kept_binaries
     print(f"[chayuan-spec] 已从 a.binaries 移除 {len(_all_oss)} 个 libssl/libcrypto 条目,准备根目录强制重塞。")
 
-    # 强制 3-tuple 注入 bundle 根。
-    # ⚠ 关键:typecode 必须是 "DATA" 而不是 "BINARY"!
-    # PyInstaller 6.20 onefile bootloader 解压 BINARY 类型的 3-tuple append
-    # 条目时存在 bug:只创建目录条目不写文件内容(运行时 os.walk 看得到文件名,
-    # 但 os.stat 立即报 ENOENT;dyld 找文件也报 "no such file")。
-    # 改成 DATA 走 datas 解压路径就能正常落盘。dyld 不在乎 PyInstaller 的
-    # 类型标记,只看磁盘里的实际 Mach-O 文件。
-    # 同时挂到 a.datas 而不是 a.binaries,让 PyInstaller 走数据文件流水线。
+    # 强制 3-tuple 注入 bundle 根。typecode = "DATA":让 PyInstaller 把它当
+    # 不透明字节流处理,跳过 macholib 的依赖追踪/install_name fixup ── 我们的
+    # 文件已是上游 conda/Homebrew 的官方 dylib,字节正确、install_name 正确,
+    # 不希望 PyInstaller 再跟着扫依赖把 cv2/.dylibs/ 旧版扯进来。
+    # _ossl_entries 里的 src 已经是 tmpdir 里的普通文件(非 symlink),
+    # PyInstaller 就照字节流落盘成 bundle 根的 ``libssl.3.dylib``。
     for _name, _src in _ossl_entries:
         a.datas.append((_name, _src, "DATA"))
         print(f"  + 强制 root 注入 (DATA 3-tuple → a.datas): {_name} ← {_src}")
