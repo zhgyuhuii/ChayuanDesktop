@@ -16,20 +16,17 @@
  */
 
 import * as React from 'react';
-import { Home, Settings, MessageSquare, Library, Box, Grid3x3, Clock, Plug, Wrench, Shield, Briefcase, X, ExternalLink } from 'lucide-react';
+import { Home, Settings, MessageSquare, Library, Box, Grid3x3, Clock, Plug, Wrench, Shield, Briefcase, X } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { cn } from '@chayuan/ui';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@chayuan/ui';
 import { useTabsStore, tabSelectors, type Tab } from '../../store/tabs';
 import { useTranslation } from '../../i18n';
-import { openDetachedTab } from './detachedWindow';
-import { reportError } from '../../store/errorDialog';
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   home: Home,
@@ -56,24 +53,6 @@ export const TabBar: React.FC = () => {
 
   if (tabs.length === 0) return null;
 
-  const handleDetach = async (t: Tab) => {
-    try {
-      const handle = await openDetachedTab({
-        tabId: t.id,
-        path: t.path,
-        title: t.title,
-      });
-      if (!handle) {
-        reportError(new Error('当前平台不支持独立窗口'), '拖出失败');
-        return;
-      }
-      // 独立窗关闭时,主窗 Tab 自然保留在原位 — 用户可重新进入。
-      // 若希望同时关闭主窗 Tab,可在此调 close(t.id);保留以便回收时不丢失上下文。
-    } catch (e) {
-      reportError(e, '拖出失败');
-    }
-  };
-
   return (
     <div
       role="tablist"
@@ -95,7 +74,6 @@ export const TabBar: React.FC = () => {
           onClose={() => close(t.id)}
           onCloseOthers={() => closeOthers(t.id)}
           onCloseAll={() => closeAll()}
-          onDetach={() => void handleDetach(t)}
         />
       ))}
     </div>
@@ -109,10 +87,7 @@ interface TabItemProps {
   onClose: () => void;
   onCloseOthers: () => void;
   onCloseAll: () => void;
-  onDetach: () => void;
 }
-
-const DETACH_THRESHOLD_PX = 200;
 
 const TabItem: React.FC<TabItemProps> = ({
   tab,
@@ -121,7 +96,6 @@ const TabItem: React.FC<TabItemProps> = ({
   onClose,
   onCloseOthers,
   onCloseAll,
-  onDetach,
 }) => {
   const { t } = useTranslation();
   const Icon = (tab.icon && ICON_MAP[tab.icon]) || Home;
@@ -132,30 +106,6 @@ const TabItem: React.FC<TabItemProps> = ({
       onClose();
     }
   };
-  // 拖拽起点:用 ref 缓存,onDragEnd 时与 release 位置算距离。
-  const dragStartRef = React.useRef<{ x: number; y: number } | null>(null);
-  const handleDragStart = (e: React.DragEvent) => {
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
-    try {
-      e.dataTransfer.setData('cy/tab-id', tab.id);
-      e.dataTransfer.effectAllowed = 'move';
-    } catch {
-      /* ignore */
-    }
-  };
-  const handleDragEnd = (e: React.DragEvent) => {
-    const start = dragStartRef.current;
-    dragStartRef.current = null;
-    if (!start) return;
-    // 释放点不在浏览器有效拖放目标时 dropEffect = 'none';
-    // 距离起点纵向超过阈值视为"拖出窗口"。
-    const dy = Math.abs(e.clientY - start.y);
-    const dx = Math.abs(e.clientX - start.x);
-    if (e.dataTransfer.dropEffect === 'none' && (dy > DETACH_THRESHOLD_PX || dx > DETACH_THRESHOLD_PX * 1.5)) {
-      onDetach();
-    }
-  };
-
   // title 经 t() 兜底:若是 i18n key,翻译;否则原样
   const display = React.useMemo(() => {
     if (tab.title.includes('.')) {
@@ -171,12 +121,6 @@ const TabItem: React.FC<TabItemProps> = ({
         <div
           role="tab"
           aria-selected={active}
-          draggable={!tab.pinned}
-          onPointerDownCapture={(e) => {
-            if (e.button === 0) e.preventDefault();
-          }}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
           onClick={() => {
             setMenuOpen(false);
             onSelect();
@@ -221,11 +165,6 @@ const TabItem: React.FC<TabItemProps> = ({
         )}
         <DropdownMenuItem onClick={onCloseOthers}>关闭其他</DropdownMenuItem>
         <DropdownMenuItem onClick={onCloseAll}>关闭全部</DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={onDetach}>
-          <ExternalLink className="h-3.5 w-3.5" />
-          在新窗口打开
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

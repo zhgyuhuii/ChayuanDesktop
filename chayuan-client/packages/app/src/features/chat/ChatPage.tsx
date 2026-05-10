@@ -16,7 +16,7 @@
  */
 
 import * as React from 'react';
-import { ExternalLink, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { AdvancedParams } from './AdvancedParams';
 import { StreamMetrics } from './StreamMetrics';
@@ -27,7 +27,6 @@ import {
 } from '../../store/modelArena';
 import { useArenaScope } from '../../store/arenaScope';
 import { MultiLaneShell } from '../model-arena/MultiLaneShell';
-import { openDetachedLaneWindow } from '../model-arena/DetachedLaneRoute';
 
 export interface ChatPageProps {
   /**
@@ -57,7 +56,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
   const lanes = useModelArenaStore(selectScopedLanes(scope));
   const unifiedSend = useModelArenaStore(selectScopedUnifiedSend(scope));
   const setUnifiedSend = useModelArenaStore((s) => s.setUnifiedSend);
-  const setDetached = useModelArenaStore((s) => s.setDetached);
   const setLaneConversationId = useModelArenaStore((s) => s.setConversationId);
   const navigate = useNavigate();
 
@@ -104,24 +102,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
     }
   }, [lanes, navigate]);
 
-  /**
-   * 页级"拖出独立窗口"按钮的 onClick:
-   *   - 单泳道:lanes[0] 就是 main 道,直接 detach 它
-   *   - 多泳道:取第一条非 detached 的 lane(v1 简化:不跟踪 focused)
-   *   - detach 后由上面 effect 监听 active 数 = 0 跳 /home,本回调不重复跳
-   *
-   * openDetachedLaneWindow 是 async(走 platform.preview.openWindow 走 Tauri
-   * WebviewWindow 创建原生子窗);只有成功(返 true)才 setDetached,失败时
-   * 保持 lane 在主窗,避免"按了按钮 lane 消失但没有窗口接管"的悬停态。
-   */
-  const onPopout = React.useCallback(async () => {
-    const target = lanes.find((l) => !l.detached);
-    if (!target) return;
-    const ok = await openDetachedLaneWindow(scope, target.id, target.modelId, target.conversationId);
-    if (ok) setDetached(scope, target.id, true);
-  }, [lanes, scope, setDetached]);
-
-  // 顶栏右侧:[Artifact 切换?] [☐ 统一发送(仅多道显示)] [拖出] [+ 添加]
+  // 顶栏右侧:[Artifact 切换?] [☐ 统一发送(仅多道显示)] [+ 添加]
   // 顶栏左侧不放任何东西 — ModelPicker 已在 ChatWindow 内部顶栏,这里只留 page-level 控制
   // AdvancedParams 已经挂在每个 Lane 内 ChatWindow 顶栏(scope 独立),这里不再重复挂
   return (
@@ -149,15 +130,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
               <span>统一发送</span>
             </label>
           )}
-          <button
-            type="button"
-            onClick={() => void onPopout()}
-            title="拖出独立窗口"
-            aria-label="拖出独立窗口"
-            className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </button>
           <button
             type="button"
             onClick={() => addLane(scope)}

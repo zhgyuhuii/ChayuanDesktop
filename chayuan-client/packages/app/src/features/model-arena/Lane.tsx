@@ -12,7 +12,7 @@
  * 折叠时只显示头部一根竖条;拖出时主窗口不渲染(由父级处理)。
  */
 import * as React from 'react';
-import { ChevronDown, ChevronRight, ExternalLink, GripVertical, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, GripVertical, X } from 'lucide-react';
 import { cn } from '@chayuan/ui';
 import {
   selectScopedUnifiedSend, useModelArenaStore, type Lane as LaneState,
@@ -21,7 +21,6 @@ import { useArenaScope } from '../../store/arenaScope';
 import { ChatWindow } from '../chat/ChatWindow';
 import { useArenaSendRegistry } from './MultiLaneShell';
 import { useLaneSortable, useLaneResizer } from './useLaneDnD';
-import { openDetachedLaneWindow } from './DetachedLaneRoute';
 
 interface Props {
   lane: LaneState;
@@ -42,7 +41,6 @@ export function Lane({
   const scope = useArenaScope();
   const removeLane = useModelArenaStore((s) => s.removeLane);
   const toggleCollapsed = useModelArenaStore((s) => s.toggleCollapsed);
-  const setDetached = useModelArenaStore((s) => s.setDetached);
   const unifiedSend = useModelArenaStore(selectScopedUnifiedSend(scope));
   const { broadcast } = useArenaSendRegistry();
   const { dragHandleProps, laneContainerProps, isDragging, isDropTarget } =
@@ -142,18 +140,6 @@ export function Lane({
             title="折叠"
           >
             <ChevronDown className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={async () => {
-              const ok = await openDetachedLaneWindow(scope, lane.id, lane.modelId, lane.conversationId);
-              if (ok) setDetached(scope, lane.id, true);
-            }}
-            className="rounded p-1 hover:bg-accent"
-            title="拖出独立窗口"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
