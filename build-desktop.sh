@@ -244,9 +244,9 @@ else
     "$SIDECAR_PATH" start -a --single-machine \
         > "$stdout_log" 2> "$stderr_log" &
     sidecar_pid=$!
-    note "PID=$sidecar_pid;最长等 180s 直到 /healthz 200(onefile 解压 + bootstrap 慢)"
+    note "PID=$sidecar_pid;最长等 360s 直到 /healthz 200(onefile 解压 + bootstrap 慢;首次启动 matplotlib 还要扫系统字体目录建缓存)"
 
-    deadline=$(( $(date +%s) + 180 ))
+    deadline=$(( $(date +%s) + 360 ))
     ready=0
     while [[ $(date +%s) -lt $deadline ]]; do
         if ! kill -0 "$sidecar_pid" 2>/dev/null; then
@@ -269,7 +269,7 @@ else
     rm -rf "$tmp_data" 2>/dev/null || true
 
     if [[ "$ready" == "1" ]]; then
-        ok 'sidecar 180s 内 /healthz 返 200'
+        ok 'sidecar 360s 内 /healthz 返 200'
         rm -f "$stdout_log" "$stderr_log"
     else
         fail 'sidecar 启动失败或 /healthz 不响应。stderr 尾部:'
