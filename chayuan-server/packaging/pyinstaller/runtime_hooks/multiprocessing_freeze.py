@@ -10,23 +10,29 @@ chayuan-server 在 startup.py 里:
 
 frozen bundle 下,所有 spawn 路径都会**重新 invoke 同一个 exe**,argv 形如:
 - 标准 mp:``[exe, --multiprocessing-fork, tracker_fd=N, pipe_handle=N, ...]``
-- loky / uvicorn reload / 非冻结 mp 分支:``[exe, -B, -S, -I, -O, -c, <prog>, ...]``
+- resource_tracker:``[exe, -B, -S, -I, -c, 'from multiprocessing.resource_tracker import main;main(N)']``
+- loky / uvicorn reload:``[exe, -B, -S, -I, -O, -c, <prog>, ...]``
 
 如果在 user code(Click) 之前不拦截,Click 会报 ``No such option`` 直接退。
 
-兜底分三层
-----------
-1. ``multiprocessing.freeze_support()``:Python 标准库的拦截器,处理 spawn 主路径
-2. 手工捕获 ``--multiprocessing-fork``:freeze_support 偶尔会因 argv / 模块加载顺序
-   漏抓(已观测到),手工再确认一遍
-3. ``-B / -S / -I / -O ... -c <prog>`` 模式:loky / uvicorn reload 等不走标准
-   multiprocessing.spawn 的 spawner 用这种调用约定。我们解析 ``-c`` 后的源码并
-   ``exec()``,保留剩余 argv 给被 exec 的代码自己处理。
+两个微妙的坑
+-----------
+1. **``multiprocessing.freeze_support()`` 在 macOS / Linux 上是 no-op!**
+   只有 Windows 才会 forward 到 ``spawn.freeze_support``。要在 POSIX
+   frozen bundle 上抓 ``--multiprocessing-fork``,必须直接调
+   ``multiprocessing.spawn.freeze_support()``。
+
+2. **``spawn_main`` 解 prep data 时会 ``_fixup_main_from_path``,
+   尝试 ``import __main__.py`` ── frozen bundle 里这文件不存在,直接
+   ``ImportError``。**修复:在父进程修补 ``get_preparation_data``,
+   把 ``init_main_from_name`` 和 ``init_main_from_path`` 摘掉。
+   PyInstaller 自己的 ``pyi_rth_multiprocessing.py`` 应该做这件事,
+   但它在用户 hook **之后**才跑,而且实测有时不生效。所以我们在自己
+   的 hook 里也打一遍补丁,belt + suspenders。
 
 诊断
 ----
-hook 头会打 argv 和 sys.frozen,以便后续问题定位。出问题时直接 grep
-``[mp-freeze]`` 看运行轨迹。
+hook 头会打 argv 和 sys.frozen,出问题时 grep ``[mp-freeze]`` 即可定位。
 """
 from __future__ import annotations
 
@@ -39,8 +45,7 @@ def _log(msg: str) -> None:
 
 
 # ──────────────────────────────────────────────────────────────
-# 1) UTF-8 stdio:reconfigure 是 Python 3.7+ 原地重配,不会断链下游 handler。
-#    Windows OEM 控制台默认 GBK,frozen exe 写 UTF-8 会乱码。
+# 1) UTF-8 stdio
 # ──────────────────────────────────────────────────────────────
 for _stream_name in ("stdout", "stderr"):
     _stream = getattr(sys, _stream_name, None)
@@ -55,52 +60,70 @@ _log(f"argv={sys.argv!r}  frozen={getattr(sys, 'frozen', False)}  exe={sys.execu
 
 
 # ──────────────────────────────────────────────────────────────
-# 2) 标准 multiprocessing.freeze_support()
-#    捕获 ``[exe, --multiprocessing-fork, kwd=val, ...]`` 调用,run worker 后 exit。
+# 2) 修补 multiprocessing.spawn.get_preparation_data
+#    父进程调它生成给子进程的 prep data;默认会塞 init_main_from_path,
+#    子进程 spawn_main → _fixup_main_from_path 加载该路径会 ImportError。
+# ──────────────────────────────────────────────────────────────
+import multiprocessing.spawn  # noqa: E402
+
+_orig_get_prep = multiprocessing.spawn.get_preparation_data
+
+
+def _patched_get_prep(name):
+    d = _orig_get_prep(name)
+    d.pop("init_main_from_name", None)
+    d.pop("init_main_from_path", None)
+    return d
+
+
+multiprocessing.spawn.get_preparation_data = _patched_get_prep
+
+
+# 同时给 _fixup_main_from_path 包一层兜底:就算 PyInstaller / 其它库晚于
+# 我们补 init_main_from_path 进 prep data,子进程跑到这一步发现路径不
+# 存在直接静默跳过,不要 raise。
+_orig_fixup_path = multiprocessing.spawn._fixup_main_from_path  # noqa: SLF001
+
+
+def _patched_fixup_path(main_path):
+    import os as _os
+
+    if not _os.path.exists(main_path):
+        _log(f"_fixup_main_from_path: 跳过不存在的路径 {main_path!r}")
+        return
+    return _orig_fixup_path(main_path)
+
+
+multiprocessing.spawn._fixup_main_from_path = _patched_fixup_path  # noqa: SLF001
+
+
+# ──────────────────────────────────────────────────────────────
+# 3) 调 spawn 模块的 freeze_support(macOS / Linux 上必须直接调这个,
+#    multiprocessing.freeze_support 是 no-op)。
+#    检测 ``[exe, --multiprocessing-fork, kwds...]`` argv,跑 worker 后 exit。
 # ──────────────────────────────────────────────────────────────
 try:
-    import multiprocessing
-    multiprocessing.freeze_support()
-    _log("freeze_support 返回(主进程或非 mp 子进程)")
+    multiprocessing.spawn.freeze_support()
+    _log("spawn.freeze_support 返回(主进程或非 mp 子进程)")
 except SystemExit:
     raise
 except BaseException as _e:  # noqa: BLE001
-    _log(f"freeze_support 抛异常:{_e!r}")
+    _log(f"spawn.freeze_support 抛异常:{_e!r}")
+    import traceback as _tb
+
+    _tb.print_exc()
 
 
 # ──────────────────────────────────────────────────────────────
-# 3) 兜底 1:手工捕获 --multiprocessing-fork
-#    freeze_support 偶尔漏抓(已在本项目 frozen bundle 上观测到),再确认一遍。
-# ──────────────────────────────────────────────────────────────
-_argv = sys.argv
-if len(_argv) >= 2 and _argv[1] == "--multiprocessing-fork":
-    _log("freeze_support 没拦住 --multiprocessing-fork,手工调 spawn_main")
-    from multiprocessing import spawn as _mp_spawn
-
-    _kwds: dict = {}
-    for _a in _argv[2:]:
-        _n, _, _v = _a.partition("=")
-        if _v == "None":
-            _kwds[_n] = None
-        else:
-            try:
-                _kwds[_n] = int(_v)
-            except ValueError:
-                _kwds[_n] = _v
-    _mp_spawn.spawn_main(**_kwds)
-    sys.exit(0)
-
-
-# ──────────────────────────────────────────────────────────────
-# 4) 兜底 2:Python 解释器 flag + ``-c <prog>`` 模式
-#    loky / 非冻结 mp 分支 / uvicorn --reload 用 ``[exe, -B, -S, -I, -O, -c, <prog>, ...]``
+# 4) 兜底:Python 解释器 flag + ``-c <prog>`` 模式
+#    resource_tracker / loky / uvicorn --reload 用 ``[exe, -B, -S, -I, -O, -c, <prog>, ...]``
 #    把 frozen exe 当 python 用。我们解析 -c 后的源码 exec 之。
 # ──────────────────────────────────────────────────────────────
 _PY_FLAGS = {"-B", "-S", "-I", "-O", "-OO", "-E", "-u", "-v", "-q", "-d", "-bb"}
+_argv = sys.argv
 if len(_argv) >= 2 and (
     _argv[1] in _PY_FLAGS or _argv[1].startswith("-X") or _argv[1].startswith("-W")
 ):
-    # 顺序扫过 python flags,找 -c
     _i = 1
     while _i < len(_argv):
         if _argv[_i] == "-c":
@@ -111,8 +134,7 @@ if len(_argv) >= 2 and (
     if _i < len(_argv) - 1 and _argv[_i] == "-c":
         _prog = _argv[_i + 1]
         _rest = _argv[_i + 2 :]
-        _log(f"intercept -c prog (源码 {len(_prog)} 字符,rest_argv={_rest!r})")
-        # 模拟 ``python -c <prog> [args...]``:argv[0] = '-c',后面是用户 args
+        _log(f"intercept -c prog (源码 {len(_prog)} 字符)")
         sys.argv = ["-c"] + _rest
         try:
             exec(_prog, {"__name__": "__main__"})  # noqa: S102
@@ -127,7 +149,7 @@ if len(_argv) >= 2 and (
         sys.exit(0)
     else:
         _log(
-            f"argv[1]={_argv[1]!r} 看着像 python flag,但没找到 -c。argv={_argv!r}"
+            f"argv[1]={_argv[1]!r} 像 python flag 但没 -c。argv={_argv!r}"
         )
 
 
