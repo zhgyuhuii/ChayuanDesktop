@@ -121,6 +121,12 @@ const TabItem: React.FC<TabItemProps> = ({
         <div
           role="tab"
           aria-selected={active}
+          onPointerDownCapture={(e) => {
+            // 抑制 Radix DropdownMenuTrigger 在左键 pointer-down 时自动打开
+            // 下拉菜单的默认行为 — 这里只允许「右键 onContextMenu → setMenuOpen」
+            // 这一条路开菜单。少了这行,左键点 tab 会变成弹下拉,onClick 切页失效。
+            if (e.button === 0) e.preventDefault();
+          }}
           onClick={() => {
             setMenuOpen(false);
             onSelect();
