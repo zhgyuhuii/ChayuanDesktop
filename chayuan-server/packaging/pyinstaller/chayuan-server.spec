@@ -295,55 +295,103 @@ if sys.platform == "darwin":
             f"上冲突。"
         )
 
-    # 第 2 步:把 Python 链接的那份新版 OpenSSL 显式加到 bundle 根。
+    # 第 2 步:用 dyld 直接拿出"当前 Python 正在使用的 libssl/libcrypto 真实文件",
+    # 加到 bundle 根。
     #
-    # 背景:Python 3.12 的 ``_ssl.cpython-312-darwin.so`` 依赖
-    # ``@rpath/libcrypto.3.dylib`` 与 ``@rpath/libssl.3.dylib``。PyInstaller
-    # 的依赖收集对 cv2 wheel 自带的 ``.dylibs/`` 是显式跟踪的,但对 Homebrew /
-    # python.org Python 链接的 OpenSSL **不会自动收集**(_ssl.so 只用 @rpath
-    # 引用,没有具体源路径);所以光剔除 cv2 那份会让 bundle 完全没有 OpenSSL。
+    # 背景:Python 3.12 的 _ssl.cpython-312-darwin.so 通过 @rpath/libssl.3.dylib
+    # 引用 OpenSSL,但 PyInstaller 静态分析没解到具体源(@rpath 在 link 期是抽象的);
+    # 不同 Python 发行版(conda / pyenv / homebrew / python.org)把 OpenSSL 装在
+    # 完全不同的路径,瞎猜路径列表很容易漏。
     #
-    # 这里在常见构建路径里找 ``libcrypto.3.dylib`` / ``libssl.3.dylib``,
-    # 加到 bundle **根目录**(_ssl.so 报错里 dyld 实际尝试的路径就是 bundle 根)。
-    # cv2 自己的 native 模块 ``@rpath/libcrypto.3.dylib`` 引用同样命中这份,
-    # ABI 兼容(OpenSSL 3.x 系列只追加符号)。
-    import os as _os
-    _openssl_search_dirs: list[Path] = []
-    # 显式覆盖优先(供 CI 或非主流 Python 构建用):
-    #   OPENSSL_LIBDIR=/path/to/openssl/lib
-    _override = _os.environ.get("OPENSSL_LIBDIR", "").strip()
-    if _override:
-        _openssl_search_dirs.append(Path(_override))
-    _openssl_search_dirs.extend([
-        Path("/opt/homebrew/opt/openssl@3/lib"),     # Homebrew arm64(主流)
-        Path("/usr/local/opt/openssl@3/lib"),        # Homebrew x86_64
-        Path("/opt/homebrew/lib"),                   # Homebrew 备用
-        Path("/usr/local/lib"),                      # 备用
-        Path(sys.prefix) / "lib",                    # python.org / pyenv
-    ])
+    # 最稳的办法:让构建机上跑 spec 的 Python ``import ssl``(此时 libssl/libcrypto
+    # 已被 dyld 加载),然后通过 ``_dyld_image_count`` / ``_dyld_get_image_name``
+    # 直接读出当前进程加载的动态库列表,在里面找 libssl/libcrypto。这样拿到的就是
+    # _ssl.so 在 Python 启动时实际命中的那份 OpenSSL —— conda、pyenv、Homebrew、
+    # python.org 全适配,无需手动配置 OPENSSL_LIBDIR。
+    #
+    # cv2 自己的 native 模块也通过 @rpath/libcrypto.3.dylib 引用,
+    # 这份新版 OpenSSL ABI 完全兼容(3.x 系列只追加符号)。
+    def _find_loaded_dylib(prefix: str):
+        """从 dyld 的已加载动态库列表里找首个 basename 以 prefix 开头的文件,
+        返回 Path 或 None。仅 darwin 可用。"""
+        import ctypes
+        libsys = ctypes.CDLL(None)
+        libsys._dyld_image_count.restype = ctypes.c_uint32
+        libsys._dyld_get_image_name.restype = ctypes.c_char_p
+        libsys._dyld_get_image_name.argtypes = [ctypes.c_uint32]
+        for i in range(libsys._dyld_image_count()):
+            name = libsys._dyld_get_image_name(i).decode("utf-8", errors="replace")
+            if Path(name).name.startswith(prefix):
+                return Path(name).resolve()
+        return None
+
+    # 触发 _ssl 加载,确保 libssl/libcrypto 进 dyld image list
+    try:
+        import ssl as _spec_ssl_probe  # noqa: F401
+        import _ssl as _spec_ssl_native  # noqa: F401
+    except Exception as _e:
+        print(f"[chayuan-spec] !! 警告:构建机 Python 自身 import ssl 失败:{_e}")
+
     _openssl_added: list[str] = []
-    for _libname in ("libcrypto.3.dylib", "libssl.3.dylib"):
-        # 防止重复:bundle 里已经有同名文件就跳过
-        if any(b[0].rsplit("/", 1)[-1] == _libname for b in a.binaries):
+    _existing_names = {Path(b[0]).name for b in a.binaries}
+
+    for _prefix, _expected_name in (
+        ("libcrypto.", "libcrypto.3.dylib"),
+        ("libssl.",    "libssl.3.dylib"),
+    ):
+        if _expected_name in _existing_names:
+            # 已经在 bundle 里了,跳过(不会发生,但稳)
             continue
-        for _cand_dir in _openssl_search_dirs:
-            _full = _cand_dir / _libname
-            if _full.is_file():
-                # 走 symlink 解析到真实文件,避免 install_name 不一致
-                _real = _full.resolve()
-                a.binaries.append((_libname, str(_real), "BINARY"))
-                _openssl_added.append(f"{_libname} ← {_real}")
-                break
+        _real = _find_loaded_dylib(_prefix)
+        if _real is None or not _real.is_file():
+            continue
+        # dest 用 dyld 实际看到的 basename(可能是 libssl.3.dylib 或带版本号的)
+        _dest_name = _real.name
+        a.binaries.append((_dest_name, str(_real), "BINARY"))
+        _openssl_added.append(f"{_dest_name} ← {_real}")
+        # 若 dyld 报的名字跟 _expected_name 不一致,再补一份带 _expected_name 的
+        # alias(_ssl.so 可能两个名字都试)。简化起见这里不做,实际同一就够。
+
     if _openssl_added:
-        print("[chayuan-spec] 已显式注入 Python 链接的新版 OpenSSL:")
+        print("[chayuan-spec] 已注入构建机 Python 实际加载的 OpenSSL(via dyld):")
         for _entry in _openssl_added:
             print(f"  - {_entry}")
     else:
-        print(
-            "[chayuan-spec] !! 警告:未在常见路径找到新版 libcrypto/libssl;_ssl "
-            "可能在运行时 dlopen 失败。请检查构建机是否安装 Homebrew openssl@3 "
-            "(brew install openssl@3),或手动设 OPENSSL_LIBDIR 环境变量。"
-        )
+        # 兜底:dyld 没找到时退回到路径搜索(极少发生 —— Python 正常 import ssl
+        # 必然会加载 libssl/libcrypto,除非 OpenSSL 是静态链接到 _ssl.so 的)
+        import os as _os
+        _openssl_search_dirs: list[Path] = []
+        _override = _os.environ.get("OPENSSL_LIBDIR", "").strip()
+        if _override:
+            _openssl_search_dirs.append(Path(_override))
+        _openssl_search_dirs.extend([
+            Path(sys.prefix) / "lib",                    # conda / pyenv / python.org
+            Path("/opt/homebrew/opt/openssl@3/lib"),     # Homebrew arm64
+            Path("/usr/local/opt/openssl@3/lib"),        # Homebrew x86_64
+            Path("/opt/homebrew/lib"),
+            Path("/usr/local/lib"),
+        ])
+        for _libname in ("libcrypto.3.dylib", "libssl.3.dylib"):
+            if _libname in _existing_names:
+                continue
+            for _cand_dir in _openssl_search_dirs:
+                _full = _cand_dir / _libname
+                if _full.is_file():
+                    _real = _full.resolve()
+                    a.binaries.append((_libname, str(_real), "BINARY"))
+                    _openssl_added.append(f"{_libname} ← {_real}(路径兜底)")
+                    break
+        if _openssl_added:
+            print("[chayuan-spec] dyld 未命中,使用路径兜底注入 OpenSSL:")
+            for _entry in _openssl_added:
+                print(f"  - {_entry}")
+        else:
+            print(
+                "[chayuan-spec] !! 严重警告:dyld 与路径兜底都没找到 libssl/"
+                "libcrypto。运行时 _ssl.so 必挂。请检查构建机 ``import ssl`` "
+                "是否能跑;或显式 ``export OPENSSL_LIBDIR=/path/to/openssl/lib`` "
+                "(目录里要有 libssl.3.dylib 与 libcrypto.3.dylib)。"
+            )
 
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
