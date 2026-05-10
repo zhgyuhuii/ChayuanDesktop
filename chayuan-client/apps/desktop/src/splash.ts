@@ -161,20 +161,14 @@ export function ensureSplash(): void {
   splash.setAttribute('aria-live', 'polite');
   splash.innerHTML = SPLASH_INNER_HTML;
 
-  // 插到 ``#app`` 之后(若 #app 不存在则 appendChild 兜底)。
-  // 关键约束:**不能** 放到 body 第一个子元素位置,因为 #app 是项目原始结构里
-  // body.firstChild 的位置,改动它会破坏其它代码可能存在的"body.firstChild
-  // === appRoot"假设(测试 / 选择器 / 截图工具等)。z-index 已经极大,DOM
-  // 顺序对 position:fixed 元素的视觉层级没影响。
+  // 插到 body 第一个子元素的位置,确保比 #app 抢先绘制 —— Tauri WebView 增量
+  // paint 时,如果 #app(100vh×100vw)先入 DOM,会先画一帧空 #app,下一帧才
+  // 把 splash 叠上,中间有可见空白瞬态。splash 抢先入 DOM,首帧就是动画。
+  // React 通过 getElementById('app') 拿挂载点,与 DOM 顺序无关。
   const insert = (): void => {
     if (!document.body) return;
     if (document.getElementById(SPLASH_ID)) return; // 并发 race 防御
-    const app = document.getElementById('app');
-    if (app && app.parentNode === document.body) {
-      document.body.insertBefore(splash, app.nextSibling);
-    } else {
-      document.body.appendChild(splash);
-    }
+    document.body.insertBefore(splash, document.body.firstChild);
   };
 
   if (document.body) {

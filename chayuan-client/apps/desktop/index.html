@@ -147,11 +147,11 @@
     </style>
   </head>
   <body>
-    <!-- ``<div id="app">`` 永远是 body 第一个子元素 — 与项目原始结构对齐,业务代码若有
-         "body.firstChild === appRoot" 之类的隐式假设也不会因为 splash 介入而失真。
-         splash 放在 #app 之后,position:fixed + z-index 极大值依然能盖在所有内容上,
-         DOM 顺序不影响视觉层级。main.tsx 会在首屏 paint 时 fade + remove。 -->
-    <div id="app"></div>
+    <!-- splash 必须放在 ``<div id="app">`` 之前 —— Tauri WebView 增量绘制时,
+         如果 #app(100vh×100vw)先进 DOM,会先画一帧空 #app,下一帧才把 splash
+         叠上,中间有可见的"空白瞬态";splash 抢先入 DOM,首帧就是动画。
+         React 通过 ``getElementById('app')`` 拿挂载点,与 DOM 顺序无关。
+         splash 自己用 position:fixed 盖满全窗,与 #app 同级 sibling。 -->
     <div id="chayuan-splash" aria-busy="true" aria-live="polite">
       <div class="cy-splash-ring"></div>
       <div class="cy-splash-orbits">
@@ -167,6 +167,7 @@
         <div class="cy-splash-tag-sub">正在加载…</div>
       </div>
     </div>
+    <div id="app"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

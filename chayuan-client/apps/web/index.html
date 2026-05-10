@@ -166,9 +166,7 @@
     </style>
   </head>
   <body>
-    <!-- #app 保持原始位置(body.firstChild),splash 放在它之后,position:fixed +
-         z-index 极大值仍盖在视觉之上,DOM 顺序不影响层级 -->
-    <div id="app"></div>
+    <!-- splash 放在 #app 之前 —— 浏览器增量绘制首帧就是动画,无空白瞬态 -->
     <div id="chayuan-splash" aria-busy="true" aria-live="polite">
       <div class="cy-splash-ring"></div>
       <div class="cy-splash-orbits">
@@ -184,6 +182,7 @@
         <div class="cy-splash-tag-sub">正在加载…</div>
       </div>
     </div>
+    <div id="app"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
