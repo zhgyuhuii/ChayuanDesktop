@@ -73,17 +73,34 @@ export function Lane({
     [unifiedSend, broadcast],
   );
 
-  // 折叠态 — 一根 48px 竖条
-  if (lane.collapsed) {
-    return (
-      <div
-        {...laneContainerProps}
-        className={cn(
-          'flex h-full w-12 flex-col items-center border-r bg-muted/30',
-          isDragging && 'opacity-50',
-          isDropTarget && 'border-l-2 border-l-primary',
-        )}
-      >
+  // 折叠/展开切的是 CSS 显隐,ChatWindow 始终挂载,避免 unmount 把组件内部
+  // 的消息/流式状态/composer 草稿一并销毁。zustand store 虽然按 scope 持久,
+  // 但 useChayuanChat / ConversationView 内部本地 state 是绑组件生命周期的,
+  // 之前直接 `if (collapsed) return <Strip>` 会让 ChatWindow 整棵子树重建,
+  // 展开时消息列表回不来。
+  return (
+    <div
+      {...laneContainerProps}
+      className={cn(
+        'flex h-full flex-col transition-opacity',
+        lane.collapsed
+          ? 'w-12 items-center border-r bg-muted/30'
+          : cn('min-w-0 bg-card', !isSingle && 'border-r'),
+        isDragging && 'opacity-50',
+        lane.collapsed
+          ? isDropTarget && 'border-l-2 border-l-primary'
+          : !isSingle && isDropTarget && 'ring-2 ring-primary',
+      )}
+      style={
+        lane.collapsed
+          ? undefined
+          : lane.widthPx
+            ? { width: `${lane.widthPx}px`, flex: '0 0 auto' }
+            : { flex: '1 1 0' }
+      }
+    >
+      {/* 折叠态 — 一根 48px 竖条;与展开态共存,通过 hidden 控制可见性 */}
+      <div className={cn('flex flex-col items-center', !lane.collapsed && 'hidden')}>
         <button
           type="button"
           onClick={() => toggleCollapsed(scope, lane.id)}
@@ -99,72 +116,57 @@ export function Lane({
           {(lane.modelId || '未选').slice(0, 24)}
         </div>
       </div>
-    );
-  }
 
-  return (
-    <div
-      {...laneContainerProps}
-      className={cn(
-        // 单道(isSingle):无右侧分隔线、无 ring 装饰 — 视觉等价老 ChatPage
-        'flex h-full min-w-0 flex-col bg-card transition-opacity',
-        !isSingle && 'border-r',
-        isDragging && 'opacity-50',
-        !isSingle && isDropTarget && 'ring-2 ring-primary',
-      )}
-      style={lane.widthPx ? { width: `${lane.widthPx}px`, flex: '0 0 auto' } : { flex: '1 1 0' }}
-    >
-      {/* 单道:整个顶部工具条隐藏 — 折叠/拖出/关闭对单道无意义,而且会跟 ChatPage 顶栏重复;
-          多道:工具条显示,折叠 / 拖出 / 关闭 / 拖动手柄齐全。 */}
-      {!isSingle && (
-        <div
-          {...dragHandleProps}
-          className="flex items-center gap-0.5 border-b bg-muted/30 px-1.5 py-1 select-none"
-          title="按住此区域拖动 → 调整顺序"
-        >
-          {/* 拖动手柄 — 左侧明显的 grip 图标 + 文字提示,告诉用户这里能拖。
-              整条 div 都挂了 dragHandleProps,但只有这一块视觉上是"手柄"。 */}
-          <span
-            className="flex h-5 items-center gap-1 rounded px-1 text-[10px] text-muted-foreground/70 hover:text-foreground"
-            aria-hidden
+      {/* 展开态 — 顶部工具条 + ChatWindow;折叠时整块 hidden 但不卸载,保留组件状态 */}
+      <div className={cn('flex h-full min-w-0 flex-col', lane.collapsed && 'hidden')}>
+        {/* 单道:整个顶部工具条隐藏 — 折叠/拖出/关闭对单道无意义,而且会跟 ChatPage 顶栏重复;
+            多道:工具条显示,折叠 / 关闭 / 拖动手柄齐全。 */}
+        {!isSingle && (
+          <div
+            {...dragHandleProps}
+            className="flex items-center gap-0.5 border-b bg-muted/30 px-1.5 py-1 select-none"
+            title="按住此区域拖动 → 调整顺序"
           >
-            <GripVertical className="h-3 w-3" />
-            <span className="truncate font-mono">{lane.modelId || '未选'}</span>
-          </span>
-          <span className="flex-1" />
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => toggleCollapsed(scope, lane.id)}
-            className="rounded p-1 hover:bg-accent"
-            title="折叠"
-          >
-            <ChevronDown className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => removeLane(scope, lane.id)}
-            className="rounded p-1 text-destructive hover:bg-accent"
-            title="关闭永道"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+            <span
+              className="flex h-5 items-center gap-1 rounded px-1 text-[10px] text-muted-foreground/70 hover:text-foreground"
+              aria-hidden
+            >
+              <GripVertical className="h-3 w-3" />
+              <span className="truncate font-mono">{lane.modelId || '未选'}</span>
+            </span>
+            <span className="flex-1" />
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => toggleCollapsed(scope, lane.id)}
+              className="rounded p-1 hover:bg-accent"
+              title="折叠"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => removeLane(scope, lane.id)}
+              className="rounded p-1 text-destructive hover:bg-accent"
+              title="关闭永道"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* 完整聊天窗口 — 用 lane.id 作 scope,model/draft/KB 各 lane 独立。 */}
+        <div className="min-h-0 flex-1">
+          <ChatWindow
+            scope={`lane.${lane.id}`}
+            conversationId={lane.conversationId}
+            onConversationCreated={onConversationCreated}
+            sendMessageRef={sendMessageRef}
+            onBeforeSend={onBeforeSend}
+            showHeader={false}
+          />
         </div>
-      )}
-
-      {/* 完整聊天窗口 — 用 lane.id 作 scope,model/draft/KB 各 lane 独立。
-          showHeader=false:Lane 已经有自己的顶部工具条,且模型选择 / 高级参数
-          已经在 ChatComposer 内部 + ChatPage 全局顶栏,这里再挂一份是冗余。 */}
-      <div className="min-h-0 flex-1">
-        <ChatWindow
-          scope={`lane.${lane.id}`}
-          conversationId={lane.conversationId}
-          onConversationCreated={onConversationCreated}
-          sendMessageRef={sendMessageRef}
-          onBeforeSend={onBeforeSend}
-          showHeader={false}
-        />
       </div>
     </div>
   );
