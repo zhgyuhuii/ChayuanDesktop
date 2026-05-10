@@ -516,37 +516,51 @@ if sys.platform == "darwin":
             f"{before - after} 个文件,避免与 bundle 根的新版冲突。"
         )
 
-    # 验证 canonical OpenSSL 是否真的在 TOC 根目录;这是上面"反复挂 libssl.3.dylib"
-    # 的最后一道防线 ── 如果走到这里 a.binaries 里没有 libssl.3.dylib / libcrypto.3.dylib,
-    # 说明前面的注入路径在 PyInstaller 归一化阶段被吞了,直接 fail build。
-    _root_oss = []
+    # 关键修复:之前的版本只检查"根级是否有 OpenSSL",忽略了 PyInstaller 经
+    # macholib 把 libssl/libcrypto 放在 ``python3.12/lib-dynload/`` 等子目录
+    # 的情况(_ssl.so 的兄弟位置)。bundle 根的 dyld @rpath 依然解析失败,
+    # 反复挂 "Library not loaded @rpath/libssl.3.dylib"。
+    #
+    # 一刀切:**先全删** a.binaries 里所有 libssl.* / libcrypto.* 条目(无论位置),
+    # **再 3-tuple 强制塞回 bundle 根**。这样不依赖 PyInstaller 的位置推断,
+    # 也避免根 + 子目录两份并存导致 dyld 命中错位置。
+    _all_oss = []
+    _kept_binaries = []
     for _entry in a.binaries:
-        # entry 已规范化:(dest_in_bundle, src_path, typecode)
         _dest = str(_entry[0]).replace("\\", "/")
         _bn = _dest.rsplit("/", 1)[-1] if "/" in _dest else _dest
-        if _bn in ("libssl.3.dylib", "libcrypto.3.dylib") and ("/" not in _dest):
-            _root_oss.append((_dest, _entry[1]))
+        if _bn.startswith("libssl.") or _bn.startswith("libcrypto."):
+            _all_oss.append((_dest, _entry[1]))
+        else:
+            _kept_binaries.append(_entry)
 
-    print("[chayuan-spec] Analysis 之后 a.binaries 里的根级 OpenSSL:")
-    for _d, _s in _root_oss:
-        print(f"  · {_d} ← {_s}")
-    _root_names = {d for d, _ in _root_oss}
-    if {"libssl.3.dylib", "libcrypto.3.dylib"} - _root_names:
-        print("[chayuan-spec] !! TOC 里仍缺 canonical OpenSSL,降级到 3-元组直接 append a.binaries。")
-        # 退路:直接拼 3-元组写入(已规范化 TOC),强制 dest 是 canonical 名。
-        for _name, _src in _ossl_entries:
-            if _name not in _root_names:
-                a.binaries.append((_name, _src, "BINARY"))
-                print(f"  + 追加 (3-tuple): {_name} ← {_src}")
-        _root_names |= {n for n, _ in _ossl_entries}
-    if {"libssl.3.dylib", "libcrypto.3.dylib"} - _root_names:
+    print("[chayuan-spec] Analysis 之后 a.binaries 里所有 libssl/libcrypto 条目(无论位置):")
+    for _d, _s in _all_oss:
+        print(f"  · dest={_d} ← src={_s}")
+
+    a.binaries = _kept_binaries
+    print(f"[chayuan-spec] 已从 a.binaries 移除 {len(_all_oss)} 个 libssl/libcrypto 条目,准备根目录强制重塞。")
+
+    # 强制 3-tuple 注入 bundle 根。Path 形式的 dest 必须没有目录前缀,确保 dyld
+    # 通过 _ssl.so 的 @rpath/@loader_path/../.. 能命中根级文件。
+    for _name, _src in _ossl_entries:
+        a.binaries.append((_name, _src, "BINARY"))
+        print(f"  + 强制 root 注入 (3-tuple): {_name} ← {_src}")
+
+    # 兜底校验:如果 _ossl_entries 不全(理论上前面已 raise SystemExit),再 fail 一次
+    _final_root_names = set()
+    for _entry in a.binaries:
+        _dest = str(_entry[0]).replace("\\", "/")
+        if _dest in ("libssl.3.dylib", "libcrypto.3.dylib"):
+            _final_root_names.add(_dest)
+    if {"libssl.3.dylib", "libcrypto.3.dylib"} - _final_root_names:
         raise SystemExit(
-            "[chayuan-spec] FATAL: bundle 根缺 libssl.3.dylib / libcrypto.3.dylib。\n"
-            "  当前 root 级 OpenSSL = " + str(sorted(_root_names)) + "\n"
-            "  dyld 候选 = " + str([str(p) for p in _ssl_candidates]) + "\n"
+            "[chayuan-spec] FATAL: 强制注入后 bundle 根仍缺 libssl/libcrypto。\n"
+            "  最终 root 级 OpenSSL = " + str(sorted(_final_root_names)) + "\n"
             "  收集到的 entries = " + str(_ossl_entries) + "\n"
             "  请检查 spec 与 PyInstaller 版本兼容性。"
         )
+    print(f"[chayuan-spec] 最终 a.binaries 根级 OpenSSL = {sorted(_final_root_names)}")
 
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
