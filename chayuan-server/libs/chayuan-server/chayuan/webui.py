@@ -633,9 +633,7 @@ if __name__ == "__main__":
         page_title="察元AI助手",
         page_icon=get_img_base64("logo.png"),
         initial_sidebar_state="expanded",
-        menu_items={
-            "Get Help": "https://github.com/chatchat-space/Langchain-Chatchat",
-            "Report a bug": "https://github.com/chatchat-space/Langchain-Chatchat/issues",
+        menu_items={ 
             "About": f"""欢迎使用察元AI助手 {__version__}（© 北京智灵鸟科技中心）。""",
         },
         layout="wide",

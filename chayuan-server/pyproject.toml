@@ -7,7 +7,7 @@ description = "察元AI助手服务（Chayuan）— 企业知识库与对话服�
 authors = ["北京智灵鸟科技中心"]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/chatchat-space/Langchain-Chatchat.git"
+repository = "https://github.com/zhgyuhuii/chayuan-desktop.git"
 package-mode = false
 
 [tool.poetry.dependencies]
