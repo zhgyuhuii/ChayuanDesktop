@@ -36,7 +36,11 @@ tauri-plugin-window-state = "2.2.0"
 machine-uid = "0.5"
 sha2 = "0.10"
 hex = "0.4"
-xcap = "0.0.14"
+# 0.0.14 在新 Rust + 新 core-foundation 下挂 E0282 type annotations needed
+# (macos/boxed.rs:22 self.cf_array_ref.to_void() 类型推断失败)。
+# 0.1+ 已修;选 0.6 系列稳定版本(发布于 2025-05,持续维护至 2025-07)。
+# 我们只用 Monitor::all() / capture_image(),跨大版本 API 兼容。
+xcap = "0.6"
 image = "0.25"
 # Stronghold 内部用 ChaCha20-Poly1305,密钥需要确定的 32 byte。raw password 传字符串
 # bytes 在长度 / 字符集不匹配时 libsodium 会抛 "illegal non-contiguous size"。
