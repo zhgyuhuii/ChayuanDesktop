@@ -31,6 +31,9 @@ export interface Lane {
   detached: boolean;
   /** 拖宽度;undefined 表示用默认 1fr */
   widthPx?: number;
+  /** 本道第一条用户提问 — onConversationCreated 触发时 ChatPage 写入,
+   *  折叠条上当作标题展示;null 表示尚未发过任何消息(空草稿) */
+  firstQuestion?: string | null;
 }
 
 export interface ArenaScopeState {
@@ -58,6 +61,7 @@ interface ArenaState {
   removeLane(scope: string, laneId: string): void;
   setModel(scope: string, laneId: string, modelId: string | null): void;
   setConversationId(scope: string, laneId: string, conversationId: string | null): void;
+  setFirstQuestion(scope: string, laneId: string, q: string | null): void;
   toggleCollapsed(scope: string, laneId: string): void;
   setDetached(scope: string, laneId: string, detached: boolean): void;
   setWidth(scope: string, laneId: string, widthPx: number | undefined): void;
@@ -167,7 +171,17 @@ export const useModelArenaStore = create<ArenaState>()(
         set((s) => patchScope(s, scope, (prev) => ({
           ...prev,
           lanes: prev.lanes.map((l) =>
-            l.id === laneId ? { ...l, conversationId } : l,
+            // 切到新会话时清掉旧的 firstQuestion,避免侧边栏切换时残留上一会话标题
+            l.id === laneId ? { ...l, conversationId, firstQuestion: null } : l,
+          ),
+        })));
+      },
+
+      setFirstQuestion: (scope, laneId, q) => {
+        set((s) => patchScope(s, scope, (prev) => ({
+          ...prev,
+          lanes: prev.lanes.map((l) =>
+            l.id === laneId ? { ...l, firstQuestion: q } : l,
           ),
         })));
       },
@@ -244,7 +258,8 @@ export const useModelArenaStore = create<ArenaState>()(
       partialize: (s) => ({
         byTabId: Object.fromEntries(
           Object.entries(s.byTabId).map(([k, v]) => [k, {
-            lanes: v.lanes.map((l) => ({ ...l, conversationId: null, detached: false })),
+            // firstQuestion 跟 conversationId 绑,conversationId 清掉就一起清,避免页面刷新后残留上次会话的标题
+            lanes: v.lanes.map((l) => ({ ...l, conversationId: null, detached: false, firstQuestion: null })),
             unifiedSend: v.unifiedSend,
           }]),
         ),

@@ -57,6 +57,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
   const unifiedSend = useModelArenaStore(selectScopedUnifiedSend(scope));
   const setUnifiedSend = useModelArenaStore((s) => s.setUnifiedSend);
   const setLaneConversationId = useModelArenaStore((s) => s.setConversationId);
+  const setLaneFirstQuestion = useModelArenaStore((s) => s.setFirstQuestion);
   const navigate = useNavigate();
 
   // ── props.conversationId(tab.path 真源)→ lane[0].conversationId 单方向同步 ──
@@ -75,6 +76,9 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
   // 其他 lane 创建的会话目前不升级 tab.path(对抗模式下每道 cid 独立,只在自己 lane 持有)。
   const onConversationCreated = React.useCallback((laneId: string, cid: string, title: string) => {
     setLaneConversationId(scope, laneId, cid);
+    // ConversationView lazy create 时 title = 用户首条输入(text.slice(0, 40)),
+    // 直接落到 lane.firstQuestion 给折叠条标签用 — 即时、不等 DB 落盘。
+    setLaneFirstQuestion(scope, laneId, title);
     if (lanes[0]?.id !== laneId) return;
     const tabs = useTabsStore.getState();
     const cur = tabs.activeId
@@ -83,7 +87,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ conversationId }) => {
     if (cur && cur.path === '/chat') {
       tabs.updatePath(cur.id, `/chat/${encodeURIComponent(cid)}`, title);
     }
-  }, [scope, setLaneConversationId, lanes]);
+  }, [scope, setLaneConversationId, setLaneFirstQuestion, lanes]);
 
   // lanes 数组空(本 scope 未初始化 / 用户全删完)→ 自动重建 main 道,避免空白页
   React.useEffect(() => {

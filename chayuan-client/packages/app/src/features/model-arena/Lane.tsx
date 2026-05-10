@@ -51,13 +51,17 @@ export function Lane({
   // unifiedSend ON 时父级 broadcast 把 text 调用到所有 lane 的 sendMessage
   const sendMessageRef = React.useRef<((text: string) => Promise<void>) | null>(null);
 
-  // 折叠条上要显示该泳道"第一句话(首个 user 消息)"作为标题。
-  // 折叠状态下从本地 DB 拉一次 listMessages,取首条 role==='user' 的 content;
-  // 触发条件:conversationId 变更 / 进入折叠态(再次切折叠会重新拉,确保展开
-  // 期间发的新消息能更新到标题)。
-  const [firstQuestion, setFirstQuestion] = React.useState<string | null>(null);
+  // 折叠条上的标题 = 本道第一条用户提问。两路来源,任一命中即可:
+  //   1) lane.firstQuestion(主路径):新会话 lazy create 时 ChatPage 在
+  //      onConversationCreated 里写入,即时,不等 DB 落盘。
+  //   2) listMessages 兜底:从侧边栏点开旧会话时,onConversationCreated
+  //      不会再触发,只能折叠时从本地 DB 拉。
+  const [firstQuestionFromDb, setFirstQuestionFromDb] = React.useState<string | null>(null);
   React.useEffect(() => {
+    // 切到新会话时清掉旧 DB 缓存
+    setFirstQuestionFromDb(null);
     if (!lane.conversationId || !lane.collapsed) return;
+    if (lane.firstQuestion) return; // 主路径已命中,不必查 DB
     let cancelled = false;
     void (async () => {
       try {
@@ -65,15 +69,17 @@ export function Lane({
         if (cancelled) return;
         const first = msgs.find((m) => m.role === 'user');
         const text = first?.content?.trim();
-        if (text) setFirstQuestion(text);
+        if (text) setFirstQuestionFromDb(text);
       } catch {
-        /* DB 查询失败就回退到 modelId */
+        /* DB 查询失败就回退到 "无标题" */
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [lane.conversationId, lane.collapsed]);
+  }, [lane.conversationId, lane.collapsed, lane.firstQuestion]);
+
+  const collapsedLabel = (lane.firstQuestion || firstQuestionFromDb || '无标题').trim();
 
   React.useEffect(() => {
     if (!registerSendFn) return;
@@ -134,15 +140,15 @@ export function Lane({
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-        {/* 竖向显示该泳道首条提问;还没问话时回退到模型名,都没就显示「未选」。
-            writing-mode: vertical-rl 让字符从上往下排;每个汉字保持横向不旋转;
-            最多展示 24 字符,超长尾部 ellipsis 保证不溢出条宽。 */}
+        {/* 竖向显示该泳道首条提问;尚未问话回退到「无标题」(不再回退到模型名)。
+            writing-mode: vertical-rl 让字符从上往下排;text-orientation: upright 让
+            每个汉字保持横向不旋转;最多展示 24 字符,鼠标悬停可看完整原文。 */}
         <div
           className="mt-3 max-h-[calc(100vh-6rem)] overflow-hidden whitespace-nowrap text-xs text-foreground"
           style={{ writingMode: 'vertical-rl' as const, textOrientation: 'upright' as const }}
-          title={firstQuestion || lane.modelId || '未选'}
+          title={collapsedLabel}
         >
-          {(firstQuestion || lane.modelId || '未选').slice(0, 24)}
+          {collapsedLabel.slice(0, 24)}
         </div>
       </div>
 
