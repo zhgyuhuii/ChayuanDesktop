@@ -50,3 +50,14 @@ ureq = { version = "2", default-features = false }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
+
+# 本地迭代用快速 release profile:关 LTO + 拉满 codegen-units,编译能省 50%+。
+# 二进制体积 / 启动速度略差,但桌面 sidecar 重头是 Python(>1GB),Rust 这点
+# 差异忽略不计。生产 ship 包仍用默认 [profile.release](LTO=fat,codegen-units=1)。
+#
+# 用法:tauri build --profile release-fast(已接到 pnpm build:desktop:fast)。
+[profile.release-fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+strip = "symbols"
