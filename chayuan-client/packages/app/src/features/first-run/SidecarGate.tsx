@@ -14,7 +14,7 @@
  */
 
 import { Button } from '@chayuan/ui';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import * as React from 'react';
 import { getPlatform } from '@chayuan/platform-shared';
 import type { SidecarStatus } from '@chayuan/platform-shared';
@@ -29,11 +29,20 @@ export interface SidecarGateProps {
 
 export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) => {
   const [status, setStatus] = React.useState<SidecarStatus | null>(null);
-  const [logTail, setLogTail] = React.useState<string[]>([]);
   const onReadyRef = React.useRef(onReady);
   React.useEffect(() => {
     onReadyRef.current = onReady;
   }, [onReady]);
+
+  // disabled(dev 模式)走自动放行;ready 显式确认按钮才放行,避免 sidecar
+  // 启动期 emit 的密码 / 登录路径段 / uvicorn 启动行被误传到主界面之前的诊断
+  // 抽屉(failure 屏 details)。Phase 3 v0:只对用户暴露稳定的状态字面值。
+  const handleEnter = React.useCallback(() => {
+    const cur = status;
+    if (cur && (cur.state === 'ready' || cur.state === 'disabled')) {
+      onReadyRef.current(cur.baseUrl);
+    }
+  }, [status]);
 
   const startOnce = React.useCallback(async () => {
     const sidecar = getPlatform().sidecar;
@@ -45,14 +54,17 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
     try {
       const initial = await sidecar.status();
       setStatus(initial);
-      // 已 ready / disabled:直接放行
-      if (initial.state === 'ready' || initial.state === 'disabled') {
+      // disabled(dev 模式)直接放行;ready 等用户点"进入主界面"
+      if (initial.state === 'disabled') {
         onReadyRef.current(initial.baseUrl);
         return;
       }
+      if (initial.state === 'ready') {
+        return; // 走 ready 屏的"进入"按钮
+      }
       const next = await sidecar.start({ dataDir });
       setStatus(next);
-      if (next.state === 'ready' || next.state === 'disabled') {
+      if (next.state === 'disabled') {
         onReadyRef.current(next.baseUrl);
       }
     } catch (e) {
@@ -73,20 +85,18 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
     }
     let unlisten: (() => void) | null = null;
     void (async () => {
+      // 故意不订阅 onLog —— sidecar stdout 含随机生成的配置面板凭据
+      // (密码 / login-route-token),不应让前端任何 UI 持有。诊断走 status.error
+      // 一行就够。
       unlisten = await sidecar.subscribe({
         onState: async (state) => {
           // 状态变化:重新拉一次 status 拿最新 baseUrl / error
           const cur = await sidecar.status().catch(() => null);
           if (cur) setStatus(cur);
-          if (state === 'ready' || state === 'disabled') {
+          // disabled(dev)直接放行;ready 等用户点按钮
+          if (state === 'disabled') {
             onReadyRef.current(cur?.baseUrl ?? '');
           }
-        },
-        onLog: (line) => {
-          setLogTail((prev) => {
-            const next = [...prev, line];
-            return next.length > 8 ? next.slice(next.length - 8) : next;
-          });
         },
       });
       await startOnce();
@@ -100,8 +110,45 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
     };
   }, [startOnce]);
 
-  // 渲染:starting / failed
+  // 渲染:starting / ready / failed
   const state = status?.state ?? 'idle';
+
+  if (state === 'ready') {
+    return (
+      <div className="relative h-screen w-screen overflow-hidden bg-[var(--cy-surface-2,#f8fafc)]">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(34,197,94,0.10),transparent_36%),radial-gradient(circle_at_75%_75%,rgba(99,102,241,0.10),transparent_32%)]" />
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-8 px-6">
+          {/* logo */}
+          <div className="relative">
+            <div className="relative flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-[0_20px_60px_rgba(34,197,94,0.30)] ring-1 ring-[var(--cy-border-subtle,#e2e8f0)]">
+              <img
+                src={CHAYUAN_LOGO_URL}
+                alt="察元 AI"
+                className="h-16 w-16 object-contain"
+                draggable={false}
+              />
+            </div>
+            <div className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full bg-[#22c55e] text-white shadow-md ring-4 ring-[var(--cy-surface-2,#f8fafc)]">
+              <CheckCircle2 className="h-5 w-5" />
+            </div>
+          </div>
+
+          <div className="text-center">
+            <h1 className="text-xl font-semibold text-[var(--cy-text-primary,#0f172a)] sm:text-2xl">
+              启动成功
+            </h1>
+            <p className="mt-2 text-sm text-[var(--cy-text-tertiary,#94a3b8)]">
+              请刷新页面即可
+            </p>
+          </div>
+
+          <Button size="sm" onClick={handleEnter}>
+            刷新页面
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (state === 'failed') {
     return (
@@ -126,14 +173,6 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
               <pre className="mt-3 whitespace-pre-wrap break-words rounded-xl bg-[var(--cy-surface-1,#f1f5f9)] p-3 text-xs text-[var(--cy-text-secondary,#475569)]">
                 {status.error}
               </pre>
-            )}
-            {logTail.length > 0 && (
-              <details className="mt-3 text-xs text-[var(--cy-text-tertiary,#64748b)]">
-                <summary className="cursor-pointer">最近日志(8 行)</summary>
-                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-[var(--cy-surface-1,#f1f5f9)] p-3">
-                  {logTail.join('\n')}
-                </pre>
-              </details>
             )}
             <div className="mt-6 flex justify-end">
               <Button size="sm" onClick={() => void startOnce()}>
@@ -176,7 +215,7 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
         {/* 标题 + 动态点点 */}
         <div className="text-center">
           <h1 className="text-xl font-semibold text-[var(--cy-text-primary,#0f172a)] sm:text-2xl">
-            正在加载
+            正在启动
             <span className="ml-1 inline-flex">
               <span className="animate-bounce" style={{ animationDelay: '-0.3s' }}>.</span>
               <span className="animate-bounce" style={{ animationDelay: '-0.15s' }}>.</span>
@@ -184,7 +223,7 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
             </span>
           </h1>
           <p className="mt-2 text-sm text-[var(--cy-text-tertiary,#94a3b8)]">
-            首次启动需要 10-30 秒，正在加载本地知识库 / 初始化模型
+            首次启动较慢，请稍候
           </p>
         </div>
 
@@ -195,17 +234,6 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
           />
         </div>
 
-        {/* 滚动日志(选展开,默认收起,不抢眼但留诊断入口) */}
-        {/* {logTail.length > 0 && (
-          <details className="w-full max-w-md text-xs text-[var(--cy-text-tertiary,#64748b)]">
-            <summary className="cursor-pointer text-center transition-colors hover:text-[var(--cy-text-secondary,#475569)]">
-              查看启动日志
-            </summary>
-            <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-[var(--cy-surface-base,#fff)]/80 p-3 text-[10px] backdrop-blur">
-              {logTail.join('\n')}
-            </pre>
-          </details>
-        )} */}
       </div>
 
       {/* keyframes —— 进度条左右循环;Tailwind 没现成 indeterminate animation 用内联 */}
