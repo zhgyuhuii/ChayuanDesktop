@@ -93,9 +93,19 @@ if sys.platform == "darwin":
                 if fn.startswith("libssl.") or fn.startswith("libcrypto."):
                     all_hits.append(os.path.join(dirpath, fn))
 
-        _log(f"bundle 内 libssl/libcrypto 命中 {len(all_hits)} 个:")
+        _log(f"Python os.walk libssl/libcrypto 命中 {len(all_hits)} 个:")
         for p in all_hits:
             _log(f"  · {p}")
+
+        # ⚠ 关键诊断:os.walk 能看到 / os.stat 报 ENOENT。
+        # 用 shell 绕开 Python 的 os 模块(被 PyInstaller 各种 patch),
+        # 直接看磁盘真实状态。
+        _log("--- 用 shell ls 看 _MEIPASS 真实内容 ---")
+        _log(_run(["/bin/ls", "-la", meipass]))
+        _log("--- 用 shell find 找 libssl/libcrypto ---")
+        _log(_run(["/usr/bin/find", meipass, "-name", "libssl*", "-o", "-name", "libcrypto*"]))
+        _log("--- 用 shell ls 看 python3.12/lib-dynload 子目录 ---")
+        _log(_run(["/bin/ls", "-la", os.path.join(meipass, "python3.12", "lib-dynload")]))
 
         if not all_hits:
             _log("ERROR: bundle 里完全没有 libssl/libcrypto。")
