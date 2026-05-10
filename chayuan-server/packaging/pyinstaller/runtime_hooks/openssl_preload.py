@@ -1,22 +1,7 @@
 """macOS:在 _ssl 被 import 前用 ctypes 预加载 libcrypto / libssl。
 
-背景:PyInstaller onefile 把 ``libssl.3.dylib`` / ``libcrypto.3.dylib`` 放到
-``_MEIxxx/python3.12/lib-dynload/`` 等子目录(_ssl.so 兄弟位置),不是 bundle 根。
-但 ``_ssl.cpython-312-darwin.so`` 内嵌的 LC_LOAD_DYLIB 是
-``@rpath/libssl.3.dylib``,而 _ssl.so 自身唯一的 LC_RPATH 解析为
-``@loader_path/../..`` = bundle 根 ── 根没有就找不到,挂:
-
-    Library not loaded: @rpath/libssl.3.dylib
-
-通过 spec 的 a.binaries 注入屡次失败(PyInstaller 6.20 对 a.binaries 有
-未公开的归一化/dedup 行为,3-tuple append 不可靠)。
-
-这里换一个一定能赢的路子:用 ctypes 在 _ssl 被 import 之前**手动**找到
-bundle 内的 libcrypto / libssl,以 RTLD_GLOBAL 预加载到进程内存。这样后续
-``import _ssl`` 时 dyld 直接命中已加载镜像里的符号,不再走 @rpath 解析。
-
-runtime hook 在 PyInstaller bootloader 设好 ``sys._MEIPASS`` 之后、用户代码
-之前执行,正好赶在第一次 ``import ssl`` / ``import _ssl`` 之前。
+爆量诊断版 ── 之前几次失败完全不知道这个 hook 有没有跑、bundle 里到底
+有没有 libssl,这一版把所有关键步骤打到 stderr,下次失败时贴 log 就能定位。
 """
 from __future__ import annotations
 
@@ -25,46 +10,80 @@ import os
 import sys
 
 
-def _preload_openssl_in_bundle() -> None:
+def _log(msg: str) -> None:
+    sys.stderr.write(f"[chayuan-rthook-openssl] {msg}\n")
+    sys.stderr.flush()
+
+
+# 顶层 print:只要 hook 被加载,这条就会出现。如果失败 stderr 里看不到这一行,
+# 说明 hook 根本没被打包/没被执行。
+_log("=== runtime hook entered ===")
+_log(f"sys.platform = {sys.platform}")
+_log(f"sys._MEIPASS = {getattr(sys, '_MEIPASS', '<not set>')}")
+
+if sys.platform == "darwin":
     meipass = getattr(sys, "_MEIPASS", None)
     if not meipass:
-        return  # 非 PyInstaller bundle 环境(开发态),跳过
-    if sys.platform != "darwin":
-        return  # 仅 macOS 需要这套(Linux ld.so / Windows PATH 各有规则)
+        _log("WARN: 没有 sys._MEIPASS,非 PyInstaller bundle?跳过。")
+    else:
+        # 1) 走遍整个 bundle 找 libssl/libcrypto,打印每一个命中
+        targets = ("libcrypto.3.dylib", "libssl.3.dylib")
+        all_hits: list[str] = []
+        for dirpath, _dirnames, filenames in os.walk(meipass):
+            for fn in filenames:
+                if fn.startswith("libssl.") or fn.startswith("libcrypto."):
+                    all_hits.append(os.path.join(dirpath, fn))
 
-    # 在 bundle 里递归找 libcrypto.3.dylib / libssl.3.dylib;无论 PyInstaller 把它
-    # 放到 _MEIxxx/、python3.12/lib-dynload/、还是别的子目录,都能命中。
-    targets = ("libcrypto.3.dylib", "libssl.3.dylib")
-    found: dict[str, str] = {}
-    for dirpath, _dirnames, filenames in os.walk(meipass):
-        for fn in filenames:
-            if fn in targets and fn not in found:
-                found[fn] = os.path.join(dirpath, fn)
-        if len(found) == len(targets):
-            break
+        _log(f"bundle 内 libssl/libcrypto 命中 {len(all_hits)} 个:")
+        for p in all_hits:
+            _log(f"  · {p}")
 
-    if not found:
-        # 一个都没找到:让后续 _ssl import 直接挂出原本的错误,这里不抢戏
-        sys.stderr.write(
-            "[chayuan-rthook-openssl] WARN: bundle 里没找到 libcrypto/libssl,"
-            "_ssl 大概率会挂。\n"
-        )
-        return
-
-    # 顺序很重要:libssl 依赖 libcrypto,先 load libcrypto。
-    # RTLD_GLOBAL 让符号注册到全局命名空间,后续 dyld 解析 @rpath/libssl.3.dylib
-    # 时会直接命中已加载的镜像,不再去文件系统找 ── 这正是绕开 @rpath 解析的关键。
-    order = ("libcrypto.3.dylib", "libssl.3.dylib")
-    for name in order:
-        path = found.get(name)
-        if not path:
-            continue
-        try:
-            ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
-        except OSError as e:
-            sys.stderr.write(
-                f"[chayuan-rthook-openssl] WARN: 预加载 {path} 失败:{e}\n"
+        if not all_hits:
+            _log("ERROR: bundle 里完全没有 libssl/libcrypto,_ssl 必挂。")
+            _log(f"  作为兜底,把 _MEIPASS 加到 DYLD_FALLBACK_LIBRARY_PATH:{meipass}")
+            os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = (
+                meipass + ":" + os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
             )
+        else:
+            # 2) 把 bundle 内所有目录加到 DYLD_FALLBACK_LIBRARY_PATH。
+            #    dyld 解析 @rpath 失败后会再查 DYLD_FALLBACK_LIBRARY_PATH;
+            #    把含 libssl 的目录都加进去,加大命中概率。
+            extra_dirs = sorted({os.path.dirname(p) for p in all_hits})
+            old_fallback = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+            os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = (
+                ":".join(extra_dirs) + (":" + old_fallback if old_fallback else "")
+            )
+            _log(f"已设 DYLD_FALLBACK_LIBRARY_PATH={os.environ['DYLD_FALLBACK_LIBRARY_PATH']}")
 
+            # 3) 用 ctypes 预加载,RTLD_GLOBAL。
+            #    顺序很重要:libssl 依赖 libcrypto,先 load libcrypto。
+            for canonical in ("libcrypto.3.dylib", "libssl.3.dylib"):
+                # 优先 bundle 根的 canonical 名
+                root_candidate = os.path.join(meipass, canonical)
+                # 次选 bundle 内任意目录下的 canonical 名
+                other_candidates = [p for p in all_hits if os.path.basename(p) == canonical]
+                # 兜底:basename 以 prefix 开头的(eg libssl.3.5.dylib)
+                prefix = canonical.rsplit(".", 2)[0] + "."  # "libssl." / "libcrypto."
+                fallback_candidates = [p for p in all_hits if os.path.basename(p).startswith(prefix)]
 
-_preload_openssl_in_bundle()
+                tried: list[str] = []
+                if os.path.isfile(root_candidate):
+                    tried.append(root_candidate)
+                tried.extend(p for p in other_candidates if p != root_candidate)
+                tried.extend(p for p in fallback_candidates if p not in tried)
+
+                loaded = False
+                for path in tried:
+                    try:
+                        ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+                        _log(f"OK  预加载 {canonical} ← {path}")
+                        loaded = True
+                        break
+                    except OSError as e:
+                        _log(f"FAIL 加载 {path}:{e}")
+                if not loaded:
+                    _log(f"ERROR: {canonical} 全部候选都加载失败:{tried}")
+elif sys.platform != "darwin":
+    _log("非 macOS,跳过预加载(Linux ld.so / Windows PATH 各有规则)")
+
+_log("=== runtime hook done ===")
