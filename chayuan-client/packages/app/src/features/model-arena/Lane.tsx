@@ -19,6 +19,7 @@ import {
 } from '../../store/modelArena';
 import { useArenaScope } from '../../store/arenaScope';
 import { ChatWindow } from '../chat/ChatWindow';
+import { listMessages } from '../conversations/persistence';
 import { useArenaSendRegistry } from './MultiLaneShell';
 import { useLaneSortable, useLaneResizer } from './useLaneDnD';
 
@@ -49,6 +50,30 @@ export function Lane({
   // ChatWindow 内部 sendMessage 引用 — Lane 用它注册到 SendRegistry,
   // unifiedSend ON 时父级 broadcast 把 text 调用到所有 lane 的 sendMessage
   const sendMessageRef = React.useRef<((text: string) => Promise<void>) | null>(null);
+
+  // 折叠条上要显示该泳道"第一句话(首个 user 消息)"作为标题。
+  // 折叠状态下从本地 DB 拉一次 listMessages,取首条 role==='user' 的 content;
+  // 触发条件:conversationId 变更 / 进入折叠态(再次切折叠会重新拉,确保展开
+  // 期间发的新消息能更新到标题)。
+  const [firstQuestion, setFirstQuestion] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!lane.conversationId || !lane.collapsed) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const msgs = await listMessages(lane.conversationId!);
+        if (cancelled) return;
+        const first = msgs.find((m) => m.role === 'user');
+        const text = first?.content?.trim();
+        if (text) setFirstQuestion(text);
+      } catch {
+        /* DB 查询失败就回退到 modelId */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [lane.conversationId, lane.collapsed]);
 
   React.useEffect(() => {
     if (!registerSendFn) return;
@@ -109,11 +134,15 @@ export function Lane({
         >
           <ChevronRight className="h-4 w-4" />
         </button>
+        {/* 竖向显示该泳道首条提问;还没问话时回退到模型名,都没就显示「未选」。
+            writing-mode: vertical-rl 让字符从上往下排;每个汉字保持横向不旋转;
+            最多展示 24 字符,超长尾部 ellipsis 保证不溢出条宽。 */}
         <div
-          className="mt-2 -rotate-90 whitespace-nowrap text-xs font-mono text-muted-foreground"
-          style={{ writingMode: 'vertical-rl' as const }}
+          className="mt-3 max-h-[calc(100vh-6rem)] overflow-hidden whitespace-nowrap text-xs text-foreground"
+          style={{ writingMode: 'vertical-rl' as const, textOrientation: 'upright' as const }}
+          title={firstQuestion || lane.modelId || '未选'}
         >
-          {(lane.modelId || '未选').slice(0, 24)}
+          {(firstQuestion || lane.modelId || '未选').slice(0, 24)}
         </div>
       </div>
 
