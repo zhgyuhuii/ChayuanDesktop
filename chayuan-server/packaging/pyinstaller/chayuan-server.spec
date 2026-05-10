@@ -323,6 +323,103 @@ excludes = [
     "paddle",
     "paddleocr",
     "paddlepaddle",
+    # ─── bundle 瘦身(排除运行时不需要、但被 langchain hook 拉进来的大头) ───
+    # nltk 自带的测试套件 / 示例 app / 演示数据:仅业务用到的 token / corpus 走
+    # 运行时按需加载,这些训练演示模块完全打不进 sidecar。
+    "nltk.test",
+    "nltk.app",
+    "nltk.book",
+    "nltk.chat",
+    "nltk.misc",
+    "nltk.corpus.europarl_raw",
+    # onnxruntime 训练 / 模型转换 / 量化工具:推理用不到。前面的注释也明确说
+    # 单机版仅做 ONNX 推理。
+    "onnxruntime.transformers",
+    "onnxruntime.tools",
+    "onnxruntime.training",
+    "onnxruntime.quantization",
+    "onnxruntime.datasets",
+    # sklearn 测试和实验性 API
+    "sklearn.tests",
+    "sklearn.experimental",
+    # 其它深度学习框架 / 训练加速:已被 torch 系排除,这里把 transitive 入口堵死
+    "tensorflow",
+    "tensorflow_datasets",
+    "tensorflow_hub",
+    "keras",
+    "jax",
+    "jaxlib",
+    "flax",
+    "optax",
+    "xgboost",
+    "lightgbm",
+    "catboost",
+    # 各 lib 自带测试 / 示例 / 文档资源(matplotlib 一个 tests/ 就 100+ MB)
+    "matplotlib.tests",
+    "scipy.tests",
+    "pandas.tests",
+    "numpy.tests",
+    "PIL.tests",
+    "pyarrow.tests",
+    "lxml.tests",
+    # langchain 海量可选集成(用不到的第三方平台)── 项目代码没引用的全砍。
+    # 业务代码以后真用到时,把对应一行从这里删掉再重跑构建。
+    "langchain_classic.tools.azure_cognitive_services",
+    "langchain_classic.tools.gmail",
+    "langchain_classic.tools.office365",
+    "langchain_classic.tools.playwright",
+    "langchain_classic.tools.amadeus",
+    "langchain_classic.tools.zapier",
+    "langchain_classic.tools.eleven_labs",
+    "langchain_classic.tools.edenai",
+    "langchain_classic.tools.gitlab",
+    "langchain_classic.tools.steam",
+    "langchain_classic.tools.nasa",
+    "langchain_classic.tools.bing_search",
+    "langchain_classic.tools.brave_search",
+    "langchain_classic.tools.golden_query",
+    "langchain_classic.tools.metaphor_search",
+    "langchain_classic.tools.searchapi",
+    "langchain_classic.tools.searx_search",
+    "langchain_classic.tools.tavily_search",
+    "langchain_classic.tools.google_finance",
+    "langchain_classic.tools.google_jobs",
+    "langchain_classic.tools.google_lens",
+    "langchain_classic.tools.google_places",
+    "langchain_classic.tools.google_scholar",
+    "langchain_classic.tools.google_serper",
+    "langchain_classic.tools.google_trends",
+    "langchain_classic.tools.reddit_search",
+    "langchain_classic.tools.slack",
+    "langchain_classic.tools.steamship_image_generation",
+    "langchain_classic.tools.openweathermap",
+    "langchain_classic.tools.scenexplain",
+    "langchain_classic.tools.merriam_webster",
+    "langchain_classic.tools.dataforseo_api_search",
+    "langchain_classic.tools.bearly",
+    "langchain_classic.tools.e2b_data_analysis",
+    "langchain_classic.tools.multion",
+    "langchain_classic.tools.nuclia",
+    "langchain_classic.tools.clickup",
+    "langchain_classic.chat_loaders.facebook_messenger",
+    "langchain_classic.chat_loaders.gmail",
+    "langchain_classic.chat_loaders.imessage",
+    "langchain_classic.chat_loaders.slack",
+    "langchain_classic.chat_loaders.telegram",
+    "langchain_classic.chat_loaders.whatsapp",
+    "langchain_community.tools.azure_cognitive_services",
+    "langchain_community.tools.office365",
+    "langchain_community.tools.gmail",
+    "langchain_community.tools.playwright",
+    # PyMuPDF / faker:tests 资源
+    "faker.tests",
+    # ipython / jupyter:不用 notebook
+    "IPython",
+    "ipykernel",
+    "ipywidgets",
+    "jupyter",
+    "notebook",
+    "qtconsole",
 ]
 
 
@@ -354,15 +451,16 @@ for big in (
     "fitz",
     "rapidocr_onnxruntime",
     "onnxruntime",
-    "nltk",
+    # 注意:
+    # - ``nltk`` 已被 _pyinstaller_hooks_contrib 的 hook-nltk.py 接管,
+    #   再 collect_all 会把整个 nltk.test / nltk.app(几百 MB)拉进来。
+    # - ``sqlite_vec`` 不是真正意义上的 Python 包(__init__ 是 stub),
+    #   collect_data_files / collect_dynamic_libs 会报 warning,实际二进制
+    #   走前面的 ``packaging/vendor/sqlite-vec/`` 兜底。
     # 单机版 v0:不带 torch / transformers / sentence_transformers / rerankers。
     # 推理一律走 ONNX(rapidocr_onnxruntime + bge-m3-onnx 之类的量化模型)。
-    # torch 一旦进 onefile,c10.dll 容易在某些 CPU / 缺 VC++ runtime 的机器上
-    # 抛 [WinError 1114] DLL 初始化失败,且体积膨胀 ~1.5 GB。
     # 业务代码里 transformers / sentence_transformers 的引用应当是惰性的;若有
     # 早期 import 触发崩溃,在被影响的模块里 try/except ImportError 兜住。
-    # Phase 4:sqlite-vec 包带 ``vec0`` 平台二进制(*.so/*.dylib/*.dll)
-    "sqlite_vec",
 ):
     _dat, _bin, _hid = _collect_safe(big)
     datas.extend(_dat)
