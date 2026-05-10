@@ -236,6 +236,9 @@ else
     step 'Step 2: sidecar /healthz 探测'
     tmp_data="$(mktemp -d -t chayuan-health-XXXXXX)"
     export CHAYUAN_ROOT="$tmp_data"
+    # chayuan 优先读 state.json.last_init_root(开发机上一次 chayuan init 写的),
+    # 不设这个 env 时 $CHAYUAN_ROOT 会被无视。详见 chayuan/paths.py:120 注释。
+    export CHAYUAN_ROOT_IGNORE_STATE=1
     note "临时数据目录(测完即删):$tmp_data"
 
     stdout_log="$(mktemp -t chayuan-health-stdout-XXXXXX.log)"
