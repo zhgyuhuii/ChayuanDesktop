@@ -330,7 +330,8 @@ excludes = [
     "nltk.app",
     "nltk.book",
     "nltk.chat",
-    "nltk.misc",
+    # 注意:``nltk.misc`` 不能排除,nltk/__init__.py:203 直接 ``from nltk import misc``
+    # 排除会触发运行时 ImportError: cannot import name 'misc' from partially initialized module。
     "nltk.corpus.europarl_raw",
     # onnxruntime 训练 / 模型转换 / 量化工具:推理用不到。前面的注释也明确说
     # 单机版仅做 ONNX 推理。
