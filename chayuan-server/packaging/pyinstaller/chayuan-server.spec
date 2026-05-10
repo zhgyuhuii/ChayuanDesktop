@@ -546,26 +546,31 @@ if sys.platform == "darwin":
     a.binaries = _kept_binaries
     print(f"[chayuan-spec] 已从 a.binaries 移除 {len(_all_oss)} 个 libssl/libcrypto 条目,准备根目录强制重塞。")
 
-    # 强制 3-tuple 注入 bundle 根。Path 形式的 dest 必须没有目录前缀,确保 dyld
-    # 通过 _ssl.so 的 @rpath/@loader_path/../.. 能命中根级文件。
+    # 强制 3-tuple 注入 bundle 根。
+    # ⚠ 关键:typecode 必须是 "DATA" 而不是 "BINARY"!
+    # PyInstaller 6.20 onefile bootloader 解压 BINARY 类型的 3-tuple append
+    # 条目时存在 bug:只创建目录条目不写文件内容(运行时 os.walk 看得到文件名,
+    # 但 os.stat 立即报 ENOENT;dyld 找文件也报 "no such file")。
+    # 改成 DATA 走 datas 解压路径就能正常落盘。dyld 不在乎 PyInstaller 的
+    # 类型标记,只看磁盘里的实际 Mach-O 文件。
+    # 同时挂到 a.datas 而不是 a.binaries,让 PyInstaller 走数据文件流水线。
     for _name, _src in _ossl_entries:
-        a.binaries.append((_name, _src, "BINARY"))
-        print(f"  + 强制 root 注入 (3-tuple): {_name} ← {_src}")
+        a.datas.append((_name, _src, "DATA"))
+        print(f"  + 强制 root 注入 (DATA 3-tuple → a.datas): {_name} ← {_src}")
 
-    # 兜底校验:如果 _ossl_entries 不全(理论上前面已 raise SystemExit),再 fail 一次
+    # 兜底校验:在 a.datas 里找(我们刚塞进去的位置)
     _final_root_names = set()
-    for _entry in a.binaries:
+    for _entry in a.datas:
         _dest = str(_entry[0]).replace("\\", "/")
         if _dest in ("libssl.3.dylib", "libcrypto.3.dylib"):
             _final_root_names.add(_dest)
     if {"libssl.3.dylib", "libcrypto.3.dylib"} - _final_root_names:
         raise SystemExit(
-            "[chayuan-spec] FATAL: 强制注入后 bundle 根仍缺 libssl/libcrypto。\n"
+            "[chayuan-spec] FATAL: 强制注入后 a.datas 根仍缺 libssl/libcrypto。\n"
             "  最终 root 级 OpenSSL = " + str(sorted(_final_root_names)) + "\n"
             "  收集到的 entries = " + str(_ossl_entries) + "\n"
-            "  请检查 spec 与 PyInstaller 版本兼容性。"
         )
-    print(f"[chayuan-spec] 最终 a.binaries 根级 OpenSSL = {sorted(_final_root_names)}")
+    print(f"[chayuan-spec] 最终 a.datas 根级 OpenSSL = {sorted(_final_root_names)}")
 
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
