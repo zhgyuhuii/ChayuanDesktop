@@ -480,6 +480,11 @@ a = Analysis(
         # 必须在 user code / Click 解析 argv 之前调 multiprocessing.freeze_support(),
         # 否则 Windows 下子进程 ``--multiprocessing-fork`` 参数会被 Click 当未知 option 拒绝。
         str(ROOT / "packaging" / "pyinstaller" / "runtime_hooks" / "multiprocessing_freeze.py"),
+        # macOS:在 _ssl 被 import 前用 ctypes 预加载 libssl/libcrypto,
+        # 绕开 PyInstaller onefile 把 dylib 放在子目录、@rpath 又只解析到 bundle 根
+        # 导致 ``Library not loaded: @rpath/libssl.3.dylib`` 的死局。
+        # 不论 PyInstaller 把 libssl 放在哪个子路径,这个 hook 都能找到并预加载。
+        str(ROOT / "packaging" / "pyinstaller" / "runtime_hooks" / "openssl_preload.py"),
     ],
     excludes=excludes,
     cipher=block_cipher,
