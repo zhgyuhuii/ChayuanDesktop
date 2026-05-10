@@ -206,6 +206,14 @@ pub fn chayuan_sidecar_start<R: Runtime>(
         .sidecar("chayuan-server")
         .map_err(|e| format!("locate sidecar binary: {e}"))?
         .args(["start", "-a", "--single-machine"])
+        // ⚠ CHAYUAN_ROOT_IGNORE_STATE=1 必须设。
+        // chayuan/paths.py::resolve_chayuan_root 默认优先读 ~/.chayuan/state.json
+        // 里 last_init_root —— 开发机上跑过 ``chayuan init`` 后写过的目录会凌驾
+        // 于这里 env 注入的 CHAYUAN_ROOT 之上,导致 sidecar 读老 yaml 把 API
+        // 端口 / 凭据全错配(实测:Tauri 注入 data_dir 用默认 62581,但老 yaml
+        // 里 API 改成了 7861,Tauri 探 62581 永远 404)。设这个 env 跳过 state.json
+        // 优先级,真正让 Tauri 选定的 data_dir 生效。
+        .env("CHAYUAN_ROOT_IGNORE_STATE", "1")
         .env("CHAYUAN_ROOT", &args.data_dir)
         .env("CHAYUAN_PROFILE", "single-machine")
         .env("CHAYUAN_AUTH", "anonymous")
