@@ -1,93 +1,34 @@
-"""macOS:在 _ssl 被 import 前用 ctypes 预加载 libcrypto / libssl + 全套诊断。
+"""macOS:在 _ssl 被 import 前把藏区 OpenSSL 物化到 bundle 根 + cv2/.dylibs/。
 
-之前几次 ctypes.CDLL 失败都被 PyInstaller wrapper 吞掉了真实 dlerror。这一版:
-1) 走遍 _MEIPASS 找到 libssl/libcrypto;
-2) 对每个文件 stat/读 magic/跑 otool -D/-L、xattr、codesign、file ── 把所有
-   能拿到的元信息都打到 stderr;
-3) 用 ctypes 直接拿 libdyld 的 dlopen,绕开 PyInstaller wrapper,拿真实 dlerror;
-4) 最后再做正常 RTLD_GLOBAL 预加载。
+背景(三轮 lstat/readlink 定罪后才搞清):
 
-任何一条诊断里出现异常(0 字节 / 错架构 / quarantine xattr / 签名校验失败)
-都直接给定位答案。
+PyInstaller 6.20 macOS 的 PKG/EXE 后处理对 _ssl.cpython-312-darwin.so 做
+@rpath / LC_LOAD_DYLIB fixup,会**自动**在 bundle 根加一条 symlink
+``libssl.3.dylib → cv2/.dylibs/libssl.3.dylib``(因为它扫 cv2 wheel 时
+记下同名路径)。这条 symlink 不在 a.binaries / a.datas 的 TOC 里,spec
+怎么塞都改不到。
+
+我们又过滤掉了 cv2/.dylibs/ 下的旧版 OpenSSL(避免旧版缺
+X509_STORE_get1_objects 等 3.2 新增符号)→ symlink target 消失 → runtime
+``Library not loaded @rpath/libssl.3.dylib``。
+
+解法分两层:
+1. spec 把 OpenSSL 藏到 ``_chayuan_openssl/`` 子目录(PyInstaller 不会对
+   这个路径做 @rpath fixup,所以字节会原样落盘)。
+2. 这个 hook(在 _ssl import 之前跑)把藏区字节复制到 bundle 根 +
+   cv2/.dylibs/,覆盖掉 PyInstaller 留下的悬空 symlink。
 """
 from __future__ import annotations
 
 import ctypes
 import os
-import subprocess
+import shutil
 import sys
 
 
 def _log(msg: str) -> None:
     sys.stderr.write(f"[chayuan-rthook-openssl] {msg}\n")
     sys.stderr.flush()
-
-
-def _run(cmd: list[str], timeout: int = 5) -> str:
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        out = (r.stdout or "") + (r.stderr or "")
-        return out.strip() or "(empty output)"
-    except Exception as e:
-        return f"(failed: {e})"
-
-
-def _diagnose_file(path: str) -> None:
-    _log(f"--- 诊断 {path} ---")
-    # 0) lstat / readlink:区分"普通文件"vs"悬空 symlink"。
-    #    悬空 symlink 是这次定罪的根因 ── os.walk/find 看见,os.stat 跟随后 ENOENT。
-    try:
-        lst = os.lstat(path)
-        is_link = (lst.st_mode & 0o170000) == 0o120000
-        _log(f"  lstat OK: size={lst.st_size}  mode={oct(lst.st_mode)}  symlink? {is_link}")
-        if is_link:
-            tgt = os.readlink(path)
-            full = tgt if tgt.startswith("/") else os.path.join(os.path.dirname(path), tgt)
-            _log(f"  symlink 指向 → {tgt}  (完整路径 {full},target exists? {os.path.exists(full)})")
-    except Exception as e:
-        _log(f"  lstat 失败:{e}")
-    # 1) 文件元数据
-    try:
-        st = os.stat(path)
-        _log(f"  stat OK: size={st.st_size}  mode={oct(st.st_mode)}  uid={st.st_uid}")
-    except Exception as e:
-        _log(f"  os.stat 失败:{e}")
-        return
-    # 2) Mach-O magic(头 4 字节)
-    try:
-        with open(path, "rb") as f:
-            magic = f.read(8).hex()
-        _log(f"  头 8 字节 = {magic}  (期望 cffaedfe / cafebabe / cafebabf)")
-    except Exception as e:
-        _log(f"  打开文件读 magic 失败:{e}")
-    # 3) file(1)
-    _log(f"  file: {_run(['/usr/bin/file', path])}")
-    # 4) otool -D(install_name)
-    _log(f"  otool -D:\n{_run(['/usr/bin/otool', '-D', path])}")
-    # 5) otool -L(依赖)
-    _log(f"  otool -L:\n{_run(['/usr/bin/otool', '-L', path])}")
-    # 6) xattr(quarantine 等)
-    _log(f"  xattr -l: {_run(['/usr/bin/xattr', '-l', path])}")
-    # 7) codesign 状态
-    _log(f"  codesign -dv: {_run(['/usr/bin/codesign', '-dv', '--verbose=2', path])}")
-    # 8) 原生 dlopen 拿真实 dlerror
-    try:
-        libdyld = ctypes.CDLL("/usr/lib/system/libdyld.dylib", mode=ctypes.RTLD_GLOBAL)
-        dlopen = libdyld.dlopen
-        dlopen.argtypes = [ctypes.c_char_p, ctypes.c_int]
-        dlopen.restype = ctypes.c_void_p
-        dlerror = libdyld.dlerror
-        dlerror.argtypes = []
-        dlerror.restype = ctypes.c_char_p
-        # RTLD_NOW=2, RTLD_GLOBAL=8
-        handle = dlopen(path.encode("utf-8"), 2 | 8)
-        if handle:
-            _log(f"  原生 dlopen OK,handle=0x{handle:x}")
-        else:
-            err = dlerror()
-            _log(f"  原生 dlopen 失败,真实 dlerror:{err.decode('utf-8') if err else '<none>'}")
-    except Exception as e:
-        _log(f"  原生 dlopen 调用本身异常:{e}")
 
 
 _log("=== runtime hook entered ===")
@@ -99,54 +40,51 @@ if sys.platform == "darwin":
     if not meipass:
         _log("WARN: 没有 sys._MEIPASS,非 PyInstaller bundle?跳过。")
     else:
-        all_hits: list[str] = []
-        for dirpath, _dirnames, filenames in os.walk(meipass):
-            for fn in filenames:
-                if fn.startswith("libssl.") or fn.startswith("libcrypto."):
-                    all_hits.append(os.path.join(dirpath, fn))
+        hidden_dir = os.path.join(meipass, "_chayuan_openssl")
+        # 物化目标:bundle 根(@rpath 兜底解析点)+ cv2/.dylibs/(PyInstaller
+        # 自动 symlink 的 target)。两处都覆盖,确保不论 dyld 走哪条路径都命
+        # 中我们的新版 OpenSSL。
+        targets = [meipass]
+        cv2_dylibs = os.path.join(meipass, "cv2", ".dylibs")
+        if os.path.isdir(cv2_dylibs):
+            targets.append(cv2_dylibs)
 
-        _log(f"Python os.walk libssl/libcrypto 命中 {len(all_hits)} 个:")
-        for p in all_hits:
-            _log(f"  · {p}")
+        _log(f"藏区源 = {hidden_dir}")
+        _log(f"物化目标 = {targets}")
 
-        # ⚠ 关键诊断:os.walk 能看到 / os.stat 报 ENOENT。
-        # 用 shell 绕开 Python 的 os 模块(被 PyInstaller 各种 patch),
-        # 直接看磁盘真实状态。
-        _log("--- 用 shell ls 看 _MEIPASS 真实内容 ---")
-        _log(_run(["/bin/ls", "-la", meipass]))
-        _log("--- 用 shell find 找 libssl/libcrypto ---")
-        _log(_run(["/usr/bin/find", meipass, "-name", "libssl*", "-o", "-name", "libcrypto*"]))
-        _log("--- 用 shell ls 看 python3.12/lib-dynload 子目录 ---")
-        _log(_run(["/bin/ls", "-la", os.path.join(meipass, "python3.12", "lib-dynload")]))
+        for name in ("libcrypto.3.dylib", "libssl.3.dylib"):
+            src = os.path.join(hidden_dir, name)
+            if not os.path.isfile(src):
+                _log(f"ERROR: 藏区源 {src} 不存在(spec 注入失败?)")
+                continue
+            for tdir in targets:
+                dest = os.path.join(tdir, name)
+                try:
+                    # os.path.lexists 同时识别普通文件、symlink、悬空 symlink。
+                    # os.remove 对 symlink 只删 link 自身,不动 target ── 正合我意。
+                    if os.path.lexists(dest):
+                        os.remove(dest)
+                    shutil.copy2(src, dest)
+                    os.chmod(dest, 0o755)
+                    _log(f"OK 物化 {dest}")
+                except Exception as e:
+                    _log(f"FAIL 物化 {dest}: {e}")
 
-        if not all_hits:
-            _log("ERROR: bundle 里完全没有 libssl/libcrypto。")
-        else:
-            # 全套诊断 ── 每个文件都看一遍
-            for path in all_hits:
-                _diagnose_file(path)
+        # DYLD_FALLBACK_LIBRARY_PATH 兜底(对子进程有效;主进程已通过 @rpath 解析)
+        old_fallback = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+        os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = (
+            meipass + (":" + old_fallback if old_fallback else "")
+        )
 
-            # DYLD_FALLBACK_LIBRARY_PATH 兜底(对子进程有效)
-            extra_dirs = sorted({os.path.dirname(p) for p in all_hits})
-            old_fallback = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
-            os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = (
-                ":".join(extra_dirs) + (":" + old_fallback if old_fallback else "")
-            )
-
-            # 正常预加载尝试(用 PyInstaller-wrap 过的 ctypes.CDLL)
-            for canonical in ("libcrypto.3.dylib", "libssl.3.dylib"):
-                candidates = [p for p in all_hits if os.path.basename(p) == canonical]
-                loaded = False
-                for path in candidates:
-                    try:
-                        ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
-                        _log(f"OK CDLL 预加载 {canonical} ← {path}")
-                        loaded = True
-                        break
-                    except OSError as e:
-                        _log(f"FAIL CDLL 加载 {path}:{e}")
-                if not loaded:
-                    _log(f"ERROR: {canonical} CDLL 全失败")
+        # 预加载到全局名空间。即便 _ssl import 时 dyld 还是按 @rpath 重新解析,
+        # 同名 dylib 已 RTLD_GLOBAL 在内存里 ── 后续解析直接复用,不再读盘。
+        for canonical in ("libcrypto.3.dylib", "libssl.3.dylib"):
+            path = os.path.join(meipass, canonical)
+            try:
+                ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+                _log(f"OK CDLL 预加载 {canonical} ← {path}")
+            except OSError as e:
+                _log(f"FAIL CDLL 预加载 {canonical}: {e}")
 elif sys.platform != "darwin":
     _log("非 macOS,跳过预加载")
 

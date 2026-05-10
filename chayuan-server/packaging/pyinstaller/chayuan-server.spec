@@ -544,54 +544,41 @@ if sys.platform == "darwin":
             f"{before - after} 个文件,避免与 bundle 根的新版冲突。"
         )
 
-    # 关键修复:之前的版本只检查"根级是否有 OpenSSL",忽略了 PyInstaller 经
-    # macholib 把 libssl/libcrypto 放在 ``python3.12/lib-dynload/`` 等子目录
-    # 的情况(_ssl.so 的兄弟位置)。bundle 根的 dyld @rpath 依然解析失败,
-    # 反复挂 "Library not loaded @rpath/libssl.3.dylib"。
+    # ⚠ 关键根因(已通过 runtime lstat / readlink 定罪):
+    # PyInstaller 6.20 的 macOS PKG 阶段对每个 Mach-O(包括 _ssl.so)做
+    # @rpath / LC_LOAD_DYLIB fixup,会**自动**给 bundle 根添加一条 symlink
+    # ``libssl.3.dylib → cv2/.dylibs/libssl.3.dylib``(因为 PyInstaller 扫
+    # cv2 wheel 时记下这个路径有同名文件)。这条 symlink 不在 a.binaries /
+    # a.datas 的 TOC 里 ── 是 EXE/PKG 后处理加的,spec 改不到。
     #
-    # 一刀切:**先全删** a.binaries 里所有 libssl.* / libcrypto.* 条目(无论位置),
-    # **再 3-tuple 强制塞回 bundle 根**。这样不依赖 PyInstaller 的位置推断,
-    # 也避免根 + 子目录两份并存导致 dyld 命中错位置。
-    _all_oss = []
-    _kept_binaries = []
-    for _entry in a.binaries:
-        _dest = str(_entry[0]).replace("\\", "/")
-        _bn = _dest.rsplit("/", 1)[-1] if "/" in _dest else _dest
-        if _bn.startswith("libssl.") or _bn.startswith("libcrypto."):
-            _all_oss.append((_dest, _entry[1]))
-        else:
-            _kept_binaries.append(_entry)
-
-    print("[chayuan-spec] Analysis 之后 a.binaries 里所有 libssl/libcrypto 条目(无论位置):")
-    for _d, _s in _all_oss:
-        print(f"  · dest={_d} ← src={_s}")
-
-    a.binaries = _kept_binaries
-    print(f"[chayuan-spec] 已从 a.binaries 移除 {len(_all_oss)} 个 libssl/libcrypto 条目,准备根目录强制重塞。")
-
-    # 强制 3-tuple 注入 bundle 根。typecode = "DATA":让 PyInstaller 把它当
-    # 不透明字节流处理,跳过 macholib 的依赖追踪/install_name fixup ── 我们的
-    # 文件已是上游 conda/Homebrew 的官方 dylib,字节正确、install_name 正确,
-    # 不希望 PyInstaller 再跟着扫依赖把 cv2/.dylibs/ 旧版扯进来。
-    # _ossl_entries 里的 src 已经是 tmpdir 里的普通文件(非 symlink),
-    # PyInstaller 就照字节流落盘成 bundle 根的 ``libssl.3.dylib``。
+    # 我们前面又把 cv2/.dylibs/ 下的 OpenSSL 过滤掉(避免旧版冲突)→
+    # symlink target 不存在 → runtime os.stat / dyld 全 ENOENT。
+    # 不管 src 喂普通文件还是 symlink、BINARY 还是 DATA、Analysis 之前
+    # 还是之后塞,根上的 libssl.3.dylib 都会被 PyInstaller 重写成 symlink。
+    #
+    # 解法:**把 OpenSSL 藏到 PyInstaller 不认识的子路径** ``_chayuan_openssl/``,
+    # 不让它有机会做 fixup。runtime hook(openssl_preload.py)在 _ssl
+    # import 之前把字节拷到 bundle 根 + cv2/.dylibs/,直接覆盖 symlink。
+    print("[chayuan-spec] 注入 OpenSSL 到 _chayuan_openssl/ 子路径(避开 PyInstaller PKG 阶段 fixup):")
     for _name, _src in _ossl_entries:
-        a.datas.append((_name, _src, "DATA"))
-        print(f"  + 强制 root 注入 (DATA 3-tuple → a.datas): {_name} ← {_src}")
+        _hidden_dest = "_chayuan_openssl/" + _name
+        a.datas.append((_hidden_dest, _src, "DATA"))
+        print(f"  + {_hidden_dest} ← {_src}")
 
-    # 兜底校验:在 a.datas 里找(我们刚塞进去的位置)
-    _final_root_names = set()
-    for _entry in a.datas:
-        _dest = str(_entry[0]).replace("\\", "/")
-        if _dest in ("libssl.3.dylib", "libcrypto.3.dylib"):
-            _final_root_names.add(_dest)
-    if {"libssl.3.dylib", "libcrypto.3.dylib"} - _final_root_names:
+    # 兜底校验:藏区路径必须存在。
+    _hidden_present = {
+        str(_e[0]).replace("\\", "/")
+        for _e in a.datas
+        if str(_e[0]).replace("\\", "/").startswith("_chayuan_openssl/")
+    }
+    _hidden_expect = {"_chayuan_openssl/libcrypto.3.dylib", "_chayuan_openssl/libssl.3.dylib"}
+    if _hidden_expect - _hidden_present:
         raise SystemExit(
-            "[chayuan-spec] FATAL: 强制注入后 a.datas 根仍缺 libssl/libcrypto。\n"
-            "  最终 root 级 OpenSSL = " + str(sorted(_final_root_names)) + "\n"
-            "  收集到的 entries = " + str(_ossl_entries) + "\n"
+            "[chayuan-spec] FATAL: 藏区注入后 a.datas 仍缺:\n"
+            "  期望:" + str(sorted(_hidden_expect)) + "\n"
+            "  实际:" + str(sorted(_hidden_present)) + "\n"
         )
-    print(f"[chayuan-spec] 最终 a.datas 根级 OpenSSL = {sorted(_final_root_names)}")
+    print(f"[chayuan-spec] _chayuan_openssl/ 藏区 = {sorted(_hidden_present)}")
 
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
