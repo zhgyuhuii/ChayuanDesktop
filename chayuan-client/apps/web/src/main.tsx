@@ -4,6 +4,11 @@ import { setPlatform } from '@chayuan/platform-shared';
 import { createWebPlatform } from '@chayuan/platform-web';
 import { Shell } from '@chayuan/app';
 import '@chayuan/ui/styles.css';
+import { ensureSplash, hideSplash } from './splash';
+
+// 入口最早调用:HTML 已经内联 splash 时本函数 no-op;任何缺失情况下立刻
+// 程序化补一份。与 #app 同级 sibling,DOM 顺序在前。
+ensureSplash();
 
 const APP_VERSION =
   // @ts-expect-error injected by vite define
@@ -53,13 +58,6 @@ root.render(
 );
 
 // Splash 退场:Shell 在 useLayoutEffect 里调 ``window.__cyHideSplash`` 触发,
-// 与 React 首屏 paint 自然 crossfade,避免「splash 已淡出 + React 还没挂」
-// 的一帧空白窗口;8s 安全兜底防 splash 永卡。
-const hideSplash = (): void => {
-  const splash = document.getElementById('chayuan-splash');
-  if (!splash || splash.classList.contains('cy-splash-fading')) return;
-  splash.classList.add('cy-splash-fading');
-  window.setTimeout(() => splash.remove(), 420);
-};
+// 与 React 首屏 paint 自然 crossfade;8s 安全兜底防 splash 永卡。
 (window as unknown as { __cyHideSplash?: () => void }).__cyHideSplash = hideSplash;
 window.setTimeout(hideSplash, 8000);

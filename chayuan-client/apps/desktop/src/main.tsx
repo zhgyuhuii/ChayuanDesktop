@@ -4,6 +4,13 @@ import { setPlatform } from '@chayuan/platform-shared';
 import { createTauriPlatform } from '@chayuan/platform-tauri';
 import { Shell } from '@chayuan/app';
 import '@chayuan/ui/styles.css';
+import { ensureSplash, hideSplash } from './splash';
+
+// 入口最早调用:HTML 已经内联 splash 时本函数 no-op;任何原因导致 dist
+// HTML 缺失 splash 节点时(stale -BundleOnly 缓存 / 第三方注入器 / SSR
+// mismatch …) 这里立刻程序化补一个,确保用户看到的"首屏永远不空白"。
+// 与 #app 同级 sibling,DOM 顺序在前。
+ensureSplash();
 
 const APP_VERSION =
   // @ts-expect-error injected by vite define
@@ -27,12 +34,6 @@ const FALLBACK_API_BASE =
 // 暴露给 Shell:首次 useLayoutEffect 时调用,与 React 首屏 paint 自然 crossfade,
 // 避免「splash 已淡出 + React 还没挂」的一帧空白窗口。8 秒安全兜底,防止
 // 极端情况下(异步 import 失败 / sidecar 卡死)splash 永远停在屏幕上。
-const hideSplash = (): void => {
-  const splash = document.getElementById('chayuan-splash');
-  if (!splash || splash.classList.contains('cy-splash-fading')) return;
-  splash.classList.add('cy-splash-fading');
-  window.setTimeout(() => splash.remove(), 420);
-};
 (window as unknown as { __cyHideSplash?: () => void }).__cyHideSplash = hideSplash;
 window.setTimeout(hideSplash, 8000);
 
