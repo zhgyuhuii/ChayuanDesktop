@@ -161,17 +161,26 @@ export function ensureSplash(): void {
   splash.setAttribute('aria-live', 'polite');
   splash.innerHTML = SPLASH_INNER_HTML;
 
-  // 插到 body 第一个子元素的位置,确保和 #app 同级、且 DOM 顺序在前 —
-  // z-index 已经极大,DOM 顺序更多是语义保证。
+  // 插到 ``#app`` 之后(若 #app 不存在则 appendChild 兜底)。
+  // 关键约束:**不能** 放到 body 第一个子元素位置,因为 #app 是项目原始结构里
+  // body.firstChild 的位置,改动它会破坏其它代码可能存在的"body.firstChild
+  // === appRoot"假设(测试 / 选择器 / 截图工具等)。z-index 已经极大,DOM
+  // 顺序对 position:fixed 元素的视觉层级没影响。
+  const insert = (): void => {
+    if (!document.body) return;
+    if (document.getElementById(SPLASH_ID)) return; // 并发 race 防御
+    const app = document.getElementById('app');
+    if (app && app.parentNode === document.body) {
+      document.body.insertBefore(splash, app.nextSibling);
+    } else {
+      document.body.appendChild(splash);
+    }
+  };
+
   if (document.body) {
-    document.body.insertBefore(splash, document.body.firstChild);
+    insert();
   } else {
-    // body 还没解析到(极早期 inline script 调用):等 DOMContentLoaded 再插
-    document.addEventListener('DOMContentLoaded', () => {
-      if (document.body && !document.getElementById(SPLASH_ID)) {
-        document.body.insertBefore(splash, document.body.firstChild);
-      }
-    }, { once: true });
+    document.addEventListener('DOMContentLoaded', insert, { once: true });
   }
 }
 

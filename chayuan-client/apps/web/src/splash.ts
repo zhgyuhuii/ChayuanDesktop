@@ -139,14 +139,22 @@ export function ensureSplash(): void {
   splash.setAttribute('aria-live', 'polite');
   splash.innerHTML = SPLASH_INNER_HTML;
 
+  // 插到 ``#app`` 之后,保留 #app 在 body.firstChild 的原始位置;详见 desktop 端注释。
+  const insert = (): void => {
+    if (!document.body) return;
+    if (document.getElementById(SPLASH_ID)) return;
+    const app = document.getElementById('app');
+    if (app && app.parentNode === document.body) {
+      document.body.insertBefore(splash, app.nextSibling);
+    } else {
+      document.body.appendChild(splash);
+    }
+  };
+
   if (document.body) {
-    document.body.insertBefore(splash, document.body.firstChild);
+    insert();
   } else {
-    document.addEventListener('DOMContentLoaded', () => {
-      if (document.body && !document.getElementById(SPLASH_ID)) {
-        document.body.insertBefore(splash, document.body.firstChild);
-      }
-    }, { once: true });
+    document.addEventListener('DOMContentLoaded', insert, { once: true });
   }
 }
 

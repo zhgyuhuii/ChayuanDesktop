@@ -147,8 +147,11 @@
     </style>
   </head>
   <body>
-    <!-- 第 4 层:DOM 解析到这里就立刻渲染。固定定位 + z-index 极大值,盖在 #app 上方;
-         #app 自己渲染什么不影响 splash 显示,直到 main.tsx 主动 fade out + remove。 -->
+    <!-- ``<div id="app">`` 永远是 body 第一个子元素 — 与项目原始结构对齐,业务代码若有
+         "body.firstChild === appRoot" 之类的隐式假设也不会因为 splash 介入而失真。
+         splash 放在 #app 之后,position:fixed + z-index 极大值依然能盖在所有内容上,
+         DOM 顺序不影响视觉层级。main.tsx 会在首屏 paint 时 fade + remove。 -->
+    <div id="app"></div>
     <div id="chayuan-splash" aria-busy="true" aria-live="polite">
       <div class="cy-splash-ring"></div>
       <div class="cy-splash-orbits">
@@ -164,7 +167,6 @@
         <div class="cy-splash-tag-sub">正在加载…</div>
       </div>
     </div>
-    <div id="app"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
