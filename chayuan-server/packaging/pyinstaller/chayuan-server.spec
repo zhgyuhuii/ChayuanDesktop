@@ -168,74 +168,125 @@ if sqlite_vec_dir.is_dir():
 # 然后通过 ``_dyld_image_count`` / ``_dyld_get_image_name`` 直接读出当前进程
 # 加载的真实文件路径。conda / pyenv / homebrew / python.org 全适配,无需配置。
 if sys.platform == "darwin":
-    def _find_loaded_dylib_for_spec(prefix: str):
-        """从 dyld 已加载动态库列表里找首个 basename 以 prefix 开头的文件。"""
+    import os as _os
+
+    def _dyld_loaded_dylibs():
+        """返回当前进程 dyld 已加载的所有动态库路径(原始路径,不 resolve)。"""
         import ctypes
         libsys = ctypes.CDLL(None)
         libsys._dyld_image_count.restype = ctypes.c_uint32
         libsys._dyld_get_image_name.restype = ctypes.c_char_p
         libsys._dyld_get_image_name.argtypes = [ctypes.c_uint32]
+        out: list[Path] = []
         for i in range(libsys._dyld_image_count()):
-            name = libsys._dyld_get_image_name(i).decode("utf-8", errors="replace")
-            if Path(name).name.startswith(prefix):
-                return Path(name).resolve()
-        return None
+            n = libsys._dyld_get_image_name(i).decode("utf-8", errors="replace")
+            out.append(Path(n))
+        return out
 
-    # 触发 _ssl 加载,确保 libssl/libcrypto 进 dyld image list
+    print("[chayuan-spec] ===== macOS OpenSSL 注入开始 =====")
+    print(f"[chayuan-spec] sys.executable = {sys.executable}")
+    print(f"[chayuan-spec] sys.prefix     = {sys.prefix}")
+    print(f"[chayuan-spec] sys.platform   = {sys.platform}")
     try:
-        import ssl as _spec_ssl_probe  # noqa: F401
-        import _ssl as _spec_ssl_native  # noqa: F401
+        import ssl as _spec_ssl_probe
+        import _ssl as _spec_ssl_native
+        print(f"[chayuan-spec] ssl.OPENSSL_VERSION = {_spec_ssl_probe.OPENSSL_VERSION}")
+        print(f"[chayuan-spec] _ssl.__file__       = {_spec_ssl_native.__file__}")
     except Exception as _e:
         print(f"[chayuan-spec] !! 构建机 Python 自身 import ssl 失败:{_e}")
+        raise SystemExit(
+            f"[chayuan-spec] FATAL: 构建机 Python 不能 import ssl({_e})。"
+            f"请检查 Python 安装或 conda 环境,Python 自身 ssl 都坏的情况下"
+            f"打出来的 sidecar 100% 跑不起来。"
+        )
 
-    _ossl_added: list[str] = []
-    for _prefix, _expected in (("libcrypto.", "libcrypto.3.dylib"),
-                                ("libssl.",    "libssl.3.dylib")):
-        _real = _find_loaded_dylib_for_spec(_prefix)
-        if _real is None or not _real.is_file():
+    # 全量打印 dyld 已加载的 libssl/libcrypto 候选,便于排查多版本同时在场。
+    _all_imgs = _dyld_loaded_dylibs()
+    _ssl_candidates = [p for p in _all_imgs
+                       if p.name.startswith("libssl.") or p.name.startswith("libcrypto.")]
+    print(f"[chayuan-spec] dyld 总加载 dylib 数 = {len(_all_imgs)}")
+    print(f"[chayuan-spec] 其中 libssl/libcrypto 命中 {len(_ssl_candidates)} 个:")
+    for _p in _ssl_candidates:
+        print(f"  · {_p}")
+
+    # 关键修复:**不能** Path.resolve()。conda / Homebrew 上
+    # ``libssl.3.dylib`` 通常是指向 ``libssl.3.X.dylib`` 真实文件的 symlink。
+    # 一旦 resolve(),basename 就变成 ``libssl.3.X.dylib``;PyInstaller 按 src
+    # basename 写入 bundle,_ssl.so 的 @rpath/libssl.3.dylib 就找不到了 ── 这正是
+    # 反复出现 "Library not loaded @rpath/libssl.3.dylib" 的根因。
+    #
+    # 正确做法:取 dyld 报的原始路径(通常本身就是 canonical 名),src 直接是 symlink
+    # 路径(PyInstaller copyfile 会跟随 symlink 读真实文件,但 dest basename 用 src
+    # 路径的 basename),这样落到 bundle 里就是 _ssl 期望的 ``libssl.3.dylib``。
+    def _pick_canonical(prefix: str) -> Path | None:
+        """从 dyld 候选里挑 basename 最接近 ``<prefix>3.dylib``(canonical SONAME)的那一个。"""
+        canonical = f"{prefix}3.dylib"   # libssl.3.dylib / libcrypto.3.dylib
+        # 1. 优先 basename 完全等于 canonical 的(symlink 或同名文件)
+        for p in _all_imgs:
+            if p.name == canonical:
+                return p
+        # 2. 其次 basename 以 prefix 开头的第一个(real file like libssl.3.5.dylib)
+        for p in _all_imgs:
+            if p.name.startswith(prefix):
+                return p
+        return None
+
+    _ossl_entries: list[tuple[str, str]] = []     # (dest_basename, src_path)
+    _ossl_lib_dir: Path | None = None
+    for _prefix in ("libcrypto.", "libssl."):
+        _picked = _pick_canonical(_prefix)
+        if _picked is None:
             continue
-        # 2-元组 (src_path, dest_dir);Analysis 会规范化成 (basename, src, BINARY),
-        # 落到 bundle 根(_MEIxxx/libssl.3.dylib),正是 _ssl.so @rpath 解析的位置。
-        binaries.append((str(_real), "."))
-        _ossl_added.append(f"{_real.name} ← {_real}")
+        _ossl_lib_dir = _picked.parent
+        _canonical = f"{_prefix}3.dylib"
+        # 取 canonical symlink:同目录下的 libssl.3.dylib / libcrypto.3.dylib
+        _canon_path = _picked.parent / _canonical
+        if _canon_path.exists():
+            _ossl_entries.append((_canonical, str(_canon_path)))
+        else:
+            # canonical 不存在(罕见),退而求其次用 dyld 原始路径,但显式指定 dest 名为 canonical
+            _ossl_entries.append((_canonical, str(_picked)))
 
-    if _ossl_added:
-        print("[chayuan-spec] 注入构建机 Python 实际加载的 OpenSSL(via dyld):")
-        for _e in _ossl_added:
-            print(f"  - {_e}")
-    else:
-        # 兜底:dyld 没找到时按路径搜索;通常不会触发(Python 正常 import ssl
-        # 必然会加载 libssl/libcrypto)。OPENSSL_LIBDIR 显式覆盖优先。
-        import os as _os
+    # 路径兜底(conda env / Homebrew / OPENSSL_LIBDIR)── dyld 没命中时用
+    if not _ossl_entries:
         _dirs: list[Path] = []
         _override = _os.environ.get("OPENSSL_LIBDIR", "").strip()
         if _override:
             _dirs.append(Path(_override))
         _dirs.extend([
-            Path(sys.prefix) / "lib",                    # conda / pyenv / python.org
-            Path("/opt/homebrew/opt/openssl@3/lib"),     # Homebrew arm64
-            Path("/usr/local/opt/openssl@3/lib"),        # Homebrew x86_64
+            Path(sys.prefix) / "lib",
+            Path("/opt/homebrew/opt/openssl@3/lib"),
+            Path("/usr/local/opt/openssl@3/lib"),
             Path("/opt/homebrew/lib"),
             Path("/usr/local/lib"),
         ])
         for _libname in ("libcrypto.3.dylib", "libssl.3.dylib"):
             for _d in _dirs:
                 _full = _d / _libname
-                if _full.is_file():
-                    _real = _full.resolve()
-                    binaries.append((str(_real), "."))
-                    _ossl_added.append(f"{_libname} ← {_real}(路径兜底)")
+                if _full.exists():
+                    _ossl_entries.append((_libname, str(_full)))
+                    _ossl_lib_dir = _d
                     break
-        if _ossl_added:
-            print("[chayuan-spec] dyld 未命中,使用路径兜底注入 OpenSSL:")
-            for _e in _ossl_added:
-                print(f"  - {_e}")
-        else:
-            print(
-                "[chayuan-spec] !! 严重警告:dyld 与路径兜底都没找到 libssl/"
-                "libcrypto。运行时 _ssl.so 必挂。请确认构建机 Python ``import ssl`` "
-                "可正常运行;或显式 ``export OPENSSL_LIBDIR=/path/to/openssl/lib``。"
-            )
+
+    if not _ossl_entries or len({n for n, _ in _ossl_entries}) < 2:
+        # 找不到任意一个 ── 直接 fail build,避免再产出一个运行时挂的 sidecar。
+        print("[chayuan-spec] !! FATAL: 没找到 libssl.3.dylib / libcrypto.3.dylib 的有效来源。")
+        raise SystemExit(
+            "[chayuan-spec] FATAL: macOS bundle 必需的 OpenSSL 来源缺失。\n"
+            "  期望:dyld 已加载 libssl.3.dylib + libcrypto.3.dylib,或 OPENSSL_LIBDIR 指向有效目录。\n"
+            "  现已收集:" + str(_ossl_entries) + "\n"
+            "  解决:在构建机 ``poetry shell`` 里跑 ``python -c \"import ssl; print(ssl.OPENSSL_VERSION)\"`` 确认 ssl 可用,"
+            "或者 ``export OPENSSL_LIBDIR=/opt/homebrew/opt/openssl@3/lib`` 后重跑构建。"
+        )
+
+    # 把 OpenSSL 通过 (src, dest_dir) 2-元组塞 binaries(走 Analysis 的标准依赖归一化通道)。
+    # 不依赖 PyInstaller 自动跟随 symlink ── 把 canonical 名作为 src 可保证 dest 也叫 canonical。
+    print("[chayuan-spec] 即将注入 OpenSSL(canonical SONAME → 源文件):")
+    for _dest_name, _src in _ossl_entries:
+        binaries.append((_src, "."))
+        print(f"  + {_dest_name} ← {_src}")
+
+    print("[chayuan-spec] ===== macOS OpenSSL 注入完成 =====")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -364,6 +415,38 @@ if sys.platform == "darwin":
         print(
             f"[chayuan-spec] 已剔除 cv2/.dylibs/ 下的旧版 OpenSSL "
             f"{before - after} 个文件,避免与 bundle 根的新版冲突。"
+        )
+
+    # 验证 canonical OpenSSL 是否真的在 TOC 根目录;这是上面"反复挂 libssl.3.dylib"
+    # 的最后一道防线 ── 如果走到这里 a.binaries 里没有 libssl.3.dylib / libcrypto.3.dylib,
+    # 说明前面的注入路径在 PyInstaller 归一化阶段被吞了,直接 fail build。
+    _root_oss = []
+    for _entry in a.binaries:
+        # entry 已规范化:(dest_in_bundle, src_path, typecode)
+        _dest = str(_entry[0]).replace("\\", "/")
+        _bn = _dest.rsplit("/", 1)[-1] if "/" in _dest else _dest
+        if _bn in ("libssl.3.dylib", "libcrypto.3.dylib") and ("/" not in _dest):
+            _root_oss.append((_dest, _entry[1]))
+
+    print("[chayuan-spec] Analysis 之后 a.binaries 里的根级 OpenSSL:")
+    for _d, _s in _root_oss:
+        print(f"  · {_d} ← {_s}")
+    _root_names = {d for d, _ in _root_oss}
+    if {"libssl.3.dylib", "libcrypto.3.dylib"} - _root_names:
+        print("[chayuan-spec] !! TOC 里仍缺 canonical OpenSSL,降级到 3-元组直接 append a.binaries。")
+        # 退路:直接拼 3-元组写入(已规范化 TOC),强制 dest 是 canonical 名。
+        for _name, _src in _ossl_entries:
+            if _name not in _root_names:
+                a.binaries.append((_name, _src, "BINARY"))
+                print(f"  + 追加 (3-tuple): {_name} ← {_src}")
+        _root_names |= {n for n, _ in _ossl_entries}
+    if {"libssl.3.dylib", "libcrypto.3.dylib"} - _root_names:
+        raise SystemExit(
+            "[chayuan-spec] FATAL: bundle 根缺 libssl.3.dylib / libcrypto.3.dylib。\n"
+            "  当前 root 级 OpenSSL = " + str(sorted(_root_names)) + "\n"
+            "  dyld 候选 = " + str([str(p) for p in _ssl_candidates]) + "\n"
+            "  收集到的 entries = " + str(_ossl_entries) + "\n"
+            "  请检查 spec 与 PyInstaller 版本兼容性。"
         )
 
 
