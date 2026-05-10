@@ -14,7 +14,7 @@
  */
 
 import { Button } from '@chayuan/ui';
-import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import * as React from 'react';
 import { getPlatform } from '@chayuan/platform-shared';
 import type { SidecarStatus } from '@chayuan/platform-shared';
@@ -34,16 +34,6 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
     onReadyRef.current = onReady;
   }, [onReady]);
 
-  // disabled(dev 模式)走自动放行;ready 显式确认按钮才放行,避免 sidecar
-  // 启动期 emit 的密码 / 登录路径段 / uvicorn 启动行被误传到主界面之前的诊断
-  // 抽屉(failure 屏 details)。Phase 3 v0:只对用户暴露稳定的状态字面值。
-  const handleEnter = React.useCallback(() => {
-    const cur = status;
-    if (cur && (cur.state === 'ready' || cur.state === 'disabled')) {
-      onReadyRef.current(cur.baseUrl);
-    }
-  }, [status]);
-
   const startOnce = React.useCallback(async () => {
     const sidecar = getPlatform().sidecar;
     if (!sidecar) {
@@ -54,17 +44,14 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
     try {
       const initial = await sidecar.status();
       setStatus(initial);
-      // disabled(dev 模式)直接放行;ready 等用户点"进入主界面"
-      if (initial.state === 'disabled') {
+      // ready / disabled:直接放行进主界面
+      if (initial.state === 'ready' || initial.state === 'disabled') {
         onReadyRef.current(initial.baseUrl);
         return;
       }
-      if (initial.state === 'ready') {
-        return; // 走 ready 屏的"进入"按钮
-      }
       const next = await sidecar.start({ dataDir });
       setStatus(next);
-      if (next.state === 'disabled') {
+      if (next.state === 'ready' || next.state === 'disabled') {
         onReadyRef.current(next.baseUrl);
       }
     } catch (e) {
@@ -93,8 +80,7 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
           // 状态变化:重新拉一次 status 拿最新 baseUrl / error
           const cur = await sidecar.status().catch(() => null);
           if (cur) setStatus(cur);
-          // disabled(dev)直接放行;ready 等用户点按钮
-          if (state === 'disabled') {
+          if (state === 'ready' || state === 'disabled') {
             onReadyRef.current(cur?.baseUrl ?? '');
           }
         },
@@ -110,45 +96,8 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
     };
   }, [startOnce]);
 
-  // 渲染:starting / ready / failed
+  // 渲染:starting / failed(ready / disabled 已在 effect 里 onReady,组件即将卸载)
   const state = status?.state ?? 'idle';
-
-  if (state === 'ready') {
-    return (
-      <div className="relative h-screen w-screen overflow-hidden bg-[var(--cy-surface-2,#f8fafc)]">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(34,197,94,0.10),transparent_36%),radial-gradient(circle_at_75%_75%,rgba(99,102,241,0.10),transparent_32%)]" />
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-8 px-6">
-          {/* logo */}
-          <div className="relative">
-            <div className="relative flex h-24 w-24 items-center justify-center rounded-3xl bg-white shadow-[0_20px_60px_rgba(34,197,94,0.30)] ring-1 ring-[var(--cy-border-subtle,#e2e8f0)]">
-              <img
-                src={CHAYUAN_LOGO_URL}
-                alt="察元 AI"
-                className="h-16 w-16 object-contain"
-                draggable={false}
-              />
-            </div>
-            <div className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full bg-[#22c55e] text-white shadow-md ring-4 ring-[var(--cy-surface-2,#f8fafc)]">
-              <CheckCircle2 className="h-5 w-5" />
-            </div>
-          </div>
-
-          <div className="text-center">
-            <h1 className="text-xl font-semibold text-[var(--cy-text-primary,#0f172a)] sm:text-2xl">
-              启动成功
-            </h1>
-            <p className="mt-2 text-sm text-[var(--cy-text-tertiary,#94a3b8)]">
-              请刷新页面即可
-            </p>
-          </div>
-
-          <Button size="sm" onClick={handleEnter}>
-            刷新页面
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
   if (state === 'failed') {
     return (
