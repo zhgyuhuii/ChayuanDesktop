@@ -1,15 +1,17 @@
 /**
  * HomePage — 主页(单机版重构 2026-05-09):
  *
- *   1. Greeting(早/午/晚 + 用户名)
+ *   1. Greeting(早/午/晚 + 用户名)+ 流式产品介绍气泡(进首页跑一次,流完即静止)
  *   2. [可选 banner] 还没配模型 → 跳模型广场
  *   3. 4 张炫酷功能入口卡(知识库 / 模型广场 / MCP 服务 / 工具中心)— 4 列等宽
  *   4. 关注我们 + 收款码 三张二维码
- *   5. 流式产品介绍(每次进入都重新生成,LLM 不可用走静态文案 fallback)
- *   6. 特性 chip + WPS 加载项 / GitHub / 官网链接
+ *   5. 特性 chip + WPS 加载项 / GitHub / 官网链接
  *
- * 历史:旧版主页有 Composer + AI 操控/AI 妙计/同传字幕/AI 修图 等"占位能力",
- * 单机版没有这些功能,2026-05-09 全部移除,首页职能改为产品入口 + 介绍。
+ * 历史:
+ *  - 2026-05-09 移除旧版 Composer + 占位能力,首页改为产品入口 + 介绍。
+ *  - 2026-05-12 取消"每 4s 自动换文案"循环 — LLM 不可用时它会在静态文案
+ *    间反复切,视觉上就是"屏幕闪烁"。改为单次播放 + rAF 合批 chunk 渲染,
+ *    气泡固定 min-h 避免内容增长推开下方卡片。
  */
 
 import * as React from 'react';
@@ -20,7 +22,6 @@ import {
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
-import { cn } from '@chayuan/ui';
 import { useAuthStore } from '../../store/auth';
 import { useTabsStore } from '../../store/tabs';
 import { useTranslation } from '../../i18n';
@@ -147,62 +148,79 @@ export const HomePage: React.FC = () => {
   };
 
   // ── 流式产品介绍 ────────────────────────────────────────────────
-  // 行为:进首页 / 切回 tab → 拉一段 LLM 流式介绍;每段流完 4s 后**自动启下一段**,
-  // 让用户在主页停留期间一直有"机器人不停在介绍产品"的现场感。
-  // 离开 tab(unmount / KeepAlive 切到背景)→ AbortController 中止,清掉 timer。
-  // LLM 不可用时 catch 后从 5 段静态文案随机一段兜底,自动循环切换静态文案。
+  // 行为(2026-05-12 改):进首页拉一次 LLM 流式介绍;流完即停,**不再自动循环**。
+  // 旧版每 4s 清空 + 重新流,LLM 不可用时(后端 emit error)会变成每 4s 在静态
+  // 文案间反复切换,视觉上"屏幕一直闪烁"。改为单次播放后静止。
+  // 离开 tab(unmount / KeepAlive 切到背景)→ AbortController 中止流。
+  // LLM 不可用时 catch 一次 → 选一段静态文案落定,不再重试。
+  //
+  // chunk → setIntro 用 rAF 合并:LLM 高速吐 token 时不再每个 token 都触发
+  // HomePage 全树重渲染,显著降低四张能力卡 + 二维码的 reflow 抖动。
   const [intro, setIntro] = React.useState('');
   const [introDone, setIntroDone] = React.useState(false);
   const [introError, setIntroError] = React.useState<string | null>(null);
   const introAbortRef = React.useRef<AbortController | null>(null);
-  const introLoopTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const introLoopAlive = React.useRef(true);
+  // rAF 合批:onChunk 把增量塞到 ref,下一帧统一 flush 到 state
+  const pendingRef = React.useRef('');
+  const rafRef = React.useRef<number | null>(null);
 
-  const startIntro = React.useCallback(() => {
-    introAbortRef.current?.abort();
-    if (introLoopTimerRef.current) clearTimeout(introLoopTimerRef.current);
+  const flushPending = React.useCallback(() => {
+    rafRef.current = null;
+    const delta = pendingRef.current;
+    if (!delta) return;
+    pendingRef.current = '';
+    setIntro((prev) => prev + delta);
+  }, []);
+
+  const queueChunk = React.useCallback((text: string) => {
+    pendingRef.current += text;
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(flushPending);
+  }, [flushPending]);
+
+  React.useEffect(() => {
     const ctl = new AbortController();
     introAbortRef.current = ctl;
     setIntro('');
     setIntroDone(false);
     setIntroError(null);
 
-    const scheduleNext = () => {
-      if (!introLoopAlive.current) return;
-      // 流完后 4s 自动开下一段;期间 cursor 暂停,文案静态停留供用户阅读
-      introLoopTimerRef.current = setTimeout(() => {
-        if (introLoopAlive.current) startIntro();
-      }, 4000);
-    };
-
     void home.introStream(
       {
-        onChunk: (text) => setIntro((prev) => prev + text),
+        onChunk: queueChunk,
         onDone: () => {
+          // 最后一帧 pending 还可能没 flush,补刷一次,再标记 done
+          if (rafRef.current != null) {
+            cancelAnimationFrame(rafRef.current);
+            rafRef.current = null;
+          }
+          flushPending();
           setIntroDone(true);
-          scheduleNext();
         },
       },
       { signal: ctl.signal },
     ).catch((e: unknown) => {
       if ((e as { name?: string })?.name === 'AbortError' || ctl.signal.aborted) return;
-      // LLM 不可用 / 调用失败 → 静态文案兜底,继续循环换文案
+      // LLM 不可用 / 调用失败 → 选一段静态文案落定;**不再循环**
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      pendingRef.current = '';
       setIntro(pickStaticIntro());
       setIntroDone(true);
       setIntroError(e instanceof Error ? e.message : String(e));
-      scheduleNext();
     });
-  }, []);
 
-  React.useEffect(() => {
-    introLoopAlive.current = true;
-    startIntro();
     return () => {
-      introLoopAlive.current = false;
-      introAbortRef.current?.abort();
-      if (introLoopTimerRef.current) clearTimeout(introLoopTimerRef.current);
+      ctl.abort();
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      pendingRef.current = '';
     };
-  }, [startIntro]);
+  }, [flushPending, queueChunk]);
 
   return (
     <div className="mx-auto flex h-full max-w-5xl flex-col gap-8 px-6 py-10 overflow-y-auto">
@@ -226,24 +244,24 @@ export const HomePage: React.FC = () => {
         </div>
       </div>
 
-      {/* 流式介绍气泡 — 像机器人发了一条消息,留在 logo 下方,持续不停换内容 */}
+      {/* 流式介绍气泡 — 一次播放,流完即静止;不再循环换文案,避免视觉闪烁。
+          固定 min-h-[5rem] 让气泡高度不随文字增长抖动,下方卡片不会被反复推开。
+          光标用 opacity 1s 步进切换,比 animate-pulse 柔和。 */}
       <div className="flex max-w-3xl items-start gap-3 -mt-3">
         <div className="h-7 w-7 shrink-0 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] flex items-center justify-center text-[11px] font-semibold text-white shadow-sm">
           AI
         </div>
         <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm bg-[var(--cy-surface-base)] px-4 py-3 ring-1 ring-[var(--cy-border-subtle)] shadow-sm">
-          <p
-            className={cn(
-              'min-h-[2.5rem] text-sm leading-relaxed text-[var(--cy-text-secondary)]',
-              // 文字开始流出后才挂闪烁光标;空白等待期改用三粒跳动 dots(下方 TypingDots)
-              !introDone && intro && "after:ml-0.5 after:inline-block after:h-3.5 after:w-1.5 after:translate-y-0.5 after:animate-pulse after:bg-[var(--cy-text-tertiary)] after:content-['']",
-            )}
-          >
+          <p className="min-h-[5rem] text-sm leading-relaxed text-[var(--cy-text-secondary)]">
             {intro || (introDone ? '' : <TypingDots />)}
+            {!introDone && intro && <Caret />}
           </p>
           {introError && (
-            <p className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]" title={introError}>
-              (LLM 不可用,已用本地文案兜底)
+            <p
+              className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]"
+              title={introError}
+            >
+              (LLM 不可用,已用本地文案兜底 — 可前往模型广场配置)
             </p>
           )}
         </div>
@@ -360,7 +378,7 @@ export const HomePage: React.FC = () => {
 // ── 三粒跳动 dots — 流式介绍空白等待期的纯动画占位 ────────────────
 // 取代之前的「正在生成介绍…」文字,纯视觉提示 LLM 在思考,文案干净不打断阅读。
 const TypingDots: React.FC = () => (
-  <span className="inline-flex items-center gap-1 align-middle">
+  <span className="inline-flex items-center gap-1 align-middle motion-safe:contents motion-reduce:hidden">
     <span
       className="h-1.5 w-1.5 rounded-full bg-[var(--cy-text-tertiary)] animate-bounce"
       style={{ animationDelay: '-0.3s' }}
@@ -371,6 +389,15 @@ const TypingDots: React.FC = () => (
     />
     <span className="h-1.5 w-1.5 rounded-full bg-[var(--cy-text-tertiary)] animate-bounce" />
   </span>
+);
+
+// ── 打字机光标 — 仅流式过程中跟在文末,动画用 motion-safe 包,
+//    用户系统勾了"减少动画"时变成静态竖线,不会一直闪。 ──────────────
+const Caret: React.FC = () => (
+  <span
+    aria-hidden
+    className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 bg-[var(--cy-text-tertiary)] align-text-bottom motion-safe:animate-pulse"
+  />
 );
 
 // ── 二维码小卡 ─────────────────────────────────────────────────────
