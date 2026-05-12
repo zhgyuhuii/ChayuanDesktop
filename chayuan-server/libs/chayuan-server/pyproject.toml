@@ -6,7 +6,6 @@ name = "chayuan-server"
 version = "1.0.0.0"
 description = "察元AI助手服务（chayuan-server）：基于 LangChain 的本地知识库与 Agent 对话服务。"
 authors = ["北京智灵鸟科技中心"]
-readme = "README.md"
 packages = [
     {include = "chayuan"},
     {include = "langchain_chayuan"}
