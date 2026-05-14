@@ -223,12 +223,15 @@ inference:
 # ────────────────────────────────────────────────────────────────────
 models:
   - name: qwen3-4b-chat-gguf
-    repo: Qwen/Qwen3-4B-Instruct-GGUF
-    file: qwen3-4b-instruct-q4_k_m.gguf
-    dest: models/chat/Qwen--Qwen3-4B-Instruct-GGUF
-    source: hf-mirror://Qwen/Qwen3-4B-Instruct-GGUF
+    repo: unsloth/Qwen3-4B-Instruct-2507-GGUF
+    file: Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+    dest: models/chat/unsloth--Qwen3-4B-Instruct-2507-GGUF
+    source: hf-mirror://unsloth/Qwen3-4B-Instruct-2507-GGUF
     release: [lite, standard, pro]
-    note: 默认对话模型(Qwen3-4B Q4_K_M ~2.5GB)；中文/工具调用强；建议 8GB+ 内存
+    # 2026-05-14 实测：
+    # - Qwen/Qwen3-4B-Instruct-GGUF API 返 401(不存在 / gated)；
+    # - unsloth/Qwen3-4B-Instruct-2507-GGUF 单文件 2.33 GB,HEAD 200。
+    note: 默认对话模型(Qwen3-4B Instruct 2507 Q4_K_M,2.33 GB)；中文/工具调用强；建议 8GB+ 内存
 
   - name: bge-m3
     repo: BAAI/bge-m3
@@ -266,13 +269,17 @@ models:
     release: [standard, pro]
     note: 高精度中文 embedding，1.4GB(中文偏置场景备选)
 
-  - name: qwen3-7b-chat-gguf
-    repo: Qwen/Qwen3-7B-Instruct-GGUF
-    file: qwen3-7b-instruct-q4_k_m.gguf
-    dest: models/chat/Qwen--Qwen3-7B-Instruct-GGUF
-    source: hf-mirror://Qwen/Qwen3-7B-Instruct-GGUF
+  - name: qwen25-7b-chat-gguf
+    # 2026-05-14 实测：
+    # - Qwen/Qwen3-7B-Instruct-GGUF API 返 401(不存在 / gated);
+    # - Qwen/Qwen2.5-7B-Instruct-GGUF 是 split 多分片(不便单文件 fetch);
+    # - bartowski/Qwen2.5-7B-Instruct-GGUF 单文件 4.36 GB,HEAD 200,作为 pro 默认。
+    repo: bartowski/Qwen2.5-7B-Instruct-GGUF
+    file: Qwen2.5-7B-Instruct-Q4_K_M.gguf
+    dest: models/chat/bartowski--Qwen2.5-7B-Instruct-GGUF
+    source: hf-mirror://bartowski/Qwen2.5-7B-Instruct-GGUF
     release: [pro]
-    note: pro 包默认对话；~4.5GB；建议 16GB+ 内存
+    note: pro 包默认对话(Qwen2.5-7B Q4_K_M,4.36 GB)；建议 16GB+ 内存
 
 # ────────────────────────────────────────────────────────────────────
 # §5 Release 矩阵：定义"包多大、装哪些"
@@ -309,7 +316,7 @@ releases:
     inference: [llama-cpp, whisper-cpp, piper]
     models:
       - qwen3-4b-chat-gguf
-      - qwen3-7b-chat-gguf
+      - qwen25-7b-chat-gguf      # 2026-05-14:旧名 qwen3-7b-chat-gguf 引用的官方 GGUF 不存在,改用 bartowski 镜像下的 Qwen2.5-7B-Instruct
       - bge-m3
       - bge-large-zh-v15
       - bge-reranker-v2-m3

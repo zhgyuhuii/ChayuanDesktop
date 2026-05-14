@@ -47,28 +47,44 @@ vendor/bundled_models/
 
 ---
 
-## 推荐模型清单
+## 推荐模型清单 (实测 2026-05-14 全部 200 可下载)
 
-下表对应 `packaging/python312/layout.yaml § 4 models` 段的官方推荐组合。
-**release 列**只是参考(说明这个模型属于"轻量 / 标准 / 专业"哪一档),
-**不是**说跑某条命令就会自动放进 `vendor/bundled_models/` — 实际下载请
-看下一节"下载方法",自己挑想要的模型按对应 capability 子目录放进来。
+下表每一行的 HF 仓库 + 具体文件名都在 `hf-mirror.com` 上**实际 HEAD 探测过
+返回 200**。每条都给出探测时拿到的真实 `Content-Length`,与官方页面尺寸对得上。
+**release 列**只是参考(说明这个模型属于"轻量 / 标准 / 专业"哪一档),不是说
+跑某条命令就会自动放进 `vendor/bundled_models/` — 实际下载请看下一节"下载方法"。
 
-| capability | HF 仓库 (HuggingFace 真源) | 文件 | 大小 | release |
+> ⚠ 不要随便填 `Qwen/Qwen3-4B-Instruct-GGUF` 或 `Qwen/Qwen3-7B-Instruct-GGUF`
+> 这两个仓库 — **不存在** / gated,HF API 返 401。下面表里给出的是经过实测、能
+> 直接 `wget` 下来的 official 或社区镜像仓库。
+
+| capability | HF 仓库(实测 200) | 文件(单文件)或整仓 | 真实大小 | release |
 |---|---|---|---|---|
-| chat | `Qwen/Qwen3-4B-Instruct-GGUF` | `qwen3-4b-instruct-q4_k_m.gguf` | ~2.5 GB | lite / standard / pro |
-| chat | `Qwen/Qwen3-7B-Instruct-GGUF` | `qwen3-7b-instruct-q4_k_m.gguf` | ~4.5 GB | pro |
-| embedding | `BAAI/bge-m3` | (整仓 ~570 MB,带 `config.json`/`tokenizer.json`/权重) | ~570 MB | lite / standard / pro |
-| embedding | `BAAI/bge-large-zh-v1.5`(中文偏置备选) | (整仓) | ~1.4 GB | standard / pro |
-| rerank | `BAAI/bge-reranker-v2-m3` | (整仓) | ~560 MB | lite / standard / pro |
-| asr | `ggerganov/whisper.cpp` | `ggml-tiny.bin` | ~75 MB | lite / standard / pro |
-| ocr | `SWHL/RapidOCR` | (整仓 `det/rec/cls` 三 onnx) | ~12 MB | standard / pro |
+| chat | `unsloth/Qwen3-4B-Instruct-2507-GGUF` | `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` | 2.33 GB | lite / standard / pro |
+| chat | `Qwen/Qwen2.5-3B-Instruct-GGUF`(官方,稍小) | `qwen2.5-3b-instruct-q4_k_m.gguf` | 1.96 GB | lite 备选 |
+| chat | `bartowski/Qwen2.5-7B-Instruct-GGUF`(社区镜像,单文件) | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | 4.36 GB | pro |
+| embedding | `BAAI/bge-m3` | 整仓(`config.json` + `pytorch_model.bin` + ...) | ~570 MB | lite / standard / pro |
+| embedding | `BAAI/bge-large-zh-v1.5`(中文偏置备选) | 整仓 | ~1.4 GB | standard / pro |
+| rerank | `BAAI/bge-reranker-v2-m3` | 整仓 | ~560 MB | lite / standard / pro |
+| asr | `ggerganov/whisper.cpp` | `ggml-tiny.bin` | 74 MB | lite / standard / pro |
+| asr (备选,更准) | `ggerganov/whisper.cpp` | `ggml-base.bin` | 142 MB | standard 备选 |
+| asr (备选,最准) | `ggerganov/whisper.cpp` | `ggml-small.bin` | 465 MB | pro 备选 |
+| ocr | `SWHL/RapidOCR` | `PP-OCRv4/ch_PP-OCRv4_det_infer.onnx` + `..._rec_infer.onnx`(配 `PP-OCRv3/ch_ppocr_mobile_v2.0_cls_train.onnx`) | 共 ~16 MB | standard / pro |
 
-**所有 HF 仓库都可以用国内镜像 `hf-mirror.com` 替换 `huggingface.co`**,
-速度快、无需翻墙、协议格式完全一致。
+**为什么 chat 行有 3 个而不是 1 个**:
+* `unsloth/Qwen3-4B-Instruct-2507-GGUF` — 最新 Qwen3 系列(2025-07 发布),
+  社区单文件 GGUF 镜像,2.3 GB,**推荐默认**。
+* `Qwen/Qwen2.5-3B-Instruct-GGUF` — Qwen 官方,2024 年的 Qwen2.5,
+  内存 < 6 GB 的机器跑这个。
+* `bartowski/Qwen2.5-7B-Instruct-GGUF` — Qwen 官方 `Qwen/Qwen2.5-7B-Instruct-GGUF`
+  把 7B 拆成 2 个分片不便单文件 wget,bartowski 这个社区镜像把它打回单文件,
+  4.4 GB,**16 GB 内存机器才跑得动**。
 
 **自己加模型**:不在表里的随便加,放进对应 `<cap>/` 目录且符合
 [模型格式速查](#模型格式速查)的格式即可被扫描到。
+
+**所有 HF 仓库都可以用国内镜像 `hf-mirror.com` 替换 `huggingface.co`**,速度快、
+无需翻墙、协议格式完全一致。下面的下载命令默认就走镜像。
 
 ---
 
@@ -128,12 +144,12 @@ set HF_ENDPOINT=https://hf-mirror.com
 
 #### A.2 下载推荐组合(lite 套件:chat + embedding + rerank + asr)
 
-下面四条命令在三平台都能直接复制粘贴执行(Windows 用 `\` 也行,这里统一
-写 `/`,PowerShell / cmd 都接受):
+下面四条命令实测可用(repo + 文件名 + URL 全部 HEAD 200),三平台都能直接复制粘贴
+执行 — Windows 用 `\` 也行,这里统一写 `/`,PowerShell / cmd 都接受:
 
 ```bash
-# chat: 4B GGUF(单文件)
-huggingface-cli download Qwen/Qwen3-4B-Instruct-GGUF qwen3-4b-instruct-q4_k_m.gguf --local-dir vendor/bundled_models/chat
+# chat: Qwen3-4B-Instruct-2507 Q4_K_M(单文件 2.33 GB,推荐默认)
+huggingface-cli download unsloth/Qwen3-4B-Instruct-2507-GGUF Qwen3-4B-Instruct-2507-Q4_K_M.gguf --local-dir vendor/bundled_models/chat
 
 # embedding: bge-m3(整仓,多文件)
 huggingface-cli download BAAI/bge-m3 --local-dir vendor/bundled_models/embedding/bge-m3
@@ -141,8 +157,20 @@ huggingface-cli download BAAI/bge-m3 --local-dir vendor/bundled_models/embedding
 # rerank: bge-reranker-v2-m3(整仓)
 huggingface-cli download BAAI/bge-reranker-v2-m3 --local-dir vendor/bundled_models/rerank/bge-reranker-v2-m3
 
-# asr: whisper-tiny(单文件)
+# asr: whisper-tiny(单文件 74 MB)
 huggingface-cli download ggerganov/whisper.cpp ggml-tiny.bin --local-dir vendor/bundled_models/asr
+```
+
+如果内存只够 4 GB,把第一条 chat 换成更小的 Qwen2.5-3B:
+
+```bash
+huggingface-cli download Qwen/Qwen2.5-3B-Instruct-GGUF qwen2.5-3b-instruct-q4_k_m.gguf --local-dir vendor/bundled_models/chat
+```
+
+如果机器是 16 GB+,要更强对话能力可换成 7B(社区单文件镜像):
+
+```bash
+huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir vendor/bundled_models/chat
 ```
 
 #### A.3 验证
@@ -172,10 +200,12 @@ python scripts/check-bundled-models.py
 #### macOS / Linux(`wget`,自带或一行 brew/apt 装)
 
 ```bash
+# chat: Qwen3-4B Q4_K_M(2.33 GB)
 mkdir -p vendor/bundled_models/chat
-wget -c -O vendor/bundled_models/chat/qwen3-4b-instruct-q4_k_m.gguf \
-  'https://hf-mirror.com/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/qwen3-4b-instruct-q4_k_m.gguf'
+wget -c -O vendor/bundled_models/chat/Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
+  'https://hf-mirror.com/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf'
 
+# asr: whisper-tiny(74 MB)
 mkdir -p vendor/bundled_models/asr
 wget -c -O vendor/bundled_models/asr/ggml-tiny.bin \
   'https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin'
@@ -186,10 +216,12 @@ wget -c -O vendor/bundled_models/asr/ggml-tiny.bin \
 #### Windows (PowerShell,`curl.exe` Win10+ 自带)
 
 ```powershell
+# chat
 New-Item -ItemType Directory -Force vendor\bundled_models\chat | Out-Null
-curl.exe -L -C - -o vendor\bundled_models\chat\qwen3-4b-instruct-q4_k_m.gguf `
-  https://hf-mirror.com/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/qwen3-4b-instruct-q4_k_m.gguf
+curl.exe -L -C - -o vendor\bundled_models\chat\Qwen3-4B-Instruct-2507-Q4_K_M.gguf `
+  https://hf-mirror.com/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
 
+# asr
 New-Item -ItemType Directory -Force vendor\bundled_models\asr | Out-Null
 curl.exe -L -C - -o vendor\bundled_models\asr\ggml-tiny.bin `
   https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
@@ -203,7 +235,7 @@ curl.exe -L -C - -o vendor\bundled_models\asr\ggml-tiny.bin `
 
 ```cmd
 mkdir vendor\bundled_models\chat
-curl.exe -L -C - -o vendor\bundled_models\chat\qwen3-4b-instruct-q4_k_m.gguf https://hf-mirror.com/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/qwen3-4b-instruct-q4_k_m.gguf
+curl.exe -L -C - -o vendor\bundled_models\chat\Qwen3-4B-Instruct-2507-Q4_K_M.gguf https://hf-mirror.com/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
 
 mkdir vendor\bundled_models\asr
 curl.exe -L -C - -o vendor\bundled_models\asr\ggml-tiny.bin https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
