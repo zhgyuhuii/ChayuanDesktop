@@ -32,6 +32,9 @@ from chayuan_supervisor.runtime_adapter import (
     get_runtime_info_unified as get_runtime_info,
     make_unified_port_allocator,
 )
+# 让推理引擎(llamacpp / infinity / ollama)启动时按 chayuan-server 解析的本地模型
+# 自动追加 --model 等 args/env;详见 process_args_adapter.py。
+from chayuan_supervisor.process_args_adapter import resolve_extra_for
 from chayuan_supervisor.health import HealthProbe
 from chayuan_supervisor.process import ManagedProcess
 from chayuan_supervisor.restart_policy import RestartPolicy
@@ -189,6 +192,15 @@ class SupervisorManager:
             for k, v in cred_env.items():
                 self._port_env[k] = v  # reuse the global env table for interpolation
 
+        # Step 2.5: ask chayuan-server (if present) which dynamic args/env to
+        # append per process — typically --model paths for llamacpp / infinity
+        # resolved against local_index. standalone supervisor returns ([], {}).
+        extra_by_name: dict[str, tuple[list[str], dict[str, str]]] = {}
+        for s in ordered:
+            ea, ee = resolve_extra_for(s.name)
+            if ea or ee:
+                extra_by_name[s.name] = (ea, ee)
+
         # Step 3: build ManagedProcess objects.
         for s in ordered:
             interp_env = {**self._port_env, **s.env}
@@ -196,6 +208,15 @@ class SupervisorManager:
             env = {k: _interp(v, interp_env) for k, v in s.env.items()}
             for k, v in self._port_env.items():
                 env.setdefault(k, v)
+            # Append any dynamically resolved model args/env (Step 2.5).
+            # yaml-defined args/env wins on conflict — env.setdefault preserves
+            # the original; args are simply appended at the tail (CLI parsers
+            # treat the last occurrence as authoritative anyway).
+            if s.name in extra_by_name:
+                ea, ee = extra_by_name[s.name]
+                args.extend(ea)
+                for k, v in ee.items():
+                    env.setdefault(k, v)
             init_cmds = [[_interp(c, interp_env) for c in cmd] for cmd in s.init]
             health = HealthProbe(_interp(s.health, interp_env)) if s.health else None
             mp = ManagedProcess(

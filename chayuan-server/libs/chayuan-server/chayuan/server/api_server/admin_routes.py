@@ -958,6 +958,17 @@ async def get_capability_defaults(
                     "is_default": defaults.get(cap) == mid,
                 })
 
+    # 把 local_index 扫到的本地模型(layout.yaml 释放出来的 GGUF 等)合并进候选;
+    # platforms 端的同名 model_id 优先,本地补齐前者覆盖不到的条目。
+    # 详见 chayuan.server.model_registry.candidates_bridge 模块文档。
+    try:
+        from chayuan.server.model_registry.candidates_bridge import (
+            merge_local_into_candidates,
+        )
+        merge_local_into_candidates(candidates, defaults=defaults)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[capability_defaults] merge local_index 失败: %r", e)
+
     # 自动落默认 — 用户在模型广场配好了厂商和模型,但还没去设置页里
     # 选「默认聊天/文本嵌入/图像嵌入/重排」时,把每个 cap 的第一个候选
     # promote 成默认并持久化。前端拿到的 defaults 已经填好,业务侧一调
@@ -1062,6 +1073,31 @@ def admin_models_bootstrap(
     return {
         **report.to_dict(),
         "install_hints": [h.to_dict() for h in hints],
+    }
+
+
+@admin_router.get(
+    "/models/process_args",
+    summary="[gate] 推理引擎子进程当前会用哪些 args/env(解析快照)",
+    tags=["Admin / Models"],
+)
+def admin_models_process_args() -> Dict[str, Any]:
+    """返回 ``llamacpp`` / ``infinity`` / ``ollama`` 三个子进程的解析快照。
+
+    每个进程的解析结果含 ``args`` / ``env`` / ``resolved_models`` / ``missing`` /
+    ``reason`` / ``ok``。前端可以用这份数据预览"如果现在重启会按什么模型起",
+    或在 ``missing`` 非空时引导用户去配 capability default。
+
+    与 :func:`admin_models_bootstrap` 区别:bootstrap 关心"够不够",这里关心
+    "具体怎么启动"。
+    """
+    from chayuan.server.model_registry.process_args import resolve_all
+
+    snapshot = resolve_all()
+    return {
+        "code": 0,
+        "msg": "ok",
+        "data": {name: r.to_dict() for name, r in snapshot.items()},
     }
 
 
