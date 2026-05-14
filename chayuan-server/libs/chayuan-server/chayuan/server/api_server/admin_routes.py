@@ -1022,6 +1022,49 @@ async def set_capability_defaults(
     return {"code": 0, "msg": "ok", "data": {"results": results}}
 
 
+# ── 模型库自检（首启向导 / 模型管理面板 / 健康检查）────────────────
+
+
+@admin_router.get(
+    "/models/bootstrap",
+    summary="[gate] 模型库自检 — 必需 capability 是否都已就绪",
+    tags=["Admin / Models"],
+)
+def admin_models_bootstrap(
+    do_scan: bool = Query(True, description="是否先跑一次扫盘刷新本地索引"),
+    required: Optional[str] = Query(
+        None,
+        description=("自定义必需 capability 列表（逗号分隔，例如 'chat,text-embedding'）。"
+                     "留空则用默认 chat+text-embedding+rerank。"),
+    ),
+) -> Dict[str, Any]:
+    """给 sidecar-gate 首启向导 + 前端模型管理面板用。
+
+    返回 ``ready`` / ``missing`` / 每个 capability 的候选清单；缺则附加
+    ``install_hints`` 提示该下哪个 release。
+
+    这个端点**不**走 ``require_role("admin")``——sidecar-gate 在用户尚未登录
+    时也要能拉到模型状态。端点本身只读，且不暴露 secret。
+    """
+    from chayuan.server.model_registry.bootstrap import (
+        DEFAULT_REQUIRED,
+        check_bootstrap,
+    )
+    from chayuan.server.model_registry.install_hints import build_install_hints
+
+    if required:
+        caps = tuple(c.strip() for c in required.split(",") if c.strip())
+    else:
+        caps = DEFAULT_REQUIRED
+
+    report = check_bootstrap(required=caps, do_scan=do_scan)
+    hints = build_install_hints(report.missing) if report.missing else []
+    return {
+        **report.to_dict(),
+        "install_hints": [h.to_dict() for h in hints],
+    }
+
+
 # ── 进程退出回收 ──────────────────────────────────────────────────
 
 

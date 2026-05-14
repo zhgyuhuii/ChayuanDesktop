@@ -11,11 +11,19 @@ triple 表见:https://doc.rust-lang.org/cargo/appendix/glossary.html#target
 
 ::
 
-    # 打包 + 拷贝(默认)
+    # 仅打 sidecar exe + 拷贝(默认;轻量,模型由 server 首启引导下载)
     poetry run python packaging/pyinstaller/build.py
 
     # 仅打包,不拷贝
     poetry run python packaging/pyinstaller/build.py --no-copy
+
+    # 一键拉全套 vendor + 模型并打包(集成版,完整离线可用)
+    poetry run python packaging/pyinstaller/build.py --release lite      # 轻量集成
+    poetry run python packaging/pyinstaller/build.py --release standard  # 服务器标准
+    poetry run python packaging/pyinstaller/build.py --release pro       # 企业全功能
+
+    # CI 二次跑 / 离线机器:只用 packaging/.cache,不发任何网络请求
+    poetry run python packaging/pyinstaller/build.py --release lite --offline
 
     # 转发额外参数到 PyInstaller(调试 spec 用)
     poetry run python packaging/pyinstaller/build.py -- --clean --log-level=DEBUG
@@ -29,6 +37,7 @@ triple 表见:https://doc.rust-lang.org/cargo/appendix/glossary.html#target
     poetry run pip install "pyinstaller>=6.0"
 
 PyInstaller 不进 ``pyproject.toml`` 主依赖列表,仅打包阶段使用。
+``--release`` 模式额外要求安装 ``chayuan_packaging`` 包(在 packaging/python312/ 下)。
 """
 from __future__ import annotations
 
@@ -86,6 +95,31 @@ def run_pyinstaller(extra_args: list[str]) -> None:
     subprocess.check_call(cmd, cwd=str(ROOT))
 
 
+def chayuan_pack_cmd(release: str, sub: str, *, offline: bool = False) -> list[str]:
+    """构造一条 ``chayuan_packaging`` 子命令(便于打印 + 单测)。"""
+    cmd = [sys.executable, "-m", "chayuan_packaging", sub, "--release", release]
+    if offline:
+        cmd.append("--offline")
+    return cmd
+
+
+def run_chayuan_pack(release: str, *, offline: bool = False) -> None:
+    """串接 ``chayuan-pack`` 的 fetch + stage,在 PyInstaller 前把 vendor + 模型准备好。
+
+    Args:
+        release: ``lite`` / ``standard`` / ``pro`` 之一(与 ``layout.yaml`` 对齐)。
+        offline: ``True`` 时跳过任何网络;仅读 ``packaging/.cache``。CI 二次跑或
+            完全离线打包用。
+
+    错误处理:任一子步骤失败立即抛 :class:`subprocess.CalledProcessError`,
+    上层 ``main`` 不再继续 PyInstaller —— 避免把缺失资源的半成品打成包。
+    """
+    for sub in ("fetch", "stage"):
+        cmd = chayuan_pack_cmd(release, sub, offline=offline)
+        print(f"[build] $ {' '.join(cmd)}", flush=True)
+        subprocess.check_call(cmd, cwd=str(ROOT))
+
+
 def _executable_path() -> Path:
     """定位 PyInstaller 产物。两种模式都覆盖,免得切回 onedir 时再改一次。"""
     suffix = ".exe" if platform.system() == "Windows" else ""
@@ -128,6 +162,19 @@ def main() -> None:
         action="store_true",
         help="只打包,不拷贝到 chayuan-client/apps/desktop/src-tauri/binaries/",
     )
+    parser.add_argument(
+        "--release",
+        type=str,
+        default="",
+        choices=["", "lite", "standard", "pro"],
+        help=("(集成版打包)release 矩阵名,先跑 chayuan-pack fetch+stage "
+              "把 vendor + 模型拉好再打 PyInstaller。空 = 只打 sidecar exe。"),
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="(仅 --release 用)跳过网络;只读 packaging/.cache。",
+    )
     # 用 parse_known_args:任何 build.py 不认识的参数(--clean / --log-level=DEBUG /
     # --noupx / 等)都直接转发给 PyInstaller。免得用户记错 ``--`` 分隔符位置 ──
     # poetry / argparse REMAINDER 组合下 ``--`` 经常被吃掉,导致 ``--clean`` 报
@@ -137,6 +184,8 @@ def main() -> None:
     if extra and extra[0] == "--":
         extra = extra[1:]
 
+    if args.release:
+        run_chayuan_pack(args.release, offline=args.offline)
     run_pyinstaller(extra)
     if not args.no_copy:
         copy_to_tauri_binaries()

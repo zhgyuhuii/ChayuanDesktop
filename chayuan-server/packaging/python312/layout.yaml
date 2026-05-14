@@ -222,27 +222,27 @@ inference:
 #     注意：模型 dest 用 ``Org--Model`` 写法，与 chayuan-identify 规则对齐。
 # ────────────────────────────────────────────────────────────────────
 models:
-  - name: qwen2.5-3b-chat-gguf
-    repo: Qwen/Qwen2.5-3B-Instruct-GGUF
-    file: qwen2.5-3b-instruct-q4_k_m.gguf
-    dest: models/chat/Qwen--Qwen2.5-3B-Instruct-GGUF
-    source: hf-mirror://Qwen/Qwen2.5-3B-Instruct-GGUF
+  - name: qwen3-4b-chat-gguf
+    repo: Qwen/Qwen3-4B-Instruct-GGUF
+    file: qwen3-4b-instruct-q4_k_m.gguf
+    dest: models/chat/Qwen--Qwen3-4B-Instruct-GGUF
+    source: hf-mirror://Qwen/Qwen3-4B-Instruct-GGUF
     release: [lite, standard, pro]
-    note: 默认对话模型；CPU/CPU+集成显卡也能跑，硬性内存 ≥ 8GB
+    note: 默认对话模型(Qwen3-4B Q4_K_M ~2.5GB)；中文/工具调用强；建议 8GB+ 内存
 
-  - name: bge-small-zh-v15
-    repo: BAAI/bge-small-zh-v1.5
-    dest: models/embedding/BAAI--bge-small-zh-v1.5
-    source: hf-mirror://BAAI/bge-small-zh-v1.5
+  - name: bge-m3
+    repo: BAAI/bge-m3
+    dest: models/embedding/BAAI--bge-m3
+    source: hf-mirror://BAAI/bge-m3
     release: [lite, standard, pro]
-    note: 默认 embedding；94MB；中文优先
+    note: 默认 embedding；中英多语言 + 长上下文(8K) + 稠密/稀疏/多向量；HF transformers ~570MB
 
-  - name: bge-reranker-base
-    repo: BAAI/bge-reranker-base
-    dest: models/rerank/BAAI--bge-reranker-base
-    source: hf-mirror://BAAI/bge-reranker-base
+  - name: bge-reranker-v2-m3
+    repo: BAAI/bge-reranker-v2-m3
+    dest: models/rerank/BAAI--bge-reranker-v2-m3
+    source: hf-mirror://BAAI/bge-reranker-v2-m3
     release: [lite, standard, pro]
-    note: 默认 reranker；280MB
+    note: 默认 reranker；与 bge-m3 同家族，配套效果好；~560MB
 
   - name: whisper-tiny-cpp
     repo: ggerganov/whisper.cpp
@@ -264,29 +264,29 @@ models:
     dest: models/embedding/BAAI--bge-large-zh-v1.5
     source: hf-mirror://BAAI/bge-large-zh-v1.5
     release: [standard, pro]
-    note: 高精度中文 embedding，1.4GB
+    note: 高精度中文 embedding，1.4GB(中文偏置场景备选)
 
-  - name: qwen2.5-7b-chat-gguf
-    repo: Qwen/Qwen2.5-7B-Instruct-GGUF
-    file: qwen2.5-7b-instruct-q4_k_m.gguf
-    dest: models/chat/Qwen--Qwen2.5-7B-Instruct-GGUF
-    source: hf-mirror://Qwen/Qwen2.5-7B-Instruct-GGUF
+  - name: qwen3-7b-chat-gguf
+    repo: Qwen/Qwen3-7B-Instruct-GGUF
+    file: qwen3-7b-instruct-q4_k_m.gguf
+    dest: models/chat/Qwen--Qwen3-7B-Instruct-GGUF
+    source: hf-mirror://Qwen/Qwen3-7B-Instruct-GGUF
     release: [pro]
-    note: pro 包默认对话；4.4GB；建议 16GB 内存
+    note: pro 包默认对话；~4.5GB；建议 16GB+ 内存
 
 # ────────────────────────────────────────────────────────────────────
 # §5 Release 矩阵：定义"包多大、装哪些"
 # ────────────────────────────────────────────────────────────────────
 releases:
   lite:
-    description: 单机轻量版；最小可跑通 9 类能力中的 6 类（chat/embed/rerank/asr/tts/ocr）
+    description: 单机轻量版；最小可跑通 chat / embedding / rerank / asr 四类能力
     runtimes: [python312, ollama, piper]
     services: []                 # 单机走 sqlite + milvus-lite，不带 PG/MinIO
     inference: [piper]
     models:
-      - qwen2.5-3b-chat-gguf
-      - bge-small-zh-v15
-      - bge-reranker-base
+      - qwen3-4b-chat-gguf
+      - bge-m3
+      - bge-reranker-v2-m3
       - whisper-tiny-cpp
 
   standard:
@@ -295,9 +295,9 @@ releases:
     services: [postgres16, redis74, minio]
     inference: [llama-cpp, whisper-cpp, piper]
     models:
-      - qwen2.5-3b-chat-gguf
-      - bge-small-zh-v15
-      - bge-reranker-base
+      - qwen3-4b-chat-gguf
+      - bge-m3
+      - bge-reranker-v2-m3
       - whisper-tiny-cpp
       - rapidocr-onnx
       - bge-large-zh-v15
@@ -308,10 +308,10 @@ releases:
     services: [postgres16, redis74, minio, milvus, elasticsearch, docker-compose]
     inference: [llama-cpp, whisper-cpp, piper]
     models:
-      - qwen2.5-3b-chat-gguf
-      - qwen2.5-7b-chat-gguf
-      - bge-small-zh-v15
+      - qwen3-4b-chat-gguf
+      - qwen3-7b-chat-gguf
+      - bge-m3
       - bge-large-zh-v15
-      - bge-reranker-base
+      - bge-reranker-v2-m3
       - whisper-tiny-cpp
       - rapidocr-onnx
