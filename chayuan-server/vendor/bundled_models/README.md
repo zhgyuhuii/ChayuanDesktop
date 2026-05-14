@@ -115,22 +115,49 @@ vendor/bundled_models/
 
 ---
 
-### 方法 A — `huggingface-cli`(推荐,三平台都最稳)
+### 方法 A — `hf`(推荐,三平台都最稳)
 
-需要 Python 环境,断点续传、自动校验、支持单文件 / 整仓。命令在三平台**完全
-一致**,差别只在前一行的"设镜像 endpoint"。
+> **2025 起的命令名**:旧版 `huggingface-cli download` 已被官方废弃,
+> 跑会输出 `Warning: huggingface-cli is deprecated and no longer works.
+> Use hf instead.`。新命令名叫 `hf`(由 `huggingface_hub` Python 包附带),
+> 子命令和参数完全沿用 — `hf download <repo> [<file>] --local-dir <dir>`。
 
-#### A.1 装 cli + 设镜像
+需要 Python 环境(或用 standalone installer 装独立 `hf` 二进制),断点
+续传、自动校验、支持单文件 / 整仓。命令在三平台**完全一致**,差别只在
+前一行的"设镜像 endpoint"。
+
+#### A.1 装 `hf` CLI
+
+两种安装方式,任选其一:
+
+**(a) Standalone installer(独立二进制,不需要 Python 环境)**
+
+```bash
+# macOS / Linux:
+curl -LsSf https://hf.co/cli/install.sh | bash
+```
+
+```powershell
+# Windows (PowerShell):
+powershell -ExecutionPolicy ByPass -c "irm https://hf.co/cli/install.ps1 | iex"
+```
+
+**(b) pip 安装(已有 Python 时最简单)**
+
+```bash
+# 三平台一致,新版 cli 内置在 huggingface_hub 主包里,无需 [cli] extra
+pip install -U "huggingface_hub"
+```
+
+#### A.2 设镜像 endpoint
 
 **macOS / Linux:**
 ```bash
-pip install -U "huggingface_hub[cli]"
 export HF_ENDPOINT=https://hf-mirror.com    # 国内必加;海外网络可省
 ```
 
 **Windows (PowerShell):**
 ```powershell
-pip install -U "huggingface_hub[cli]"
 $env:HF_ENDPOINT = "https://hf-mirror.com"  # 仅当前 shell 生效
 # 想永久生效(影响所有新开 shell):
 # [Environment]::SetEnvironmentVariable("HF_ENDPOINT", "https://hf-mirror.com", "User")
@@ -138,42 +165,41 @@ $env:HF_ENDPOINT = "https://hf-mirror.com"  # 仅当前 shell 生效
 
 **Windows (cmd.exe):**
 ```cmd
-pip install -U "huggingface_hub[cli]"
 set HF_ENDPOINT=https://hf-mirror.com
 ```
 
-#### A.2 下载推荐组合(lite 套件:chat + embedding + rerank + asr)
+#### A.3 下载推荐组合(lite 套件:chat + embedding + rerank + asr)
 
 下面四条命令实测可用(repo + 文件名 + URL 全部 HEAD 200),三平台都能直接复制粘贴
 执行 — Windows 用 `\` 也行,这里统一写 `/`,PowerShell / cmd 都接受:
 
 ```bash
 # chat: Qwen3-4B-Instruct-2507 Q4_K_M(单文件 2.33 GB,推荐默认)
-huggingface-cli download unsloth/Qwen3-4B-Instruct-2507-GGUF Qwen3-4B-Instruct-2507-Q4_K_M.gguf --local-dir vendor/bundled_models/chat
+hf download unsloth/Qwen3-4B-Instruct-2507-GGUF Qwen3-4B-Instruct-2507-Q4_K_M.gguf --local-dir vendor/bundled_models/chat
 
 # embedding: bge-m3(整仓,多文件)
-huggingface-cli download BAAI/bge-m3 --local-dir vendor/bundled_models/embedding/bge-m3
+hf download BAAI/bge-m3 --local-dir vendor/bundled_models/embedding/bge-m3
 
 # rerank: bge-reranker-v2-m3(整仓)
-huggingface-cli download BAAI/bge-reranker-v2-m3 --local-dir vendor/bundled_models/rerank/bge-reranker-v2-m3
+hf download BAAI/bge-reranker-v2-m3 --local-dir vendor/bundled_models/rerank/bge-reranker-v2-m3
 
 # asr: whisper-tiny(单文件 74 MB)
-huggingface-cli download ggerganov/whisper.cpp ggml-tiny.bin --local-dir vendor/bundled_models/asr
+hf download ggerganov/whisper.cpp ggml-tiny.bin --local-dir vendor/bundled_models/asr
 ```
 
 如果内存只够 4 GB,把第一条 chat 换成更小的 Qwen2.5-3B:
 
 ```bash
-huggingface-cli download Qwen/Qwen2.5-3B-Instruct-GGUF qwen2.5-3b-instruct-q4_k_m.gguf --local-dir vendor/bundled_models/chat
+hf download Qwen/Qwen2.5-3B-Instruct-GGUF qwen2.5-3b-instruct-q4_k_m.gguf --local-dir vendor/bundled_models/chat
 ```
 
 如果机器是 16 GB+,要更强对话能力可换成 7B(社区单文件镜像):
 
 ```bash
-huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir vendor/bundled_models/chat
+hf download bartowski/Qwen2.5-7B-Instruct-GGUF Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir vendor/bundled_models/chat
 ```
 
-#### A.3 验证
+#### A.4 验证
 
 三平台都用 Python 跑体检脚本:
 
@@ -181,7 +207,7 @@ huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF Qwen2.5-7B-Instruct-
 python scripts/check-bundled-models.py
 ```
 
-**注意 `--local-dir` 的语义**:huggingface-cli 把文件直接放到 `--local-dir`
+**注意 `--local-dir` 的语义**:`hf download` 把文件直接放到 `--local-dir`
 指向的目录(不会自动加 `<org>/<repo>/` 前缀)。所以:
 
 - 单文件场景:`--local-dir vendor/bundled_models/chat`,文件落到
