@@ -25,9 +25,11 @@
  */
 
 import {
+  type BootstrapResponse,
   type CapabilityDefaultsResponse,
   configureClient,
   serverCapabilityDefaults,
+  serverModelsBootstrap,
 } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
 import { Button, Input, Pill, Slider, Switch, cn } from '@chayuan/ui';
@@ -444,6 +446,40 @@ const VISIBLE_CAPS: Array<{ cap: string; label: string; hint: string }> = [
   { cap: 'rerank', label: '重排模型', hint: '检索后精排提升相关性' },
 ];
 
+// 模型库自检 Banner — 缺模型时引导用户选择 release 下载,与默认下拉互补
+// (下拉看候选,banner 提示有没有候选可选)。
+const BootstrapBanner: React.FC = () => {
+  const { data } = useQuery<BootstrapResponse>({
+    queryKey: ['serverModelsBootstrap'],
+    queryFn: () => serverModelsBootstrap.get({ doScan: false }),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  if (!data || data.ready) return null;
+  const hint = data.install_hints[0];
+  const capLabel = (cap: string) =>
+    ({
+      chat: '对话',
+      'text-embedding': '文本向量',
+      rerank: '重排',
+      'speech-to-text': '语音识别',
+      'image-to-text': '图像识别',
+    })[cap] ?? cap;
+  return (
+    <div className="mb-3 rounded-md border border-[var(--cy-border-warning)] bg-[var(--cy-surface-warning-subtle)] px-4 py-3 text-sm">
+      <p className="font-medium text-[var(--cy-text-primary)]">
+        模型库不完整 — 缺失 {data.missing.map(capLabel).join(' / ')}
+      </p>
+      {hint && (
+        <p className="mt-1 text-xs text-[var(--cy-text-tertiary)]">
+          建议下载 <span className="font-medium">{hint.release}</span> 包(约
+          {Math.round(hint.approx_size_mb / 100) / 10}GB) — {hint.description}
+        </p>
+      )}
+    </div>
+  );
+};
+
 const DefaultModelsSection: React.FC = () => {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -476,6 +512,7 @@ const DefaultModelsSection: React.FC = () => {
 
   return (
     <Section>
+      <BootstrapBanner />
       {error ? (
         <Row
           title="无法读取默认模型"
@@ -529,7 +566,11 @@ const DefaultModelsSection: React.FC = () => {
                   {candidates.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.id}
-                      {c.runtime ? ` · ${c.runtime}` : ''}
+                      {c.source === 'local_index'
+                        ? ' · 本地'
+                        : c.runtime
+                          ? ` · ${c.runtime}`
+                          : ''}
                     </option>
                   ))}
                 </select>
