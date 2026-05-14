@@ -128,9 +128,9 @@ vendor/bundled_models/
 
 #### A.1 装 `hf` CLI
 
-两种安装方式,任选其一。**国内网络推荐 (a) pip,因为 (b) standalone installer
-的脚本来自 `hf.co`,国内常常无法连通(典型报错:`irm : 无法连接到远程服务器` /
-`curl: Could not resolve host: hf.co`)**。
+两种安装方式,任选其一。**国内网络推荐 (a) pip**,因为 (b) standalone installer
+的脚本来自 `hf.co`,国内常常无法连通(典型报错:`irm : 无法连接到远程服务器`,或
+`curl: Could not resolve host: hf.co`)。
 
 **(a) pip 安装(三平台通吃,国内可达,推荐)**
 
@@ -178,10 +178,20 @@ set HF_ENDPOINT=https://hf-mirror.com
 
 #### A.3 下载推荐组合(lite 套件:chat + embedding + rerank + asr)
 
-下面四条命令实测可用(repo + 文件名 + URL 全部 HEAD 200),三平台都能直接复制粘贴
-执行 — Windows 用 `\` 也行,这里统一写 `/`,PowerShell / cmd 都接受:
+> ⚠ **重要**:`hf download` **没有 `--endpoint` 命令行参数**,只认环境
+> 变量 `HF_ENDPOINT`。**如果跳过 A.2 直接跑下载,国内必然 `ConnectTimeout`**
+> (典型错误:`Got: ConnectTimeout: [WinError 10060] 由于连接方在一段时间后
+> 没有正确答复或连接的主机没有反应,连接尝试失败`)。下面每个平台的代码块
+> 都在第一行重复设上镜像,直接整段复制粘贴就行。
+
+下面四条命令实测可用(repo + 文件名 + URL 全部 HEAD 200)。Windows 用 `\` 也行,
+这里统一写 `/`,PowerShell / cmd 都接受。
+
+**macOS / Linux (bash):**
 
 ```bash
+export HF_ENDPOINT=https://hf-mirror.com
+
 # chat: Qwen3-4B-Instruct-2507 Q4_K_M(单文件 2.33 GB,推荐默认)
 hf download unsloth/Qwen3-4B-Instruct-2507-GGUF Qwen3-4B-Instruct-2507-Q4_K_M.gguf --local-dir vendor/bundled_models/chat
 
@@ -195,15 +205,44 @@ hf download BAAI/bge-reranker-v2-m3 --local-dir vendor/bundled_models/rerank/bge
 hf download ggerganov/whisper.cpp ggml-tiny.bin --local-dir vendor/bundled_models/asr
 ```
 
-如果内存只够 4 GB,把第一条 chat 换成更小的 Qwen2.5-3B:
+**Windows (PowerShell):**
 
-```bash
-hf download Qwen/Qwen2.5-3B-Instruct-GGUF qwen2.5-3b-instruct-q4_k_m.gguf --local-dir vendor/bundled_models/chat
+```powershell
+$env:HF_ENDPOINT = "https://hf-mirror.com"
+
+# chat
+hf download unsloth/Qwen3-4B-Instruct-2507-GGUF Qwen3-4B-Instruct-2507-Q4_K_M.gguf --local-dir vendor/bundled_models/chat
+
+# embedding
+hf download BAAI/bge-m3 --local-dir vendor/bundled_models/embedding/bge-m3
+
+# rerank
+hf download BAAI/bge-reranker-v2-m3 --local-dir vendor/bundled_models/rerank/bge-reranker-v2-m3
+
+# asr
+hf download ggerganov/whisper.cpp ggml-tiny.bin --local-dir vendor/bundled_models/asr
 ```
 
-如果机器是 16 GB+,要更强对话能力可换成 7B(社区单文件镜像):
+**Windows (cmd.exe):**
+
+```cmd
+set HF_ENDPOINT=https://hf-mirror.com
+
+hf download unsloth/Qwen3-4B-Instruct-2507-GGUF Qwen3-4B-Instruct-2507-Q4_K_M.gguf --local-dir vendor/bundled_models/chat
+hf download BAAI/bge-m3 --local-dir vendor/bundled_models/embedding/bge-m3
+hf download BAAI/bge-reranker-v2-m3 --local-dir vendor/bundled_models/rerank/bge-reranker-v2-m3
+hf download ggerganov/whisper.cpp ggml-tiny.bin --local-dir vendor/bundled_models/asr
+```
+
+#### A.3.1 替换 chat 模型(内存 < 6 GB 或 ≥ 16 GB 才需要)
+
+设过 `HF_ENDPOINT` 后再跑:
 
 ```bash
+# 内存只够 4 GB:换 Qwen2.5-3B(1.96 GB)
+hf download Qwen/Qwen2.5-3B-Instruct-GGUF qwen2.5-3b-instruct-q4_k_m.gguf --local-dir vendor/bundled_models/chat
+
+# 16 GB+ 想要更强对话:换 Qwen2.5-7B(4.36 GB 单文件)
 hf download bartowski/Qwen2.5-7B-Instruct-GGUF Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir vendor/bundled_models/chat
 ```
 
