@@ -562,6 +562,11 @@ if ($SkipHealthcheck) {
     $tmpDataDir = Join-Path $env:TEMP "chayuan-health-$([guid]::NewGuid().ToString('N').Substring(0,8))"
     New-Item -ItemType Directory -Force -Path $tmpDataDir | Out-Null
     $env:CHAYUAN_ROOT = $tmpDataDir
+    # chayuan 优先读 state.json.last_init_root(开发机上一次 chayuan init 写的),
+    # 不设这个 env 时 $env:CHAYUAN_ROOT 会被无视(详见 chayuan/paths.py:120 注释)。
+    # 漏了它会导致 healthcheck 走用户真实数据目录,占了 62581 端口的话 bootstrap
+    # 会分配别的随机端口(实测 7861),后面探 62581 永远不响应。
+    $env:CHAYUAN_ROOT_IGNORE_STATE = '1'
     Write-Note "临时数据目录(测完即删):$tmpDataDir"
 
     $stdoutLog = Join-Path $env:TEMP 'chayuan-health-stdout.log'
