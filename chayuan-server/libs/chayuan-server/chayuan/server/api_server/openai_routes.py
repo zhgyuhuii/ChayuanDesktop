@@ -339,6 +339,41 @@ async def list_models(type: Optional[str] = None, check_access: bool = False) ->
                     "reason": reason,
                 })
 
+    # 本地模型注入:对话/向量/重排等已扫描入 local_index 的模型,以独立分组
+    # ``platform_name='local'`` / ``platform_display_name='本地模型'`` 出现。
+    # 前端 ModelMenuList 按 platform_name 自动分组,无需额外改造。
+    # 单条本地模型也保持分组形式(子级是模型 ID),让用户始终看得见来源标识。
+    _LOCAL_CAP_TO_TYPE = {
+        "chat":            "llm",
+        "text-embedding":  "embed",
+        "rerank":          "rerank",
+        "text-to-image":   "text2image",
+        "image-to-text":   "image2text",
+        "speech-to-text":  "speech2text",
+        "text-to-audio":   "text2speech",
+    }
+    try:
+        from chayuan.server.model_registry.local_index import get_local_index
+        idx = get_local_index()
+        for entry in idx.list_entries():
+            cap_short = _LOCAL_CAP_TO_TYPE.get(entry.capability)
+            if cap_short is None:
+                continue
+            if type and cap_short != type:
+                continue
+            data.append({
+                "id": entry.model_id,
+                "object": "model",
+                "owned_by": "local",
+                "platform_name": "local",
+                "platform_display_name": "本地模型",
+                "model_type": cap_short,
+                "available": True,
+                "reason": "",
+            })
+    except Exception as e:  # noqa: BLE001
+        logger.debug("local_index 注入失败,跳过:%r", e)
+
     # 按 platform_name 排序,同 platform 内按 id 排序,前端分组显示更稳定
     data.sort(key=lambda r: (r.get("platform_name") or "", r.get("id") or ""))
     return {"object": "list", "data": data}

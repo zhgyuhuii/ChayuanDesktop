@@ -654,6 +654,11 @@ const DefaultModelsSection: React.FC = () => {
               />
             );
           }
+          // 本地模型单独抽出来,按用户体验要求:
+          //   - 单条 → 平铺一个选项 "本地模型 - <id>"
+          //   - 多条 → <optgroup label="本地模型"> 包住,子项是模型 id
+          const localCandidates = candidates.filter((c) => c.source === 'local_index');
+          const cloudCandidates = candidates.filter((c) => c.source !== 'local_index');
           return (
             <Row
               key={cap}
@@ -674,16 +679,26 @@ const DefaultModelsSection: React.FC = () => {
                       请选择
                     </option>
                   )}
-                  {candidates.map((c) => (
+                  {cloudCandidates.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.id}
-                      {c.source === 'local_index'
-                        ? ' · 本地'
-                        : c.runtime
-                          ? ` · ${c.runtime}`
-                          : ''}
+                      {c.runtime ? ` · ${c.runtime}` : ''}
                     </option>
                   ))}
+                  {localCandidates.length === 1 && (
+                    <option key={localCandidates[0]!.id} value={localCandidates[0]!.id}>
+                      本地模型 - {localCandidates[0]!.id}
+                    </option>
+                  )}
+                  {localCandidates.length > 1 && (
+                    <optgroup label="本地模型">
+                      {localCandidates.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               }
             />
