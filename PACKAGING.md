@@ -131,24 +131,36 @@ pnpm dev:desktop
 
 ## 4. 本地打包(单平台一次过)
 
-> **Windows 用户提示**:仓库根目录有一键脚本把 §4 的 Step 1-3 串起来 + 自动失败诊断 + 中间步骤可单独跳过。
+> **一键脚本**(macOS / Linux / Windows 都有):仓库根目录的 `build-desktop.{sh,cmd,ps1}`
+> 把 §4 的 Step 1-3 串起来,默认**一次产两个版本**:
 >
-> ```powershell
-> # 方式 1:双击 build-desktop.cmd(自动绕过 PS 执行策略限制 + 切 UTF-8 控制台)
+> - **轻量版 (lite)** — `CHAYUAN_LITE_BUILD=1`,PyInstaller 跳过
+>   `vendor/bundled_models/` 注入,装机包体积小,首次启动靠 BootstrapBanner
+>   引导用户下载或扫盘配置;产物落到 `dist-lite/`。
+> - **集成版 (integrated)** — 正常打包,把 `vendor/bundled_models/` 整树嵌入
+>   sidecar,装好即用;产物落到 `dist-integrated/`。
 >
-> # 方式 2:直接 PowerShell 里跑
-> powershell -ExecutionPolicy Bypass -File .\build-desktop.ps1
+> 构建开始时会自动调 `scripts/check-bundled-models.py` 体检,打印**本次嵌入
+> 哪些模型**。模型相关的下载地址 / 格式 / 放置约定见
+> [chayuan-server/vendor/bundled_models/README.md](chayuan-server/vendor/bundled_models/README.md)。
 >
-> # 方式 3:对当前用户永久放开后随便跑
-> Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-> .\build-desktop.ps1
+> ```bash
+> # macOS / Linux
+> ./build-desktop.sh                         # 双产物
+> ./build-desktop.sh --lite-only             # 只打轻量版
+> ./build-desktop.sh --integrated-only       # 只打集成版
+> ./build-desktop.sh --skip-model-check      # 跳过模型体检
+> ./build-desktop.sh --bundle-only           # 仅重打 Tauri bundle
 > ```
 >
-> 常用参数:
 > ```powershell
-> .\build-desktop.ps1 -Clean -VerboseSubprocess  # 干净重建 + 完整日志
-> .\build-desktop.ps1 -SkipServer                # sidecar 不变,只重打 Tauri 包
-> .\build-desktop.ps1 -NoColor                   # 老控制台关 ANSI 颜色
+> # Windows
+> .\build-desktop.cmd                        # 双产物
+> .\build-desktop.cmd -LiteOnly              # 只打轻量版
+> .\build-desktop.cmd -IntegratedOnly        # 只打集成版
+> .\build-desktop.cmd -SkipModelCheck        # 跳过模型体检
+> .\build-desktop.cmd -BundleOnly            # 仅重打 Tauri bundle
+> .\build-desktop.cmd -Clean -VerboseSubprocess  # 干净重建 + 完整日志
 > ```
 
 ### Step 1 — 服务端 PyInstaller

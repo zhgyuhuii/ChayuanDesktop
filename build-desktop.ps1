@@ -81,8 +81,23 @@ param(
     [switch]$BundleOnly,
     [switch]$Clean,
     [switch]$NoColor,
-    [switch]$VerboseSubprocess
+    [switch]$VerboseSubprocess,
+    [switch]$LiteOnly,
+    [switch]$IntegratedOnly,
+    [switch]$SkipModelCheck
 )
+
+# 互斥检查
+if ($LiteOnly -and $IntegratedOnly) {
+    Write-Host "[FAIL] -LiteOnly 与 -IntegratedOnly 互斥(不带 = 都打)" -ForegroundColor Red
+    exit 2
+}
+
+# 决定本次要打哪些 flavor
+$Flavors = @()
+if ($LiteOnly) { $Flavors = @('lite') }
+elseif ($IntegratedOnly) { $Flavors = @('integrated') }
+else { $Flavors = @('lite', 'integrated') }
 
 # ``-BundleOnly`` 是个组合开关:展开后等价于把 sidecar / health / install /
 # typecheck 全跳过,只重做 Tauri bundle 那步(cargo + vite 走增量缓存)。
@@ -433,6 +448,49 @@ function Invoke-Step {
 }
 
 # ====================================================================
+# bundled_models 体检 (本次打包会嵌入哪些模型)
+# ====================================================================
+$ModelCheckOk = $false
+if ($SkipModelCheck) {
+    Write-Step '模型体检 [skipped]'
+} else {
+    Write-Step 'bundled_models 体检 (本次打包会嵌入哪些模型)'
+    $checkScript = Join-Path $WorkspaceRoot 'scripts\check-bundled-models.py'
+    if (Test-Path $checkScript) {
+        $pyExe = (Get-Command python -ErrorAction SilentlyContinue) `
+                 ?? (Get-Command python3 -ErrorAction SilentlyContinue)
+        if ($pyExe) {
+            & $pyExe.Source $checkScript
+            if ($LASTEXITCODE -eq 0) { $ModelCheckOk = $true }
+            else { Write-Note 'bundled_models 全空 — 集成版将退化为轻量版(都不嵌模型)' }
+        } else {
+            Write-Note '未找到 python,跳过体检'
+        }
+    } else {
+        Write-Note "$checkScript 不存在,跳过"
+    }
+}
+
+# 双 flavor 时,每次切换都强制重建 sidecar(env 不同,指纹不能命中老的)
+if ($Flavors.Count -gt 1 -and -not $SkipServer) {
+    Write-Note '双产物模式:每个 flavor 都会重建 sidecar(env 不同)'
+}
+
+# 把 Step 1-3 + 单 flavor 输出包成函数,主循环按 $Flavors 调一次或两次。
+$AllArtifacts = @()    # 各 flavor 的产物:flavor / src / dest / sizeMB
+function Invoke-FlavorBuild {
+    param([string]$Flavor)
+    if ($Flavor -eq 'lite') {
+        $env:CHAYUAN_LITE_BUILD = '1'
+        $flavorLabel = '轻量版(lite)'
+    } else {
+        Remove-Item Env:CHAYUAN_LITE_BUILD -ErrorAction SilentlyContinue
+        $flavorLabel = '集成版(integrated)'
+    }
+    Write-Host ''
+    Write-Step "═══ [$flavorLabel] 开始 ═══"
+
+# ====================================================================
 # Step 1: chayuan-server PyInstaller
 # ====================================================================
 $sidecarName = 'chayuan-server-x86_64-pc-windows-msvc.exe'
@@ -598,19 +656,58 @@ if ($SkipFrontend) {
         Restore-Console; exit 1
     }
     Write-Ok 'Tauri bundle 完成:'
+    $flavorOut = Join-Path $WorkspaceRoot "dist-$Flavor"
+    if (Test-Path $flavorOut) { Remove-Item $flavorOut -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $flavorOut | Out-Null
     foreach ($a in $artifacts) {
         $sz = [math]::Round($a.Length / 1MB, 1)
-        Write-Host "    $($a.FullName) ($sz MB)"
+        $stem = [System.IO.Path]::GetFileNameWithoutExtension($a.Name)
+        $ext  = [System.IO.Path]::GetExtension($a.Name)
+        $destName = "$stem.$Flavor$ext"
+        $dest = Join-Path $flavorOut $destName
+        Copy-Item -Path $a.FullName -Destination $dest -Force
+        $script:AllArtifacts += [PSCustomObject]@{
+            Flavor = $Flavor
+            Src    = $a.FullName
+            Dest   = $dest
+            SizeMB = $sz
+        }
+        Write-Host "    $($a.FullName) -> $dest ($sz MB)"
     }
+}
+
+}   # end Invoke-FlavorBuild
+
+# ====================================================================
+# 主循环:按 $Flavors 跑一次或两次
+# ====================================================================
+foreach ($flav in $Flavors) {
+    Invoke-FlavorBuild -Flavor $flav
 }
 
 # ====================================================================
 # 总结 + 还原编码
 # ====================================================================
 Write-Step '完成'
-Write-Note "sidecar:    $sidecarPath"
+Write-Note "本次构建 flavor:$($Flavors -join ', ')"
 if (-not $SkipFrontend) {
-    Write-Note "installer:  $TauriBundle\{msi,nsis}\"
+    foreach ($flav in $Flavors) {
+        Write-Note "$flav 产物目录:$(Join-Path $WorkspaceRoot "dist-$flav")\"
+    }
+}
+if ($AllArtifacts.Count -gt 0) {
+    Write-Host ''
+    Write-Host '本次产物清单' -ForegroundColor White
+    foreach ($a in $AllArtifacts) {
+        $name = Split-Path -Leaf $a.Dest
+        Write-Host ("  {0,-12} {1,-50} {2} MB" -f $a.Flavor, $name, $a.SizeMB)
+    }
+}
+if ($Flavors.Count -eq 2) {
+    Write-Host ''
+    Write-Host '  轻量版:不嵌模型,装机包小,需联网下载或扫盘配置'
+    Write-Host '  集成版:嵌入 vendor\bundled_models\,装机即用 (模型清单见上方"模型体检"输出,'
+    Write-Host '          或 chayuan-server\vendor\bundled_models\README.md)'
 }
 Write-Host ''
 if ($useColor) { Write-Host "$ESC[32m[OK] 全部步骤通过$ESC[0m" }

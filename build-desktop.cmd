@@ -2,10 +2,18 @@
 REM One-click build wrapper. Bypasses PS execution policy + sets UTF-8 console.
 REM
 REM Usage:
-REM     build-desktop.cmd                       full build
+REM     build-desktop.cmd                       full build = lite + integrated
+REM     build-desktop.cmd -LiteOnly             only the lite flavor (no bundled models)
+REM     build-desktop.cmd -IntegratedOnly       only the integrated flavor (with bundled models)
+REM     build-desktop.cmd -SkipModelCheck       skip vendor/bundled_models inventory scan
 REM     build-desktop.cmd -SkipServer           skip PyInstaller, only Tauri
 REM     build-desktop.cmd -Clean                clean rebuild
 REM     build-desktop.cmd -NoColor              old console, disable ANSI color
+REM
+REM Outputs:
+REM     dist-lite\          lite flavor installers
+REM     dist-integrated\    integrated flavor installers
+REM     bundled models: see chayuan-server\vendor\bundled_models\README.md
 REM
 REM NOTE: This .cmd is intentionally ASCII-only because cmd.exe parses
 REM       batch files using the OEM code page (GBK on Chinese Windows),

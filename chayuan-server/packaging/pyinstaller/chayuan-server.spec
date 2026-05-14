@@ -18,6 +18,7 @@
 # 体积说明(详见 README):v0 单机包预计 1.8-2.2 GB(paddleocr 1.2 GB / faiss 120 MB
 # / onnxruntime 70 MB)。Phase 5 把 paddle / faiss / unstructured / nicegui 等
 # 异步剥离后,目标 < 600 MB。
+import os
 import sys
 from pathlib import Path
 
@@ -148,8 +149,11 @@ for sub in (
 # 由 ``chayuan_packaging fetch <release>`` 预拉的权重。
 # ──────────────────────────────────────────────────────────────
 
+_LITE_BUILD = os.environ.get("CHAYUAN_LITE_BUILD", "").strip().lower() in ("1", "true", "yes")
 bundled_models_src = ROOT / "vendor" / "bundled_models"
-if bundled_models_src.is_dir():
+if _LITE_BUILD:
+    print(f"[chayuan-spec] 跳过 bundled_models 注入(CHAYUAN_LITE_BUILD=1, 轻量版)")
+elif bundled_models_src.is_dir():
     datas.append((str(bundled_models_src), "bundled_models"))
     print(f"[chayuan-spec] bundled_models 已纳入 datas:{bundled_models_src}")
 else:

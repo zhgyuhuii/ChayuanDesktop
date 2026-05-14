@@ -5,7 +5,10 @@
 # 与 Windows 端 build-desktop.cmd / build-desktop.ps1 同形,开关命名一致
 # (改用 sh 风格连字符):
 #
-#   ./build-desktop.sh                                  全量构建(源码没改时自动跳 PyInstaller)
+#   ./build-desktop.sh                                  默认 = 双产物:轻量版 + 集成版
+#   ./build-desktop.sh --lite-only                      只打"轻量版"(不嵌模型,体积小)
+#   ./build-desktop.sh --integrated-only                只打"集成版"(嵌入 vendor/bundled_models/)
+#   ./build-desktop.sh --skip-model-check               跳过 bundled_models 体检
 #   ./build-desktop.sh --skip-server                    显式跳过 sidecar PyInstaller(不算指纹)
 #   ./build-desktop.sh --rebuild-server                 强制重建 sidecar(忽略指纹缓存)
 #   ./build-desktop.sh --skip-healthcheck               跳过 /healthz 探测
@@ -15,6 +18,19 @@
 #   ./build-desktop.sh --bundle-only                    跳过前 4 步,只重做 Tauri bundle
 #   ./build-desktop.sh --clean                          构建前先清 dist + bundle
 #   ./build-desktop.sh --verbose                        透传 PyInstaller / pnpm 完整 stdout
+#
+# 双产物说明
+# ---------
+#   轻量版(lite):打包时设 CHAYUAN_LITE_BUILD=1,PyInstaller spec 跳过
+#                 vendor/bundled_models 注入,产物体积小,首次启动靠 BootstrapBanner
+#                 引导用户在线下载或扫盘配置。
+#   集成版(integrated):正常打包,把 vendor/bundled_models/ 整树嵌入 sidecar,
+#                 用户装好即用,无需联网下载。模型清单详见
+#                 chayuan-server/vendor/bundled_models/README.md。
+#
+#   两个产物各自落到:
+#     dist-lite/          ← 轻量版 .dmg/.deb/.AppImage/.msi/.exe
+#     dist-integrated/    ← 集成版 .dmg/.deb/.AppImage/.msi/.exe
 #
 # Sidecar 指纹缓存
 # ---------------
@@ -93,9 +109,12 @@ CLEAN=0
 VERBOSE=0
 REBUILD_SERVER=0
 SKIP_SERVER_AUTO=0  # 内部状态:Step 1 是被指纹自动跳过,还是 --skip-server 显式跳过
+SKIP_MODEL_CHECK=0
+LITE_ONLY=0
+INTEGRATED_ONLY=0
 
 usage() {
-    sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -110,14 +129,33 @@ while [[ $# -gt 0 ]]; do
         --bundle-only)      BUNDLE_ONLY=1 ;;
         --clean)            CLEAN=1 ;;
         --verbose|-v)       VERBOSE=1 ;;
+        --skip-model-check) SKIP_MODEL_CHECK=1 ;;
+        --lite-only)        LITE_ONLY=1 ;;
+        --integrated-only)  INTEGRATED_ONLY=1 ;;
         -h|--help)          usage ;;
         *)
             echo "[FAIL] 未知参数: $1" >&2
-            echo "可用参数:--skip-server / --rebuild-server / --skip-healthcheck / --skip-frontend / --skip-install / --skip-typecheck / --bundle-only / --clean / --verbose" >&2
+            echo "可用参数:--lite-only / --integrated-only / --skip-model-check / --skip-server / --rebuild-server / --skip-healthcheck / --skip-frontend / --skip-install / --skip-typecheck / --bundle-only / --clean / --verbose" >&2
             exit 2 ;;
     esac
     shift
 done
+
+# 互斥检查
+if [[ "$LITE_ONLY" == "1" ]] && [[ "$INTEGRATED_ONLY" == "1" ]]; then
+    echo "[FAIL] --lite-only 与 --integrated-only 互斥,二选一(不带 = 都打)" >&2
+    exit 2
+fi
+
+# 决定本次要打哪些 flavor
+FLAVORS=()
+if [[ "$LITE_ONLY" == "1" ]]; then
+    FLAVORS=(lite)
+elif [[ "$INTEGRATED_ONLY" == "1" ]]; then
+    FLAVORS=(integrated)
+else
+    FLAVORS=(lite integrated)
+fi
 
 if [[ "$BUNDLE_ONLY" == "1" ]]; then
     SKIP_SERVER=1
@@ -199,7 +237,58 @@ if [[ "$CLEAN" == "1" ]]; then
     step '清理'
     rm -rf "$SERVER_DIR/dist" 2>/dev/null && note "清 chayuan-server/dist" || true
     rm -rf "$TAURI_BUNDLE" 2>/dev/null && note "清 src-tauri/target/release/bundle" || true
+    rm -rf "$WORKSPACE/dist-lite" "$WORKSPACE/dist-integrated" 2>/dev/null \
+        && note "清 dist-lite/ + dist-integrated/" || true
 fi
+
+# ── 4b. bundled_models 体检(集成版需要,轻量版仅打印) ─────────────
+MODEL_CHECK_OK=0      # 0 = 未跑 / 失败,1 = 至少 1 个 cap 有模型
+if [[ "$SKIP_MODEL_CHECK" == "1" ]]; then
+    step '模型体检 [skipped]'
+else
+    step 'bundled_models 体检 (本次打包会嵌入哪些模型)'
+    check_script="$WORKSPACE/scripts/check-bundled-models.py"
+    if [[ -f "$check_script" ]]; then
+        if python3 "$check_script"; then
+            MODEL_CHECK_OK=1
+        else
+            note "bundled_models 全空 — 集成版将退化为轻量版(都不嵌模型)"
+        fi
+    else
+        note "$check_script 不存在,跳过"
+    fi
+fi
+
+# 决策:整合版需要模型;空目录又显式 --integrated-only 时给警告但仍允许
+for flav in "${FLAVORS[@]}"; do
+    if [[ "$flav" == "integrated" ]] && [[ "$SKIP_MODEL_CHECK" != "1" ]] && [[ "$MODEL_CHECK_OK" != "1" ]]; then
+        if [[ "$INTEGRATED_ONLY" == "1" ]]; then
+            echo "${C_YELLOW}[WARN]${C_RESET} 集成版构建但 bundled_models 全空,产物效果上等同轻量版" >&2
+        fi
+    fi
+done
+
+ALL_ARTIFACTS=()    # 每个 flavor 产物:"flavor|src|dest|size_mb"
+
+# 双 flavor 时,每次切换都强制重建 sidecar(env 不同,指纹不能命中老的)
+if [[ "${#FLAVORS[@]}" -gt 1 ]] && [[ "$SKIP_SERVER" != "1" ]]; then
+    note "双产物模式:每个 flavor 都会重建 sidecar(env 不同)"
+    REBUILD_SERVER=1
+fi
+
+# 把 Step 1 ~ Step 3 + 单 flavor 总结包成 do_build_flavor;主循环按 $FLAVORS 调一次或两次。
+do_build_flavor() {
+    local FLAVOR="$1"
+    if [[ "$FLAVOR" == "lite" ]]; then
+        export CHAYUAN_LITE_BUILD=1
+        FLAVOR_LABEL="轻量版(lite)"
+    else
+        unset CHAYUAN_LITE_BUILD || true
+        FLAVOR_LABEL="集成版(integrated)"
+    fi
+
+    echo ""
+    step "═══ [$FLAVOR_LABEL] 开始 ═══"
 
 # ── 5. Step 1: chayuan-server PyInstaller ─────────────────────────
 #
@@ -376,21 +465,59 @@ else
         exit 1
     fi
     ok 'Tauri bundle 完成:'
+    flavor_out="$WORKSPACE/dist-$FLAVOR"
+    rm -rf "$flavor_out"
+    mkdir -p "$flavor_out"
     for a in "${artifacts[@]}"; do
         sz=$(du -m "$a" | awk '{print $1}')
-        echo "    $a (${sz} MB)"
+        base="$(basename "$a")"
+        # 给文件名加 flavor 后缀,避免双 flavor 同名互相覆盖
+        stem="${base%.*}" ; ext="${base##*.}"
+        if [[ "$stem" == "$base" ]]; then  # 无扩展(罕见)
+            dest_name="${base}.${FLAVOR}"
+        else
+            dest_name="${stem}.${FLAVOR}.${ext}"
+        fi
+        dest="$flavor_out/$dest_name"
+        cp -f "$a" "$dest"
+        ALL_ARTIFACTS+=("$FLAVOR|$a|$dest|$sz")
+        echo "    $a → $dest (${sz} MB)"
     done
 fi
+
+}   # end do_build_flavor
+
+# ── 主循环:按 $FLAVORS 跑一次或两次 ─────────────────────────────
+for flav in "${FLAVORS[@]}"; do
+    do_build_flavor "$flav"
+done
 
 # ── 8. 总结 ──────────────────────────────────────────────────────
 step '完成'
 note "host: $OS_NAME / $ARCH ($TRIPLE)"
-note "sidecar:   $SIDECAR_PATH"
+note "本次构建 flavor:${FLAVORS[*]}"
 if [[ "$SKIP_FRONTEND" != "1" ]]; then
-    note "installer: $TAURI_BUNDLE/{dmg,macos,deb,appimage,rpm}/"
+    for flav in "${FLAVORS[@]}"; do
+        note "$flav 产物目录:$WORKSPACE/dist-$flav/"
+    done
+fi
+if [[ "${#ALL_ARTIFACTS[@]}" -gt 0 ]]; then
+    echo ""
+    echo "${C_BOLD}本次产物清单${C_RESET}"
+    printf "  %-12s %-50s %s\n" "flavor" "file" "size"
+    for line in "${ALL_ARTIFACTS[@]}"; do
+        IFS='|' read -r f _src dest sz <<< "$line"
+        printf "  %-12s %-50s %s MB\n" "$f" "$(basename "$dest")" "$sz"
+    done
 fi
 echo ""
 echo "${C_BOLD}${C_YELLOW}⚠ 本次产物只能跑在 ${ARCH} 架构机器上${C_RESET}"
 echo "  其它架构请在对应 CPU 机器上重跑本脚本(或 CI 双 runner)。"
+if [[ "${#FLAVORS[@]}" -eq 2 ]]; then
+    echo ""
+    echo "  ${C_BOLD}轻量版${C_RESET}:不嵌模型,装机包小,需联网下载或扫盘配置"
+    echo "  ${C_BOLD}集成版${C_RESET}:嵌入 vendor/bundled_models/,装机即用(模型清单见上方"
+    echo "                  '模型体检'输出,或 chayuan-server/vendor/bundled_models/README.md)"
+fi
 echo ""
 echo "${C_GREEN}[OK] 全部步骤通过${C_RESET}"

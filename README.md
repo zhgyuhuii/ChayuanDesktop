@@ -838,42 +838,112 @@ pnpm install
 pnpm dev:desktop
 ```
 
-### 10.3 本地打包
+### 10.3 模型放置与下载
+
+> 模型相关的"下载地址 / 格式 / 放在哪 / 打包嵌入 / 调试自检"等完整指南,
+> 见 **[chayuan-server/vendor/bundled_models/README.md](chayuan-server/vendor/bundled_models/README.md)**。
+
+短版速记:
+
+```bash
+# 自带模型固定放在 chayuan-server/vendor/bundled_models/<capability>/ 下
+# 子目录:chat / embedding / rerank / asr / ocr / image / custom
+# 单文件:*.gguf | *.onnx | *.safetensors;多文件仓库:带 config.json/tokenizer.json 的目录
+
+# 体检本次能装上几个 capability 的模型
+python scripts/check-bundled-models.py
+python scripts/check-bundled-models.py --json    # 给 CI / 脚本消费
+python scripts/check-bundled-models.py --require chat --require embedding  # 强制项
+
+# 按 layout.yaml release 批量拉模型(集成版打包前必跑)
+cd chayuan-server
+python -m chayuan_packaging fetch --target linux --arch x86_64 --release standard
+python -m chayuan_packaging stage  --target linux --arch x86_64 --release standard
+```
+
+### 10.4 本地打包(默认双产物:轻量版 + 集成版)
+
+`build-desktop.{sh,cmd,ps1}` 一次跑出两个产物:
+
+* **轻量版 (lite)**:`CHAYUAN_LITE_BUILD=1`,PyInstaller 跳过
+  `vendor/bundled_models/` 注入,装机包体积小,首次启动靠 BootstrapBanner
+  引导用户下载或扫盘配置。
+* **集成版 (integrated)**:正常打包,把 `vendor/bundled_models/` 整树嵌入
+  sidecar,用户**装好即用**,无需联网下载。本次嵌入哪些模型,构建开始时
+  的"模型体检"段会逐项打印。
+
+产物各自落到:
+
+```
+dist-lite/          ← 轻量版 .dmg / .deb / .AppImage / .msi / .exe
+dist-integrated/    ← 集成版 .dmg / .deb / .AppImage / .msi / .exe
+```
 
 #### Windows
 
 ```powershell
-# 一键脚本(推荐):
+# 默认 = 双产物
 .\build-desktop.cmd
 
-# 跳过部分阶段(后续小改重打):
+# 只打一种
+.\build-desktop.cmd -LiteOnly
+.\build-desktop.cmd -IntegratedOnly
+
+# 跳过部分阶段(后续小改重打)
 .\build-desktop.cmd -BundleOnly        # 仅重打 Tauri bundle
 .\build-desktop.cmd -SkipServer        # sidecar 不变,只重打前端
 .\build-desktop.cmd -SkipTypecheck     # 跳类型检查
+.\build-desktop.cmd -SkipModelCheck    # 跳模型体检
 ```
 
 #### macOS / Linux
 
 ```bash
+# 默认 = 双产物
 ./build-desktop.sh
+
+# 只打一种
+./build-desktop.sh --lite-only
+./build-desktop.sh --integrated-only
+
+# 跳过部分阶段
 ./build-desktop.sh --skip-server       # 同 -SkipServer
 ./build-desktop.sh --bundle-only       # 同 -BundleOnly
+./build-desktop.sh --skip-model-check  # 跳模型体检
 ./build-desktop.sh --verbose           # 看完整 stdout
 ```
 
-### 10.4 三平台 CI
+#### 构建命令在做什么
+
+每次构建按顺序跑:
+
+1. **模型体检** — 调 `scripts/check-bundled-models.py`,打印 7 类 capability
+   各自有几个文件 / 体积合计多大,集成版会嵌入这些。
+2. **双 flavor 循环**(默认):每个 flavor 各跑一次以下 3 步 —
+   - **Step 1** PyInstaller 出 sidecar(集成版自动嵌入 bundled_models,
+     轻量版 `CHAYUAN_LITE_BUILD=1` 跳过)
+   - **Step 2** `/healthz` 探测确认 sidecar 能起来
+   - **Step 3** Tauri bundle 出 `.dmg / .deb / .AppImage / .msi / .exe`
+     并按 flavor 后缀拷到 `dist-<flavor>/`
+3. **本次产物清单** — 总结表列出 `flavor / 文件名 / 大小`。
+
+### 10.5 三平台 CI
 
 GitHub Actions 矩阵 5 个 runner:`macos-13` / `macos-14` / `ubuntu-22.04` / `ubuntu-24.04-arm` / `windows-2022`,
 触发条件 + 产物下载 详见 [`chayuan-client/.github/workflows/build-desktop.yml`](chayuan-client/.github/workflows/build-desktop.yml)。
 
-### 10.5 项目结构
+### 10.6 项目结构
 
 ```
 /chayuan-desktop/
 ├── README.md                       ← 本文件
 ├── PACKAGING.md                    ← 详细打包流程
 ├── LICENSE                         ← AGPL-3.0
-├── build-desktop.{cmd,ps1,sh}      ← 一键打包入口
+├── build-desktop.{cmd,ps1,sh}      ← 一键打包入口(默认双产物:轻量版+集成版)
+├── dist-lite/                      ← 轻量版构建产物(运行后生成)
+├── dist-integrated/                ← 集成版构建产物(运行后生成)
+├── scripts/
+│   └── check-bundled-models.py     ← 打包前的模型体检脚本
 ├── chayuan-server/                 ← Python 后端
 │   ├── libs/chayuan-server/
 │   │   └── chayuan/server/
@@ -888,6 +958,7 @@ GitHub Actions 矩阵 5 个 runner:`macos-13` / `macos-14` / `ubuntu-22.04` / `u
 │   │       ├── ai_platform/        ← 模型平台网关
 │   │       ├── governance/         ← 审计 / 配额 / RBAC
 │   │       └── profiles/single_machine.py
+│   ├── vendor/bundled_models/      ← 项目内固定模型槽(详见同目录 README.md)
 │   └── packaging/pyinstaller/      ← PyInstaller spec + build.py
 └── chayuan-client/                 ← Tauri 前端
     ├── apps/desktop/               ← Tauri 主入口
@@ -905,7 +976,7 @@ GitHub Actions 矩阵 5 个 runner:`macos-13` / `macos-14` / `ubuntu-22.04` / `u
         └── platform-web/           ← Web 适配层
 ```
 
-### 10.6 验证清单(release 前必跑)
+### 10.7 验证清单(release 前必跑)
 
 ```bash
 # 后端测试
