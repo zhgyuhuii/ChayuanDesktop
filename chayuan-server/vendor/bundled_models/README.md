@@ -179,21 +179,65 @@ powershell -ExecutionPolicy ByPass -c "irm https://hf.co/cli/install.ps1 | iex"
 
 #### A.2 设镜像 endpoint
 
-**macOS / Linux:**
+> ⚠ **关键坑**:`$env:` / `export` / `set` 设的环境变量**只在当前 shell 会话生效**。
+> 新开一个 PowerShell / 切换 conda env(`(base)` ↔ `(py312)` 等)就没有了,
+> 下载会再次报 `ConnectTimeout` 或 `cannot find the requested files in the
+> local cache`。
+>
+> 想一劳永逸,看下面"永久生效"段。每次新开 shell 也不嫌烦的,跳过即可。
+
+**(临时) 当前会话生效**
+
+macOS / Linux:
 ```bash
-export HF_ENDPOINT=https://hf-mirror.com    # 国内必加;海外网络可省
+export HF_ENDPOINT=https://hf-mirror.com
 ```
 
-**Windows (PowerShell):**
+Windows (PowerShell):
 ```powershell
-$env:HF_ENDPOINT = "https://hf-mirror.com"  # 仅当前 shell 生效
-# 想永久生效(影响所有新开 shell):
-# [Environment]::SetEnvironmentVariable("HF_ENDPOINT", "https://hf-mirror.com", "User")
+$env:HF_ENDPOINT = "https://hf-mirror.com"
 ```
 
-**Windows (cmd.exe):**
+Windows (cmd.exe):
 ```cmd
 set HF_ENDPOINT=https://hf-mirror.com
+```
+
+**(永久) 用户级,影响所有新开 shell / 子进程**
+
+macOS / Linux(把这行加到 `~/.bashrc` 或 `~/.zshrc`,然后 `source` 一下):
+```bash
+echo 'export HF_ENDPOINT=https://hf-mirror.com' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Windows (PowerShell,设过后**关掉当前窗口、新开一个**才会读到):
+```powershell
+[Environment]::SetEnvironmentVariable("HF_ENDPOINT", "https://hf-mirror.com", "User")
+# 验证(新开 PS 窗口里跑):
+# echo $env:HF_ENDPOINT  →  应输出 https://hf-mirror.com
+```
+
+Windows (cmd.exe,同样要新开窗口才生效):
+```cmd
+setx HF_ENDPOINT "https://hf-mirror.com"
+```
+
+**(诊断) 怀疑环境变量没生效?**
+
+```bash
+# 1) 看当前 shell 是否设上(三平台用各自的 echo 命令)
+echo $HF_ENDPOINT           # bash / zsh
+echo $env:HF_ENDPOINT        # PowerShell
+echo %HF_ENDPOINT%           # cmd.exe
+
+# 2) 开 hf CLI 的 debug 日志,看实际请求哪个域名
+#    PowerShell:
+$env:HF_DEBUG = "1"
+hf download <repo> ...
+# 看 traceback 里的 URL:
+#   出现 hf-mirror.com → endpoint 生效,问题在别处
+#   仍是 huggingface.co → 环境变量没传到 hf 进程
 ```
 
 #### A.3 下载推荐组合(lite 套件:chat + embedding + rerank + asr)
