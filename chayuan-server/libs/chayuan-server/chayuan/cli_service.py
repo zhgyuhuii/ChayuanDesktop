@@ -213,4 +213,81 @@ def model_download_cmd(model_id: str) -> None:
     click.echo("  请运行 `chayuan model scan` 让本地模型索引看到新模型。")
 
 
+@model_group.command(
+    "status",
+    help="一站式模型链路自检 — 扫盘 + 必需 capability 覆盖 + 推理引擎启动参数预览",
+)
+@click.option("--json", "as_json", is_flag=True, default=False,
+              help="输出 JSON(供脚本消费)")
+@click.option("--no-scan", "no_scan", is_flag=True, default=False,
+              help="不扫盘,只读现有 local_models.json(性能敏感场景)")
+def model_status_cmd(as_json: bool, no_scan: bool) -> None:
+    """打印完整链路状态 — 给运维不开 GUI 就能 debug "模型为什么没起来"。
+
+    输出含三段:
+
+    * bootstrap:必需 capability(chat / text-embedding / rerank)的覆盖情况
+    * install_hints:bootstrap 缺项时推荐下载哪个 release(lite/standard/pro)
+    * process_args:llamacpp / infinity / ollama 重启时会用什么 args/env
+    """
+    from chayuan.server.model_registry.bootstrap import check_bootstrap
+    from chayuan.server.model_registry.install_hints import build_install_hints
+    from chayuan.server.model_registry.process_args import resolve_all
+
+    report = check_bootstrap(do_scan=not no_scan)
+    hints = build_install_hints(report.missing) if report.missing else []
+    snap = resolve_all()
+
+    if as_json:
+        payload = {
+            "bootstrap": report.to_dict(),
+            "install_hints": [h.to_dict() for h in hints],
+            "process_args": {name: r.to_dict() for name, r in snap.items()},
+        }
+        click.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+
+    # 人类可读
+    if report.ready:
+        click.secho("✓ 模型库自检通过", fg="green", bold=True)
+    else:
+        click.secho(
+            f"✗ 模型库不完整 — 缺 {', '.join(report.missing)}", fg="yellow", bold=True,
+        )
+
+    click.echo("\nCapability 覆盖:")
+    for s in report.statuses:
+        icon = click.style("✓", fg="green") if s.satisfied else click.style("✗", fg="yellow")
+        click.echo(f"  {icon}  {s.capability:<18}  候选 {len(s.candidates)}")
+        for c in s.candidates[:3]:
+            click.echo(
+                f"      · {c.model_id}  ({c.format})  {c.size_bytes/1024/1024:>9.1f} MiB"
+            )
+        if len(s.candidates) > 3:
+            click.echo(f"      ... 还有 {len(s.candidates) - 3} 个候选")
+
+    if hints:
+        click.echo("\n推荐下载:")
+        for h in hints:
+            click.echo(
+                f"  → {h.release}({h.approx_size_mb} MB)  覆盖 "
+                f"{', '.join(h.covered_capabilities)}"
+            )
+            click.echo(f"     {h.description}")
+
+    click.echo("\n推理引擎启动参数:")
+    for name, r in snap.items():
+        icon = click.style("✓", fg="green") if r.ok else click.style("○", fg="cyan")
+        suffix = (f" missing={','.join(r.missing)}" if r.missing else "")
+        click.echo(f"  {icon}  {name}{suffix}")
+        if r.args:
+            click.echo(f"      args: {' '.join(r.args)}")
+        if r.env:
+            for k, v in r.env.items():
+                click.echo(f"      env:  {k}={v}")
+        if not r.args and not r.env:
+            click.echo(click.style("      (空 — 上述 capability 未解析出本地模型)",
+                                   fg="bright_black"))
+
+
 __all__ = ["service_group", "model_group"]
