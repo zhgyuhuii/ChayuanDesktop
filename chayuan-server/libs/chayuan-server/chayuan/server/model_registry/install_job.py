@@ -38,18 +38,19 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 logger = logging.getLogger("chayuan.model_registry.install_job")
 
 
 class JobStatus(str, Enum):
-    """任务状态机 —— queued → running → (succeeded | failed)。"""
+    """任务状态机 —— queued → running → (succeeded | failed | cancelled)。"""
 
     QUEUED = "queued"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 _ALLOWED_RELEASES = {"lite", "standard", "pro"}
@@ -72,8 +73,8 @@ class InstallJob:
         mirror: 镜像别名(``hf-mirror`` 等),None=用 packaging 默认。
         status: 状态机当前值。
         started_at: epoch 秒,任务创建时刻。
-        ended_at: epoch 秒,首次进入 succeeded / failed 时刻。
-        exit_code: 子进程退出码(仅 succeeded / failed 时有值)。
+        ended_at: epoch 秒,首次进入终态时刻。
+        exit_code: 子进程退出码(仅终态时有值)。
         log_tail: stdout/stderr 行缓冲(最多 200 行)。
         step: 当前在哪一步(``fetch`` / ``stage`` / ``done``),便于前端
             显示"已下载完成,正在解压…"。
@@ -88,6 +89,10 @@ class InstallJob:
     exit_code: Optional[int] = None
     step: str = ""
     log_tail: Deque[str] = field(default_factory=lambda: deque(maxlen=200))
+    # 内部字段:取消标志 + 当前 subprocess.Popen 引用(供 cancel() 用)。
+    # 不进 to_dict;由 manager 锁保护读写。
+    _cancel_requested: bool = field(default=False, repr=False)
+    _proc: Optional[Any] = field(default=None, repr=False)  # type: ignore[name-defined]
 
     def to_dict(self) -> dict:
         return {
@@ -168,6 +173,32 @@ class InstallJobManager:
             return sorted(self._jobs.values(),
                           key=lambda j: j.started_at, reverse=True)
 
+    def cancel(self, job_id: str) -> InstallJob:
+        """请求中止 ``job_id``,返回当前 job 视图。
+
+        语义:
+        * 已是终态(succeeded/failed/cancelled) → no-op,返回原状态
+        * queued/running → 置 cancel 标志,若已 spawn subprocess 则 SIGTERM
+          (后台线程在下次循环点检测后过渡到 CANCELLED 终态)
+
+        Raises:
+            KeyError: job_id 未知。
+        """
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise KeyError(f"unknown job_id {job_id!r}")
+            if job.status in (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED):
+                return job
+            job._cancel_requested = True
+            proc = job._proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[install_job] cancel(%s) terminate 失败: %r", job_id, e)
+        return job
+
     # ── internals ─────────────────────────────────────────────────
 
     def _run(self, job: InstallJob, repo_root: Optional[Path]) -> None:
@@ -178,6 +209,14 @@ class InstallJobManager:
         env = dict(os.environ)
 
         for step in ("fetch", "stage"):
+            # 进入下一步前先看 cancel 标志,避免 fetch 失败回到这里又跑 stage
+            with self._lock:
+                if job._cancel_requested:
+                    job.status = JobStatus.CANCELLED
+                    job.ended_at = time.time()
+                    job.log_tail.append("[install_job] 收到取消请求,终止")
+                    return
+
             cmd = [sys.executable, "-m", "chayuan_packaging", step,
                    "--release", job.release]
             if job.mirror:
@@ -199,6 +238,17 @@ class InstallJobManager:
                     job.ended_at = time.time()
                 return
 
+            # subprocess 可能因取消而被 SIGTERM,returncode 通常非 0。
+            with self._lock:
+                if job._cancel_requested:
+                    job.exit_code = rc
+                    job.status = JobStatus.CANCELLED
+                    job.ended_at = time.time()
+                    job.log_tail.append(
+                        f"[install_job] 已取消 (step={step}, exit={rc})"
+                    )
+                    return
+
             if rc != 0:
                 with self._lock:
                     job.exit_code = rc
@@ -209,11 +259,32 @@ class InstallJobManager:
                     )
                 return
 
+        # 成功后:扫盘 + 自动指派 default,让 chat / retrieval 装完即用,
+        # 不强求用户先去设置页走一遍。任何环节失败仅记日志,不影响 job 成功。
+        try:
+            from chayuan.server.model_registry.local_index import scan_once
+            scan_once()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[install_job] post-install scan_once 失败: %r", e)
+        try:
+            from chayuan.server.model_registry.auto_assign import (
+                promote_defaults_from_local,
+            )
+            promoted = promote_defaults_from_local()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[install_job] post-install auto_assign 失败: %r", e)
+            promoted = {}
+
         with self._lock:
             job.step = "done"
             job.exit_code = 0
             job.status = JobStatus.SUCCEEDED
             job.ended_at = time.time()
+            if promoted:
+                job.log_tail.append(
+                    f"[install_job] 自动指派默认: " +
+                    ", ".join(f"{k}={v}" for k, v in promoted.items())
+                )
 
     def _run_subprocess(
         self,
@@ -232,6 +303,9 @@ class InstallJobManager:
             cwd=str(repo_root) if repo_root else None,
             env=env,
         )
+        # 把 proc 引用挂到 job 上,cancel() 才能 SIGTERM
+        with self._lock:
+            job._proc = proc
         assert proc.stdout is not None
         try:
             for line in proc.stdout:
@@ -239,6 +313,8 @@ class InstallJobManager:
                     job.log_tail.append(line.rstrip())
         finally:
             proc.wait()
+            with self._lock:
+                job._proc = None
         return int(proc.returncode)
 
 

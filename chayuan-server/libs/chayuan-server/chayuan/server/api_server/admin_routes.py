@@ -1143,6 +1143,66 @@ def admin_models_install_release_list(
             "data": {"items": [j.to_dict() for j in items], "total": len(items)}}
 
 
+@admin_router.post(
+    "/models/install_release/{job_id}/cancel",
+    summary="[gate] 取消下载任务",
+    tags=["Admin / Models"],
+)
+def admin_models_install_release_cancel(job_id: str) -> Dict[str, Any]:
+    """请求中止任务。已是终态的 job 返回原状态(幂等)。"""
+    from chayuan.server.model_registry.install_job import get_install_manager
+
+    try:
+        job = get_install_manager().cancel(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown job_id {job_id!r}")
+    return {"code": 0, "msg": "ok", "data": job.to_dict()}
+
+
+# ── 用户手册下载 ──────────────────────────────────────────────────
+
+
+@admin_router.get(
+    "/manuals/list",
+    summary="[public] 列出已部署的用户手册(md + docx 路径)",
+    tags=["Admin / Manuals"],
+)
+def admin_manuals_list() -> Dict[str, Any]:
+    """前端"知识中心 / 帮助"入口拉这份清单显示"打开用户手册"链接。"""
+    from chayuan.server.manuals.deploy import list_deployed_manuals
+    return {"code": 0, "msg": "ok", "data": {"items": list_deployed_manuals()}}
+
+
+@admin_router.get(
+    "/manuals/{public_name}",
+    summary="[public] 下载用户手册(?fmt=docx|md,默认 docx)",
+    tags=["Admin / Manuals"],
+)
+def admin_manuals_download(
+    public_name: str,
+    fmt: str = Query("docx", pattern="^(docx|md)$"),
+) -> Any:
+    """返回手册文件流。404 = 该手册未部署或未生成 docx。"""
+    from fastapi.responses import FileResponse
+    from chayuan.server.manuals.deploy import get_manual_path
+
+    path = get_manual_path(public_name, fmt=fmt)
+    if path is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"manual {public_name!r} (fmt={fmt}) 未部署",
+        )
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        if fmt == "docx" else "text/markdown; charset=utf-8"
+    )
+    return FileResponse(
+        path=str(path),
+        media_type=media_type,
+        filename=path.name,
+    )
+
+
 @admin_router.get(
     "/models/process_args",
     summary="[gate] 推理引擎子进程当前会用哪些 args/env(解析快照)",

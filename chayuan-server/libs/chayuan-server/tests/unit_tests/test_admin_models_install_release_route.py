@@ -184,3 +184,73 @@ def test_list_respects_limit(client_with_fresh_manager):
             "/admin/models/install_release", params={"limit": 2})
     items = resp.json()["data"]["items"]
     assert len(items) == 2
+
+
+# ─────────────────────── POST /install_release/{id}/cancel ───────────────────────
+
+
+def test_cancel_404_on_unknown_id(client_with_fresh_manager):
+    resp = client_with_fresh_manager.post(
+        "/admin/models/install_release/00000000-0000-0000-0000-000000000000/cancel"
+    )
+    assert resp.status_code == 404
+
+
+def test_cancel_terminal_job_is_noop(client_with_fresh_manager):
+    with mock.patch(
+        "chayuan.server.model_registry.install_job.subprocess.Popen",
+        side_effect=lambda *a, **kw: _FakeProc(),
+    ):
+        post = client_with_fresh_manager.post(
+            "/admin/models/install_release", json={"release": "lite"})
+        job_id = post.json()["data"]["id"]
+        _wait_terminal(client_with_fresh_manager)
+        resp = client_with_fresh_manager.post(
+            f"/admin/models/install_release/{job_id}/cancel")
+    assert resp.status_code == 200
+    # 已完成的任务取消是幂等的:仍是 succeeded
+    assert resp.json()["data"]["status"] == "succeeded"
+
+
+def test_cancel_running_job_transitions_to_cancelled(client_with_fresh_manager):
+    blocker = threading.Event()
+    terminate_calls = []
+
+    class _CancelableProc:
+        returncode = -15
+
+        @property
+        def stdout(self):
+            blocker.wait(timeout=5.0)
+            return iter(())
+
+        def terminate(self):
+            terminate_calls.append(True)
+            blocker.set()
+
+        def poll(self):
+            return None if not blocker.is_set() else -15
+
+        def wait(self):
+            pass
+
+    try:
+        with mock.patch(
+            "chayuan.server.model_registry.install_job.subprocess.Popen",
+            return_value=_CancelableProc(),
+        ):
+            post = client_with_fresh_manager.post(
+                "/admin/models/install_release", json={"release": "lite"})
+            job_id = post.json()["data"]["id"]
+            time.sleep(0.05)  # 让任务进 RUNNING
+            resp = client_with_fresh_manager.post(
+                f"/admin/models/install_release/{job_id}/cancel")
+            assert resp.status_code == 200
+            assert terminate_calls == [True]
+            _wait_terminal(client_with_fresh_manager)
+            # 再查一次,应该是 cancelled
+            final = client_with_fresh_manager.get(
+                f"/admin/models/install_release/{job_id}")
+        assert final.json()["data"]["status"] == "cancelled"
+    finally:
+        blocker.set()

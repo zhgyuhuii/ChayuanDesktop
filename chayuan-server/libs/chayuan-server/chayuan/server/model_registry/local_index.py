@@ -77,6 +77,57 @@ def local_index_path() -> Path:
     return Path(CHAYUAN_ROOT) / "model_registry" / "local_models.json"
 
 
+# bundled_models 子目录约定（与 vendor/bundled_models/README.md 对齐）。
+BUNDLED_CAPABILITY_DIRS = ("chat", "embedding", "rerank", "asr", "ocr", "image", "custom")
+BUNDLED_DIRNAME = "bundled_models"
+
+
+def bundled_models_dir() -> Optional[Path]:
+    """解析项目内"固定模型槽"目录;不存在时返回 ``None``。
+
+    按以下顺序探测,返回第一个**存在**的目录：
+
+    1. 环境变量 ``CHAYUAN_BUNDLED_MODELS_DIR``(测试 / 特殊部署专用)
+    2. PyInstaller 运行时：``sys._MEIPASS / "bundled_models"``
+    3. 仓库 dev 模式：根据本文件位置回溯到 ``<chayuan-server>/vendor/bundled_models``
+    4. 可执行文件同级：``<argv0_dir>/bundled_models``(便携安装)
+    """
+    env = os.environ.get("CHAYUAN_BUNDLED_MODELS_DIR")
+    if env:
+        p = Path(env).expanduser()
+        if p.is_dir():
+            return p
+
+    import sys
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        p = Path(meipass) / BUNDLED_DIRNAME
+        if p.is_dir():
+            return p
+
+    # dev: <repo>/libs/chayuan-server/chayuan/server/model_registry/local_index.py
+    #       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    # parents[5] = <repo>(chayuan-server 仓库根)
+    try:
+        repo_root = Path(__file__).resolve().parents[5]
+        p = repo_root / "vendor" / BUNDLED_DIRNAME
+        if p.is_dir():
+            return p
+    except (IndexError, OSError):
+        pass
+
+    try:
+        argv0 = Path(sys.argv[0]).resolve()
+        if argv0.is_file():
+            p = argv0.parent / BUNDLED_DIRNAME
+            if p.is_dir():
+                return p
+    except (IndexError, OSError):
+        pass
+
+    return None
+
+
 # -- 数据结构 --------------------------------------------------------------
 
 @dataclass
@@ -264,7 +315,14 @@ class LocalModelIndex:
 
 
 def _candidate_roots() -> List[Tuple[Path, str]]:
-    """返回 [(root, source_tag)] 列表。"""
+    """返回 [(root, source_tag)] 列表。
+
+    注意:bundled_models 不在这里直接挂载,而是由 :func:`seed_bundled_models`
+    在首启时拷贝到 ``<CHAYUAN_ROOT>/models/bundled/``,然后通过本函数的顶层
+    ``models`` 根扫到(relpath 以 ``bundled/`` 开头,UI 据此渲染"装机自带"badge)。
+    这样统一以 ``<CHAYUAN_ROOT>/models`` 为唯一可写真源,避免与项目内/打包内的
+    bundled 源同时出现导致重复条目。
+    """
     roots: List[Tuple[Path, str]] = []
     md = models_dir()
     if md.is_dir():
@@ -425,10 +483,13 @@ def get_local_index(*, force_reload: bool = False) -> LocalModelIndex:
 
 
 __all__ = [
+    "BUNDLED_CAPABILITY_DIRS",
+    "BUNDLED_DIRNAME",
     "DEFAULT_LAYOUT_DIRS",
     "LocalModelEntry",
     "LocalModelIndex",
     "ScanDelta",
+    "bundled_models_dir",
     "get_local_index",
     "models_dir",
     "scan_once",

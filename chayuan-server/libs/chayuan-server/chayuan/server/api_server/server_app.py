@@ -169,6 +169,32 @@ def create_app(run_mode: str = None):
         except Exception:  # noqa: BLE001
             log.exception("bootstrap_default_admin failed")
 
+    @app.on_event("startup")
+    async def _model_first_launch() -> None:
+        """装机即用钩子:scan_once + 默认模型自动指派 + 部署用户手册。
+
+        集成版(standard/pro)装机自带模型,但 capability defaults yaml 是空的;
+        本钩子运行后用户不用进任何配置页就能直接开聊天 / 跑 RAG / 检索。
+
+        失败仅记日志,不阻塞启动。
+        """
+        import logging
+        log = logging.getLogger("chayuan.startup")
+        try:
+            from chayuan.server.model_registry.first_launch import (
+                run_first_launch_hooks,
+            )
+            r = run_first_launch_hooks()
+            if r.promoted:
+                log.info("[first_launch] auto-promoted defaults: %s", r.promoted)
+            if r.manuals_md or r.manuals_docx:
+                log.info(
+                    "[first_launch] deployed manuals: md=%s docx=%s",
+                    r.manuals_md, r.manuals_docx,
+                )
+        except Exception:  # noqa: BLE001
+            log.exception("run_first_launch_hooks failed")
+
     # WS hub 与事件循环绑定，并注册关停钩子
     @app.on_event("startup")
     async def _ws_hub_attach() -> None:

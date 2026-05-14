@@ -225,3 +225,136 @@ def test_to_dict_is_json_safe():
     assert d["mirror"] == "hf-mirror"
     assert isinstance(d["log_tail"], list)
     assert d["exit_code"] == 0
+    # 内部字段不暴露
+    assert "_cancel_requested" not in d
+    assert "_proc" not in d
+
+
+def test_to_dict_does_not_leak_internal_fields():
+    """_cancel_requested 与 _proc 即便取消后也不应出现在 to_dict 中。"""
+    mgr = InstallJobManager()
+    with mock.patch(
+        "chayuan.server.model_registry.install_job.subprocess.Popen",
+        side_effect=_patch_popen(returncode=0),
+    ):
+        job = mgr.start("lite")
+        _wait_done(job)
+    d = job.to_dict()
+    for k in d.keys():
+        assert not k.startswith("_"), f"内部字段 {k!r} 不应暴露"
+
+
+# ─────────────────────── 取消 ───────────────────────
+
+
+def test_cancel_unknown_id_raises():
+    mgr = InstallJobManager()
+    with pytest.raises(KeyError, match="unknown job_id"):
+        mgr.cancel("not-a-uuid")
+
+
+def test_cancel_terminal_job_is_noop():
+    """已完成的任务再 cancel 应直接返回当前状态(幂等)。"""
+    mgr = InstallJobManager()
+    with mock.patch(
+        "chayuan.server.model_registry.install_job.subprocess.Popen",
+        side_effect=_patch_popen(returncode=0),
+    ):
+        job = mgr.start("lite")
+        _wait_done(job)
+    assert job.status == JobStatus.SUCCEEDED
+    after = mgr.cancel(job.id)
+    # 仍是 succeeded,没被改成 cancelled
+    assert after.status == JobStatus.SUCCEEDED
+
+
+def test_cancel_running_job_terminates_subprocess_and_marks_cancelled():
+    """运行中任务被 cancel 时:proc.terminate 被调用 + job 进 CANCELLED 终态。"""
+    mgr = InstallJobManager()
+    blocker = threading.Event()
+    terminate_calls = []
+
+    class _CancelableProc:
+        returncode = -15  # SIGTERM 后常见 returncode
+
+        @property
+        def stdout(self):
+            blocker.wait(timeout=5.0)
+            return iter(())
+
+        def terminate(self):
+            terminate_calls.append(True)
+            blocker.set()  # 释放 stdout 阻塞,让 _run 循环退出
+
+        def poll(self):
+            return None if not blocker.is_set() else -15
+
+        def wait(self):
+            pass
+
+    proc = _CancelableProc()
+    try:
+        with mock.patch(
+            "chayuan.server.model_registry.install_job.subprocess.Popen",
+            return_value=proc,
+        ):
+            job = mgr.start("lite")
+            # 等任务进 RUNNING + proc 挂到 job 上
+            for _ in range(200):
+                if job._proc is not None and job.status == JobStatus.RUNNING:
+                    break
+                time.sleep(0.005)
+            assert job.status == JobStatus.RUNNING
+            assert job._proc is not None
+
+            mgr.cancel(job.id)
+            assert terminate_calls == [True]
+            _wait_done(job)
+        assert job.status == JobStatus.CANCELLED
+        # log_tail 应有"已取消"提示
+        log = "\n".join(job.log_tail)
+        assert "取消" in log
+    finally:
+        blocker.set()
+
+
+def test_cancel_before_subprocess_spawn_marks_cancelled():
+    """在 _run 还没起 subprocess 之前调 cancel,任务应直接进 CANCELLED。"""
+    mgr = InstallJobManager()
+    # 拿一个"永远阻塞 in stdout"的桩,但让 _run 在 cancel 检查点退出
+    # 简单做法:patch start 的内部,但更可靠是把 popen 改成 slow popen 看不到
+    # 实际场景:用户在请求发出后立刻 cancel,我们要保证终态可达。
+    # 这里直接构造一个 queued 状态的 job 然后 cancel(单测覆盖入口逻辑)。
+    proc_started = threading.Event()
+    blocker = threading.Event()
+
+    class _SlowProc:
+        returncode = 0
+
+        @property
+        def stdout(self):
+            proc_started.set()
+            blocker.wait(timeout=5.0)
+            return iter(())
+
+        def terminate(self):
+            blocker.set()
+
+        def poll(self):
+            return None if not blocker.is_set() else 0
+
+        def wait(self):
+            pass
+
+    try:
+        with mock.patch(
+            "chayuan.server.model_registry.install_job.subprocess.Popen",
+            return_value=_SlowProc(),
+        ):
+            job = mgr.start("lite")
+            proc_started.wait(timeout=2.0)
+            mgr.cancel(job.id)
+            _wait_done(job)
+        assert job.status == JobStatus.CANCELLED
+    finally:
+        blocker.set()

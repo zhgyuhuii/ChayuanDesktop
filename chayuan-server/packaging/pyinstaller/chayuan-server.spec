@@ -129,10 +129,31 @@ for sub in (
     "chayuan/data_seed",
     # 服务端打包资源(图片 / 字体等)
     "chayuan/server/_assets",
+    # 用户手册资源(Markdown 模板;首启时拷贝并生成 docx 到 <CHAYUAN_ROOT>/manuals/)
+    "chayuan/server/manuals/resources",
 ):
     src = SERVER_PKG / sub
     if src.is_dir():
         datas.append((str(src), sub))
+
+# ──────────────────────────────────────────────────────────────
+# 项目内固定模型槽:把 <repo>/vendor/bundled_models/ 整树打进 sidecar 资源。
+#
+# 运行时 ``local_index.bundled_models_dir()`` 优先解析 ``sys._MEIPASS /
+# bundled_models``,然后被 ``first_launch.seed_bundled_models()`` 拷贝到
+# ``<CHAYUAN_ROOT>/models/bundled/``。约定见 ``vendor/bundled_models/README.md``。
+#
+# 注意:layout.yaml release(lite / standard / pro)决定打包前**哪些**模型实际
+# 落到这个目录;空目录(只有 .gitkeep)不会真的产生用户可见文件,生效的是
+# 由 ``chayuan_packaging fetch <release>`` 预拉的权重。
+# ──────────────────────────────────────────────────────────────
+
+bundled_models_src = ROOT / "vendor" / "bundled_models"
+if bundled_models_src.is_dir():
+    datas.append((str(bundled_models_src), "bundled_models"))
+    print(f"[chayuan-spec] bundled_models 已纳入 datas:{bundled_models_src}")
+else:
+    print(f"[chayuan-spec] 跳过 bundled_models 注入(目录不存在):{bundled_models_src}")
 
 
 # ──────────────────────────────────────────────────────────────

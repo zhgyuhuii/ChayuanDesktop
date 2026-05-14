@@ -514,7 +514,8 @@ export type InstallJobStatus =
   | 'queued'
   | 'running'
   | 'succeeded'
-  | 'failed';
+  | 'failed'
+  | 'cancelled';
 
 export type InstallReleaseName = 'lite' | 'standard' | 'pro';
 export type InstallMirrorName = 'hf-mirror' | 'huggingface';
@@ -568,5 +569,16 @@ export const serverModelsInstall = {
       { raw: true },
     );
     return r.data?.data ?? { items: [], total: 0 };
+  },
+
+  /**
+   * 取消任务。已是终态时返回原状态(幂等)。404 → 抛 BizError。
+   */
+  async cancel(jobId: string): Promise<InstallJob> {
+    const r = await request<{ data: InstallJob }>(
+      `${MODELS_INSTALL}/${jobId}/cancel`,
+      { method: 'POST', raw: true },
+    );
+    return r.data?.data ?? ({} as InstallJob);
   },
 };

@@ -79,3 +79,11 @@ desktop.ini
 
 # ===== Claude Code 内部 =====
 .claude/
+
+# ===== 模型权重(单文件可能上 GB,不入库) =====
+# 见 chayuan-server/vendor/bundled_models/README.md:模型由 chayuan_packaging
+# fetch 在打包前预拉,本仓库只保留 .gitkeep + README。
+*.gguf
+*.safetensors
+*.onnx
+chayuan-server/vendor/bundled_models/**/*.bin

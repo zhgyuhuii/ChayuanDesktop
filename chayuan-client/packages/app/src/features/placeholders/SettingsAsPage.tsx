@@ -545,20 +545,34 @@ const BootstrapBanner: React.FC = () => {
         </p>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
-        {hint && (
-          <Button size="sm" onClick={() => void onDownload()} disabled={!!downloading}>
-            {downloading ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                下载中…
-              </>
-            ) : (
-              <>
-                <Plus className="h-3.5 w-3.5" />
-                下载 {hint.release} 包
-              </>
-            )}
+        {hint && !downloading && (
+          <Button size="sm" onClick={() => void onDownload()}>
+            <Plus className="h-3.5 w-3.5" />
+            下载 {hint.release} 包
           </Button>
+        )}
+        {downloading && runningJob && (
+          <>
+            <Button size="sm" disabled>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              下载中…
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                try {
+                  const j = await serverModelsInstall.cancel(runningJob.id);
+                  setRunningJob(j);
+                  notifySuccess('已请求取消', '后台正在收尾,稍后会进入 cancelled 终态');
+                } catch (e) {
+                  reportError(e, '取消失败');
+                }
+              }}
+            >
+              取消下载
+            </Button>
+          </>
         )}
         <Button
           size="sm"
