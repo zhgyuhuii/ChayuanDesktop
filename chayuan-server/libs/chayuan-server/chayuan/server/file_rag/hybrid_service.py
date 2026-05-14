@@ -32,11 +32,35 @@ _RERANKER_CACHE: Dict[str, Any] = {}
 
 def _reranker_config() -> Tuple[str, str, int, bool, str, Optional[str]]:
     kb = Settings.kb_settings
-    model_name = getattr(kb, "RERANKER_MODEL", "") or "BAAI/bge-reranker-v2-m3"
+
+    # 1) capability_router 优先 ── UI 上"默认模型选择 → 重排"是真源,与
+    #    embedding 同一套机制(参见 :func:`server.utils.get_default_embedding`)。
+    router_pick = ""
+    try:
+        from chayuan.server.capability_router import resolve_model
+        router_pick = resolve_model("rerank") or ""
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[reranker] capability_router lookup failed: %r", e)
+
+    raw_name = router_pick or getattr(kb, "RERANKER_MODEL", "") or "BAAI/bge-reranker-v2-m3"
+
+    # 2) 如果是 local_index 风格的 model_id(``models/rerank/BAAI--bge-...``),
+    #    翻译成磁盘绝对路径供 CrossEncoder loader 直接吃。
+    try:
+        from chayuan.server.model_registry.path_resolver import (
+            resolve_model_id_to_path,
+        )
+        model_name = resolve_model_id_to_path(raw_name)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[reranker] path_resolver failed: %r", e)
+        model_name = raw_name
+
     device = getattr(kb, "RERANKER_DEVICE", "cpu") or "cpu"
     max_length = int(getattr(kb, "RERANKER_MAX_LENGTH", 512) or 512)
     local_files_only = bool(getattr(kb, "RERANKER_LOCAL_FILES_ONLY", True))
     resolved_model = _local_hf_snapshot(model_name) if local_files_only else model_name
+    # cache key 用最终 model_name(已可能被路径翻译),保证 capability_router 一切
+    # 模型 reranker 单例就自动重建,不命中旧缓存。
     key = f"{model_name}@{device}@{max_length}@local={local_files_only}"
     return model_name, device, max_length, local_files_only, key, resolved_model
 

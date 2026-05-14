@@ -352,6 +352,12 @@ export interface CapabilityDefaultsCandidate {
   format: string | null;
   size_bytes: number;
   is_default: boolean;
+  /** local_index 桥接进来的本地模型才有的标记(否则字段缺省) */
+  source?: 'local_index' | string;
+  /** local_index 候选的磁盘绝对路径(loader 直接可用) */
+  path?: string;
+  /** 模型家族 (qwen3 / bge / whisper / ...);仅 local_index 候选填 */
+  family?: string;
 }
 
 export interface CapabilityDefaultsResponse {
@@ -385,5 +391,107 @@ export const serverCapabilityDefaults = {
       data: { results: Record<string, { ok: boolean; model?: string; error?: string }> };
     }>(CAP_DEFAULTS_BASE, { method: 'POST', body: payload, raw: true });
     return r.data?.data ?? { results: {} };
+  },
+};
+
+
+// ---------------------------------------------------------------------------
+// 模型库自检 + 进程参数 — 给首启向导 / 模型管理面板 / 健康检查用
+//
+// 后端契约:
+//   GET /admin/models/bootstrap     → BootstrapResponse(含 install_hints)
+//   GET /admin/models/process_args  → ProcessArgsResponse
+//
+// 两个端点都不走 admin 守卫,sidecar-gate 在用户未登录时也可调用。
+// ---------------------------------------------------------------------------
+
+export interface BootstrapCandidate {
+  model_id: string;
+  path: string;
+  format: string;
+  family: string;
+  size_bytes: number;
+}
+
+export interface BootstrapCapabilityStatus {
+  capability: string;            // chat / text-embedding / rerank / ...
+  satisfied: boolean;
+  candidate_count: number;
+  candidates: BootstrapCandidate[];
+}
+
+export interface InstallHintMirror {
+  name: string;                  // hf-mirror / modelscope / huggingface
+  endpoint: string;
+  note: string;
+}
+
+export interface InstallHint {
+  release: 'lite' | 'standard' | 'pro' | string;
+  description: string;
+  approx_size_mb: number;
+  covered_capabilities: string[];
+  mirrors: InstallHintMirror[];
+}
+
+export interface BootstrapResponse {
+  ready: boolean;
+  missing: string[];             // 仅未满足的 capability(简化字段)
+  statuses: BootstrapCapabilityStatus[];
+  install_hints: InstallHint[];  // 缺则给推荐;ready=true 时为空
+}
+
+const MODELS_BOOTSTRAP = '/admin/models/bootstrap';
+
+export const serverModelsBootstrap = {
+  /**
+   * 拿"模型库够不够用"的完整报告。
+   *
+   * @param doScan true 时先扫盘刷新本地索引(默认);false 直接读现有索引(性能敏感场景用)。
+   * @param required 自定义必需 capability 列表(逗号分隔);留空用后端默认 chat+text-embedding+rerank。
+   */
+  async get(opts?: {
+    doScan?: boolean;
+    required?: string[];
+  }): Promise<BootstrapResponse> {
+    const params = new URLSearchParams();
+    if (opts?.doScan === false) params.set('do_scan', 'false');
+    if (opts?.required && opts.required.length > 0) {
+      params.set('required', opts.required.join(','));
+    }
+    const qs = params.toString();
+    const url = qs ? `${MODELS_BOOTSTRAP}?${qs}` : MODELS_BOOTSTRAP;
+    // 端点不走 envelope 包装(直接 dict),所以 request 的 envelope 拆壳逻辑不触发,
+    // payload 整体落在 RequestResult.data 上。
+    const r = await request<BootstrapResponse>(url);
+    return r.data;
+  },
+};
+
+
+export interface ProcessArgsResolution {
+  process: 'llamacpp' | 'infinity' | 'ollama' | string;
+  args: string[];
+  env: Record<string, string>;
+  resolved_models: Record<string, string>;   // cap → model_id
+  missing: string[];                          // 没解析到的 cap
+  reason: string;
+  ok: boolean;
+}
+
+export type ProcessArgsResponse = Record<string, ProcessArgsResolution>;
+
+const MODELS_PROCESS_ARGS = '/admin/models/process_args';
+
+export const serverModelsProcessArgs = {
+  /**
+   * 拿"现在重启 llamacpp / infinity / ollama 会按什么模型起"的解析快照。
+   * 字段 ``missing`` 非空 → 提示用户去配 capability default。
+   */
+  async get(): Promise<ProcessArgsResponse> {
+    const r = await request<{ data: ProcessArgsResponse }>(MODELS_PROCESS_ARGS, {
+      raw: true,
+    });
+    return r.data?.data ?? {};
   },
 };
