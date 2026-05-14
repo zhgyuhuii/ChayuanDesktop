@@ -495,3 +495,78 @@ export const serverModelsProcessArgs = {
     return r.data?.data ?? {};
   },
 };
+
+
+// ---------------------------------------------------------------------------
+// 模型下载编排 — GUI 一键触发 chayuan_packaging fetch + stage
+//
+// 后端契约:
+//   POST /admin/models/install_release          → InstallJob(立即返回)
+//   GET  /admin/models/install_release/{id}     → InstallJob(轮询查状态)
+//   GET  /admin/models/install_release          → InstallJobListResp(倒序列表)
+//
+// 前端模式:发起后按 1-3s 间隔轮询同一 job_id,直到 status ∈ {succeeded, failed}。
+// log_tail 可以做"实时日志"展示;step 字段标识 fetch / stage / done,
+// 给进度条用。
+// ---------------------------------------------------------------------------
+
+export type InstallJobStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed';
+
+export type InstallReleaseName = 'lite' | 'standard' | 'pro';
+export type InstallMirrorName = 'hf-mirror' | 'huggingface';
+
+export interface InstallJob {
+  id: string;
+  release: InstallReleaseName | string;
+  mirror: InstallMirrorName | string | null;
+  status: InstallJobStatus;
+  step: string;                 // fetch / stage / done / ""
+  started_at: number;           // epoch seconds
+  ended_at: number | null;
+  exit_code: number | null;
+  log_tail: string[];
+}
+
+const MODELS_INSTALL = '/admin/models/install_release';
+
+export const serverModelsInstall = {
+  /**
+   * 启动下载任务。立即返回 job_id,前端按需轮询 :func:`get`。
+   *
+   * 错误码:
+   * - 400: release / mirror 不在白名单
+   * - 409: 同 release 已有运行中任务
+   */
+  async start(payload: {
+    release: InstallReleaseName;
+    mirror?: InstallMirrorName;
+  }): Promise<InstallJob> {
+    const r = await request<{ data: InstallJob }>(MODELS_INSTALL, {
+      method: 'POST',
+      body: payload,
+      raw: true,
+    });
+    return r.data?.data ?? ({} as InstallJob);
+  },
+
+  /** 查指定任务状态。404 → 抛 BizError。 */
+  async get(jobId: string): Promise<InstallJob> {
+    const r = await request<{ data: InstallJob }>(`${MODELS_INSTALL}/${jobId}`, {
+      raw: true,
+    });
+    return r.data?.data ?? ({} as InstallJob);
+  },
+
+  /** 倒序列出最近 N 个任务。 */
+  async list(limit = 20): Promise<{ items: InstallJob[]; total: number }> {
+    const r = await request<{ data: { items: InstallJob[]; total: number } }>(
+      `${MODELS_INSTALL}?limit=${limit}`,
+      { raw: true },
+    );
+    return r.data?.data ?? { items: [], total: 0 };
+  },
+};

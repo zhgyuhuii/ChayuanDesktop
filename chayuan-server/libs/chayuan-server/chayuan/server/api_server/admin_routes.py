@@ -1076,6 +1076,73 @@ def admin_models_bootstrap(
     }
 
 
+# ── 模型下载编排 ──────────────────────────────────────────────────
+
+
+@admin_router.post(
+    "/models/install_release",
+    summary="[gate] 触发后台下载 release(lite/standard/pro)",
+    tags=["Admin / Models"],
+)
+def admin_models_install_release(
+    payload: Dict[str, Any] = Body(
+        ...,
+        description=('{"release": "lite", "mirror": "hf-mirror"} '
+                     'mirror 可选,白名单:hf-mirror / huggingface'),
+    ),
+) -> Dict[str, Any]:
+    """启动一个后台任务跑 ``chayuan_packaging fetch + stage``。
+
+    立即返回 job_id;前端轮询 ``GET /admin/models/install_release/{job_id}``
+    拿状态。任务在 server 进程内 subprocess 跑,server 重启会丢失运行中任务
+    (但 ``packaging/.cache`` 自带断点续传,下次请求会续跑)。
+    """
+    from chayuan.server.model_registry.install_job import get_install_manager
+
+    release = str(payload.get("release") or "").strip()
+    mirror = payload.get("mirror")
+    mirror = str(mirror).strip() if mirror else None
+
+    try:
+        job = get_install_manager().start(release, mirror=mirror)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        # 同 release 已有 running 任务 — 409 Conflict
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"code": 0, "msg": "ok", "data": job.to_dict()}
+
+
+@admin_router.get(
+    "/models/install_release/{job_id}",
+    summary="[gate] 查询下载任务状态",
+    tags=["Admin / Models"],
+)
+def admin_models_install_release_status(job_id: str) -> Dict[str, Any]:
+    """轮询任务状态。404 = 未知 job_id;200 = job dict。"""
+    from chayuan.server.model_registry.install_job import get_install_manager
+
+    job = get_install_manager().get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"unknown job_id {job_id!r}")
+    return {"code": 0, "msg": "ok", "data": job.to_dict()}
+
+
+@admin_router.get(
+    "/models/install_release",
+    summary="[gate] 列出最近的下载任务(倒序)",
+    tags=["Admin / Models"],
+)
+def admin_models_install_release_list(
+    limit: int = Query(20, ge=1, le=100),
+) -> Dict[str, Any]:
+    from chayuan.server.model_registry.install_job import get_install_manager
+
+    items = get_install_manager().list()[:limit]
+    return {"code": 0, "msg": "ok",
+            "data": {"items": [j.to_dict() for j in items], "total": len(items)}}
+
+
 @admin_router.get(
     "/models/process_args",
     summary="[gate] 推理引擎子进程当前会用哪些 args/env(解析快照)",
