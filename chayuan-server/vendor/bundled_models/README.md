@@ -47,113 +47,242 @@ vendor/bundled_models/
 
 ---
 
-## 推荐模型清单与下载地址
+## 推荐模型清单
 
-下表与 `packaging/python312/layout.yaml`(`§4 模型` 段)真源对齐。所有
-HuggingFace 链接都给出国内镜像 `hf-mirror.com`(无需翻墙),海外网络下
-可把 `hf-mirror.com` 替换成 `huggingface.co` 直链。
+下表对应 `packaging/python312/layout.yaml § 4 models` 段的官方推荐组合。
+**release 列**只是参考(说明这个模型属于"轻量 / 标准 / 专业"哪一档),
+**不是**说跑某条命令就会自动放进 `vendor/bundled_models/` — 实际下载请
+看下一节"下载方法",自己挑想要的模型按对应 capability 子目录放进来。
 
-| 类别 | 模型 | 大小 | release | HF mirror 下载地址 |
+| capability | HF 仓库 (HuggingFace 真源) | 文件 | 大小 | release |
 |---|---|---|---|---|
-| chat | `Qwen/Qwen3-4B-Instruct-GGUF` 的 `qwen3-4b-instruct-q4_k_m.gguf` | ~2.5 GB | lite/standard/pro | https://hf-mirror.com/Qwen/Qwen3-4B-Instruct-GGUF |
-| chat | `Qwen/Qwen3-7B-Instruct-GGUF` 的 `qwen3-7b-instruct-q4_k_m.gguf` | ~4.5 GB | pro | https://hf-mirror.com/Qwen/Qwen3-7B-Instruct-GGUF |
-| embedding | `BAAI/bge-m3`(HF transformers 完整仓库) | ~570 MB | 全部 | https://hf-mirror.com/BAAI/bge-m3 |
-| embedding | `BAAI/bge-large-zh-v1.5`(可选高精度备选) | ~1.4 GB | standard/pro | https://hf-mirror.com/BAAI/bge-large-zh-v1.5 |
-| rerank | `BAAI/bge-reranker-v2-m3` | ~560 MB | 全部 | https://hf-mirror.com/BAAI/bge-reranker-v2-m3 |
-| asr | `ggerganov/whisper.cpp` 的 `ggml-tiny.bin` | ~75 MB | 全部 | https://hf-mirror.com/ggerganov/whisper.cpp |
-| ocr | `SWHL/RapidOCR`(PP-OCR ONNX 三件套) | ~12 MB | standard/pro | https://hf-mirror.com/SWHL/RapidOCR |
+| chat | `Qwen/Qwen3-4B-Instruct-GGUF` | `qwen3-4b-instruct-q4_k_m.gguf` | ~2.5 GB | lite / standard / pro |
+| chat | `Qwen/Qwen3-7B-Instruct-GGUF` | `qwen3-7b-instruct-q4_k_m.gguf` | ~4.5 GB | pro |
+| embedding | `BAAI/bge-m3` | (整仓 ~570 MB,带 `config.json`/`tokenizer.json`/权重) | ~570 MB | lite / standard / pro |
+| embedding | `BAAI/bge-large-zh-v1.5`(中文偏置备选) | (整仓) | ~1.4 GB | standard / pro |
+| rerank | `BAAI/bge-reranker-v2-m3` | (整仓) | ~560 MB | lite / standard / pro |
+| asr | `ggerganov/whisper.cpp` | `ggml-tiny.bin` | ~75 MB | lite / standard / pro |
+| ocr | `SWHL/RapidOCR` | (整仓 `det/rec/cls` 三 onnx) | ~12 MB | standard / pro |
 
-**release 矩阵含义**:
+**所有 HF 仓库都可以用国内镜像 `hf-mirror.com` 替换 `huggingface.co`**,
+速度快、无需翻墙、协议格式完全一致。
 
-- `lite`:单机轻量版,带 4B 对话 + bge-m3 嵌入 + reranker + whisper-tiny
-- `standard`:服务器标准版,在 lite 基础上加 OCR + 大向量
-- `pro`:全量,把对话模型换成 7B 并保留所有可选
-
-**自己加模型**:不在表里的也可以,只要放进对应 `<cap>/` 目录且符合
-[模型格式速查](#模型格式速查)的格式约定,扫描器都能认出。要让它进
-官方打包,在 layout.yaml `§4` 加一条:
-
-```yaml
-- name: my-custom-chat
-  repo: MyOrg/MyModel-GGUF
-  file: my-model-q4.gguf
-  dest: models/chat/MyOrg--MyModel
-  source: hf-mirror://MyOrg/MyModel-GGUF
-  release: [standard, pro]
-  note: 自定义对话模型
-```
+**自己加模型**:不在表里的随便加,放进对应 `<cap>/` 目录且符合
+[模型格式速查](#模型格式速查)的格式即可被扫描到。
 
 ---
 
 ## 下载方法
 
-### 方式 1:`chayuan_packaging fetch`(推荐 — 批量、断点、缓存)
+> **重要**: `vendor/bundled_models/` 是手工组装的目录。`chayuan_packaging
+> fetch/stage` 是另一个独立流程(把全 release 资源解到
+> `packaging/python312/build/staging-.../`),**不会**写到本目录,别用错
+> 工具。下面给三种把模型直接放进 `vendor/bundled_models/<cap>/` 的可执行
+> 方法,任选其一。
 
-按 `release` 一次性把表里所有模型 + vendor runtimes 都拉到本地缓存,
-再 `stage` 解压到 `vendor/bundled_models/` + `vendor/runtimes/`:
+> 下面的命令都假设你已经 `cd` 到 chayuan-server 仓库根(也就是
+> `vendor/bundled_models/` 的父目录的父目录)。Windows 把 `/` 换成 `\` 也
+> 行,PowerShell 两种斜杠都接受。
 
+### 跨平台速查
+
+| 操作 | macOS / Linux (bash) | Windows (PowerShell) | Windows (cmd.exe) |
+|---|---|---|---|
+| 设环境变量(本次会话) | `export HF_ENDPOINT=https://hf-mirror.com` | `$env:HF_ENDPOINT = "https://hf-mirror.com"` | `set HF_ENDPOINT=https://hf-mirror.com` |
+| 建目录 | `mkdir -p vendor/bundled_models/chat` | `New-Item -ItemType Directory -Force vendor\bundled_models\chat` | `mkdir vendor\bundled_models\chat` |
+| 下载到指定文件 | `wget -c -O <out> <url>` | `Invoke-WebRequest -OutFile <out> <url>` 或 `curl.exe -L -o <out> <url>` | `curl.exe -L -o <out> <url>` |
+| 续行 | `\`(行尾) | 反引号 \`(行尾) | `^`(行尾) |
+
+> Windows 10+ 自带 `curl.exe`(注意要带 `.exe`,否则 PowerShell 会拦截
+> 到 `Invoke-WebRequest` 别名,语义完全不同)。本文档下面所有 wget 例子
+> 在 Windows 用 `curl.exe -L -o ...` 替代即可。
+
+---
+
+### 方法 A — `huggingface-cli`(推荐,三平台都最稳)
+
+需要 Python 环境,断点续传、自动校验、支持单文件 / 整仓。命令在三平台**完全
+一致**,差别只在前一行的"设镜像 endpoint"。
+
+#### A.1 装 cli + 设镜像
+
+**macOS / Linux:**
 ```bash
-cd chayuan-server
-# linux x86_64 standard release 的所有资源
-python -m chayuan_packaging fetch --target linux --arch x86_64 --release standard
-python -m chayuan_packaging stage  --target linux --arch x86_64 --release standard
-
-# 国内网默认会走 hf-mirror.com;海外环境改成官方源
-python -m chayuan_packaging fetch ... --hf-mirror huggingface.co
-
-# 只看清单不下载(检查 layout.yaml 是否对)
-python -m chayuan_packaging fetch ... --offline
+pip install -U "huggingface_hub[cli]"
+export HF_ENDPOINT=https://hf-mirror.com    # 国内必加;海外网络可省
 ```
 
-`--target` 支持 `linux / macos / windows`,`--arch` 支持
-`x86_64 / arm64`。fetch 把文件按 sha256 缓存到 `.cache/`,重跑只校验
-不重传。
-
-### 方式 2:手动 `huggingface-cli`(单个模型)
-
-```bash
-# 安装
-pip install -U huggingface_hub
-# 国内镜像
-export HF_ENDPOINT=https://hf-mirror.com
-
-# 单文件 GGUF
-huggingface-cli download Qwen/Qwen3-4B-Instruct-GGUF \
-  qwen3-4b-instruct-q4_k_m.gguf \
-  --local-dir vendor/bundled_models/chat
-
-# 整个仓库(embedding / rerank / 多文件)
-huggingface-cli download BAAI/bge-m3 \
-  --local-dir vendor/bundled_models/embedding/bge-m3
+**Windows (PowerShell):**
+```powershell
+pip install -U "huggingface_hub[cli]"
+$env:HF_ENDPOINT = "https://hf-mirror.com"  # 仅当前 shell 生效
+# 想永久生效(影响所有新开 shell):
+# [Environment]::SetEnvironmentVariable("HF_ENDPOINT", "https://hf-mirror.com", "User")
 ```
 
-### 方式 3:`wget` / `curl` 直链(无 python 环境)
+**Windows (cmd.exe):**
+```cmd
+pip install -U "huggingface_hub[cli]"
+set HF_ENDPOINT=https://hf-mirror.com
+```
+
+#### A.2 下载推荐组合(lite 套件:chat + embedding + rerank + asr)
+
+下面四条命令在三平台都能直接复制粘贴执行(Windows 用 `\` 也行,这里统一
+写 `/`,PowerShell / cmd 都接受):
+
+```bash
+# chat: 4B GGUF(单文件)
+huggingface-cli download Qwen/Qwen3-4B-Instruct-GGUF qwen3-4b-instruct-q4_k_m.gguf --local-dir vendor/bundled_models/chat
+
+# embedding: bge-m3(整仓,多文件)
+huggingface-cli download BAAI/bge-m3 --local-dir vendor/bundled_models/embedding/bge-m3
+
+# rerank: bge-reranker-v2-m3(整仓)
+huggingface-cli download BAAI/bge-reranker-v2-m3 --local-dir vendor/bundled_models/rerank/bge-reranker-v2-m3
+
+# asr: whisper-tiny(单文件)
+huggingface-cli download ggerganov/whisper.cpp ggml-tiny.bin --local-dir vendor/bundled_models/asr
+```
+
+#### A.3 验证
+
+三平台都用 Python 跑体检脚本:
+
+```bash
+python scripts/check-bundled-models.py
+```
+
+**注意 `--local-dir` 的语义**:huggingface-cli 把文件直接放到 `--local-dir`
+指向的目录(不会自动加 `<org>/<repo>/` 前缀)。所以:
+
+- 单文件场景:`--local-dir vendor/bundled_models/chat`,文件落到
+  `vendor/bundled_models/chat/qwen3-4b-instruct-q4_k_m.gguf`。
+- 整仓场景:**自己**带上仓库名作为最后一段(例如
+  `--local-dir vendor/bundled_models/embedding/bge-m3`),所有文件落进这个
+  目录,目录名就是后端识别用的 `model_id`。
+
+---
+
+### 方法 B — 直链下载(无 Python 环境)
+
+直链格式都一样:`https://hf-mirror.com/<org>/<repo>/resolve/main/<file>`,
+三平台只是工具名不同。
+
+#### macOS / Linux(`wget`,自带或一行 brew/apt 装)
 
 ```bash
 mkdir -p vendor/bundled_models/chat
-wget -O vendor/bundled_models/chat/qwen3-4b-instruct-q4_k_m.gguf \
+wget -c -O vendor/bundled_models/chat/qwen3-4b-instruct-q4_k_m.gguf \
+  'https://hf-mirror.com/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/qwen3-4b-instruct-q4_k_m.gguf'
+
+mkdir -p vendor/bundled_models/asr
+wget -c -O vendor/bundled_models/asr/ggml-tiny.bin \
+  'https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin'
+```
+
+`wget -c` = 断点续传,网络断了再跑一次会从中断处继续。
+
+#### Windows (PowerShell,`curl.exe` Win10+ 自带)
+
+```powershell
+New-Item -ItemType Directory -Force vendor\bundled_models\chat | Out-Null
+curl.exe -L -C - -o vendor\bundled_models\chat\qwen3-4b-instruct-q4_k_m.gguf `
   https://hf-mirror.com/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/qwen3-4b-instruct-q4_k_m.gguf
+
+New-Item -ItemType Directory -Force vendor\bundled_models\asr | Out-Null
+curl.exe -L -C - -o vendor\bundled_models\asr\ggml-tiny.bin `
+  https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
 ```
 
-### 方式 4:ModelScope(国内更稳)
+`-L` 跟重定向(HF 镜像会 302 到 CDN),`-C -` 断点续传。**一定要写
+`curl.exe`**,不要省略 `.exe`,否则 PowerShell 把 `curl` 当 `Invoke-WebRequest`
+别名,参数风格完全不同。
+
+#### Windows (cmd.exe)
+
+```cmd
+mkdir vendor\bundled_models\chat
+curl.exe -L -C - -o vendor\bundled_models\chat\qwen3-4b-instruct-q4_k_m.gguf https://hf-mirror.com/Qwen/Qwen3-4B-Instruct-GGUF/resolve/main/qwen3-4b-instruct-q4_k_m.gguf
+
+mkdir vendor\bundled_models\asr
+curl.exe -L -C - -o vendor\bundled_models\asr\ggml-tiny.bin https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
+```
+
+多文件仓库(embedding / rerank)逐个 wget/curl 较繁琐 — 建议改用方法 A
+或方法 C。
+
+#### 浏览器手动下载(任何系统,最简单)
+
+把 URL 直接粘进浏览器地址栏 → 下载 → 拖到对应 `vendor/bundled_models/<cap>/`
+子目录里。这是零工具门槛的兜底方案。
+
+---
+
+### 方法 C — `git clone` + git-lfs(整仓克隆)
+
+适合多文件仓库(embedding / rerank / 图像扩散等)。三平台命令一致,只是
+git-lfs 的安装方式不同。
+
+#### 安装 git-lfs
+
+| 平台 | 安装命令 |
+|---|---|
+| macOS | `brew install git-lfs` |
+| Ubuntu / Debian | `sudo apt install git-lfs` |
+| RHEL / CentOS | `sudo yum install git-lfs` |
+| Windows | 在 https://git-lfs.com 下安装包 或 `winget install GitHub.GitLFS` |
+
+#### 克隆(三平台一致)
 
 ```bash
-pip install modelscope
-modelscope download --model Qwen/Qwen3-4B-Instruct-GGUF \
-  qwen3-4b-instruct-q4_k_m.gguf \
-  --local_dir vendor/bundled_models/chat
+git lfs install --skip-smudge
+
+mkdir -p vendor/bundled_models/embedding          # Windows: New-Item -ItemType Directory -Force ...
+git clone https://hf-mirror.com/BAAI/bge-m3 vendor/bundled_models/embedding/bge-m3
+
+cd vendor/bundled_models/embedding/bge-m3
+git lfs pull                                      # 真正拉权重(可能数 GB,断点续传由 git-lfs 自己管)
 ```
 
-ModelScope 上常见的镜像账号:`Qwen` / `BAAI` / `ZhipuAI` / `OpenBMB`。
+**坑提示**:不带 `--skip-smudge` 时 `git clone` 会一次拉所有 lfs 文件,
+某些仓库会很慢、断点不友好。`--skip-smudge` + 手动 `git lfs pull` 更可控。
 
-### 方式 5:`git clone` + git-lfs(整仓克隆)
+---
+
+### 方法 D — ModelScope(完全国内,适合公司内网)
+
+需要在 modelscope.cn 上搜对应仓库名(通常与 HF 同名,但 owner 可能不同)。
+三平台都用 pip 装 cli,命令完全一致:
 
 ```bash
-# 需要先 brew install git-lfs / apt install git-lfs
-cd vendor/bundled_models/embedding
-git lfs install
-git clone https://hf-mirror.com/BAAI/bge-m3 BAAI--bge-m3
+pip install -U modelscope
+
+# 把 <ORG/REPO> 替换成 modelscope.cn 上的真实仓库名(在站点搜索一下)
+modelscope download --model <ORG/REPO> [filename] --local_dir vendor/bundled_models/chat
 ```
+
+ModelScope 仓库命名与 HF 不完全一致,建议先到 `modelscope.cn` 搜索确认。
+比如 Qwen 系列通常是 `Qwen/...` 同名,BAAI 系列在 ModelScope 上常见镜像
+账号是 `BAAI` 或 `AI-ModelScope`。
+
+---
+
+## 关于 `chayuan_packaging fetch`(不是给 bundled_models 用的)
+
+`packaging/python312/chayuan_packaging` 是**整 release 打包工具**,它的
+`fetch`/`stage` 命令:
+
+- `fetch` 把 layout.yaml 列出的 runtime + service + 模型按 sha256 缓存到
+  `packaging/python312/.cache/`;
+- `stage` 把 cache 解压到 `packaging/python312/build/staging-<release>-<plat>/`,
+  这个目录是给"完整 tarball + 后续 build/dmg/installer 阶段"用的;
+- 既不会落到 `chayuan-server/vendor/bundled_models/`,也不会被 PyInstaller
+  spec 自动嵌入。
+
+只有你在用旧的 staging 风格打包,或者写脚本把 staging 产物批量复制到
+`vendor/bundled_models/` 时,这个工具才相关。日常往 bundled_models 里加
+模型 — 用上面的方法 A/B/C/D。
 
 ---
 
