@@ -65,7 +65,11 @@ vendor/bundled_models/
 | chat | `bartowski/Qwen2.5-7B-Instruct-GGUF`(社区镜像,单文件) | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | 4.36 GB | pro |
 | embedding | `BAAI/bge-m3` | 整仓(`config.json` + `pytorch_model.bin` + ...) | ~570 MB | lite / standard / pro |
 | embedding | `BAAI/bge-large-zh-v1.5`(中文偏置备选) | 整仓 | ~1.4 GB | standard / pro |
-| rerank | `BAAI/bge-reranker-v2-m3` | 整仓 | ~560 MB | lite / standard / pro |
+| rerank | `BAAI/bge-reranker-v2-m3` | 整仓(主权重 `model.safetensors`) | 2.12 GB | lite / standard / pro |
+| rerank (备选,推荐瘦身) | `Alibaba-NLP/gte-multilingual-reranker-base` | 整仓 | 584 MB | lite 备选 |
+| rerank (备选,瘦身) | `jinaai/jina-reranker-v2-base-multilingual` | 整仓 | 531 MB | lite 备选 |
+| rerank (备选,bge 家族 v1) | `BAAI/bge-reranker-base` | 整仓 | 1.04 GB | (按需) |
+| rerank (备选,极小,仅英文) | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 整仓 | 87 MB | (英文场景) |
 | asr | `ggerganov/whisper.cpp` | `ggml-tiny.bin` | 74 MB | lite / standard / pro |
 | asr (备选,更准) | `ggerganov/whisper.cpp` | `ggml-base.bin` | 142 MB | standard 备选 |
 | asr (备选,最准) | `ggerganov/whisper.cpp` | `ggml-small.bin` | 465 MB | pro 备选 |
@@ -79,6 +83,22 @@ vendor/bundled_models/
 * `bartowski/Qwen2.5-7B-Instruct-GGUF` — Qwen 官方 `Qwen/Qwen2.5-7B-Instruct-GGUF`
   把 7B 拆成 2 个分片不便单文件 wget,bartowski 这个社区镜像把它打回单文件,
   4.4 GB,**16 GB 内存机器才跑得动**。
+
+**为什么 rerank 行有 5 个**(默认 `bge-reranker-v2-m3` 2.12 GB,如果嫌大可以换):
+
+| 候选 | 大小 | 语言 | 何时选 |
+|---|---|---|---|
+| `BAAI/bge-reranker-v2-m3` | 2.12 GB | 100+ 语种 | **默认**,多语种 + 中文办公强,跟 `bge-m3` embedding 同家族对齐 |
+| `Alibaba-NLP/gte-multilingual-reranker-base` | 584 MB | 中英 + 70+ 语种 | **首选瘦身**,Alibaba 出品,同档质量,体积 1/4 |
+| `jinaai/jina-reranker-v2-base-multilingual` | 531 MB | 中英 + 多语种 | 再小一点,Jina 出品 |
+| `BAAI/bge-reranker-base` | 1.04 GB | 中英 | bge 家族 v1,想保家族一致性时用 |
+| `cross-encoder/ms-marco-MiniLM-L-6-v2` | 87 MB | **仅英文** | 极致小,中文几乎不可用,仅纯英文场景 |
+
+挑选思路:
+- 中文 RAG 优先级 = 召回质量 > 体积,默认 `bge-reranker-v2-m3` 不要换;
+- 想让 standard 包瘦身、又不想牺牲中文,换 `gte-multilingual-reranker-base`;
+- 内网 / 带宽极差,牺牲一点中文质量也行,可换 `jinaai/jina-reranker-v2-base-multilingual`;
+- 纯英文场景(察元几乎不存在),才考虑 `ms-marco-MiniLM-L-6-v2`。
 
 **自己加模型**:不在表里的随便加,放进对应 `<cap>/` 目录且符合
 [模型格式速查](#模型格式速查)的格式即可被扫描到。
@@ -245,6 +265,27 @@ hf download Qwen/Qwen2.5-3B-Instruct-GGUF qwen2.5-3b-instruct-q4_k_m.gguf --loca
 # 16 GB+ 想要更强对话:换 Qwen2.5-7B(4.36 GB 单文件)
 hf download bartowski/Qwen2.5-7B-Instruct-GGUF Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir vendor/bundled_models/chat
 ```
+
+#### A.3.2 替换 rerank 模型(想瘦身或换厂商时)
+
+默认 `BAAI/bge-reranker-v2-m3` 2.12 GB。如果嫌大,先删掉 `vendor/bundled_models/
+rerank/bge-reranker-v2-m3/`,再选一个备选下载(设过 `HF_ENDPOINT` 后跑):
+
+```bash
+# 首选瘦身:Alibaba gte-multilingual-reranker-base(584 MB,中英+多语种)
+hf download Alibaba-NLP/gte-multilingual-reranker-base --local-dir vendor/bundled_models/rerank/gte-multilingual-reranker-base
+
+# 再小:Jina v2 base multilingual(531 MB)
+hf download jinaai/jina-reranker-v2-base-multilingual --local-dir vendor/bundled_models/rerank/jina-reranker-v2-base-multilingual
+
+# bge 家族 v1(1.04 GB,中英)
+hf download BAAI/bge-reranker-base --local-dir vendor/bundled_models/rerank/bge-reranker-base
+
+# 极致小(87 MB),仅英文场景才用
+hf download cross-encoder/ms-marco-MiniLM-L-6-v2 --local-dir vendor/bundled_models/rerank/ms-marco-MiniLM-L-6-v2
+```
+
+各候选的取舍详见上方主表的「为什么 rerank 行有 5 个」对比。
 
 #### A.4 验证
 
