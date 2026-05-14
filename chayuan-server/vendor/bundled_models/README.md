@@ -49,8 +49,8 @@ vendor/bundled_models/
 
 ## 推荐模型清单 (实测 2026-05-14 全部 200 可下载)
 
-下表每一行的 HF 仓库 + 具体文件名都在 `hf-mirror.com` 上**实际 HEAD 探测过
-返回 200**。每条都给出探测时拿到的真实 `Content-Length`,与官方页面尺寸对得上。
+下表每一行的 HF 仓库 + 具体文件名都在 `hf-mirror.com` 上**实际 HEAD 探测过返回 200**。
+每条都给出探测时拿到的真实 `Content-Length`,与官方页面尺寸对得上。
 **release 列**只是参考(说明这个模型属于"轻量 / 标准 / 专业"哪一档),不是说
 跑某条命令就会自动放进 `vendor/bundled_models/` — 实际下载请看下一节"下载方法"。
 
@@ -107,7 +107,7 @@ vendor/bundled_models/
 | 设环境变量(本次会话) | `export HF_ENDPOINT=https://hf-mirror.com` | `$env:HF_ENDPOINT = "https://hf-mirror.com"` | `set HF_ENDPOINT=https://hf-mirror.com` |
 | 建目录 | `mkdir -p vendor/bundled_models/chat` | `New-Item -ItemType Directory -Force vendor\bundled_models\chat` | `mkdir vendor\bundled_models\chat` |
 | 下载到指定文件 | `wget -c -O <out> <url>` | `Invoke-WebRequest -OutFile <out> <url>` 或 `curl.exe -L -o <out> <url>` | `curl.exe -L -o <out> <url>` |
-| 续行 | `\`(行尾) | 反引号 \`(行尾) | `^`(行尾) |
+| 行尾续行字符 | 反斜杠 `\` | 反引号 (`` ` ``) | 脱字符 `^` |
 
 > Windows 10+ 自带 `curl.exe`(注意要带 `.exe`,否则 PowerShell 会拦截
 > 到 `Invoke-WebRequest` 别名,语义完全不同)。本文档下面所有 wget 例子
@@ -117,10 +117,10 @@ vendor/bundled_models/
 
 ### 方法 A — `hf`(推荐,三平台都最稳)
 
-> **2025 起的命令名**:旧版 `huggingface-cli download` 已被官方废弃,
-> 跑会输出 `Warning: huggingface-cli is deprecated and no longer works.
-> Use hf instead.`。新命令名叫 `hf`(由 `huggingface_hub` Python 包附带),
-> 子命令和参数完全沿用 — `hf download <repo> [<file>] --local-dir <dir>`。
+> **2025 起的命令名**:旧版 `huggingface-cli download` 已被官方废弃,跑会
+> 输出 `Warning: huggingface-cli is deprecated and no longer works. Use hf instead.`。
+> 新命令名叫 `hf`(由 `huggingface_hub` Python 包附带),子命令和参数完全沿用 —
+> `hf download <repo> [<file>] --local-dir <dir>`。
 
 需要 Python 环境(或用 standalone installer 装独立 `hf` 二进制),断点
 续传、自动校验、支持单文件 / 整仓。命令在三平台**完全一致**,差别只在
@@ -128,9 +128,24 @@ vendor/bundled_models/
 
 #### A.1 装 `hf` CLI
 
-两种安装方式,任选其一:
+两种安装方式,任选其一。**国内网络推荐 (a) pip,因为 (b) standalone installer
+的脚本来自 `hf.co`,国内常常无法连通(典型报错:`irm : 无法连接到远程服务器` /
+`curl: Could not resolve host: hf.co`)**。
 
-**(a) Standalone installer(独立二进制,不需要 Python 环境)**
+**(a) pip 安装(三平台通吃,国内可达,推荐)**
+
+```bash
+# 三平台一致,新版 cli 内置在 huggingface_hub 主包里,无需 [cli] extra
+pip install -U "huggingface_hub"
+```
+
+走 PyPI 中国镜像可加 `-i` 提速:
+
+```bash
+pip install -U "huggingface_hub" -i https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+**(b) Standalone installer(独立二进制,无需 Python — 仅在能直连 `hf.co` 时可用)**
 
 ```bash
 # macOS / Linux:
@@ -140,13 +155,6 @@ curl -LsSf https://hf.co/cli/install.sh | bash
 ```powershell
 # Windows (PowerShell):
 powershell -ExecutionPolicy ByPass -c "irm https://hf.co/cli/install.ps1 | iex"
-```
-
-**(b) pip 安装(已有 Python 时最简单)**
-
-```bash
-# 三平台一致,新版 cli 内置在 huggingface_hub 主包里,无需 [cli] extra
-pip install -U "huggingface_hub"
 ```
 
 #### A.2 设镜像 endpoint
@@ -253,9 +261,9 @@ curl.exe -L -C - -o vendor\bundled_models\asr\ggml-tiny.bin `
   https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
 ```
 
-`-L` 跟重定向(HF 镜像会 302 到 CDN),`-C -` 断点续传。**一定要写
-`curl.exe`**,不要省略 `.exe`,否则 PowerShell 把 `curl` 当 `Invoke-WebRequest`
-别名,参数风格完全不同。
+`-L` 跟重定向(HF 镜像会 302 到 CDN),`-C -` 断点续传。**一定要写 `curl.exe`**,
+不要省略 `.exe`,否则 PowerShell 把 `curl` 当 `Invoke-WebRequest` 别名,参数风格
+完全不同。
 
 #### Windows (cmd.exe)
 
