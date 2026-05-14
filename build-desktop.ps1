@@ -457,8 +457,9 @@ if ($SkipModelCheck) {
     Write-Step 'bundled_models 体检 (本次打包会嵌入哪些模型)'
     $checkScript = Join-Path $WorkspaceRoot 'scripts\check-bundled-models.py'
     if (Test-Path $checkScript) {
-        $pyExe = (Get-Command python -ErrorAction SilentlyContinue) `
-                 ?? (Get-Command python3 -ErrorAction SilentlyContinue)
+        # PS 5.1 没有 ?? 空值合并运算符,用显式 if 替代
+        $pyExe = Get-Command python -ErrorAction SilentlyContinue
+        if (-not $pyExe) { $pyExe = Get-Command python3 -ErrorAction SilentlyContinue }
         if ($pyExe) {
             & $pyExe.Source $checkScript
             if ($LASTEXITCODE -eq 0) { $ModelCheckOk = $true }
