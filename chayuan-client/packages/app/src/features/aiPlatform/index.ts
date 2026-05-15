@@ -4,3 +4,4 @@ export type { DoctorCheckLike } from './DoctorGuidance';
 export { ImageEmbedderInstallDialog } from './ImageEmbedderInstallDialog';
 export { LocalRuntimePanel } from './LocalRuntimePanel';
 export { LocalRuntimeStatusBadge } from './LocalRuntimeStatusBadge';
+export { DiagnoseModal } from './DiagnoseModal';

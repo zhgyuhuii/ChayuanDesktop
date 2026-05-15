@@ -19,11 +19,12 @@
  */
 
 import * as React from 'react';
-import { Copy, Play, Square, RotateCw, X } from 'lucide-react';
+import { ClipboardList, Copy, Play, Square, RotateCw, X } from 'lucide-react';
 import { Button } from '@chayuan/ui';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
 import { LocalRuntimeStatusBadge } from './LocalRuntimeStatusBadge';
 import { LocalRuntimeConfigForm } from './LocalRuntimeConfigForm';
+import { DiagnoseModal } from './DiagnoseModal';
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -53,6 +54,7 @@ export const LocalRuntimePanel: React.FC = () => {
     clearError,
   } = useLocalRuntimeStore();
   useLocalRuntimePolling();
+  const [diagnoseOpen, setDiagnoseOpen] = React.useState(false);
 
   React.useEffect(() => {
     void refreshConfig();
@@ -130,6 +132,14 @@ export const LocalRuntimePanel: React.FC = () => {
             <RotateCw className={'mr-1 h-3.5 w-3.5' + (pending === 'restart' ? ' animate-spin' : '')} />
             重启
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setDiagnoseOpen(true)}
+          >
+            <ClipboardList className="mr-1 h-3.5 w-3.5" />
+            生成诊断报告
+          </Button>
         </div>
       </section>
 
@@ -172,6 +182,7 @@ export const LocalRuntimePanel: React.FC = () => {
           <div className="text-xs text-[var(--cy-text-tertiary)]">加载装机信息中…</div>
         )}
       </section>
+      <DiagnoseModal open={diagnoseOpen} onOpenChange={setDiagnoseOpen} />
     </div>
   );
 };
