@@ -169,17 +169,26 @@ def _resolve_chat_args(**kw):
     return _resolve_args_for("chat", **kw)
 
 
-class LlamaRuntimeManager:
-    """单进程内单例,管 llama-server.exe 生命周期"""
+class SidecarRuntimeManager:
+    """通用 sidecar (llama / whisper) 生命周期管理。
+
+    Plan 3C 起从 LlamaRuntimeManager 改名,加 ``engine`` 参数:
+      * ``engine='llama'``   → spawn llama-server (chat/embedding/rerank)
+      * ``engine='whisper'`` → spawn whisper-server (asr)
+
+    Plan 3B 已有的 ``capability`` / ``port_offset`` 等仍兼容。
+    """
 
     def __init__(
         self,
         *,
         chayuan_root: Path,
+        engine: Literal["llama", "whisper"] = "llama",
         capability: str = "chat",
         port_offset: int = 0,
     ) -> None:
         self.chayuan_root = chayuan_root
+        self.engine = engine
         self.capability = capability
         self.port_offset = port_offset
         self.settings_path = chayuan_root / "model_registry" / "local_runtime.yaml"
@@ -414,3 +423,13 @@ def get_manager() -> LlamaRuntimeManager:
         return _singleton
     from chayuan.server.model_registry.local_runtime_registry import get_registry
     return get_registry().get("chat")
+
+
+# Plan 3C: Plan 1+2+3B 已有 42 个引用都叫 LlamaRuntimeManager。
+# 保留同名 thin alias,默认 engine='llama',旧代码零改动。
+class LlamaRuntimeManager(SidecarRuntimeManager):
+    """Back-compat alias(Plan 3C 起 SidecarRuntimeManager 的 engine='llama' 子类)。"""
+
+    def __init__(self, **kw):
+        kw.setdefault("engine", "llama")
+        super().__init__(**kw)

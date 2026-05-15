@@ -494,3 +494,41 @@ async def test_manager_start_rerank_uses_rerank_resolver(tmp_path, monkeypatch):
     status = await m.start()
     assert status.state == "ready"
     assert "rerank" in captured
+
+
+def test_sidecar_runtime_manager_default_engine_is_llama(tmp_path):
+    """SidecarRuntimeManager 默认 engine='llama'(向后兼容)。"""
+    from chayuan.server.model_registry.local_runtime import SidecarRuntimeManager
+    m = SidecarRuntimeManager(chayuan_root=tmp_path)
+    assert m.engine == "llama"
+    assert m.capability == "chat"
+
+
+def test_sidecar_runtime_manager_whisper_engine(tmp_path):
+    """SidecarRuntimeManager(engine='whisper') 字段正确。"""
+    from chayuan.server.model_registry.local_runtime import SidecarRuntimeManager
+    m = SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="whisper", capability="asr", port_offset=3
+    )
+    assert m.engine == "whisper"
+    assert m.capability == "asr"
+    assert m.port_offset == 3
+
+
+def test_llama_runtime_manager_alias_inherits_sidecar(tmp_path):
+    """LlamaRuntimeManager 是 SidecarRuntimeManager 子类,默认 engine='llama'。"""
+    from chayuan.server.model_registry.local_runtime import (
+        LlamaRuntimeManager, SidecarRuntimeManager,
+    )
+    m = LlamaRuntimeManager(chayuan_root=tmp_path)
+    assert isinstance(m, SidecarRuntimeManager)
+    assert m.engine == "llama"
+
+
+def test_llama_runtime_manager_alias_with_capability_kw(tmp_path):
+    """Plan 3B 已有写法 LlamaRuntimeManager(chayuan_root=..., capability='embedding', port_offset=1) 仍 work。"""
+    from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
+    m = LlamaRuntimeManager(chayuan_root=tmp_path, capability="embedding", port_offset=1)
+    assert m.engine == "llama"
+    assert m.capability == "embedding"
+    assert m.port_offset == 1
