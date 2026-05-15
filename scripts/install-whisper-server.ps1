@@ -1,0 +1,105 @@
+﻿<#
+.SYNOPSIS
+  下载 whisper-server.exe (Win x64 pre-built) 到 vendor/services/whisper-server/。
+
+.PARAMETER Version
+  whisper.cpp release tag，优先尝试此版本，失败时自动 fallback 到旧版。
+  默认 'v1.7.4'。
+
+.EXAMPLE
+  .\scripts\install-whisper-server.ps1
+  .\scripts\install-whisper-server.ps1 -Version v1.7.3
+#>
+[CmdletBinding()]
+param(
+    [string]$Version = 'v1.7.4'
+)
+
+try {
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    chcp 65001 > $null 2>&1
+} catch {}
+
+$ErrorActionPreference = 'Stop'
+
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$workspaceRoot = Split-Path -Parent $here
+$destDir = Join-Path $workspaceRoot 'vendor\services\whisper-server'
+
+if (-not (Test-Path $destDir)) {
+    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+}
+
+# whisper.cpp Win release tag 优先级 (新→老 fallback)
+$Tags = @($Version, 'v1.7.4', 'v1.7.3', 'v1.7.2') | Select-Object -Unique
+$Asset = 'whisper-bin-x64.zip'  # Win pre-built 二进制 zip
+
+$ok = $false
+foreach ($tag in $Tags) {
+    $Url = "https://github.com/ggerganov/whisper.cpp/releases/download/$tag/$Asset"
+    Write-Host "[install-whisper-server] 尝试拉 $Url"
+    $tmpZip = Join-Path $env:TEMP "whisper-server-$tag.zip"
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $tmpZip -UseBasicParsing -ErrorAction Stop
+        Write-Host "[install-whisper-server] 下完,$([math]::Round((Get-Item $tmpZip).Length/1MB,1)) MB"
+
+        $tmpDir = Join-Path $env:TEMP "whisper-server-$tag-extract"
+        if (Test-Path $tmpDir) { Remove-Item -Recurse -Force $tmpDir }
+        Expand-Archive -Path $tmpZip -DestinationPath $tmpDir -Force
+
+        $exe = Get-ChildItem -Recurse -Path $tmpDir -Filter 'whisper-server.exe' | Select-Object -First 1
+        if (-not $exe) {
+            Write-Warning "[install-whisper-server] $tag zip 里没找到 whisper-server.exe，试下一个 tag"
+            Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+            Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+            continue
+        }
+
+        # 清旧 exe / dll
+        Get-ChildItem $destDir -File -ErrorAction SilentlyContinue | Where-Object {
+            $_.Extension -in '.exe', '.dll', '.so', '.dylib'
+        } | Remove-Item -Force
+
+        # 拷 whisper-server.exe
+        Copy-Item -Path $exe.FullName -Destination (Join-Path $destDir 'whisper-server.exe') -Force
+        Write-Host "  whisper-server.exe  ($([math]::Round($exe.Length/1MB,2)) MB)"
+
+        # 同时复制依赖 DLL (whisper.cpp Win build 通常带几个)
+        Get-ChildItem -Recurse -Path $tmpDir -Filter '*.dll' | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination (Join-Path $destDir $_.Name) -Force
+            Write-Host "  $($_.Name)  ($([math]::Round($_.Length/1MB,2)) MB)"
+        }
+
+        # 写 VERSION 文件
+        "$tag`n$(Get-Date -Format 'yyyy-MM-dd')`n" | Set-Content -Path (Join-Path $destDir 'VERSION') -NoNewline
+
+        Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+
+        $ok = $true
+        Write-Host "[install-whisper-server] 装好 $tag → $destDir"
+        break
+    } catch {
+        Write-Warning "[install-whisper-server] $tag 失败: $_"
+        Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if (-not $ok) {
+    throw "[install-whisper-server] 所有 release tag 都失败，检查网络 / GitHub release 可达性"
+}
+
+# 验证 binary 可执行
+$bin = Join-Path $destDir 'whisper-server.exe'
+Write-Host ""
+Write-Host "[install-whisper-server] 完成。$destDir 内容:"
+Get-ChildItem $destDir -File | Format-Table Name, @{N='MB';E={$([math]::Round($_.Length/1MB,2))}}
+
+Write-Host "[install-whisper-server] 验证 binary..."
+$testOut = & $bin --help 2>&1 | Select-Object -First 3
+$testOut | ForEach-Object { Write-Host "  $_" }
+if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) {
+    Write-Warning "[install-whisper-server] whisper-server.exe --help 退出码 $LASTEXITCODE，可能 AVX2 / Visual C++ Runtime 缺失"
+} else {
+    Write-Host "[install-whisper-server] OK"
+}
