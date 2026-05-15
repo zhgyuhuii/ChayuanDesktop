@@ -654,24 +654,38 @@ if ($SkipFrontend) {
             -Command 'pnpm' -Arguments @('typecheck')
     }
 
-    # Windows installer 两条路都有 2 GB 单文件硬上限,vendor/bundled_models/
-    # 里任何 ≥ 2 GB 的文件都会炸(NSIS makensis 32-bit mmap;WiX 3 light.exe
-    # LGHT0263 硬编码 INT32_MAX)。WiX 4 Burn 能处理大文件但 Tauri 2.1 还没
-    # 支持。所以两个 flavor 都走 NSIS,vendor 里**禁止**出现 ≥ 2 GB 单文件 —
-    # 这条已经在 build.py --sync-bundled-only 里加 size-guard 强制了,撞到
-    # 会在 Step 1b 立即报错,不会走到打包阶段。
+    # Windows installer 双重限制:
+    #   1) **单文件 < 2 GB** — NSIS makensis 32-bit mmap;WiX 3 light.exe
+    #      LGHT0263 硬编码 INT32_MAX。build.py --sync-bundled-only 已加 size-guard
+    #      在 sync 阶段就 abort。
+    #   2) **总 payload 压缩后 < 2 GB** — 仅 NSIS 受此限,32-bit makensis 的
+    #      LZMA solid 累积 offset 32-bit 寻址。3+ GB 原始 payload 压缩 ~2.6 GB
+    #      就溢出报"Internal compiler error #12345 error mmapping file ... out of range"。
+    #
+    # 集成版 vendor 现在嵌 emb+rerank+chat+asr 总 ~3.2 GB,撞 NSIS 总尺寸限制;
+    # **WiX 3 MSI 总大小可到 4 GB+,通过 CAB 分卷处理**,所以集成版改走 MSI。
+    # 轻量版 vendor 是空的,sidecar ~500 MB 远低于 2 GB,继续走 NSIS 保住
+    # installer.nsh 的"察元AI"中文图标 rename。
+    $useMsi = ($Flavor -eq 'integrated') -and ($IsWindows -or $env:OS -eq 'Windows_NT')
     if ($BundleOnly) {
-        # cargo / vite 走增量缓存,只重做 Tauri bundle(makensis 等)。
+        # cargo / vite 走增量缓存,只重做 Tauri bundle(makensis / WiX 等)。
         # 不能直接调 ``pnpm --filter @chayuan/desktop build``,因为那里面带
         # ``tsc + vite build``,与本入口想跳过的 typecheck 重复。
         $DesktopDir = Join-Path $ClientDir 'apps\desktop'
+        $tauriArgs = @('exec', 'tauri', 'build')
+        if ($useMsi) {
+            # Tauri 2 CLI 的 --bundles 只接受当前平台支持的 target;
+            # Windows 上要么 msi 要么 nsis,集成版选 msi。
+            $tauriArgs = @('exec', 'tauri', 'build', '--bundles', 'msi')
+        }
         Invoke-Step -Name 'tauri-build (bundle-only)' `
             -WorkDir $DesktopDir `
-            -Command 'pnpm' -Arguments @('exec', 'tauri', 'build')
+            -Command 'pnpm' -Arguments $tauriArgs
     } else {
-        Invoke-Step -Name 'pnpm-build-desktop' `
+        $buildScript = if ($useMsi) { 'build:desktop:integrated' } else { 'build:desktop' }
+        Invoke-Step -Name "pnpm-$buildScript" `
             -WorkDir $ClientDir `
-            -Command 'pnpm' -Arguments @('build:desktop')
+            -Command 'pnpm' -Arguments @($buildScript)
     }
 
     $artifacts = @()

@@ -144,15 +144,30 @@ pnpm dev:desktop
 > datas 剥到 Tauri resources,解决集成版 sidecar ≥ 2 GB 撞 32-bit makensis
 > mmap 上限。flavor 差异只剩 `build.py --sync-bundled-only` 那步。
 >
-> **Windows installer 单文件硬上限 2 GB**:NSIS makensis 32-bit mmap、WiX 3
-> light.exe LGHT0263 都卡 INT32_MAX(WiX 4 Burn 能放但 Tauri 2 还没适配)。
-> 所以 `vendor/bundled_models/` 里**严格保持单文件 < 2 GB**:chat 默认走
-> Qwen3-4B Q3_K_S (~1.85 GB),embedding 走 `gte-multilingual-base` (~1.22 GB),
-> reranker 走 `gte-multilingual-reranker-base` (~584 MB)。更高质量但 > 2 GB
-> 的模型(`Q4_K_M`、`bge-m3`、`bge-reranker-v2-m3`)走 install_job 在线下载,
-> 不放 vendor。`build.py --sync-bundled-only` 加了 size-guard,撞 2 GB 在
-> sync 阶段就 abort,不会等到 makensis 才报错。一键换装:
-> `.\scripts\install-bundled-models.ps1 -Clean` 或 `python scripts/install-bundled-models.py --clean`。
+> **Windows installer 两道独立限制(都是 2 GB,别混淆)**:
+> 1. **单文件 < 2 GB** — NSIS makensis 32-bit mmap;WiX 3 light.exe LGHT0263
+>    硬编码 INT32_MAX。`build.py --sync-bundled-only` 已加 size-guard 在 sync
+>    阶段 abort,不会让你等到 makensis 才看见。
+> 2. **NSIS 总 payload 压缩后 < 2 GB** — 仅 NSIS 受限,32-bit makensis 的
+>    LZMA solid 累积 offset 32-bit 寻址溢出会报 *"Internal compiler error
+>    #12345 error mmapping file ... out of range"*。集成版 vendor 嵌
+>    emb+rerank+chat+asr 总 ~3.2 GB 就撞穿。WiX 3 MSI 总大小可到 4 GB+(CAB
+>    分卷),不受此限。
+>
+> 解法:**Windows 集成版改走 WiX MSI**,轻量版仍 NSIS(vendor 空,远低于
+> 2 GB)。脚本里 `Flavor='integrated' + Windows` 自动走 `pnpm
+> build:desktop:integrated`(透传 `tauri build --bundles msi`)。代价:
+> Windows 集成版用户拿到的是 `.msi`,装机后桌面图标是英文 "Chayuan"
+> (`installer.nsh` 的"察元AI"中文 rename 只对 NSIS 生效;如需 MSI 同样
+> 定制要用 WiX 自定义动作另写)。
+>
+> 单文件 < 2 GB 由 `vendor/bundled_models/` "瘦身默认集"保证:chat 走 Qwen3-4B
+> Q3_K_S (~1.85 GB) 或 Qwen2.5-3B Q4_K_M (~1.96 GB) 兜底,embedding 走
+> `gte-multilingual-base` (~1.22 GB),reranker 走
+> `gte-multilingual-reranker-base` (~584 MB)。> 2 GB 的高质量版本走
+> install_job 在线下载。一键换装:
+> `.\scripts\install-bundled-models.ps1 -Source modelscope -Clean` 或
+> `python scripts/install-bundled-models.py --source modelscope --clean`。
 >
 > 构建开始时会自动调 `scripts/check-bundled-models.py` 体检,打印**本次嵌入
 > 哪些模型**。模型相关的下载地址 / 格式 / 放置约定见

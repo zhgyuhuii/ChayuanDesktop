@@ -876,14 +876,23 @@ python -m chayuan_packaging stage  --target linux --arch x86_64 --release standa
 > mmap 上限的问题。flavor 差异只剩 Tauri resources 同步那一步(`build.py
 > --sync-bundled-only`),sidecar 构建一次两边复用。
 >
-> **Windows installer 单文件硬上限 2 GB**:NSIS makensis 32-bit mmap、WiX 3
-> light.exe LGHT0263 都卡 INT32_MAX(WiX 4 Burn 能放但 Tauri 2 还没适配)。
-> `vendor/bundled_models/` 里**严格保持单文件 < 2 GB**;`build.py
-> --sync-bundled-only` 加了 size-guard 撞了就 abort。一键换装瘦身默认集:
-> `.\scripts\install-bundled-models.ps1 -Clean` 或
-> `python scripts/install-bundled-models.py --clean` — 把 chat / embedding /
-> reranker 三大件换成 < 2 GB 版本(Q3_K_S / gte-multilingual-base /
-> gte-multilingual-reranker-base)。脚本自带 hf-mirror 镜像,绕开 hf CLI 各种坑。
+> **Windows installer 两道独立的 2 GB 限制**:
+> 1. **单文件 < 2 GB** — NSIS makensis 32-bit mmap;WiX 3 light.exe LGHT0263
+>    硬编码 INT32_MAX。`build.py --sync-bundled-only` 已加 size-guard 在 sync
+>    阶段就 abort。
+> 2. **NSIS 总 payload 压缩后 < 2 GB** — 仅 NSIS 限制,32-bit makensis 的 LZMA
+>    solid 累积 offset 寻址溢出会报 *"Internal compiler error #12345 error
+>    mmapping file ... out of range"*。集成版 vendor 嵌 emb+rerank+chat+asr
+>    总 ~3.2 GB 就会撞这道墙。
+>
+> 解法:**集成版改走 WiX MSI**(总大小可到 4 GB+,通过 CAB 分卷处理),轻量版
+> vendor 为空总尺寸远低于 2 GB 维持 NSIS 保住 `installer.nsh` 的"察元AI"中文
+> 图标 rename。Windows 集成版用户拿到 `.msi`,装机后桌面图标是英文 "Chayuan"
+> (NSIS 的中文 rename 不会对 MSI 触发);需要时用 WiX 自定义动作另写一遍。
+>
+> 一键换装瘦身默认集:`.\scripts\install-bundled-models.ps1 -Source modelscope -Clean`
+> 或 `python scripts/install-bundled-models.py --source modelscope --clean` — chat /
+> embedding / rerank / asr 全部 < 2 GB,自带 ModelScope fallback 绕 hf-mirror Xet 大文件坑。
 
 产物各自落到:
 
