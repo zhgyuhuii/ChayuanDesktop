@@ -1,0 +1,7 @@
+# llama-server 二进制 + 依赖 dll 不入 git
+# (~30 MB,跑 scripts/install-llama-server.{ps1,sh} 拉取)
+*.exe
+*.dll
+*.so
+*.dylib
+VERSION
