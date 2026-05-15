@@ -22,17 +22,18 @@ from chayuan.server.model_registry.local_runtime import SidecarRuntimeManager, R
 logger = logging.getLogger("chayuan.model_registry.local_runtime_registry")
 
 
-# Plan 3C: cap → engine 映射
+# Plan 3D: cap → engine 映射
 _CAP_ENGINE: Dict[str, str] = {
     "chat": "llama",
     "embedding": "llama",
     "rerank": "llama",
     "asr": "whisper",
+    "image-embedding": "infinity",
 }
 
 
 class LocalRuntimeRegistry:
-    CAPABILITIES = ("chat", "embedding", "rerank", "asr")
+    CAPABILITIES = ("chat", "embedding", "rerank", "asr", "image-embedding")
 
     def __init__(self, *, chayuan_root: Path) -> None:
         self._managers: Dict[str, SidecarRuntimeManager] = {
