@@ -62,6 +62,8 @@ DESKTOP_BIN_DIR = DESKTOP_SRC_TAURI / "binaries"
 # build.py 把 vendor/bundled_models/ 拷到这里,tauri.conf.json 把它打进 installer。
 DESKTOP_BUNDLED_MODELS_DIR = DESKTOP_SRC_TAURI / "bundled_models"
 BUNDLED_SRC = ROOT / "vendor" / "bundled_models"
+SERVICES_SRC = ROOT / "vendor" / "services"
+DESKTOP_SERVICES_DIR = DESKTOP_SRC_TAURI / "services"
 # PyInstaller 默认把所有产物丢到 ``ROOT/dist/``;onefile 模式下文件在 dist/ 顶层,
 # onedir 模式下嵌一层同名子目录(``dist/chayuan-server/chayuan-server(.exe)``)。
 DIST_ROOT = ROOT / "dist"
@@ -250,6 +252,59 @@ def sync_bundled_models(*, lite: bool) -> None:
     )
 
 
+def sync_services(*, lite: bool) -> None:
+    """同步 vendor/services/ → src-tauri/services/(给 Tauri resources)。
+
+    集成版需要把 llama-server.exe 这类外部 runtime 二进制带进安装包,
+    轻量版不需要(在线下载 chat 时也是用 sidecar 自己代理,不起本地 runtime)。
+
+    幂等:重复跑结果相同。每次都先清掉旧目录避免上一次 flavor 残留。
+    """
+    if DESKTOP_SERVICES_DIR.exists():
+        shutil.rmtree(DESKTOP_SERVICES_DIR)
+    DESKTOP_SERVICES_DIR.mkdir(parents=True, exist_ok=True)
+
+    if lite:
+        (DESKTOP_SERVICES_DIR / ".gitkeep").touch()
+        print(f"[build] 轻量版:清空 {DESKTOP_SERVICES_DIR}", flush=True)
+        return
+
+    if not SERVICES_SRC.is_dir():
+        print(f"[build] 警告:services 源不存在 {SERVICES_SRC},集成版退化为空目录", flush=True)
+        (DESKTOP_SERVICES_DIR / ".gitkeep").touch()
+        return
+
+    # 集成版打包前 size guard:撞 2 GB 就拒(跟 bundled_models 共用相同逻辑)
+    # 单文件 2 GB 上限不太可能撞到(llama-server.exe < 50 MB),但保险起见扫一遍
+    n_files = 0
+    n_bytes = 0
+    for entry in sorted(SERVICES_SRC.iterdir()):
+        if entry.name.startswith("."):
+            continue
+        if entry.is_dir():
+            for sub in entry.rglob("*"):
+                if sub.is_file() and sub.name != ".gitkeep":
+                    if sub.stat().st_size >= _WIN_INSTALLER_FILE_LIMIT:
+                        print(
+                            f"[build] FATAL: services 内单文件 ≥ 2 GB,无法打进 Windows installer:\n"
+                            f"  {sub.relative_to(SERVICES_SRC)} ({sub.stat().st_size / 1024 / 1024 / 1024:.2f} GB)",
+                            file=sys.stderr, flush=True,
+                        )
+                        raise SystemExit(2)
+                    rel = sub.relative_to(SERVICES_SRC)
+                    dst = DESKTOP_SERVICES_DIR / rel
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(sub, dst)
+                    n_files += 1
+                    n_bytes += dst.stat().st_size
+    mb = n_bytes / 1024 / 1024
+    print(
+        f"[build] 集成版:services 已同步 {n_files} 个文件 ({mb:.1f} MB) "
+        f"→ {DESKTOP_SERVICES_DIR}",
+        flush=True,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -276,6 +331,12 @@ def main() -> None:
         help=("跳过 PyInstaller,只把 vendor/bundled_models 同步到 src-tauri/bundled_models/。"
               "build-desktop 双 flavor 模式下,sidecar 跑一次就够,flavor 切换只需重跑这一步。"),
     )
+    parser.add_argument(
+        "--sync-services-only",
+        action="store_true",
+        help="只同步 vendor/services/ 到 src-tauri/services/(快速 vendor 二进制改动迭代),"
+             "跟 --sync-bundled-only 互斥",
+    )
     # 用 parse_known_args:任何 build.py 不认识的参数(--clean / --log-level=DEBUG /
     # --noupx / 等)都直接转发给 PyInstaller。免得用户记错 ``--`` 分隔符位置 ──
     # poetry / argparse REMAINDER 组合下 ``--`` 经常被吃掉,导致 ``--clean`` 报
@@ -295,6 +356,11 @@ def main() -> None:
         # 跳过 PyInstaller,只同步 bundled_models。给 build-desktop 双 flavor
         # 模式用:sidecar 跑一次,两个 flavor 切换时只重做 sync + tauri bundle。
         sync_bundled_models(lite=lite)
+        sync_services(lite=lite)
+        return
+
+    if args.sync_services_only:
+        sync_services(lite=lite)
         return
 
     if args.release:
@@ -303,6 +369,7 @@ def main() -> None:
     if not args.no_copy:
         copy_to_tauri_binaries()
         sync_bundled_models(lite=lite)
+        sync_services(lite=lite)
 
 
 if __name__ == "__main__":
