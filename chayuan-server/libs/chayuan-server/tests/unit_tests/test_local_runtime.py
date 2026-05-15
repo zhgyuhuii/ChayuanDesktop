@@ -199,3 +199,46 @@ async def test_manager_stop_kills_process(tmp_path, monkeypatch):
     fake_proc.wait.assert_called_once()
     assert m._status.state == "stopped"
     assert m._status.pid is None
+
+
+@pytest.mark.asyncio
+async def test_manager_restart_stop_then_start(tmp_path, monkeypatch):
+    """restart() 应该等价于 stop + start"""
+    from chayuan.server.model_registry import local_runtime
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    (services / "llama-server.exe").write_bytes(b"stub")
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    fake_resolution = mock.MagicMock(
+        missing=[],
+        args=["--model", "/tmp/fake.gguf"],
+        resolved_models={"chat": "m1"},
+        reason="",
+    )
+    monkeypatch.setattr(local_runtime, "_resolve_chat_args", lambda **kw: (fake_resolution, "/tmp/fake.gguf"))
+
+    proc1 = mock.MagicMock(pid=111, poll=mock.MagicMock(return_value=None), wait=mock.MagicMock(return_value=0))
+    proc2 = mock.MagicMock(pid=222, poll=mock.MagicMock(return_value=None), wait=mock.MagicMock(return_value=0))
+    popen_mock = mock.MagicMock(side_effect=[proc1, proc2])
+    monkeypatch.setattr(local_runtime.subprocess, "Popen", popen_mock)
+    async def fake_health(url, **kw):
+        return mock.MagicMock(status_code=200)
+    monkeypatch.setattr(local_runtime, "_probe_health", fake_health)
+
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
+    s1 = await m.start()
+    assert s1.pid == 111
+    s2 = await m.restart()
+    assert s2.pid == 222
+
+
+def test_get_manager_singleton(tmp_path, monkeypatch):
+    """get_manager() 返回单例"""
+    from chayuan.server.model_registry import local_runtime
+    monkeypatch.setattr(local_runtime, "_singleton", None)
+    monkeypatch.setattr("chayuan.settings.CHAYUAN_ROOT", tmp_path)
+
+    m1 = local_runtime.get_manager()
+    m2 = local_runtime.get_manager()
+    assert m1 is m2

@@ -295,6 +295,13 @@ class LlamaRuntimeManager:
         self._status = RuntimeStatus(state="stopped")
         self._persist_status()
 
+    async def restart(self, *, model_id: str | None = None) -> RuntimeStatus:
+        """等价于 stop + start;先写 state=restarting 让观察者看到过渡态。"""
+        self._status = RuntimeStatus(state="restarting")
+        self._persist_status()
+        await self.stop()
+        return await self.start(model_id=model_id)
+
     def _persist_status(self) -> None:
         """状态写 runtime.json,前端读"""
         try:
@@ -306,3 +313,17 @@ class LlamaRuntimeManager:
             )
         except Exception:
             pass  # 状态写不进去不致命
+
+
+# ─────────────────────── 进程内单例 ─────────────────────────
+
+_singleton: Optional[LlamaRuntimeManager] = None
+
+
+def get_manager() -> LlamaRuntimeManager:
+    """进程内单例。第一次调时按 CHAYUAN_ROOT 构造。"""
+    global _singleton
+    if _singleton is None:
+        from chayuan import settings as cy_settings
+        _singleton = LlamaRuntimeManager(chayuan_root=Path(cy_settings.CHAYUAN_ROOT))
+    return _singleton
