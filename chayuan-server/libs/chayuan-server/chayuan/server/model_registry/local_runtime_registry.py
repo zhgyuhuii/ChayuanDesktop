@@ -1,4 +1,4 @@
-"""3 个 LlamaRuntimeManager 实例的协调器。
+"""4 个 SidecarRuntimeManager 实例的协调器。
 
 捷径(typical use):
     reg = get_registry()
@@ -6,8 +6,8 @@
     await reg.get("embedding").start()
     await reg.stop_all()  # lifespan shutdown
 
-设计:跟 LlamaRuntimeManager 解耦 — manager 仍是单进程的所有者,
-registry 只是 3 个 manager 的 lookup;不在 registry 内做并发协调
+设计:跟 SidecarRuntimeManager 解耦 — manager 仍是单进程的所有者,
+registry 只是 4 个 manager 的 lookup;不在 registry 内做并发协调
 (每个 capability 独立 start/stop,前端按需触发)。
 """
 from __future__ import annotations
@@ -16,26 +16,36 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional
 
-from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager, RuntimeStatus
+from chayuan.server.model_registry.local_runtime import SidecarRuntimeManager, RuntimeStatus
 
 
 logger = logging.getLogger("chayuan.model_registry.local_runtime_registry")
 
 
+# Plan 3C: cap → engine 映射
+_CAP_ENGINE: Dict[str, str] = {
+    "chat": "llama",
+    "embedding": "llama",
+    "rerank": "llama",
+    "asr": "whisper",
+}
+
+
 class LocalRuntimeRegistry:
-    CAPABILITIES = ("chat", "embedding", "rerank")
+    CAPABILITIES = ("chat", "embedding", "rerank", "asr")
 
     def __init__(self, *, chayuan_root: Path) -> None:
-        self._managers: Dict[str, LlamaRuntimeManager] = {
-            cap: LlamaRuntimeManager(
+        self._managers: Dict[str, SidecarRuntimeManager] = {
+            cap: SidecarRuntimeManager(
                 chayuan_root=chayuan_root,
+                engine=_CAP_ENGINE[cap],
                 capability=cap,
                 port_offset=i,
             )
             for i, cap in enumerate(self.CAPABILITIES)
         }
 
-    def get(self, capability: str) -> LlamaRuntimeManager:
+    def get(self, capability: str) -> SidecarRuntimeManager:
         if capability not in self._managers:
             raise ValueError(f"unknown capability: {capability!r}")
         return self._managers[capability]

@@ -4,31 +4,34 @@ from __future__ import annotations
 import pytest
 
 
-def test_registry_constructs_three_managers(tmp_path):
+def test_registry_constructs_four_managers(tmp_path):
+    """Plan 3C: registry 含 chat/embedding/rerank/asr 4 个 manager。"""
     from chayuan.server.model_registry.local_runtime_registry import LocalRuntimeRegistry
     reg = LocalRuntimeRegistry(chayuan_root=tmp_path)
-    assert set(reg._managers.keys()) == {"chat", "embedding", "rerank"}
-    assert reg.get("chat").capability == "chat"
+    assert set(reg._managers.keys()) == {"chat", "embedding", "rerank", "asr"}
+    assert reg.get("chat").engine == "llama"
     assert reg.get("chat").port_offset == 0
-    assert reg.get("embedding").capability == "embedding"
+    assert reg.get("embedding").engine == "llama"
     assert reg.get("embedding").port_offset == 1
-    assert reg.get("rerank").capability == "rerank"
+    assert reg.get("rerank").engine == "llama"
     assert reg.get("rerank").port_offset == 2
+    assert reg.get("asr").engine == "whisper"
+    assert reg.get("asr").port_offset == 3
 
 
 def test_registry_get_unknown_raises(tmp_path):
     from chayuan.server.model_registry.local_runtime_registry import LocalRuntimeRegistry
     reg = LocalRuntimeRegistry(chayuan_root=tmp_path)
     with pytest.raises(ValueError, match="unknown capability"):
-        reg.get("asr")
+        reg.get("tts")
 
 
-def test_registry_all_statuses(tmp_path):
+def test_registry_all_statuses_four_caps(tmp_path):
+    """all_statuses() 返 4 项,asr 初始 stopped。"""
     from chayuan.server.model_registry.local_runtime_registry import LocalRuntimeRegistry
     reg = LocalRuntimeRegistry(chayuan_root=tmp_path)
     sts = reg.all_statuses()
-    assert set(sts.keys()) == {"chat", "embedding", "rerank"}
-    # 三个 manager 初始都是 stopped
+    assert set(sts.keys()) == {"chat", "embedding", "rerank", "asr"}
     for cap, st in sts.items():
         assert st.state == "stopped"
 
