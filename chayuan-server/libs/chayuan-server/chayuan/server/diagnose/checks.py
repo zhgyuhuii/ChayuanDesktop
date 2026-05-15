@@ -5,8 +5,10 @@ severity=fail + detail 描述。
 """
 from __future__ import annotations
 
+import os
 import shutil
 import yaml
+import psutil
 from pathlib import Path
 
 from chayuan.server.diagnose.types import DiagnoseCheck
@@ -212,3 +214,79 @@ def check_disk_free_gb(chayuan_root: Path) -> DiagnoseCheck:
         detail=f"{free_gb:.1f} GB 可用",
         context={"free_bytes": du.free, "total_bytes": du.total},
     )
+
+
+def check_port_62582() -> DiagnoseCheck:
+    """检查端口 62582 是否被占。
+
+    被本进程 (chayuan-server) 占 = 也算 ok (sidecar 自己拿着 62581;
+      llama-server 拿 62582 是预期)。
+    被其它进程占 = warn (会让 start 时 _allocate_port 往上 bump 到 62583)。
+    """
+    try:
+        conns = psutil.net_connections(kind="inet")
+    except Exception as e:
+        return DiagnoseCheck(
+            name="port.62582",
+            ok=True,
+            severity="warn",
+            detail=f"psutil 调用失败:{type(e).__name__}: {e};无法验证端口占用",
+        )
+
+    listeners = [
+        c for c in conns
+        if getattr(c, "status", None) == "LISTEN"
+        and getattr(c.laddr, "port", None) == 62582
+    ]
+    if not listeners:
+        return DiagnoseCheck(
+            name="port.62582",
+            ok=True,
+            severity="ok",
+            detail="62582 空闲",
+        )
+    owner = listeners[0]
+    owner_pid = getattr(owner, "pid", None)
+    owner_name = "<unknown>"
+    if owner_pid:
+        try:
+            owner_name = psutil.Process(owner_pid).name()
+        except Exception:
+            pass
+    if owner_pid == os.getpid():
+        return DiagnoseCheck(
+            name="port.62582",
+            ok=True,
+            severity="ok",
+            detail=f"62582 被本进程 ({owner_name}, pid {owner_pid}) 占用",
+        )
+    return DiagnoseCheck(
+        name="port.62582",
+        ok=True,
+        severity="warn",
+        detail=f"62582 被其它进程占用: pid={owner_pid} ({owner_name})",
+        context={"owner_pid": owner_pid, "owner_name": owner_name},
+    )
+
+
+def check_chayuan_server_process() -> DiagnoseCheck:
+    """当前 sidecar 进程的 pid / 启动时间 / RSS。"""
+    try:
+        p = psutil.Process(os.getpid())
+        rss_mb = p.memory_info().rss / 1024 / 1024
+        from datetime import datetime as _dt
+        started = _dt.fromtimestamp(p.create_time()).isoformat(timespec="seconds")
+        return DiagnoseCheck(
+            name="chayuan_server.process",
+            ok=True,
+            severity="ok",
+            detail=f"pid={p.pid}, RSS={rss_mb:.1f} MB, started_at={started}",
+            context={"pid": p.pid, "rss_bytes": p.memory_info().rss, "started_at": started},
+        )
+    except Exception as e:
+        return DiagnoseCheck(
+            name="chayuan_server.process",
+            ok=False,
+            severity="warn",
+            detail=f"psutil 读不到本进程:{type(e).__name__}: {e}",
+        )

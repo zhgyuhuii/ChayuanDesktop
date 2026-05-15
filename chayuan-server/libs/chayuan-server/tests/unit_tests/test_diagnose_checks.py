@@ -163,3 +163,45 @@ def test_check_disk_free_gb(tmp_path, monkeypatch):
     monkeypatch.setattr(_checks.shutil, "disk_usage", crit_du)
     c = _checks.check_disk_free_gb(tmp_path)
     assert c.severity == "fail"
+
+
+def test_check_port_free(monkeypatch):
+    """62582 没被占 → ok"""
+    from chayuan.server.diagnose import checks as _checks
+
+    # 模拟 psutil.net_connections 返回空 (无监听)
+    fake_conns: list = []
+    monkeypatch.setattr(_checks.psutil, "net_connections", lambda kind: fake_conns)
+
+    c = _checks.check_port_62582()
+    assert c.ok is True
+    assert "空闲" in c.detail
+
+
+def test_check_port_occupied_other_process(monkeypatch):
+    """62582 被其它进程占 → warn"""
+    from chayuan.server.diagnose import checks as _checks
+
+    # 模拟一个 LISTEN 在 62582 的连接,pid 不是当前进程
+    laddr = type("Addr", (), {"ip": "127.0.0.1", "port": 62582})()
+    conn = type("Conn", (), {"status": "LISTEN", "laddr": laddr, "pid": 99999})()
+    monkeypatch.setattr(_checks.psutil, "net_connections", lambda kind: [conn])
+
+    # 模拟 Process(99999).name() = 'chrome.exe'
+    proc = type("Proc", (), {"name": lambda self: "chrome.exe"})()
+    monkeypatch.setattr(_checks.psutil, "Process", lambda pid: proc)
+
+    c = _checks.check_port_62582()
+    assert c.ok is True  # warn 算 ok
+    assert c.severity == "warn"
+    assert "chrome" in c.detail.lower() or "99999" in c.detail
+
+
+def test_check_chayuan_server_process():
+    """当前进程信息总能拿到 → ok"""
+    from chayuan.server.diagnose.checks import check_chayuan_server_process
+
+    c = check_chayuan_server_process()
+    assert c.name == "chayuan_server.process"
+    assert c.ok is True
+    assert "pid" in c.detail.lower() or str(__import__("os").getpid()) in c.detail
