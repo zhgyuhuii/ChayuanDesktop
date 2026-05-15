@@ -389,19 +389,52 @@ def _build_try_order(
 
 
 _MODEL_WEIGHT_EXTS = (".gguf", ".safetensors", ".bin", ".onnx", ".pt", ".pth")
+_PARTIAL_MARKERS = (".incomplete", ".tmp", ".part", ".lock")
 
 
-def _is_already_complete(dest_dir: Path, *, approx_mb: int) -> tuple[bool, str]:
+def _collect_all_patterns(cap_spec: dict) -> list[str]:
+    """从 cap_spec 的所有 hf/ms 候选里收集 allow_patterns 的并集。
+
+    skip 检查会用这些 patterns 验证"本地是不是已经按某个候选下完整"。
+    任一候选的 patterns 全部命中即视为完整。
+    """
+    all_patterns: list[list[str]] = []
+    for src in ("hf", "ms"):
+        for cand in (cap_spec.get(src) or []):
+            pats = cand.get("allow_patterns") or []
+            if pats:
+                all_patterns.append(pats)
+            elif cand.get("filename"):
+                all_patterns.append([cand["filename"]])
+    return all_patterns  # list of list
+
+
+def _patterns_satisfied(dest_dir: Path, patterns: list[str]) -> list[str]:
+    """返回 patterns 中**没在 dest_dir 下匹配到任何文件**的项。空列表 = 全部满足。"""
+    import fnmatch
+    all_files = [f for f in dest_dir.rglob("*")
+                 if f.is_file() and not f.name.startswith(".")]
+    rel_names = [str(f.relative_to(dest_dir)).replace("\\", "/") for f in all_files]
+    missing: list[str] = []
+    for pat in patterns:
+        pat_norm = pat.replace("\\", "/")
+        if not any(fnmatch.fnmatch(name, pat_norm) for name in rel_names):
+            missing.append(pat)
+    return missing
+
+
+def _is_already_complete(dest_dir: Path, *, approx_mb: int,
+                          cap_spec: dict) -> tuple[bool, str]:
     """判断目标目录是否已经下载完整,避免重复下载。
 
-    判定 (与 ``--clean`` 互斥,clean 会先删目录绕过这检查):
-    1) 目录存在
-    2) 目录下递归找到 ≥ 1 个权重文件 (.gguf / .safetensors / .bin / .onnx / .pt / .pth)
-    3) 目录总大小 ≥ approx_mb * 0.85 (85% 阈值容忍量化 / 编码偏差,
-       例如 Q4_K_M 实际可能比标称 size 略小 / 多)
-
-    用 rglob 递归扫,适配 sentence-transformers 那种把权重塞子目录的布局
-    (如 ``0_CLIPModel/pytorch_model.bin``)。
+    完整 = 同时满足:
+    1) 目录存在,有 ≥ 1 个权重文件 (.gguf / .safetensors / .bin / .onnx / .pt / .pth)
+    2) 目录下**没有** *.incomplete / *.tmp / *.part / *.lock(SDK 留的 partial 标记)
+    3) 至少有一个候选的 allow_patterns 全部命中(对方某次完整下载过)
+    4) 目录总大小 ≥ approx_mb × 0.85
+       (85% 阈值容忍量化偏差。注意:HF 网页用十进制 MB,本地 OS / 脚本通常报二进制 MiB;
+        580 MiB ≈ 608 MB decimal,所以 605 MB 的标称基本对应本地 ~577 MiB,
+        85% 阈值已留够缓冲。)
     """
     if not dest_dir.exists() or not dest_dir.is_dir():
         return False, ""
@@ -411,23 +444,48 @@ def _is_already_complete(dest_dir: Path, *, approx_mb: int) -> tuple[bool, str]:
     if not files:
         return False, ""
 
+    # 1) partial 标记
+    partial = [f for f in files
+               if any(f.name.endswith(m) for m in _PARTIAL_MARKERS)]
+    if partial:
+        names = ", ".join(f.name for f in partial[:3])
+        return False, f"发现 {len(partial)} 个 partial 标记 ({names}{'...' if len(partial)>3 else ''}) — 上次下载没完成,重下"
+
+    # 2) 权重文件
     weight_files = [f for f in files if f.suffix.lower() in _MODEL_WEIGHT_EXTS]
     if not weight_files:
         return False, f"目录里没有任何权重文件 ({', '.join(_MODEL_WEIGHT_EXTS)})"
 
+    # 3) pattern 覆盖:任一候选的 allow_patterns 全部命中即可
+    pattern_sets = _collect_all_patterns(cap_spec)
+    if pattern_sets:
+        matched_any = False
+        last_missing: list[str] = []
+        for patterns in pattern_sets:
+            missing = _patterns_satisfied(dest_dir, patterns)
+            if not missing:
+                matched_any = True
+                break
+            last_missing = missing
+        if not matched_any:
+            return False, (
+                f"任何候选的 allow_patterns 都没全部命中本地文件;"
+                f"最后一个候选缺:{', '.join(last_missing[:5])}"
+            )
+
+    # 4) 大小阈值
     total_mb = sum(f.stat().st_size for f in files) / 1024 / 1024
     threshold_mb = approx_mb * 0.85
-
     if total_mb < threshold_mb:
         return False, (
-            f"已有 {total_mb:.1f} MB,但 < 期望阈值 {threshold_mb:.0f} MB "
-            f"(approx {approx_mb} MB × 0.85),判定为下载未完成"
+            f"已有 {total_mb:.1f} MiB,但 < 期望阈值 {threshold_mb:.0f} MiB "
+            f"(approx {approx_mb} MB × 0.85)"
         )
 
     sample = ", ".join(f.name for f in weight_files[:3])
     if len(weight_files) > 3:
-        sample += f", ... 共 {len(weight_files)} 个"
-    return True, f"已有 {sample},总 {total_mb:.1f} MB,跳过下载"
+        sample += f", ... 共 {len(weight_files)} 个权重文件"
+    return True, f"已有 {sample},总 {total_mb:.1f} MiB,跳过下载"
 
 
 def _download_one(
@@ -444,12 +502,14 @@ def _download_one(
 
     # Skip-if-exists 预检 (--clean 时绕过,因为 clean 用户明确要重下)
     if not clean:
-        already, reason = _is_already_complete(dest_dir, approx_mb=cap_spec["approx_mb"])
+        already, reason = _is_already_complete(
+            dest_dir, approx_mb=cap_spec["approx_mb"], cap_spec=cap_spec,
+        )
         if already:
             _print(f"[{cap}] ✓ {reason}")
             return
         elif reason:
-            _print(f"[{cap}] (检测到 partial 下载: {reason} — 继续下载)")
+            _print(f"[{cap}] (本地不完整: {reason} — 继续下载)")
 
     if clean and dest_dir.exists():
         _print(f"[{cap}] --clean:删除旧目录 {dest_dir}")
