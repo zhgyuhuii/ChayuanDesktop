@@ -29,6 +29,7 @@ import {
   type VendorPayload,
 } from '@chayuan/api';
 import { CapabilityCenter } from './CapabilityCenter';
+import { LocalRuntimePanel } from './LocalRuntimePanel';
 import { RuntimeCenter } from './RuntimeCenter';
 import { DoctorGuidanceList, type DoctorCheckLike } from './DoctorGuidance';
 import { MarketplacePage } from '../marketplace/MarketplacePage';
@@ -582,13 +583,14 @@ const ServiceTopologyRow: React.FC<{ item: ServiceTopologyItem }> = ({ item }) =
 
 // ----- 主面板 --------------------------------------------------------------
 
-type AiPlatformTab = 'models' | 'services' | 'doctor' | 'mirror';
+type AiPlatformTab = 'models' | 'services' | 'doctor' | 'mirror' | 'local';
 
 const TAB_ITEMS: ReadonlyArray<{ value: AiPlatformTab; label: string }> = [
   { value: 'models', label: '9 类模型库' },
   { value: 'services', label: '服务拓扑' },
   { value: 'doctor', label: '系统自检' },
   { value: 'mirror', label: '镜像源' },
+  { value: 'local', label: '本地模型' },
 ];
 
 export const AiPlatformPanel: React.FC = () => {
@@ -696,6 +698,12 @@ export const AiPlatformPanel: React.FC = () => {
       )}
 
       {tab === 'mirror' && <MirrorSection />}
+
+      {tab === 'local' && (
+        <section className="max-h-[70vh] overflow-y-auto pr-1">
+          <LocalRuntimePanel />
+        </section>
+      )}
     </div>
   );
 };
