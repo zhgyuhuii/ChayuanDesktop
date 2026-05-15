@@ -90,3 +90,76 @@ def test_check_bundled_models_chat_empty(monkeypatch):
     c = check_bundled_models_chat()
     assert c.ok is False
     assert c.severity == "fail"
+
+
+def test_check_chayuan_root_writable_ok(tmp_path):
+    from chayuan.server.diagnose.checks import check_chayuan_root_writable
+    c = check_chayuan_root_writable(tmp_path)
+    assert c.name == "chayuan_root.writable"
+    assert c.ok is True
+    assert c.severity == "ok"
+    # 测试文件应被清理
+    assert not (tmp_path / ".diagnose-test").exists()
+
+
+def test_check_chayuan_root_writable_not_dir(tmp_path):
+    from chayuan.server.diagnose.checks import check_chayuan_root_writable
+    c = check_chayuan_root_writable(tmp_path / "does-not-exist")
+    assert c.ok is False
+    assert c.severity == "fail"
+
+
+def test_check_runtime_json_writable_ok(tmp_path):
+    from chayuan.server.diagnose.checks import check_runtime_json_writable
+    c = check_runtime_json_writable(tmp_path / "runtime.json")
+    assert c.ok is True
+
+
+def test_check_local_runtime_yaml_readable_missing_is_ok(tmp_path):
+    """文件不存在等于"用默认值",不算 fail"""
+    from chayuan.server.diagnose.checks import check_local_runtime_yaml_readable
+    c = check_local_runtime_yaml_readable(tmp_path / "absent.yaml")
+    assert c.ok is True
+    assert c.severity == "ok"
+    assert "不存在" in c.detail or "默认" in c.detail
+
+
+def test_check_local_runtime_yaml_readable_present_ok(tmp_path):
+    from chayuan.server.diagnose.checks import check_local_runtime_yaml_readable
+    yaml_path = tmp_path / "lr.yaml"
+    yaml_path.write_text("port: 62582\n", encoding="utf-8")
+    c = check_local_runtime_yaml_readable(yaml_path)
+    assert c.ok is True
+
+
+def test_check_local_runtime_yaml_readable_corrupt_warn(tmp_path):
+    from chayuan.server.diagnose.checks import check_local_runtime_yaml_readable
+    yaml_path = tmp_path / "lr.yaml"
+    yaml_path.write_bytes(b"\x00\x01\xff garbage")
+    c = check_local_runtime_yaml_readable(yaml_path)
+    assert c.ok is False or c.severity == "warn"
+
+
+def test_check_disk_free_gb(tmp_path, monkeypatch):
+    """正常磁盘 → ok;< 2 GB → warn;< 500 MB → fail"""
+    from chayuan.server.diagnose import checks as _checks
+
+    # 用 monkeypatch 替 shutil.disk_usage
+    def fake_du(_path):
+        return type("DU", (), {"total": 100 * 2**30, "used": 0, "free": 50 * 2**30})()
+
+    monkeypatch.setattr(_checks.shutil, "disk_usage", fake_du)
+    c = _checks.check_disk_free_gb(tmp_path)
+    assert c.ok is True
+
+    def low_du(_path):
+        return type("DU", (), {"total": 100 * 2**30, "used": 0, "free": 1 * 2**30})()
+    monkeypatch.setattr(_checks.shutil, "disk_usage", low_du)
+    c = _checks.check_disk_free_gb(tmp_path)
+    assert c.severity == "warn"
+
+    def crit_du(_path):
+        return type("DU", (), {"total": 100 * 2**30, "used": 0, "free": 200 * 2**20})()
+    monkeypatch.setattr(_checks.shutil, "disk_usage", crit_du)
+    c = _checks.check_disk_free_gb(tmp_path)
+    assert c.severity == "fail"

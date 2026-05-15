@@ -5,6 +5,8 @@ severity=fail + detail 描述。
 """
 from __future__ import annotations
 
+import shutil
+import yaml
 from pathlib import Path
 
 from chayuan.server.diagnose.types import DiagnoseCheck
@@ -100,4 +102,113 @@ def check_bundled_models_chat() -> DiagnoseCheck:
         severity="ok",
         detail=f"{len(cands)} 个 chat 模型: {names}{more}",
         context={"count": len(cands), "model_ids": [getattr(c, "model_id", None) for c in cands]},
+    )
+
+
+def check_chayuan_root_writable(chayuan_root: Path) -> DiagnoseCheck:
+    """尝试在 chayuan_root 创建 + 删除 .diagnose-test 文件"""
+    if not chayuan_root.is_dir():
+        return DiagnoseCheck(
+            name="chayuan_root.writable",
+            ok=False,
+            severity="fail",
+            detail=f"chayuan_root 不存在: {chayuan_root}",
+        )
+    probe = chayuan_root / ".diagnose-test"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except Exception as e:
+        return DiagnoseCheck(
+            name="chayuan_root.writable",
+            ok=False,
+            severity="fail",
+            detail=f"无法写入 {chayuan_root}: {type(e).__name__}: {e}",
+        )
+    return DiagnoseCheck(
+        name="chayuan_root.writable",
+        ok=True,
+        severity="ok",
+        detail=f"可写: {chayuan_root}",
+    )
+
+
+def check_runtime_json_writable(status_path: Path) -> DiagnoseCheck:
+    """检查 runtime.json 父目录可写 (LlamaRuntimeManager._persist_status 写它)。"""
+    parent = status_path.parent
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+        probe = parent / ".diagnose-runtime-json-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except Exception as e:
+        return DiagnoseCheck(
+            name="runtime_json.writable",
+            ok=False,
+            severity="fail",
+            detail=f"runtime.json 父目录不可写 ({parent}): {type(e).__name__}: {e}",
+        )
+    return DiagnoseCheck(
+        name="runtime_json.writable",
+        ok=True,
+        severity="ok",
+        detail=f"可写: {status_path}",
+    )
+
+
+def check_local_runtime_yaml_readable(yaml_path: Path) -> DiagnoseCheck:
+    """local_runtime.yaml 不存在不算 fail (= 用默认),存在则解析必须成功。"""
+    if not yaml_path.is_file():
+        return DiagnoseCheck(
+            name="local_runtime_yaml.readable",
+            ok=True,
+            severity="ok",
+            detail=f"{yaml_path} 不存在,使用默认配置",
+        )
+    try:
+        with open(yaml_path, "rb") as f:
+            raw = f.read()
+        yaml.safe_load(raw.decode("utf-8", errors="strict"))
+    except Exception as e:
+        return DiagnoseCheck(
+            name="local_runtime_yaml.readable",
+            ok=False,
+            severity="warn",
+            detail=f"yaml 解析失败 ({yaml_path}): {type(e).__name__}: {e}",
+        )
+    return DiagnoseCheck(
+        name="local_runtime_yaml.readable",
+        ok=True,
+        severity="ok",
+        detail=f"{yaml_path} 解析成功",
+    )
+
+
+def check_disk_free_gb(chayuan_root: Path) -> DiagnoseCheck:
+    """磁盘剩余空间:>= 2 GB ok / 500MB-2GB warn / < 500MB fail"""
+    try:
+        du = shutil.disk_usage(chayuan_root if chayuan_root.exists() else chayuan_root.parent)
+    except Exception as e:
+        return DiagnoseCheck(
+            name="disk.chayuan_root.free_gb",
+            ok=False,
+            severity="warn",
+            detail=f"无法查询磁盘空间:{type(e).__name__}: {e}",
+        )
+    free_gb = du.free / 2**30
+    if free_gb < 0.5:
+        sev: str = "fail"
+        ok = False
+    elif free_gb < 2.0:
+        sev = "warn"
+        ok = True
+    else:
+        sev = "ok"
+        ok = True
+    return DiagnoseCheck(
+        name="disk.chayuan_root.free_gb",
+        ok=ok,
+        severity=sev,  # type: ignore[arg-type]
+        detail=f"{free_gb:.1f} GB 可用",
+        context={"free_bytes": du.free, "total_bytes": du.total},
     )
