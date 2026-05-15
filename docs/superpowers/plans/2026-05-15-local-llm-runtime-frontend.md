@@ -109,60 +109,59 @@ export interface LocalRuntimeInstallInfo {
   build_version: string | null;
 }
 
-interface OkEnvelope<T> {
-  code: number;
-  data: T;
-}
+// 注:`request<T>(path)` 内部已经自动拆 `{code, msg, data}` 信封 (见 client.ts:198-211),
+// `r.data` 就是已解包的内层 payload。我们这里只声明内层 T 类型即可。
 
 // ─── client ──────────────────────────────────────────────────────────
 
 async function getStatus(): Promise<LocalRuntimeStatus> {
-  const r = await request<OkEnvelope<LocalRuntimeStatus>>('/runtime/llama/status');
-  return r.data.data;
+  return (await request<LocalRuntimeStatus>('/runtime/llama/status')).data;
 }
 
 async function start(opts?: { model_id?: string }): Promise<LocalRuntimeStatus> {
-  const r = await request<OkEnvelope<LocalRuntimeStatus>>('/runtime/llama/start', {
-    method: 'POST',
-    body: opts ?? {},
-    timeoutMs: 90_000, // 启动 + 60s health probe 留余量
-  });
-  return r.data.data;
+  return (
+    await request<LocalRuntimeStatus>('/runtime/llama/start', {
+      method: 'POST',
+      body: opts ?? {},
+      timeoutMs: 90_000, // 启动 + 60s health probe 留余量
+    })
+  ).data;
 }
 
 async function stop(): Promise<LocalRuntimeStatus> {
-  const r = await request<OkEnvelope<LocalRuntimeStatus>>('/runtime/llama/stop', {
-    method: 'POST',
-    timeoutMs: 20_000,
-  });
-  return r.data.data;
+  return (
+    await request<LocalRuntimeStatus>('/runtime/llama/stop', {
+      method: 'POST',
+      timeoutMs: 20_000,
+    })
+  ).data;
 }
 
 async function restart(opts?: { model_id?: string }): Promise<LocalRuntimeStatus> {
-  const r = await request<OkEnvelope<LocalRuntimeStatus>>('/runtime/llama/restart', {
-    method: 'POST',
-    body: opts ?? {},
-    timeoutMs: 90_000,
-  });
-  return r.data.data;
+  return (
+    await request<LocalRuntimeStatus>('/runtime/llama/restart', {
+      method: 'POST',
+      body: opts ?? {},
+      timeoutMs: 90_000,
+    })
+  ).data;
 }
 
 async function getConfig(): Promise<LocalRuntimeSettings> {
-  const r = await request<OkEnvelope<LocalRuntimeSettings>>('/runtime/llama/config');
-  return r.data.data;
+  return (await request<LocalRuntimeSettings>('/runtime/llama/config')).data;
 }
 
 async function setConfig(patch: LocalRuntimeSettingsPatch): Promise<LocalRuntimeSettings> {
-  const r = await request<OkEnvelope<LocalRuntimeSettings>>('/runtime/llama/config', {
-    method: 'POST',
-    body: patch,
-  });
-  return r.data.data;
+  return (
+    await request<LocalRuntimeSettings>('/runtime/llama/config', {
+      method: 'POST',
+      body: patch,
+    })
+  ).data;
 }
 
 async function getInstallInfo(): Promise<LocalRuntimeInstallInfo> {
-  const r = await request<OkEnvelope<LocalRuntimeInstallInfo>>('/runtime/llama/install-info');
-  return r.data.data;
+  return (await request<LocalRuntimeInstallInfo>('/runtime/llama/install-info')).data;
 }
 
 export const localRuntime = {
