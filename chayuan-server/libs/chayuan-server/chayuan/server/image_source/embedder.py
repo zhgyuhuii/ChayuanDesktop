@@ -844,8 +844,11 @@ def _try_http_backed_embedder(model_name: str):
     return None
 
 
-def get_embedder(model_name: Optional[str] = None) -> BaseImageEmbedder:
-    """按名字拿到 :class:`BaseImageEmbedder` 单例;未知名回落到内置默认。
+def _get_inproc_embedder(model_name: Optional[str] = None) -> BaseImageEmbedder:
+    """Plan 1 时期的 in-process loader 路径(原 get_embedder 函数体)。
+
+    Plan 3D 起新代码请用 :func:`get_embedder`;它会先探 sidecar(Plan 3D),
+    sidecar 不 ready 时落回这里。
 
     92 hotfix:旧 fallback 链(``default_model_name()``)在用户 ④ tab 选了
     云 API 视觉模型(如 ``qwen-vl-max`` / ``openai/clip-vit-base-patch32`` 不在
@@ -893,6 +896,35 @@ def get_embedder(model_name: Optional[str] = None) -> BaseImageEmbedder:
         emb = create_embedder(SUPPORTED_MODELS[name])
         _EMBEDDERS[name] = emb
         return emb
+
+
+def get_embedder(model_name: Optional[str] = None) -> BaseImageEmbedder:
+    """Plan 3D: sidecar 首选 + in-process fallback。
+
+    流程:
+      1) 试 local_runtime_registry.get('image-embedding').status,若 state=ready
+         返回 InfinityHttpClient(base_url=endpoint, model_id=model_name or default)
+      2) registry 不可用 / state != ready → fallback _get_inproc_embedder(Plan 1 原路径:
+         先试 Infinity inventory HTTP 桥接,再走 in-process loader)
+    """
+    # 1) sidecar 优先
+    try:
+        from chayuan.server.model_registry.local_runtime_registry import get_registry
+        mgr = get_registry().get("image-embedding")
+        if mgr.status.state == "ready" and mgr.status.endpoint:
+            from chayuan.server.image_source.embedder_clients.infinity_http import InfinityHttpClient
+            name = (model_name or default_model_name()).strip()
+            client = InfinityHttpClient(
+                base_url=mgr.status.endpoint,
+                model_id=name,
+            )
+            logger.info("get_embedder: sidecar 命中 %s @ %s", name, mgr.status.endpoint)
+            return client
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[get_embedder] sidecar 路径不可用,fallback in-process: %r", e)
+
+    # 2) Plan 1 原 in-process 路径
+    return _get_inproc_embedder(model_name)
 
 
 def _invalidate_embedder_cache(name: Optional[str] = None) -> None:
