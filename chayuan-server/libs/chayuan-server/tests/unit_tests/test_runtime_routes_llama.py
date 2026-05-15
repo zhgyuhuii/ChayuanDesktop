@@ -85,3 +85,22 @@ def test_llama_config_post(client):
     cfg_update = args[0]
     assert cfg_update["port"] == 62590
     assert cfg_update["expose_lan"] is True
+
+
+def test_llama_install_info(client, tmp_path):
+    c, fake = client
+    fake.chayuan_root = tmp_path
+    (tmp_path / "models" / "bundled").mkdir(parents=True)
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    (services / "llama-server.exe").write_bytes(b"stub")
+    (services / "VERSION").write_text("b4404\n")
+    fake._find_llama_server_exe = mock.MagicMock(return_value=services / "llama-server.exe")
+
+    r = c.get("/runtime/llama/install-info")
+    assert r.status_code == 200
+    d = r.json()["data"]
+    assert "models_root" in d
+    assert "llama_server_exe" in d
+    assert d["llama_server_exe"].endswith("llama-server.exe")
+    assert d["build_version"] == "b4404"

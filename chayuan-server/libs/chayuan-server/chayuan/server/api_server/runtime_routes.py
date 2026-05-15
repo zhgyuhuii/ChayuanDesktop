@@ -491,4 +491,23 @@ def llama_config_post(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     return _ok(_dc.asdict(new_settings))
 
 
+@runtime_router.get("/llama/install-info")
+def llama_install_info() -> Dict[str, Any]:
+    """透出关键路径给设置页"模型存放路径" section 显示"""
+    m = _llama_manager()
+    exe = m._find_llama_server_exe()  # 受 monkeypatch 影响,测试可注入
+    version = None
+    if exe is not None and exe.parent.is_dir():
+        v_path = exe.parent / "VERSION"
+        if v_path.is_file():
+            version = v_path.read_text(encoding="utf-8").splitlines()[0].strip()
+    return _ok({
+        "chayuan_root": str(m.chayuan_root),
+        "models_root": str(m.chayuan_root / "models"),
+        "bundled_models_root": str(m.chayuan_root / "models" / "bundled"),
+        "llama_server_exe": str(exe) if exe else None,
+        "build_version": version,
+    })
+
+
 __all__ = ["runtime_router"]
