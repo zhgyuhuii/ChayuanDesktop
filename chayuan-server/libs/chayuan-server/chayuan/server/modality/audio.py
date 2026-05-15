@@ -59,6 +59,12 @@ class AudioPipeline:
 
         ``model`` 不传 → 走 capability_router("asr") 拿用户在 UI 配的默认 ASR 模型;
         若 router 也未配,fallback "base"(faster-whisper 默认)。
+
+        Plan 3C 起 fallback 顺序:
+          1) 本地 sidecar (whisper-server, /runtime/llama/asr/inference)
+          2) faster-whisper (Python in-process)
+          3) openai-whisper (Python in-process)
+          4) OpenAI API
         """
         if not model:
             try:
@@ -71,8 +77,22 @@ class AudioPipeline:
         except Exception as e:  # noqa: BLE001
             logger.warning("materialize audio 失败：%r", e)
             return ""
+
+        # Plan 3C: 1) 本地 sidecar 优先
         try:
-            # 1) faster-whisper（首选，速度 3-5x）
+            text = self._transcribe_via_sidecar(path, language=language)
+            if text:
+                if cleanup is not None:
+                    try:
+                        cleanup.cleanup()
+                    except Exception:  # noqa: BLE001
+                        pass
+                return text
+        except Exception as e:  # noqa: BLE001
+            logger.info("[asr] sidecar 不可用,fallback Python:%r", e)
+
+        try:
+            # 2) faster-whisper（首选，速度 3-5x）
             try:
                 from faster_whisper import WhisperModel  # type: ignore
                 m = WhisperModel(
@@ -84,7 +104,7 @@ class AudioPipeline:
                 return "".join(seg.text for seg in segments).strip()
             except Exception as e:  # noqa: BLE001
                 logger.debug("faster-whisper 不可用：%r", e)
-            # 2) openai-whisper（CPU/GPU 皆可）
+            # 3) openai-whisper（CPU/GPU 皆可）
             try:
                 import whisper  # type: ignore
                 m = whisper.load_model(model)
@@ -92,7 +112,7 @@ class AudioPipeline:
                 return (out.get("text") or "").strip()
             except Exception as e:  # noqa: BLE001
                 logger.debug("openai-whisper 不可用：%r", e)
-            # 3) OpenAI API（云端）
+            # 4) OpenAI API（云端）
             try:
                 from chayuan.server.utils import get_OpenAI
                 client = get_OpenAI()
@@ -110,6 +130,53 @@ class AudioPipeline:
                     cleanup.cleanup()
                 except Exception:  # noqa: BLE001
                     pass
+
+    def _transcribe_via_sidecar(self, audio_path: str, *, language: Optional[str] = None) -> str:
+        """Plan 3C: 走本地 whisper-server。
+
+        步骤:
+          1. 取 registry.get('asr') 当前 status
+          2. 若 state != 'ready',触发 await start() (最多 30s)
+          3. POST http://127.0.0.1:<port>/inference (multipart, file)
+          4. 返 JSON text 字段
+        sidecar 不可用任何环节抛 Exception,上层 fallback Python。
+        """
+        import asyncio
+        import httpx  # type: ignore
+
+        try:
+            from chayuan.server.model_registry.local_runtime_registry import get_registry
+            mgr = get_registry().get("asr")
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"asr registry 取 manager 失败:{e}") from e
+
+        # 确保 ready
+        if mgr.status.state != "ready":
+            loop = asyncio.new_event_loop()
+            try:
+                status = loop.run_until_complete(asyncio.wait_for(mgr.start(), timeout=30))
+            finally:
+                loop.close()
+            if status.state != "ready":
+                raise RuntimeError(
+                    f"asr sidecar start 失败 state={status.state} last_error={status.last_error}"
+                )
+
+        endpoint = mgr.status.endpoint or ""
+        if not endpoint:
+            raise RuntimeError("asr sidecar endpoint 空")
+
+        url = f"{endpoint.rstrip('/')}/inference"
+        data = {}
+        if language:
+            data["language"] = language
+        with open(audio_path, "rb") as f:
+            files = {"file": (Path(audio_path).name, f, "application/octet-stream")}
+            with httpx.Client(timeout=120.0) as client:
+                resp = client.post(url, data=data, files=files)
+                resp.raise_for_status()
+                payload = resp.json()
+                return (payload.get("text") or "").strip()
 
     # ==================================================================
     # TTS
