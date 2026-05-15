@@ -74,11 +74,11 @@ def test_manager_init_paths(tmp_path):
 
 
 def test_manager_find_llama_server_exe_missing(tmp_path):
-    """vendor 二进制找不到时,_find_llama_server_exe 返回 None"""
+    """vendor 二进制找不到时,find_llama_server_exe 返回 None"""
     from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
     m = LlamaRuntimeManager(chayuan_root=tmp_path)
     # 没真 vendor 二进制
-    assert m._find_llama_server_exe() is None
+    assert m.find_llama_server_exe() is None
 
 
 def test_manager_find_llama_server_exe_present(tmp_path, monkeypatch):
@@ -93,7 +93,7 @@ def test_manager_find_llama_server_exe_present(tmp_path, monkeypatch):
     monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
 
     m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
-    assert m._find_llama_server_exe() == exe
+    assert m.find_llama_server_exe() == exe
 
 
 def test_manager_allocate_port_default_free(tmp_path):

@@ -18,6 +18,7 @@
 | `milvus/`     | 向量库 | https://milvus.io/docs/install_standalone-docker.md <br/> https://hub.docker.com/r/milvusdb/milvus | 39530 / 39091 |
 | `elastic/`    | BM25 / 全文 / 知识源 | https://www.elastic.co/cn/downloads/elasticsearch <br/> https://hub.docker.com/_/elasticsearch | 39200 |
 | `onlyoffice/` | 文档协同 | https://www.onlyoffice.com/zh/download-docs.aspx <br/> https://hub.docker.com/r/onlyoffice/documentserver | 38080 |
+| `llama-server/` | 本地 LLM runtime (CPU)<br/>跟集成版 .msi 走,装机后由 LlamaRuntimeManager spawn | https://github.com/ggerganov/llama.cpp/releases<br/>`llama-bin-win-cpu-x64.zip` (Win) / `llama-bin-ubuntu-x64.zip` (Linux) / `llama-bin-macos-arm64.zip` (Mac)<br/>开发机:`scripts/install-llama-server.{ps1,sh}` | 62582 |
 
 ## 端口与凭据
 

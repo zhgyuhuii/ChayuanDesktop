@@ -171,8 +171,11 @@ class LlamaRuntimeManager:
     def status(self) -> RuntimeStatus:
         return self._status
 
-    def _find_llama_server_exe(self) -> Optional[Path]:
-        """跨平台找 vendor 进集成版的 llama-server 二进制"""
+    def find_llama_server_exe(self) -> Optional[Path]:
+        """跨平台找 vendor 进集成版的 llama-server 二进制。
+
+        给路由 (/runtime/llama/install-info) 和 start() 共用。
+        """
         global _INSTALL_SERVICES_DIRS
         dirs = _INSTALL_SERVICES_DIRS if _INSTALL_SERVICES_DIRS is not None else _default_install_services_dirs()
         names = ["llama-server.exe", "llama-server"]
@@ -204,7 +207,7 @@ class LlamaRuntimeManager:
 
         self._status = RuntimeStatus(state="starting")
 
-        exe = self._find_llama_server_exe()
+        exe = self.find_llama_server_exe()
         if exe is None:
             self._status = RuntimeStatus(
                 state="failed",

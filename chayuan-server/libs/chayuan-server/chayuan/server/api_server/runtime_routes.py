@@ -482,10 +482,14 @@ def llama_config_post(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     """部分更新设置。不立即重启,需要 /runtime/llama/restart 让端口 / API key 生效"""
     if not isinstance(body, dict) or not body:
         raise HTTPException(status_code=400, detail="body 必须是非空 dict")
-    # 端口合法性校验
-    port = body.get("port")
-    if port is not None and not (1024 <= int(port) <= 65535):
-        raise HTTPException(status_code=422, detail="port 必须在 1024-65535")
+    # 端口合法性校验:类型 + 范围
+    if "port" in body and body["port"] is not None:
+        try:
+            port_int = int(body["port"])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="port 必须是整数")
+        if not (1024 <= port_int <= 65535):
+            raise HTTPException(status_code=422, detail="port 必须在 1024-65535")
     new_settings = _llama_manager().set_config(body)
     import dataclasses as _dc
     return _ok(_dc.asdict(new_settings))
@@ -495,7 +499,7 @@ def llama_config_post(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
 def llama_install_info() -> Dict[str, Any]:
     """透出关键路径给设置页"模型存放路径" section 显示"""
     m = _llama_manager()
-    exe = m._find_llama_server_exe()  # 受 monkeypatch 影响,测试可注入
+    exe = m.find_llama_server_exe()  # 受 _INSTALL_SERVICES_DIRS monkeypatch 影响,测试可注入
     version = None
     if exe is not None and exe.parent.is_dir():
         v_path = exe.parent / "VERSION"

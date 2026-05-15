@@ -87,6 +87,35 @@ def test_llama_config_post(client):
     assert cfg_update["expose_lan"] is True
 
 
+def test_llama_config_post_port_not_int_returns_422(client):
+    """前端传 port='abc' 应该 422,不是 500 ValueError"""
+    c, fake = client
+    fake.set_config = mock.MagicMock()
+    r = c.post("/runtime/llama/config", json={"port": "abc"})
+    assert r.status_code == 422
+    assert "port" in r.json().get("detail", "")
+    fake.set_config.assert_not_called()
+
+
+def test_llama_config_post_port_out_of_range_returns_422(client):
+    """port=80 (< 1024) 应该 422"""
+    c, fake = client
+    fake.set_config = mock.MagicMock()
+    r = c.post("/runtime/llama/config", json={"port": 80})
+    assert r.status_code == 422
+    fake.set_config.assert_not_called()
+
+
+def test_llama_config_post_port_null_ok(client):
+    """body 不带 port (None) 应该通过校验,直接 forward 给 set_config"""
+    from chayuan.server.model_registry.local_runtime import LocalRuntimeSettings
+    c, fake = client
+    fake.set_config = mock.MagicMock(return_value=LocalRuntimeSettings(api_key="k"))
+    r = c.post("/runtime/llama/config", json={"api_key": "k"})
+    assert r.status_code == 200
+    fake.set_config.assert_called_once()
+
+
 def test_llama_install_info(client, tmp_path):
     c, fake = client
     fake.chayuan_root = tmp_path
@@ -95,7 +124,7 @@ def test_llama_install_info(client, tmp_path):
     services.mkdir(parents=True)
     (services / "llama-server.exe").write_bytes(b"stub")
     (services / "VERSION").write_text("b4404\n")
-    fake._find_llama_server_exe = mock.MagicMock(return_value=services / "llama-server.exe")
+    fake.find_llama_server_exe = mock.MagicMock(return_value=services / "llama-server.exe")
 
     r = c.get("/runtime/llama/install-info")
     assert r.status_code == 200
