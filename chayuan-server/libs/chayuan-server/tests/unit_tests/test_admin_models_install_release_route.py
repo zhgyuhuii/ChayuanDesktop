@@ -1,8 +1,16 @@
-"""``POST/GET /admin/models/install_release`` 路由集成测试。"""
+"""``POST/GET /admin/models/install_release`` 路由集成测试。
+
+2026-05-15 重写:install_job 已从 subprocess(chayuan_packaging)改为
+in-process(huggingface_hub),mock 点从 ``install_job.subprocess.Popen``
+移到 ``huggingface_hub.hf_hub_download / snapshot_download``。
+"""
 from __future__ import annotations
 
+import functools
 import threading
 import time
+from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -16,13 +24,10 @@ from chayuan.server.model_registry.install_job import (
 )
 
 
-class _FakeProc:
-    def __init__(self, lines=("ok",), returncode=0):
-        self.stdout = iter(list(lines))
-        self.returncode = returncode
-
-    def wait(self):
-        pass
+@pytest.fixture(autouse=True)
+def _isolate_chayuan_root(tmp_path, monkeypatch):
+    monkeypatch.setattr("chayuan.settings.CHAYUAN_ROOT", tmp_path)
+    yield
 
 
 @pytest.fixture
@@ -38,29 +43,70 @@ def client_with_fresh_manager(monkeypatch) -> TestClient:
     return TestClient(app)
 
 
-def _wait_terminal(manager_lookup, timeout: float = 2.0):
-    """阻塞直到任务进 succeeded / failed。"""
+def _wait_terminal(client: TestClient, timeout: float = 3.0) -> None:
+    """阻塞直到所有任务进入终态(succeeded / failed / cancelled)。"""
+    from chayuan.server.model_registry.install_job import get_install_manager
     deadline = time.time() + timeout
     while time.time() < deadline:
-        from chayuan.server.model_registry.install_job import get_install_manager
-        for j in get_install_manager().list():
-            if j.status in (JobStatus.SUCCEEDED, JobStatus.FAILED):
-                return
-        time.sleep(0.01)
+        all_done = all(
+            j.status in (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED)
+            for j in get_install_manager().list()
+        )
+        if all_done and get_install_manager().list():
+            return
+        time.sleep(0.02)
+
+
+def _fake_hub_ok(**kwargs: Any) -> str:
+    local_dir = Path(kwargs.get("local_dir") or kwargs.get("cache_dir") or "/tmp")
+    local_dir.mkdir(parents=True, exist_ok=True)
+    fname = kwargs.get("filename") or "snapshot.touch"
+    p = local_dir / fname
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"")
+    return str(p)
+
+
+def _patch_hub_ok():
+    """组合 patch:hf_hub_download / snapshot_download / scan_once / promote。"""
+    return [
+        mock.patch("huggingface_hub.hf_hub_download", side_effect=_fake_hub_ok),
+        mock.patch("huggingface_hub.snapshot_download", side_effect=_fake_hub_ok),
+        mock.patch("chayuan.server.model_registry.local_index.scan_once"),
+        mock.patch(
+            "chayuan.server.model_registry.auto_assign.promote_defaults_from_local",
+            return_value={},
+        ),
+    ]
+
+
+def _with_hub(fn):
+    """装饰:启用一组 patch 跑测试主体,自动清理。
+
+    用 ``functools.wraps`` 保留 fn 签名,让 pytest 能正确注入 fixture。
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        patches = _patch_hub_ok()
+        for p in patches:
+            p.start()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            for p in patches:
+                p.stop()
+    return wrapper
 
 
 # ───────────────────────── POST /install_release ─────────────────────────
 
 
+@_with_hub
 def test_post_starts_job_and_returns_job_dict(client_with_fresh_manager):
-    with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=lambda *a, **kw: _FakeProc(),
-    ):
-        resp = client_with_fresh_manager.post(
-            "/admin/models/install_release",
-            json={"release": "lite"},
-        )
+    resp = client_with_fresh_manager.post(
+        "/admin/models/install_release",
+        json={"release": "lite"},
+    )
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert data["release"] == "lite"
@@ -90,35 +136,34 @@ def test_post_409_on_duplicate_running(client_with_fresh_manager):
     """同 release 已有运行任务应返回 409 Conflict。"""
     blocker = threading.Event()
 
-    class _BlockingProc:
-        returncode = 0
+    def _block(**kwargs):
+        blocker.wait(timeout=3.0)
+        return _fake_hub_ok(**kwargs)
 
-        @property
-        def stdout(self):
-            blocker.wait(timeout=5.0)
-            return iter(())
-
-        def wait(self):
-            pass
-
+    patches = [
+        mock.patch("huggingface_hub.hf_hub_download", side_effect=_block),
+        mock.patch("huggingface_hub.snapshot_download", side_effect=_block),
+        mock.patch("chayuan.server.model_registry.local_index.scan_once"),
+        mock.patch(
+            "chayuan.server.model_registry.auto_assign.promote_defaults_from_local",
+            return_value={},
+        ),
+    ]
+    for p in patches:
+        p.start()
     try:
-        with mock.patch(
-            "chayuan.server.model_registry.install_job.subprocess.Popen",
-            return_value=_BlockingProc(),
-        ):
-            # 第一个请求成功
-            r1 = client_with_fresh_manager.post(
-                "/admin/models/install_release", json={"release": "lite"})
-            assert r1.status_code == 200
-            # 给后台 0.05s 进 RUNNING
-            time.sleep(0.05)
-            # 第二个请求 409
-            r2 = client_with_fresh_manager.post(
-                "/admin/models/install_release", json={"release": "lite"})
-            assert r2.status_code == 409
-            assert "已有运行中任务" in r2.text
+        r1 = client_with_fresh_manager.post(
+            "/admin/models/install_release", json={"release": "lite"})
+        assert r1.status_code == 200
+        time.sleep(0.1)
+        r2 = client_with_fresh_manager.post(
+            "/admin/models/install_release", json={"release": "lite"})
+        assert r2.status_code == 409
+        assert "已有运行中任务" in r2.text
     finally:
         blocker.set()
+        for p in patches:
+            p.stop()
 
 
 # ───────────────────────── GET /install_release/{id} ─────────────────────────
@@ -131,57 +176,50 @@ def test_get_returns_404_for_unknown_id(client_with_fresh_manager):
     assert resp.status_code == 404
 
 
+@_with_hub
 def test_get_returns_job_status(client_with_fresh_manager):
-    with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=lambda *a, **kw: _FakeProc(("line1", "line2")),
-    ):
-        post = client_with_fresh_manager.post(
-            "/admin/models/install_release", json={"release": "lite"})
-        job_id = post.json()["data"]["id"]
-        _wait_terminal(client_with_fresh_manager)
-        resp = client_with_fresh_manager.get(
-            f"/admin/models/install_release/{job_id}")
+    post = client_with_fresh_manager.post(
+        "/admin/models/install_release", json={"release": "lite"})
+    job_id = post.json()["data"]["id"]
+    _wait_terminal(client_with_fresh_manager)
+    resp = client_with_fresh_manager.get(
+        f"/admin/models/install_release/{job_id}")
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert data["id"] == job_id
     assert data["status"] == "succeeded"
     assert "log_tail" in data
+    assert "progress_pct" in data
+    assert data["progress_pct"] == 100.0
+    assert data["files_total"] == data["files_done"]
 
 
 # ───────────────────────── GET /install_release (list) ─────────────────────────
 
 
+@_with_hub
 def test_list_returns_jobs_newest_first(client_with_fresh_manager):
-    with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=lambda *a, **kw: _FakeProc(),
-    ):
-        for rel in ("lite", "standard"):
-            client_with_fresh_manager.post(
-                "/admin/models/install_release", json={"release": rel})
-            _wait_terminal(client_with_fresh_manager)
-        resp = client_with_fresh_manager.get("/admin/models/install_release")
+    for rel in ("lite", "standard"):
+        client_with_fresh_manager.post(
+            "/admin/models/install_release", json={"release": rel})
+        _wait_terminal(client_with_fresh_manager)
+    resp = client_with_fresh_manager.get("/admin/models/install_release")
     assert resp.status_code == 200
     items = resp.json()["data"]["items"]
     assert len(items) >= 2
     releases = [i["release"] for i in items[:2]]
-    # 最近的在前
     assert releases[0] == "standard"
     assert releases[1] == "lite"
 
 
+@_with_hub
 def test_list_respects_limit(client_with_fresh_manager):
-    with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=lambda *a, **kw: _FakeProc(),
-    ):
-        for rel in ("lite", "standard", "pro"):
-            client_with_fresh_manager.post(
-                "/admin/models/install_release", json={"release": rel})
-            _wait_terminal(client_with_fresh_manager)
-        resp = client_with_fresh_manager.get(
-            "/admin/models/install_release", params={"limit": 2})
+    for rel in ("lite", "standard", "pro"):
+        client_with_fresh_manager.post(
+            "/admin/models/install_release", json={"release": rel})
+        _wait_terminal(client_with_fresh_manager)
+    resp = client_with_fresh_manager.get(
+        "/admin/models/install_release", params={"limit": 2})
     items = resp.json()["data"]["items"]
     assert len(items) == 2
 
@@ -196,61 +234,50 @@ def test_cancel_404_on_unknown_id(client_with_fresh_manager):
     assert resp.status_code == 404
 
 
+@_with_hub
 def test_cancel_terminal_job_is_noop(client_with_fresh_manager):
-    with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=lambda *a, **kw: _FakeProc(),
-    ):
-        post = client_with_fresh_manager.post(
-            "/admin/models/install_release", json={"release": "lite"})
-        job_id = post.json()["data"]["id"]
-        _wait_terminal(client_with_fresh_manager)
-        resp = client_with_fresh_manager.post(
-            f"/admin/models/install_release/{job_id}/cancel")
+    post = client_with_fresh_manager.post(
+        "/admin/models/install_release", json={"release": "lite"})
+    job_id = post.json()["data"]["id"]
+    _wait_terminal(client_with_fresh_manager)
+    resp = client_with_fresh_manager.post(
+        f"/admin/models/install_release/{job_id}/cancel")
     assert resp.status_code == 200
-    # 已完成的任务取消是幂等的:仍是 succeeded
     assert resp.json()["data"]["status"] == "succeeded"
 
 
 def test_cancel_running_job_transitions_to_cancelled(client_with_fresh_manager):
     blocker = threading.Event()
-    terminate_calls = []
 
-    class _CancelableProc:
-        returncode = -15
+    def _block(**kwargs):
+        blocker.wait(timeout=3.0)
+        return _fake_hub_ok(**kwargs)
 
-        @property
-        def stdout(self):
-            blocker.wait(timeout=5.0)
-            return iter(())
-
-        def terminate(self):
-            terminate_calls.append(True)
-            blocker.set()
-
-        def poll(self):
-            return None if not blocker.is_set() else -15
-
-        def wait(self):
-            pass
-
+    patches = [
+        mock.patch("huggingface_hub.hf_hub_download", side_effect=_block),
+        mock.patch("huggingface_hub.snapshot_download", side_effect=_block),
+        mock.patch("chayuan.server.model_registry.local_index.scan_once"),
+        mock.patch(
+            "chayuan.server.model_registry.auto_assign.promote_defaults_from_local",
+            return_value={},
+        ),
+    ]
+    for p in patches:
+        p.start()
     try:
-        with mock.patch(
-            "chayuan.server.model_registry.install_job.subprocess.Popen",
-            return_value=_CancelableProc(),
-        ):
-            post = client_with_fresh_manager.post(
-                "/admin/models/install_release", json={"release": "lite"})
-            job_id = post.json()["data"]["id"]
-            time.sleep(0.05)  # 让任务进 RUNNING
-            resp = client_with_fresh_manager.post(
-                f"/admin/models/install_release/{job_id}/cancel")
-            assert resp.status_code == 200
-            assert terminate_calls == [True]
-            _wait_terminal(client_with_fresh_manager)
-            # 再查一次,应该是 cancelled
-            final = client_with_fresh_manager.get(
-                f"/admin/models/install_release/{job_id}")
+        post = client_with_fresh_manager.post(
+            "/admin/models/install_release", json={"release": "lite"})
+        job_id = post.json()["data"]["id"]
+        time.sleep(0.1)  # 让任务进 RUNNING
+        resp = client_with_fresh_manager.post(
+            f"/admin/models/install_release/{job_id}/cancel")
+        assert resp.status_code == 200
+        blocker.set()
+        _wait_terminal(client_with_fresh_manager)
+        final = client_with_fresh_manager.get(
+            f"/admin/models/install_release/{job_id}")
         assert final.json()["data"]["status"] == "cancelled"
     finally:
         blocker.set()
+        for p in patches:
+            p.stop()

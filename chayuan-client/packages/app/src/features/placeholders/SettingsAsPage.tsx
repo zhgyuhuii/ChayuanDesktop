@@ -537,12 +537,52 @@ const BootstrapBanner: React.FC = () => {
         </p>
       )}
       {runningJob && (
-        <p className="mt-2 text-xs text-[var(--cy-text-tertiary)]">
-          下载中 · step={runningJob.step || 'queued'} · status={runningJob.status}
+        <div className="mt-2 space-y-1">
+          {/* 进度文案 + X/Y 文件计数 */}
+          <p className="text-xs text-[var(--cy-text-primary)]">
+            {runningJob.progress_message ||
+              `step=${runningJob.step || 'queued'} · status=${runningJob.status}`}
+            {typeof runningJob.files_total === 'number' &&
+              runningJob.files_total > 0 && (
+                <span className="ml-1 text-[var(--cy-text-tertiary)]">
+                  ({runningJob.files_done ?? 0}/{runningJob.files_total} 文件)
+                </span>
+              )}
+          </p>
+          {/* 进度条:有 progress_pct 才画;终态显示 100% */}
+          {(typeof runningJob.progress_pct === 'number' ||
+            runningJob.status === 'succeeded' ||
+            runningJob.status === 'failed') && (
+            <div
+              className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--cy-surface-1)]"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(runningJob.progress_pct ?? 0)}
+            >
+              <div
+                className={cn(
+                  'h-full transition-all',
+                  runningJob.status === 'failed'
+                    ? 'bg-[var(--cy-text-danger,#dc2626)]'
+                    : 'bg-[var(--cy-brand-500)]',
+                )}
+                style={{
+                  width: `${Math.min(100, Math.max(0, runningJob.status === 'succeeded' ? 100 : runningJob.progress_pct ?? 0))}%`,
+                }}
+              />
+            </div>
+          )}
           {runningJob.status === 'failed' &&
-            runningJob.exit_code !== null &&
-            ` · exit=${runningJob.exit_code}`}
-        </p>
+            runningJob.exit_code !== null && (
+              <p className="text-xs text-[var(--cy-text-danger,#dc2626)]">
+                失败 · exit={runningJob.exit_code}
+                {runningJob.log_tail?.length
+                  ? ` · 最后一行:${runningJob.log_tail.slice(-1)[0]}`
+                  : ''}
+              </p>
+            )}
+        </div>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
         {hint && !downloading && (

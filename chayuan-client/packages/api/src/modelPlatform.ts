@@ -525,11 +525,19 @@ export interface InstallJob {
   release: InstallReleaseName | string;
   mirror: InstallMirrorName | string | null;
   status: InstallJobStatus;
-  step: string;                 // fetch / stage / done / ""
+  step: string;                 // downloading / finalizing / done / ""
   started_at: number;           // epoch seconds
   ended_at: number | null;
   exit_code: number | null;
   log_tail: string[];
+  /** 0-100 浮点,逐文件粒度;2026-05-15 起后端会写,老版本可能缺失。 */
+  progress_pct?: number;
+  /** 当前正在做什么(下哪个 repo)。可直接显示在 banner 上。 */
+  progress_message?: string;
+  /** 本 release 的文件总数(模型条目数,非物理文件数)。 */
+  files_total?: number;
+  /** 已完成的文件数。 */
+  files_done?: number;
 }
 
 const MODELS_INSTALL = '/admin/models/install_release';

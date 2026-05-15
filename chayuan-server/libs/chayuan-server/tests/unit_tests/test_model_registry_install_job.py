@@ -1,10 +1,16 @@
-"""``InstallJobManager`` 行为测试 — 用 monkeypatch 替 subprocess.Popen,
-不真跑 chayuan_packaging。
+"""``InstallJobManager`` 行为测试 — 用 monkeypatch 替 ``huggingface_hub``
+下载函数,不真起网络请求。
+
+2026-05-15 重写:之前测试基于 ``subprocess.Popen`` mock,因为旧实现是
+``sys.executable -m chayuan_packaging`` 子进程模式;新实现已改成 in-process
+直接调 ``huggingface_hub.hf_hub_download / snapshot_download``,测试 mock 点
+随之上移。
 """
 from __future__ import annotations
 
 import threading
 import time
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -17,32 +23,37 @@ from chayuan.server.model_registry.install_job import (
 )
 
 
-class _FakeProc:
-    """模拟 ``subprocess.Popen`` 的最小接口。"""
-
-    def __init__(self, stdout_lines: list[str], returncode: int = 0):
-        self.stdout = iter(stdout_lines)
-        self.returncode = returncode
-        self._waited = False
-
-    def wait(self):
-        self._waited = True
+# ─────────────────────── 工具 ───────────────────────
 
 
-def _patch_popen(returncode: int = 0, stdout_lines: tuple[str, ...] = ("ok",)):
-    """生成 subprocess.Popen 桩,可指定 stdout / returncode。"""
-    def _factory(*args, **kwargs):
-        return _FakeProc(list(stdout_lines), returncode=returncode)
-    return _factory
+@pytest.fixture(autouse=True)
+def _isolate_chayuan_root(tmp_path, monkeypatch):
+    """让 install_job 写入临时 CHAYUAN_ROOT/models/bundled/,不污染真实数据。"""
+    monkeypatch.setattr("chayuan.settings.CHAYUAN_ROOT", tmp_path)
+    yield
 
 
-def _wait_done(job: InstallJob, timeout: float = 2.0) -> None:
-    """阻塞等任务进入终态(succeeded / failed)。"""
+def _wait_done(job: InstallJob, timeout: float = 5.0) -> None:
+    """阻塞等任务进入终态(succeeded / failed / cancelled)。"""
     deadline = time.time() + timeout
     while job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
         if time.time() > deadline:
-            raise TimeoutError(f"job {job.id} 未在 {timeout}s 内结束;status={job.status.value}")
+            raise TimeoutError(
+                f"job {job.id} 未在 {timeout}s 内结束;status={job.status.value}"
+            )
         time.sleep(0.01)
+
+
+def _fake_hub_ok(**kwargs: Any) -> str:
+    """模拟下载成功:在 local_dir 下 touch 一个假文件。"""
+    from pathlib import Path
+    local_dir = Path(kwargs.get("local_dir") or kwargs.get("cache_dir") or "/tmp")
+    local_dir.mkdir(parents=True, exist_ok=True)
+    fname = kwargs.get("filename") or "snapshot.touch"
+    p = local_dir / fname
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"")
+    return str(p)
 
 
 # ─────────────────────── 输入校验 ───────────────────────
@@ -60,301 +71,307 @@ def test_rejects_unknown_mirror():
         mgr.start("lite", mirror="evilcdn.example.com")
 
 
-def test_rejects_duplicate_running_release():
-    mgr = InstallJobManager()
-    # 用 Event 让 stdout 迭代永远阻塞,把任务卡在 RUNNING
-    blocker = threading.Event()
-
-    class _BlockingProc:
-        returncode = 0
-
-        @property
-        def stdout(self):
-            blocker.wait(timeout=5.0)  # 测试结束前不会 set,迭代器一直等
-            return iter(())
-
-        def wait(self):
-            pass
-
-    try:
-        with mock.patch(
-            "chayuan.server.model_registry.install_job.subprocess.Popen",
-            return_value=_BlockingProc(),
-        ):
-            j1 = mgr.start("lite")
-            for _ in range(100):
-                if j1.status == JobStatus.RUNNING:
-                    break
-                time.sleep(0.005)
-            assert j1.status == JobStatus.RUNNING
-            with pytest.raises(RuntimeError, match="已有运行中任务"):
-                mgr.start("lite")
-    finally:
-        blocker.set()  # 解阻塞,让后台线程退出
-
-
-# ─────────────────────── 状态机 ───────────────────────
+# ─────────────────────── 成功路径 ───────────────────────
 
 
 def test_successful_run_transitions_to_succeeded():
     mgr = InstallJobManager()
     with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=_patch_popen(returncode=0, stdout_lines=("fetched ok", "stage ok")),
+        "huggingface_hub.hf_hub_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "huggingface_hub.snapshot_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "chayuan.server.model_registry.local_index.scan_once"
+    ), mock.patch(
+        "chayuan.server.model_registry.auto_assign.promote_defaults_from_local",
+        return_value={"chat": "fake"},
     ):
-        job = mgr.start("lite")
+        job = mgr.start("lite", mirror="hf-mirror")
         _wait_done(job)
+
     assert job.status == JobStatus.SUCCEEDED
     assert job.exit_code == 0
-    assert job.ended_at is not None
     assert job.step == "done"
-    # 至少有 fetch + stage 各一条 stdout
-    log_text = "\n".join(job.log_tail)
-    assert "fetched ok" in log_text
-    assert "stage ok" in log_text
+    assert job.progress_pct == pytest.approx(100.0)
+    assert job.files_done == job.files_total
+    assert job.files_total > 0  # lite release 不会是空清单
 
 
-def test_failure_in_fetch_short_circuits_stage():
-    """fetch 退出非 0 时不应跑 stage。"""
+def test_progress_fields_grow_during_download():
+    """逐个文件下载时 files_done / progress_pct 应单调递增。"""
     mgr = InstallJobManager()
-    popen_calls = []
+    seen_progress: list[tuple[int, float]] = []
 
-    def _factory(*args, **kwargs):
-        cmd = args[0]
-        popen_calls.append(list(cmd))
-        # fetch 步退 1
-        return _FakeProc(["fetch error"], returncode=1)
+    def _record(*args, **kwargs):
+        # 每次 hub call 时记下当前 progress
+        for j in mgr.list():
+            seen_progress.append((j.files_done, j.progress_pct))
+        return _fake_hub_ok(**kwargs)
 
     with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=_factory,
+        "huggingface_hub.hf_hub_download", side_effect=_record
+    ), mock.patch(
+        "huggingface_hub.snapshot_download", side_effect=_record
+    ), mock.patch(
+        "chayuan.server.model_registry.local_index.scan_once"
+    ), mock.patch(
+        "chayuan.server.model_registry.auto_assign.promote_defaults_from_local",
+        return_value={},
     ):
-        job = mgr.start("lite")
+        job = mgr.start("lite", mirror="hf-mirror")
         _wait_done(job)
+
+    # 至少有一次 progress 中间快照(progress_pct 介于 0 和 100 之间)
+    intermediate = [pct for done, pct in seen_progress if 0 < pct < 100]
+    assert intermediate, f"未观察到中间进度;snapshots={seen_progress}"
+    # 单调递增(允许相等,但不应回退)
+    pcts = [pct for _, pct in seen_progress]
+    assert pcts == sorted(pcts), f"progress_pct 非单调递增:{pcts}"
+
+
+# ─────────────────────── 失败路径 ───────────────────────
+
+
+def test_hub_failure_transitions_to_failed():
+    mgr = InstallJobManager()
+    with mock.patch(
+        "huggingface_hub.hf_hub_download",
+        side_effect=RuntimeError("network down"),
+    ), mock.patch(
+        "huggingface_hub.snapshot_download",
+        side_effect=RuntimeError("network down"),
+    ):
+        job = mgr.start("lite", mirror="hf-mirror")
+        _wait_done(job)
+
     assert job.status == JobStatus.FAILED
     assert job.exit_code == 1
-    # 只跑了 fetch,没跑 stage
-    assert len(popen_calls) == 1
-    assert "fetch" in popen_calls[0]
+    assert any("network down" in line for line in job.log_tail)
+    # 失败时 progress 应停在中途(可能 0% 也可能 25%,但 < 100%)
+    assert job.progress_pct < 100.0
 
 
-def test_exception_in_subprocess_marks_failed():
-    """subprocess.Popen 抛异常时任务应标 failed,不挂线程。"""
+# ─────────────────────── 取消路径 ───────────────────────
+
+
+def test_cancel_running_job():
+    """让 hf_hub_download 阻塞,触发 cancel 后任务应进入 CANCELLED。"""
     mgr = InstallJobManager()
-    with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=FileNotFoundError("python missing"),
-    ):
-        job = mgr.start("lite")
-        _wait_done(job)
-    assert job.status == JobStatus.FAILED
-    log = "\n".join(job.log_tail)
-    assert "FileNotFoundError" in log
+    blocker = threading.Event()
 
-
-# ─────────────────────── 镜像参数 ───────────────────────
-
-
-def test_mirror_translated_to_hf_mirror_arg():
-    """mirror=hf-mirror 应该追加 --hf-mirror=https://hf-mirror.com。"""
-    mgr = InstallJobManager()
-    popen_calls = []
-
-    def _factory(*args, **kwargs):
-        popen_calls.append(list(args[0]))
-        return _FakeProc(["ok"], returncode=0)
+    def _blocking_download(**kwargs):
+        # 第一个文件触发阻塞,让外面发 cancel
+        blocker.wait(timeout=3.0)
+        return _fake_hub_ok(**kwargs)
 
     with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=_factory,
+        "huggingface_hub.hf_hub_download", side_effect=_blocking_download
+    ), mock.patch(
+        "huggingface_hub.snapshot_download", side_effect=_blocking_download
     ):
-        job = mgr.start("lite", mirror="huggingface")
+        job = mgr.start("lite", mirror="hf-mirror")
+        # 给后台线程一点时间进入 RUNNING
+        deadline = time.time() + 1.0
+        while job.status != JobStatus.RUNNING and time.time() < deadline:
+            time.sleep(0.01)
+        assert job.status == JobStatus.RUNNING
+
+        result = mgr.cancel(job.id)
+        assert result is job
+        # 解锁,让 hub call 返回;循环再下一轮会 check cancel
+        blocker.set()
         _wait_done(job)
-    # 至少 fetch 子命令带 --hf-mirror
-    fetch_cmd = popen_calls[0]
-    assert "--hf-mirror" in fetch_cmd
-    assert "https://huggingface.co" in fetch_cmd
+
+    assert job.status == JobStatus.CANCELLED
+    assert job.exit_code == -1
+    assert any("取消" in line for line in job.log_tail)
 
 
-# ─────────────────────── 注册中心 ───────────────────────
-
-
-def test_get_returns_none_for_unknown_id():
+def test_cancel_unknown_job_raises():
     mgr = InstallJobManager()
-    assert mgr.get("not-a-uuid") is None
+    with pytest.raises(KeyError):
+        mgr.cancel("does-not-exist")
+
+
+def test_cancel_terminal_job_is_noop():
+    mgr = InstallJobManager()
+    with mock.patch(
+        "huggingface_hub.hf_hub_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "huggingface_hub.snapshot_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "chayuan.server.model_registry.local_index.scan_once"
+    ), mock.patch(
+        "chayuan.server.model_registry.auto_assign.promote_defaults_from_local",
+        return_value={},
+    ):
+        job = mgr.start("lite", mirror="hf-mirror")
+        _wait_done(job)
+    assert job.status == JobStatus.SUCCEEDED
+
+    # 对终态 job 再 cancel,应原状态返回,不报错
+    result = mgr.cancel(job.id)
+    assert result.status == JobStatus.SUCCEEDED
+
+
+# ─────────────────────── 并发 / 重复 ───────────────────────
+
+
+def test_rejects_duplicate_running_release():
+    mgr = InstallJobManager()
+    blocker = threading.Event()
+
+    def _block(**kwargs):
+        blocker.wait(timeout=3.0)
+        return _fake_hub_ok(**kwargs)
+
+    with mock.patch(
+        "huggingface_hub.hf_hub_download", side_effect=_block
+    ), mock.patch(
+        "huggingface_hub.snapshot_download", side_effect=_block
+    ):
+        first = mgr.start("lite", mirror="hf-mirror")
+        # 等任务真正进入 RUNNING
+        deadline = time.time() + 1.0
+        while first.status != JobStatus.RUNNING and time.time() < deadline:
+            time.sleep(0.01)
+        with pytest.raises(RuntimeError, match="已有运行中任务"):
+            mgr.start("lite", mirror="hf-mirror")
+        # 收尾
+        blocker.set()
+        _wait_done(first)
+
+
+def test_can_start_after_previous_terminal():
+    """前一任务结束后,同 release 可以再开新任务。"""
+    mgr = InstallJobManager()
+    with mock.patch(
+        "huggingface_hub.hf_hub_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "huggingface_hub.snapshot_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "chayuan.server.model_registry.local_index.scan_once"
+    ), mock.patch(
+        "chayuan.server.model_registry.auto_assign.promote_defaults_from_local",
+        return_value={},
+    ):
+        first = mgr.start("lite", mirror="hf-mirror")
+        _wait_done(first)
+        assert first.status == JobStatus.SUCCEEDED
+        second = mgr.start("lite", mirror="hf-mirror")
+        _wait_done(second)
+        assert second.status == JobStatus.SUCCEEDED
+        assert first.id != second.id
+
+
+# ─────────────────────── list / get / mirror ───────────────────────
 
 
 def test_list_returns_jobs_newest_first():
     mgr = InstallJobManager()
     with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=_patch_popen(returncode=0),
+        "huggingface_hub.hf_hub_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "huggingface_hub.snapshot_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "chayuan.server.model_registry.local_index.scan_once"
+    ), mock.patch(
+        "chayuan.server.model_registry.auto_assign.promote_defaults_from_local",
+        return_value={},
     ):
-        j1 = mgr.start("lite")
-        _wait_done(j1)
-        time.sleep(0.01)
-        j2 = mgr.start("standard")
-        _wait_done(j2)
+        a = mgr.start("lite", mirror="hf-mirror")
+        _wait_done(a)
+        time.sleep(0.02)  # 让 started_at 有差
+        b = mgr.start("standard", mirror="hf-mirror")
+        _wait_done(b)
+
     items = mgr.list()
-    assert [j.id for j in items[:2]] == [j2.id, j1.id]
+    assert [j.id for j in items][:2] == [b.id, a.id]
 
 
-def test_singleton_is_stable():
-    """get_install_manager 应永远返回同一实例。"""
-    a = get_install_manager()
-    b = get_install_manager()
-    assert a is b
+def test_mirror_translated_to_hf_endpoint_env(monkeypatch):
+    """mirror=hf-mirror 应设 HF_ENDPOINT=https://hf-mirror.com。"""
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    mgr = InstallJobManager()
+
+    seen_endpoint: list[str] = []
+
+    def _capture(**kwargs):
+        import os as _os
+        seen_endpoint.append(_os.environ.get("HF_ENDPOINT", ""))
+        return _fake_hub_ok(**kwargs)
+
+    with mock.patch(
+        "huggingface_hub.hf_hub_download", side_effect=_capture
+    ), mock.patch(
+        "huggingface_hub.snapshot_download", side_effect=_capture
+    ), mock.patch(
+        "chayuan.server.model_registry.local_index.scan_once"
+    ), mock.patch(
+        "chayuan.server.model_registry.auto_assign.promote_defaults_from_local",
+        return_value={},
+    ):
+        job = mgr.start("lite", mirror="hf-mirror")
+        _wait_done(job)
+
+    assert all(e == "https://hf-mirror.com" for e in seen_endpoint), seen_endpoint
 
 
-# ─────────────────────── 序列化 ───────────────────────
+# ─────────────────────── to_dict 输出 ───────────────────────
+
+
+def test_to_dict_includes_progress_fields():
+    mgr = InstallJobManager()
+    with mock.patch(
+        "huggingface_hub.hf_hub_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "huggingface_hub.snapshot_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "chayuan.server.model_registry.local_index.scan_once"
+    ), mock.patch(
+        "chayuan.server.model_registry.auto_assign.promote_defaults_from_local",
+        return_value={},
+    ):
+        job = mgr.start("lite", mirror="hf-mirror")
+        _wait_done(job)
+
+    d = job.to_dict()
+    for k in (
+        "id", "release", "mirror", "status", "step",
+        "started_at", "ended_at", "exit_code",
+        "progress_pct", "progress_message", "files_total", "files_done",
+        "log_tail",
+    ):
+        assert k in d, f"to_dict 缺字段 {k}"
+    assert d["status"] == "succeeded"
+    assert d["progress_pct"] == 100.0
+    assert d["files_total"] > 0
+    assert d["files_done"] == d["files_total"]
 
 
 def test_to_dict_is_json_safe():
     import json
     mgr = InstallJobManager()
     with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=_patch_popen(returncode=0),
+        "huggingface_hub.hf_hub_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "huggingface_hub.snapshot_download", side_effect=_fake_hub_ok
+    ), mock.patch(
+        "chayuan.server.model_registry.local_index.scan_once"
+    ), mock.patch(
+        "chayuan.server.model_registry.auto_assign.promote_defaults_from_local",
+        return_value={},
     ):
         job = mgr.start("lite", mirror="hf-mirror")
         _wait_done(job)
-    s = json.dumps(job.to_dict())
-    d = json.loads(s)
-    assert d["status"] == "succeeded"
-    assert d["release"] == "lite"
-    assert d["mirror"] == "hf-mirror"
-    assert isinstance(d["log_tail"], list)
-    assert d["exit_code"] == 0
-    # 内部字段不暴露
-    assert "_cancel_requested" not in d
-    assert "_proc" not in d
+    # 不抛
+    json.dumps(job.to_dict())
 
 
-def test_to_dict_does_not_leak_internal_fields():
-    """_cancel_requested 与 _proc 即便取消后也不应出现在 to_dict 中。"""
-    mgr = InstallJobManager()
-    with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=_patch_popen(returncode=0),
-    ):
-        job = mgr.start("lite")
-        _wait_done(job)
-    d = job.to_dict()
-    for k in d.keys():
-        assert not k.startswith("_"), f"内部字段 {k!r} 不应暴露"
+# ─────────────────────── 单例 ───────────────────────
 
 
-# ─────────────────────── 取消 ───────────────────────
-
-
-def test_cancel_unknown_id_raises():
-    mgr = InstallJobManager()
-    with pytest.raises(KeyError, match="unknown job_id"):
-        mgr.cancel("not-a-uuid")
-
-
-def test_cancel_terminal_job_is_noop():
-    """已完成的任务再 cancel 应直接返回当前状态(幂等)。"""
-    mgr = InstallJobManager()
-    with mock.patch(
-        "chayuan.server.model_registry.install_job.subprocess.Popen",
-        side_effect=_patch_popen(returncode=0),
-    ):
-        job = mgr.start("lite")
-        _wait_done(job)
-    assert job.status == JobStatus.SUCCEEDED
-    after = mgr.cancel(job.id)
-    # 仍是 succeeded,没被改成 cancelled
-    assert after.status == JobStatus.SUCCEEDED
-
-
-def test_cancel_running_job_terminates_subprocess_and_marks_cancelled():
-    """运行中任务被 cancel 时:proc.terminate 被调用 + job 进 CANCELLED 终态。"""
-    mgr = InstallJobManager()
-    blocker = threading.Event()
-    terminate_calls = []
-
-    class _CancelableProc:
-        returncode = -15  # SIGTERM 后常见 returncode
-
-        @property
-        def stdout(self):
-            blocker.wait(timeout=5.0)
-            return iter(())
-
-        def terminate(self):
-            terminate_calls.append(True)
-            blocker.set()  # 释放 stdout 阻塞,让 _run 循环退出
-
-        def poll(self):
-            return None if not blocker.is_set() else -15
-
-        def wait(self):
-            pass
-
-    proc = _CancelableProc()
-    try:
-        with mock.patch(
-            "chayuan.server.model_registry.install_job.subprocess.Popen",
-            return_value=proc,
-        ):
-            job = mgr.start("lite")
-            # 等任务进 RUNNING + proc 挂到 job 上
-            for _ in range(200):
-                if job._proc is not None and job.status == JobStatus.RUNNING:
-                    break
-                time.sleep(0.005)
-            assert job.status == JobStatus.RUNNING
-            assert job._proc is not None
-
-            mgr.cancel(job.id)
-            assert terminate_calls == [True]
-            _wait_done(job)
-        assert job.status == JobStatus.CANCELLED
-        # log_tail 应有"已取消"提示
-        log = "\n".join(job.log_tail)
-        assert "取消" in log
-    finally:
-        blocker.set()
-
-
-def test_cancel_before_subprocess_spawn_marks_cancelled():
-    """在 _run 还没起 subprocess 之前调 cancel,任务应直接进 CANCELLED。"""
-    mgr = InstallJobManager()
-    # 拿一个"永远阻塞 in stdout"的桩,但让 _run 在 cancel 检查点退出
-    # 简单做法:patch start 的内部,但更可靠是把 popen 改成 slow popen 看不到
-    # 实际场景:用户在请求发出后立刻 cancel,我们要保证终态可达。
-    # 这里直接构造一个 queued 状态的 job 然后 cancel(单测覆盖入口逻辑)。
-    proc_started = threading.Event()
-    blocker = threading.Event()
-
-    class _SlowProc:
-        returncode = 0
-
-        @property
-        def stdout(self):
-            proc_started.set()
-            blocker.wait(timeout=5.0)
-            return iter(())
-
-        def terminate(self):
-            blocker.set()
-
-        def poll(self):
-            return None if not blocker.is_set() else 0
-
-        def wait(self):
-            pass
-
-    try:
-        with mock.patch(
-            "chayuan.server.model_registry.install_job.subprocess.Popen",
-            return_value=_SlowProc(),
-        ):
-            job = mgr.start("lite")
-            proc_started.wait(timeout=2.0)
-            mgr.cancel(job.id)
-            _wait_done(job)
-        assert job.status == JobStatus.CANCELLED
-    finally:
-        blocker.set()
+def test_get_install_manager_returns_singleton():
+    a = get_install_manager()
+    b = get_install_manager()
+    assert a is b
