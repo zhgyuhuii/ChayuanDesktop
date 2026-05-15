@@ -36,7 +36,10 @@
 
 ## 3. UI 按钮
 
-桌面应用 → 头像菜单 → 设置 → AI 平台 → 「本地模型」tab → 状态区按钮组最右侧「生成诊断报告」按钮。
+桌面应用 → 头像菜单 → 设置 → AI 平台 → 「本地模型」tab。
+
+Plan 3B 后该页显示 3 个 capability 卡片(chat / 文本嵌入 / 重排),每个独立启停;
+「生成诊断报告」按钮在 3 个卡片下方。
 
 预期:Dialog 弹出,~1s 内显示报告 markdown;点「复制全部」复制到剪贴板。
 
@@ -48,7 +51,10 @@
 | `vendor.llama-server.binary fail` | 集成版打包遗漏 vendor 二进制 | 重装;或开发机跑 `scripts/install-llama-server.{ps1,sh}` |
 | `vendor.bundled_models.chat fail` | bundled_models 没打进 .msi | 重装;或手动放 .gguf 到 chayuan_root/models/bundled/chat/ |
 | `port.62582 warn` | 端口被其它进程占 | `_allocate_port` 自动 bump 到 62583+,不影响功能 |
-| `runtime.llama.status fail` | start 失败,看 last_error | 看报告里 detail 字段,根据 error 修 (常见:AVX2 缺失 / 模型路径错) |
+| `runtime.llama.chat.status fail` | chat runtime start 失败,看 last_error | 看报告里 detail 字段,根据 error 修 (常见:AVX2 缺失 / 模型路径错) |
+| `runtime.llama.embedding.status fail` | embedding 模型未装 / 启动崩 | install-bundled-models 拉 GGUF embedding;看 detail 字段 last_error 修 |
+| `runtime.llama.rerank.status fail` | rerank 模型未装 / 启动崩 | 同上;rerank 通常 < 200 MB,装完跑 `/runtime/llama/rerank/start` |
+| 三个 capability 同时占内存 | preload_embedding=true + preload_rerank=true 一开机吃 3-5 GB | 设置页关闭对应 preload 开关;按需 lazy start |
 | `chayuan_root.writable fail` | chayuan_root 路径写不进 (权限 / 路径错) | 检查 chayuan_root 路径,确认用户有写权限 |
 | `disk.chayuan_root.free_gb fail` | 磁盘剩 < 500 MB | 清理磁盘 |
 
