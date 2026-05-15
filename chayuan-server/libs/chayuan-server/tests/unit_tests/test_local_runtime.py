@@ -369,3 +369,54 @@ def test_local_runtime_settings_old_yaml_compat(tmp_path):
     assert s.preload_embedding is False
     assert s.preload_rerank is False
     assert s.default_embedding_model == ""
+
+
+def test_manager_capability_defaults_to_chat(tmp_path):
+    """构造器不传 capability 时默认 chat (向后兼容)。"""
+    from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
+    m = LlamaRuntimeManager(chayuan_root=tmp_path)
+    assert m.capability == "chat"
+    assert m.port_offset == 0
+
+
+def test_manager_capability_embedding_uses_port_offset(tmp_path):
+    """embedding manager port_offset=1,allocate_port preferred = settings.port + 1。"""
+    from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
+    m = LlamaRuntimeManager(chayuan_root=tmp_path, capability="embedding", port_offset=1)
+    assert m.capability == "embedding"
+    assert m.port_offset == 1
+
+
+def test_manager_persist_status_uses_capability_key(tmp_path):
+    """_persist_status 写 runtime.json 时按 capability 分 key,
+    多个 manager 写不互覆盖。"""
+    import json
+    from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager, RuntimeStatus
+
+    m_chat = LlamaRuntimeManager(chayuan_root=tmp_path, capability="chat", port_offset=0)
+    m_embed = LlamaRuntimeManager(chayuan_root=tmp_path, capability="embedding", port_offset=1)
+
+    m_chat._status = RuntimeStatus(state="ready", endpoint="http://127.0.0.1:62582", pid=111)
+    m_chat._persist_status()
+    m_embed._status = RuntimeStatus(state="ready", endpoint="http://127.0.0.1:62583", pid=222)
+    m_embed._persist_status()
+
+    data = json.loads((tmp_path / "runtime.json").read_text(encoding="utf-8"))
+    # llama key 下含 chat 和 embedding 两个子 key,不互覆盖
+    assert data["llama"]["chat"]["pid"] == 111
+    assert data["llama"]["embedding"]["pid"] == 222
+
+
+def test_manager_find_llama_server_exe_unchanged(tmp_path, monkeypatch):
+    """find_llama_server_exe 行为不受 capability 影响。"""
+    from chayuan.server.model_registry import local_runtime
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    exe = services / "llama-server.exe"
+    exe.write_bytes(b"stub")
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    m_chat = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path, capability="chat")
+    m_embed = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path, capability="embedding", port_offset=1)
+    assert m_chat.find_llama_server_exe() == exe
+    assert m_embed.find_llama_server_exe() == exe

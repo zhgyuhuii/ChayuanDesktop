@@ -20,7 +20,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 import yaml
 
@@ -160,8 +160,16 @@ def _resolve_chat_args(*, n_ctx: int | None = None, n_threads: int | None = None
 class LlamaRuntimeManager:
     """单进程内单例,管 llama-server.exe 生命周期"""
 
-    def __init__(self, *, chayuan_root: Path) -> None:
+    def __init__(
+        self,
+        *,
+        chayuan_root: Path,
+        capability: str = "chat",
+        port_offset: int = 0,
+    ) -> None:
         self.chayuan_root = chayuan_root
+        self.capability = capability
+        self.port_offset = port_offset
         self.settings_path = chayuan_root / "model_registry" / "local_runtime.yaml"
         self.status_path = chayuan_root / "runtime.json"
         self._settings = LocalRuntimeSettings.load(self.settings_path)
@@ -348,12 +356,29 @@ class LlamaRuntimeManager:
         return self._settings
 
     def _persist_status(self) -> None:
-        """状态写 runtime.json,前端读"""
+        """状态写 runtime.json,前端读。
+
+        多 capability 共用同一文件,按 capability 分 key:
+          {"llama": {"chat": {...}, "embedding": {...}, "rerank": {...}}}
+        本 manager 只写自己 capability 那一段,其它段从磁盘 merge 不动。
+        """
         try:
             self.status_path.parent.mkdir(parents=True, exist_ok=True)
-            payload = {"llama": self._status.to_dict()}
+            existing: Dict[str, Any] = {}
+            if self.status_path.is_file():
+                try:
+                    existing = json.loads(self.status_path.read_text(encoding="utf-8")) or {}
+                except Exception:
+                    existing = {}
+            llama_section = existing.get("llama") if isinstance(existing.get("llama"), dict) else {}
+            # Plan 1 兼容: 旧版本 runtime.json 是 {"llama": {state, endpoint, ...}} 直接展平,
+            # 没有 chat/embedding/rerank 分层;检测到这种 shape 时清空重写 (chat 接管)。
+            if "state" in llama_section and "chat" not in llama_section:
+                llama_section = {}
+            llama_section[self.capability] = self._status.to_dict()
+            existing["llama"] = llama_section
             self.status_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
+                json.dumps(existing, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
         except Exception:
