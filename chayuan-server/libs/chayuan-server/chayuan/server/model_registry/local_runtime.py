@@ -11,8 +11,12 @@ sidecar lifespan shutdown 必须 await manager.stop() 级联关停 llama-server�
 """
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
+import os
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional
@@ -106,6 +110,32 @@ def _default_install_services_dirs() -> list[Path]:
 _INSTALL_SERVICES_DIRS: list[Path] | None = None  # 单元测试可 monkeypatch 覆盖
 
 
+async def _probe_health(url: str, *, timeout: float = 2.0) -> "object":
+    """探一次 /health。返回类 httpx.Response 的对象 (有 .status_code)。
+
+    单元测试 monkeypatch 这个函数。
+    """
+    import httpx
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        return await client.get(url)
+
+
+def _resolve_chat_args(*, n_ctx: int = 8192, n_threads: int | None = None):
+    """调 process_args.resolve_llamacpp_args,返回 (resolution, model_path)。
+
+    单独包一层方便测试 monkeypatch。
+    """
+    from chayuan.server.model_registry import process_args
+    r = process_args.resolve_llamacpp_args(n_ctx=n_ctx, n_threads=n_threads)
+    if r.missing:
+        return r, None
+    try:
+        i = r.args.index("--model")
+        return r, r.args[i + 1]
+    except (ValueError, IndexError):
+        return r, None
+
+
 class LlamaRuntimeManager:
     """单进程内单例,管 llama-server.exe 生命周期"""
 
@@ -150,3 +180,129 @@ class LlamaRuntimeManager:
                 except OSError:
                     continue
         raise RuntimeError(f"没找到空闲端口 (从 {preferred} bump 了 20 次都被占)")
+
+    async def start(self, *, model_id: str | None = None) -> RuntimeStatus:
+        """spawn llama-server.exe。失败时返回 state=failed 的 RuntimeStatus。"""
+        if self._status.state in ("starting", "ready"):
+            return self._status
+
+        self._status = RuntimeStatus(state="starting")
+
+        exe = self._find_llama_server_exe()
+        if exe is None:
+            self._status = RuntimeStatus(
+                state="failed",
+                last_error="llama-server.exe 不在 vendor/services/llama-server/ 里;集成版未带,或开发环境没跑 install-llama-server.ps1",
+            )
+            self._persist_status()
+            return self._status
+
+        resolution, model_path = _resolve_chat_args()
+        if resolution.missing or not model_path:
+            self._status = RuntimeStatus(
+                state="failed",
+                last_error=f"chat 模型未就绪:{resolution.reason or 'no chat default'}",
+            )
+            self._persist_status()
+            return self._status
+
+        port = self._allocate_port(preferred=self._settings.port)
+        host = "0.0.0.0" if self._settings.expose_lan else self._settings.host
+
+        args = [str(exe), "--host", host, "--port", str(port), "--log-disable"]
+        args.extend(resolution.args)
+        if self._settings.api_key:
+            args.extend(["--api-key", self._settings.api_key])
+        if "--ctx-size" not in resolution.args:
+            args.extend(["--ctx-size", "8192"])
+        if "--threads" not in resolution.args:
+            args.extend(["--threads", str(min(8, os.cpu_count() or 4))])
+
+        try:
+            self._process = subprocess.Popen(
+                args,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                # Windows 下 CREATE_NO_WINDOW = 0x08000000,避免弹黑框
+                creationflags=0x08000000 if sys.platform == "win32" else 0,
+            )
+        except Exception as e:
+            self._status = RuntimeStatus(state="failed", last_error=f"spawn failed: {e}")
+            self._persist_status()
+            return self._status
+
+        # 等 /health 200(最长 60s)
+        endpoint = f"http://{host if host != '0.0.0.0' else '127.0.0.1'}:{port}"
+        ready = False
+        deadline = datetime.now().timestamp() + 60.0
+        while datetime.now().timestamp() < deadline:
+            if self._process.poll() is not None:
+                err = (self._process.stderr.read() if self._process.stderr else b"").decode("utf-8", errors="replace")[-500:]
+                self._status = RuntimeStatus(
+                    state="failed",
+                    last_error=f"llama-server 启动时退出:{err}",
+                )
+                self._process = None
+                self._persist_status()
+                return self._status
+            try:
+                resp = await _probe_health(f"{endpoint}/health", timeout=2.0)
+                if getattr(resp, "status_code", None) == 200:
+                    ready = True
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+
+        if not ready:
+            # 超时也 kill 掉别留尸
+            try:
+                self._process.terminate()
+                self._process.wait(timeout=5)
+            except Exception:
+                pass
+            self._process = None
+            self._status = RuntimeStatus(state="failed", last_error="启动 60s 内 /health 没返 200")
+            self._persist_status()
+            return self._status
+
+        self._status = RuntimeStatus(
+            state="ready",
+            endpoint=endpoint,
+            pid=self._process.pid,
+            model_id=resolution.resolved_models.get("chat"),
+            model_path=model_path,
+            started_at=datetime.now(),
+            last_health_at=datetime.now(),
+        )
+        self._persist_status()
+        return self._status
+
+    async def stop(self, *, timeout: float = 10.0) -> None:
+        if self._process is None:
+            self._status = RuntimeStatus(state="stopped")
+            self._persist_status()
+            return
+        try:
+            self._process.terminate()
+            self._process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
+        except Exception:
+            pass
+        finally:
+            self._process = None
+        self._status = RuntimeStatus(state="stopped")
+        self._persist_status()
+
+    def _persist_status(self) -> None:
+        """状态写 runtime.json,前端读"""
+        try:
+            self.status_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {"llama": self._status.to_dict()}
+            self.status_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass  # 状态写不进去不致命

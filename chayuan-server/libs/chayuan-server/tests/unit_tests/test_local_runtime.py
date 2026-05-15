@@ -129,3 +129,73 @@ def test_manager_allocate_port_bumps_on_conflict(tmp_path, monkeypatch):
     finally:
         for s in occupied:
             s.close()
+
+
+@pytest.mark.asyncio
+async def test_manager_start_spawns_subprocess(tmp_path, monkeypatch):
+    """start() 成功 spawn 时,状态变 starting → ready (mock health 200)"""
+    from chayuan.server.model_registry import local_runtime
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    exe = services / "llama-server.exe"
+    exe.write_bytes(b"stub")
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    # mock resolve_llamacpp_args 返回 fake args
+    fake_resolution = mock.MagicMock(
+        missing=[],
+        args=["--model", "/tmp/fake.gguf", "--ctx-size", "8192"],
+        resolved_models={"chat": "fake-chat-model"},
+        reason="",
+    )
+    monkeypatch.setattr(
+        local_runtime, "_resolve_chat_args",
+        lambda *a, **kw: (fake_resolution, "/tmp/fake.gguf"),
+    )
+
+    # mock Popen + httpx
+    fake_proc = mock.MagicMock(pid=12345, poll=mock.MagicMock(return_value=None))
+    monkeypatch.setattr(local_runtime.subprocess, "Popen", mock.MagicMock(return_value=fake_proc))
+    async def fake_health(url, **kw):
+        return mock.MagicMock(status_code=200)
+    monkeypatch.setattr(local_runtime, "_probe_health", fake_health)
+
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
+    status = await m.start()
+
+    assert status.state == "ready"
+    assert status.pid == 12345
+    assert status.endpoint == "http://127.0.0.1:62582"
+    assert status.model_id == "fake-chat-model"
+
+
+@pytest.mark.asyncio
+async def test_manager_start_missing_exe_fails(tmp_path):
+    """vendor 二进制缺失时,start() 状态 → failed"""
+    from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
+    m = LlamaRuntimeManager(chayuan_root=tmp_path)
+    status = await m.start()
+    assert status.state == "failed"
+    assert "llama-server" in (status.last_error or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_manager_stop_kills_process(tmp_path, monkeypatch):
+    """stop() 调 terminate + wait,状态 → stopped"""
+    from chayuan.server.model_registry import local_runtime
+
+    fake_proc = mock.MagicMock(pid=12345)
+    fake_proc.poll.return_value = None  # 进程还活着
+    fake_proc.terminate = mock.MagicMock()
+    fake_proc.wait = mock.MagicMock(return_value=0)
+
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
+    m._process = fake_proc
+    m._status = local_runtime.RuntimeStatus(state="ready", pid=12345)
+
+    await m.stop()
+
+    fake_proc.terminate.assert_called_once()
+    fake_proc.wait.assert_called_once()
+    assert m._status.state == "stopped"
+    assert m._status.pid is None
