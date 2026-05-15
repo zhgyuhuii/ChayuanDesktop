@@ -14,6 +14,7 @@ const CAPABILITY_LABEL: Record<LocalRuntimeCapability, string> = {
   chat: '聊天',
   embedding: '文本嵌入',
   rerank: '重排',
+  asr: '语音识别',
 };
 
 export interface LocalRuntimeCapabilityCardProps {

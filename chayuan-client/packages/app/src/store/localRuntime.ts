@@ -62,8 +62,8 @@ export const useLocalRuntimeStore = create<LocalRuntimeStoreState>((set, get) =>
   pending: null,
   lastError: null,
   reachable: true,
-  statuses: { chat: null, embedding: null, rerank: null },
-  pendingFor: { chat: null, embedding: null, rerank: null },
+  statuses: { chat: null, embedding: null, rerank: null, asr: null },
+  pendingFor: { chat: null, embedding: null, rerank: null, asr: null },
 
   async refreshStatus() {
     try {
