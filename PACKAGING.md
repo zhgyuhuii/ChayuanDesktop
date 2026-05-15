@@ -161,6 +161,16 @@ pnpm dev:desktop
 > (`installer.nsh` 的"察元AI"中文 rename 只对 NSIS 生效;如需 MSI 同样
 > 定制要用 WiX 自定义动作另写)。
 >
+> **集成版 MSI 走"外置 CAB"** (`apps/desktop/src-tauri/wix/main.wxs` 里
+> `<MediaTemplate EmbedCab="no" ...>`):CAB 文件不嵌进 .msi 而是落在
+> .msi 旁边作为独立 `app1.cab/app2.cab/...`。.msi 本体只剩 ~50 MB 元数据,
+> Windows Installer 不再拷整个 3.5 GB 到 `C:\Windows\Installer\`,直接从
+> 源目录逐 cab 读取——**绕开火绒 / 360 / 腾讯管家对系统缓存目录大文件写
+> 的拦截**(用户报告 Error 1310 / 系统错误 110 / Error 2755 / MSI 退出码
+> 1603 都是这道坎)。**分发必须把 dist-integrated/ 下的 .msi + 所有 .cab
+> 打成 zip 一起给用户**,只给 .msi 不带 cab 装到一半会报 Error 1311/1335
+> 找 cab 失败。
+>
 > 单文件 < 2 GB 由 `vendor/bundled_models/` "瘦身默认集"保证:chat 走 Qwen3-4B
 > Q3_K_S (~1.85 GB) 或 Qwen2.5-3B Q4_K_M (~1.96 GB) 兜底,embedding 走
 > `gte-multilingual-base` (~1.22 GB),reranker 走

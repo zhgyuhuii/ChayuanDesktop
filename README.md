@@ -890,6 +890,12 @@ python -m chayuan_packaging stage  --target linux --arch x86_64 --release standa
 > 图标 rename。Windows 集成版用户拿到 `.msi`,装机后桌面图标是英文 "Chayuan"
 > (NSIS 的中文 rename 不会对 MSI 触发);需要时用 WiX 自定义动作另写一遍。
 >
+> **集成版 MSI 用"外置 CAB"** (`EmbedCab="no"`):CAB 不嵌进 .msi,作为独立
+> `app1.cab/app2.cab/...` 落在 .msi 旁边。.msi 本体 ~50 MB,绕开国产杀软
+> (火绒 / 360 / 腾讯管家) 对 `C:\Windows\Installer\` 的拦截 (Error 1310 /
+> 110 / 2755 / 1603 系列)。**分发必须把 dist-integrated/ 下 .msi + 所有
+> .cab 一起打 zip**,只给 .msi 装到一半 Error 1311/1335 找 cab。
+>
 > 一键换装瘦身默认集:`.\scripts\install-bundled-models.ps1 -Source modelscope -Clean`
 > 或 `python scripts/install-bundled-models.py --source modelscope --clean` — chat /
 > embedding / rerank / asr 全部 < 2 GB,自带 ModelScope fallback 绕 hf-mirror Xet 大文件坑。

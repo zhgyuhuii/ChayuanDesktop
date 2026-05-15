@@ -47,8 +47,15 @@
             <RemoveShortcuts>Installed AND NOT UPGRADINGPRODUCTCODE</RemoveShortcuts>
         </InstallExecuteSequence>
 
-        <!-- Patched by chayuan-desktop: 启用 cabinet 分卷,避免单 CAB > 2 GB 撞 LGHT0001/CreateCabFinish E_UNEXPECTED -->
-        <MediaTemplate EmbedCab="yes" CompressionLevel="mszip" MaximumUncompressedMediaSize="600" />
+        <!--
+          Patched by chayuan-desktop:
+          - 单 CAB > 2 GB 会撞 LGHT0001/CreateCabFinish E_UNEXPECTED → MaximumUncompressedMediaSize="600" 分卷
+          - 国产杀软(火绒/360/腾讯)拦截 .msi 拷到 C:\Windows\Installer\ → EmbedCab="no"
+            CAB 不嵌进 .msi,作为独立文件 (app1.cab/app2.cab/...) 落在 .msi 旁边。
+            .msi 本体只剩元数据(~50 MB),Windows Installer 不再拷大文件到系统缓存,
+            从源目录直接逐 cab 读取安装。代价:分发必须把 .msi + 所有 .cab 打成 zip 一起给用户。
+        -->
+        <MediaTemplate EmbedCab="no" CompressionLevel="mszip" MaximumUncompressedMediaSize="600" />
 
         {{#if banner_path}}
         <WixVariable Id="WixUIBannerBmp" Value="{{banner_path}}" />

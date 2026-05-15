@@ -688,12 +688,13 @@ if ($SkipFrontend) {
             -Command 'pnpm' -Arguments @($buildScript)
     }
 
+    # 收产物:.msi / NSIS .exe (主安装器) + .cab (外置 cabinet,集成版 EmbedCab="no" 才会有)
     $artifacts = @()
-    foreach ($pat in @('msi\*.msi', 'nsis\*.exe')) {
+    foreach ($pat in @('msi\*.msi', 'msi\*.cab', 'nsis\*.exe')) {
         $artifacts += Get-ChildItem -Path (Join-Path $TauriBundle $pat) -ErrorAction SilentlyContinue
     }
     if ($artifacts.Count -eq 0) {
-        Write-Fail "Tauri bundle 没产出 .msi / .exe;看 $TauriBundle"
+        Write-Fail "Tauri bundle 没产出 .msi / .exe / .cab;看 $TauriBundle"
         Restore-Console; exit 1
     }
     Write-Ok 'Tauri bundle 完成:'
@@ -702,9 +703,15 @@ if ($SkipFrontend) {
     New-Item -ItemType Directory -Force -Path $flavorOut | Out-Null
     foreach ($a in $artifacts) {
         $sz = [math]::Round($a.Length / 1MB, 1)
-        $stem = [System.IO.Path]::GetFileNameWithoutExtension($a.Name)
-        $ext  = [System.IO.Path]::GetExtension($a.Name)
-        $destName = "$stem.$Flavor$ext"
+        $ext  = [System.IO.Path]::GetExtension($a.Name).ToLower()
+        if ($ext -eq '.cab') {
+            # CAB 名字保持原样(.msi 里硬编码引用 app1.cab/app2.cab/...,
+            # 改名字会让 msiexec 装到 cabinet 阶段找不到文件 → 安装失败)
+            $destName = $a.Name
+        } else {
+            $stem = [System.IO.Path]::GetFileNameWithoutExtension($a.Name)
+            $destName = "$stem.$Flavor$ext"
+        }
         $dest = Join-Path $flavorOut $destName
         Copy-Item -Path $a.FullName -Destination $dest -Force
         $script:AllArtifacts += [PSCustomObject]@{
@@ -749,6 +756,10 @@ if ($Flavors.Count -eq 2) {
     Write-Host '  轻量版:不嵌模型,装机包小,需联网下载或扫盘配置'
     Write-Host '  集成版:vendor\bundled_models\ 进 Tauri resources,装机即用 (模型清单见上方"模型体检"输出,'
     Write-Host '          或 chayuan-server\vendor\bundled_models\README.md)'
+    Write-Host ''
+    Write-Host '  ⚠ 集成版 .msi 走外置 CAB (EmbedCab="no") 绕国产杀软对 C:\Windows\Installer\ 的拦截。'
+    Write-Host '    分发时把 dist-integrated\ 下的 .msi + 所有 .cab 一起打 zip 给用户,'
+    Write-Host '    用户解压后再双击 .msi 安装。只发 .msi 不带 .cab 会装到一半 1311/1335 找 cab 失败。'
 }
 Write-Host ''
 if ($useColor) { Write-Host "$ESC[32m[OK] 全部步骤通过$ESC[0m" }
