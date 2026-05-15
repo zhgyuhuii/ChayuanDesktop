@@ -234,14 +234,17 @@ async def test_manager_restart_stop_then_start(tmp_path, monkeypatch):
 
 
 def test_get_manager_singleton(tmp_path, monkeypatch):
-    """get_manager() 返回单例"""
+    """get_manager() 返回 registry 里的 chat manager。"""
     from chayuan.server.model_registry import local_runtime
+    from chayuan.server.model_registry import local_runtime_registry as lrr
     monkeypatch.setattr(local_runtime, "_singleton", None)
-    monkeypatch.setattr("chayuan.settings.CHAYUAN_ROOT", tmp_path)
+    monkeypatch.setattr(lrr, "_registry_singleton", None)
+    monkeypatch.setattr("chayuan.settings.CHAYUAN_ROOT", str(tmp_path))
 
     m1 = local_runtime.get_manager()
     m2 = local_runtime.get_manager()
     assert m1 is m2
+    assert m1.capability == "chat"
 
 
 @pytest.mark.asyncio

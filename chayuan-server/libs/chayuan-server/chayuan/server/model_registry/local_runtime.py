@@ -399,13 +399,18 @@ class LlamaRuntimeManager:
 
 # ─────────────────────── 进程内单例 ─────────────────────────
 
-_singleton: Optional[LlamaRuntimeManager] = None
+_singleton: Optional[LlamaRuntimeManager] = None  # 保留兼容 monkeypatch (Plan 1 测试用)
 
 
 def get_manager() -> LlamaRuntimeManager:
-    """进程内单例。第一次调时按 CHAYUAN_ROOT 构造。"""
+    """进程内单例 = registry.get('chat')。
+
+    Plan 1 老调用方拿到 chat manager;Plan 3B 多 capability 调用方
+    用 get_registry().get(cap) 取对应 manager。
+    """
     global _singleton
-    if _singleton is None:
-        from chayuan import settings as cy_settings
-        _singleton = LlamaRuntimeManager(chayuan_root=Path(cy_settings.CHAYUAN_ROOT))
-    return _singleton
+    if _singleton is not None:
+        # monkeypatch 路径:Plan 1 测试直接给 _singleton 赋值,优先用
+        return _singleton
+    from chayuan.server.model_registry.local_runtime_registry import get_registry
+    return get_registry().get("chat")
