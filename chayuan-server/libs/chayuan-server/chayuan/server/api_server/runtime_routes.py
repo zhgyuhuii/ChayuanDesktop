@@ -431,4 +431,44 @@ def _write_supervisor_override(name: str, spec: Dict[str, str], chayuan_root: st
     return str(override_path)
 
 
+# ───────────────────────── /runtime/llama/* ─────────────────────────
+# 本地 LLM runtime (llama-server.exe) 控制面。详见
+# docs/superpowers/specs/2026-05-15-local-llm-runtime-integration-design.md §4.3。
+
+
+def _llama_manager():
+    """惰性 import 避免循环依赖"""
+    from chayuan.server.model_registry.local_runtime import get_manager
+    return get_manager()
+
+
+def _ok(data) -> Dict[str, Any]:
+    return {"code": 0, "data": data}
+
+
+@runtime_router.get("/llama/status")
+def llama_status() -> Dict[str, Any]:
+    return _ok(_llama_manager().status.to_dict())
+
+
+@runtime_router.post("/llama/start")
+async def llama_start(body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    model_id = body.get("model_id") if isinstance(body, dict) else None
+    status = await _llama_manager().start(model_id=model_id)
+    return _ok(status.to_dict())
+
+
+@runtime_router.post("/llama/stop")
+async def llama_stop() -> Dict[str, Any]:
+    await _llama_manager().stop()
+    return _ok(_llama_manager().status.to_dict())
+
+
+@runtime_router.post("/llama/restart")
+async def llama_restart(body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
+    model_id = body.get("model_id") if isinstance(body, dict) else None
+    status = await _llama_manager().restart(model_id=model_id)
+    return _ok(status.to_dict())
+
+
 __all__ = ["runtime_router"]
