@@ -53,9 +53,15 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent                       # packaging/pyinstaller
 ROOT = HERE.parent.parent                                    # chayuan-server/(repo root)
 WORKSPACE = ROOT.parent                                      # chayuan-desktop/
-DESKTOP_BIN_DIR = (
-    WORKSPACE / "chayuan-client" / "apps" / "desktop" / "src-tauri" / "binaries"
+DESKTOP_SRC_TAURI = (
+    WORKSPACE / "chayuan-client" / "apps" / "desktop" / "src-tauri"
 )
+DESKTOP_BIN_DIR = DESKTOP_SRC_TAURI / "binaries"
+# 2026-05-15:bundled_models 不再嵌进 PyInstaller sidecar(避免 NSIS makensis
+# mmap 单文件 ≥2GB 失败),改由 Tauri 的 ``bundle.resources`` 字段承载。
+# build.py 把 vendor/bundled_models/ 拷到这里,tauri.conf.json 把它打进 installer。
+DESKTOP_BUNDLED_MODELS_DIR = DESKTOP_SRC_TAURI / "bundled_models"
+BUNDLED_SRC = ROOT / "vendor" / "bundled_models"
 # PyInstaller 默认把所有产物丢到 ``ROOT/dist/``;onefile 模式下文件在 dist/ 顶层,
 # onedir 模式下嵌一层同名子目录(``dist/chayuan-server/chayuan-server(.exe)``)。
 DIST_ROOT = ROOT / "dist"
@@ -155,6 +161,54 @@ def copy_to_tauri_binaries() -> Path:
     return dst
 
 
+def sync_bundled_models(*, lite: bool) -> None:
+    """同步 vendor/bundled_models/ → src-tauri/bundled_models/(给 Tauri resources)。
+
+    * ``lite=True``  → 清空 src-tauri/bundled_models/(轻量版,不嵌模型)
+    * ``lite=False`` → 整树拷贝 vendor/bundled_models/ 到 src-tauri/bundled_models/
+                       (集成版,Tauri NSIS installer 会把它打进 ``<install_dir>/bundled_models/``)
+
+    幂等:重复跑结果相同。每次都先清掉旧目录避免上一次 flavor 残留。
+    """
+    if DESKTOP_BUNDLED_MODELS_DIR.exists():
+        shutil.rmtree(DESKTOP_BUNDLED_MODELS_DIR)
+    DESKTOP_BUNDLED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if lite:
+        # 留一个 .gitkeep 防 Tauri glob 命中空目录时的 edge case
+        (DESKTOP_BUNDLED_MODELS_DIR / ".gitkeep").touch()
+        print(f"[build] 轻量版:清空 {DESKTOP_BUNDLED_MODELS_DIR}", flush=True)
+        return
+
+    if not BUNDLED_SRC.is_dir():
+        print(f"[build] 警告:bundled 源不存在 {BUNDLED_SRC},集成版退化为空目录", flush=True)
+        (DESKTOP_BUNDLED_MODELS_DIR / ".gitkeep").touch()
+        return
+
+    # 跳过 README / .gitkeep 这类元文件,只拷 capability 子目录的真实模型
+    n_files = 0
+    n_bytes = 0
+    for entry in sorted(BUNDLED_SRC.iterdir()):
+        if entry.name.startswith(".") or entry.name in ("README.md",):
+            continue
+        if entry.is_dir():
+            # 子目录内只拷"非占位"内容:跳过 .gitkeep
+            for sub in entry.rglob("*"):
+                if sub.is_file() and sub.name != ".gitkeep":
+                    rel = sub.relative_to(BUNDLED_SRC)
+                    dst = DESKTOP_BUNDLED_MODELS_DIR / rel
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(sub, dst)
+                    n_files += 1
+                    n_bytes += dst.stat().st_size
+    mb = n_bytes / 1024 / 1024
+    print(
+        f"[build] 集成版:bundled_models 已同步 {n_files} 个文件 ({mb:.1f} MB) "
+        f"→ {DESKTOP_BUNDLED_MODELS_DIR}",
+        flush=True,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -175,6 +229,12 @@ def main() -> None:
         action="store_true",
         help="(仅 --release 用)跳过网络;只读 packaging/.cache。",
     )
+    parser.add_argument(
+        "--sync-bundled-only",
+        action="store_true",
+        help=("跳过 PyInstaller,只把 vendor/bundled_models 同步到 src-tauri/bundled_models/。"
+              "build-desktop 双 flavor 模式下,sidecar 跑一次就够,flavor 切换只需重跑这一步。"),
+    )
     # 用 parse_known_args:任何 build.py 不认识的参数(--clean / --log-level=DEBUG /
     # --noupx / 等)都直接转发给 PyInstaller。免得用户记错 ``--`` 分隔符位置 ──
     # poetry / argparse REMAINDER 组合下 ``--`` 经常被吃掉,导致 ``--clean`` 报
@@ -184,11 +244,24 @@ def main() -> None:
     if extra and extra[0] == "--":
         extra = extra[1:]
 
+    # 2026-05-15:CHAYUAN_LITE_BUILD env 决定本次 build 是轻量版还是集成版,
+    # 影响 bundled_models 是否同步到 Tauri resources 暂存目录。
+    lite = os.environ.get("CHAYUAN_LITE_BUILD", "").strip().lower() in (
+        "1", "true", "yes",
+    )
+
+    if args.sync_bundled_only:
+        # 跳过 PyInstaller,只同步 bundled_models。给 build-desktop 双 flavor
+        # 模式用:sidecar 跑一次,两个 flavor 切换时只重做 sync + tauri bundle。
+        sync_bundled_models(lite=lite)
+        return
+
     if args.release:
         run_chayuan_pack(args.release, offline=args.offline)
     run_pyinstaller(extra)
     if not args.no_copy:
         copy_to_tauri_binaries()
+        sync_bundled_models(lite=lite)
 
 
 if __name__ == "__main__":

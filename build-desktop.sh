@@ -270,11 +270,9 @@ done
 
 ALL_ARTIFACTS=()    # 每个 flavor 产物:"flavor|src|dest|size_mb"
 
-# 双 flavor 时,每次切换都强制重建 sidecar(env 不同,指纹不能命中老的)
-if [[ "${#FLAVORS[@]}" -gt 1 ]] && [[ "$SKIP_SERVER" != "1" ]]; then
-    note "双产物模式:每个 flavor 都会重建 sidecar(env 不同)"
-    REBUILD_SERVER=1
-fi
+# 2026-05-15:sidecar 不再嵌 bundled_models(它们改走 Tauri resources),
+# 所以两个 flavor 用同一份 sidecar 就够,**不再强制 rebuild**。flavor 切换
+# 只需要重做 src-tauri/bundled_models/ 同步 + Tauri bundle,从而省 5-10 分钟。
 
 # 把 Step 1 ~ Step 3 + 单 flavor 总结包成 do_build_flavor;主循环按 $FLAVORS 调一次或两次。
 do_build_flavor() {
@@ -369,6 +367,19 @@ else
         echo "$SERVER_FINGERPRINT" > "$fingerprint_file"
         note "源码指纹已记录:$fingerprint_file"
     fi
+fi
+
+# ── 5b. 同步 bundled_models 到 Tauri resources ───────────────────
+# build.py 的 sync_bundled_models() 会清空 src-tauri/bundled_models/,然后
+# 按 CHAYUAN_LITE_BUILD env 决定是清空(轻量版)还是拷整树(集成版)。
+# sidecar 自身不嵌模型,所以 Step 1 不需要 rebuild;只这一步随 flavor 切。
+step "Step 1b: 同步 src-tauri/bundled_models/ ($FLAVOR)"
+if command -v poetry >/dev/null 2>&1; then
+    invoke_step "sync bundled (poetry)" "$SERVER_DIR" \
+        poetry run python packaging/pyinstaller/build.py --sync-bundled-only
+else
+    invoke_step "sync bundled (python3)" "$SERVER_DIR" \
+        python3 packaging/pyinstaller/build.py --sync-bundled-only
 fi
 
 # ── 6. Step 2: /healthz 探测 ─────────────────────────────────────

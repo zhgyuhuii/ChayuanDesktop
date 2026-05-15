@@ -149,15 +149,20 @@ for sub in (
 # 由 ``chayuan_packaging fetch <release>`` 预拉的权重。
 # ──────────────────────────────────────────────────────────────
 
-_LITE_BUILD = os.environ.get("CHAYUAN_LITE_BUILD", "").strip().lower() in ("1", "true", "yes")
-bundled_models_src = ROOT / "vendor" / "bundled_models"
-if _LITE_BUILD:
-    print(f"[chayuan-spec] 跳过 bundled_models 注入(CHAYUAN_LITE_BUILD=1, 轻量版)")
-elif bundled_models_src.is_dir():
-    datas.append((str(bundled_models_src), "bundled_models"))
-    print(f"[chayuan-spec] bundled_models 已纳入 datas:{bundled_models_src}")
-else:
-    print(f"[chayuan-spec] 跳过 bundled_models 注入(目录不存在):{bundled_models_src}")
+# 2026-05-15:bundled_models **不再** 注入 PyInstaller datas。
+# 原因:嵌入后 sidecar 单 exe ≥ 2 GB,触发 NSIS 32-bit makensis mmap 上限
+# (failed creating mmap of chayuan-server-*.exe),Tauri 2 NSIS bundler 不暴露
+# SetCompressor 选项,无法绕过。
+#
+# 新约定:bundled_models 改由 Tauri **resources** 字段承载 ——
+#   build.py 把 ``<repo>/vendor/bundled_models/`` 拷到
+#   ``chayuan-client/apps/desktop/src-tauri/bundled_models/``;tauri.conf.json
+#   把它列在 bundle.resources;NSIS installer 装机后落到 ``<install_dir>/bundled_models/``。
+#   sidecar(externalBin)跟 main exe 同目录,argv0.parent / 'bundled_models'
+#   直接命中(见 local_index.bundled_models_dir() resolver)。
+#
+# 环境变量 CHAYUAN_LITE_BUILD 仍然保留兼容性(build script 据此决定要不要
+# 拷模型到 src-tauri/bundled_models/),但对 spec 本身已是 no-op。
 
 
 # ──────────────────────────────────────────────────────────────

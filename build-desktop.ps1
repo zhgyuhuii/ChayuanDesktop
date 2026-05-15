@@ -472,10 +472,9 @@ if ($SkipModelCheck) {
     }
 }
 
-# 双 flavor 时,每次切换都强制重建 sidecar(env 不同,指纹不能命中老的)
-if ($Flavors.Count -gt 1 -and -not $SkipServer) {
-    Write-Note '双产物模式:每个 flavor 都会重建 sidecar(env 不同)'
-}
+# 2026-05-15:sidecar 不再嵌 bundled_models(它们改走 Tauri resources),
+# 所以两个 flavor 用同一份 sidecar 就够,不再强制 rebuild。flavor 切换
+# 只需要重做 src-tauri/bundled_models/ 同步 + Tauri bundle。
 
 # 把 Step 1-3 + 单 flavor 输出包成函数,主循环按 $Flavors 调一次或两次。
 $AllArtifacts = @()    # 各 flavor 的产物:flavor / src / dest / sizeMB
@@ -549,6 +548,24 @@ if ($SkipServer) {
     }
     $size = (Get-Item $sidecarPath).Length / 1MB
     Write-Ok "sidecar 已就位:$sidecarPath ($([math]::Round($size, 1)) MB)"
+}
+
+# ====================================================================
+# Step 1b: 同步 src-tauri/bundled_models/ 给 Tauri resources
+# ====================================================================
+# build.py --sync-bundled-only 清空 src-tauri/bundled_models/,然后按
+# CHAYUAN_LITE_BUILD env 决定是清空(轻量版)还是拷整树(集成版)。
+# sidecar 不嵌模型,Step 1 不必 rebuild,只这步随 flavor 切。
+Write-Step "Step 1b: 同步 src-tauri/bundled_models/ ($Flavor)"
+$poetryExe = Get-Command poetry -ErrorAction SilentlyContinue
+if ($poetryExe) {
+    Invoke-Step -Name 'sync bundled (poetry)' `
+        -WorkDir $ServerDir `
+        -Command 'poetry' -Arguments @('run', 'python', 'packaging\pyinstaller\build.py', '--sync-bundled-only')
+} else {
+    Invoke-Step -Name 'sync bundled (python)' `
+        -WorkDir $ServerDir `
+        -Command 'python' -Arguments @('packaging\pyinstaller\build.py', '--sync-bundled-only')
 }
 
 # ====================================================================

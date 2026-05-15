@@ -515,21 +515,34 @@ local_index:
   - models/bundled/embedding/bge-m3              (capability=text-embedding)
 ```
 
-### 2. 打包态(auto-bundle)
+### 2. 打包态(Tauri resources,**2026-05-15 改动**)
 
-`packaging/pyinstaller/chayuan-server.spec` 把整个 `vendor/bundled_models/`
-作为 `datas` 一起打进 sidecar 资源。运行时通过 `sys._MEIPASS / "bundled_models"`
-还原。Tauri 把 sidecar 嵌进 `apps/desktop` 的 `binaries/`,最终装机包
-里这些模型成了应用的一部分。
+> 历史:之前 `chayuan-server.spec` 把 `bundled_models` 作为 PyInstaller
+> `datas` 嵌进 sidecar exe,导致 sidecar ≥ 2 GB → NSIS makensis mmap 上限
+> → 集成版 installer 打不出。现已改路。
+
+**新方案**:模型由 Tauri 的 `bundle.resources` 字段承载:
+
+1. `build.py` 跑完 PyInstaller 拷 sidecar 后,把 `vendor/bundled_models/`
+   整树同步到 `chayuan-client/apps/desktop/src-tauri/bundled_models/`
+   (`CHAYUAN_LITE_BUILD=1` 时改为清空 → 轻量版)。
+2. `tauri.conf.json` 里声明 `"resources": ["bundled_models/**/*"]`,
+   Tauri 把这些文件打进 NSIS installer。
+3. 装机后落在 `<install_dir>/bundled_models/`,跟 sidecar exe 平级。
+4. sidecar 通过 `bundled_models_dir()` 的"exe 同级 fallback"找到它
+   (`Path(sys.argv[0]).parent / "bundled_models"`)。
+
+好处:sidecar 永远瘦(~600 MB),NSIS 单文件没瓶颈;两个 flavor 共享同一份
+sidecar,build script 不再为了切 flavor 而 rebuild PyInstaller。
 
 打包脚本依 layout.yaml `releases.<name>.models` 字段决定**哪些**模型
 纳入哪个 release,详见 [打包流程](#打包流程)。
 
 ### 3. 安装态(auto-seed)
 
-首启时 `seed_bundled_models()` 把 `_MEIPASS/bundled_models/` 拷到
-`<CHAYUAN_ROOT>/models/bundled/`,**idempotent**:目标已存在且大小一致
-则跳过;用户改动过 mtime 的文件不覆盖。
+首启时 `seed_bundled_models()` 把 Tauri resources 里的模型(或 dev 模式下
+的 `vendor/bundled_models/`)拷到 `<CHAYUAN_ROOT>/models/bundled/`,
+**idempotent**:目标已存在且大小一致则跳过;用户改动过 mtime 的文件不覆盖。
 
 ### 4. 替换态(runtime swap)
 
@@ -544,9 +557,11 @@ local_index:
 `local_index.bundled_models_dir()` 按以下顺序找根目录:
 
 1. 环境变量 `CHAYUAN_BUNDLED_MODELS_DIR`(测试 / 特殊部署专用)
-2. PyInstaller 运行时:`sys._MEIPASS / "bundled_models"`
+2. PyInstaller 运行时:`sys._MEIPASS / "bundled_models"`(2026-05-15 后 spec
+   已不再嵌,此条仅留作历史兼容;新装机包不会命中)
 3. 仓库 dev 模式:`<chayuan-server>/vendor/bundled_models`
-4. exe 同级:`<argv0 dir>/bundled_models`(便携安装)
+4. exe 同级:`<argv0 dir>/bundled_models`(**Tauri NSIS 集成版的真路径**,
+   也兼容便携安装)
 
 返回第一个**存在**的路径;都不存在则返回 `None`,扫描和 seed 都跳过。
 
