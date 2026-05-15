@@ -144,9 +144,16 @@ MANIFEST: dict[str, dict[str, Any]] = {
             {"repo": "ggerganov/whisper.cpp",
              "allow_patterns": ["ggml-tiny.bin"]},
         ],
-        # MS 上没有 whisper.cpp 现成镜像;HF/hf-mirror 上小文件一直稳。
-        # 空列表 + --source modelscope 时脚本会自动降级到 HF,见 _build_try_order。
+        # MS 上没有 whisper.cpp 现成镜像;HF/hf-mirror 失败时落到下面 urls 直链。
         "ms": [],
+        # SDK 全炸的最后兜底:urllib 直接 GET。74 MB 小文件不需要 huggingface_hub
+        # 那一整坨栈,绕开 SSL 读超时 / LFS endpoint 不稳的各种坑。
+        "urls": [
+            ("https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+             "ggml-tiny.bin"),
+            ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+             "ggml-tiny.bin"),
+        ],
     },
 }
 
@@ -259,6 +266,62 @@ def _download_via_ms(spec: dict, dest_dir: Path) -> None:
     )
 
 
+def _download_via_url(url: str, dest_dir: Path, filename: str) -> None:
+    """urllib 直接 GET。给小文件兜底(HF/MS SDK 都挂了时用)。
+
+    支持断点续传(若本地有部分文件且服务器接受 Range)。带进度打印。
+    """
+    import urllib.request
+    import urllib.error
+
+    dest = dest_dir / filename
+    headers: dict[str, str] = {"User-Agent": "chayuan-install-script/1.0"}
+
+    # 断点续传:本地有部分文件就发 Range 头
+    start_byte = 0
+    if dest.exists():
+        start_byte = dest.stat().st_size
+        if start_byte > 0:
+            headers["Range"] = f"bytes={start_byte}-"
+
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        resp = urllib.request.urlopen(req, timeout=60)
+    except urllib.error.HTTPError as e:
+        # 416 = 请求范围已超(说明本地已经下完);其它 4xx/5xx 抛出
+        if e.code == 416 and start_byte > 0:
+            _print(f"        服务器报 416,认为已下完 ({start_byte // 1024 // 1024} MB)")
+            return
+        raise
+
+    total = int(resp.headers.get("Content-Length", "0"))
+    if resp.status == 206:
+        # Partial Content,Content-Length 是剩余字节数
+        total += start_byte
+    total_mb = max(1, total // 1024 // 1024)
+
+    mode = "ab" if start_byte > 0 and resp.status == 206 else "wb"
+    if mode == "wb" and start_byte > 0:
+        # 服务器不支持 Range,重新从头下
+        start_byte = 0
+
+    downloaded = start_byte
+    chunk = 1024 * 1024  # 1 MB
+    with open(dest, mode) as f:
+        while True:
+            buf = resp.read(chunk)
+            if not buf:
+                break
+            f.write(buf)
+            downloaded += len(buf)
+            pct = (downloaded * 100 // total) if total else 0
+            print(
+                f"\r        {downloaded // 1024 // 1024} / {total_mb} MB  ({pct}%)",
+                end="", flush=True,
+            )
+    print()  # newline 收尾
+
+
 # ──────────────────────────── 调度 ────────────────────────────
 
 def _build_try_order(
@@ -344,15 +407,31 @@ def _download_one(
             _print(f"[{cap}] {src_name} {repo} 下载失败:{e}")
             continue
 
-    # 全候选用尽
+    # SDK 候选用尽,最后兜底:直链 URLs(给小文件用,绕开 huggingface_hub 复杂栈)
+    urls = cap_spec.get("urls", []) or []
+    for url, fname in urls:
+        _print(f"[{cap}] ↓ url: {url}")
+        try:
+            _download_via_url(url, dest_dir, fname)
+            _print(f"[{cap}] ✓ 完成 (via url: {url})")
+            return
+        except KeyboardInterrupt:
+            raise
+        except BaseException as e:  # noqa: BLE001
+            tried.append(("url", url, repr(e)))
+            _print(f"[{cap}] url {url} 失败:{e}")
+            continue
+
+    # 全候选 + 全 url 都用尽
     summary_lines = [f"[{cap}] 所有候选都失败,尝试明细:"]
     for src, repo, err in tried:
         summary_lines.append(f"  - {src} {repo}: {err}")
     summary_lines.append("")
-    summary_lines.append(f"修法:")
+    summary_lines.append("修法:")
     summary_lines.append(f"  - 浏览 https://modelscope.cn/search?query={cap_spec['dest_subdir']}")
     summary_lines.append(f"           或 https://huggingface.co/search?q={cap_spec['dest_subdir']}")
-    summary_lines.append(f"  - 把对的 repo 路径加到 scripts/install-bundled-models.py 的 MANIFEST[{cap!r}]['hf'] 或 ['ms'] 列表里")
+    summary_lines.append(f"  - 把对的 repo / 直链 URL 加到 scripts/install-bundled-models.py 的")
+    summary_lines.append(f"    MANIFEST[{cap!r}]['hf' / 'ms' / 'urls'] 列表里")
     raise RuntimeError("\n".join(summary_lines))
 
 
