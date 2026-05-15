@@ -11,6 +11,12 @@ vi.mock('@chayuan/api', () => ({
     stop: vi.fn(),
     restart: vi.fn(),
     setConfig: vi.fn(),
+    // Plan 3B
+    getStatusFor: vi.fn(),
+    startFor: vi.fn(),
+    stopFor: vi.fn(),
+    restartFor: vi.fn(),
+    getRegistry: vi.fn(),
   },
 }));
 
@@ -24,6 +30,8 @@ beforeEach(() => {
     pending: null,
     lastError: null,
     reachable: true,
+    statuses: { chat: null, embedding: null, rerank: null },
+    pendingFor: { chat: null, embedding: null, rerank: null },
   });
   vi.clearAllMocks();
 });
@@ -103,5 +111,47 @@ describe('useLocalRuntimeStore', () => {
     useLocalRuntimeStore.setState({ lastError: 'foo' });
     useLocalRuntimeStore.getState().clearError();
     expect(useLocalRuntimeStore.getState().lastError).toBeNull();
+  });
+
+  it('refreshRegistry 一次更新 3 个 capability 的 statuses', async () => {
+    (api.getRegistry as ReturnType<typeof vi.fn>).mockResolvedValue({
+      chat: { state: 'ready', endpoint: 'http://127.0.0.1:62582', pid: 1 },
+      embedding: { state: 'stopped' },
+      rerank: { state: 'failed', last_error: 'no model' },
+    });
+    await useLocalRuntimeStore.getState().refreshRegistry();
+    const s = useLocalRuntimeStore.getState();
+    expect(s.statuses.chat?.state).toBe('ready');
+    expect(s.statuses.embedding?.state).toBe('stopped');
+    expect(s.statuses.rerank?.state).toBe('failed');
+  });
+
+  it('startCapability(embedding) 只置 pendingFor.embedding,不影响 chat', async () => {
+    let resolveStart: (s: { state: string }) => void = () => undefined;
+    (api.startFor as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((r) => {
+        resolveStart = r;
+      }),
+    );
+    const p = useLocalRuntimeStore.getState().startCapability('embedding');
+    expect(useLocalRuntimeStore.getState().pendingFor.embedding).toBe('start');
+    expect(useLocalRuntimeStore.getState().pendingFor.chat).toBeNull();
+    resolveStart({ state: 'ready' });
+    await p;
+    expect(useLocalRuntimeStore.getState().pendingFor.embedding).toBeNull();
+    expect(useLocalRuntimeStore.getState().statuses.embedding?.state).toBe('ready');
+  });
+
+  it('stopCapability(rerank) 写 statuses.rerank 为 stopped', async () => {
+    useLocalRuntimeStore.setState({
+      statuses: {
+        chat: { state: 'ready' },
+        embedding: null,
+        rerank: { state: 'ready', endpoint: 'http://127.0.0.1:62584', pid: 99 },
+      } as never,
+    });
+    (api.stopFor as ReturnType<typeof vi.fn>).mockResolvedValue({ state: 'stopped' });
+    await useLocalRuntimeStore.getState().stopCapability('rerank');
+    expect(useLocalRuntimeStore.getState().statuses.rerank?.state).toBe('stopped');
   });
 });

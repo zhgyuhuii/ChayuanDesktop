@@ -13,6 +13,7 @@
 import { create } from 'zustand';
 import {
   localRuntime,
+  type LocalRuntimeCapability,
   type LocalRuntimeInstallInfo,
   type LocalRuntimeSettings,
   type LocalRuntimeSettingsPatch,
@@ -34,6 +35,10 @@ export interface LocalRuntimeStoreState {
   /** 后端是否可达 (404 / network error 时置 false) */
   reachable: boolean;
 
+  // Plan 3B 多 capability
+  statuses: Record<LocalRuntimeCapability, LocalRuntimeStatus | null>;
+  pendingFor: Record<LocalRuntimeCapability, 'start' | 'stop' | 'restart' | null>;
+
   refreshStatus(): Promise<void>;
   refreshConfig(): Promise<void>;
   refreshInstallInfo(): Promise<void>;
@@ -42,6 +47,12 @@ export interface LocalRuntimeStoreState {
   restart(): Promise<void>;
   saveConfig(patch: LocalRuntimeSettingsPatch): Promise<void>;
   clearError(): void;
+
+  // Plan 3B
+  refreshRegistry(): Promise<void>;
+  startCapability(cap: LocalRuntimeCapability): Promise<void>;
+  stopCapability(cap: LocalRuntimeCapability): Promise<void>;
+  restartCapability(cap: LocalRuntimeCapability): Promise<void>;
 }
 
 export const useLocalRuntimeStore = create<LocalRuntimeStoreState>((set, get) => ({
@@ -51,6 +62,8 @@ export const useLocalRuntimeStore = create<LocalRuntimeStoreState>((set, get) =>
   pending: null,
   lastError: null,
   reachable: true,
+  statuses: { chat: null, embedding: null, rerank: null },
+  pendingFor: { chat: null, embedding: null, rerank: null },
 
   async refreshStatus() {
     try {
@@ -125,6 +138,75 @@ export const useLocalRuntimeStore = create<LocalRuntimeStoreState>((set, get) =>
 
   clearError() {
     set({ lastError: null });
+  },
+
+  async refreshRegistry() {
+    try {
+      const reg = await localRuntime.getRegistry();
+      set({ statuses: reg, reachable: true });
+    } catch (e) {
+      set({ reachable: false, lastError: describeError(e) });
+    }
+  },
+
+  async startCapability(cap) {
+    if (get().pendingFor[cap]) return;
+    set((s) => ({
+      pendingFor: { ...s.pendingFor, [cap]: 'start' },
+      lastError: null,
+    }));
+    try {
+      const status = await localRuntime.startFor(cap);
+      set((s) => ({
+        statuses: { ...s.statuses, [cap]: status },
+        pendingFor: { ...s.pendingFor, [cap]: null },
+      }));
+    } catch (e) {
+      set((s) => ({
+        pendingFor: { ...s.pendingFor, [cap]: null },
+        lastError: describeError(e),
+      }));
+    }
+  },
+
+  async stopCapability(cap) {
+    if (get().pendingFor[cap]) return;
+    set((s) => ({
+      pendingFor: { ...s.pendingFor, [cap]: 'stop' },
+      lastError: null,
+    }));
+    try {
+      const status = await localRuntime.stopFor(cap);
+      set((s) => ({
+        statuses: { ...s.statuses, [cap]: status },
+        pendingFor: { ...s.pendingFor, [cap]: null },
+      }));
+    } catch (e) {
+      set((s) => ({
+        pendingFor: { ...s.pendingFor, [cap]: null },
+        lastError: describeError(e),
+      }));
+    }
+  },
+
+  async restartCapability(cap) {
+    if (get().pendingFor[cap]) return;
+    set((s) => ({
+      pendingFor: { ...s.pendingFor, [cap]: 'restart' },
+      lastError: null,
+    }));
+    try {
+      const status = await localRuntime.restartFor(cap);
+      set((s) => ({
+        statuses: { ...s.statuses, [cap]: status },
+        pendingFor: { ...s.pendingFor, [cap]: null },
+      }));
+    } catch (e) {
+      set((s) => ({
+        pendingFor: { ...s.pendingFor, [cap]: null },
+        lastError: describeError(e),
+      }));
+    }
   },
 }));
 
