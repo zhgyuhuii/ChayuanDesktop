@@ -155,6 +155,47 @@ MANIFEST: dict[str, dict[str, Any]] = {
              "ggml-tiny.bin"),
         ],
     },
+    "ocr": {
+        "approx_mb": 16,
+        "note": "RapidOCR PP-OCRv4 det + rec + PP-OCRv3 cls(中文文档,~16 MB)",
+        "dest_subdir": "RapidOCR",
+        "hf": [
+            # SWHL/RapidOCR 整仓有十几个 PP-OCR 版本,只拉 v4 主线 + cls(实测 200)
+            {"repo": "SWHL/RapidOCR",
+             "allow_patterns": [
+                 "PP-OCRv4/ch_PP-OCRv4_det_infer.onnx",
+                 "PP-OCRv4/ch_PP-OCRv4_rec_infer.onnx",
+                 "PP-OCRv3/ch_ppocr_mobile_v2.0_cls_train.onnx",
+             ]},
+        ],
+        # MS 上 RapidAI/RapidOCR 存在但文件布局不同(onnx/ 子目录里命名不一样),
+        # chayuan 加载逻辑认 HF 那种 PP-OCRv4 / PP-OCRv3 路径。HF 这三个 ONNX
+        # 加起来 16 MB,Xet 风险极低,不需要 MS fallback。
+        "ms": [],
+    },
+    "image": {
+        "approx_mb": 605,
+        "note": "OpenAI CLIP-B/32 图文 embedding(~605 MB,LZMA 后 ~380 MB)",
+        "dest_subdir": "clip-vit-base-patch32",
+        "hf": [
+            # OpenAI 官方 CLIP,仓库里 pytorch_model.bin + tf_model.h5 +
+            # flax_model.msgpack 是三份等价权重(同一模型不同框架格式),
+            # 必须 allow_patterns 卡死只拿 pytorch 那份,否则会下 1.8 GB 三套。
+            # 实测这十个文件全部 200,且这个仓库**不在 Xet 上**,hf-mirror 走得通。
+            {"repo": "openai/clip-vit-base-patch32",
+             "allow_patterns": [
+                 "pytorch_model.bin",
+                 "*.json", "*.txt",   # config / preprocessor / tokenizer / vocab / merges
+             ]},
+        ],
+        # MS 上 AI-ModelScope/clip-vit-base-patch32 实测 API 返"record not found"
+        # (页面 200 但 files 树空),iic 下唯一存在的是 multi-modal_clip-vit-base-patch16_zh
+        # —— 那是 Alibaba 自家 Chinese-CLIP,跟 OpenAI CLIP 模型架构 / 加载接口都不同,
+        # 给 chayuan-server 当 CLIP fallback 会加载失败。所以这里**不给 MS 候选**,
+        # 让脚本直接走 HF。clip-vit-base-patch32 仓库 2021 年的老仓库,不在 Xet,
+        # hf-mirror 上拉 pytorch_model.bin (605 MB) 稳。
+        "ms": [],
+    },
 }
 
 
@@ -347,6 +388,48 @@ def _build_try_order(
     raise ValueError(f"未知 source: {source}")
 
 
+_MODEL_WEIGHT_EXTS = (".gguf", ".safetensors", ".bin", ".onnx", ".pt", ".pth")
+
+
+def _is_already_complete(dest_dir: Path, *, approx_mb: int) -> tuple[bool, str]:
+    """判断目标目录是否已经下载完整,避免重复下载。
+
+    判定 (与 ``--clean`` 互斥,clean 会先删目录绕过这检查):
+    1) 目录存在
+    2) 目录下递归找到 ≥ 1 个权重文件 (.gguf / .safetensors / .bin / .onnx / .pt / .pth)
+    3) 目录总大小 ≥ approx_mb * 0.85 (85% 阈值容忍量化 / 编码偏差,
+       例如 Q4_K_M 实际可能比标称 size 略小 / 多)
+
+    用 rglob 递归扫,适配 sentence-transformers 那种把权重塞子目录的布局
+    (如 ``0_CLIPModel/pytorch_model.bin``)。
+    """
+    if not dest_dir.exists() or not dest_dir.is_dir():
+        return False, ""
+
+    files = [f for f in dest_dir.rglob("*")
+             if f.is_file() and not f.name.startswith(".")]
+    if not files:
+        return False, ""
+
+    weight_files = [f for f in files if f.suffix.lower() in _MODEL_WEIGHT_EXTS]
+    if not weight_files:
+        return False, f"目录里没有任何权重文件 ({', '.join(_MODEL_WEIGHT_EXTS)})"
+
+    total_mb = sum(f.stat().st_size for f in files) / 1024 / 1024
+    threshold_mb = approx_mb * 0.85
+
+    if total_mb < threshold_mb:
+        return False, (
+            f"已有 {total_mb:.1f} MB,但 < 期望阈值 {threshold_mb:.0f} MB "
+            f"(approx {approx_mb} MB × 0.85),判定为下载未完成"
+        )
+
+    sample = ", ".join(f.name for f in weight_files[:3])
+    if len(weight_files) > 3:
+        sample += f", ... 共 {len(weight_files)} 个"
+    return True, f"已有 {sample},总 {total_mb:.1f} MB,跳过下载"
+
+
 def _download_one(
     cap: str,
     cap_spec: dict,
@@ -358,6 +441,15 @@ def _download_one(
     cap_dir = vendor_root / cap
     dest_dir = cap_dir / cap_spec["dest_subdir"]
     cap_dir.mkdir(parents=True, exist_ok=True)
+
+    # Skip-if-exists 预检 (--clean 时绕过,因为 clean 用户明确要重下)
+    if not clean:
+        already, reason = _is_already_complete(dest_dir, approx_mb=cap_spec["approx_mb"])
+        if already:
+            _print(f"[{cap}] ✓ {reason}")
+            return
+        elif reason:
+            _print(f"[{cap}] (检测到 partial 下载: {reason} — 继续下载)")
 
     if clean and dest_dir.exists():
         _print(f"[{cap}] --clean:删除旧目录 {dest_dir}")

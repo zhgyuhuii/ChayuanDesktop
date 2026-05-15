@@ -9,10 +9,15 @@
     3. 把所有参数透传给 .py
 
   下载清单(全部 < 2 GB,Windows installer 友好):
-    chat       Qwen3-4B Q3_K_S   ~1.85 GB
-    embedding  gte-multilingual-base       ~1.22 GB
-    rerank     gte-multilingual-reranker-base ~584 MB
-    asr        whisper.cpp ggml-tiny       ~74 MB
+    chat       Qwen3-4B Q3_K_S / Qwen2.5-3B Q4_K_M 兜底  ~1.85-1.96 GB
+    embedding  gte-multilingual-base                     ~1.22 GB
+    rerank     gte-multilingual-reranker-base            ~584 MB
+    asr        whisper.cpp ggml-tiny                     ~74 MB
+    ocr        SWHL/RapidOCR PP-OCRv4                    ~16 MB
+    image      openai/clip-vit-base-patch32              ~605 MB
+
+  Skip-if-exists:目录已有同名权重 + 总尺寸 ≥ 期望 85% 时**自动跳过**,
+  不重复下载。要强制重下加 -Clean。
 
 .PARAMETER Only
   只下指定 capability:chat / embedding / rerank / asr
@@ -44,7 +49,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('chat','embedding','rerank','asr')]
+    [ValidateSet('chat','embedding','rerank','asr','ocr','image')]
     [string]$Only,
     [switch]$Clean,
     [string]$Endpoint = 'https://hf-mirror.com',
