@@ -110,7 +110,56 @@ async function getInstallInfo(): Promise<LocalRuntimeInstallInfo> {
   return (await request<LocalRuntimeInstallInfo>('/runtime/llama/install-info')).data;
 }
 
+// ─── Plan 3B 多 capability ───
+
+export type LocalRuntimeCapability = 'chat' | 'embedding' | 'rerank';
+
+async function getStatusFor(cap: LocalRuntimeCapability): Promise<LocalRuntimeStatus> {
+  return (await request<LocalRuntimeStatus>(`/runtime/llama/${cap}/status`)).data;
+}
+
+async function startFor(
+  cap: LocalRuntimeCapability,
+  opts?: { model_id?: string },
+): Promise<LocalRuntimeStatus> {
+  return (
+    await request<LocalRuntimeStatus>(`/runtime/llama/${cap}/start`, {
+      method: 'POST',
+      body: opts ?? {},
+      timeoutMs: 90_000,
+    })
+  ).data;
+}
+
+async function stopFor(cap: LocalRuntimeCapability): Promise<LocalRuntimeStatus> {
+  return (
+    await request<LocalRuntimeStatus>(`/runtime/llama/${cap}/stop`, {
+      method: 'POST',
+      timeoutMs: 20_000,
+    })
+  ).data;
+}
+
+async function restartFor(
+  cap: LocalRuntimeCapability,
+  opts?: { model_id?: string },
+): Promise<LocalRuntimeStatus> {
+  return (
+    await request<LocalRuntimeStatus>(`/runtime/llama/${cap}/restart`, {
+      method: 'POST',
+      body: opts ?? {},
+      timeoutMs: 90_000,
+    })
+  ).data;
+}
+
+async function getRegistry(): Promise<Record<LocalRuntimeCapability, LocalRuntimeStatus>> {
+  return (await request<Record<LocalRuntimeCapability, LocalRuntimeStatus>>('/runtime/llama/registry'))
+    .data;
+}
+
 export const localRuntime = {
+  // 旧:chat 别名(Plan 1+2 已用,不动)
   getStatus,
   start,
   stop,
@@ -118,4 +167,10 @@ export const localRuntime = {
   getConfig,
   setConfig,
   getInstallInfo,
+  // Plan 3B 多 capability
+  getStatusFor,
+  startFor,
+  stopFor,
+  restartFor,
+  getRegistry,
 };

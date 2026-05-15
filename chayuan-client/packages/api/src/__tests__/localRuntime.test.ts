@@ -149,4 +149,48 @@ describe('localRuntime client', () => {
     await localRuntime.restart();
     expect(calls.at(-1)?.url).toMatch(/\/runtime\/llama\/restart$/);
   });
+
+  it('getStatusFor(embedding) 命中 GET /runtime/llama/embedding/status', async () => {
+    response = () =>
+      new Response(
+        JSON.stringify({ code: 0, data: { state: 'ready', endpoint: 'http://127.0.0.1:62583' } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    const s = await localRuntime.getStatusFor('embedding');
+    expect(s.state).toBe('ready');
+    expect(s.endpoint).toBe('http://127.0.0.1:62583');
+    expect(calls[0]!.url).toMatch(/\/runtime\/llama\/embedding\/status$/);
+  });
+
+  it('startFor(rerank) 命中 POST /runtime/llama/rerank/start 并把 model_id 写 body', async () => {
+    response = () =>
+      new Response(JSON.stringify({ code: 0, data: { state: 'ready' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    await localRuntime.startFor('rerank', { model_id: 'bge-rerank-m3' });
+    expect(calls[0]!.init?.method).toBe('POST');
+    expect(calls[0]!.url).toMatch(/\/runtime\/llama\/rerank\/start$/);
+    expect(JSON.parse(calls[0]!.init?.body as string)).toEqual({ model_id: 'bge-rerank-m3' });
+  });
+
+  it('getRegistry() 返三个 capability 字典', async () => {
+    response = () =>
+      new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            chat: { state: 'ready', endpoint: 'http://127.0.0.1:62582' },
+            embedding: { state: 'stopped' },
+            rerank: { state: 'stopped' },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    const reg = await localRuntime.getRegistry();
+    expect(reg.chat.state).toBe('ready');
+    expect(reg.embedding.state).toBe('stopped');
+    expect(reg.rerank.state).toBe('stopped');
+    expect(calls[0]!.url).toMatch(/\/runtime\/llama\/registry$/);
+  });
 });
