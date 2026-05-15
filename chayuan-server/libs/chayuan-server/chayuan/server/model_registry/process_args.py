@@ -221,29 +221,42 @@ def resolve_llamacpp_args(
 
 # ───────────────────────── infinity ─────────────────────────
 
+_INFINITY_CAPABILITIES = ("image-embedding",)
+_INFINITY_LOCAL_CAP_MAP = {
+    "image-embedding": "image",
+}
 
-def resolve_infinity_args() -> Resolution:
-    """``infinity_emb`` 启动时需要的额外 args。
 
-    解析项:
-    * ``embedding`` ← capability default(text-embedding;偏好 hf_transformers 格式)
-    * ``rerank``    ← capability default(rerank;同上)
+def resolve_infinity_args(
+    *,
+    capability: str = "image-embedding",
+    n_threads: Optional[int] = None,
+) -> Resolution:
+    """``infinity_server`` (Python sidecar) 启动 args。
 
-    两类同时可选;只要解出一个就发 args(``--model-id <ID> --model-id <ID>``
-    重复列出 = infinity 同时挂载多模型)。
+    capability:
+      * ``image-embedding`` → image default + transformers/safetensors 模型 + --model
     """
+    if capability not in _INFINITY_CAPABILITIES:
+        raise ValueError(f"Unknown capability for infinity: {capability!r}")
+
+    local_cap = _INFINITY_LOCAL_CAP_MAP[capability]
     r = Resolution(process="infinity")
-    for panel_cap, local_cap in (("embedding", "text-embedding"), ("rerank", "rerank")):
-        entry, reason = _resolve(panel_cap, prefer_format="hf_transformers",
-                                 local_cap=local_cap)
-        if entry is None:
-            r.missing.append(panel_cap)
-            continue
-        # infinity 用 model_id(repo 风格)或本地路径都可
-        r.args.extend(["--model-id", entry.path or entry.model_id])
-        r.resolved_models[panel_cap] = entry.model_id
-        if not r.reason:
-            r.reason = reason
+    entry, reason = _resolve(capability, local_cap=local_cap)
+    if entry is None:
+        r.missing.append(capability)
+        r.reason = reason
+        return r
+
+    # Python sidecar: 用 `-m <module>` 而非 binary 直跑
+    r.args.extend([
+        "-m", "chayuan.server.image_source.infinity_server",
+        "--model", entry.model_id,
+    ])
+    if n_threads is not None:
+        r.args.extend(["--threads", str(int(n_threads))])
+    r.resolved_models[capability] = entry.model_id
+    r.reason = reason
     return r
 
 
