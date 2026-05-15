@@ -41,7 +41,10 @@
     ],
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },
-      "wix": { "language": ["zh-CN", "en-US"] },
+      "wix": {
+        "language": ["zh-CN", "en-US"],
+        "template": "wix/main.wxs"
+      },
       "nsis": {
         "languages": ["SimpChinese", "English"],
         "installerHooks": "./installer.nsh"
