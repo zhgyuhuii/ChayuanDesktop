@@ -149,7 +149,7 @@ async def test_manager_start_spawns_subprocess(tmp_path, monkeypatch):
         reason="",
     )
     monkeypatch.setattr(
-        local_runtime, "_resolve_chat_args",
+        local_runtime, "_resolve_args_for",
         lambda *a, **kw: (fake_resolution, "/tmp/fake.gguf"),
     )
 
@@ -216,7 +216,7 @@ async def test_manager_restart_stop_then_start(tmp_path, monkeypatch):
         resolved_models={"chat": "m1"},
         reason="",
     )
-    monkeypatch.setattr(local_runtime, "_resolve_chat_args", lambda **kw: (fake_resolution, "/tmp/fake.gguf"))
+    monkeypatch.setattr(local_runtime, "_resolve_args_for", lambda *a, **kw: (fake_resolution, "/tmp/fake.gguf"))
 
     proc1 = mock.MagicMock(pid=111, poll=mock.MagicMock(return_value=None), wait=mock.MagicMock(return_value=0))
     proc2 = mock.MagicMock(pid=222, poll=mock.MagicMock(return_value=None), wait=mock.MagicMock(return_value=0))
@@ -260,7 +260,7 @@ async def test_manager_start_llama_early_exit_captured(tmp_path, monkeypatch):
         reason="",
     )
     monkeypatch.setattr(
-        local_runtime, "_resolve_chat_args",
+        local_runtime, "_resolve_args_for",
         lambda *a, **kw: (fake_resolution, "/tmp/fake.gguf"),
     )
 
@@ -303,7 +303,7 @@ async def test_manager_start_health_timeout_kills(tmp_path, monkeypatch):
         reason="",
     )
     monkeypatch.setattr(
-        local_runtime, "_resolve_chat_args",
+        local_runtime, "_resolve_args_for",
         lambda *a, **kw: (fake_resolution, "/tmp/fake.gguf"),
     )
 
@@ -420,3 +420,74 @@ def test_manager_find_llama_server_exe_unchanged(tmp_path, monkeypatch):
     m_embed = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path, capability="embedding", port_offset=1)
     assert m_chat.find_llama_server_exe() == exe
     assert m_embed.find_llama_server_exe() == exe
+
+
+@pytest.mark.asyncio
+async def test_manager_start_embedding_uses_embedding_resolver(tmp_path, monkeypatch):
+    """embedding manager 调 start 时用 resolve_llamacpp_args(capability='embedding')。"""
+    from chayuan.server.model_registry import local_runtime as lr
+    from chayuan.server.model_registry import process_args
+
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    (services / "llama-server.exe").write_bytes(b"stub")
+    monkeypatch.setattr(lr, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    captured_capability = []
+
+    def fake_resolve(**kw):
+        captured_capability.append(kw.get("capability", "<missing>"))
+        return process_args.Resolution(
+            process="llamacpp",
+            args=["--model", "/tmp/embed.gguf", "--embedding", "--pooling", "cls"],
+            resolved_models={"embedding": "bge"},
+        )
+
+    monkeypatch.setattr(lr.process_args, "resolve_llamacpp_args", fake_resolve)
+
+    # mock Popen + health
+    fake_proc = mock.MagicMock(pid=999, poll=mock.MagicMock(return_value=None))
+    monkeypatch.setattr(lr.subprocess, "Popen", mock.MagicMock(return_value=fake_proc))
+    async def fake_health(url, **kw):
+        return mock.MagicMock(status_code=200)
+    monkeypatch.setattr(lr, "_probe_health", fake_health)
+
+    m = lr.LlamaRuntimeManager(chayuan_root=tmp_path, capability="embedding", port_offset=1)
+    status = await m.start()
+    assert status.state == "ready"
+    assert captured_capability == ["embedding"]
+
+
+@pytest.mark.asyncio
+async def test_manager_start_rerank_uses_rerank_resolver(tmp_path, monkeypatch):
+    """rerank manager 调 start 时用 resolve_llamacpp_args(capability='rerank')。"""
+    from chayuan.server.model_registry import local_runtime as lr
+    from chayuan.server.model_registry import process_args
+
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    (services / "llama-server.exe").write_bytes(b"stub")
+    monkeypatch.setattr(lr, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    captured = []
+
+    def fake_resolve(**kw):
+        captured.append(kw.get("capability"))
+        return process_args.Resolution(
+            process="llamacpp",
+            args=["--model", "/tmp/r.gguf", "--reranking"],
+            resolved_models={"rerank": "bge-r"},
+        )
+
+    monkeypatch.setattr(lr.process_args, "resolve_llamacpp_args", fake_resolve)
+
+    fake_proc = mock.MagicMock(pid=888, poll=mock.MagicMock(return_value=None))
+    monkeypatch.setattr(lr.subprocess, "Popen", mock.MagicMock(return_value=fake_proc))
+    async def fake_health(url, **kw):
+        return mock.MagicMock(status_code=200)
+    monkeypatch.setattr(lr, "_probe_health", fake_health)
+
+    m = lr.LlamaRuntimeManager(chayuan_root=tmp_path, capability="rerank", port_offset=2)
+    status = await m.start()
+    assert status.state == "ready"
+    assert "rerank" in captured

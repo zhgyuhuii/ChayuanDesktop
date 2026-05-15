@@ -24,6 +24,8 @@ from typing import Any, Dict, Literal, Optional
 
 import yaml
 
+from chayuan.server.model_registry import process_args  # noqa: E402 — 供 monkeypatch 拦截
+
 logger = logging.getLogger(__name__)
 
 # 启动等 /health 200 的总超时(秒)。单元测试可 monkeypatch。
@@ -135,14 +137,19 @@ async def _probe_health(url: str, *, timeout: float = 2.0) -> "object":
         return await client.get(url)
 
 
-def _resolve_chat_args(*, n_ctx: int | None = None, n_threads: int | None = None):
+def _resolve_args_for(
+    capability: str,
+    *,
+    n_ctx: int | None = None,
+    n_threads: int | None = None,
+):
     """调 process_args.resolve_llamacpp_args,返回 (resolution, model_path)。
 
+    Plan 3B 起 capability 派发到 chat / embedding / rerank 三个分支。
     单独包一层方便测试 monkeypatch。
     n_ctx/n_threads 均为可选;不传时由 process_args 自行决定默认值(单一真源)。
     """
-    from chayuan.server.model_registry import process_args
-    kwargs: dict = {}
+    kwargs: dict = {"capability": capability}
     if n_ctx is not None:
         kwargs["n_ctx"] = n_ctx
     if n_threads is not None:
@@ -155,6 +162,11 @@ def _resolve_chat_args(*, n_ctx: int | None = None, n_threads: int | None = None
         return r, r.args[i + 1]
     except (ValueError, IndexError):
         return r, None
+
+
+# 旧名兼容(Plan 1 测试用过 _resolve_chat_args);保留 alias 直到 Task 5 后清扫
+def _resolve_chat_args(**kw):
+    return _resolve_args_for("chat", **kw)
 
 
 class LlamaRuntimeManager:
@@ -229,16 +241,16 @@ class LlamaRuntimeManager:
             self._persist_status()
             return self._status
 
-        resolution, model_path = _resolve_chat_args()
+        resolution, model_path = _resolve_args_for(self.capability)
         if resolution.missing or not model_path:
             self._status = RuntimeStatus(
                 state="failed",
-                last_error=f"chat 模型未就绪:{resolution.reason or 'no chat default'}",
+                last_error=f"{self.capability} 模型未就绪:{resolution.reason or f'no {self.capability} default'}",
             )
             self._persist_status()
             return self._status
 
-        port = self._allocate_port(preferred=self._settings.port)
+        port = self._allocate_port(preferred=self._settings.port + self.port_offset)
         host = "0.0.0.0" if self._settings.expose_lan else self._settings.host
 
         args = [str(exe), "--host", host, "--port", str(port), "--log-disable"]
