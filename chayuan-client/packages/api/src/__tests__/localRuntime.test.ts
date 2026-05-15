@@ -193,4 +193,45 @@ describe('localRuntime client', () => {
     expect(reg.rerank.state).toBe('stopped');
     expect(calls[0]!.url).toMatch(/\/runtime\/llama\/registry$/);
   });
+
+  it('getStatusFor(asr) 命中 GET /runtime/llama/asr/status', async () => {
+    response = () =>
+      new Response(
+        JSON.stringify({ code: 0, data: { state: 'ready', endpoint: 'http://127.0.0.1:62585' } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    const s = await localRuntime.getStatusFor('asr');
+    expect(s.state).toBe('ready');
+    expect(s.endpoint).toBe('http://127.0.0.1:62585');
+    expect(calls[0]!.url).toMatch(/\/runtime\/llama\/asr\/status$/);
+  });
+
+  it('startFor(asr) 命中 POST /runtime/llama/asr/start', async () => {
+    response = () =>
+      new Response(JSON.stringify({ code: 0, data: { state: 'ready' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    await localRuntime.startFor('asr');
+    expect(calls[0]!.init?.method).toBe('POST');
+    expect(calls[0]!.url).toMatch(/\/runtime\/llama\/asr\/start$/);
+  });
+
+  it('getRegistry() 返四个 capability(含 asr)', async () => {
+    response = () =>
+      new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            chat: { state: 'ready' },
+            embedding: { state: 'stopped' },
+            rerank: { state: 'stopped' },
+            asr: { state: 'stopped' },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    const reg = await localRuntime.getRegistry();
+    expect(reg.asr.state).toBe('stopped');
+  });
 });
