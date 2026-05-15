@@ -85,7 +85,7 @@ export const LocalRuntimePanel: React.FC = () => {
     <div className="space-y-6">
       {/* 3 个 capability cards */}
       <section className="space-y-3">
-        {(['chat', 'embedding', 'rerank', 'asr'] as LocalRuntimeCapability[]).map((cap) => (
+        {(['chat', 'embedding', 'rerank', 'asr', 'image-embedding'] as LocalRuntimeCapability[]).map((cap) => (
           <LocalRuntimeCapabilityCard
             key={cap}
             capability={cap}

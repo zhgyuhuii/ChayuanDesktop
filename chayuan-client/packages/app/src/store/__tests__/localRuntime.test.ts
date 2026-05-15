@@ -30,8 +30,8 @@ beforeEach(() => {
     pending: null,
     lastError: null,
     reachable: true,
-    statuses: { chat: null, embedding: null, rerank: null, asr: null },
-    pendingFor: { chat: null, embedding: null, rerank: null, asr: null },
+    statuses: { chat: null, embedding: null, rerank: null, asr: null, 'image-embedding': null },
+    pendingFor: { chat: null, embedding: null, rerank: null, asr: null, 'image-embedding': null },
   });
   vi.clearAllMocks();
 });
