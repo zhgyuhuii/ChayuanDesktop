@@ -25,6 +25,8 @@ import {
 import { models, type RawModelItem } from '@chayuan/api';
 import { logEvent, Events } from '@chayuan/observability';
 import { useComposerStore, useComposerS } from '../../store/composer';
+import { useLocalRuntimeStore } from '../../store/localRuntime';
+import { LOCAL_PLATFORM_KEY, LOCAL_PLATFORM_LABEL } from './ModelMenuList';
 import { useLogosManifest, useResolveLogo } from '../catalog/useLogos';
 import { useTranslation } from '../../i18n';
 import { ModelMenuList } from './ModelMenuList';
@@ -83,6 +85,23 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
     staleTime: 60_000,
     retry: 0,
   });
+  // 本地 LLM runtime ready 时,顶部 prepend 一个合成 model 让 ModelMenuList 渲染「本地」分组
+  const localStatus = useLocalRuntimeStore((s) => s.status);
+  const modelsWithLocal = React.useMemo<RawModelItem[]>(() => {
+    if (!localStatus || localStatus.state !== 'ready' || !localStatus.model_id) {
+      return data;
+    }
+    const localItem: RawModelItem = {
+      id: localStatus.model_id,
+      object: 'model',
+      platform_name: LOCAL_PLATFORM_KEY,
+      platform_display_name: LOCAL_PLATFORM_LABEL,
+      model_type: 'llm',
+      available: true,
+    };
+    return [localItem, ...data];
+  }, [data, localStatus]);
+
   useLogosManifest();
   const resolveLogo = useResolveLogo();
 
@@ -139,7 +158,7 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
         className={cn('z-[120] w-80 overflow-hidden p-0', contentClassName)}
       >
         <ModelMenuList
-          models={data}
+          models={modelsWithLocal}
           currentId={modelId}
           currentPlatform={platformName}
           resolveLogo={resolveLogo}
