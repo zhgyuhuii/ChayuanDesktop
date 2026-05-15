@@ -23,7 +23,7 @@ def _resolve_chayuan_root() -> Path:
 
 
 def run_all_checks() -> DiagnoseReport:
-    """跑 10 项 check,聚合成报告。单个 check 抛异常不阻塞其它 check。"""
+    """跑 12 项 check,聚合成报告。单个 check 抛异常不阻塞其它 check。"""
     root = _resolve_chayuan_root()
     settings_path = root / "model_registry" / "local_runtime.yaml"
     status_path = root / "runtime.json"
@@ -38,7 +38,12 @@ def run_all_checks() -> DiagnoseReport:
         _checks._safe_call("disk.chayuan_root.free_gb", lambda: _checks.check_disk_free_gb(root)),
         _checks._safe_call("port.62582", _checks.check_port_62582),
         _checks._safe_call("chayuan_server.process", _checks.check_chayuan_server_process),
-        _checks._safe_call("runtime.llama.status", _checks.check_runtime_llama_status),
+        _checks._safe_call("runtime.llama.chat.status",
+                           lambda: _checks.check_runtime_llama_status_for("chat")),
+        _checks._safe_call("runtime.llama.embedding.status",
+                           lambda: _checks.check_runtime_llama_status_for("embedding")),
+        _checks._safe_call("runtime.llama.rerank.status",
+                           lambda: _checks.check_runtime_llama_status_for("rerank")),
     ]
 
     summary = {"ok": 0, "warn": 0, "fail": 0}

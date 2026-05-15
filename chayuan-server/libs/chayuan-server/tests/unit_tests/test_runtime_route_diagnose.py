@@ -27,8 +27,8 @@ def test_runtime_diagnose_returns_ok_envelope(client):
     assert "checks" in data
     assert "summary" in data
     assert isinstance(data["checks"], list)
-    assert len(data["checks"]) == 10
-    assert data["summary"]["ok"] + data["summary"]["warn"] + data["summary"]["fail"] == 10
+    assert len(data["checks"]) == 12
+    assert data["summary"]["ok"] + data["summary"]["warn"] + data["summary"]["fail"] == 12
 
 
 def test_runtime_diagnose_each_check_has_required_fields(client):

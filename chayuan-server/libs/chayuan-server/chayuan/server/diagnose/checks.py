@@ -292,23 +292,24 @@ def check_chayuan_server_process() -> DiagnoseCheck:
         )
 
 
-def check_runtime_llama_status() -> DiagnoseCheck:
-    """LlamaRuntimeManager 当前 state。
+def check_runtime_llama_status_for(capability: str) -> DiagnoseCheck:
+    """LlamaRuntimeManager 某 capability 当前 state。
 
     ready    → ok
     failed   → fail (含 last_error)
     其它     → warn
     """
+    name = f"runtime.llama.{capability}.status"
     try:
-        from chayuan.server.model_registry.local_runtime import get_manager
-        mgr = get_manager()
+        from chayuan.server.model_registry.local_runtime_registry import get_registry
+        mgr = get_registry().get(capability)
         st = mgr.status
     except Exception as e:
         return DiagnoseCheck(
-            name="runtime.llama.status",
+            name=name,
             ok=False,
             severity="warn",
-            detail=f"manager 读 status 异常:{type(e).__name__}: {e}",
+            detail=f"registry 读 status 异常:{type(e).__name__}: {e}",
         )
 
     state = st.state
@@ -323,7 +324,7 @@ def check_runtime_llama_status() -> DiagnoseCheck:
         detail = f"state={state} (未运行或过渡态)"
 
     return DiagnoseCheck(
-        name="runtime.llama.status",
+        name=name,
         ok=ok,
         severity=sev,  # type: ignore[arg-type]
         detail=detail,
@@ -335,6 +336,13 @@ def check_runtime_llama_status() -> DiagnoseCheck:
             "last_error": st.last_error,
         },
     )
+
+
+# 旧名兼容 (保留是给外部老调用方;新代码用 check_runtime_llama_status_for(capability))
+def check_runtime_llama_status() -> DiagnoseCheck:
+    """Deprecated:Plan 3B 起改用 check_runtime_llama_status_for(capability)。
+    仅返 chat 状态,保留向后兼容。"""
+    return check_runtime_llama_status_for("chat")
 
 
 def _safe_call(name: str, fn) -> DiagnoseCheck:

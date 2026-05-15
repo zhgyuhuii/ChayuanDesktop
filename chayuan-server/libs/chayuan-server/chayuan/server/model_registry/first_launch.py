@@ -121,23 +121,28 @@ def run_first_launch_hooks() -> FirstLaunchReport:
         logger.warning("[first_launch] deploy_user_manuals 失败: %r", e)
         report.errors.append(f"deploy_user_manuals: {type(e).__name__}: {e}")
 
-    # 5) 按 LocalRuntimeSettings.preload_on_startup 异步拉起本地 chat runtime
+    # 5) 按 LocalRuntimeSettings.preload_* 异步拉起本地 runtime (chat / embedding / rerank)
     try:
-        from chayuan.server.model_registry.local_runtime import get_manager
-        manager = get_manager()
-        if manager.settings.preload_on_startup:
-            import asyncio
-            # run_first_launch_hooks 是同步函数，但在 FastAPI on_event("startup") 里
-            # 被调用时事件循环已在运行，用 is_running 判断再决定是否能 create_task
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(manager.start())
-                logger.info("[first_launch] 启动本地模型 runtime (preload_on_startup=True)")
-            else:
-                # 不在 event loop 中，跳过预热，留给第一次 chat 触发 lazy start
-                logger.info("[first_launch] 不在 event loop 中，跳过预热")
+        import asyncio
+        from chayuan.server.model_registry.local_runtime_registry import get_registry
+        reg = get_registry()
+        # settings 共享，从 chat manager 拿一次即可
+        settings = reg.get("chat").settings
+        loop = asyncio.get_event_loop()
+        if not loop.is_running():
+            logger.info("[first_launch] 不在 event loop 中，跳过 runtime 预热")
         else:
-            logger.info("[first_launch] 跳过预热 (preload_on_startup=False，首次聊天 lazy start)")
+            preload_map = {
+                "chat": settings.preload_on_startup,
+                "embedding": settings.preload_embedding,
+                "rerank": settings.preload_rerank,
+            }
+            for cap, on in preload_map.items():
+                if on:
+                    loop.create_task(reg.get(cap).start())
+                    logger.info("[first_launch] 启动本地 runtime: %s (preload=True)", cap)
+                else:
+                    logger.info("[first_launch] 跳过预热 %s (preload=False)", cap)
     except Exception as e:  # noqa: BLE001
         logger.warning("[first_launch] 本地 runtime 预热失败: %r", e)
         report.errors.append(f"local_runtime preload: {type(e).__name__}: {e}")

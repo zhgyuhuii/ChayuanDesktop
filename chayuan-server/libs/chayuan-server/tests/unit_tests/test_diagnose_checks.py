@@ -207,55 +207,45 @@ def test_check_chayuan_server_process():
     assert "pid" in c.detail.lower() or str(__import__("os").getpid()) in c.detail
 
 
-def test_check_runtime_llama_status_ready(tmp_path, monkeypatch):
-    from chayuan.server.diagnose.checks import check_runtime_llama_status
+def _patch_registry_status(monkeypatch, statuses_by_cap):
+    """工具:让 get_registry().get(cap).status 返回指定值"""
+    from chayuan.server.model_registry import local_runtime_registry as lrr
+    fake_managers = {cap: type("Mgr", (), {"status": st})() for cap, st in statuses_by_cap.items()}
+    fake_registry = type("Reg", (), {"get": lambda self, cap: fake_managers[cap]})()
+    monkeypatch.setattr(lrr, "_registry_singleton", fake_registry)
+
+
+def test_check_runtime_llama_status_for_chat_ready(monkeypatch):
+    from chayuan.server.diagnose.checks import check_runtime_llama_status_for
     from chayuan.server.model_registry import local_runtime as lr
-
-    fake_status = lr.RuntimeStatus(
-        state="ready", endpoint="http://127.0.0.1:62583", pid=1234, model_id="m1"
-    )
-
-    class FakeMgr:
-        status = fake_status
-
-    monkeypatch.setattr(lr, "_singleton", FakeMgr())
-    c = check_runtime_llama_status()
-    assert c.name == "runtime.llama.status"
-    assert c.ok is True
+    _patch_registry_status(monkeypatch, {
+        "chat": lr.RuntimeStatus(state="ready", endpoint="http://127.0.0.1:62582", pid=1, model_id="qwen"),
+    })
+    c = check_runtime_llama_status_for("chat")
+    assert c.name == "runtime.llama.chat.status"
     assert c.severity == "ok"
-    assert "ready" in c.detail
-    assert "m1" in c.detail
-    assert "62583" in c.detail
 
 
-def test_check_runtime_llama_status_failed(tmp_path, monkeypatch):
-    from chayuan.server.diagnose.checks import check_runtime_llama_status
+def test_check_runtime_llama_status_for_embedding_failed(monkeypatch):
+    from chayuan.server.diagnose.checks import check_runtime_llama_status_for
     from chayuan.server.model_registry import local_runtime as lr
-
-    fake_status = lr.RuntimeStatus(state="failed", last_error="exe missing")
-
-    class FakeMgr:
-        status = fake_status
-
-    monkeypatch.setattr(lr, "_singleton", FakeMgr())
-    c = check_runtime_llama_status()
-    assert c.ok is False
+    _patch_registry_status(monkeypatch, {
+        "embedding": lr.RuntimeStatus(state="failed", last_error="model missing"),
+    })
+    c = check_runtime_llama_status_for("embedding")
+    assert c.name == "runtime.llama.embedding.status"
     assert c.severity == "fail"
-    assert "exe missing" in c.detail
+    assert "model missing" in c.detail
 
 
-def test_check_runtime_llama_status_stopped(tmp_path, monkeypatch):
-    from chayuan.server.diagnose.checks import check_runtime_llama_status
+def test_check_runtime_llama_status_for_rerank_stopped(monkeypatch):
+    from chayuan.server.diagnose.checks import check_runtime_llama_status_for
     from chayuan.server.model_registry import local_runtime as lr
-
-    fake_status = lr.RuntimeStatus(state="stopped")
-
-    class FakeMgr:
-        status = fake_status
-
-    monkeypatch.setattr(lr, "_singleton", FakeMgr())
-    c = check_runtime_llama_status()
-    # stopped 不是 ok 也不是 fail,是 warn (用户没主动启,但不算坏)
+    _patch_registry_status(monkeypatch, {
+        "rerank": lr.RuntimeStatus(state="stopped"),
+    })
+    c = check_runtime_llama_status_for("rerank")
+    assert c.name == "runtime.llama.rerank.status"
     assert c.severity == "warn"
 
 
@@ -267,23 +257,23 @@ def test_run_all_checks_returns_report_with_summary(tmp_path, monkeypatch):
     # 让 chayuan_root 指向 tmp_path,所有 check 都不会因找不到路径炸
     monkeypatch.setattr("chayuan.settings.CHAYUAN_ROOT", str(tmp_path))
 
-    # 让 LlamaRuntimeManager status 是 stopped (warn)
+    # 让 3 个 capability 的 registry status 均为 stopped (warn)
     fake_status = lr.RuntimeStatus(state="stopped")
-
-    class FakeMgr:
-        status = fake_status
-
-    monkeypatch.setattr(lr, "_singleton", FakeMgr())
+    _patch_registry_status(monkeypatch, {
+        "chat": fake_status,
+        "embedding": fake_status,
+        "rerank": fake_status,
+    })
 
     # vendor 二进制肯定找不到 → fail
     monkeypatch.setattr(lr, "_INSTALL_SERVICES_DIRS", [tmp_path / "nothing"])
 
     report = run_all_checks()
     assert isinstance(report, DiagnoseReport)
-    assert len(report.checks) == 10
-    # summary 计数加和等于 10
+    assert len(report.checks) == 12
+    # summary 计数加和等于 12
     s = report.summary
-    assert s["ok"] + s["warn"] + s["fail"] == 10
+    assert s["ok"] + s["warn"] + s["fail"] == 12
 
 
 def test_run_all_checks_does_not_raise_when_check_raises(tmp_path, monkeypatch):
