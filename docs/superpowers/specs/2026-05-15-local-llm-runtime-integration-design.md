@@ -94,7 +94,7 @@
 │       ├─ GET  /runtime/llama/status        ← NEW                  │
 │       ├─ POST /runtime/llama/restart       ← NEW                  │
 │       ├─ POST /runtime/llama/config        ← NEW (host/port/key)  │
-│       └─ GET  /runtime/llama/install-path  ← NEW (透出落盘路径)    │
+│       └─ GET  /runtime/llama/install-info  ← NEW (透出落盘路径)    │
 └─────────┬──────────────────────────────────────────────────────────┘
           │ 127.0.0.1:62582 (默认;可配)
 ┌─────────▼──────────────────────────────────────────────────────────┐
