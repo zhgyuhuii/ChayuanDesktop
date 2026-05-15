@@ -712,3 +712,39 @@ def test_find_server_exe_infinity_not_affected_by_install_dirs(tmp_path, monkeyp
     m = lr.SidecarRuntimeManager(chayuan_root=tmp_path, engine="infinity", port_offset=4)
     exe = m.find_server_exe()
     assert exe is not None
+
+
+# ---------------------------------------------------------------------------
+# Plan 3D Task 3: _resolve_args_for 加 infinity 分支 → resolve_image_embedding_args
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_sidecar_infinity_start_uses_image_embedding_resolver(tmp_path, monkeypatch):
+    """engine='infinity' 启动时调 resolve_image_embedding_args(capability='image-embedding')。"""
+    from chayuan.server.model_registry import local_runtime as lr
+    from chayuan.server.model_registry import process_args
+
+    captured = []
+
+    def fake_image_emb_resolve(**kw):
+        captured.append(("infinity", kw.get("capability", "<missing>")))
+        return process_args.Resolution(
+            process="infinity",
+            args=["-m", "chayuan.server.image_source.infinity_server", "--model", "siglip2-base"],
+            resolved_models={"image-embedding": "siglip2-base"},
+        )
+
+    monkeypatch.setattr(lr.process_args, "resolve_image_embedding_args", fake_image_emb_resolve)
+
+    fake_proc = mock.MagicMock(pid=555, poll=mock.MagicMock(return_value=None))
+    monkeypatch.setattr(lr.subprocess, "Popen", mock.MagicMock(return_value=fake_proc))
+    async def fake_health(url, **kw):
+        return mock.MagicMock(status_code=200)
+    monkeypatch.setattr(lr, "_probe_health", fake_health)
+
+    m = lr.SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="infinity", capability="image-embedding", port_offset=4
+    )
+    status = await m.start()
+    assert status.state == "ready"
+    assert captured == [("infinity", "image-embedding")]

@@ -149,9 +149,11 @@ def _resolve_args_for(
 ):
     """调对应 engine 的 process_args.resolve_*,返回 (resolution, model_path)。
 
-    Plan 3C 起 engine 参数派发:
-      * engine='llama'   → resolve_llamacpp_args
-      * engine='whisper' → resolve_whisper_args
+    Plan 3D 起 engine 派发:
+      * engine='llama'    → resolve_llamacpp_args(透传 n_ctx/n_threads)
+      * engine='whisper'  → resolve_whisper_args(透传 n_threads)
+      * engine='infinity' → resolve_image_embedding_args(透传 n_threads;
+                            不是 Plan 1 老 resolve_infinity_args)
     """
     if engine == "llama":
         kwargs: dict = {"capability": capability}
@@ -165,6 +167,11 @@ def _resolve_args_for(
         if n_threads is not None:
             kwargs["n_threads"] = n_threads
         r = process_args.resolve_whisper_args(**kwargs)
+    elif engine == "infinity":
+        kwargs = {"capability": capability}
+        if n_threads is not None:
+            kwargs["n_threads"] = n_threads
+        r = process_args.resolve_image_embedding_args(**kwargs)
     else:
         raise ValueError(f"Unknown engine: {engine!r}")
 
