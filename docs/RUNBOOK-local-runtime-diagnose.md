@@ -38,8 +38,8 @@
 
 桌面应用 → 头像菜单 → 设置 → AI 平台 → 「本地模型」tab。
 
-Plan 3C 后该页显示 4 个 capability 卡片(chat / 文本嵌入 / 重排 / 语音识别),每个独立启停;
-「生成诊断报告」按钮在 4 个卡片下方。
+Plan 3D 后该页显示 5 个 capability 卡片(chat / 文本嵌入 / 重排 / 语音识别 / 图像嵌入),每个独立启停;
+「生成诊断报告」按钮在 5 个卡片下方。
 
 预期:Dialog 弹出,~1s 内显示报告 markdown;点「复制全部」复制到剪贴板。
 
@@ -58,6 +58,9 @@ Plan 3C 后该页显示 4 个 capability 卡片(chat / 文本嵌入 / 重排 / �
 | `runtime.llama.asr.status fail` | whisper-server 启动崩 / 模型未装 | install-bundled-models 拉 ggml-tiny.bin;binary 由 install-whisper-server.{ps1,sh} 装 |
 | ASR 调时 sidecar 不可用 fallback Python | whisper-server.exe 缺 / 模型路径错 / 首次 cold start 超 30s | 检查 vendor/services/whisper-server/;Plan 3C audio.py 已自动 fallback faster-whisper,功能正常但失局部加速 |
 | `whisper-server multipart 4MB 413` | 单次音频 > 4 MB | 切短音频段;后续 plan 可调 whisper-server `--max-multipart` |
+| `runtime.llama.image-embedding.status fail` | infinity sidecar 启动崩 / 模型加载 OOM | 装机或运行环境 RAM 不足;减小模型(SigLIP2-base / CLIP-vit-base 等) |
+| Image-embedding sidecar PyInstaller frozen 启动失败 | chayuan-server.exe 主入口未实现 `--sidecar-mode` 分支(本 plan 留给后续 plan) | facade 自动 fallback in-process,功能正常但失局部进程隔离 |
+| sidecar 启动 60s 超时 | 模型权重加载慢(首次 PyTorch 编译 / 网盘 IO) | 重试启动;持续超时检查 `model.from_pretrained` 错误 |
 | `chayuan_root.writable fail` | chayuan_root 路径写不进 (权限 / 路径错) | 检查 chayuan_root 路径,确认用户有写权限 |
 | `disk.chayuan_root.free_gb fail` | 磁盘剩 < 500 MB | 清理磁盘 |
 
