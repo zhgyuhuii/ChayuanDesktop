@@ -52,6 +52,9 @@ class LocalRuntimeSettings:
     # Plan 3C ASR:
     preload_asr: bool = False
     default_asr_model: str = ""
+    # Plan 3D 图像嵌入:
+    preload_image_embedding: bool = False
+    default_image_embedding_model: str = ""
 
     @classmethod
     def load(cls, path: Path) -> "LocalRuntimeSettings":

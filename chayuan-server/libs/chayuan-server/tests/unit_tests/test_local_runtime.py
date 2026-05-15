@@ -748,3 +748,40 @@ async def test_sidecar_infinity_start_uses_image_embedding_resolver(tmp_path, mo
     status = await m.start()
     assert status.state == "ready"
     assert captured == [("infinity", "image-embedding")]
+
+
+# ---------------------------------------------------------------------------
+# Plan 3D Task 6: LocalRuntimeSettings 加 preload_image_embedding + default_image_embedding_model
+# ---------------------------------------------------------------------------
+
+def test_local_runtime_settings_image_embedding_fields_defaults():
+    """Plan 3D: preload_image_embedding / default_image_embedding_model 默认值。"""
+    s = LocalRuntimeSettings()
+    assert s.preload_image_embedding is False
+    assert s.default_image_embedding_model == ""
+
+
+def test_local_runtime_settings_image_embedding_round_trip(tmp_path):
+    """Plan 3D: image-embedding 字段 yaml round-trip。"""
+    yaml_path = tmp_path / "lr.yaml"
+    s = LocalRuntimeSettings(
+        preload_image_embedding=True,
+        default_image_embedding_model="siglip2-base",
+    )
+    s.save(yaml_path)
+    s2 = LocalRuntimeSettings.load(yaml_path)
+    assert s2.preload_image_embedding is True
+    assert s2.default_image_embedding_model == "siglip2-base"
+
+
+def test_local_runtime_settings_old_yaml_no_image_embedding_field(tmp_path):
+    """Plan 3C 写的 yaml(无 image-embedding 字段)加载时取默认值。"""
+    yaml_path = tmp_path / "lr.yaml"
+    yaml_path.write_text(
+        "preload_on_startup: true\nhost: 127.0.0.1\nport: 62582\n"
+        "preload_embedding: false\npreload_rerank: false\npreload_asr: false\n",
+        encoding="utf-8",
+    )
+    s = LocalRuntimeSettings.load(yaml_path)
+    assert s.preload_image_embedding is False
+    assert s.default_image_embedding_model == ""
