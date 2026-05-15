@@ -522,4 +522,61 @@ def runtime_diagnose() -> Dict[str, Any]:
     return _ok(report.to_dict())
 
 
+# ─────── /runtime/llama/{capability}/* — Plan 3B 多 capability ───────
+
+_VALID_CAPABILITIES = {"chat", "embedding", "rerank"}
+
+
+def _validate_capability(capability: str) -> None:
+    if capability not in _VALID_CAPABILITIES:
+        raise HTTPException(status_code=400, detail=f"unknown capability: {capability!r}")
+
+
+def _llama_registry():
+    """惰性 import 避免循环依赖"""
+    from chayuan.server.model_registry.local_runtime_registry import get_registry
+    return get_registry()
+
+
+@runtime_router.get("/llama/registry")
+def llama_registry_status() -> Dict[str, Any]:
+    """一次拿 3 个 capability 状态;前端 LocalRuntimePanel mount 用。"""
+    reg = _llama_registry()
+    return _ok({cap: st.to_dict() for cap, st in reg.all_statuses().items()})
+
+
+@runtime_router.get("/llama/{capability}/status")
+def llama_capability_status(capability: str) -> Dict[str, Any]:
+    _validate_capability(capability)
+    return _ok(_llama_registry().get(capability).status.to_dict())
+
+
+@runtime_router.post("/llama/{capability}/start")
+async def llama_capability_start(
+    capability: str, body: Dict[str, Any] = Body(default={})
+) -> Dict[str, Any]:
+    _validate_capability(capability)
+    model_id = body.get("model_id") if isinstance(body, dict) else None
+    status = await _llama_registry().get(capability).start(model_id=model_id)
+    return _ok(status.to_dict())
+
+
+@runtime_router.post("/llama/{capability}/stop")
+async def llama_capability_stop(capability: str) -> Dict[str, Any]:
+    _validate_capability(capability)
+    mgr = _llama_registry().get(capability)
+    await mgr.stop()
+    return _ok(mgr.status.to_dict())
+
+
+@runtime_router.post("/llama/{capability}/restart")
+async def llama_capability_restart(
+    capability: str, body: Dict[str, Any] = Body(default={})
+) -> Dict[str, Any]:
+    _validate_capability(capability)
+    model_id = body.get("model_id") if isinstance(body, dict) else None
+    status = await _llama_registry().get(capability).restart(model_id=model_id)
+    return _ok(status.to_dict())
+
+
 __all__ = ["runtime_router"]
