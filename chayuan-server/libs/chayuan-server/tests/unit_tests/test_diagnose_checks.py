@@ -257,12 +257,13 @@ def test_run_all_checks_returns_report_with_summary(tmp_path, monkeypatch):
     # 让 chayuan_root 指向 tmp_path,所有 check 都不会因找不到路径炸
     monkeypatch.setattr("chayuan.settings.CHAYUAN_ROOT", str(tmp_path))
 
-    # 让 3 个 capability 的 registry status 均为 stopped (warn)
+    # 让 4 个 capability 的 registry status 均为 stopped (warn)
     fake_status = lr.RuntimeStatus(state="stopped")
     _patch_registry_status(monkeypatch, {
         "chat": fake_status,
         "embedding": fake_status,
         "rerank": fake_status,
+        "asr": fake_status,
     })
 
     # vendor 二进制肯定找不到 → fail
@@ -270,10 +271,22 @@ def test_run_all_checks_returns_report_with_summary(tmp_path, monkeypatch):
 
     report = run_all_checks()
     assert isinstance(report, DiagnoseReport)
-    assert len(report.checks) == 12
-    # summary 计数加和等于 12
+    assert len(report.checks) == 13  # Plan 3C: + asr
+    # summary 计数加和等于 13
     s = report.summary
-    assert s["ok"] + s["warn"] + s["fail"] == 12
+    assert s["ok"] + s["warn"] + s["fail"] == 13
+
+
+def test_check_runtime_llama_status_for_asr_ready(monkeypatch):
+    from chayuan.server.diagnose.checks import check_runtime_llama_status_for
+    from chayuan.server.model_registry import local_runtime as lr
+    _patch_registry_status(monkeypatch, {
+        "asr": lr.RuntimeStatus(state="ready", endpoint="http://127.0.0.1:62585", pid=10, model_id="whisper-tiny"),
+    })
+    c = check_runtime_llama_status_for("asr")
+    assert c.name == "runtime.llama.asr.status"
+    assert c.severity == "ok"
+    assert "whisper-tiny" in c.detail
 
 
 def test_run_all_checks_does_not_raise_when_check_raises(tmp_path, monkeypatch):

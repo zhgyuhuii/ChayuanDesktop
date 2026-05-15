@@ -136,6 +136,7 @@ def run_first_launch_hooks() -> FirstLaunchReport:
                 "chat": settings.preload_on_startup,
                 "embedding": settings.preload_embedding,
                 "rerank": settings.preload_rerank,
+                "asr": settings.preload_asr,
             }
             for cap, on in preload_map.items():
                 if on:

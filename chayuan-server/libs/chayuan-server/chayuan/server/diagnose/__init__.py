@@ -23,7 +23,7 @@ def _resolve_chayuan_root() -> Path:
 
 
 def run_all_checks() -> DiagnoseReport:
-    """跑 12 项 check,聚合成报告。单个 check 抛异常不阻塞其它 check。"""
+    """跑 13 项 check,聚合成报告。单个 check 抛异常不阻塞其它 check。"""
     root = _resolve_chayuan_root()
     settings_path = root / "model_registry" / "local_runtime.yaml"
     status_path = root / "runtime.json"
@@ -44,6 +44,8 @@ def run_all_checks() -> DiagnoseReport:
                            lambda: _checks.check_runtime_llama_status_for("embedding")),
         _checks._safe_call("runtime.llama.rerank.status",
                            lambda: _checks.check_runtime_llama_status_for("rerank")),
+        _checks._safe_call("runtime.llama.asr.status",
+                           lambda: _checks.check_runtime_llama_status_for("asr")),
     ]
 
     summary = {"ok": 0, "warn": 0, "fail": 0}
