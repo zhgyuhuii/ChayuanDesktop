@@ -13,9 +13,9 @@ from chayuan.server.model_registry.local_runtime import RuntimeStatus
 
 @pytest.fixture
 def client(monkeypatch):
-    """注入 fake registry 让 3 个 capability 全可 mock。"""
+    """注入 fake registry 让 4 个 capability 全可 mock。"""
     fake_managers = {}
-    caps = ("chat", "embedding", "rerank")
+    caps = ("chat", "embedding", "rerank", "asr")
     for cap in caps:
         fm = mock.MagicMock()
         fm.status = RuntimeStatus(state="stopped")
@@ -45,12 +45,12 @@ def client(monkeypatch):
     return TestClient(app), fake_managers
 
 
-def test_llama_registry_returns_three_caps(client):
+def test_llama_registry_returns_four_caps(client):
     c, _ = client
     r = c.get("/runtime/llama/registry")
     assert r.status_code == 200
     data = r.json()["data"]
-    assert set(data.keys()) == {"chat", "embedding", "rerank"}
+    assert set(data.keys()) == {"chat", "embedding", "rerank", "asr"}
 
 
 def test_llama_capability_status_chat(client):
@@ -71,7 +71,7 @@ def test_llama_capability_status_embedding(client):
 
 def test_llama_capability_status_unknown_400(client):
     c, _ = client
-    r = c.get("/runtime/llama/asr/status")
+    r = c.get("/runtime/llama/tts/status")
     assert r.status_code == 400
 
 
@@ -95,3 +95,20 @@ def test_llama_capability_restart_chat(client):
     r = c.post("/runtime/llama/chat/restart")
     assert r.status_code == 200
     fms["chat"].restart.assert_awaited_once()
+
+
+def test_llama_capability_status_asr(client):
+    c, fms = client
+    fms["asr"].status = RuntimeStatus(state="ready", endpoint="http://127.0.0.1:62585", pid=99)
+    r = c.get("/runtime/llama/asr/status")
+    assert r.status_code == 200
+    assert r.json()["data"]["state"] == "ready"
+    assert r.json()["data"]["endpoint"] == "http://127.0.0.1:62585"
+
+
+def test_llama_capability_start_asr(client):
+    c, fms = client
+    r = c.post("/runtime/llama/asr/start")
+    assert r.status_code == 200
+    fms["asr"].start.assert_awaited_once()
+    fms["chat"].start.assert_not_called()
