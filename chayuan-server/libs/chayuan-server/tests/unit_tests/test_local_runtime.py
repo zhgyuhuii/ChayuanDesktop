@@ -242,3 +242,91 @@ def test_get_manager_singleton(tmp_path, monkeypatch):
     m1 = local_runtime.get_manager()
     m2 = local_runtime.get_manager()
     assert m1 is m2
+
+
+@pytest.mark.asyncio
+async def test_manager_start_llama_early_exit_captured(tmp_path, monkeypatch):
+    """llama-server spawn 后立即退出(如 AVX2 不支持),stderr 应被捕获到 last_error"""
+    from chayuan.server.model_registry import local_runtime
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    (services / "llama-server.exe").write_bytes(b"stub")
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    fake_resolution = mock.MagicMock(
+        missing=[],
+        args=["--model", "/tmp/fake.gguf"],
+        resolved_models={"chat": "fake-chat-model"},
+        reason="",
+    )
+    monkeypatch.setattr(
+        local_runtime, "_resolve_chat_args",
+        lambda *a, **kw: (fake_resolution, "/tmp/fake.gguf"),
+    )
+
+    # 进程 spawn 即 exit,stderr 有 AVX2 报错
+    fake_proc = mock.MagicMock()
+    fake_proc.pid = 12345
+    fake_proc.poll = mock.MagicMock(return_value=1)  # 进程已退出
+    fake_proc.stderr = mock.MagicMock()
+    fake_proc.stderr.read = mock.MagicMock(return_value=b"AVX2 instruction not supported by CPU\n")
+    monkeypatch.setattr(local_runtime.subprocess, "Popen", mock.MagicMock(return_value=fake_proc))
+
+    # health 不应被调到(因为 poll 立即捕获)
+    health_called = []
+    async def fake_health(url, **kw):
+        health_called.append(url)
+        return mock.MagicMock(status_code=200)
+    monkeypatch.setattr(local_runtime, "_probe_health", fake_health)
+
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
+    status = await m.start()
+
+    assert status.state == "failed"
+    assert "AVX2" in (status.last_error or "")
+    assert health_called == []  # 进程退出后不再探 health
+
+
+@pytest.mark.asyncio
+async def test_manager_start_health_timeout_kills(tmp_path, monkeypatch):
+    """/health 60s 内不返 200,start 应 kill 进程并报 failed"""
+    from chayuan.server.model_registry import local_runtime
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    (services / "llama-server.exe").write_bytes(b"stub")
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    fake_resolution = mock.MagicMock(
+        missing=[],
+        args=["--model", "/tmp/fake.gguf"],
+        resolved_models={"chat": "fake-chat-model"},
+        reason="",
+    )
+    monkeypatch.setattr(
+        local_runtime, "_resolve_chat_args",
+        lambda *a, **kw: (fake_resolution, "/tmp/fake.gguf"),
+    )
+
+    # 进程活着但 health 永远 raise(连不上)
+    fake_proc = mock.MagicMock()
+    fake_proc.pid = 12345
+    fake_proc.poll = mock.MagicMock(return_value=None)
+    fake_proc.terminate = mock.MagicMock()
+    fake_proc.wait = mock.MagicMock(return_value=0)
+    monkeypatch.setattr(local_runtime.subprocess, "Popen", mock.MagicMock(return_value=fake_proc))
+
+    async def fake_health(url, **kw):
+        raise ConnectionError("refused")
+    monkeypatch.setattr(local_runtime, "_probe_health", fake_health)
+
+    # 把 deadline 拉到 0.3 秒避免测试卡 60s
+    monkeypatch.setattr(local_runtime, "HEALTH_READY_TIMEOUT_SEC", 0.3)
+    monkeypatch.setattr(local_runtime, "HEALTH_PROBE_INTERVAL_SEC", 0.05)
+
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
+    status = await m.start()
+
+    assert status.state == "failed"
+    assert "health" in (status.last_error or "").lower() or "200" in (status.last_error or "")
+    # 超时后必须 kill 进程别留尸
+    fake_proc.terminate.assert_called_once()

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -22,6 +23,12 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import yaml
+
+logger = logging.getLogger(__name__)
+
+# 启动等 /health 200 的总超时(秒)。单元测试可 monkeypatch。
+HEALTH_READY_TIMEOUT_SEC: float = 60.0
+HEALTH_PROBE_INTERVAL_SEC: float = 0.5
 
 
 # ───────────────────────── 配置 / 状态 dataclass ─────────────────────────
@@ -99,6 +106,9 @@ def _default_install_services_dirs() -> list[Path]:
     if getattr(sys, "frozen", False):
         candidates.append(Path(sys.executable).parent / "services")
         candidates.append(Path(sys.executable).parent.parent / "services")
+        # Linux AppImage / Tauri Linux 解包:exe 旁的 lowercase resources/
+        candidates.append(Path(sys.executable).parent / "resources" / "services")
+        candidates.append(Path(sys.executable).parent.parent / "resources" / "services")
         # Mac .app bundle 结构
         candidates.append(Path(sys.executable).parent.parent / "Resources" / "services")
     # dev mode:从仓库 vendor/services/ 找
@@ -120,13 +130,19 @@ async def _probe_health(url: str, *, timeout: float = 2.0) -> "object":
         return await client.get(url)
 
 
-def _resolve_chat_args(*, n_ctx: int = 8192, n_threads: int | None = None):
+def _resolve_chat_args(*, n_ctx: int | None = None, n_threads: int | None = None):
     """调 process_args.resolve_llamacpp_args,返回 (resolution, model_path)。
 
     单独包一层方便测试 monkeypatch。
+    n_ctx/n_threads 均为可选;不传时由 process_args 自行决定默认值(单一真源)。
     """
     from chayuan.server.model_registry import process_args
-    r = process_args.resolve_llamacpp_args(n_ctx=n_ctx, n_threads=n_threads)
+    kwargs: dict = {}
+    if n_ctx is not None:
+        kwargs["n_ctx"] = n_ctx
+    if n_threads is not None:
+        kwargs["n_threads"] = n_threads
+    r = process_args.resolve_llamacpp_args(**kwargs)
     if r.missing:
         return r, None
     try:
@@ -213,8 +229,6 @@ class LlamaRuntimeManager:
         args.extend(resolution.args)
         if self._settings.api_key:
             args.extend(["--api-key", self._settings.api_key])
-        if "--ctx-size" not in resolution.args:
-            args.extend(["--ctx-size", "8192"])
         if "--threads" not in resolution.args:
             args.extend(["--threads", str(min(8, os.cpu_count() or 4))])
 
@@ -231,13 +245,18 @@ class LlamaRuntimeManager:
             self._persist_status()
             return self._status
 
-        # 等 /health 200(最长 60s)
+        proc = self._process  # snapshot:外部 stop() 会把 self._process 抢成 None,本地引用还能干净退出
+
+        # 等 /health 200(最长 HEALTH_READY_TIMEOUT_SEC 秒)
         endpoint = f"http://{host if host != '0.0.0.0' else '127.0.0.1'}:{port}"
         ready = False
-        deadline = datetime.now().timestamp() + 60.0
+        deadline = datetime.now().timestamp() + HEALTH_READY_TIMEOUT_SEC
         while datetime.now().timestamp() < deadline:
-            if self._process.poll() is not None:
-                err = (self._process.stderr.read() if self._process.stderr else b"").decode("utf-8", errors="replace")[-500:]
+            if self._process is not proc:
+                # stop() 已经被 await 过,我们不要再覆盖它写的 stopped 状态
+                return self._status
+            if proc.poll() is not None:
+                err = (proc.stderr.read() if proc.stderr else b"").decode("utf-8", errors="replace")[-500:]
                 self._status = RuntimeStatus(
                     state="failed",
                     last_error=f"llama-server 启动时退出:{err}",
@@ -252,13 +271,15 @@ class LlamaRuntimeManager:
                     break
             except Exception:
                 pass
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(HEALTH_PROBE_INTERVAL_SEC)
 
         if not ready:
+            if self._process is not proc:
+                return self._status
             # 超时也 kill 掉别留尸
             try:
-                self._process.terminate()
-                self._process.wait(timeout=5)
+                proc.terminate()
+                proc.wait(timeout=5)
             except Exception:
                 pass
             self._process = None
@@ -266,10 +287,12 @@ class LlamaRuntimeManager:
             self._persist_status()
             return self._status
 
+        if self._process is not proc:
+            return self._status
         self._status = RuntimeStatus(
             state="ready",
             endpoint=endpoint,
-            pid=self._process.pid,
+            pid=proc.pid,
             model_id=resolution.resolved_models.get("chat"),
             model_path=model_path,
             started_at=datetime.now(),
@@ -283,13 +306,14 @@ class LlamaRuntimeManager:
             self._status = RuntimeStatus(state="stopped")
             self._persist_status()
             return
+        proc_local = self._process  # snapshot too,defensive
         try:
-            self._process.terminate()
-            self._process.wait(timeout=timeout)
+            proc_local.terminate()
+            proc_local.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            self._process.kill()
-        except Exception:
-            pass
+            proc_local.kill()
+        except Exception as e:
+            logger.warning("[local-runtime] stop terminate/wait error: %r", e)
         finally:
             self._process = None
         self._status = RuntimeStatus(state="stopped")
