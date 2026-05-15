@@ -234,4 +234,46 @@ describe('localRuntime client', () => {
     const reg = await localRuntime.getRegistry();
     expect(reg.asr.state).toBe('stopped');
   });
+
+  it('getStatusFor(image-embedding) 命中 GET /runtime/llama/image-embedding/status', async () => {
+    response = () =>
+      new Response(
+        JSON.stringify({ code: 0, data: { state: 'ready', endpoint: 'http://127.0.0.1:62586' } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    const s = await localRuntime.getStatusFor('image-embedding');
+    expect(s.state).toBe('ready');
+    expect(s.endpoint).toBe('http://127.0.0.1:62586');
+    expect(calls[0]!.url).toMatch(/\/runtime\/llama\/image-embedding\/status$/);
+  });
+
+  it('startFor(image-embedding) 命中 POST /runtime/llama/image-embedding/start', async () => {
+    response = () =>
+      new Response(JSON.stringify({ code: 0, data: { state: 'ready' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    await localRuntime.startFor('image-embedding');
+    expect(calls[0]!.init?.method).toBe('POST');
+    expect(calls[0]!.url).toMatch(/\/runtime\/llama\/image-embedding\/start$/);
+  });
+
+  it('getRegistry() 返五个 capability(含 image-embedding)', async () => {
+    response = () =>
+      new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            chat: { state: 'ready' },
+            embedding: { state: 'stopped' },
+            rerank: { state: 'stopped' },
+            asr: { state: 'stopped' },
+            'image-embedding': { state: 'stopped' },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    const reg = await localRuntime.getRegistry();
+    expect(reg['image-embedding'].state).toBe('stopped');
+  });
 });

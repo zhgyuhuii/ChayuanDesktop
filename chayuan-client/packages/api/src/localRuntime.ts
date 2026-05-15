@@ -112,7 +112,7 @@ async function getInstallInfo(): Promise<LocalRuntimeInstallInfo> {
 
 // ─── Plan 3B 多 capability ───
 
-export type LocalRuntimeCapability = 'chat' | 'embedding' | 'rerank' | 'asr';
+export type LocalRuntimeCapability = 'chat' | 'embedding' | 'rerank' | 'asr' | 'image-embedding';
 
 async function getStatusFor(cap: LocalRuntimeCapability): Promise<LocalRuntimeStatus> {
   return (await request<LocalRuntimeStatus>(`/runtime/llama/${cap}/status`)).data;
