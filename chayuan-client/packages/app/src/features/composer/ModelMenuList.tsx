@@ -29,6 +29,10 @@ function isChatModel(model: RawModelItem): boolean {
 
 const STORAGE_KEY = 'cy.modelPicker.override.v2';
 
+/** 本地 runtime 合成出的虚拟 platform,跟真平台 (deepseek/qwen 等) 平行展示 */
+export const LOCAL_PLATFORM_KEY = 'local';
+export const LOCAL_PLATFORM_LABEL = '本地模型';
+
 interface PlatformGroup {
   /** 用作分组 key + 内部识别(同 platform_name) */
   platform: string;
@@ -49,10 +53,16 @@ function groupByPlatform(list: ReadonlyArray<RawModelItem>): PlatformGroup[] {
     map.set(key, entry);
   }
   return Array.from(map.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => {
+      // 本地永远首位,其它按字母序
+      if (a === LOCAL_PLATFORM_KEY) return -1;
+      if (b === LOCAL_PLATFORM_KEY) return 1;
+      return a.localeCompare(b);
+    })
     .map(([platform, { displayName, items }]) => ({
       platform,
-      displayName: displayName || platform,
+      displayName:
+        platform === LOCAL_PLATFORM_KEY ? LOCAL_PLATFORM_LABEL : displayName || platform,
       items: items.slice().sort((a, b) => a.id.localeCompare(b.id)),
     }));
 }
