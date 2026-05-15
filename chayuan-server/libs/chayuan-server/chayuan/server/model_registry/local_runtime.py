@@ -205,21 +205,30 @@ class SidecarRuntimeManager:
     def status(self) -> RuntimeStatus:
         return self._status
 
-    def find_llama_server_exe(self) -> Optional[Path]:
-        """跨平台找 vendor 进集成版的 llama-server 二进制。
+    def find_server_exe(self) -> Optional[Path]:
+        """跨平台找 vendor 进集成版的 sidecar 二进制。
+
+        Plan 3C 起按 self.engine 选 binary 名和子目录:
+          * engine='llama'   → services/llama-server/llama-server[.exe]
+          * engine='whisper' → services/whisper-server/whisper-server[.exe]
 
         给路由 (/runtime/llama/install-info) 和 start() 共用。
         """
         global _INSTALL_SERVICES_DIRS
         dirs = _INSTALL_SERVICES_DIRS if _INSTALL_SERVICES_DIRS is not None else _default_install_services_dirs()
-        names = ["llama-server.exe", "llama-server"]
+        bin_name = f"{self.engine}-server"
+        names = [f"{bin_name}.exe", bin_name]
         for d in dirs:
-            llama_dir = d / "llama-server"
+            server_dir = d / bin_name
             for name in names:
-                p = llama_dir / name
+                p = server_dir / name
                 if p.is_file():
                     return p
         return None
+
+    def find_llama_server_exe(self) -> Optional[Path]:
+        """Deprecated: Plan 3C 起改用 find_server_exe();此 alias 留作向后兼容。"""
+        return self.find_server_exe()
 
     def _allocate_port(self, *, preferred: int) -> int:
         """从 preferred 开始往上找空闲端口 (上限 +20)"""

@@ -532,3 +532,55 @@ def test_llama_runtime_manager_alias_with_capability_kw(tmp_path):
     assert m.engine == "llama"
     assert m.capability == "embedding"
     assert m.port_offset == 1
+
+
+# ---------------------------------------------------------------------------
+# Plan 3C Task 3: find_server_exe 按 engine 找 binary
+# ---------------------------------------------------------------------------
+
+def test_find_server_exe_llama_engine(tmp_path, monkeypatch):
+    """engine='llama' 找 llama-server[.exe]。"""
+    from chayuan.server.model_registry import local_runtime as lr
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    exe = services / "llama-server.exe"
+    exe.write_bytes(b"stub")
+    monkeypatch.setattr(lr, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    m = lr.SidecarRuntimeManager(chayuan_root=tmp_path, engine="llama")
+    assert m.find_server_exe() == exe
+
+
+def test_find_server_exe_whisper_engine(tmp_path, monkeypatch):
+    """engine='whisper' 找 whisper-server[.exe]。"""
+    from chayuan.server.model_registry import local_runtime as lr
+    services = tmp_path / "services" / "whisper-server"
+    services.mkdir(parents=True)
+    exe = services / "whisper-server.exe"
+    exe.write_bytes(b"stub")
+    monkeypatch.setattr(lr, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    m = lr.SidecarRuntimeManager(chayuan_root=tmp_path, engine="whisper", capability="asr", port_offset=3)
+    assert m.find_server_exe() == exe
+
+
+def test_find_server_exe_missing_returns_none(tmp_path, monkeypatch):
+    """vendor 目录里没装,返回 None。"""
+    from chayuan.server.model_registry import local_runtime as lr
+    monkeypatch.setattr(lr, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+    m = lr.SidecarRuntimeManager(chayuan_root=tmp_path, engine="whisper")
+    assert m.find_server_exe() is None
+
+
+def test_find_llama_server_exe_back_compat(tmp_path, monkeypatch):
+    """Plan 3B 已有 find_llama_server_exe 方法名,保留可调(返同一结果)。"""
+    from chayuan.server.model_registry import local_runtime as lr
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    exe = services / "llama-server.exe"
+    exe.write_bytes(b"stub")
+    monkeypatch.setattr(lr, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    m = lr.LlamaRuntimeManager(chayuan_root=tmp_path)
+    assert m.find_llama_server_exe() == exe
+    assert m.find_server_exe() == exe
