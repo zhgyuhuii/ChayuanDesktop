@@ -69,6 +69,9 @@ hidden_modules += collect_submodules("openai")
 hidden_modules += collect_submodules("tiktoken")
 hidden_modules += collect_submodules("nltk")
 hidden_modules += collect_submodules("sqlite_vec")
+# huggingface_hub:install_job 在线下载 bundled_models 时 import,
+# 动态用 hf_hub_download / snapshot_download,静态分析挖不到子模块。
+hidden_modules += collect_submodules("huggingface_hub")
 
 # tiktoken 在 ``encoding_for_model`` 里 ``importlib.import_module`` 加载 ext;
 # PyInstaller 静态分析挖不到,显式列出。
