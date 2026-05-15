@@ -166,9 +166,17 @@ def _resolve(panel_cap: str, *, prefer_format: Optional[str] = None,
 
 # ───────────────────────── llamacpp ─────────────────────────
 
+_LLAMACPP_CAPABILITIES = ("chat", "embedding", "rerank")
+_LLAMACPP_LOCAL_CAP_MAP = {
+    "chat": "chat",
+    "embedding": "text-embedding",
+    "rerank": "rerank",
+}
+
 
 def resolve_llamacpp_args(
     *,
+    capability: str = "chat",
     n_threads: Optional[int] = None,
     n_gpu_layers: Optional[int] = None,
     n_ctx: int = 4096,
@@ -176,24 +184,37 @@ def resolve_llamacpp_args(
     """``llama-server`` 启动时需要的额外 args(在 supervisor.yaml 原有 host/port
     之外追加)。
 
-    解析项: chat ← capability default;模型必须是 GGUF 格式。
+    capability:
+      * ``chat``      → chat default + GGUF + --ctx-size
+      * ``embedding`` → text-embedding default + GGUF + --embedding --pooling cls
+      * ``rerank``    → rerank default + GGUF + --reranking
     """
+    if capability not in _LLAMACPP_CAPABILITIES:
+        raise ValueError(f"Unknown capability for llamacpp: {capability!r}")
+
+    local_cap = _LLAMACPP_LOCAL_CAP_MAP[capability]
     r = Resolution(process="llamacpp")
-    entry, reason = _resolve("chat", prefer_format="gguf", local_cap="chat")
+    entry, reason = _resolve(capability, prefer_format="gguf", local_cap=local_cap)
     if entry is None or entry.format != "gguf":
-        r.missing.append("chat")
+        r.missing.append(capability)
         r.reason = reason if entry is None else (
-            f"chat model {entry.model_id!r} format={entry.format!r} 不是 gguf"
+            f"{capability} model {entry.model_id!r} format={entry.format!r} 不是 gguf"
         )
         return r
 
     r.args.extend(["--model", entry.path])
-    r.args.extend(["--ctx-size", str(int(n_ctx))])
+    if capability == "chat":
+        r.args.extend(["--ctx-size", str(int(n_ctx))])
+    elif capability == "embedding":
+        r.args.extend(["--embedding", "--pooling", "cls"])
+    elif capability == "rerank":
+        r.args.extend(["--reranking"])
+
     if n_threads is not None:
         r.args.extend(["--threads", str(int(n_threads))])
     if n_gpu_layers is not None:
         r.args.extend(["--n-gpu-layers", str(int(n_gpu_layers))])
-    r.resolved_models["chat"] = entry.model_id
+    r.resolved_models[capability] = entry.model_id
     r.reason = reason
     return r
 
