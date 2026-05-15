@@ -24,24 +24,32 @@
   指定 HF 镜像 URL。默认 https://hf-mirror.com;
   如果它挂了试 -Endpoint https://huggingface.co 直连官方。
 
+.PARAMETER Source
+  下载源选择:
+    auto       (默认) 先 HF,失败自动 fallback 到 ModelScope (国内 Alibaba 镜像)
+    hf         强制 HF,失败不 fallback
+    modelscope 跳过 HF 直接走 MS — 适合已知 hf-mirror 的 Xet 不通时
+
 .EXAMPLE
   .\scripts\install-bundled-models.ps1
-  # 默认 4 大件全下
+  # 默认 4 大件全下,auto fallback
 
 .EXAMPLE
-  .\scripts\install-bundled-models.ps1 -Only chat -Clean
-  # 重下 chat 模型(先删旧)
+  .\scripts\install-bundled-models.ps1 -Source modelscope -Clean
+  # 已知 HF Xet 不通,直接走 ModelScope,先清旧
 
 .EXAMPLE
-  .\scripts\install-bundled-models.ps1 -Endpoint https://huggingface.co
-  # hf-mirror 挂了,改直连官方
+  .\scripts\install-bundled-models.ps1 -Only chat -Source modelscope
+  # 只重下 chat(走 MS)
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('chat','embedding','rerank','asr')]
     [string]$Only,
     [switch]$Clean,
-    [string]$Endpoint = 'https://hf-mirror.com'
+    [string]$Endpoint = 'https://hf-mirror.com',
+    [ValidateSet('auto','hf','modelscope')]
+    [string]$Source = 'auto'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,7 +83,7 @@ Write-Host "[install] HF_ENDPOINT: $Endpoint"
 Write-Host ""
 
 # 把参数装回 .py 用的形式
-$pyArgs = @($pyScript, '--workspace', $workspace, '--endpoint', $Endpoint)
+$pyArgs = @($pyScript, '--workspace', $workspace, '--endpoint', $Endpoint, '--source', $Source)
 if ($Only)  { $pyArgs += @('--only', $Only) }
 if ($Clean) { $pyArgs += '--clean' }
 
