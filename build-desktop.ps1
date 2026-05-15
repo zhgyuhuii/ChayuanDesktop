@@ -689,10 +689,48 @@ if ($SkipFrontend) {
     }
 
     # 收产物:.msi / NSIS .exe (主安装器) + .cab (外置 cabinet,集成版 EmbedCab="no" 才会有)
+    #
+    # cab 文件实际放在哪取决于 WiX 调 light 时的 CWD;Tauri 2 把 light 调起来后,
+    # cab 既可能跟 .msi 同目录(target/release/bundle/msi/),也可能落在
+    # target/release/wix/x64/(light 的 .wixobj 所在目录)。先在 .msi 旁边找,
+    # 没就扩搜整个 target/release。
     $artifacts = @()
-    foreach ($pat in @('msi\*.msi', 'msi\*.cab', 'nsis\*.exe')) {
-        $artifacts += Get-ChildItem -Path (Join-Path $TauriBundle $pat) -ErrorAction SilentlyContinue
+    $msiFiles = Get-ChildItem -Path (Join-Path $TauriBundle 'msi\*.msi') -ErrorAction SilentlyContinue
+    $exeFiles = Get-ChildItem -Path (Join-Path $TauriBundle 'nsis\*.exe') -ErrorAction SilentlyContinue
+    $artifacts += $msiFiles
+    $artifacts += $exeFiles
+
+    # cab 收集:先 .msi 旁边
+    $cabFiles = @()
+    foreach ($msi in $msiFiles) {
+        $cabFiles += Get-ChildItem -Path (Join-Path $msi.DirectoryName 'cab*.cab') -ErrorAction SilentlyContinue
+        $cabFiles += Get-ChildItem -Path (Join-Path $msi.DirectoryName '*.cab') -ErrorAction SilentlyContinue
     }
+    $cabFiles = $cabFiles | Sort-Object FullName -Unique
+
+    # 如果 .msi 旁边没找到 cab(WiX 把 cab 放别处了),扩搜 target/release
+    if ($msiFiles.Count -gt 0 -and $cabFiles.Count -eq 0) {
+        # $TauriBundle = chayuan-client\apps\desktop\src-tauri\target\release\bundle
+        # 它的上一层 release 下面 wix\ 也可能有 cab
+        $targetRelease = Split-Path -Parent $TauriBundle
+        if (Test-Path $targetRelease) {
+            Write-Note "msi 旁边没找到 cab*.cab,扩搜 $targetRelease ..."
+            $cabFiles = Get-ChildItem -Path $targetRelease -Recurse -Filter '*.cab' -File -ErrorAction SilentlyContinue
+            if ($cabFiles.Count -gt 0) {
+                Write-Note "扩搜命中 $($cabFiles.Count) 个 cab,位置:$($cabFiles[0].DirectoryName)"
+            }
+        }
+    }
+    $artifacts += $cabFiles
+
+    # 集成版 EmbedCab=no 必须出 cab,否则 .msi 装时 1311/1335 找 cab 失败
+    if ($Flavor -eq 'integrated' -and $msiFiles.Count -gt 0 -and $cabFiles.Count -eq 0) {
+        Write-Fail "集成版 .msi 出了但没找到任何 cab*.cab — light.exe 可能没产 cabinet"
+        Write-Note "手动确认:Get-ChildItem `"$($msiFiles[0].DirectoryName)`" -Recurse | ? Name -like '*.cab'"
+        Write-Note "或扩搜 target/release/ 下:Get-ChildItem `"$(Split-Path -Parent $TauriBundle)`" -Recurse -Filter '*.cab'"
+        Restore-Console; exit 1
+    }
+
     if ($artifacts.Count -eq 0) {
         Write-Fail "Tauri bundle 没产出 .msi / .exe / .cab;看 $TauriBundle"
         Restore-Console; exit 1
