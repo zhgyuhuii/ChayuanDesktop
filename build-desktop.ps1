@@ -654,20 +654,30 @@ if ($SkipFrontend) {
             -Command 'pnpm' -Arguments @('typecheck')
     }
 
+    # Windows 上集成版改走 WiX MSI:
+    # NSIS 32-bit makensis 对每个被打包的单文件 mmap 上限 2 GB,
+    # vendor/bundled_models/ 里 Qwen3-4B Q4_K_M (~2.5 GB) /
+    # bge-reranker-v2-m3 (~2.12 GB) 都会撞穿 -> "failed creating mmap"。
+    # WiX MSI 用 CAB 分卷,没有 2 GB 单文件限制。轻量版 vendor 树清空,
+    # 没有 ≥ 2 GB 单文件,继续走 NSIS 保留 installer.nsh 的中文图标定制。
+    $useMsi = ($Flavor -eq 'integrated') -and ($IsWindows -or $env:OS -eq 'Windows_NT')
     if ($BundleOnly) {
-        # cargo / vite 走增量缓存,只重做 Tauri bundle(makensis 等)。
-        # 注意:不能直接调 ``pnpm --filter @chayuan/desktop build``,因为
-        # 那个里面带 ``tsc + vite build``,与本入口想跳过的 typecheck 重复。
-        # ``pnpm exec tauri build`` 等价于在 apps/desktop 内调 tauri build,
-        # 它会走自身依赖图(vite 增量构建 + cargo 增量编译 + bundle)。
+        # cargo / vite 走增量缓存,只重做 Tauri bundle(makensis / WiX 等)。
+        # 不能直接调 ``pnpm --filter @chayuan/desktop build``,因为那里面带
+        # ``tsc + vite build``,与本入口想跳过的 typecheck 重复。
         $DesktopDir = Join-Path $ClientDir 'apps\desktop'
+        $tauriArgs = @('exec', 'tauri', 'build')
+        if ($useMsi) {
+            $tauriArgs = @('exec', 'tauri', 'build', '--bundles', 'msi,deb,appimage,rpm,dmg,app')
+        }
         Invoke-Step -Name 'tauri-build (bundle-only)' `
             -WorkDir $DesktopDir `
-            -Command 'pnpm' -Arguments @('exec', 'tauri', 'build')
+            -Command 'pnpm' -Arguments $tauriArgs
     } else {
-        Invoke-Step -Name 'pnpm-build-desktop' `
+        $buildScript = if ($useMsi) { 'build:desktop:integrated' } else { 'build:desktop' }
+        Invoke-Step -Name "pnpm-$buildScript" `
             -WorkDir $ClientDir `
-            -Command 'pnpm' -Arguments @('build:desktop')
+            -Command 'pnpm' -Arguments @($buildScript)
     }
 
     $artifacts = @()
