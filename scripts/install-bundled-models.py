@@ -2,55 +2,44 @@
 # -*- coding: utf-8 -*-
 """一键下载 / 替换 vendor/bundled_models/ 里的"瘦身默认集"。
 
-为什么用这个脚本而不是 ``hf download``
-=========================================
+特性
+====
 
-1. ``hf`` CLI 在国内常因 huggingface.co 不可达 / HF_ENDPOINT 没生效 / CLI 版本
-   被 deprecated(huggingface-cli → hf)等问题挂掉。这里直接用 ``huggingface_hub``
-   的 Python API,镜像在脚本里写死,绕开各种环境差异。
-2. **新增 ModelScope fallback**:HF 的 Xet LFS 后端(``cas-bridge.xethub.hf.co``)
-   不被 hf-mirror.com 代理,大文件经常卡 0%。``--source auto``(默认)先 HF,失败
-   自动落到 ModelScope(国内 Alibaba 镜像,稳)。``--source modelscope`` 直接跳过
-   HF。
-3. 同时承担"瘦身"职责:Windows installer 单文件 < 2 GB 硬上限,把 chat /
-   embedding / reranker 三大件换成 < 2 GB 的小版本。
+1. **多 source + 候选列表自动 fallback**:每个 cap 配置 HF 候选清单 + MS 候选
+   清单。按 ``--source`` 决定顺序(auto = HF→MS,modelscope = MS→HF),逐个
+   尝试,第一个能下载成功的胜出;一路 404 / 超时就报错并打印所有尝试明细。
+2. **绕开 hf CLI 各种坑**:直接用 ``huggingface_hub`` Python API,镜像在脚本
+   里写死,HF_ENDPOINT 不持久化也不影响本脚本。
+3. **HF Xet 兜底**:HF 的 Xet LFS 后端(``cas-bridge.xethub.hf.co``)
+   不被 hf-mirror.com 代理,大文件经常卡 0%。``--source modelscope`` 直接跳过
+   HF 走 ModelScope(国内 Alibaba 镜像,稳)。
+4. **失败不阻断后续**:某个 cap 全 source 都挂了不影响其它 cap;结尾汇总
+   失败明细 + 排查建议。
 
-默认下载清单(全部 < 2 GB,Windows installer 友好)
-====================================================
+默认目标(瘦身集,全部 < 2 GB 单文件,Windows installer 友好)
+==============================================================
 
-| capability | HF repo                                    | MS repo (fallback)               | 大小      |
-|------------|--------------------------------------------|----------------------------------|-----------|
-| chat       | unsloth/Qwen3-4B-Instruct-2507-GGUF        | Qwen/Qwen3-4B-Instruct-2507-GGUF | ~1.8 GB   |
-| embedding  | Alibaba-NLP/gte-multilingual-base          | iic/gte-multilingual-base        | ~1.22 GB  |
-| rerank     | Alibaba-NLP/gte-multilingual-reranker-base | iic/gte-multilingual-reranker-base | ~584 MB |
-| asr        | ggerganov/whisper.cpp                      | (无,whisper.cpp 文件小,HF 总过)  | ~74 MB    |
-
-OCR / image 默认不下,需要的话去 chayuan-server/vendor/bundled_models/README.md
-按命令手动拉。
+| cap        | 推荐                            | 备选                  | 大小    |
+|------------|---------------------------------|-----------------------|---------|
+| chat       | Qwen3-4B-Instruct-2507 Q3_K_S   | Q3_K_M / IQ3          | ~1.8 GB |
+| embedding  | gte-multilingual-base           | -                     | ~1.22 GB |
+| rerank     | gte-multilingual-reranker-base  | -                     | ~584 MB |
+| asr        | whisper.cpp ggml-tiny           | -                     | ~74 MB  |
 
 用法
 ====
 
-# 全量 + 自动 fallback(默认行为)
+# 全量下,默认 HF→MS auto fallback
 python scripts/install-bundled-models.py
 
-# 已知 HF Xet 不通,直接走 ModelScope(国内最稳)
+# 已知 HF Xet 拉不动,直接走 MS(国内最稳)
 python scripts/install-bundled-models.py --source modelscope
 
-# 只想强制 HF(用于校验镜像通畅性)
-python scripts/install-bundled-models.py --source hf --endpoint https://huggingface.co
-
-# 只下 chat / embedding / rerank / asr 之一
-python scripts/install-bundled-models.py --only chat
-
-# 先清掉每个 cap 子目录里的旧文件再下(干净换装)
+# 干净换装(清掉旧的再下)
 python scripts/install-bundled-models.py --clean
 
-环境
-====
-
-只需要 Python ≥ 3.10。脚本会按需自动 pip install ``huggingface_hub`` /
-``modelscope``。
+# 只下指定 cap
+python scripts/install-bundled-models.py --only chat
 """
 from __future__ import annotations
 
@@ -60,109 +49,115 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
-# ===== 镜像优先级:CLI 显式 > 环境变量 > hf-mirror.com 默认 =====
+# ===== 镜像优先级:CLI 显式 > 环境变量 > 默认 hf-mirror.com =====
 DEFAULT_ENDPOINTS = [
     "https://hf-mirror.com",   # 国内首选(免登录、社区维护)
     "https://huggingface.co",  # 兜底
 ]
 
-# ===== 单文件超时:让 hf 在 xethub 不通时早点放弃,落到 MS =====
-# 不设置时 huggingface_hub 走 requests 默认无限等待,卡 0% 会一直挂着。
-# 30 秒 + 5 次重试 ≈ 总 2-3 分钟拿不下来就 raise,fallback 介入。
+# 让 hf 在 xethub 卡 0% 时早点放弃,触发 fallback。30s × 5 重试 ≈ 2-3 分钟。
 _HF_DOWNLOAD_TIMEOUT_DEFAULT = "30"
 
 # ===== 下载清单 =====
-# 每个 cap 同时给 HF 和 MS 的 repo / 文件配置。MS 字段缺失 = 该 cap 不支持 MS
-# fallback(默认 auto 模式下 HF 失败就直接报错)。
+# 每个 cap 的 ``hf`` / ``ms`` 字段都是 **候选清单**,按顺序逐个尝试,第一个
+# 能下载就停。snapshot_download 的 ``allow_patterns`` 用来限定整仓内只拉
+# 需要的文件(尤其是 GGUF 仓库通常含十几个量化版本,只要其中一个 < 2 GB 的)。
 #
-# dest_subdir 用 ``__`` 替代 owner/name 之间的 ``/``,贴合 huggingface_hub
-# 镜像化命名习惯,且避免 Windows 子目录名含 ``/``。chayuan 模型扫描只看相对
-# 路径下有没有 .gguf / .safetensors / config.json 等,不在乎子目录名。
-MANIFEST = {
+# 添加新候选:复制一条 {repo, allow_patterns, ...},仿照下面格式追加即可。
+#
+# dest_subdir:本地落盘到 ``<cap>/<dest_subdir>/`` 下;chayuan 扫描器只看
+# 后缀和标志文件,不在乎子目录名。
+MANIFEST: dict[str, dict[str, Any]] = {
     "chat": {
         "approx_mb": 1850,
-        "note": "Qwen3-4B 中文 chat,Q3 系列量化(~1.7-1.95 GB,Windows installer 友好)",
+        "note": "Qwen3-4B chat,Q3 系列量化(~1.7-1.95 GB,Windows installer 友好)",
         "dest_subdir": "Qwen3-4B-Instruct-2507-GGUF",
-        "hf": {
-            "repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
-            "allow_patterns": ["*Q3_K_S*"],
-        },
-        "ms": {
-            # Qwen 官方 ModelScope 仓库。官方通常只放 Q4_K_M/Q5_K_M/Q8_0,
-            # 但有部分 release 包含 Q3 系列。allow_patterns 顺序优先:
-            # Q3_K_S(最瘦,首选)> Q3_K_M(略肥但更稳)> IQ3(现代 imatrix)。
-            # 任一存在就拉,都没有就 fail,提示用户去浏览器看 files 页面挑。
-            "repo": "Qwen/Qwen3-4B-Instruct-2507-GGUF",
-            "allow_patterns": ["*Q3_K_S*", "*Q3_K_M*", "*IQ3*"],
-        },
+        "hf": [
+            # 首选:unsloth 全量化矩阵(Q3_K_S/M/L、IQ3 系列)
+            {"repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+             "allow_patterns": ["*Q3_K_S*"]},
+            # 备选:bartowski 也常做全量化,Q3_K_S 同样齐
+            {"repo": "bartowski/Qwen3-4B-Instruct-2507-GGUF",
+             "allow_patterns": ["*Q3_K_S*"]},
+            # 备选:lmstudio-community,LM Studio 团队整理
+            {"repo": "lmstudio-community/Qwen3-4B-Instruct-2507-GGUF",
+             "allow_patterns": ["*Q3_K_S*"]},
+        ],
+        "ms": [
+            # 首选:Qwen 官方 GGUF(MS 一般用小写 qwen namespace)
+            {"repo": "qwen/Qwen3-4B-Instruct-2507-GGUF",
+             "allow_patterns": ["*Q3_K_S*", "*Q3_K_M*", "*IQ3*"]},
+            # 备选:有些上传者用大写 Qwen 命名
+            {"repo": "Qwen/Qwen3-4B-Instruct-2507-GGUF",
+             "allow_patterns": ["*Q3_K_S*", "*Q3_K_M*", "*IQ3*"]},
+            # 兜底:Qwen2.5-3B 官方 GGUF(2024 老版,但 MS 上稳存在,1.96 GB)
+            {"repo": "qwen/Qwen2.5-3B-Instruct-GGUF",
+             "allow_patterns": ["*q4_k_m*"]},
+        ],
     },
     "embedding": {
         "approx_mb": 1220,
         "note": "Alibaba 多语种 embedding(~1.22 GB,跟 reranker 对齐)",
         "dest_subdir": "gte-multilingual-base",
-        "hf": {
-            "repo": "Alibaba-NLP/gte-multilingual-base",
-            "snapshot": True,
-            "allow_patterns": [
-                "*.json", "*.txt", "*.safetensors", "*.bin",
-                "sentencepiece*", "tokenizer*", "vocab*",
-            ],
-        },
-        "ms": {
-            # ModelScope 上 Alibaba 模型在 ``iic`` (Institute for Intelligent
-            # Computing,前身 ``damo``)namespace 下;某些新模型也直接挂在
-            # ``Alibaba-NLP`` 同名。两个都试一下成本太高,先用 iic,失败再
-            # 报错让用户去 modelscope.cn 搜对应仓库。
-            "repo": "iic/gte-multilingual-base",
-            "snapshot": True,
-            "allow_patterns": [
-                "*.json", "*.txt", "*.safetensors", "*.bin",
-                "sentencepiece*", "tokenizer*", "vocab*",
-            ],
-        },
+        "hf": [
+            {"repo": "Alibaba-NLP/gte-multilingual-base",
+             "allow_patterns": [
+                 "*.json", "*.txt", "*.safetensors", "*.bin",
+                 "sentencepiece*", "tokenizer*", "vocab*",
+             ]},
+        ],
+        "ms": [
+            # iic = Institute for Intelligent Computing,Alibaba 在 MS 的官方组织
+            {"repo": "iic/gte-multilingual-base",
+             "allow_patterns": [
+                 "*.json", "*.txt", "*.safetensors", "*.bin",
+                 "sentencepiece*", "tokenizer*", "vocab*",
+             ]},
+        ],
     },
     "rerank": {
         "approx_mb": 584,
         "note": "Alibaba 多语种 reranker(~584 MB,从 bge-reranker-v2-m3 2.12 GB 瘦身)",
         "dest_subdir": "gte-multilingual-reranker-base",
-        "hf": {
-            "repo": "Alibaba-NLP/gte-multilingual-reranker-base",
-            "snapshot": True,
-            "allow_patterns": [
-                "*.json", "*.txt", "*.safetensors", "*.bin",
-                "sentencepiece*", "tokenizer*", "vocab*",
-            ],
-        },
-        "ms": {
-            "repo": "iic/gte-multilingual-reranker-base",
-            "snapshot": True,
-            "allow_patterns": [
-                "*.json", "*.txt", "*.safetensors", "*.bin",
-                "sentencepiece*", "tokenizer*", "vocab*",
-            ],
-        },
+        "hf": [
+            {"repo": "Alibaba-NLP/gte-multilingual-reranker-base",
+             "allow_patterns": [
+                 "*.json", "*.txt", "*.safetensors", "*.bin",
+                 "sentencepiece*", "tokenizer*", "vocab*",
+             ]},
+        ],
+        "ms": [
+            {"repo": "iic/gte-multilingual-reranker-base",
+             "allow_patterns": [
+                 "*.json", "*.txt", "*.safetensors", "*.bin",
+                 "sentencepiece*", "tokenizer*", "vocab*",
+             ]},
+        ],
     },
     "asr": {
         "approx_mb": 74,
         "note": "whisper.cpp tiny(~74 MB)",
         "dest_subdir": "whisper.cpp",
-        "hf": {
-            "repo": "ggerganov/whisper.cpp",
-            "allow_patterns": ["ggml-tiny.bin"],
-        },
-        # 小文件,HF/hf-mirror 路径一直稳;不提供 MS fallback(MS 上也没有现成镜像)
-        "ms": None,
+        "hf": [
+            {"repo": "ggerganov/whisper.cpp",
+             "allow_patterns": ["ggml-tiny.bin"]},
+        ],
+        # MS 上没有 whisper.cpp 现成镜像;HF/hf-mirror 上小文件一直稳。
+        # 空列表 + --source modelscope 时脚本会自动降级到 HF,见 _build_try_order。
+        "ms": [],
     },
 }
 
+
+# ──────────────────────────── 工具:打印 / 环境 ────────────────────────────
 
 def _print(msg: str) -> None:
     print(msg, flush=True)
 
 
 def _ensure_hf_lib() -> None:
-    """缺 huggingface_hub 就 pip install。"""
     try:
         import huggingface_hub  # noqa: F401
     except ImportError:
@@ -174,7 +169,6 @@ def _ensure_hf_lib() -> None:
 
 
 def _ensure_ms_lib() -> None:
-    """缺 modelscope 就 pip install(只在用到 MS 时调)。"""
     try:
         import modelscope  # noqa: F401
     except ImportError:
@@ -185,7 +179,6 @@ def _ensure_ms_lib() -> None:
 
 
 def _pick_endpoint(user_pref: str | None) -> str:
-    """选 HF 镜像:CLI > 环境变量 > 默认列表第一。"""
     if user_pref:
         return user_pref.rstrip("/")
     env = os.environ.get("HF_ENDPOINT", "").strip().rstrip("/")
@@ -195,33 +188,53 @@ def _pick_endpoint(user_pref: str | None) -> str:
 
 
 def _set_endpoint(endpoint: str) -> None:
-    """huggingface_hub 在 import 时读 HF_ENDPOINT,必须在 import 前设。"""
+    """huggingface_hub 在 import 时读 HF_ENDPOINT,必须 import 前设。"""
     os.environ["HF_ENDPOINT"] = endpoint
     os.environ["HUGGINGFACE_HUB_ENDPOINT"] = endpoint
-    # 让 hf 卡住的 xethub 30 秒就放弃,加速 fallback
     os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", _HF_DOWNLOAD_TIMEOUT_DEFAULT)
 
 
 def _resolve_vendor_root() -> Path:
     here = Path(__file__).resolve()
-    # scripts/install-bundled-models.py  →  ../chayuan-server/vendor/bundled_models
     candidate = here.parent.parent / "chayuan-server" / "vendor" / "bundled_models"
     if candidate.is_dir():
         return candidate
     raise SystemExit(
         f"找不到 vendor/bundled_models/,期望在:{candidate}\n"
-        f"如果你的工作区结构不同,用 --workspace <repo_root> 显式指定。"
+        f"用 --workspace <repo_root> 显式指定。"
     )
 
 
-def _download_via_hf(spec: dict, dest_dir: Path) -> None:
-    """用 huggingface_hub 下载。spec 必须有 ``repo``;支持 ``snapshot=True`` /
-    ``allow_patterns`` / ``filename`` 三种模式。"""
-    from huggingface_hub import hf_hub_download, snapshot_download
+# ──────────────────────────── 存在性预检 ────────────────────────────
 
+def _hf_repo_exists(repo: str) -> tuple[bool, str]:
+    """HF 仓库存在性预检。返回 (exists, hint)。"""
+    try:
+        from huggingface_hub import HfApi
+        api = HfApi(endpoint=os.environ.get("HF_ENDPOINT") or None)
+        api.repo_info(repo_id=repo, repo_type="model")
+        return True, ""
+    except Exception as e:
+        return False, repr(e)
+
+
+def _ms_repo_exists(repo: str) -> tuple[bool, str]:
+    """MS 仓库存在性预检。借 modelscope.hub.api。"""
+    try:
+        from modelscope.hub.api import HubApi
+        api = HubApi()
+        api.get_model(model_id=repo)
+        return True, ""
+    except Exception as e:
+        return False, repr(e)
+
+
+# ──────────────────────────── 实际下载 ────────────────────────────
+
+def _download_via_hf(spec: dict, dest_dir: Path) -> None:
+    from huggingface_hub import hf_hub_download, snapshot_download
     repo = spec["repo"]
-    if spec.get("snapshot") or spec.get("allow_patterns"):
-        # snapshot_download 同时支持单文件(allow_patterns 写死文件名)和整仓
+    if spec.get("allow_patterns") or spec.get("snapshot"):
         snapshot_download(
             repo_id=repo,
             local_dir=str(dest_dir),
@@ -234,21 +247,41 @@ def _download_via_hf(spec: dict, dest_dir: Path) -> None:
             local_dir=str(dest_dir),
         )
     else:
-        raise ValueError(f"HF spec 缺少 filename / snapshot / allow_patterns:{spec}")
+        raise ValueError(f"HF spec 缺 allow_patterns / filename:{spec}")
 
 
 def _download_via_ms(spec: dict, dest_dir: Path) -> None:
-    """用 modelscope SDK 下载。spec 同 HF,但 repo 是 MS 路径。"""
     from modelscope import snapshot_download as ms_snapshot_download
-
-    repo = spec["repo"]
-    # MS 的 snapshot_download 跟 HF 行为类似:allow_patterns 控制文件粒度,
-    # 整仓 vs 单文件都用这个 API 处理。
     ms_snapshot_download(
-        model_id=repo,
+        model_id=spec["repo"],
         allow_patterns=spec.get("allow_patterns"),
         local_dir=str(dest_dir),
     )
+
+
+# ──────────────────────────── 调度 ────────────────────────────
+
+def _build_try_order(
+    source: str,
+    hf_list: list[dict],
+    ms_list: list[dict],
+) -> list[tuple[str, dict]]:
+    """生成 (source_name, spec) 的尝试顺序。
+
+    * ``auto``:HF 全部 → MS 全部
+    * ``hf``:只 HF,不 fallback 到 MS
+    * ``modelscope``:MS 全部 → 若 ms_list 为空再降级到 HF(asr 这种没 MS 的 cap)
+    """
+    if source == "auto":
+        return [("hf", s) for s in hf_list] + [("ms", s) for s in ms_list]
+    if source == "hf":
+        return [("hf", s) for s in hf_list]
+    if source == "modelscope":
+        if ms_list:
+            return [("ms", s) for s in ms_list] + [("hf", s) for s in hf_list]
+        # 当前 cap 没 MS 候选(如 asr),自动降级到 HF
+        return [("hf", s) for s in hf_list]
+    raise ValueError(f"未知 source: {source}")
 
 
 def _download_one(
@@ -272,49 +305,58 @@ def _download_one(
     _print(f"        {cap_spec['note']}")
     _print(f"        local_dir = {dest_dir}")
 
-    hf_spec = cap_spec.get("hf")
-    ms_spec = cap_spec.get("ms")
+    hf_list = cap_spec.get("hf", []) or []
+    ms_list = cap_spec.get("ms", []) or []
+    plan = _build_try_order(source, hf_list, ms_list)
 
-    # 计划:先 HF(若允许),失败再 MS(若允许)
-    tried: list[tuple[str, str]] = []  # (source, err_msg)
+    if not plan:
+        raise RuntimeError(f"[{cap}] 没有任何 source 候选(hf={len(hf_list)}, ms={len(ms_list)})")
 
-    if source in ("auto", "hf") and hf_spec:
-        _print(f"[{cap}] ↓ HF: {hf_spec['repo']}")
-        try:
+    tried: list[tuple[str, str, str]] = []  # (src, repo, err)
+    for src_name, spec in plan:
+        repo = spec["repo"]
+
+        # 存在性预检,跳过明显不存在的 repo,避免下载 SDK 内部慢启动 + 重试
+        if src_name == "hf":
             _ensure_hf_lib()
-            _download_via_hf(hf_spec, dest_dir)
-            _print(f"[{cap}] ✓ 完成 (via HF)")
-            return
-        except KeyboardInterrupt:
-            raise
-        except BaseException as e:  # noqa: BLE001 — fallback 要 swallow 一切
-            tried.append(("hf", repr(e)))
-            _print(f"[{cap}] HF 失败:{e}")
-            if source == "hf":
-                _print(f"[{cap}] (--source hf,不尝试 MS fallback)")
-                raise
-
-    if source in ("auto", "modelscope") and ms_spec:
-        _print(f"[{cap}] ↓ MS: {ms_spec['repo']}")
-        try:
+            exists, err = _hf_repo_exists(repo)
+        else:
             _ensure_ms_lib()
-            _download_via_ms(ms_spec, dest_dir)
-            _print(f"[{cap}] ✓ 完成 (via ModelScope)")
+            exists, err = _ms_repo_exists(repo)
+
+        if not exists:
+            _print(f"[{cap}] {src_name}: {repo} 不存在,跳过")
+            tried.append((src_name, repo, f"repo_not_found: {err}"))
+            continue
+
+        _print(f"[{cap}] ↓ {src_name}: {repo}")
+        try:
+            if src_name == "hf":
+                _download_via_hf(spec, dest_dir)
+            else:
+                _download_via_ms(spec, dest_dir)
+            _print(f"[{cap}] ✓ 完成 (via {src_name}: {repo})")
             return
         except KeyboardInterrupt:
             raise
         except BaseException as e:  # noqa: BLE001
-            tried.append(("ms", repr(e)))
-            _print(f"[{cap}] MS 失败:{e}")
+            tried.append((src_name, repo, repr(e)))
+            _print(f"[{cap}] {src_name} {repo} 下载失败:{e}")
+            continue
 
-    # 走到这就两路都没拿下来(或者根本就没配)
-    if not tried:
-        raise RuntimeError(
-            f"[{cap}] 没有任何可用 source(hf_spec={bool(hf_spec)}, ms_spec={bool(ms_spec)})"
-        )
-    summary = "\n".join(f"  - {src}: {err}" for src, err in tried)
-    raise RuntimeError(f"[{cap}] 所有 source 都失败:\n{summary}")
+    # 全候选用尽
+    summary_lines = [f"[{cap}] 所有候选都失败,尝试明细:"]
+    for src, repo, err in tried:
+        summary_lines.append(f"  - {src} {repo}: {err}")
+    summary_lines.append("")
+    summary_lines.append(f"修法:")
+    summary_lines.append(f"  - 浏览 https://modelscope.cn/search?query={cap_spec['dest_subdir']}")
+    summary_lines.append(f"           或 https://huggingface.co/search?q={cap_spec['dest_subdir']}")
+    summary_lines.append(f"  - 把对的 repo 路径加到 scripts/install-bundled-models.py 的 MANIFEST[{cap!r}]['hf'] 或 ['ms'] 列表里")
+    raise RuntimeError("\n".join(summary_lines))
 
+
+# ──────────────────────────── 入口 ────────────────────────────
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -335,9 +377,9 @@ def main() -> int:
         "--source",
         choices=["auto", "hf", "modelscope"],
         default="auto",
-        help=("下载源选择。auto(默认)= 先 HF 后 MS fallback;"
-              "hf = 强制 HF,失败不 fallback;"
-              "modelscope = 直接跳过 HF 走 MS(适合你已知 hf-mirror Xet 不通)。"),
+        help=("下载源选择。auto(默认)= 先 HF 后 MS;"
+              "hf = 强制 HF;"
+              "modelscope = MS 优先,cap 没 MS 时降级到 HF(适合已知 hf-mirror Xet 不通)。"),
     )
     parser.add_argument(
         "--endpoint",
@@ -356,19 +398,19 @@ def main() -> int:
     _print(f"[install] source = {args.source}")
     if args.source != "modelscope":
         _print(f"[install] HF 镜像 = {endpoint}")
-        _print(f"[install] HF_HUB_DOWNLOAD_TIMEOUT = {os.environ['HF_HUB_DOWNLOAD_TIMEOUT']}s (单连接,5 次重试后 fallback)")
+        _print(f"[install] HF_HUB_DOWNLOAD_TIMEOUT = {os.environ['HF_HUB_DOWNLOAD_TIMEOUT']}s")
 
     if args.workspace:
         vendor_root = args.workspace / "chayuan-server" / "vendor" / "bundled_models"
         if not vendor_root.is_dir():
-            raise SystemExit(f"--workspace 指向的路径下找不到 vendor/bundled_models/: {vendor_root}")
+            raise SystemExit(f"--workspace 下找不到 vendor/bundled_models/: {vendor_root}")
     else:
         vendor_root = _resolve_vendor_root()
     _print(f"[install] vendor_root = {vendor_root}")
     _print("")
 
     plan = [args.only] if args.only else list(MANIFEST.keys())
-    failures = []
+    failures: list[tuple[str, str]] = []
     for cap in plan:
         spec = MANIFEST[cap]
         try:
@@ -383,14 +425,9 @@ def main() -> int:
     if failures:
         _print("[install] 部分下载失败:")
         for cap, err in failures:
-            _print(f"  - {cap}: {err}")
-        _print("")
-        _print("常见排查:")
-        _print("  1) hf-mirror Xet 不通(blob 走 cas-bridge.xethub.hf.co):")
-        _print("     重跑加 --source modelscope")
-        _print("  2) MS 仓库路径变了:浏览 https://modelscope.cn/models/<owner>/<repo>/files")
-        _print("     找对应的 owner(Alibaba 模型 MS 端通常在 iic/ namespace)")
-        _print("  3) 镜像都挂了:--source hf --endpoint https://huggingface.co 直连官方")
+            # err 可能是多行,缩进一下
+            for i, line in enumerate(err.splitlines()):
+                _print(("  - " if i == 0 else "    ") + line)
         return 1
 
     _print("[install] 全部完成。下一步:")
