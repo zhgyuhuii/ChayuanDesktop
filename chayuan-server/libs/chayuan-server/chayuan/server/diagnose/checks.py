@@ -290,3 +290,48 @@ def check_chayuan_server_process() -> DiagnoseCheck:
             severity="warn",
             detail=f"psutil 读不到本进程:{type(e).__name__}: {e}",
         )
+
+
+def check_runtime_llama_status() -> DiagnoseCheck:
+    """LlamaRuntimeManager 当前 state。
+
+    ready    → ok
+    failed   → fail (含 last_error)
+    其它     → warn
+    """
+    try:
+        from chayuan.server.model_registry.local_runtime import get_manager
+        mgr = get_manager()
+        st = mgr.status
+    except Exception as e:
+        return DiagnoseCheck(
+            name="runtime.llama.status",
+            ok=False,
+            severity="warn",
+            detail=f"manager 读 status 异常:{type(e).__name__}: {e}",
+        )
+
+    state = st.state
+    if state == "ready":
+        ok, sev = True, "ok"
+        detail = f"state=ready, endpoint={st.endpoint}, model={st.model_id}, pid={st.pid}"
+    elif state == "failed":
+        ok, sev = False, "fail"
+        detail = f"state=failed, last_error={st.last_error or '<none>'}"
+    else:
+        ok, sev = True, "warn"
+        detail = f"state={state} (未运行或过渡态)"
+
+    return DiagnoseCheck(
+        name="runtime.llama.status",
+        ok=ok,
+        severity=sev,  # type: ignore[arg-type]
+        detail=detail,
+        context={
+            "state": state,
+            "endpoint": st.endpoint,
+            "pid": st.pid,
+            "model_id": st.model_id,
+            "last_error": st.last_error,
+        },
+    )

@@ -205,3 +205,55 @@ def test_check_chayuan_server_process():
     assert c.name == "chayuan_server.process"
     assert c.ok is True
     assert "pid" in c.detail.lower() or str(__import__("os").getpid()) in c.detail
+
+
+def test_check_runtime_llama_status_ready(tmp_path, monkeypatch):
+    from chayuan.server.diagnose.checks import check_runtime_llama_status
+    from chayuan.server.model_registry import local_runtime as lr
+
+    fake_status = lr.RuntimeStatus(
+        state="ready", endpoint="http://127.0.0.1:62583", pid=1234, model_id="m1"
+    )
+
+    class FakeMgr:
+        status = fake_status
+
+    monkeypatch.setattr(lr, "_singleton", FakeMgr())
+    c = check_runtime_llama_status()
+    assert c.name == "runtime.llama.status"
+    assert c.ok is True
+    assert c.severity == "ok"
+    assert "ready" in c.detail
+    assert "m1" in c.detail
+    assert "62583" in c.detail
+
+
+def test_check_runtime_llama_status_failed(tmp_path, monkeypatch):
+    from chayuan.server.diagnose.checks import check_runtime_llama_status
+    from chayuan.server.model_registry import local_runtime as lr
+
+    fake_status = lr.RuntimeStatus(state="failed", last_error="exe missing")
+
+    class FakeMgr:
+        status = fake_status
+
+    monkeypatch.setattr(lr, "_singleton", FakeMgr())
+    c = check_runtime_llama_status()
+    assert c.ok is False
+    assert c.severity == "fail"
+    assert "exe missing" in c.detail
+
+
+def test_check_runtime_llama_status_stopped(tmp_path, monkeypatch):
+    from chayuan.server.diagnose.checks import check_runtime_llama_status
+    from chayuan.server.model_registry import local_runtime as lr
+
+    fake_status = lr.RuntimeStatus(state="stopped")
+
+    class FakeMgr:
+        status = fake_status
+
+    monkeypatch.setattr(lr, "_singleton", FakeMgr())
+    c = check_runtime_llama_status()
+    # stopped 不是 ok 也不是 fail,是 warn (用户没主动启,但不算坏)
+    assert c.severity == "warn"
