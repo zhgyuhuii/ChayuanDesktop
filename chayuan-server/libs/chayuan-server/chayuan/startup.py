@@ -264,6 +264,12 @@ def _set_app_event(app: FastAPI, started_event: mp.Event = None):
         if started_event is not None:
             started_event.set()
         yield
+        # 关停本地 LLM runtime (级联 kill llama-server.exe)
+        try:
+            from chayuan.server.model_registry.local_runtime import get_manager
+            await get_manager().stop()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[shutdown] stop local runtime failed: %r", e)
 
     app.router.lifespan_context = lifespan
 
