@@ -106,21 +106,22 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   const resolveLogo = useResolveLogo();
 
   // 81 题:跨平台同名时,用 (id, platform_name) 复合匹配
-  const current = data.find(
+  // 用 modelsWithLocal:本地合成项也算"已知模型",选中后不会被 96 题 effect 复位
+  const current = modelsWithLocal.find(
     (m) => m.id === modelId && (!platformName || m.platform_name === platformName),
   );
 
   // 96 题:store 里的 modelId 必须在真实 /v1/models 里才视为有效
   // 不在的(用户决策"凭空出现 claude" → 上次硬编码 default)→ 自动清空 + 默认选第一个
   React.useEffect(() => {
-    if (!modelId || data.length === 0) return;
+    if (!modelId || modelsWithLocal.length === 0) return;
     if (!current) {
-      const first = data.find((m) => m.available !== false) ?? data[0];
+      const first = modelsWithLocal.find((m) => m.available !== false) ?? modelsWithLocal[0];
       if (first) {
         setModel(first.id, first.platform_name);
       }
     }
-  }, [modelId, data, current, setModel]);
+  }, [modelId, modelsWithLocal, current, setModel]);
 
   const currentLogo = resolveLogo(current?.platform_name, current?.id);
   const currentLabel = current?.id ?? (modelId || '— 未选 —');
