@@ -239,10 +239,11 @@ export const CapabilityCenter: React.FC<CapabilityCenterProps> = ({
   const [activeCap, setActiveCap] = React.useState<Capability>('chat');
   const localRuntime = useLocalRuntimeStore();
 
-  // 把 panel cap 字符串映射到 LocalRuntimeCapability;只 embedding / rerank 支持本地 runtime
+  // 把 panel cap 字符串映射到 LocalRuntimeCapability;embedding / rerank / asr 支持本地 runtime
   const localCap: LocalRuntimeCapability | null =
     activeCap === 'text-embedding' ? 'embedding' :
     activeCap === 'rerank' ? 'rerank' :
+    activeCap === 'asr' ? 'asr' :
     null;
   const localStatus = localCap ? localRuntime.statuses[localCap] : null;
   const localPending = localCap ? localRuntime.pendingFor[localCap] : null;
