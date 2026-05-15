@@ -144,15 +144,15 @@ pnpm dev:desktop
 > datas 剥到 Tauri resources,解决集成版 sidecar ≥ 2 GB 撞 32-bit makensis
 > mmap 上限。flavor 差异只剩 `build.py --sync-bundled-only` 那步。
 >
-> **Windows 集成版改走 MSI(WiX)而非 NSIS**:32-bit makensis 对**每个被打包的
-> 单文件** mmap 上限是 2 GB,而 vendor/bundled_models/ 里 chat 模型
-> (Qwen3-4B Q4_K_M ≈ 2.5 GB)和 reranker (bge-reranker-v2-m3 ≈ 2.12 GB)都会
-> 撞穿。WiX MSI 用 CAB 分卷,没有 2 GB 单文件限制。脚本里 `Flavor='integrated'
-> + Windows` 自动走 `pnpm build:desktop:integrated`(透传 `tauri build
-> --bundles msi`),其余平台 / 轻量版仍走默认 NSIS / DMG / AppImage。代价:Windows
-> 集成版用户拿到的是 `.msi`,装机后桌面图标是英文 "Chayuan"
-> (`installer.nsh` 里的"察元AI"重命名只对 NSIS 生效);如需在 MSI 上同样定制
-> 桌面图标,得用 WiX 自定义动作另写一遍。
+> **Windows installer 单文件硬上限 2 GB**:NSIS makensis 32-bit mmap、WiX 3
+> light.exe LGHT0263 都卡 INT32_MAX(WiX 4 Burn 能放但 Tauri 2 还没适配)。
+> 所以 `vendor/bundled_models/` 里**严格保持单文件 < 2 GB**:chat 默认走
+> Qwen3-4B Q3_K_S (~1.85 GB),embedding 走 `gte-multilingual-base` (~1.22 GB),
+> reranker 走 `gte-multilingual-reranker-base` (~584 MB)。更高质量但 > 2 GB
+> 的模型(`Q4_K_M`、`bge-m3`、`bge-reranker-v2-m3`)走 install_job 在线下载,
+> 不放 vendor。`build.py --sync-bundled-only` 加了 size-guard,撞 2 GB 在
+> sync 阶段就 abort,不会等到 makensis 才报错。一键换装:
+> `.\scripts\install-bundled-models.ps1 -Clean` 或 `python scripts/install-bundled-models.py --clean`。
 >
 > 构建开始时会自动调 `scripts/check-bundled-models.py` 体检,打印**本次嵌入
 > 哪些模型**。模型相关的下载地址 / 格式 / 放置约定见

@@ -49,6 +49,30 @@ vendor/bundled_models/
 
 ## 推荐模型清单 (实测 2026-05-14 全部 200 可下载)
 
+> ⚠ **Windows installer 单文件 ≥ 2 GB 直接炸**
+>
+> NSIS makensis 32-bit mmap 上限 = 2 GiB;WiX 3 light.exe LGHT0263 硬编码
+> INT32_MAX = 2 GiB。两条 Windows installer 路都过不去。集成版打包要在
+> `vendor/bundled_models/` 里**严格保持每个单文件 < 2 GB**。下表用 ⚠ 标的
+> 行就是会触雷的尺寸,**集成版打包**别用,只能放进 install_job 在线下载。
+>
+> **快速换装**(一键替换 chat / embedding / reranker 为瘦身默认集):
+>
+> ```powershell
+> # Windows
+> .\scripts\install-bundled-models.ps1 -Clean
+> ```
+>
+> ```bash
+> # Linux / Mac(或 Windows 上直接调 .py)
+> python scripts/install-bundled-models.py --clean
+> ```
+>
+> 脚本自带 `HF_ENDPOINT=https://hf-mirror.com`,跳过 `hf` CLI / 环境变量
+> 各种坑;镜像挂了用 `-Endpoint https://huggingface.co` 直连官方。`build.py
+> --sync-bundled-only` 也加了 size-guard,撞 2 GB 在 sync 阶段就 abort,
+> 不会让你等到 makensis / light.exe 才看见。
+
 下表每一行的 HF 仓库 + 具体文件名都在 `hf-mirror.com` 上**实际 HEAD 探测过返回 200**。
 每条都给出探测时拿到的真实 `Content-Length`,与官方页面尺寸对得上。
 **release 列**只是参考(说明这个模型属于"轻量 / 标准 / 专业"哪一档),不是说
@@ -60,13 +84,15 @@ vendor/bundled_models/
 
 | capability | HF 仓库(实测 200) | 文件(单文件)或整仓 | 真实大小 | release |
 |---|---|---|---|---|
-| chat | `unsloth/Qwen3-4B-Instruct-2507-GGUF` | `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` | 2.33 GB | lite / standard / pro |
-| chat | `Qwen/Qwen2.5-3B-Instruct-GGUF`(官方,稍小) | `qwen2.5-3b-instruct-q4_k_m.gguf` | 1.96 GB | lite 备选 |
-| chat | `bartowski/Qwen2.5-7B-Instruct-GGUF`(社区镜像,单文件) | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | 4.36 GB | pro |
-| embedding | `BAAI/bge-m3` | 整仓(`config.json` + `pytorch_model.bin` + ...) | ~570 MB | lite / standard / pro |
-| embedding | `BAAI/bge-large-zh-v1.5`(中文偏置备选) | 整仓 | ~1.4 GB | standard / pro |
-| rerank | `BAAI/bge-reranker-v2-m3` | 整仓(主权重 `model.safetensors`) | 2.12 GB | lite / standard / pro |
-| rerank (备选,推荐瘦身) | `Alibaba-NLP/gte-multilingual-reranker-base` | 整仓 | 584 MB | lite 备选 |
+| chat **(集成版默认)** | `unsloth/Qwen3-4B-Instruct-2507-GGUF` | `Qwen3-4B-Instruct-2507-Q3_K_S.gguf` | ~1.85 GB | lite / standard / pro |
+| chat (在线下载 lite 用,质量更好) | `unsloth/Qwen3-4B-Instruct-2507-GGUF` | `Qwen3-4B-Instruct-2507-Q4_K_M.gguf` ⚠ ≥ 2 GB,集成版打不进 | 2.33 GB | install_job 在线拉,**不放 vendor** |
+| chat (备选,官方,内存 < 6 GB) | `Qwen/Qwen2.5-3B-Instruct-GGUF` | `qwen2.5-3b-instruct-q4_k_m.gguf` | 1.96 GB | lite 备选 |
+| chat (pro 在线下载,16 GB+ 内存) | `bartowski/Qwen2.5-7B-Instruct-GGUF` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` ⚠ ≥ 2 GB | 4.36 GB | install_job 在线拉,**不放 vendor** |
+| embedding **(集成版默认)** | `Alibaba-NLP/gte-multilingual-base` | 整仓 | ~1.22 GB | lite / standard / pro |
+| embedding (备选,多功能 hybrid) | `BAAI/bge-m3` | 整仓(`model.safetensors` ~2.27 GB ⚠) | ~2.27 GB 单文件,**集成版打不进**;在线下载可用 | install_job 在线拉 |
+| embedding (备选,中文偏置) | `BAAI/bge-large-zh-v1.5` | 整仓 | ~1.4 GB | standard / pro |
+| rerank **(集成版默认)** | `Alibaba-NLP/gte-multilingual-reranker-base` | 整仓 | ~584 MB | lite / standard / pro |
+| rerank (备选,多语种强,在线下载) | `BAAI/bge-reranker-v2-m3` | 整仓(主权重 `model.safetensors` ⚠ ≥ 2 GB) | 2.12 GB | install_job 在线拉,**不放 vendor** |
 | rerank (备选,瘦身) | `jinaai/jina-reranker-v2-base-multilingual` | 整仓 | 531 MB | lite 备选 |
 | rerank (备选,bge 家族 v1) | `BAAI/bge-reranker-base` | 整仓 | 1.04 GB | (按需) |
 | rerank (备选,极小,仅英文) | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 整仓 | 87 MB | (英文场景) |

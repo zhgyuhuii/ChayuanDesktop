@@ -654,33 +654,24 @@ if ($SkipFrontend) {
             -Command 'pnpm' -Arguments @('typecheck')
     }
 
-    # Windows 上集成版改走 WiX MSI:
-    # NSIS 32-bit makensis 对每个被打包的单文件 mmap 上限 2 GB,
-    # vendor/bundled_models/ 里 Qwen3-4B Q4_K_M (~2.5 GB) /
-    # bge-reranker-v2-m3 (~2.12 GB) 都会撞穿 -> "failed creating mmap"。
-    # WiX MSI 用 CAB 分卷,没有 2 GB 单文件限制。轻量版 vendor 树清空,
-    # 没有 ≥ 2 GB 单文件,继续走 NSIS 保留 installer.nsh 的中文图标定制。
-    $useMsi = ($Flavor -eq 'integrated') -and ($IsWindows -or $env:OS -eq 'Windows_NT')
+    # Windows installer 两条路都有 2 GB 单文件硬上限,vendor/bundled_models/
+    # 里任何 ≥ 2 GB 的文件都会炸(NSIS makensis 32-bit mmap;WiX 3 light.exe
+    # LGHT0263 硬编码 INT32_MAX)。WiX 4 Burn 能处理大文件但 Tauri 2.1 还没
+    # 支持。所以两个 flavor 都走 NSIS,vendor 里**禁止**出现 ≥ 2 GB 单文件 —
+    # 这条已经在 build.py --sync-bundled-only 里加 size-guard 强制了,撞到
+    # 会在 Step 1b 立即报错,不会走到打包阶段。
     if ($BundleOnly) {
-        # cargo / vite 走增量缓存,只重做 Tauri bundle(makensis / WiX 等)。
+        # cargo / vite 走增量缓存,只重做 Tauri bundle(makensis 等)。
         # 不能直接调 ``pnpm --filter @chayuan/desktop build``,因为那里面带
         # ``tsc + vite build``,与本入口想跳过的 typecheck 重复。
         $DesktopDir = Join-Path $ClientDir 'apps\desktop'
-        $tauriArgs = @('exec', 'tauri', 'build')
-        if ($useMsi) {
-            # Tauri 2 CLI 的 --bundles 只接受当前平台支持的 target;
-            # 在 Windows 上写 deb/appimage 之类会报 "invalid value"。
-            # 桌面 flavor 在 Windows 上要么 msi 要么 nsis,选 msi。
-            $tauriArgs = @('exec', 'tauri', 'build', '--bundles', 'msi')
-        }
         Invoke-Step -Name 'tauri-build (bundle-only)' `
             -WorkDir $DesktopDir `
-            -Command 'pnpm' -Arguments $tauriArgs
+            -Command 'pnpm' -Arguments @('exec', 'tauri', 'build')
     } else {
-        $buildScript = if ($useMsi) { 'build:desktop:integrated' } else { 'build:desktop' }
-        Invoke-Step -Name "pnpm-$buildScript" `
+        Invoke-Step -Name 'pnpm-build-desktop' `
             -WorkDir $ClientDir `
-            -Command 'pnpm' -Arguments @($buildScript)
+            -Command 'pnpm' -Arguments @('build:desktop')
     }
 
     $artifacts = @()

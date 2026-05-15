@@ -161,6 +161,44 @@ def copy_to_tauri_binaries() -> Path:
     return dst
 
 
+# Windows installer 单文件硬上限(NSIS makensis 32-bit mmap;WiX 3 light.exe
+# LGHT0263 硬编码 INT32_MAX)。任何 ≥ 这个尺寸的单文件都打不进 .exe/.msi,
+# 必须换更小的量化 / 模型版本。WiX 4 Burn 能处理但 Tauri 2 还没支持。
+_WIN_INSTALLER_FILE_LIMIT = 2 * 1024 * 1024 * 1024  # 2 GiB
+
+
+def _guard_oversized_files() -> None:
+    """扫 vendor/bundled_models/ 整树,任何 ≥ 2 GB 单文件立即报错。
+
+    这是 Windows installer 的硬限制 — 一旦走到 makensis / light.exe 才发现,
+    用户得等十几分钟的 PyInstaller + cargo + vite 跑完才看到错误。提前到
+    sync 这一步报错,几秒内告诉用户哪个文件超标。
+    """
+    if not BUNDLED_SRC.is_dir():
+        return
+    offenders: list[tuple[Path, int]] = []
+    for sub in BUNDLED_SRC.rglob("*"):
+        if sub.is_file() and sub.stat().st_size >= _WIN_INSTALLER_FILE_LIMIT:
+            offenders.append((sub, sub.stat().st_size))
+    if not offenders:
+        return
+    lines = ["[build] FATAL: 以下单文件 ≥ 2 GB,无法打进 Windows installer:"]
+    for path, size in offenders:
+        gb = size / 1024 / 1024 / 1024
+        rel = path.relative_to(BUNDLED_SRC)
+        lines.append(f"  - {rel}  ({gb:.2f} GB)")
+    lines.append("")
+    lines.append("原因:NSIS makensis 32-bit mmap 单文件 < 2 GB;WiX 3 light.exe")
+    lines.append("     LGHT0263 硬编码 INT32_MAX。两条 Windows installer 路都卡。")
+    lines.append("")
+    lines.append("修法:换更小的量化 / 模型版本,参考")
+    lines.append("     chayuan-server/vendor/bundled_models/README.md 推荐瘦身清单,")
+    lines.append("     或跑 scripts/install-bundled-models.ps1 / .sh 一键替换。")
+    msg = "\n".join(lines)
+    print(msg, file=sys.stderr, flush=True)
+    raise SystemExit(2)
+
+
 def sync_bundled_models(*, lite: bool) -> None:
     """同步 vendor/bundled_models/ → src-tauri/bundled_models/(给 Tauri resources)。
 
@@ -184,6 +222,9 @@ def sync_bundled_models(*, lite: bool) -> None:
         print(f"[build] 警告:bundled 源不存在 {BUNDLED_SRC},集成版退化为空目录", flush=True)
         (DESKTOP_BUNDLED_MODELS_DIR / ".gitkeep").touch()
         return
+
+    # 集成版打包前 size guard:撞 2 GB 就拒(详见上方 _guard_oversized_files 注释)
+    _guard_oversized_files()
 
     # 跳过 README / .gitkeep 这类元文件,只拷 capability 子目录的真实模型
     n_files = 0
