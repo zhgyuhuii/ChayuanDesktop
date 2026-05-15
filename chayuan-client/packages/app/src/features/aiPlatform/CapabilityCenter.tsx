@@ -22,17 +22,21 @@
  * 二者公用同一份 ``aiPlatform`` API、共享 react-query 缓存键。
  */
 import * as React from 'react';
+import { Cpu } from 'lucide-react';
 import {
   aiPlatform,
   aiPlatformRecommended,
   type AiPlatformModel,
   type Capability,
+  type LocalRuntimeCapability,
   type ModelLocateResponse,
   type RecommendedListResponse,
   type RecommendedModelDto,
   type PullProgress,
 } from '@chayuan/api';
+import { Button } from '@chayuan/ui';
 import { notifyInfo } from '../../store/errorDialog';
+import { useLocalRuntimeStore } from '../../store/localRuntime';
 
 const CAPABILITY_LABELS: Record<Capability, string> = {
   chat: '对话',
@@ -233,6 +237,16 @@ export const CapabilityCenter: React.FC<CapabilityCenterProps> = ({
 }) => {
   const data = useCapabilityData();
   const [activeCap, setActiveCap] = React.useState<Capability>('chat');
+  const localRuntime = useLocalRuntimeStore();
+
+  // 把 panel cap 字符串映射到 LocalRuntimeCapability;只 embedding / rerank 支持本地 runtime
+  const localCap: LocalRuntimeCapability | null =
+    activeCap === 'text-embedding' ? 'embedding' :
+    activeCap === 'rerank' ? 'rerank' :
+    null;
+  const localStatus = localCap ? localRuntime.statuses[localCap] : null;
+  const localPending = localCap ? localRuntime.pendingFor[localCap] : null;
+
   // 来自 RuntimeCenter "去推荐" 按钮的跳转 —— 切到对应 capability tab
   React.useEffect(() => {
     const onJump = (e: Event) => {
@@ -362,6 +376,29 @@ export const CapabilityCenter: React.FC<CapabilityCenterProps> = ({
             data-testid="install-gated-warning"
           >
             服务端要求登录后才能下载 / 安装模型；请先在右上角登录后再操作。
+          </div>
+        )}
+
+        {localCap && (
+          <div className="mb-2 flex items-center gap-2 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-xs">
+            <Cpu className="h-3.5 w-3.5 text-[var(--cy-text-tertiary)]" />
+            <span className="text-[var(--cy-text-secondary)]">本地 runtime:</span>
+            {localStatus?.state === 'ready' ? (
+              <code className="text-emerald-700">运行中 ({localStatus.endpoint})</code>
+            ) : (
+              <span className="text-[var(--cy-text-tertiary)]">
+                {localStatus?.state === 'failed' ? `失败:${localStatus.last_error ?? ''}` : '未运行'}
+              </span>
+            )}
+            <div className="flex-1" />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={localPending !== null || localStatus?.state === 'ready'}
+              onClick={() => void localRuntime.startCapability(localCap)}
+            >
+              {localPending === 'start' ? '启动中…' : '启动本地 runtime'}
+            </Button>
           </div>
         )}
 
