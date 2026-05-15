@@ -240,9 +240,16 @@ def resolve_image_embedding_args(
     Plan 1 的 :func:`resolve_infinity_args` 是给 michaelf34/infinity binary 用的
     `--model-id <id>` args(两个函数并存,不互相替代)。
 
+    PyInstaller frozen 模式:`sys.executable` 是 chayuan-server.exe 不是 python.exe,
+    不能 `-m`;改返 `--sidecar-mode=image-embedding` args 让 chayuan-server.exe
+    自我转化(主入口分支实现留给后续 plan;本 plan 期间 frozen 模式 sidecar 起不来
+    时 facade 自动 fallback in-process)。
+
     capability:
       * ``image-embedding`` → image default + transformers/safetensors 模型 + --model
     """
+    import sys
+
     if capability not in _INFINITY_CAPABILITIES:
         raise ValueError(f"Unknown capability for infinity: {capability!r}")
 
@@ -254,10 +261,20 @@ def resolve_image_embedding_args(
         r.reason = reason
         return r
 
-    r.args.extend([
-        "-m", "chayuan.server.image_source.infinity_server",
-        "--model", entry.model_id,
-    ])
+    frozen = getattr(sys, "frozen", False)
+    if frozen:
+        # PyInstaller: chayuan-server.exe 自我转化 sidecar(主入口需实现 --sidecar-mode)
+        r.args.extend([
+            "--sidecar-mode", capability,
+            "--model", entry.model_id,
+        ])
+    else:
+        # 开发模式: sys.executable 是 python(.exe),直接 -m
+        r.args.extend([
+            "-m", "chayuan.server.image_source.infinity_server",
+            "--model", entry.model_id,
+        ])
+
     if n_threads is not None:
         r.args.extend(["--threads", str(int(n_threads))])
     r.resolved_models[capability] = entry.model_id
