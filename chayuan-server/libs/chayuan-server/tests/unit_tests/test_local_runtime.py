@@ -330,3 +330,42 @@ async def test_manager_start_health_timeout_kills(tmp_path, monkeypatch):
     assert "health" in (status.last_error or "").lower() or "200" in (status.last_error or "")
     # 超时后必须 kill 进程别留尸
     fake_proc.terminate.assert_called_once()
+
+
+def test_local_runtime_settings_new_capability_fields_defaults():
+    """新加的 4 个字段有默认值,旧测试不破。"""
+    s = LocalRuntimeSettings()
+    assert s.preload_embedding is False
+    assert s.preload_rerank is False
+    assert s.default_embedding_model == ""
+    assert s.default_rerank_model == ""
+
+
+def test_local_runtime_settings_new_fields_round_trip(tmp_path):
+    """新字段 yaml round-trip 正确。"""
+    yaml_path = tmp_path / "lr.yaml"
+    s = LocalRuntimeSettings(
+        preload_embedding=True,
+        preload_rerank=True,
+        default_embedding_model="bge-small-zh",
+        default_rerank_model="bge-rerank-m3",
+    )
+    s.save(yaml_path)
+    s2 = LocalRuntimeSettings.load(yaml_path)
+    assert s2.preload_embedding is True
+    assert s2.preload_rerank is True
+    assert s2.default_embedding_model == "bge-small-zh"
+    assert s2.default_rerank_model == "bge-rerank-m3"
+
+
+def test_local_runtime_settings_old_yaml_compat(tmp_path):
+    """没有新字段的旧 yaml 加载时新字段取默认。"""
+    yaml_path = tmp_path / "lr.yaml"
+    yaml_path.write_text(
+        "preload_on_startup: true\nhost: 127.0.0.1\nport: 62582\n",
+        encoding="utf-8",
+    )
+    s = LocalRuntimeSettings.load(yaml_path)
+    assert s.preload_embedding is False
+    assert s.preload_rerank is False
+    assert s.default_embedding_model == ""

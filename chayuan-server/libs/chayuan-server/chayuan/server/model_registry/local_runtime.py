@@ -42,6 +42,11 @@ class LocalRuntimeSettings:
     api_key: str = ""
     expose_lan: bool = False
     default_chat_model: str = ""
+    # Plan 3B 多 capability:
+    preload_embedding: bool = False
+    preload_rerank: bool = False
+    default_embedding_model: str = ""
+    default_rerank_model: str = ""
 
     @classmethod
     def load(cls, path: Path) -> "LocalRuntimeSettings":
