@@ -49,6 +49,9 @@ class LocalRuntimeSettings:
     preload_rerank: bool = False
     default_embedding_model: str = ""
     default_rerank_model: str = ""
+    # Plan 3C ASR:
+    preload_asr: bool = False
+    default_asr_model: str = ""
 
     @classmethod
     def load(cls, path: Path) -> "LocalRuntimeSettings":

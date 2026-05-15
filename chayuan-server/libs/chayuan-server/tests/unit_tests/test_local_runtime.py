@@ -656,3 +656,33 @@ async def test_sidecar_llama_start_still_uses_llama_resolver(tmp_path, monkeypat
     status = await m.start()
     assert status.state == "ready"
     assert captured == [("llama", "chat")]
+
+
+def test_local_runtime_settings_asr_fields_defaults():
+    """Plan 3C: preload_asr / default_asr_model 默认值。"""
+    s = LocalRuntimeSettings()
+    assert s.preload_asr is False
+    assert s.default_asr_model == ""
+
+
+def test_local_runtime_settings_asr_round_trip(tmp_path):
+    """Plan 3C: asr 字段 yaml round-trip。"""
+    yaml_path = tmp_path / "lr.yaml"
+    s = LocalRuntimeSettings(preload_asr=True, default_asr_model="whisper-tiny")
+    s.save(yaml_path)
+    s2 = LocalRuntimeSettings.load(yaml_path)
+    assert s2.preload_asr is True
+    assert s2.default_asr_model == "whisper-tiny"
+
+
+def test_local_runtime_settings_old_yaml_no_asr_field(tmp_path):
+    """Plan 3B 写的 yaml(无 asr 字段)加载时 asr 取默认值。"""
+    yaml_path = tmp_path / "lr.yaml"
+    yaml_path.write_text(
+        "preload_on_startup: true\nhost: 127.0.0.1\nport: 62582\n"
+        "preload_embedding: false\npreload_rerank: false\n",
+        encoding="utf-8",
+    )
+    s = LocalRuntimeSettings.load(yaml_path)
+    assert s.preload_asr is False
+    assert s.default_asr_model == ""
