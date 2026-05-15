@@ -514,4 +514,12 @@ def llama_install_info() -> Dict[str, Any]:
     })
 
 
+@runtime_router.get("/diagnose")
+def runtime_diagnose() -> Dict[str, Any]:
+    """跑所有本地 runtime 健康检查,返报告 JSON。"""
+    from chayuan.server.diagnose import run_all_checks
+    report = run_all_checks()
+    return _ok(report.to_dict())
+
+
 __all__ = ["runtime_router"]

@@ -257,3 +257,50 @@ def test_check_runtime_llama_status_stopped(tmp_path, monkeypatch):
     c = check_runtime_llama_status()
     # stopped 不是 ok 也不是 fail,是 warn (用户没主动启,但不算坏)
     assert c.severity == "warn"
+
+
+def test_run_all_checks_returns_report_with_summary(tmp_path, monkeypatch):
+    """聚合应返 DiagnoseReport + summary 计数正确"""
+    from chayuan.server.diagnose import run_all_checks, DiagnoseReport
+    from chayuan.server.model_registry import local_runtime as lr
+
+    # 让 chayuan_root 指向 tmp_path,所有 check 都不会因找不到路径炸
+    monkeypatch.setattr("chayuan.settings.CHAYUAN_ROOT", str(tmp_path))
+
+    # 让 LlamaRuntimeManager status 是 stopped (warn)
+    fake_status = lr.RuntimeStatus(state="stopped")
+
+    class FakeMgr:
+        status = fake_status
+
+    monkeypatch.setattr(lr, "_singleton", FakeMgr())
+
+    # vendor 二进制肯定找不到 → fail
+    monkeypatch.setattr(lr, "_INSTALL_SERVICES_DIRS", [tmp_path / "nothing"])
+
+    report = run_all_checks()
+    assert isinstance(report, DiagnoseReport)
+    assert len(report.checks) == 10
+    # summary 计数加和等于 10
+    s = report.summary
+    assert s["ok"] + s["warn"] + s["fail"] == 10
+
+
+def test_run_all_checks_does_not_raise_when_check_raises(tmp_path, monkeypatch):
+    """单个 check 抛异常不能影响其它"""
+    from chayuan.server.diagnose import run_all_checks
+    from chayuan.server.diagnose import checks as _checks
+
+    def boom():
+        raise RuntimeError("explode")
+
+    monkeypatch.setattr(_checks, "check_sidecar_healthz", boom)
+    monkeypatch.setattr("chayuan.settings.CHAYUAN_ROOT", str(tmp_path))
+
+    report = run_all_checks()
+    # 还能跑出来,sidecar.healthz 那项变成 fail
+    names = [c.name for c in report.checks]
+    assert "sidecar.healthz" in names
+    sidecar_c = next(c for c in report.checks if c.name == "sidecar.healthz")
+    assert sidecar_c.severity == "fail"
+    assert "explode" in sidecar_c.detail.lower() or "runtimeerror" in sidecar_c.detail.lower()

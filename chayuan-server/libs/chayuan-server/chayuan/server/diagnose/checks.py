@@ -335,3 +335,16 @@ def check_runtime_llama_status() -> DiagnoseCheck:
             "last_error": st.last_error,
         },
     )
+
+
+def _safe_call(name: str, fn) -> DiagnoseCheck:
+    """check 内部如果还能漏出异常,这里再兜一层"""
+    try:
+        return fn()
+    except Exception as e:
+        return DiagnoseCheck(
+            name=name,
+            ok=False,
+            severity="fail",
+            detail=f"check 抛异常:{type(e).__name__}: {e}",
+        )
