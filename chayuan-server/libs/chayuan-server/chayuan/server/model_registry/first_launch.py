@@ -137,6 +137,7 @@ def run_first_launch_hooks() -> FirstLaunchReport:
                 "embedding": settings.preload_embedding,
                 "rerank": settings.preload_rerank,
                 "asr": settings.preload_asr,
+                "image-embedding": settings.preload_image_embedding,
             }
             for cap, on in preload_map.items():
                 if on:
