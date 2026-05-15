@@ -5,7 +5,11 @@ severity=fail + detail 描述。
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from chayuan.server.diagnose.types import DiagnoseCheck
+from chayuan.server.model_registry.local_index import get_local_index
+from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
 
 
 def check_sidecar_healthz() -> DiagnoseCheck:
@@ -19,4 +23,81 @@ def check_sidecar_healthz() -> DiagnoseCheck:
         ok=True,
         severity="ok",
         detail="sidecar HTTP 层就绪 (routing layer responsive)",
+    )
+
+
+def check_vendor_llama_server_binary() -> DiagnoseCheck:
+    """检查 vendor/services/llama-server/llama-server(.exe) 是否存在 + 读 VERSION。"""
+    try:
+        # 复用 manager 的查找逻辑;chayuan_root 这里只是占位,find_llama_server_exe
+        # 不依赖 chayuan_root
+        mgr = LlamaRuntimeManager(chayuan_root=Path("/tmp"))
+        exe = mgr.find_llama_server_exe()
+    except Exception as e:
+        return DiagnoseCheck(
+            name="vendor.llama-server.binary",
+            ok=False,
+            severity="fail",
+            detail=f"查找二进制时异常:{type(e).__name__}: {e}",
+        )
+
+    if exe is None:
+        return DiagnoseCheck(
+            name="vendor.llama-server.binary",
+            ok=False,
+            severity="fail",
+            detail="未找到 llama-server 二进制;检查集成版是否完整 / 开发机是否跑过 install-llama-server",
+        )
+
+    version = "unknown"
+    version_file = exe.parent / "VERSION"
+    if version_file.is_file():
+        try:
+            version = version_file.read_text(encoding="utf-8").splitlines()[0].strip()
+        except Exception:
+            pass
+
+    try:
+        size_mb = exe.stat().st_size / 1024 / 1024
+    except Exception:
+        size_mb = 0.0
+
+    return DiagnoseCheck(
+        name="vendor.llama-server.binary",
+        ok=True,
+        severity="ok",
+        detail=f"{exe} ({version}, {size_mb:.1f} MB)",
+        context={"path": str(exe), "version": version, "size_bytes": exe.stat().st_size},
+    )
+
+
+def check_bundled_models_chat() -> DiagnoseCheck:
+    """bundled_models 是否至少有 1 个 chat .gguf 模型 (local_index 扫得到)。"""
+    try:
+        idx = get_local_index()
+        cands = idx.by_capability("chat")
+    except Exception as e:
+        return DiagnoseCheck(
+            name="vendor.bundled_models.chat",
+            ok=False,
+            severity="fail",
+            detail=f"local_index 查询失败:{type(e).__name__}: {e}",
+        )
+
+    if not cands:
+        return DiagnoseCheck(
+            name="vendor.bundled_models.chat",
+            ok=False,
+            severity="fail",
+            detail="bundled_models/ 下未扫到任何 chat 模型",
+        )
+
+    names = ", ".join(getattr(c, "model_id", "<?>") for c in cands[:3])
+    more = "" if len(cands) <= 3 else f" 等 {len(cands)} 个"
+    return DiagnoseCheck(
+        name="vendor.bundled_models.chat",
+        ok=True,
+        severity="ok",
+        detail=f"{len(cands)} 个 chat 模型: {names}{more}",
+        context={"count": len(cands), "model_ids": [getattr(c, "model_id", None) for c in cands]},
     )
