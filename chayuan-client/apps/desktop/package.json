@@ -9,7 +9,7 @@
     "dev:thin": "VITE_THIN_CLIENT=1 tauri dev --config src-tauri/tauri.thin.conf.json",
     "build:vite": "vite build",
     "build": "tsc -p tsconfig.json --noEmit && vite build && tauri build",
-    "build:integrated": "tsc -p tsconfig.json --noEmit && vite build && tauri build --bundles msi,deb,appimage,rpm,dmg,app",
+    "build:integrated": "tsc -p tsconfig.json --noEmit && vite build && tauri build --bundles msi",
     "build:fast": "tsc -p tsconfig.json --noEmit && vite build && tauri build --no-bundle --profile release-fast",
     "build:thin": "tsc -p tsconfig.json --noEmit && VITE_THIN_CLIENT=1 vite build && VITE_THIN_CLIENT=1 tauri build --config src-tauri/tauri.thin.conf.json",
     "tauri": "tauri",

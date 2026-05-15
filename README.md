@@ -880,7 +880,7 @@ python -m chayuan_packaging stage  --target linux --arch x86_64 --release standa
 > mmap 上限 2 GB,vendor/bundled_models/ 里 chat 模型(Qwen3-4B Q4_K_M ≈
 > 2.5 GB)和 reranker(bge-reranker-v2-m3 ≈ 2.12 GB)都会撞穿。WiX MSI 用 CAB
 > 分卷,没有 2 GB 单文件限制。Windows 集成版走 `pnpm build:desktop:integrated`
-> (`tauri build --bundles msi,...`),其余平台 / 轻量版维持 NSIS / DMG /
+> (`tauri build --bundles msi`),其余平台 / 轻量版维持 NSIS / DMG /
 > AppImage。代价:Windows 集成版用户拿到 `.msi`,装机后桌面图标是英文
 > "Chayuan"(NSIS 端 `installer.nsh` 里的"察元AI"重命名不会跑);需要时用
 > WiX 自定义动作另写一遍。

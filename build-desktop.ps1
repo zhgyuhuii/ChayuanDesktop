@@ -668,7 +668,10 @@ if ($SkipFrontend) {
         $DesktopDir = Join-Path $ClientDir 'apps\desktop'
         $tauriArgs = @('exec', 'tauri', 'build')
         if ($useMsi) {
-            $tauriArgs = @('exec', 'tauri', 'build', '--bundles', 'msi,deb,appimage,rpm,dmg,app')
+            # Tauri 2 CLI 的 --bundles 只接受当前平台支持的 target;
+            # 在 Windows 上写 deb/appimage 之类会报 "invalid value"。
+            # 桌面 flavor 在 Windows 上要么 msi 要么 nsis,选 msi。
+            $tauriArgs = @('exec', 'tauri', 'build', '--bundles', 'msi')
         }
         Invoke-Step -Name 'tauri-build (bundle-only)' `
             -WorkDir $DesktopDir `
