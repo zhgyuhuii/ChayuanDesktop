@@ -63,3 +63,69 @@ def test_runtime_status_default():
     assert st.endpoint is None
     assert st.pid is None
     assert st.last_error is None
+
+
+def test_manager_init_paths(tmp_path):
+    """manager 构造时定位 runtime_yaml / vendor exe / runtime.json 路径"""
+    from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
+    m = LlamaRuntimeManager(chayuan_root=tmp_path)
+    assert m.settings_path == tmp_path / "model_registry" / "local_runtime.yaml"
+    assert m.status_path == tmp_path / "runtime.json"
+
+
+def test_manager_find_llama_server_exe_missing(tmp_path):
+    """vendor 二进制找不到时,_find_llama_server_exe 返回 None"""
+    from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
+    m = LlamaRuntimeManager(chayuan_root=tmp_path)
+    # 没真 vendor 二进制
+    assert m._find_llama_server_exe() is None
+
+
+def test_manager_find_llama_server_exe_present(tmp_path, monkeypatch):
+    """vendor/services/llama-server/llama-server.exe 存在时,返回该路径"""
+    from chayuan.server.model_registry import local_runtime
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    exe = services / "llama-server.exe"
+    exe.write_bytes(b"stub")
+
+    # mock 装机后的搜索路径
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
+    assert m._find_llama_server_exe() == exe
+
+
+def test_manager_allocate_port_default_free(tmp_path):
+    """端口默认 62582 没被占用时,_allocate_port 返回 62582"""
+    from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
+    m = LlamaRuntimeManager(chayuan_root=tmp_path)
+    # 假定测试机 62582 没占(很大概率)
+    port = m._allocate_port(preferred=62582)
+    assert 62582 <= port <= 62600
+
+
+def test_manager_allocate_port_bumps_on_conflict(tmp_path, monkeypatch):
+    """端口被占时往上 bump,直到找到空闲"""
+    import socket
+    from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
+    m = LlamaRuntimeManager(chayuan_root=tmp_path)
+
+    # 占住 62582-62584
+    occupied = []
+    for p in (62582, 62583, 62584):
+        s = socket.socket()
+        try:
+            s.bind(("127.0.0.1", p))
+            s.listen(1)
+            occupied.append(s)
+        except OSError:
+            s.close()
+
+    try:
+        port = m._allocate_port(preferred=62582)
+        # 应该是 62585 或后面 (受是否占成功影响)
+        assert port not in (s.getsockname()[1] for s in occupied)
+    finally:
+        for s in occupied:
+            s.close()
