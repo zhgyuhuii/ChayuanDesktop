@@ -140,21 +140,31 @@ async def _probe_health(url: str, *, timeout: float = 2.0) -> "object":
 def _resolve_args_for(
     capability: str,
     *,
+    engine: str = "llama",
     n_ctx: int | None = None,
     n_threads: int | None = None,
 ):
-    """调 process_args.resolve_llamacpp_args,返回 (resolution, model_path)。
+    """调对应 engine 的 process_args.resolve_*,返回 (resolution, model_path)。
 
-    Plan 3B 起 capability 派发到 chat / embedding / rerank 三个分支。
-    单独包一层方便测试 monkeypatch。
-    n_ctx/n_threads 均为可选;不传时由 process_args 自行决定默认值(单一真源)。
+    Plan 3C 起 engine 参数派发:
+      * engine='llama'   → resolve_llamacpp_args
+      * engine='whisper' → resolve_whisper_args
     """
-    kwargs: dict = {"capability": capability}
-    if n_ctx is not None:
-        kwargs["n_ctx"] = n_ctx
-    if n_threads is not None:
-        kwargs["n_threads"] = n_threads
-    r = process_args.resolve_llamacpp_args(**kwargs)
+    if engine == "llama":
+        kwargs: dict = {"capability": capability}
+        if n_ctx is not None:
+            kwargs["n_ctx"] = n_ctx
+        if n_threads is not None:
+            kwargs["n_threads"] = n_threads
+        r = process_args.resolve_llamacpp_args(**kwargs)
+    elif engine == "whisper":
+        kwargs = {"capability": capability}
+        if n_threads is not None:
+            kwargs["n_threads"] = n_threads
+        r = process_args.resolve_whisper_args(**kwargs)
+    else:
+        raise ValueError(f"Unknown engine: {engine!r}")
+
     if r.missing:
         return r, None
     try:
@@ -259,7 +269,7 @@ class SidecarRuntimeManager:
             self._persist_status()
             return self._status
 
-        resolution, model_path = _resolve_args_for(self.capability)
+        resolution, model_path = _resolve_args_for(self.capability, engine=self.engine)
         if resolution.missing or not model_path:
             self._status = RuntimeStatus(
                 state="failed",

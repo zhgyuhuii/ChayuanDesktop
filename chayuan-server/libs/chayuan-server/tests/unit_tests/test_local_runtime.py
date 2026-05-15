@@ -584,3 +584,75 @@ def test_find_llama_server_exe_back_compat(tmp_path, monkeypatch):
     m = lr.LlamaRuntimeManager(chayuan_root=tmp_path)
     assert m.find_llama_server_exe() == exe
     assert m.find_server_exe() == exe
+
+
+# ---------------------------------------------------------------------------
+# Plan 3C Task 4: _resolve_args_for 按 engine 派发 + start() 传 self.engine
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_sidecar_whisper_start_uses_whisper_resolver(tmp_path, monkeypatch):
+    """engine='whisper' 启动时调 resolve_whisper_args(capability='asr')。"""
+    from chayuan.server.model_registry import local_runtime as lr
+    from chayuan.server.model_registry import process_args
+
+    services = tmp_path / "services" / "whisper-server"
+    services.mkdir(parents=True)
+    (services / "whisper-server.exe").write_bytes(b"stub")
+    monkeypatch.setattr(lr, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    captured = []
+
+    def fake_whisper_resolve(**kw):
+        captured.append(("whisper", kw.get("capability", "<missing>")))
+        return process_args.Resolution(
+            process="whispercpp",
+            args=["--model", "/tmp/ggml-tiny.bin"],
+            resolved_models={"asr": "whisper-tiny"},
+        )
+
+    monkeypatch.setattr(lr.process_args, "resolve_whisper_args", fake_whisper_resolve)
+
+    fake_proc = mock.MagicMock(pid=777, poll=mock.MagicMock(return_value=None))
+    monkeypatch.setattr(lr.subprocess, "Popen", mock.MagicMock(return_value=fake_proc))
+    async def fake_health(url, **kw):
+        return mock.MagicMock(status_code=200)
+    monkeypatch.setattr(lr, "_probe_health", fake_health)
+
+    m = lr.SidecarRuntimeManager(chayuan_root=tmp_path, engine="whisper", capability="asr", port_offset=3)
+    status = await m.start()
+    assert status.state == "ready"
+    assert captured == [("whisper", "asr")]
+
+
+@pytest.mark.asyncio
+async def test_sidecar_llama_start_still_uses_llama_resolver(tmp_path, monkeypatch):
+    """engine='llama'(Plan 3B 行为)仍走 resolve_llamacpp_args。"""
+    from chayuan.server.model_registry import local_runtime as lr
+    from chayuan.server.model_registry import process_args
+
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    (services / "llama-server.exe").write_bytes(b"stub")
+    monkeypatch.setattr(lr, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    captured = []
+    monkeypatch.setattr(
+        lr.process_args, "resolve_llamacpp_args",
+        lambda **kw: (captured.append(("llama", kw.get("capability"))), process_args.Resolution(
+            process="llamacpp",
+            args=["--model", "/tmp/qwen.gguf", "--ctx-size", "8192"],
+            resolved_models={"chat": "qwen"},
+        ))[1],
+    )
+
+    fake_proc = mock.MagicMock(pid=111, poll=mock.MagicMock(return_value=None))
+    monkeypatch.setattr(lr.subprocess, "Popen", mock.MagicMock(return_value=fake_proc))
+    async def fake_health(url, **kw):
+        return mock.MagicMock(status_code=200)
+    monkeypatch.setattr(lr, "_probe_health", fake_health)
+
+    m = lr.SidecarRuntimeManager(chayuan_root=tmp_path, engine="llama", capability="chat")
+    status = await m.start()
+    assert status.state == "ready"
+    assert captured == [("llama", "chat")]
