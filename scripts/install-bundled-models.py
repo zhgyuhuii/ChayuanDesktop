@@ -99,9 +99,15 @@ MANIFEST: dict[str, dict[str, Any]] = {
     },
     "embedding": {
         "approx_mb": 1220,
-        "note": "Alibaba 多语种 embedding(~1.22 GB,跟 reranker 对齐)",
+        "note": "Alibaba 多语种 embedding(~1.22 GB,跟 reranker 对齐);GGUF 候选给 llama-server --embedding 用,transformers 候选给 infinity_emb 用",
         "dest_subdir": "gte-multilingual-base",
         "hf": [
+            # Plan 3B: GGUF 优先 — llama-server --embedding 直接加载,
+            # 用 bge-small-en-v1.5 GGUF(~33 MB Q8_0,英文为主但多语种可接受)
+            # 找不到中文 multilingual GGUF 时的最小可用项
+            {"repo": "CompendiumLabs/bge-small-en-v1.5-gguf",
+             "allow_patterns": ["*.gguf"]},
+            # 旧 HF transformers fallback (infinity_emb 路径)
             {"repo": "Alibaba-NLP/gte-multilingual-base",
              "allow_patterns": [
                  "*.json", "*.txt", "*.safetensors", "*.bin",
@@ -119,9 +125,14 @@ MANIFEST: dict[str, dict[str, Any]] = {
     },
     "rerank": {
         "approx_mb": 584,
-        "note": "Alibaba 多语种 reranker(~584 MB,从 bge-reranker-v2-m3 2.12 GB 瘦身)",
+        "note": "Alibaba 多语种 reranker(~584 MB,从 bge-reranker-v2-m3 2.12 GB 瘦身);GGUF 候选给 llama-server --reranking 用",
         "dest_subdir": "gte-multilingual-reranker-base",
         "hf": [
+            # Plan 3B: GGUF 优先 — llama-server --reranking 直接加载
+            # bge-reranker-v2-m3 多语种 reranker,gpustack 镜像的 GGUF(~600 MB Q8_0)
+            {"repo": "gpustack/bge-reranker-v2-m3-GGUF",
+             "allow_patterns": ["*.gguf"]},
+            # 旧 HF transformers fallback
             {"repo": "Alibaba-NLP/gte-multilingual-reranker-base",
              "allow_patterns": [
                  "*.json", "*.txt", "*.safetensors", "*.bin",
