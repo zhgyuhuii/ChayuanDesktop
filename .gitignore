@@ -91,3 +91,4 @@ chayuan-server/vendor/bundled_models/**/*.bin
 # Tauri resources staging:build.py 在集成版打包时把 vendor/bundled_models/
 # 复制到这里供 tauri 把模型打进 NSIS installer。运行时构件,不入库。
 chayuan-client/apps/desktop/src-tauri/bundled_models/
+chayuan-client/apps/desktop/src-tauri/services/
