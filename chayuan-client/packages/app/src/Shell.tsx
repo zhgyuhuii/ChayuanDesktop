@@ -27,6 +27,7 @@ import { LocaleBridge } from './features/settings/LocaleBridge';
 import { ThemeBridge } from './features/settings/ThemeBridge';
 import { queryClient } from './lib/queryClient';
 import { createAppRouter } from './router';
+import { useLocalRuntimeStore } from './store/localRuntime';
 import { useAuthStore } from './store/auth';
 import { reportError } from './store/errorDialog';
 import { useLoginModalStore } from './store/loginModal';
@@ -218,6 +219,17 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
       window.removeEventListener('unhandledrejection', onUnhandled);
       window.removeEventListener('error', onError);
     };
+  }, []);
+
+  // 全局轮询本地 LLM runtime 状态(仅 desktop 平台),让 Composer 选模型下拉
+  // 在用户不打开设置页的情况下也能感知本地 runtime 是否 ready。
+  // Web/Mobile 端不发请求(后端没 /runtime/llama/*),默认 reachable=true → store 静默。
+  React.useEffect(() => {
+    if (getPlatform().kind !== 'desktop') return;
+    const refresh = () => void useLocalRuntimeStore.getState().refreshStatus();
+    refresh();
+    const t = window.setInterval(refresh, 5_000);
+    return () => window.clearInterval(t);
   }, []);
 
   // 单机版首启动门禁(Phase 1 + Phase 3):
