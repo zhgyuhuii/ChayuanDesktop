@@ -221,12 +221,17 @@ class SidecarRuntimeManager:
     def find_server_exe(self) -> Optional[Path]:
         """跨平台找 vendor 进集成版的 sidecar 二进制。
 
-        Plan 3C 起按 self.engine 选 binary 名和子目录:
-          * engine='llama'   → services/llama-server/llama-server[.exe]
-          * engine='whisper' → services/whisper-server/whisper-server[.exe]
+        Plan 3D 起按 self.engine 选 binary 名和子目录:
+          * engine='llama'    → services/llama-server/llama-server[.exe]
+          * engine='whisper'  → services/whisper-server/whisper-server[.exe]
+          * engine='infinity' → Python 解释器 sys.executable(Python -m 拉 sidecar)
 
         给路由 (/runtime/llama/install-info) 和 start() 共用。
         """
+        if self.engine == "infinity":
+            # Python sidecar: 直接用当前解释器拉 `-m chayuan.server.image_source.infinity_server`
+            return Path(sys.executable)
+
         global _INSTALL_SERVICES_DIRS
         dirs = _INSTALL_SERVICES_DIRS if _INSTALL_SERVICES_DIRS is not None else _default_install_services_dirs()
         bin_name = f"{self.engine}-server"

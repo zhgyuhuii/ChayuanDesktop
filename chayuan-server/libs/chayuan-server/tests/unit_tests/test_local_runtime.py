@@ -686,3 +686,29 @@ def test_local_runtime_settings_old_yaml_no_asr_field(tmp_path):
     s = LocalRuntimeSettings.load(yaml_path)
     assert s.preload_asr is False
     assert s.default_asr_model == ""
+
+
+# ---------------------------------------------------------------------------
+# Plan 3D Task 2: find_server_exe(engine='infinity') 返 sys.executable
+# ---------------------------------------------------------------------------
+
+def test_find_server_exe_infinity_engine_returns_python(tmp_path):
+    """engine='infinity' find_server_exe 返 sys.executable(Python 解释器)。"""
+    import sys
+    from chayuan.server.model_registry.local_runtime import SidecarRuntimeManager
+    m = SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="infinity", capability="image-embedding", port_offset=4
+    )
+    exe = m.find_server_exe()
+    assert exe is not None
+    assert exe == Path(sys.executable)
+
+
+def test_find_server_exe_infinity_not_affected_by_install_dirs(tmp_path, monkeypatch):
+    """engine='infinity' 不查 _INSTALL_SERVICES_DIRS,直接用 sys.executable。"""
+    from chayuan.server.model_registry import local_runtime as lr
+    # 即使 install dirs 为空,infinity 也能返 python 解释器
+    monkeypatch.setattr(lr, "_INSTALL_SERVICES_DIRS", [tmp_path / "nonexistent"])
+    m = lr.SidecarRuntimeManager(chayuan_root=tmp_path, engine="infinity", port_offset=4)
+    exe = m.find_server_exe()
+    assert exe is not None
