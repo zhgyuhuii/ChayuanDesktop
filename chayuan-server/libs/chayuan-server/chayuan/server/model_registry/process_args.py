@@ -227,12 +227,18 @@ _INFINITY_LOCAL_CAP_MAP = {
 }
 
 
-def resolve_infinity_args(
+def resolve_image_embedding_args(
     *,
     capability: str = "image-embedding",
     n_threads: Optional[int] = None,
 ) -> Resolution:
-    """``infinity_server`` (Python sidecar) 启动 args。
+    """``chayuan.server.image_source.infinity_server`` (Python sidecar) 启动 args。
+
+    Plan 3D 起新加:跟 Plan 1 老 :func:`resolve_infinity_args` 不一样 —
+    本函数返 `-m chayuan.server.image_source.infinity_server --model <id>` 这种
+    Python `-m module` 启动的 args(供 SidecarRuntimeManager engine='infinity' 用);
+    Plan 1 的 :func:`resolve_infinity_args` 是给 michaelf34/infinity binary 用的
+    `--model-id <id>` args(两个函数并存,不互相替代)。
 
     capability:
       * ``image-embedding`` → image default + transformers/safetensors 模型 + --model
@@ -248,7 +254,6 @@ def resolve_infinity_args(
         r.reason = reason
         return r
 
-    # Python sidecar: 用 `-m <module>` 而非 binary 直跑
     r.args.extend([
         "-m", "chayuan.server.image_source.infinity_server",
         "--model", entry.model_id,
@@ -257,6 +262,34 @@ def resolve_infinity_args(
         r.args.extend(["--threads", str(int(n_threads))])
     r.resolved_models[capability] = entry.model_id
     r.reason = reason
+    return r
+
+
+def resolve_infinity_args() -> Resolution:
+    """``infinity_emb``(michaelf34/infinity binary)启动时需要的额外 args。
+
+    Plan 1 老接口,处理 michaelf34/infinity binary 自身的多模型挂载:
+    * ``embedding`` ← capability default(text-embedding;偏好 hf_transformers 格式)
+    * ``rerank``    ← capability default(rerank;同上)
+
+    两类同时可选;只要解出一个就发 args(``--model-id <ID> --model-id <ID>``
+    重复列出 = infinity 同时挂载多模型)。
+
+    Plan 3D 起新加 :func:`resolve_image_embedding_args`(签名不同,处理
+    image-embedding capability)。两个函数共存,本函数不替换。
+    """
+    r = Resolution(process="infinity")
+    for panel_cap, local_cap in (("embedding", "text-embedding"), ("rerank", "rerank")):
+        entry, reason = _resolve(panel_cap, prefer_format="hf_transformers",
+                                 local_cap=local_cap)
+        if entry is None:
+            r.missing.append(panel_cap)
+            continue
+        # infinity 用 model_id(repo 风格)或本地路径都可
+        r.args.extend(["--model-id", entry.path or entry.model_id])
+        r.resolved_models[panel_cap] = entry.model_id
+        if not r.reason:
+            r.reason = reason
     return r
 
 
@@ -346,6 +379,7 @@ def resolve_all() -> Dict[str, Resolution]:
 __all__ = [
     "Resolution",
     "resolve_llamacpp_args",
+    "resolve_image_embedding_args",
     "resolve_infinity_args",
     "resolve_ollama_env",
     "resolve_whisper_args",
