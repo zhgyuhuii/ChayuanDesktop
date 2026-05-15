@@ -524,7 +524,7 @@ def runtime_diagnose() -> Dict[str, Any]:
 
 # ─────── /runtime/llama/{capability}/* — Plan 3B 多 capability ───────
 
-_VALID_CAPABILITIES = {"chat", "embedding", "rerank", "asr"}
+_VALID_CAPABILITIES = {"chat", "embedding", "rerank", "asr", "image-embedding"}
 
 
 def _validate_capability(capability: str) -> None:

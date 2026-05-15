@@ -15,7 +15,7 @@ from chayuan.server.model_registry.local_runtime import RuntimeStatus
 def client(monkeypatch):
     """注入 fake registry 让 4 个 capability 全可 mock。"""
     fake_managers = {}
-    caps = ("chat", "embedding", "rerank", "asr")
+    caps = ("chat", "embedding", "rerank", "asr", "image-embedding")
     for cap in caps:
         fm = mock.MagicMock()
         fm.status = RuntimeStatus(state="stopped")
@@ -45,12 +45,12 @@ def client(monkeypatch):
     return TestClient(app), fake_managers
 
 
-def test_llama_registry_returns_four_caps(client):
+def test_llama_registry_returns_five_caps(client):
     c, _ = client
     r = c.get("/runtime/llama/registry")
     assert r.status_code == 200
     data = r.json()["data"]
-    assert set(data.keys()) == {"chat", "embedding", "rerank", "asr"}
+    assert set(data.keys()) == {"chat", "embedding", "rerank", "asr", "image-embedding"}
 
 
 def test_llama_capability_status_chat(client):
@@ -111,4 +111,21 @@ def test_llama_capability_start_asr(client):
     r = c.post("/runtime/llama/asr/start")
     assert r.status_code == 200
     fms["asr"].start.assert_awaited_once()
+    fms["chat"].start.assert_not_called()
+
+
+def test_llama_capability_status_image_embedding(client):
+    c, fms = client
+    fms["image-embedding"].status = RuntimeStatus(state="ready", endpoint="http://127.0.0.1:62586", pid=88)
+    r = c.get("/runtime/llama/image-embedding/status")
+    assert r.status_code == 200
+    assert r.json()["data"]["state"] == "ready"
+    assert r.json()["data"]["endpoint"] == "http://127.0.0.1:62586"
+
+
+def test_llama_capability_start_image_embedding(client):
+    c, fms = client
+    r = c.post("/runtime/llama/image-embedding/start")
+    assert r.status_code == 200
+    fms["image-embedding"].start.assert_awaited_once()
     fms["chat"].start.assert_not_called()
