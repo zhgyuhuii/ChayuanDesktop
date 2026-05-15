@@ -471,4 +471,24 @@ async def llama_restart(body: Dict[str, Any] = Body(default={})) -> Dict[str, An
     return _ok(status.to_dict())
 
 
+@runtime_router.get("/llama/config")
+def llama_config_get() -> Dict[str, Any]:
+    import dataclasses as _dc
+    return _ok(_dc.asdict(_llama_manager().settings))
+
+
+@runtime_router.post("/llama/config")
+def llama_config_post(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """部分更新设置。不立即重启,需要 /runtime/llama/restart 让端口 / API key 生效"""
+    if not isinstance(body, dict) or not body:
+        raise HTTPException(status_code=400, detail="body 必须是非空 dict")
+    # 端口合法性校验
+    port = body.get("port")
+    if port is not None and not (1024 <= int(port) <= 65535):
+        raise HTTPException(status_code=422, detail="port 必须在 1024-65535")
+    new_settings = _llama_manager().set_config(body)
+    import dataclasses as _dc
+    return _ok(_dc.asdict(new_settings))
+
+
 __all__ = ["runtime_router"]

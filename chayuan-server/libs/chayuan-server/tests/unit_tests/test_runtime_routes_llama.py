@@ -58,3 +58,30 @@ def test_llama_restart(client):
     r = c.post("/runtime/llama/restart")
     assert r.status_code == 200
     fake.restart.assert_called_once()
+
+
+def test_llama_config_get(client):
+    c, fake = client
+    from chayuan.server.model_registry.local_runtime import LocalRuntimeSettings
+    fake.settings = LocalRuntimeSettings()
+
+    r = c.get("/runtime/llama/config")
+    assert r.status_code == 200
+    data = r.json()["data"]
+    assert data["port"] == 62582
+    assert data["preload_on_startup"] is True
+
+
+def test_llama_config_post(client):
+    c, fake = client
+    from chayuan.server.model_registry.local_runtime import LocalRuntimeSettings
+    fake.settings = LocalRuntimeSettings()
+    fake.set_config = mock.MagicMock(return_value=LocalRuntimeSettings(port=62590, expose_lan=True))
+
+    r = c.post("/runtime/llama/config", json={"port": 62590, "expose_lan": True})
+    assert r.status_code == 200
+    fake.set_config.assert_called_once()
+    args, _ = fake.set_config.call_args
+    cfg_update = args[0]
+    assert cfg_update["port"] == 62590
+    assert cfg_update["expose_lan"] is True

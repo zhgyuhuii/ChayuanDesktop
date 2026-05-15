@@ -302,6 +302,19 @@ class LlamaRuntimeManager:
         await self.stop()
         return await self.start(model_id=model_id)
 
+    def set_config(self, update: dict) -> LocalRuntimeSettings:
+        """部分更新设置 + 持久化 yaml。返回更新后的 settings。
+
+        注意:不立即重启 llama-server,需要前端追一次 /runtime/llama/restart。
+        """
+        cur = dataclasses.asdict(self._settings)
+        for k, v in update.items():
+            if k in cur:
+                cur[k] = v
+        self._settings = LocalRuntimeSettings(**cur)
+        self._settings.save(self.settings_path)
+        return self._settings
+
     def _persist_status(self) -> None:
         """状态写 runtime.json,前端读"""
         try:
