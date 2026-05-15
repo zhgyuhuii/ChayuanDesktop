@@ -275,6 +275,45 @@ def resolve_ollama_env(*, models_dir: Optional[str] = None) -> Resolution:
     return r
 
 
+# ───────────────────────── whispercpp ─────────────────────────
+
+_WHISPER_CAPABILITIES = ("asr",)
+_WHISPER_LOCAL_CAP_MAP = {
+    "asr": "asr",
+}
+
+
+def resolve_whisper_args(
+    *,
+    capability: str = "asr",
+    n_threads: Optional[int] = None,
+) -> Resolution:
+    """``whisper-server`` 启动时的 args。
+
+    capability:
+      * ``asr`` → asr default + ggml 模型 + --model <path>
+    """
+    if capability not in _WHISPER_CAPABILITIES:
+        raise ValueError(f"Unknown capability for whisper: {capability!r}")
+
+    local_cap = _WHISPER_LOCAL_CAP_MAP[capability]
+    r = Resolution(process="whispercpp")
+    entry, reason = _resolve(capability, prefer_format="ggml", local_cap=local_cap)
+    if entry is None or entry.format != "ggml":
+        r.missing.append(capability)
+        r.reason = reason if entry is None else (
+            f"{capability} model {entry.model_id!r} format={entry.format!r} 不是 ggml"
+        )
+        return r
+
+    r.args.extend(["--model", entry.path])
+    if n_threads is not None:
+        r.args.extend(["--threads", str(int(n_threads))])
+    r.resolved_models[capability] = entry.model_id
+    r.reason = reason
+    return r
+
+
 # ───────────────────────── 集成入口 ─────────────────────────
 
 
@@ -296,5 +335,6 @@ __all__ = [
     "resolve_llamacpp_args",
     "resolve_infinity_args",
     "resolve_ollama_env",
+    "resolve_whisper_args",
     "resolve_all",
 ]
