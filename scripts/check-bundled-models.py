@@ -110,32 +110,59 @@ def _is_dir_repo(p: Path) -> bool:
     for marker in _DIR_MARKERS:
         if (p / marker).is_file():
             return True
-    if any(p.glob("*.safetensors")) or any(p.glob("*.bin")):
-        return True
+    # 任何模型权重文件存在即视为完整仓库:
+    # - .gguf / .onnx 单文件量化(目录里只有一个 .gguf 也是 vendor 合规摆法,
+    #   如 chat/<repo>/foo.gguf,跟 README 的"chat/<repo>/...gguf"约定一致)
+    # - .safetensors / .bin (Transformers 风格的多文件仓库)
+    # - .pt / .pth (PyTorch checkpoint)
+    for ext in _SINGLE_FILE_FORMATS:
+        if any(p.glob(f"*{ext}")):
+            return True
     return False
 
 
-def _scan_cap(cap_dir: Path) -> CapReport:
+def _scan_cap(cap_dir: Path, max_depth: int = 5) -> CapReport:
+    """递归扫一个 cap 目录,枚举**所有**模型文件 / 仓库子项。
+
+    与 build.py ``sync_bundled_models`` 的 rglob 行为对齐 — 凡是会被打进
+    Tauri resources 的内容,都该出现在 check 报告里。
+
+    判定规则:
+      - 子目录里有标志文件 (config.json / tokenizer.json / 任意权重)
+        → 当成一个完整仓库,不再下钻(避免把仓库内的 sharded weight 拆成多条)
+      - 散落的 .gguf / .onnx / .safetensors / .bin / .pt / .pth
+        → 每个文件一条
+      - 既不是仓库也不带模型扩展的目录,继续下钻(覆盖 chat/foo/bar/...gguf 这种嵌套)
+    """
     rep = CapReport(cap=cap_dir.name)
     if not cap_dir.is_dir():
         return rep
-    for entry in sorted(cap_dir.iterdir()):
-        if entry.name.startswith(".") or entry.name in ("__pycache__",):
-            continue
-        if entry.is_file():
-            if entry.suffix.lower() in _SINGLE_FILE_FORMATS:
-                rep.items.append({
-                    "name": entry.name,
-                    "kind": "single-file",
-                    "size_bytes": entry.stat().st_size,
-                })
-        elif entry.is_dir():
-            if _is_dir_repo(entry):
-                rep.items.append({
-                    "name": entry.name + "/",
-                    "kind": "multi-file-repo",
-                    "size_bytes": _dir_total_size(entry),
-                })
+
+    def _walk(d: Path, depth: int) -> None:
+        if depth > max_depth:
+            return
+        for entry in sorted(d.iterdir()):
+            if entry.name.startswith(".") or entry.name in ("__pycache__",):
+                continue
+            if entry.is_dir():
+                if _is_dir_repo(entry):
+                    rep.items.append({
+                        "name": entry.relative_to(cap_dir).as_posix() + "/",
+                        "kind": "multi-file-repo",
+                        "size_bytes": _dir_total_size(entry),
+                    })
+                    # 仓库当原子单元,不下钻
+                else:
+                    _walk(entry, depth + 1)
+            elif entry.is_file():
+                if entry.suffix.lower() in _SINGLE_FILE_FORMATS:
+                    rep.items.append({
+                        "name": entry.relative_to(cap_dir).as_posix(),
+                        "kind": "single-file",
+                        "size_bytes": entry.stat().st_size,
+                    })
+
+    _walk(cap_dir, depth=0)
     return rep
 
 

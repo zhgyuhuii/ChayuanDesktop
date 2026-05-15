@@ -344,15 +344,24 @@ def _candidate_roots() -> List[Tuple[Path, str]]:
 
 
 def _is_dir_repo(p: Path) -> bool:
-    """判定目录 ``p`` 是否一个完整模型仓库。"""
+    """判定目录 ``p`` 是否一个完整模型仓库。
+
+    任意一种证据成立即认为是仓库:
+      * 标志文件:config.json / tokenizer.json / model_index.json / manifest.json
+      * 模型权重扩展:.safetensors / .bin / .gguf / .onnx / .pt / .pth
+
+    扩展到 GGUF / ONNX 后,从社区量化仓库(``chat/<repo>/foo.gguf``)和
+    自行落盘的 ONNX 推理目录都会被正确识别,而不是被当成"零散单文件"。
+    """
     if not p.is_dir():
         return False
     for marker in DIR_MARKER_FILES:
         if (p / marker).is_file():
             return True
-    if any(p.glob("*.safetensors")):
-        return True
-    if any(p.glob("*.bin")):
+    for ext in SINGLE_FILE_FORMATS:
+        if any(p.glob(f"*{ext}")):
+            return True
+    if any(p.glob("*.safetensors")) or any(p.glob("*.bin")):
         return True
     return False
 
