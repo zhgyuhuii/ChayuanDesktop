@@ -134,11 +134,15 @@ pnpm dev:desktop
 > **一键脚本**(macOS / Linux / Windows 都有):仓库根目录的 `build-desktop.{sh,cmd,ps1}`
 > 把 §4 的 Step 1-3 串起来,默认**一次产两个版本**:
 >
-> - **轻量版 (lite)** — `CHAYUAN_LITE_BUILD=1`,PyInstaller 跳过
->   `vendor/bundled_models/` 注入,装机包体积小,首次启动靠 BootstrapBanner
->   引导用户下载或扫盘配置;产物落到 `dist-lite/`。
-> - **集成版 (integrated)** — 正常打包,把 `vendor/bundled_models/` 整树嵌入
->   sidecar,装好即用;产物落到 `dist-integrated/`。
+> - **轻量版 (lite)** — 不带模型,装机包体积小,首次启动靠 BootstrapBanner
+>   引导用户在线下载或扫盘配置;产物落到 `dist-lite/`。
+> - **集成版 (integrated)** — 把 `vendor/bundled_models/` 整树打进 Tauri
+>   **`bundle.resources`**(与主 exe 同目录,**不嵌入 sidecar 内**),装好即用;
+>   产物落到 `dist-integrated/`。
+>
+> 2026-05-15 起两个 flavor **共用同一份 sidecar exe**:模型从 PyInstaller
+> datas 剥到 Tauri resources,解决集成版 sidecar ≥ 2 GB 撞 32-bit makensis
+> mmap 上限。flavor 差异只剩 `build.py --sync-bundled-only` 那步。
 >
 > 构建开始时会自动调 `scripts/check-bundled-models.py` 体检,打印**本次嵌入
 > 哪些模型**。模型相关的下载地址 / 格式 / 放置约定见

@@ -7,7 +7,7 @@
 #
 #   ./build-desktop.sh                                  默认 = 双产物:轻量版 + 集成版
 #   ./build-desktop.sh --lite-only                      只打"轻量版"(不嵌模型,体积小)
-#   ./build-desktop.sh --integrated-only                只打"集成版"(嵌入 vendor/bundled_models/)
+#   ./build-desktop.sh --integrated-only                只打"集成版"(vendor/bundled_models/ 进 Tauri resources)
 #   ./build-desktop.sh --skip-model-check               跳过 bundled_models 体检
 #   ./build-desktop.sh --skip-server                    显式跳过 sidecar PyInstaller(不算指纹)
 #   ./build-desktop.sh --rebuild-server                 强制重建 sidecar(忽略指纹缓存)
@@ -21,12 +21,17 @@
 #
 # 双产物说明
 # ---------
-#   轻量版(lite):打包时设 CHAYUAN_LITE_BUILD=1,PyInstaller spec 跳过
-#                 vendor/bundled_models 注入,产物体积小,首次启动靠 BootstrapBanner
-#                 引导用户在线下载或扫盘配置。
-#   集成版(integrated):正常打包,把 vendor/bundled_models/ 整树嵌入 sidecar,
-#                 用户装好即用,无需联网下载。模型清单详见
+#   轻量版(lite):src-tauri/bundled_models/ 清空,装机包小,首次启动靠
+#                 BootstrapBanner 引导用户在线下载或扫盘配置。
+#   集成版(integrated):vendor/bundled_models/ 整树拷进 src-tauri/bundled_models/,
+#                 被 Tauri bundle.resources 打进安装包(与主 exe 同目录,**不嵌
+#                 入 sidecar 内**),用户装好即用,无需联网下载。模型清单见
 #                 chayuan-server/vendor/bundled_models/README.md。
+#
+#   2026-05-15 起两个 flavor 共用同一份 sidecar exe — 模型从 PyInstaller datas
+#   剥到 Tauri resources,解决集成版 sidecar ≥ 2 GB 撞 32-bit makensis mmap
+#   上限。flavor 差异只剩 build.py --sync-bundled-only 那步;CHAYUAN_LITE_BUILD
+#   env 仍设但只控制 Step 1b 同步行为,spec 自身已不读它。
 #
 #   两个产物各自落到:
 #     dist-lite/          ← 轻量版 .dmg/.deb/.AppImage/.msi/.exe
@@ -527,7 +532,7 @@ echo "  其它架构请在对应 CPU 机器上重跑本脚本(或 CI 双 runner)
 if [[ "${#FLAVORS[@]}" -eq 2 ]]; then
     echo ""
     echo "  ${C_BOLD}轻量版${C_RESET}:不嵌模型,装机包小,需联网下载或扫盘配置"
-    echo "  ${C_BOLD}集成版${C_RESET}:嵌入 vendor/bundled_models/,装机即用(模型清单见上方"
+    echo "  ${C_BOLD}集成版${C_RESET}:vendor/bundled_models/ 进 Tauri resources,装机即用(模型清单见上方"
     echo "                  '模型体检'输出,或 chayuan-server/vendor/bundled_models/README.md)"
 fi
 echo ""

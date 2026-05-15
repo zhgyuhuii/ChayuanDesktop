@@ -865,12 +865,16 @@ python -m chayuan_packaging stage  --target linux --arch x86_64 --release standa
 
 `build-desktop.{sh,cmd,ps1}` 一次跑出两个产物:
 
-* **轻量版 (lite)**:`CHAYUAN_LITE_BUILD=1`,PyInstaller 跳过
-  `vendor/bundled_models/` 注入,装机包体积小,首次启动靠 BootstrapBanner
-  引导用户下载或扫盘配置。
-* **集成版 (integrated)**:正常打包,把 `vendor/bundled_models/` 整树嵌入
-  sidecar,用户**装好即用**,无需联网下载。本次嵌入哪些模型,构建开始时
-  的"模型体检"段会逐项打印。
+* **轻量版 (lite)**:不带模型。装机包小(< 1 GB),首次启动靠 BootstrapBanner
+  引导用户在线下载或扫盘配置。
+* **集成版 (integrated)**:`vendor/bundled_models/` 整树打进 **Tauri resources**
+  (与主 exe 同目录,**不嵌入 sidecar 内**),用户**装好即用**,无需联网下载。
+  本次嵌入哪些模型,构建开始时的"模型体检"段会逐项打印。
+
+> 2026-05-15 起两个 flavor **共用同一份 sidecar exe**:模型从 PyInstaller datas
+> 剥到 Tauri `bundle.resources`,解决了集成版 sidecar ≥ 2 GB 撞 32-bit makensis
+> mmap 上限的问题。flavor 差异只剩 Tauri resources 同步那一步(`build.py
+> --sync-bundled-only`),sidecar 构建一次两边复用。
 
 产物各自落到:
 
@@ -918,10 +922,11 @@ dist-integrated/    ← 集成版 .dmg / .deb / .AppImage / .msi / .exe
 每次构建按顺序跑:
 
 1. **模型体检** — 调 `scripts/check-bundled-models.py`,打印 7 类 capability
-   各自有几个文件 / 体积合计多大,集成版会嵌入这些。
-2. **双 flavor 循环**(默认):每个 flavor 各跑一次以下 3 步 —
-   - **Step 1** PyInstaller 出 sidecar(集成版自动嵌入 bundled_models,
-     轻量版 `CHAYUAN_LITE_BUILD=1` 跳过)
+   各自有几个文件 / 体积合计多大,集成版会随 Tauri resources 一起装机。
+2. **双 flavor 循环**(默认):每个 flavor 各跑一次以下 4 步 —
+   - **Step 1** PyInstaller 出 sidecar(两个 flavor 共用,**模型不嵌 sidecar**)
+   - **Step 1b** `build.py --sync-bundled-only` 按 flavor 同步
+     `src-tauri/bundled_models/`:集成版拷整树,轻量版清空
    - **Step 2** `/healthz` 探测确认 sidecar 能起来
    - **Step 3** Tauri bundle 出 `.dmg / .deb / .AppImage / .msi / .exe`
      并按 flavor 后缀拷到 `dist-<flavor>/`

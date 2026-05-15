@@ -729,7 +729,7 @@ if ($AllArtifacts.Count -gt 0) {
 if ($Flavors.Count -eq 2) {
     Write-Host ''
     Write-Host '  轻量版:不嵌模型,装机包小,需联网下载或扫盘配置'
-    Write-Host '  集成版:嵌入 vendor\bundled_models\,装机即用 (模型清单见上方"模型体检"输出,'
+    Write-Host '  集成版:vendor\bundled_models\ 进 Tauri resources,装机即用 (模型清单见上方"模型体检"输出,'
     Write-Host '          或 chayuan-server\vendor\bundled_models\README.md)'
 }
 Write-Host ''
