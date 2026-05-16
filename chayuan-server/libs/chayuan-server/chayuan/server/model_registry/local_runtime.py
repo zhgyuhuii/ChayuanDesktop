@@ -198,83 +198,73 @@ _CAP_TO_PLATFORM_FIELD: Dict[str, str] = {
 
 
 def _register_local_platform(*, capability: str, host: str, port: int, model_id: Optional[str]) -> None:
-    """sidecar ready 时,把它注册成一个 PlatformConfig 注入 Settings.model_settings.MODEL_PLATFORMS。
+    """sidecar ready 时,把它写入 ``model_platform`` DB 表(model_platform_repository)。
 
-    platform_name 是 ``local-<capability>`` 唯一标识(get_config_platforms 用 platform_name
-    做 dict key,不能重名)。前端要拼 ``local-<cap>::<model_id>`` 命名空间发请求,
-    chat 路径会 get_model_info → 解出 platform_name → 拿到这个 platform 的 api_base_url
+    为什么不 mutate ``Settings.model_settings.MODEL_PLATFORMS``:那是 yaml-backed
+    pydantic singleton,``settings_property + auto_reload=True``,每次访问都从 yaml
+    重新加载 → in-memory mutation 立刻被回滚,平台凭空消失。
+    用 DB upsert 才能持久 + ``_resolved_platforms`` 合并 yaml seed + db rows 时会读到。
+
+    platform_name 是 ``local-<capability>`` 唯一标识。前端拼 ``local-<cap>::<model_id>``
+    命名空间,chat 路径 ``get_model_info`` 解出 platform_name 命中此条 → api_base_url
     打 sidecar。
 
-    幂等:同名 platform 已存在就 update,不重复 append。bump_platform_version 触发
-    get_config_platforms 的 5s TTL cache 立即穿透。
+    幂等:upsert_platform 已处理 exist→update / not-exist→create + bump_version。
     """
-    from chayuan.settings import Settings, PlatformConfig
-
     platform_name = f"local-{capability}"
     api_base_url = f"http://{host if host != '0.0.0.0' else '127.0.0.1'}:{port}/v1"
 
     # 构造 cap 对应的 model_list 字段
     model_field = _CAP_TO_PLATFORM_FIELD.get(capability)
-    field_value: list = [model_id] if (model_field and model_id) else []
+    fields: Dict[str, Any] = {
+        "platform_type": "openai",  # llama-server / infinity 都是 OpenAI 兼容 API
+        "api_base_url": api_base_url,
+        "api_key": "EMPTY",
+        "enabled": True,
+        # auto_detect 路径还不通(_detect_oneapi 没实现),先用显式 model_id
+        "auto_detect_model": False,
+        # 所有 cap 字段先置空(防止之前残留),然后按 cap 填一个
+        "llm_models": [],
+        "embed_models": [],
+        "rerank_models": [],
+        "speech2text_models": [],
+        "image2text_models": [],
+    }
+    if model_field and model_id:
+        fields[model_field] = [model_id]
 
-    new_platform = PlatformConfig(
-        platform_name=platform_name,
-        platform_type="openai",  # llama-server / infinity 都是 OpenAI 兼容 API
-        api_base_url=api_base_url,
-        api_key="EMPTY",
-        enabled=True,
-        # auto_detect 这条 path 还不通(_detect_oneapi 没实现),先用显式 model_id
-        auto_detect_model=False,
-    )
-    # 按 cap 填对应字段(其它字段保持默认空)
-    if model_field and field_value:
-        setattr(new_platform, model_field, field_value)
-
-    platforms = list(Settings.model_settings.MODEL_PLATFORMS or [])
-    # 已存在同名 → 替换(覆盖 endpoint / model_id 变化);否则 append
-    for i, p in enumerate(platforms):
-        if p.platform_name == platform_name:
-            platforms[i] = new_platform
-            break
-    else:
-        platforms.append(new_platform)
-    Settings.model_settings.MODEL_PLATFORMS = platforms
-
-    # 触发 get_config_platforms 5s TTL cache 立即失效(写完立刻能查到)
     try:
-        from chayuan.server.db.repository.model_platform_repository import bump_platform_version
-        bump_platform_version()
+        from chayuan.server.db.repository.model_platform_repository import upsert_platform
+        upsert_platform(platform_name=platform_name, fields=fields, by="local-runtime-hook")
     except Exception as e:  # noqa: BLE001
-        logger.debug("[local-runtime] bump_platform_version skipped: %r", e)
+        logger.warning(
+            "[local-runtime] upsert_platform(%s) failed: %r", platform_name, e,
+        )
+        return
 
     logger.info(
-        "[local-runtime] registered MODEL_PLATFORMS entry: %s @ %s (model=%s)",
+        "[local-runtime] registered DB platform: %s @ %s (model=%s)",
         platform_name, api_base_url, model_id,
     )
 
 
 def _deregister_local_platform(*, capability: str) -> None:
-    """sidecar stop/failed 时,把对应 platform 设 enabled=False。
+    """sidecar stop/failed 时,把对应 DB platform 行 enabled=False。
 
-    不删条目:保留 api_base_url 等信息,下次 sidecar 重启重 enable 时省一次构造;
-    enabled=False 时 get_config_platforms 会把它过滤掉,chat / /v1/models 都看不到。
+    不删:保留 api_base_url 等信息,下次 sidecar 重启时 upsert 直接 toggle 回来。
+    enabled=False 时 ``get_config_platforms`` 把它过滤掉,chat / /v1/models 都看不到。
     """
-    from chayuan.settings import Settings
-
     platform_name = f"local-{capability}"
-    platforms = Settings.model_settings.MODEL_PLATFORMS or []
-    for p in platforms:
-        if p.platform_name == platform_name:
-            p.enabled = False
-            break
-
     try:
-        from chayuan.server.db.repository.model_platform_repository import bump_platform_version
-        bump_platform_version()
+        from chayuan.server.db.repository.model_platform_repository import update_platform, get_platform
+        if get_platform(platform_name):
+            update_platform(platform_name, {"enabled": False}, updated_by="local-runtime-hook")
+            logger.info("[local-runtime] disabled DB platform: %s", platform_name)
     except Exception as e:  # noqa: BLE001
-        logger.debug("[local-runtime] bump_platform_version skipped: %r", e)
-
-    logger.info("[local-runtime] deregistered MODEL_PLATFORMS entry: %s", platform_name)
+        logger.warning(
+            "[local-runtime] update_platform(%s, enabled=False) failed: %r",
+            platform_name, e,
+        )
 
 
 def _resolve_args_for(
