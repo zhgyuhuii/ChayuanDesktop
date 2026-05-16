@@ -86,7 +86,12 @@ param(
     [switch]$FullOnly,
     # 兼容旧名(`-IntegratedOnly` 仍可用,等价 `-FullOnly`,触发时打 deprecation hint)
     [switch]$IntegratedOnly,
-    [switch]$SkipModelCheck
+    [switch]$SkipModelCheck,
+    # 显式指定 bundled_models 源目录,透传到 build.py --bundled-source。
+    # 典型:开发者用 install-bundled-models.ps1 -ChayuanRoot 装到 chayuan_root,打包时
+    # 通过 -BundledSource $env:CHAYUAN_ROOT\models\bundled 复用同一份模型。
+    # 不传 = build.py 默认走 vendor/bundled_models/(也可由 $CHAYUAN_BUILD_BUNDLED_SOURCE env 覆盖)。
+    [string]$BundledSource
 )
 
 # 旧名兼容 + 提示
@@ -508,6 +513,12 @@ function Invoke-FlavorBuild {
         $script:BuildPyLiteFlag = @()
         $flavorLabel = '全量版(full)'
     }
+    # -BundledSource 透传给 build.py --bundled-source(让一份模型 dev + 打包共用)
+    if ($BundledSource) {
+        $script:BuildPyBundledSourceFlag = @('--bundled-source', $BundledSource)
+    } else {
+        $script:BuildPyBundledSourceFlag = @()
+    }
     Write-Host ''
     Write-Step "═══ [$flavorLabel] 开始 ═══"
 
@@ -569,7 +580,7 @@ if ($SkipServer) {
     # 显式传 --target,确保 sync_services 按对的平台选 vendor 子目录(host 一致就走 host)
     Invoke-Step -Name 'pyinstaller-build' `
         -WorkDir $ServerPkgDir `
-        -Command 'poetry' -Arguments (@('run', 'python', '..\..\packaging\pyinstaller\build.py', '--target', $hostTriple) + $BuildPyLiteFlag)
+        -Command 'poetry' -Arguments (@('run', 'python', '..\..\packaging\pyinstaller\build.py', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag)
 
     if (-not (Test-Path $sidecarPath)) {
         Write-Fail "PyInstaller 跑完了但 sidecar 没出现在预期位置:$sidecarPath"
@@ -592,11 +603,11 @@ $poetryExe = Get-Command poetry -ErrorAction SilentlyContinue
 if ($poetryExe) {
     Invoke-Step -Name 'sync bundled (poetry)' `
         -WorkDir $ServerDir `
-        -Command 'poetry' -Arguments (@('run', 'python', 'packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag)
+        -Command 'poetry' -Arguments (@('run', 'python', 'packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag)
 } else {
     Invoke-Step -Name 'sync bundled (python)' `
         -WorkDir $ServerDir `
-        -Command 'python' -Arguments (@('packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag)
+        -Command 'python' -Arguments (@('packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag)
 }
 
 # ====================================================================

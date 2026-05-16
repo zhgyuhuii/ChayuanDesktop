@@ -48,6 +48,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 
 HERE = Path(__file__).resolve().parent                       # packaging/pyinstaller
@@ -61,7 +62,26 @@ DESKTOP_BIN_DIR = DESKTOP_SRC_TAURI / "binaries"
 # mmap 单文件 ≥2GB 失败),改由 Tauri 的 ``bundle.resources`` 字段承载。
 # build.py 把 vendor/bundled_models/ 拷到这里,tauri.conf.json 把它打进 installer。
 DESKTOP_BUNDLED_MODELS_DIR = DESKTOP_SRC_TAURI / "bundled_models"
+# 默认 bundled 源(打包专用暂存),可被 --bundled-source / $CHAYUAN_BUILD_BUNDLED_SOURCE 覆盖
+# (典型用法:开发者用 install-bundled-models.ps1 -ChayuanRoot 把模型装到 chayuan_root,
+#  打包时指向 <chayuan_root>/models/bundled/,免去 dev/打包两份磁盘占用)。
 BUNDLED_SRC = ROOT / "vendor" / "bundled_models"
+
+
+def _resolve_bundled_src(cli_arg: Optional[str]) -> Path:
+    """决定 bundled_models 源路径。优先级:CLI > env > 默认 vendor/bundled_models/。"""
+    if cli_arg:
+        p = Path(cli_arg).expanduser().resolve()
+        if not p.is_dir():
+            raise SystemExit(f"[build] --bundled-source 指向的目录不存在:{p}")
+        return p
+    env = os.environ.get("CHAYUAN_BUILD_BUNDLED_SOURCE")
+    if env:
+        p = Path(env).expanduser().resolve()
+        if not p.is_dir():
+            raise SystemExit(f"[build] $CHAYUAN_BUILD_BUNDLED_SOURCE 指向的目录不存在:{p}")
+        return p
+    return BUNDLED_SRC
 SERVICES_SRC = ROOT / "vendor" / "services"
 DESKTOP_SERVICES_DIR = DESKTOP_SRC_TAURI / "services"
 # PyInstaller 默认把所有产物丢到 ``ROOT/dist/``;onefile 模式下文件在 dist/ 顶层,
@@ -169,17 +189,17 @@ def copy_to_tauri_binaries() -> Path:
 _WIN_INSTALLER_FILE_LIMIT = 2 * 1024 * 1024 * 1024  # 2 GiB
 
 
-def _guard_oversized_files() -> None:
-    """扫 vendor/bundled_models/ 整树,任何 ≥ 2 GB 单文件立即报错。
+def _guard_oversized_files(bundled_src: Path) -> None:
+    """扫 bundled 源整树,任何 ≥ 2 GB 单文件立即报错。
 
     这是 Windows installer 的硬限制 — 一旦走到 makensis / light.exe 才发现,
     用户得等十几分钟的 PyInstaller + cargo + vite 跑完才看到错误。提前到
     sync 这一步报错,几秒内告诉用户哪个文件超标。
     """
-    if not BUNDLED_SRC.is_dir():
+    if not bundled_src.is_dir():
         return
     offenders: list[tuple[Path, int]] = []
-    for sub in BUNDLED_SRC.rglob("*"):
+    for sub in bundled_src.rglob("*"):
         if sub.is_file() and sub.stat().st_size >= _WIN_INSTALLER_FILE_LIMIT:
             offenders.append((sub, sub.stat().st_size))
     if not offenders:
@@ -187,7 +207,7 @@ def _guard_oversized_files() -> None:
     lines = ["[build] FATAL: 以下单文件 ≥ 2 GB,无法打进 Windows installer:"]
     for path, size in offenders:
         gb = size / 1024 / 1024 / 1024
-        rel = path.relative_to(BUNDLED_SRC)
+        rel = path.relative_to(bundled_src)
         lines.append(f"  - {rel}  ({gb:.2f} GB)")
     lines.append("")
     lines.append("原因:NSIS makensis 32-bit mmap 单文件 < 2 GB;WiX 3 light.exe")
@@ -217,17 +237,20 @@ def _load_bundle_caps(flavor: str) -> tuple[str, ...]:
     return tuple(manifest.caps_for(flavor))
 
 
-def sync_bundled_models(*, lite: bool) -> None:
-    """同步 vendor/bundled_models/ → src-tauri/bundled_models/(给 Tauri resources)。
+def sync_bundled_models(*, lite: bool, bundled_src: Optional[Path] = None) -> None:
+    """同步 bundled 源 → src-tauri/bundled_models/(给 Tauri resources)。
 
-    * ``lite=True``  → 只拷 LITE_CAPS(embedding/rerank/asr/ocr,~990 MB)
-                       chat / image 由用户运行时按需下载
-    * ``lite=False`` → 拷 FULL_CAPS 全集(整 ~3.5 GB)
-                       (Tauri NSIS installer 会把它打进 <install_dir>/bundled_models/)
+    Args:
+        lite: True = 只拷 LITE_CAPS(embedding/rerank/asr/ocr,~990 MB);
+              False = 拷 FULL_CAPS 全集(整 ~3.5 GB)。
+              (Tauri NSIS installer 会把它打进 <install_dir>/bundled_models/)
+        bundled_src: 显式指定源路径。默认 BUNDLED_SRC(=vendor/bundled_models/)。
+                     CLI / env 覆盖在 main 里解析后传入。
 
     清单真源 packaging/bundle_manifest.py。哪些 cap 算 lite/full 调整只改那一处。
     幂等:重复跑结果相同。每次都先清掉旧目录避免上一次 flavor 残留。
     """
+    src = bundled_src or BUNDLED_SRC
     flavor = "lite" if lite else "full"
     caps = _load_bundle_caps(flavor)
 
@@ -235,22 +258,22 @@ def sync_bundled_models(*, lite: bool) -> None:
         shutil.rmtree(DESKTOP_BUNDLED_MODELS_DIR)
     DESKTOP_BUNDLED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    if not BUNDLED_SRC.is_dir():
-        print(f"[build] 警告:bundled 源不存在 {BUNDLED_SRC},{flavor} 退化为空目录", flush=True)
+    if not src.is_dir():
+        print(f"[build] 警告:bundled 源不存在 {src},{flavor} 退化为空目录", flush=True)
         (DESKTOP_BUNDLED_MODELS_DIR / ".gitkeep").touch()
         return
 
     # full 模式打包前 size guard:撞 2 GB 就拒(详见上方 _guard_oversized_files 注释)
     if not lite:
-        _guard_oversized_files()
+        _guard_oversized_files(src)
 
-    print(f"[build] flavor={flavor}, caps = {' / '.join(caps)}", flush=True)
+    print(f"[build] flavor={flavor}, caps = {' / '.join(caps)}, src = {src}", flush=True)
 
     caps_set = set(caps)
     n_files = 0
     n_bytes = 0
     skipped: list[str] = []
-    for entry in sorted(BUNDLED_SRC.iterdir()):
+    for entry in sorted(src.iterdir()):
         if entry.name.startswith(".") or entry.name in ("README.md",):
             continue
         if not entry.is_dir():
@@ -261,7 +284,7 @@ def sync_bundled_models(*, lite: bool) -> None:
         # 该 cap 在清单内 → 整子目录拷过去(跳过 .gitkeep)
         for sub in entry.rglob("*"):
             if sub.is_file() and sub.name != ".gitkeep":
-                rel = sub.relative_to(BUNDLED_SRC)
+                rel = sub.relative_to(src)
                 dst = DESKTOP_BUNDLED_MODELS_DIR / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(sub, dst)
@@ -595,6 +618,14 @@ def main() -> None:
               "等价旧 env CHAYUAN_LITE_BUILD=1 但更显式。优先级高于 env。"
               "清单真源:packaging/bundle_manifest.py"),
     )
+    parser.add_argument(
+        "--bundled-source",
+        default="",
+        help=("显式指定 bundled_models 源目录(子目录结构同 vendor/bundled_models/<cap>/)。"
+              "默认 ROOT/vendor/bundled_models/。优先级:CLI > $CHAYUAN_BUILD_BUNDLED_SOURCE env > 默认。"
+              "典型用法:dev 时 install-bundled-models.ps1 -ChayuanRoot $env:CHAYUAN_ROOT 装到运行时目录,"
+              "打包时 --bundled-source $env:CHAYUAN_ROOT/models/bundled,一份模型给 dev + 打包共用。"),
+    )
     # 用 parse_known_args:任何 build.py 不认识的参数(--clean / --log-level=DEBUG /
     # --noupx / 等)都直接转发给 PyInstaller。免得用户记错 ``--`` 分隔符位置 ──
     # poetry / argparse REMAINDER 组合下 ``--`` 经常被吃掉,导致 ``--clean`` 报
@@ -611,6 +642,11 @@ def main() -> None:
         "1", "true", "yes",
     )
 
+    # bundled 源路径解析(CLI > env > vendor 默认),解析完后所有 sync 调用都用它。
+    bundled_src = _resolve_bundled_src(args.bundled_source or None)
+    if bundled_src != BUNDLED_SRC:
+        print(f"[build] bundled_models 源被覆盖:{bundled_src}", flush=True)
+
     target = args.target or rust_target_triple()
     host = rust_target_triple()
     target_sub = triple_to_vendor_subdir(target)
@@ -624,7 +660,7 @@ def main() -> None:
     if args.sync_bundled_only:
         # 跳过 PyInstaller,只同步 bundled_models。给 build-desktop 双 flavor
         # 模式用:sidecar 跑一次,两个 flavor 切换时只重做 sync + tauri bundle。
-        sync_bundled_models(lite=lite)
+        sync_bundled_models(lite=lite, bundled_src=bundled_src)
         _do_sync_and_verify()
         return
 
@@ -637,7 +673,7 @@ def main() -> None:
     run_pyinstaller(extra)
     if not args.no_copy:
         copy_to_tauri_binaries()
-        sync_bundled_models(lite=lite)
+        sync_bundled_models(lite=lite, bundled_src=bundled_src)
         _do_sync_and_verify()
 
 
