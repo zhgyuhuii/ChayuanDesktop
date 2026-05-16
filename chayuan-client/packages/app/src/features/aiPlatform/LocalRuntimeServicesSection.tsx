@@ -24,7 +24,6 @@ import {
 } from '@chayuan/api';
 import { Button } from '@chayuan/ui';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
-import { reportError } from '../../store/errorDialog';
 import { DiagnoseModal } from './DiagnoseModal';
 import { LocalRuntimeStatusBadge } from './LocalRuntimeStatusBadge';
 
@@ -87,6 +86,9 @@ export const LocalRuntimeServicesSection: React.FC = () => {
     void reloadModels();
   }, [reloadModels]);
 
+  const resolveModelId = (cap: LocalRuntimeCapability): string | undefined =>
+    chosen[cap] ?? statuses[cap]?.model_id ?? models[cap][0]?.model_id;
+
   const onRefresh = () => {
     void useLocalRuntimeStore.getState().refreshStatus();
     void useLocalRuntimeStore.getState().refreshRegistry();
@@ -142,23 +144,18 @@ export const LocalRuntimeServicesSection: React.FC = () => {
             pending={pendingFor[cap]}
             models={models[cap]}
             chosen={chosen[cap]}
+            resolvedModelId={resolveModelId(cap)}
             onChoose={(id) => setChosen((s) => ({ ...s, [cap]: id }))}
             onStart={() => {
-              const modelId = chosen[cap];
-              void startCapability(cap, modelId ? { model_id: modelId } : undefined).catch((e) =>
-                reportError(e, `启动 ${CAP_LABEL[cap]} 失败`),
-              );
+              const modelId = resolveModelId(cap);
+              void startCapability(cap, modelId ? { model_id: modelId } : undefined);
             }}
             onStop={() => {
-              void stopCapability(cap).catch((e) =>
-                reportError(e, `停止 ${CAP_LABEL[cap]} 失败`),
-              );
+              void stopCapability(cap);
             }}
             onRestart={() => {
-              const modelId = chosen[cap];
-              void restartCapability(cap, modelId ? { model_id: modelId } : undefined).catch((e) =>
-                reportError(e, `重启 ${CAP_LABEL[cap]} 失败`),
-              );
+              const modelId = resolveModelId(cap);
+              void restartCapability(cap, modelId ? { model_id: modelId } : undefined);
             }}
             onOpenDiagnose={() => setDiagnoseOpen(true)}
           />
@@ -177,6 +174,7 @@ interface CapabilityRowProps {
   pending: 'start' | 'stop' | 'restart' | null;
   models: LocalModelEntry[];
   chosen?: string;
+  resolvedModelId?: string;
   onChoose(id: string): void;
   onStart(): void;
   onStop(): void;
@@ -189,7 +187,7 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
   status,
   pending,
   models,
-  chosen,
+  resolvedModelId,
   onChoose,
   onStart,
   onStop,
@@ -202,8 +200,7 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
   const isFailed = state === 'failed';
   const noModels = models.length === 0;
 
-  // 下拉默认值优先级:用户选过的 > status.model_id > 第一个可选
-  const selectedId = chosen ?? status?.model_id ?? models[0]?.model_id ?? '';
+  const selectedId = resolvedModelId ?? '';
 
   return (
     <div className="rounded-md border border-[var(--cy-border-subtle)] p-3 space-y-1.5">
@@ -243,7 +240,7 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
             <Button
               size="sm"
               onClick={onStart}
-              disabled={isPending || noModels || state === 'starting'}
+              disabled={isPending || noModels}
             >
               <Play
                 className={'mr-1 h-3.5 w-3.5' + (pending === 'start' ? ' animate-pulse' : '')}
