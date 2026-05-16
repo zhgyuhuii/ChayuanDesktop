@@ -43,6 +43,7 @@ import { SUPPORTED_LOCALES, useTranslation } from '../../i18n';
 import { notifySuccess, reportError } from '../../store/errorDialog';
 import { type LocalePreference, type ThemeMode, useSettingsStore } from '../../store/settings';
 import { AddStructuredSourceDialog } from '../kb/AddStructuredSourceDialog';
+import { LocalRuntimeServicesSection } from '../aiPlatform';
 
 export const SettingsAsPage: React.FC = () => {
   const { t } = useTranslation();
@@ -294,6 +295,9 @@ export const SettingsAsPage: React.FC = () => {
           </div>
         </Row>
       </Section>
+
+      {/* 本地模型服务(spec: 2026-05-16) */}
+      <LocalRuntimeServicesSection />
 
       {/* 默认模型 — 模型广场配好厂商后,这里挑哪一个用做默认 */}
       <DefaultModelsSection />
