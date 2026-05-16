@@ -175,6 +175,62 @@ _LLAMACPP_LOCAL_CAP_MAP = {
 }
 
 
+def _expand_to_model_file(
+    entry: LocalModelEntry,
+    r: "Resolution",
+    capability: str,
+    *,
+    suffix: str,
+    label: str,
+) -> Optional[Path]:
+    """把 entry.path(可能是目录)展开成一个具体权重文件。
+
+    scanner 的 _walk_collect 把 _is_dir_repo 命中的目录(只要里面有 .gguf / .bin
+    就算)登记成单 entry,entry.path = 目录。llama-server / whisper-server 的
+    --model 都要文件路径,Windows 上 open(dir) → EACCES,llama 报 "Permission denied"。
+
+    Args:
+        entry: 由 _resolve 返回的 LocalModelEntry。
+        r: 当前 Resolution(失败时往里写 missing/reason)。
+        capability: 用于错误信息。
+        suffix: ``.gguf`` 或 ``.bin``,按引擎选。
+        label: 错误信息里的人类标签(``gguf`` / ``ggml/.bin``)。
+
+    Returns:
+        权重文件 Path;失败返回 None,并往 r 写错。
+    """
+    p = Path(entry.path)
+    if p.is_file():
+        return p
+    if not p.is_dir():
+        r.missing.append(capability)
+        r.reason = f"{capability} entry {entry.model_id!r} 路径既不是文件也不是目录:{p}"
+        return None
+    # rglob 兼容 HF snapshot 偶尔落子目录的布局
+    candidates = [c for c in p.rglob(f"*{suffix}") if c.is_file()]
+    if not candidates:
+        r.missing.append(capability)
+        r.reason = (
+            f"{capability} entry {entry.model_id!r} 是目录 {p} 但里面没找到 {label} 文件"
+        )
+        return None
+    # 多 quantization 时取最小:Q3 < Q4 < Q5 ... 小的更稳,大文件撞 Windows installer 2GB 上限
+    candidates.sort(key=lambda c: c.stat().st_size)
+    return candidates[0]
+
+
+def _expand_to_gguf_file(
+    entry: LocalModelEntry, r: "Resolution", capability: str
+) -> Optional[Path]:
+    return _expand_to_model_file(entry, r, capability, suffix=".gguf", label=".gguf")
+
+
+def _expand_to_ggml_bin(
+    entry: LocalModelEntry, r: "Resolution", capability: str
+) -> Optional[Path]:
+    return _expand_to_model_file(entry, r, capability, suffix=".bin", label="ggml .bin")
+
+
 def resolve_llamacpp_args(
     *,
     capability: str = "chat",
@@ -206,17 +262,12 @@ def resolve_llamacpp_args(
     # scanner 把含 .gguf 的目录登记成 entry,entry.path 可能是目录。llama-server
     # --model 期望具体 .gguf 文件路径,直接传目录会在 gguf_init_from_file 阶段
     # 拿到 EACCES / Permission denied(Windows 上 open(dir) 即返此错)。
-    # 此处展开:目录 → 选里面的 .gguf。多个候选(同一仓库不同 quantization)
-    # 时取字典序第一个(install-bundled-models 当前 manifest 每个 cap 只装一种量化,
-    # 所以一般唯一;真有多个时让用户在设置页显式 model_id 选择)。
-    model_path = Path(entry.path)
-    if model_path.is_dir():
-        ggufs = sorted(model_path.glob("*.gguf"))
-        if not ggufs:
-            r.missing.append(capability)
-            r.reason = f"{capability} entry {entry.model_id!r} 是目录但里面没找到 .gguf 文件"
-            return r
-        model_path = ggufs[0]
+    # 此处展开:目录 → rglob *.gguf 选一个文件(用 rglob 兼容 HF snapshot 偶尔
+    # 把权重落在子目录的布局)。多个候选(同一仓库不同 quantization)时取最小,
+    # 因为大文件可能撞 Windows installer 2GB 上限,小量化更稳。
+    model_path = _expand_to_gguf_file(entry, r, capability)
+    if model_path is None:
+        return r
     r.args.extend(["--model", str(model_path)])
     if capability == "chat":
         r.args.extend(["--ctx-size", str(int(n_ctx))])
@@ -384,7 +435,11 @@ def resolve_whisper_args(
         )
         return r
 
-    r.args.extend(["--model", entry.path])
+    # 同 llama-server:entry.path 可能是目录,whisper-server --model 也要文件路径
+    model_path = _expand_to_ggml_bin(entry, r, capability)
+    if model_path is None:
+        return r
+    r.args.extend(["--model", str(model_path)])
     if n_threads is not None:
         r.args.extend(["--threads", str(int(n_threads))])
     r.resolved_models[capability] = entry.model_id
