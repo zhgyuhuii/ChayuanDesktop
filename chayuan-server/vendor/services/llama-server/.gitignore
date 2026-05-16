@@ -1,7 +1,15 @@
-# llama-server 二进制 + 依赖 dll 不入 git
-# (~30 MB,跑 scripts/install-llama-server.{ps1,sh} 拉取)
-*.exe
-*.dll
-*.so
-*.dylib
-VERSION
+# llama-server 平台预编译二进制布局:
+#   linux-x64/   ← upstream llama-b<N>-bin-ubuntu-x64.zip 解压
+#   macos-arm64/ ← upstream llama-b<N>-bin-macos-arm64.zip 解压
+#   win-x64/     ← upstream llama-b<N>-bin-win-avx2-x64.zip 解压
+#
+# 这些**入 git**(每个平台 ~5-10 MB,合计 ~16 MB),clone 即可用。
+# 升级:重跑 scripts/install-llama-server.{sh,ps1} 或下面三行手 commit。
+#
+# 顶层(扁平)布局也被 install 脚本写过去,作为旧 layout 兜底 —— 不入 git。
+/*.exe
+/*.dll
+/*.so
+/*.dylib
+/llama-server
+/VERSION

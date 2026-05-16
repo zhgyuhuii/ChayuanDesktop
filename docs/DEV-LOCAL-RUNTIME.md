@@ -53,7 +53,22 @@ mkdir -p "$CHAYUAN_ROOT/models/bundled"  # 5 个 capability 真正读模型的�
 
 ## 3. 装 vendor 二进制(llama-server / whisper-server)
 
-二进制不入 git,跑脚本拉:
+**注意**:常用平台预编译 binary **已经 commit 进 git** 了,clone 即用 — 不必跑脚本。
+布局(`local_runtime.py:find_server_exe()` 按 OS 自动挑):
+
+```
+chayuan-server/vendor/services/llama-server/
+├── linux-x64/    llama-server                          (b4404, 5 MB)
+├── macos-arm64/  llama-server + ggml-metal.metal       (b4404, 6 MB)
+└── win-x64/      llama-server.exe + 6 DLL              (b4404, 5 MB)
+
+chayuan-server/vendor/services/whisper-server/
+└── win-x64/      whisper-server.exe + 4 DLL            (v1.7.6, 2 MB)
+   linux-x64/    (空 — upstream 没发,brew/cmake build 自己装)
+   macos-arm64/  (空 — 同上)
+```
+
+需要别的版本时(或 git 里的二进制版本太老)再跑下面脚本:
 
 ### 3.1 llama-server(chat / embedding / rerank 共用)
 

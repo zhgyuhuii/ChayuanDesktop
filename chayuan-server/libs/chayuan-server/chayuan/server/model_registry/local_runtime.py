@@ -133,6 +133,29 @@ def _default_install_services_dirs() -> list[Path]:
 _INSTALL_SERVICES_DIRS: list[Path] | None = None  # 单元测试可 monkeypatch 覆盖
 
 
+def _platform_subdir() -> str:
+    """当前 OS / 架构对应的预编译子目录名(对齐 vendor/services/<engine>-server/<plat>/)。
+
+    返回 ``''`` 表示不识别此平台 — 调用方会跳过 platform-subdir 查找,fallback 到扁平
+    layout(install 脚本现写现拷的旧布局)。
+
+    布局约定:
+      * win-x64    — Windows x86_64
+      * macos-arm64 — Apple Silicon
+      * macos-x64  — Intel Mac
+      * linux-x64  — Linux x86_64
+      * linux-arm64 — Linux aarch64
+    """
+    import platform as _platform
+    if sys.platform == "win32":
+        return "win-x64"
+    if sys.platform == "darwin":
+        return "macos-arm64" if _platform.machine().lower() in ("arm64", "aarch64") else "macos-x64"
+    if sys.platform.startswith("linux"):
+        return "linux-arm64" if _platform.machine().lower() in ("aarch64", "arm64") else "linux-x64"
+    return ""
+
+
 async def _probe_health(url: str, *, timeout: float = 2.0) -> "object":
     """探一次 /health。返回类 httpx.Response 的对象 (有 .status_code)。
 
@@ -246,8 +269,16 @@ class SidecarRuntimeManager:
         dirs = _INSTALL_SERVICES_DIRS if _INSTALL_SERVICES_DIRS is not None else _default_install_services_dirs()
         bin_name = f"{self.engine}-server"
         names = [f"{bin_name}.exe", bin_name]
+        plat = _platform_subdir()
         for d in dirs:
             server_dir = d / bin_name
+            # 优先 platform 子目录(预编译 binary 提交进 git 时的布局)
+            if plat:
+                for name in names:
+                    p = server_dir / plat / name
+                    if p.is_file():
+                        return p
+            # 兜底:扁平布局(install 脚本现拉现写的旧落点)
             for name in names:
                 p = server_dir / name
                 if p.is_file():

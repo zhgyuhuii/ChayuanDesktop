@@ -1,8 +1,12 @@
-# whisper-server 二进制 + 依赖 dll 不入 git
-# (~30 MB,跑 scripts/install-whisper-server.{ps1,sh} 拉取)
-*.exe
-*.dll
-*.so
-*.dylib
-whisper-server
-VERSION
+# whisper-server 平台预编译二进制布局:
+#   win-x64/     ← upstream whisper-bin-x64.zip 解压(v1.7.6+)
+#   linux-x64/   ← upstream 没发,需要源码 cmake build,留空目录(.gitkeep 占位)
+#   macos-arm64/ ← upstream 没发,brew install whisper-cpp 或源码 build,留空目录
+#
+# 现有的平台子目录**入 git**;顶层扁平布局(install 脚本旧落点)不入 git。
+/*.exe
+/*.dll
+/*.so
+/*.dylib
+/whisper-server
+/VERSION

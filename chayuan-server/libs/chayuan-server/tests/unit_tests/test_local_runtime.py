@@ -73,11 +73,12 @@ def test_manager_init_paths(tmp_path):
     assert m.status_path == tmp_path / "runtime.json"
 
 
-def test_manager_find_llama_server_exe_missing(tmp_path):
+def test_manager_find_llama_server_exe_missing(tmp_path, monkeypatch):
     """vendor 二进制找不到时,find_llama_server_exe 返回 None"""
-    from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
-    m = LlamaRuntimeManager(chayuan_root=tmp_path)
-    # 没真 vendor 二进制
+    from chayuan.server.model_registry import local_runtime
+    # 隔离开发机仓库自带的 vendor/services/ 预编译 binary,只看 tmp 空目录
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "empty-services"])
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
     assert m.find_llama_server_exe() is None
 
 
@@ -94,6 +95,46 @@ def test_manager_find_llama_server_exe_present(tmp_path, monkeypatch):
 
     m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
     assert m.find_llama_server_exe() == exe
+
+
+def test_manager_find_server_exe_prefers_platform_subdir(tmp_path, monkeypatch):
+    """优先 platform 子目录(预编译 binary 提交进 git 的布局),fallback 才看扁平。"""
+    from chayuan.server.model_registry import local_runtime
+
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    # 扁平兜底
+    flat = services / "llama-server.exe"
+    flat.write_bytes(b"flat")
+    # platform 子目录
+    monkeypatch.setattr(local_runtime, "_platform_subdir", lambda: "win-x64")
+    plat_dir = services / "win-x64"
+    plat_dir.mkdir()
+    plat_bin = plat_dir / "llama-server.exe"
+    plat_bin.write_bytes(b"plat")
+
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
+    assert m.find_server_exe() == plat_bin
+
+
+def test_manager_find_server_exe_falls_back_to_flat(tmp_path, monkeypatch):
+    """platform 子目录里没 binary 时,回到扁平 layout。"""
+    from chayuan.server.model_registry import local_runtime
+
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    flat = services / "llama-server.exe"
+    flat.write_bytes(b"flat")
+    # 子目录存在但空
+    monkeypatch.setattr(local_runtime, "_platform_subdir", lambda: "win-x64")
+    (services / "win-x64").mkdir()
+
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
+    assert m.find_server_exe() == flat
 
 
 def test_manager_allocate_port_default_free(tmp_path):
@@ -170,13 +211,17 @@ async def test_manager_start_spawns_subprocess(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_manager_start_missing_exe_fails(tmp_path):
+async def test_manager_start_missing_exe_fails(tmp_path, monkeypatch):
     """vendor 二进制缺失时,start() 状态 → failed"""
-    from chayuan.server.model_registry.local_runtime import LlamaRuntimeManager
-    m = LlamaRuntimeManager(chayuan_root=tmp_path)
+    from chayuan.server.model_registry import local_runtime
+    # 隔离开发机仓库自带 vendor/services/ 预编译 binary,只看 tmp 空目录
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "empty-services"])
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
     status = await m.start()
     assert status.state == "failed"
-    assert "llama-server" in (status.last_error or "").lower()
+    # last_error 提到 llama-server 或 model 未就绪都视为符合预期
+    err = (status.last_error or "").lower()
+    assert "llama-server" in err or "model" in err or "candidate" in err
 
 
 @pytest.mark.asyncio

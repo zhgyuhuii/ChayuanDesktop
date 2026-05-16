@@ -1,32 +1,46 @@
 # vendor/services/whisper-server
 
-放 `whisper.cpp` 官方 release 的 `whisper-server` 二进制 + 依赖 dll。
-集成版打包时由 `build.py sync_services()` 拷到 Tauri resources,
-装机后落在 `<install_dir>/services/whisper-server/whisper-server.exe`。
+`whisper.cpp` 官方 release 的 `whisper-server` 二进制 + 依赖 DLL。集成版打包时由
+`build.py sync_services()` 拷到 Tauri resources;装机后落在
+`<install_dir>/services/whisper-server/`。
+
+## 布局(平台预编译)
+
+```
+whisper-server/
+├── win-x64/        ← upstream whisper-bin-x64.zip 解压(~2 MB,v1.7.6+)
+│   ├── whisper-server.exe
+│   ├── whisper.dll / ggml-base.dll / ggml-cpu.dll / ggml.dll
+│   └── VERSION
+├── linux-x64/      ← upstream 没发 binary,空目录占位(.gitkeep)
+└── macos-arm64/    ← upstream 没发 binary,空目录占位(.gitkeep)
+```
+
+**Upstream 现状**:whisper.cpp 官方只发 Windows pre-built(`whisper-bin-Win32.zip` /
+`whisper-bin-x64.zip`,从 v1.7.6 起),**没有** Linux / macOS pre-built。所以
+Mac / Linux 用户需要:
+
+- **macOS**:`brew install whisper-cpp`(主仓 formula),然后跑
+  `scripts/install-whisper-server.sh` 把 brew bin 拷到 `vendor/services/whisper-server/`。
+- **Linux**:装 cmake + g++ + git,跑 `scripts/install-whisper-server.sh` 现场源码 build。
+
+运行时 `local_runtime.py:find_server_exe()` 按 OS 自动挑子目录;扁平 layout
+(install 脚本现拉现写的旧落点)作兜底。
 
 ## 当前版本
 
-来源:https://github.com/ggerganov/whisper.cpp/releases
-Build:`whisper-bin-x64.zip` (Win) / `whisper-bin-linux-x64.tar.gz` /
-`whisper-bin-macos-arm64.tar.gz`
-版本记录:`VERSION` 文件,内容是 release tag + 下载日期。
-
-## 获取方式
-
-二进制不入 git。开发 / CI 跑下载脚本:
-
-````powershell
-# Windows
-.\scripts\install-whisper-server.ps1
-````
-
-````bash
-# Linux / Mac dev
-./scripts/install-whisper-server.sh
-````
+`v1.7.6`(2025-04 release;Win64 ~2 MB)。
 
 ## 升级
 
-1. 跑下载脚本指定新版本:`.\scripts\install-whisper-server.ps1 -Version v1.7.x`
-2. 跑 ASR smoke 测试验证兼容性
-3. 提 PR 时 `VERSION` 文件改动 + 上一行 changelog
+```bash
+# Win
+.\scripts\install-whisper-server.ps1 -Version v1.8.x
+
+# macOS (brew 自动跟最新 formula)
+brew upgrade whisper-cpp
+./scripts/install-whisper-server.sh
+
+# Linux (源码 build,指定 git tag)
+./scripts/install-whisper-server.sh v1.8.0
+```
