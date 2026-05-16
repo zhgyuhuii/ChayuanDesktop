@@ -321,6 +321,39 @@ def image_file_endpoint(
 
 
 # ---------------------------------------------------------------------------
+# 文字搜图
+# ---------------------------------------------------------------------------
+
+@image_router.post(
+    "/{source_id}/image/search_by_text",
+    summary="按文字搜图(用户默认文本向量模型路 + CLIP 跨模态路 RRF 融合)",
+)
+async def search_by_text_endpoint(
+    source_id: int,
+    payload: Dict[str, Any] = Body(...),
+    user=Depends(require_auth_enabled()),
+):
+    if not can_read(user, int(source_id)):
+        raise HTTPException(403, "no read permission")
+    _get_source_or_404(int(source_id))
+    query = str(payload.get("query") or "").strip()
+    if not query:
+        raise HTTPException(400, "query required")
+    top_k = int(payload.get("top_k") or 20)
+    k_rrf = int(payload.get("k_rrf") or 60)
+
+    conn = _build_image_connector(int(source_id))
+    from chayuan.server.image_source.text_search import text_search
+    out = await text_search(
+        conn.source_name, query,
+        top_k=top_k, k_rrf=k_rrf,
+        source_id=int(source_id),
+        model_name=conn._model_name,
+    )
+    return {"code": 0, "data": out}
+
+
+# ---------------------------------------------------------------------------
 # 以图搜图
 # ---------------------------------------------------------------------------
 
