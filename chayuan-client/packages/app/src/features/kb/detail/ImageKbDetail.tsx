@@ -2,17 +2,23 @@
  * 图像型 KB 详情。
  *
  * 设计:
- *   - 顶部 toolbar:文字搜索(本地按 caption 过滤)+ 以图搜图按钮 + 上传 + 删除
+ *   - 顶部 toolbar:双模式搜索 tab(按文字 / 按图)+ 上传 + 删除
  *   - 网格 4-6 列(响应式),hover 显示 caption + 命中时显示 score badge
  *   - 点击图 → lightbox 大图(简易实现:全屏黑底 + 单图 + ESC/点击关闭)
  *   - owner 可上传 / 删除选中
+ *   - 按文字搜图:调 searchByText → RRF fused hits,独立结果区展示
  *   - 以图搜图:上传一张参考图 → 调 /search_by_image → 命中按 score 降序前置 + 高亮边框
+ *   - 上传后立即 onMutate 触发父组件重新 fetch,每 2.5s 轮询 pending item 状态
  */
 
 import * as React from 'react';
-import { Download, Eye, ImageIcon, ImagePlus, Loader2, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { AlertCircle, Download, Eye, FileText, ImageIcon, ImagePlus, Loader2, RefreshCw, Search, Trash2, Type, X } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
-import { getAccessToken, getClientConfig, imageSource, type ImageItem, type ImageSearchHit, type KuImageDetail } from '@chayuan/api';
+import {
+  getAccessToken, getClientConfig, imageSource,
+  type ImageItem, type ImageItemStatus, type ImageRrfHit, type ImageRrfSearchResponse,
+  type ImageSearchHit, type KuImageDetail,
+} from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 import type { DetailPanelProps } from './types';
@@ -58,7 +64,85 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
   const [searching, setSearching] = React.useState(false);
   const [queryThumbUrl, setQueryThumbUrl] = React.useState<string | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
-  const items = detail.items ?? [];
+
+  // 搜索模式 tab
+  const [searchMode, setSearchMode] = React.useState<'text' | 'image'>('text');
+  const [textQuery, setTextQuery] = React.useState('');
+  const [textResult, setTextResult] = React.useState<ImageRrfSearchResponse | null>(null);
+  const [textSearching, setTextSearching] = React.useState(false);
+
+  // 本地状态覆盖层:从 /status 轮询拿到的实时状态,合并到 detail.items 之上
+  const [statusOverrides, setStatusOverrides] = React.useState<Map<string, Partial<ImageItem>>>(
+    () => new Map(),
+  );
+
+  // 合并 statusOverrides 到 detail.items
+  const items = React.useMemo(() => {
+    const raw = detail.items ?? [];
+    if (statusOverrides.size === 0) return raw;
+    return raw.map((it) => {
+      const o = statusOverrides.get(it.id);
+      return o ? { ...it, ...o } : it;
+    });
+  }, [detail.items, statusOverrides]);
+
+  // 收集 pending 的 image id (state queued / ocr_and_embedding)
+  const pendingIds = React.useMemo(() => {
+    return items
+      .filter((it) => it.state && it.state !== 'ready' && it.state !== 'failed')
+      .map((it) => it.id);
+  }, [items]);
+
+  React.useEffect(() => {
+    if (sourceId == null) return;
+    if (pendingIds.length === 0) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      try {
+        const results = await Promise.all(
+          pendingIds.map((id) =>
+            imageSource.itemStatus(sourceId, id).catch(() => null as ImageItemStatus | null),
+          ),
+        );
+        if (cancelled) return;
+        setStatusOverrides((prev) => {
+          const next = new Map(prev);
+          for (let i = 0; i < pendingIds.length; i++) {
+            const r = results[i];
+            const pid = pendingIds[i];
+            if (!r || pid == null) continue;
+            next.set(pid, {
+              state: r.state,
+              progress: r.progress,
+              error: r.error ?? null,
+              has_text_vector: r.has_text_vector,
+              ocr_text: r.ocr_text ?? null,
+            });
+          }
+          return next;
+        });
+        // 还有 pending 就继续轮询
+        const stillPending = results.some(
+          (r) => r && r.state !== 'ready' && r.state !== 'failed',
+        );
+        if (!cancelled && stillPending) {
+          timer = setTimeout(poll, 2500);
+        } else if (!cancelled) {
+          // 全部就绪,触发父组件重新拉数据,让 universe detail 也同步
+          onMutate();
+        }
+      } catch {
+        // 静默,下一次 effect 触发会重试
+      }
+    };
+    timer = setTimeout(poll, 2500);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [sourceId, pendingIds.join(','), onMutate]);
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -92,6 +176,26 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
     }
     return arr;
   }, [items, keyword, scoreMap]);
+
+  const onSearchByText = async () => {
+    if (sourceId == null) return;
+    const q = textQuery.trim();
+    if (!q) return;
+    setTextSearching(true);
+    try {
+      const resp = await imageSource.searchByText(sourceId, q, 20);
+      setTextResult(resp);
+    } catch (e) {
+      reportError(e, '按文字搜图失败');
+    } finally {
+      setTextSearching(false);
+    }
+  };
+
+  const onClearTextSearch = () => {
+    setTextResult(null);
+    setTextQuery('');
+  };
 
   const onSearchByImage = async () => {
     if (sourceId == null) return;
@@ -158,9 +262,9 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
       setBusy(true);
       const r = await imageSource.upload(sourceId, picked);
       if (r.errors.length === 0) {
-        notifySuccess(`已上传 ${r.added.length} 张图片`);
+        notifySuccess(`已开始处理 ${r.added.length} 张图片(OCR + 向量化进行中)`);
       } else {
-        notifySuccess(`上传 ${r.added.length} 张,失败 ${r.errors.length} 张`);
+        notifySuccess(`已开始处理 ${r.added.length} 张,失败 ${r.errors.length} 张`);
       }
       onMutate();
     } catch (e) {
@@ -198,42 +302,98 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
           {scoreMap ? `${displayItems.length} / ${items.length}` : `${items.length}`} 张图片
           {selected.size > 0 && <span className="ml-2 text-[var(--cy-text-secondary)]">已选 {selected.size}</span>}
         </span>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--cy-text-tertiary)]" />
-            <input
-              ref={searchInputRef}
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="搜索 caption / id"
-              className="h-8 w-44 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] pl-7 pr-3 text-xs focus-visible:outline-none focus-visible:border-[var(--cy-brand-400)]"
-            />
+        <div className="flex flex-wrap items-center gap-2">
+          {/* 模式 tab */}
+          <div className="inline-flex h-8 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setSearchMode('text')}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full px-3 transition',
+                searchMode === 'text'
+                  ? 'bg-[var(--cy-brand-500)] text-white shadow'
+                  : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-1)]',
+              )}
+            >
+              <Type className="h-3 w-3" /> 按文字
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchMode('image')}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full px-3 transition',
+                searchMode === 'image'
+                  ? 'bg-[var(--cy-brand-500)] text-white shadow'
+                  : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-1)]',
+              )}
+            >
+              <ImageIcon className="h-3 w-3" /> 按图
+            </button>
           </div>
-          <Button
-            size="sm"
-            variant={scoreMap ? 'default' : 'outline'}
-            onClick={onSearchByImage}
-            disabled={searching || sourceId == null}
-            className="h-8 text-xs"
-            title="上传一张参考图,按相似度反查本库"
-          >
-            {searching ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <ImageIcon className="h-3.5 w-3.5" />
-            )}
-            {searching ? '搜索中…' : '以图搜图'}
-          </Button>
+
+          {searchMode === 'text' ? (
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--cy-text-tertiary)]" />
+                <input
+                  ref={searchInputRef}
+                  value={textQuery}
+                  onChange={(e) => setTextQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void onSearchByText(); }}
+                  placeholder="例如:发票 / 红色汽车 / 山水画"
+                  className="h-8 w-56 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] pl-7 pr-3 text-xs focus-visible:outline-none focus-visible:border-[var(--cy-brand-400)]"
+                />
+              </div>
+              <Button
+                size="sm"
+                onClick={() => void onSearchByText()}
+                disabled={textSearching || !textQuery.trim() || sourceId == null}
+                className="h-8 text-xs"
+              >
+                {textSearching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                搜索
+              </Button>
+              {textResult && (
+                <Button size="sm" variant="ghost" onClick={onClearTextSearch} className="h-8 text-xs">
+                  <X className="h-3.5 w-3.5" /> 清除
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--cy-text-tertiary)]" />
+                <input
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="按 caption / id 过滤"
+                  className="h-8 w-44 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] pl-7 pr-3 text-xs focus-visible:outline-none focus-visible:border-[var(--cy-brand-400)]"
+                />
+              </div>
+              <Button
+                size="sm"
+                variant={scoreMap ? 'default' : 'outline'}
+                onClick={() => void onSearchByImage()}
+                disabled={searching || sourceId == null}
+                className="h-8 text-xs"
+                title="上传一张参考图,按相似度反查本库"
+              >
+                {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageIcon className="h-3.5 w-3.5" />}
+                {searching ? '搜索中…' : '以图搜图'}
+              </Button>
+            </div>
+          )}
+
           <Button size="icon" variant="ghost" onClick={onMutate} aria-label="刷新" className="h-8 w-8">
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
           {mine && selected.size > 0 && (
-            <Button size="sm" variant="ghost" className="h-8 text-xs text-destructive" onClick={onDelete} disabled={busy}>
+            <Button size="sm" variant="ghost" className="h-8 text-xs text-destructive" onClick={() => void onDelete()} disabled={busy}>
               <Trash2 className="h-3.5 w-3.5" /> 删除
             </Button>
           )}
           {mine && (
-            <Button size="sm" onClick={onUpload} className="h-8 text-xs" disabled={busy}>
+            <Button size="sm" onClick={() => void onUpload()} className="h-8 text-xs" disabled={busy}>
               <ImagePlus className="h-3.5 w-3.5" /> 上传
             </Button>
           )}
@@ -263,6 +423,42 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
           >
             <X className="h-3 w-3" /> 退出搜索
           </button>
+        </div>
+      )}
+
+      {/* 按文字搜图结果区 */}
+      {textResult && (
+        <div className="border-b border-[var(--cy-border-subtle)] bg-gradient-to-r from-violet-50 to-fuchsia-50 px-4 py-3">
+          <div className="mb-2 flex items-center gap-3">
+            <Type className="h-4 w-4 text-violet-700" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-medium text-violet-800">
+                按文字搜图:&ldquo;{textQuery}&rdquo; — {textResult.hits.length} 张相关
+              </p>
+              {(textResult.diagnostics.text_path !== 'ok' ||
+                textResult.diagnostics.image_path !== 'ok') && (
+                <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-amber-700">
+                  <AlertCircle className="h-3 w-3" />
+                  {textResult.diagnostics.text_path !== 'ok' && (
+                    <span>文本向量路:{textResult.diagnostics.text_path}。</span>
+                  )}
+                  {textResult.diagnostics.image_path !== 'ok' && (
+                    <span>视觉跨模态路:{textResult.diagnostics.image_path}。</span>
+                  )}
+                  结果可能不完整。
+                </p>
+              )}
+            </div>
+          </div>
+          {textResult.hits.length === 0 ? (
+            <p className="text-xs text-violet-700/70">未找到相关图片</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
+              {textResult.hits.map((h) => (
+                <RrfHitCard key={h.id} hit={h} sourceId={sourceId ?? 0} />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -346,6 +542,52 @@ const ImageCard: React.FC<{
           />
         </label>
       )}
+      {/* 处理状态 badge */}
+      {img.state && img.state !== 'ready' && img.state !== 'failed' && (
+        <div className="absolute inset-x-1.5 bottom-1.5 rounded-md bg-black/65 px-2 py-1 backdrop-blur">
+          <div className="flex items-center gap-1 text-[10px] text-white">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span className="flex-1 truncate">
+              {(img.progress ?? 0) < 70
+                ? '视觉向量化中'
+                : (img.progress ?? 0) < 95
+                ? 'OCR 提取中'
+                : '文本向量化中'}
+            </span>
+            <span>{img.progress ?? 0}%</span>
+          </div>
+          <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-white/20">
+            <div
+              className="h-full bg-emerald-400 transition-[width]"
+              style={{ width: `${Math.min(100, img.progress ?? 0)}%` }}
+            />
+          </div>
+        </div>
+      )}
+      {img.state === 'failed' && (
+        <span
+          className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-red-600/90 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm"
+          title={img.error ?? '失败'}
+        >
+          <AlertCircle className="h-3 w-3" /> 失败
+        </span>
+      )}
+      {img.state === 'ready' && img.ocr_text && (
+        <span
+          className="absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded-full bg-blue-500/90 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm"
+          title={img.ocr_text}
+        >
+          <FileText className="h-3 w-3" /> 含文字
+        </span>
+      )}
+      {img.state === 'ready' && img.has_text_vector === false && img.ocr_text && (
+        <span
+          className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-amber-500/90 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm"
+          title="默认文本向量模型未就绪,本图仅按视觉检索"
+        >
+          仅图搜
+        </span>
+      )}
       {/* 命中分数 badge */}
       {isHit && (
         <span className="absolute left-1.5 bottom-1.5 inline-flex items-center gap-1 rounded-full bg-rose-500/90 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm backdrop-blur">
@@ -366,6 +608,43 @@ const ImageCard: React.FC<{
       >
         <Eye className="h-3 w-3" />
       </button>
+    </div>
+  );
+};
+
+const RrfHitCard: React.FC<{ hit: ImageRrfHit; sourceId: number }> = ({ hit }) => {
+  const [src, setSrc] = React.useState<string>('');
+  React.useEffect(() => {
+    let live = true;
+    void absImageUrl(hit.thumbnail_url).then((u) => { if (live) setSrc(u); });
+    return () => { live = false; };
+  }, [hit.thumbnail_url]);
+  const pathLabel: Record<ImageRrfHit['source_path'], string> = {
+    text_vec: '文本',
+    clip_text: '视觉',
+    clip_image: '图',
+    fused: '融合',
+  };
+  return (
+    <div className="group relative aspect-square overflow-hidden rounded-md border border-violet-200 bg-white">
+      {src ? (
+        <img
+          src={src}
+          alt={hit.filename}
+          className="h-full w-full object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-[10px] text-[var(--cy-text-tertiary)]">…</div>
+      )}
+      <span className="absolute left-1 top-1 inline-flex items-center rounded-full bg-violet-500/95 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm">
+        {pathLabel[hit.source_path] ?? hit.source_path}
+      </span>
+      {hit.ocr_snippet && (
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 truncate bg-gradient-to-t from-black/70 to-transparent px-1.5 py-0.5 text-[9px] text-white opacity-0 group-hover:opacity-100" title={hit.ocr_snippet}>
+          {hit.ocr_snippet}
+        </div>
+      )}
     </div>
   );
 };
