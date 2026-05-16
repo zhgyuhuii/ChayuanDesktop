@@ -441,9 +441,16 @@ class SidecarRuntimeManager:
             args = [str(exe)]
             args.extend(resolution.args)
             args.extend(["--host", host, "--port", str(port)])
+        elif self.engine == "whisper":
+            # whisper-server (whisper.cpp/examples/server) 支持 --host/--port/--model/--threads,
+            # 不支持 --log-disable / --api-key(都是 llama-server 专属)。passing them
+            # 会让 whisper-server 启动早期报错或 hang 等输入;避免传。
+            args = [str(exe), "--host", host, "--port", str(port)]
+            args.extend(resolution.args)
+            if "--threads" not in resolution.args:
+                args.extend(["--threads", str(min(8, os.cpu_count() or 4))])
         else:
-            # llama-server / whisper-server:exe 自己接 --host/--port,resolution
-            # 追加在后面(--model 等 model 相关 args)
+            # llama-server:支持 --log-disable / --api-key,resolution.args 含 --model 等
             args = [str(exe), "--host", host, "--port", str(port), "--log-disable"]
             args.extend(resolution.args)
             if self._settings.api_key:

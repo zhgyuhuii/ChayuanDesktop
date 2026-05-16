@@ -128,12 +128,18 @@ def make_runtime_app(
 
 
 def parse_serve_args(default_port: int) -> argparse.Namespace:
-    """命令行参数:--host / --port。"""
+    """命令行参数:--host / --port / --model。
+
+    --model 由 SidecarRuntimeManager 从 process_args.resolve_image_embedding_args
+    透传,值是 scanner 给的 model_id(本地 path 或 HF repo)。各 sidecar 模块在
+    __main__ 里把它写进 default_config['model'],覆盖 hardcoded fallback。
+    """
     p = argparse.ArgumentParser(
         description="Chayuan runtime HTTP wrapper",
     )
     p.add_argument("--host", default="127.0.0.1", help="bind host")
     p.add_argument("--port", type=int, default=default_port, help="bind port")
+    p.add_argument("--model", default=None, help="optional model_id / path; 覆盖模块 _DEFAULT_CONFIG['model']")
     return p.parse_args()
 
 

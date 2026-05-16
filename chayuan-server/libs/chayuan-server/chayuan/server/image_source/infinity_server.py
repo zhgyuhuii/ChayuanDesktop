@@ -117,10 +117,15 @@ def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
 
 if __name__ == "__main__":  # pragma: no cover - real serve path
     args = parse_serve_args(default_port=62586)
+    cfg = dict(_DEFAULT_CONFIG)
+    if args.model:
+        # SidecarRuntimeManager 启动时透传 scanner 给的 model_id(本地路径或 HF repo)。
+        # 没传时 fallback 到 _DEFAULT_CONFIG 的 openai/clip-vit-base-patch32(会去 HF 下载)。
+        cfg["model"] = args.model
     app = make_runtime_app(
         framework="infinity",
         title="Chayuan Image Embedding Sidecar",
-        default_config=_DEFAULT_CONFIG,
+        default_config=cfg,
         register_routes=_register_routes,
     )
     serve(app, host=args.host, port=args.port)
