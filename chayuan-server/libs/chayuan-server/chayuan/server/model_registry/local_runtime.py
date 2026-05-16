@@ -432,12 +432,24 @@ class SidecarRuntimeManager:
         port = self._allocate_port(preferred=self._settings.port + self.port_offset)
         host = "0.0.0.0" if self._settings.expose_lan else self._settings.host
 
-        args = [str(exe), "--host", host, "--port", str(port), "--log-disable"]
-        args.extend(resolution.args)
-        if self._settings.api_key:
-            args.extend(["--api-key", self._settings.api_key])
-        if "--threads" not in resolution.args:
-            args.extend(["--threads", str(min(8, os.cpu_count() or 4))])
+        if self.engine == "infinity":
+            # Python sidecar:命令必须是 `python.exe -m <module> [module-args]`,
+            # `-m` 必须紧跟解释器。原来跟 llama 共用拼装,Python 看到
+            # `--host` 在 `-m` 之前会当成 Python 自己的 option → unknown option --host
+            # 直接退。模块自己接 --host/--port/--model;不加 llama 专属的
+            # --log-disable / --api-key / --threads(infinity 不认)。
+            args = [str(exe)]
+            args.extend(resolution.args)
+            args.extend(["--host", host, "--port", str(port)])
+        else:
+            # llama-server / whisper-server:exe 自己接 --host/--port,resolution
+            # 追加在后面(--model 等 model 相关 args)
+            args = [str(exe), "--host", host, "--port", str(port), "--log-disable"]
+            args.extend(resolution.args)
+            if self._settings.api_key:
+                args.extend(["--api-key", self._settings.api_key])
+            if "--threads" not in resolution.args:
+                args.extend(["--threads", str(min(8, os.cpu_count() or 4))])
 
         # 动态链接的 vendor binary(如 Docker 提取的 whisper-server / linux-arm64
         # llama-server)依赖同目录 .so / .dylib;loader 默认不看 exe 旁路径,需要
@@ -502,7 +514,16 @@ class SidecarRuntimeManager:
                 return self._status
             try:
                 resp = await _probe_health(f"{endpoint}{health_path}", timeout=2.0)
-                if getattr(resp, "status_code", None) == 200:
+                sc = getattr(resp, "status_code", None)
+                # whisper-server 没带 static dir,GET / 返 404,但 "返回任何 HTTP 状态码"
+                # = 进程起来 + HTTP listener 在听 + model 已加载(whisper-server 同步
+                # 加载,listener 起来时 model 已 ready)。只 200 太严。
+                # llama-server / infinity:/health 200 才算 model 加载完成,严格判 200。
+                ok = (
+                    (self.engine == "whisper" and sc is not None and 200 <= sc < 500)
+                    or sc == 200
+                )
+                if ok:
                     ready = True
                     break
             except Exception:
