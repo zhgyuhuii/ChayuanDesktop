@@ -29,12 +29,19 @@
 
 ### 1.1 装 Python 3.12 + poetry
 
+> ⚠ **chayuan-server 不支持 Python 3.13**(C 扩展 + multiprocessing 子 worker 100% SIGSEGV)。**必须 Python 3.10 / 3.11 / 3.12**。
+
 ```powershell
 winget install Python.Python.3.12
 pip install poetry
 ```
 
-(已有 Anaconda / Miniforge 也能用,只要 `python --version` ≥ 3.11)
+`dev-start.ps1` 自动按 Python 3.12 / 3.11 优先;只有 3.13 时给指引。要强制用某个 Python:
+
+```powershell
+$env:CHAYUAN_PYTHON = 'C:\Python312\python.exe'
+.\scripts\dev-start.ps1
+```
 
 ### 1.2 装 chayuan-server 依赖
 

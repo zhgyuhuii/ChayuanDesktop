@@ -27,6 +27,8 @@
 
 ### 1.1 装系统依赖
 
+> ⚠ **chayuan-server 不支持 Python 3.13**。实测 3.13 上 multiprocessing 子 worker 100% SIGSEGV(C 扩展不兼容)。**必须 Python 3.10 / 3.11 / 3.12**(推荐 3.12)。
+
 ```bash
 # Ubuntu 22.04+ / Debian 12+(推荐)
 sudo apt update
@@ -35,12 +37,21 @@ sudo apt install -y python3.12 python3-pip python3-venv git curl build-essential
 # RHEL 9 / Rocky 9 / Alma 9
 sudo dnf install -y python3.12 python3-pip git curl gcc-c++ make cmake
 
+# Anolis / Alibaba Cloud Linux 3(系统 Python 通常是 3.6 太老)→ 用 conda:
+curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/mc.sh
+bash /tmp/mc.sh -b -p $HOME/miniconda3
+$HOME/miniconda3/bin/conda create -n py312 python=3.12 -y
+export CHAYUAN_PYTHON=$HOME/miniconda3/envs/py312/bin/python3
+# 然后 dev-start.sh 会自动用这个
+
 # Arch / Manjaro
 sudo pacman -S python python-pip git curl base-devel cmake
 
 # Alpine
 sudo apk add python3 py3-pip git curl gcc g++ make cmake
 ```
+
+`dev-start.sh` 按 **CHAYUAN_PYTHON env > conda envs/py312 > pyenv 3.12.x > python3.12 / python3.11** 顺序找;系统只有 3.13 时给清晰错误指引。
 
 ### 1.2 装 poetry(可选)
 

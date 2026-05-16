@@ -34,11 +34,19 @@ xcode-select --install
 
 ### 1.2 装 Python + poetry
 
+> ⚠ **chayuan-server 不支持 Python 3.13**(C 扩展跟 multiprocessing 子 worker 不兼容,100% SIGSEGV)。**必须 Python 3.10 / 3.11 / 3.12**。
+
 ```bash
 brew install python@3.12 poetry
+# 或 conda:conda create -n py312 python=3.12 -y
 ```
 
-(用 pyenv / conda 也行,只要 `python3 --version` ≥ 3.11)
+`dev-start.sh` 按优先级找 Python 3.12 / 3.11;只有 3.13 时给指引让你装 3.12。可显式:
+
+```bash
+export CHAYUAN_PYTHON=$(brew --prefix python@3.12)/bin/python3.12
+./scripts/dev-start.sh
+```
 
 ### 1.3 装 chayuan-server 依赖
 

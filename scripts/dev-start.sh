@@ -77,33 +77,86 @@ ok "host:$OS $ARCH → vendor 子目录 = $PLAT"
 # ────────────────────────── 2. Python + chayuan 包 ──────────────
 step "Step 1/4: 检查 Python 环境"
 PYTHON_BIN=""
+
+# 实测:Python 3.13 + chayuan-server 多进程子 worker 100% SIGSEGV(C 扩展不兼容)。
+# 强烈优先 3.12.x;3.13 退化为最后兜底并 warn。
+pick_python() {
+    local cand="$1"
+    [ -x "$cand" ] || return 1
+    local ver
+    ver="$("$cand" -c 'import sys;print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)"
+    case "$ver" in
+        3.10|3.11|3.12) echo "$ver"; return 0 ;;
+        3.13) echo "3.13-bad"; return 0 ;;   # 仍能 import 但跑 chayuan 会 SIGSEGV
+        *) return 1 ;;
+    esac
+}
+
+# 候选优先级:CHAYUAN_PYTHON env 显式 > conda envs/py312 > pyenv shims/3.12.x >
+# 系统 python3.12 > poetry venv > python3(任意)
+# `set -e` 在 command -v 找不到时会跳;暂时关掉
+set +e
+declare -a candidates=()
+[ -n "${CHAYUAN_PYTHON:-}" ] && candidates+=("$CHAYUAN_PYTHON")
+candidates+=(
+    "$HOME/miniconda3/envs/py312/bin/python3"
+    "$HOME/miniconda3/envs/py312/bin/python"
+    "/root/miniconda3/envs/py312/bin/python3"
+    "/opt/conda/envs/py312/bin/python3"
+    "$HOME/.pyenv/versions/3.12.13/bin/python3"
+)
+P312="$(command -v python3.12 2>/dev/null)"
+[ -n "$P312" ] && candidates+=("$P312")
+P311="$(command -v python3.11 2>/dev/null)"
+[ -n "$P311" ] && candidates+=("$P311")
+
 if command -v poetry >/dev/null 2>&1; then
-    if (cd "$SERVER" && poetry env info --path >/dev/null 2>&1); then
-        PYTHON_BIN="$(cd "$SERVER" && poetry env info --path)/bin/python"
-        ok "poetry venv 就绪:$PYTHON_BIN"
-    else
-        warn "poetry 在,但 venv 未建。先跑 'cd chayuan-server && poetry install --only main'"
+    POETRY_VENV="$(cd "$SERVER" && poetry env info --path 2>/dev/null)"
+    [ -n "$POETRY_VENV" ] && [ -x "$POETRY_VENV/bin/python" ] && candidates+=("$POETRY_VENV/bin/python")
+fi
+PY3="$(command -v python3 2>/dev/null)"
+[ -n "$PY3" ] && candidates+=("$PY3")
+
+for c in "${candidates[@]}"; do
+    [ -z "$c" ] && continue
+    [ -x "$c" ] || continue
+    pyver=$(pick_python "$c")
+    [ -z "$pyver" ] && continue
+    if [ "$pyver" = "3.13-bad" ]; then
+        [ -z "${PYTHON_BIN_FALLBACK:-}" ] && PYTHON_BIN_FALLBACK="$c"
+        continue
     fi
+    PYTHON_BIN="$c"
+    PYTHON_VERSION="$pyver"
+    break
+done
+set -e
+
+if [ -z "$PYTHON_BIN" ] && [ -n "${PYTHON_BIN_FALLBACK:-}" ]; then
+    warn "只找到 Python 3.13 ($PYTHON_BIN_FALLBACK);chayuan-server 在 3.13 上"
+    warn "  多进程子 worker 会 SIGSEGV(C 扩展不兼容)。装 3.12:"
+    echo "    conda create -n py312 python=3.12 -y" >&2
+    echo "    然后:CHAYUAN_PYTHON=\$HOME/miniconda3/envs/py312/bin/python3 \\" >&2
+    echo "          bash scripts/dev-start.sh" >&2
+    PYTHON_BIN="$PYTHON_BIN_FALLBACK"
+    PYTHON_VERSION="3.13(危险)"
 fi
 if [ -z "$PYTHON_BIN" ]; then
-    if command -v python3 >/dev/null 2>&1; then
-        PYTHON_BIN="$(command -v python3)"
-        # 两种合法情况:1) pip install -e 装了;2) 源码树 + PYTHONPATH
-        export PYTHONPATH="$SERVER/libs/chayuan-server${PYTHONPATH:+:$PYTHONPATH}"
-        if "$PYTHON_BIN" -c "import chayuan" 2>/dev/null; then
-            ok "Python:$PYTHON_BIN(可 import chayuan,PYTHONPATH=$SERVER/libs/chayuan-server)"
-        else
-            warn "Python 在 ($PYTHON_BIN) 但 import chayuan 失败"
-            echo "    解法 1:cd chayuan-server && pip install -e libs/chayuan-server" >&2
-            echo "    解法 2:检查 chayuan-server/libs/chayuan-server/chayuan/__init__.py 存在" >&2
-            [ $CHECK_ONLY -eq 0 ] && exit 2
-        fi
-    else
-        err "找不到 python3 也找不到 poetry"
-        echo "    macOS:  brew install python@3.12 poetry" >&2
-        echo "    Linux:  apt install -y python3.12 python3-pip;pip install poetry" >&2
-        exit 1
-    fi
+    err "找不到 Python 3.10-3.12;chayuan-server 不支持 3.13(C 扩展 SIGSEGV)"
+    echo "    macOS:  brew install python@3.12;然后 export CHAYUAN_PYTHON=\$(brew --prefix python@3.12)/bin/python3.12" >&2
+    echo "    Linux:  conda create -n py312 python=3.12 -y;CHAYUAN_PYTHON=\$HOME/miniconda3/envs/py312/bin/python3 bash $0" >&2
+    echo "          或 apt install -y python3.12 python3.12-venv;export CHAYUAN_PYTHON=\$(command -v python3.12)" >&2
+    exit 1
+fi
+
+# 验证 import chayuan(pip install -e 或 PYTHONPATH 都可)
+export PYTHONPATH="$SERVER/libs/chayuan-server${PYTHONPATH:+:$PYTHONPATH}"
+if "$PYTHON_BIN" -c "import chayuan" 2>/dev/null; then
+    ok "Python: $PYTHON_BIN (Python $PYTHON_VERSION,可 import chayuan)"
+else
+    warn "$PYTHON_BIN 但 import chayuan 失败,要先装运行依赖"
+    echo "    cd chayuan-server && $PYTHON_BIN -m pip install -e libs/chayuan-server" >&2
+    [ $CHECK_ONLY -eq 0 ] && exit 2
 fi
 
 # ────────────────────────── 3. vendor binary ────────────────────
@@ -152,6 +205,25 @@ fi
 if [ $CHECK_ONLY -eq 1 ]; then
     ok "preflight 全部通过(--check-only)"
     exit 0
+fi
+
+# 从 chayuan_root/basic_settings.yaml 读真实 API 端口(优先 --port 显式)
+# basic_settings.yaml 的结构:API_SERVER.port / 或 VENDOR_PREFERRED_PORTS.api
+if [ "$PORT" = "62581" ] && [ -f "$CHAYUAN_ROOT/basic_settings.yaml" ]; then
+    YAML_PORT="$("$PYTHON_BIN" -c "
+import yaml
+try:
+    with open('$CHAYUAN_ROOT/basic_settings.yaml') as f: d = yaml.safe_load(f) or {}
+    p = ((d.get('API_SERVER') or {}).get('public_port')
+         or (d.get('API_SERVER') or {}).get('port')
+         or (d.get('VENDOR_PREFERRED_PORTS') or {}).get('api'))
+    if isinstance(p, int): print(p)
+except Exception: pass
+" 2>/dev/null)"
+    if [ -n "$YAML_PORT" ] && [ "$YAML_PORT" != "62581" ]; then
+        PORT="$YAML_PORT"
+        ok "从 basic_settings.yaml 读到 API 端口:$PORT"
+    fi
 fi
 
 # ────────────────────────── 5. 启 chayuan-server ────────────────

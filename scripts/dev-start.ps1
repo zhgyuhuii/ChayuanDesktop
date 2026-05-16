@@ -80,48 +80,88 @@ Write-Ok "host: Windows $cpuArch → vendor 子目录 = $VendorPlatform"
 
 # ────────────────── 2. Python + chayuan 包 ──────────────────
 Write-Step 'Step 1/4: 检查 Python 环境'
-$pythonBin = $null
+
+# 实测 Python 3.13 上 chayuan-server multiprocessing 子 worker 100% SIGSEGV
+# (C 扩展不兼容)。优先 3.12 / 3.11 / 3.10;3.13 退化为最后兜底并 warn。
+function Get-PyVersion($exePath) {
+    if (-not (Test-Path $exePath)) { return $null }
+    try {
+        $v = & $exePath -c 'import sys;print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>$null
+        return $v.Trim()
+    } catch { return $null }
+}
+
+$candidates = @()
+if ($env:CHAYUAN_PYTHON) { $candidates += $env:CHAYUAN_PYTHON }
+$candidates += @(
+    "$env:USERPROFILE\miniconda3\envs\py312\python.exe"
+    "$env:USERPROFILE\Anaconda3\envs\py312\python.exe"
+    "C:\Python312\python.exe"
+    "C:\Python311\python.exe"
+)
+foreach ($exe in @('python3.12.exe','python3.11.exe','python.exe','python3.exe')) {
+    $cmd = Get-Command $exe -ErrorAction SilentlyContinue
+    if ($cmd) { $candidates += $cmd.Source }
+}
 $poetryExe = Get-Command poetry -ErrorAction SilentlyContinue
 if ($poetryExe) {
     Push-Location $Server
     try {
         $venvPath = & poetry env info --path 2>$null
         if ($LASTEXITCODE -eq 0 -and $venvPath) {
-            $pythonBin = Join-Path $venvPath 'Scripts\python.exe'
-            if (-not (Test-Path $pythonBin)) {
-                # Linux-style 路径,兜底
-                $pythonBin = Join-Path $venvPath 'bin\python.exe'
-            }
-            Write-Ok "poetry venv:$pythonBin"
+            $poetryPy = Join-Path $venvPath 'Scripts\python.exe'
+            if (-not (Test-Path $poetryPy)) { $poetryPy = Join-Path $venvPath 'bin\python.exe' }
+            if (Test-Path $poetryPy) { $candidates += $poetryPy }
         }
     } finally { Pop-Location }
 }
-if (-not $pythonBin) {
-    $pyCmd = Get-Command python -ErrorAction SilentlyContinue
-    if (-not $pyCmd) { $pyCmd = Get-Command python3 -ErrorAction SilentlyContinue }
-    if ($pyCmd) {
-        $pythonBin = $pyCmd.Source
-        # 两种合法情况:1) pip install -e 装了;2) 源码树 + PYTHONPATH
-        $libRoot = Join-Path $Server 'libs\chayuan-server'
-        if ($env:PYTHONPATH) {
-            $env:PYTHONPATH = "$libRoot;$env:PYTHONPATH"
-        } else {
-            $env:PYTHONPATH = $libRoot
-        }
-        & $pythonBin -c 'import chayuan' 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "Python 在 ($pythonBin) 但 import chayuan 失败"
-            Write-Host '    解法 1:cd chayuan-server; pip install -e libs/chayuan-server' -ForegroundColor DarkGray
-            Write-Host '    解法 2:检查 chayuan-server\libs\chayuan-server\chayuan\__init__.py 存在' -ForegroundColor DarkGray
-            if (-not $CheckOnly) { exit 2 }
-        } else {
-            Write-Ok "Python: $pythonBin (可 import chayuan,PYTHONPATH=$libRoot)"
-        }
-    } else {
-        Write-Err '找不到 python 也找不到 poetry'
-        Write-Host '    装法:winget install Python.Python.3.12;pip install poetry' -ForegroundColor DarkGray
-        exit 1
+
+$pythonBin = $null
+$pythonVersion = $null
+$fallback313 = $null
+foreach ($cand in $candidates) {
+    if (-not $cand -or -not (Test-Path $cand)) { continue }
+    $ver = Get-PyVersion $cand
+    if (-not $ver) { continue }
+    if ($ver -in @('3.10','3.11','3.12')) {
+        $pythonBin = $cand
+        $pythonVersion = $ver
+        break
     }
+    if ($ver -eq '3.13' -and -not $fallback313) {
+        $fallback313 = $cand
+    }
+}
+if (-not $pythonBin -and $fallback313) {
+    Write-Warn "只找到 Python 3.13 ($fallback313);chayuan-server 在 3.13 上"
+    Write-Warn '  multiprocessing 子 worker 100% SIGSEGV(C 扩展不兼容)。装 3.12:'
+    Write-Host '    winget install Python.Python.3.12' -ForegroundColor DarkGray
+    Write-Host '    或:conda create -n py312 python=3.12 -y' -ForegroundColor DarkGray
+    Write-Host '    然后:$env:CHAYUAN_PYTHON = ...; .\scripts\dev-start.ps1' -ForegroundColor DarkGray
+    $pythonBin = $fallback313
+    $pythonVersion = '3.13(危险)'
+}
+if (-not $pythonBin) {
+    Write-Err '找不到 Python 3.10/3.11/3.12;chayuan-server 不支持 3.13(C 扩展 SIGSEGV)'
+    Write-Host '    装法:winget install Python.Python.3.12' -ForegroundColor DarkGray
+    Write-Host '         或 conda create -n py312 python=3.12 -y' -ForegroundColor DarkGray
+    exit 1
+}
+
+# 验证 import chayuan(pip install -e 或 PYTHONPATH 都可)
+$libRoot = Join-Path $Server 'libs\chayuan-server'
+if ($env:PYTHONPATH) {
+    $env:PYTHONPATH = "$libRoot;$env:PYTHONPATH"
+} else {
+    $env:PYTHONPATH = $libRoot
+}
+& $pythonBin -c 'import chayuan' 2>$null | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Warn "$pythonBin 但 import chayuan 失败,要先装运行依赖"
+    Write-Host "    cd chayuan-server; $pythonBin -m pip install -e libs\chayuan-server" -ForegroundColor DarkGray
+    if (-not $CheckOnly) { exit 2 }
+} else {
+    Write-Ok "Python: $pythonBin (Python $pythonVersion,可 import chayuan)"
 }
 
 # ────────────────── 3. vendor binary ──────────────────
@@ -180,6 +220,24 @@ if (-not (Test-Path $baseYaml)) {
 if ($CheckOnly) {
     Write-Ok 'preflight 全部通过 (-CheckOnly)'
     exit 0
+}
+
+# 从 chayuan_root/basic_settings.yaml 读真实 API 端口(优先 -Port 显式)
+if ($Port -eq 62581 -and (Test-Path $baseYaml)) {
+    $yamlPort = & $pythonBin -c "
+import yaml
+try:
+    with open(r'$baseYaml') as f: d = yaml.safe_load(f) or {}
+    p = ((d.get('API_SERVER') or {}).get('public_port')
+         or (d.get('API_SERVER') or {}).get('port')
+         or (d.get('VENDOR_PREFERRED_PORTS') or {}).get('api'))
+    if isinstance(p, int): print(p)
+except Exception: pass
+" 2>$null
+    if ($yamlPort -and ([int]$yamlPort) -ne 62581) {
+        $Port = [int]$yamlPort
+        Write-Ok "从 basic_settings.yaml 读到 API 端口: $Port"
+    }
 }
 
 # ────────────────── 5. 启 chayuan-server ──────────────────
