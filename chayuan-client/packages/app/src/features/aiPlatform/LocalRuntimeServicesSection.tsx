@@ -112,7 +112,10 @@ export const LocalRuntimeServicesSection: React.FC = () => {
 
   if (!reachable) {
     return (
-      <section className="rounded-md border border-rose-500/30 bg-rose-50 p-4 text-sm text-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+      <section
+        id="local-runtime-services"
+        className="rounded-md border border-rose-500/30 bg-rose-50 p-4 text-sm text-rose-800 dark:bg-rose-950/30 dark:text-rose-200"
+      >
         无法连接 sidecar (
         <code className="rounded bg-rose-100 px-1 dark:bg-rose-900/40">/runtime/llama/*</code>)。
         本地模型服务仅在集成版桌面应用中可用。
@@ -121,7 +124,10 @@ export const LocalRuntimeServicesSection: React.FC = () => {
   }
 
   return (
-    <section className="rounded-md border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] p-4 space-y-3">
+    <section
+      id="local-runtime-services"
+      className="rounded-md border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] p-4 space-y-3"
+    >
       <header className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-[var(--cy-text-primary)]">本地模型服务</h3>
         <div className="flex items-center gap-2">
@@ -198,6 +204,7 @@ interface CapabilityRowProps {
 }
 
 const CapabilityRow: React.FC<CapabilityRowProps> = ({
+  capability,
   label,
   status,
   pending,
@@ -218,7 +225,10 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
   const selectedId = resolvedModelId ?? '';
 
   return (
-    <div className="rounded-md border border-[var(--cy-border-subtle)] p-3 space-y-1.5">
+    <div
+      id={`local-runtime-${capability}`}
+      className="rounded-md border border-[var(--cy-border-subtle)] p-3 space-y-1.5 scroll-mt-4"
+    >
       <div className="flex flex-wrap items-center gap-2">
         <LocalRuntimeStatusBadge status={status} />
         <span className="text-sm font-medium text-[var(--cy-text-primary)]">{label}</span>

@@ -579,4 +579,67 @@ async def llama_capability_restart(
     return _ok(status.to_dict())
 
 
+# ─────────────────────── OCR 健康检查 ───────────────────────
+
+
+@runtime_router.get("/ocr/health", summary="OCR (RapidOCR) 健康检查")
+def ocr_health() -> Dict[str, Any]:
+    """OCR 不是独立 sidecar(无端口),onnxruntime 在 chayuan-server 进程内。
+
+    检查项:
+      1. RapidOCR python 包是否可 import
+      2. ``vendor/bundled_models/ocr/RapidOCR/`` 下 det/rec/cls 三件套 ONNX 是否齐全
+    任何一项缺失返回 state=failed + reason,前端 footer 灯亮红。
+    """
+    from pathlib import Path
+
+    state = "ready"
+    reason: Optional[str] = None
+    detail: Dict[str, Any] = {}
+
+    # 1) python 包
+    try:
+        import rapidocr_onnxruntime as _rapidocr  # noqa: F401
+        detail["rapidocr_pkg"] = "ok"
+    except Exception as e:  # noqa: BLE001
+        state = "failed"
+        reason = f"rapidocr_onnxruntime 不可 import: {e}"
+        detail["rapidocr_pkg"] = "missing"
+
+    # 2) bundled model 三件套(找一个候选路径就算 OK,跟 install-bundled-models 落点对齐)
+    if state == "ready":
+        try:
+            from chayuan.server.model_registry.local_runtime import _default_install_services_dirs
+            # services 目录的父级就是 vendor 根
+            candidates: List[Path] = []
+            for svc_dir in _default_install_services_dirs():
+                if not svc_dir or not isinstance(svc_dir, Path):
+                    continue
+                vendor_root = svc_dir.parent  # services/ 的父级
+                candidates.append(vendor_root / "bundled_models" / "ocr" / "RapidOCR")
+            needed = [
+                "PP-OCRv4/ch_PP-OCRv4_det_infer.onnx",
+                "PP-OCRv4/ch_PP-OCRv4_rec_infer.onnx",
+                "PP-OCRv3/ch_ppocr_mobile_v2.0_cls_train.onnx",
+            ]
+            hit_dir: Optional[Path] = None
+            for c in candidates:
+                if all((c / rel).is_file() for rel in needed):
+                    hit_dir = c
+                    break
+            if hit_dir is None:
+                state = "failed"
+                reason = "OCR 模型 ONNX 缺失;运行 scripts/install-bundled-models.{ps1,sh} -Only ocr"
+                detail["models"] = "missing"
+                detail["scanned"] = [str(c) for c in candidates]
+            else:
+                detail["models"] = "ok"
+                detail["models_dir"] = str(hit_dir)
+        except Exception as e:  # noqa: BLE001
+            state = "failed"
+            reason = f"模型路径探测失败: {e}"
+
+    return _ok({"state": state, "reason": reason, "detail": detail})
+
+
 __all__ = ["runtime_router"]

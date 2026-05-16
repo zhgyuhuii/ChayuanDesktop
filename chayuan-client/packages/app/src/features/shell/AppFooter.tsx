@@ -19,8 +19,10 @@
  */
 
 import * as React from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { cn } from '@chayuan/ui';
-import type { LocalRuntimeCapability, LocalRuntimeStatus } from '@chayuan/api';
+import type { LocalRuntimeCapability, LocalRuntimeStatus, RuntimeOcrHealth } from '@chayuan/api';
+import { runtimeOcr } from '@chayuan/api';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
 
 interface CapabilityIndicator {
@@ -74,8 +76,44 @@ function toneOf(state: LocalRuntimeStatus['state'] | null | undefined): Tone {
 export const AppFooter: React.FC = () => {
   const statuses = useLocalRuntimeStore((s) => s.statuses);
   const reachable = useLocalRuntimeStore((s) => s.reachable);
+  const navigate = useNavigate();
 
-  const ocrTone: Tone = reachable ? 'ready' : 'failed';
+  // OCR 健康检查:走 /runtime/ocr/health 真实探测(rapidocr pkg + ONNX 模型齐全)。
+  // 30s 拉一次,后端 reachable 翻 false 时不重试避免狂打 404。
+  const [ocrHealth, setOcrHealth] = React.useState<RuntimeOcrHealth | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    const pull = async () => {
+      if (!reachable) {
+        if (!cancelled) setOcrHealth(null);
+        return;
+      }
+      try {
+        const h = await runtimeOcr.health();
+        if (!cancelled) setOcrHealth(h);
+      } catch {
+        if (!cancelled) setOcrHealth({ state: 'failed', reason: 'OCR health endpoint 不可达' });
+      }
+    };
+    void pull();
+    const t = window.setInterval(pull, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [reachable]);
+
+  const ocrTone: Tone =
+    !reachable ? 'failed'
+    : ocrHealth?.state === 'ready' ? 'ready'
+    : ocrHealth?.state === 'failed' ? 'failed'
+    : 'idle';
+
+  const onClickIndicator = (cap: LocalRuntimeCapability | 'ocr') => {
+    // 跳到设置页的「本地模型服务」section,带 hash 锚到具体 capability row。
+    // SettingsAsPage 会在 mount 时读 location.hash 并 scroll 到 #local-runtime-<cap>。
+    void navigate({ to: '/settings', hash: `local-runtime-${cap}` });
+  };
 
   return (
     <footer
@@ -117,24 +155,33 @@ export const AppFooter: React.FC = () => {
               ? (reachable ? { endpoint: '内嵌 (chayuan-server)' } : null)
               : statuses[ind.key];
 
-          // 鼠标悬停 title 展示更详细诊断
-          const title = [
-            `${ind.label}: ${TONE_HINT[tone]}`,
-            status && 'endpoint' in status && status.endpoint
-              ? `\n${status.endpoint}`
-              : '',
-            ind.key !== 'ocr' && statuses[ind.key]?.model_id
-              ? `\n${statuses[ind.key]?.model_id}`
-              : '',
-          ]
-            .filter(Boolean)
-            .join('');
+          // 鼠标悬停 title:状态 + endpoint/model_id + 「点击跳设置」提示
+          const titleParts: string[] = [`${ind.label}: ${TONE_HINT[tone]}`];
+          if (status && 'endpoint' in status && status.endpoint) {
+            titleParts.push(String(status.endpoint));
+          }
+          if (ind.key !== 'ocr' && statuses[ind.key]?.model_id) {
+            titleParts.push(`模型: ${statuses[ind.key]?.model_id}`);
+          }
+          if (ind.key === 'ocr' && ocrHealth?.reason) {
+            titleParts.push(ocrHealth.reason);
+          }
+          titleParts.push('点击 → 设置页本地模型服务');
+          const title = titleParts.join('\n');
 
           return (
-            <span
+            <button
+              type="button"
               key={ind.key}
               title={title}
-              className="inline-flex items-center gap-1.5"
+              onClick={() => onClickIndicator(ind.key)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded px-1 py-0.5',
+                '-mx-1 cursor-pointer transition-colors',
+                'hover:bg-[var(--cy-surface-2)] focus-visible:outline-none',
+                'focus-visible:ring-1 focus-visible:ring-[var(--cy-border-focus,#0ea5e9)]',
+              )}
+              aria-label={`${ind.label}: ${TONE_HINT[tone]},点击跳转到设置页本地模型服务`}
             >
               <span
                 aria-hidden="true"
@@ -143,7 +190,7 @@ export const AppFooter: React.FC = () => {
               <span className={cn('whitespace-nowrap transition-colors', TONE_LABEL[tone])}>
                 {ind.label}
               </span>
-            </span>
+            </button>
           );
         })}
       </div>

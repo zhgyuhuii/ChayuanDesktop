@@ -158,6 +158,25 @@ async function getRegistry(): Promise<Record<LocalRuntimeCapability, LocalRuntim
     .data;
 }
 
+// ─── OCR (RapidOCR 进程内 onnxruntime,没有独立 sidecar) ───
+
+export interface RuntimeOcrHealth {
+  /** 'ready' = 模型齐全可加载;'failed' = python 包或 ONNX 模型缺失 */
+  state: 'ready' | 'failed';
+  /** state=failed 时给出原因(用户友好,可直接展示在 footer hover title) */
+  reason?: string | null;
+  /** 内部诊断字段:rapidocr_pkg / models / models_dir 等 */
+  detail?: Record<string, unknown>;
+}
+
+async function getOcrHealth(): Promise<RuntimeOcrHealth> {
+  return (await request<RuntimeOcrHealth>('/runtime/ocr/health')).data;
+}
+
+export const runtimeOcr = {
+  health: getOcrHealth,
+};
+
 export const localRuntime = {
   // 旧:chat 别名(Plan 1+2 已用,不动)
   getStatus,

@@ -61,6 +61,30 @@ export const SettingsAsPage: React.FC = () => {
     setNameInput(settings.displayName);
   }, [settings.displayName]);
 
+  // 处理 footer 状态灯跳转过来的 hash(#local-runtime-<cap>):
+  // 先等本地模型 section 渲染完成,再 scrollIntoView。空轮询 ~10 次 (~500ms)
+  // 足以覆盖 LocalRuntimeServicesSection 等异步数据填充后再挂载子 row 的场景。
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hash = window.location.hash.replace(/^#/, '');
+    if (!hash.startsWith('local-runtime-')) return;
+    let tries = 0;
+    const tick = () => {
+      const el = document.getElementById(hash);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // 给个轻量视觉强调,让用户清楚到底跳到哪一行
+        el.classList.add('ring-2', 'ring-emerald-400', 'ring-offset-2');
+        window.setTimeout(() => {
+          el.classList.remove('ring-2', 'ring-emerald-400', 'ring-offset-2');
+        }, 1600);
+        return;
+      }
+      if (++tries < 10) window.setTimeout(tick, 50);
+    };
+    tick();
+  }, []);
+
   const onSaveName = () => {
     const v = nameInput.trim();
     settings.setDisplayName(v);
@@ -189,6 +213,16 @@ export const SettingsAsPage: React.FC = () => {
 
       {/* 高级(M4 占位 — 后端缺对应能力,前端开关只持久化本地偏好) */}
       <Section>
+        <Row
+          title="显示底部状态栏"
+          description="主界面底部显示版权 + 6 个本地模型能力的运行状态点;关闭后腾出 28px 给主区"
+          trailing={
+            <Switch
+              checked={settings.showAppFooter}
+              onCheckedChange={(b) => settings.setShowAppFooter(b)}
+            />
+          }
+        />
         <Row
           title={t('settings.localModel')}
           description={t('settings.localModelDesc')}

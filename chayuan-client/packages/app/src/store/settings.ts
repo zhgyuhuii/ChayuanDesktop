@@ -31,6 +31,8 @@ interface SettingsState {
   windowDock: WindowDock;
   /** 单机版的「本地用户」显示名;UserMenu 头像 + 设置页「名称设置」共用 */
   displayName: string;
+  /** 是否在主界面底部显示状态栏(版权 + 6 个 capability 健康灯);默认 true */
+  showAppFooter: boolean;
 
   setTheme(t: ThemeMode): void;
   setFontSize(n: number): void;
@@ -39,6 +41,7 @@ interface SettingsState {
   setLocale(l: LocalePreference): void;
   setWindowDock(d: WindowDock): void;
   setDisplayName(name: string): void;
+  setShowAppFooter(b: boolean): void;
   reset(): void;
 }
 
@@ -49,7 +52,14 @@ const FONT_DEFAULT = 17;
 
 const DEFAULTS: Pick<
   SettingsState,
-  'theme' | 'fontSize' | 'apiBaseOverride' | 'telemetry' | 'locale' | 'windowDock' | 'displayName'
+  | 'theme'
+  | 'fontSize'
+  | 'apiBaseOverride'
+  | 'telemetry'
+  | 'locale'
+  | 'windowDock'
+  | 'displayName'
+  | 'showAppFooter'
 > = {
   theme: 'system',
   fontSize: FONT_DEFAULT,
@@ -59,6 +69,7 @@ const DEFAULTS: Pick<
   locale: 'system',
   windowDock: 'center',
   displayName: '',
+  showAppFooter: true,
 };
 
 /**
@@ -104,6 +115,7 @@ export const useSettingsStore = create<SettingsState>()(
       setLocale: (locale) => set({ locale }),
       setWindowDock: (windowDock) => set({ windowDock }),
       setDisplayName: (displayName) => set({ displayName: displayName.slice(0, 30) }),
+      setShowAppFooter: (showAppFooter) => set({ showAppFooter }),
       reset: () => set(DEFAULTS),
     }),
     {

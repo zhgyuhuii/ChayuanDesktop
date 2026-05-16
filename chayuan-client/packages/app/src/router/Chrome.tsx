@@ -32,6 +32,7 @@ import { UserMenuPopover } from '../features/shell/UserMenuPopover';
 // import { FullscreenButton } from '../features/shell/FullscreenButton';
 import { useFullscreenWorkspace } from '../features/shell/useFullscreenWorkspace';
 import { isSingleMachineMode } from '../features/first-run/useSingleMachineMode';
+import { useSettingsStore } from '../store/settings';
 import { useCrossWindowSync } from '../features/shell/useCrossWindowSync';
 import { useGlobalDetachedLaneSync } from '../features/model-arena/DetachedLaneRoute';
 import { DetachedToolbar } from '../features/shell/DetachedToolbar';
@@ -54,6 +55,7 @@ export const Chrome: React.FC = () => {
   useGlobalDetachedLaneSync();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const showLogin = useLoginModalStore((s) => s.show);
+  const showAppFooter = useSettingsStore((s) => s.showAppFooter);
   const { t } = useTranslation();
 
   return (
@@ -71,8 +73,14 @@ export const Chrome: React.FC = () => {
         data-shell="sidebar"
       />
 
-      {/* 右:TabBar + Main + 底部状态栏(全局) */}
-      <div className="grid min-h-0 min-w-0 grid-rows-[40px_1fr_28px]" data-shell="main-column">
+      {/* 右:TabBar + Main + 底部状态栏(全局,可在设置中关闭) */}
+      <div
+        className={cn(
+          'grid min-h-0 min-w-0',
+          showAppFooter ? 'grid-rows-[40px_1fr_28px]' : 'grid-rows-[40px_1fr]',
+        )}
+        data-shell="main-column"
+      >
         {/* 顶部标签条:紧贴左侧菜单面板起始,右侧保留账号/窗口按钮 */}
         <header
           className={cn(
@@ -115,8 +123,8 @@ export const Chrome: React.FC = () => {
           <TabHost />
         </main>
 
-        {/* 底部全局状态栏:版权 + 6 个 capability 健康灯 */}
-        <AppFooter />
+        {/* 底部全局状态栏:版权 + 6 个 capability 健康灯;可在设置中隐藏 */}
+        {showAppFooter && <AppFooter />}
       </div>
 
       {/* 全局浮层 — 不参与 grid 布局 */}
