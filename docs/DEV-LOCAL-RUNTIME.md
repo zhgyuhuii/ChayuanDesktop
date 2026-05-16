@@ -64,14 +64,28 @@ mkdir -p "$CHAYUAN_ROOT/models/bundled"  # 5 个 capability 真正读模型的�
 
 成品落在 `chayuan-server/vendor/services/llama-server/llama-server[.exe]`。脚本自带版本 fallback,默认 `b4404`。
 
+> **GLIBC 注意**:upstream `llama-bXXXX-bin-ubuntu-x64.zip` 是在 Ubuntu 22.04 上编的,
+> 要求 `GLIBC >= 2.34` / `GLIBCXX >= 3.4.32`。RHEL 8 / Alibaba Cloud Linux 3 /
+> Anolis(GLIBC 2.28~2.32)跑会报 `version not found`。这类 dev 机要么:
+> - 切到 Ubuntu 22.04+ / WSL2 / macOS / Windows 跑;
+> - 或源码 `cmake -B build && cmake --build build --target llama-server` 自己编一份。
+
 ### 3.2 whisper-server(asr)
 
 ```bash
-./scripts/install-whisper-server.sh         # Linux / Mac
-# 或 .\scripts\install-whisper-server.ps1   # Windows PowerShell
+./scripts/install-whisper-server.sh         # Linux / Mac → brew 或源码 cmake build
+# 或 .\scripts\install-whisper-server.ps1   # Windows PowerShell → pre-built zip
 ```
 
-成品落在 `chayuan-server/vendor/services/whisper-server/whisper-server[.exe]`(+ 依赖 dll/so/dylib)。默认 `v1.7.4`,支持 fallback 到 v1.7.3 / v1.7.2。
+成品落在 `chayuan-server/vendor/services/whisper-server/whisper-server[.exe]`(+ 依赖 dll/so/dylib)。
+
+> **Upstream 现状**:whisper.cpp 官方只发 Windows pre-built(`whisper-bin-x64.zip`,
+> 从 v1.7.6 起),Linux / Mac **没发** binary asset。Windows 默认 v1.7.6+;
+> Mac/Linux 脚本自动:
+> - macOS:有 brew → `brew install whisper-cpp`;
+> - 否则:`git clone --branch <tag> whisper.cpp` + `cmake -DWHISPER_BUILD_SERVER=ON` 现场编。
+>
+> 因此 Linux dev 机必须装 `cmake / build-essential / git`(`apt install -y cmake build-essential git` 或 `dnf groupinstall -y "Development Tools" && dnf install -y cmake`)。
 
 ### 3.3 image-embedding 不需要独立二进制
 
@@ -229,6 +243,8 @@ PYTHONPATH="libs/chayuan-server" pytest -q libs/chayuan-server/tests/unit_tests/
 | 启 image-embedding 卡 `starting` 60s 超时 | 首次 transformers 编译 / torch IO 慢 | 重试;或先 `python -c "from transformers import CLIPModel; CLIPModel.from_pretrained('openai/clip-vit-base-patch32')"` 预热 cache |
 | `port.62582 warn` | 端口被其它进程占 | PortAllocator 自动 bump 到 62583+;不影响功能 |
 | `last_error: AVX2 缺失` | llama-server 二进制需要 AVX2 而本机没有 | 用 cpu-no-avx 版二进制(`install-llama-server -Version b<N>` 选别的 build)|
+| `llama-server: GLIBC_2.34 not found` | 系统 glibc 比 upstream ubuntu zip 旧 | 见 §3.1 — 切 Ubuntu 22.04+ / WSL2 / macOS / Win,或源码 cmake build |
+| `install-whisper-server` 下载 404 | upstream v1.7.4/3/2 没发 binary asset | 用本仓最新脚本(默认 v1.7.6,或 sh 自动走 brew/cmake) |
 | ASR 直接 fallback Python faster-whisper | whisper-server 二进制缺 / 模型路径错 / sidecar cold start > 30s | 检查 `vendor/services/whisper-server/`;Plan 3C audio.py 已自动 fallback,但本地 dev 跑加速版优先修上述 |
 | image-embedding facade fallback in-process | sidecar status != ready | curl `/runtime/llama/image-embedding/status` 看 `last_error`,大概率模型权重路径错 |
 | `from __future__ import annotations` + FastAPI Body 解析失败(422) | sidecar 把 `Request` 当 query param | 修法见 `infinity_server.py`:HTTPException/Request 必须放模块顶层,不能闭包 import |

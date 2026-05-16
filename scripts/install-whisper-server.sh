@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
-# install-whisper-server.sh — 下载 whisper.cpp `whisper-server` (Mac / Linux)
+# install-whisper-server.sh — 装 whisper-server 二进制 (Mac / Linux)
+#
+# 现状(2026-05-16):whisper.cpp upstream 官方只发 Windows pre-built
+# (whisper-bin-Win32.zip / whisper-bin-x64.zip,从 v1.7.6 起),**没有**
+# Linux/Mac 现成 binary。所以本脚本走两条路:
+#
+#  1. Mac:优先用 `brew install whisper-cpp`(主仓 formula,带 whisper-server),
+#         brew 不在就 fallback 到源码 cmake build。
+#  2. Linux:只能源码 cmake build,需要 cmake + g++ + git。
+#
 # 用法: bash scripts/install-whisper-server.sh [tag]
-#   tag: 可选，指定优先 release tag，默认 v1.7.4
+#   tag: 可选 git tag(源码 build 时 checkout 用),默认 v1.7.6
 set -euo pipefail
 
-VERSION="${1:-v1.7.4}"
+VERSION="${1:-v1.7.6}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # 注意:必须装到 chayuan-server/vendor/services/ 才能被
@@ -16,78 +25,97 @@ mkdir -p "$DEST_DIR"
 
 OS="$(uname -s)"
 case "$OS" in
-    Darwin)
-        ASSET="whisper-bin-macos-arm64.tar.gz"
-        PLATFORM="macos-arm64"
-        ;;
-    Linux)
-        ASSET="whisper-bin-linux-x64.tar.gz"
-        PLATFORM="linux-x64"
-        ;;
+    Darwin|Linux) ;;
     *)
-        echo "[install-whisper-server] 不支持的 OS: $OS" >&2
+        echo "[install-whisper-server] 不支持的 OS: $OS(只支持 macOS / Linux)" >&2
         exit 1
         ;;
 esac
 
-# 多 tag fallback：优先用参数传入版本，再依次尝试旧版
-TAGS=()
-TAGS+=("$VERSION")
-for fallback in "v1.7.4" "v1.7.3" "v1.7.2"; do
-    # 去重：只添加不在 TAGS 中的版本
-    already=0
-    for t in "${TAGS[@]}"; do
-        [ "$t" = "$fallback" ] && already=1 && break
-    done
-    [ $already -eq 0 ] && TAGS+=("$fallback")
-done
+# ────────────────────────── 路径 1:macOS brew ──────────────────────────
+try_brew() {
+    [ "$OS" = "Darwin" ] || return 1
+    command -v brew >/dev/null 2>&1 || return 1
+    echo "[install-whisper-server] 检测到 brew,尝试 brew install whisper-cpp..."
+    if ! brew list whisper-cpp >/dev/null 2>&1; then
+        brew install whisper-cpp || return 1
+    fi
+    local brew_bin
+    brew_bin="$(brew --prefix whisper-cpp 2>/dev/null)/bin/whisper-server"
+    [ -x "$brew_bin" ] || return 1
+    cp -f "$brew_bin" "$DEST_DIR/whisper-server"
+    chmod +x "$DEST_DIR/whisper-server"
+    # mac brew formula 把 .dylib 链到 cellar,运行时不需要拷
+    printf 'brew:%s\n%s\n' "$(brew list --versions whisper-cpp | awk '{print $2}')" "$(date '+%Y-%m-%d')" > "$DEST_DIR/VERSION"
+    return 0
+}
 
-TMP="${TMPDIR:-/tmp}/whisper-server-$$"
-mkdir -p "$TMP"
-trap "rm -rf '$TMP'" EXIT
+# ────────────────────────── 路径 2:源码 cmake build ──────────────────────
+try_build_from_source() {
+    for tool in cmake make git cc; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            echo "[install-whisper-server] 构建需要 $tool 但未安装" >&2
+            echo "    macOS:  brew install cmake git" >&2
+            echo "    Linux:  apt install -y cmake build-essential git  # 或 dnf/yum 等价" >&2
+            return 1
+        fi
+    done
+
+    local SRC="${TMPDIR:-/tmp}/whisper.cpp-$VERSION-src"
+    if [ ! -d "$SRC/.git" ]; then
+        rm -rf "$SRC"
+        echo "[install-whisper-server] git clone whisper.cpp@$VERSION → $SRC"
+        git clone --depth 1 --branch "$VERSION" https://github.com/ggml-org/whisper.cpp.git "$SRC"
+    else
+        echo "[install-whisper-server] 复用已有 src tree $SRC"
+        (cd "$SRC" && git fetch --depth 1 origin "$VERSION" && git checkout FETCH_HEAD) || true
+    fi
+
+    echo "[install-whisper-server] cmake -B build -DWHISPER_BUILD_SERVER=ON ..."
+    (
+        cd "$SRC"
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_SERVER=ON -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON >/dev/null
+        cmake --build build --target whisper-server -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+    )
+
+    local BUILT
+    BUILT="$(find "$SRC/build" -name whisper-server -type f -executable | head -n 1 || true)"
+    if [ -z "$BUILT" ]; then
+        echo "[install-whisper-server] cmake build 完了但找不到 whisper-server 产物 $SRC/build/" >&2
+        return 1
+    fi
+
+    # 清旧 binary + 共享库
+    find "$DEST_DIR" -maxdepth 1 -type f \
+        \( -name "whisper-server" -o -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) \
+        -delete 2>/dev/null || true
+
+    cp -f "$BUILT" "$DEST_DIR/whisper-server"
+    chmod +x "$DEST_DIR/whisper-server"
+
+    # 同时收 build/ 里的 .so / .dylib(whisper.cpp 多个共享库依赖)
+    find "$SRC/build" \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) -type f \
+        -exec cp -f {} "$DEST_DIR/" \; 2>/dev/null || true
+
+    printf 'src:%s\n%s\n' "$VERSION" "$(date '+%Y-%m-%d')" > "$DEST_DIR/VERSION"
+    return 0
+}
 
 ok=0
-for tag in "${TAGS[@]}"; do
-    URL="https://github.com/ggerganov/whisper.cpp/releases/download/$tag/$ASSET"
-    echo "[install-whisper-server] 尝试拉 $URL"
-    if curl -fsSL "$URL" -o "$TMP/asset.tar.gz" 2>/dev/null; then
-        EXTRACT_DIR="$TMP/extract"
-        mkdir -p "$EXTRACT_DIR"
-        tar -xzf "$TMP/asset.tar.gz" -C "$EXTRACT_DIR"
-
-        SERVER_BIN="$(find "$EXTRACT_DIR" -name "whisper-server" -type f | head -n 1 || true)"
-        if [ -z "$SERVER_BIN" ]; then
-            echo "[install-whisper-server] $tag tarball 里没找到 whisper-server，试下一个 tag"
-            rm -rf "$EXTRACT_DIR" "$TMP/asset.tar.gz"
-            continue
-        fi
-
-        # 清旧 binary 和库文件
-        find "$DEST_DIR" -maxdepth 1 -type f \
-            \( -name "whisper-server" -o -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) \
-            -delete 2>/dev/null || true
-
-        # 拷 whisper-server binary
-        cp "$SERVER_BIN" "$DEST_DIR/whisper-server"
-        chmod +x "$DEST_DIR/whisper-server"
-
-        # Mac/Linux：若 tarball 附带共享库一并复制
-        find "$EXTRACT_DIR" \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) -type f \
-            -exec cp -f {} "$DEST_DIR/" \;
-
-        # 写 VERSION 文件
-        printf '%s\n%s\n' "$tag" "$(date '+%Y-%m-%d')" > "$DEST_DIR/VERSION"
-
-        ok=1
-        echo "[install-whisper-server] 装好 $tag ($PLATFORM) → $DEST_DIR"
-        break
-    else
-        echo "[install-whisper-server] $tag 下载失败"
-    fi
-done
+echo "[install-whisper-server] OS=$OS DEST=$DEST_DIR"
+if try_brew; then
+    ok=1
+    echo "[install-whisper-server] brew 装好 → $DEST_DIR"
+elif try_build_from_source; then
+    ok=1
+    echo "[install-whisper-server] 源码 build 完成 → $DEST_DIR"
+fi
 
 if [ $ok -eq 0 ]; then
-    echo "[install-whisper-server] 所有 release tag 都失败，检查网络 / GitHub release 可达性" >&2
+    echo "[install-whisper-server] 装失败。可选解法:" >&2
+    echo "  - macOS:brew install whisper-cpp;然后重跑本脚本" >&2
+    echo "  - Linux:装 cmake / build-essential / git;然后重跑本脚本" >&2
+    echo "  - 或直接拷一份你自己编好的 whisper-server 到 $DEST_DIR/" >&2
     exit 1
 fi
 
@@ -95,11 +123,10 @@ echo ""
 echo "[install-whisper-server] 完成。$DEST_DIR 内容:"
 ls -lh "$DEST_DIR"
 
-# 验证 binary 可执行
 echo ""
 echo "[install-whisper-server] 验证 binary..."
 "$DEST_DIR/whisper-server" --help 2>&1 | head -3 || {
-    echo "[install-whisper-server] whisper-server --help 失败，可能依赖库缺失" >&2
+    echo "[install-whisper-server] whisper-server --help 失败,可能依赖库缺失" >&2
     exit 2
 }
 echo "[install-whisper-server] OK"

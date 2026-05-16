@@ -26,7 +26,17 @@ echo "[install-llama-server] 下完 $(du -h "$TMPZIP" | cut -f1)"
 TMP_EXTRACT="/tmp/llama-$VERSION-extract"
 rm -rf "$TMP_EXTRACT"
 mkdir -p "$TMP_EXTRACT"
-unzip -q "$TMPZIP" -d "$TMP_EXTRACT"
+# 解压:unzip 首选,bsdtar / python3 zipfile 兜底(AL8 / Alpine minimal 默认不带 unzip)
+if command -v unzip >/dev/null 2>&1; then
+    unzip -q "$TMPZIP" -d "$TMP_EXTRACT"
+elif command -v bsdtar >/dev/null 2>&1; then
+    bsdtar -xf "$TMPZIP" -C "$TMP_EXTRACT"
+elif command -v python3 >/dev/null 2>&1; then
+    python3 -m zipfile -e "$TMPZIP" "$TMP_EXTRACT"
+else
+    echo "[install-llama-server] 没找到 unzip / bsdtar / python3,无法解压 $TMPZIP" >&2
+    exit 2
+fi
 
 # 清旧二进制
 find "$DEST" -maxdepth 1 -type f \( -name '*.exe' -o -name '*.dll' -o -name '*.so' -o -name '*.dylib' -o -name 'llama-server' \) -delete 2>/dev/null || true

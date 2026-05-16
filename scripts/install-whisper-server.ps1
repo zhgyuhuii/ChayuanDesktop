@@ -4,15 +4,17 @@
 
 .PARAMETER Version
   whisper.cpp release tag，优先尝试此版本，失败时自动 fallback 到旧版。
-  默认 'v1.7.4'。
+  默认 'v1.7.6'。
+  注意:v1.7.4/v1.7.3/v1.7.2 upstream **没发** binary asset(只发 source tarball),
+       Win pre-built `whisper-bin-x64.zip` 从 v1.7.6 开始才有,所以默认提到 v1.7.6。
 
 .EXAMPLE
   .\scripts\install-whisper-server.ps1
-  .\scripts\install-whisper-server.ps1 -Version v1.7.3
+  .\scripts\install-whisper-server.ps1 -Version v1.8.0
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = 'v1.7.4'
+    [string]$Version = 'v1.7.6'
 )
 
 try {
@@ -34,8 +36,9 @@ if (-not (Test-Path $destDir)) {
 }
 
 # whisper.cpp Win release tag 优先级 (新→老 fallback)
-$Tags = @($Version, 'v1.7.4', 'v1.7.3', 'v1.7.2') | Select-Object -Unique
-$Asset = 'whisper-bin-x64.zip'  # Win pre-built 二进制 zip
+# 注意:v1.7.5 / v1.7.4 / v1.7.3 / v1.7.2 upstream 没发 binary asset,跳过
+$Tags = @($Version, 'v1.8.0', 'v1.7.6') | Select-Object -Unique
+$Asset = 'whisper-bin-x64.zip'  # Win pre-built 二进制 zip(v1.7.6+ 才有)
 
 $ok = $false
 foreach ($tag in $Tags) {
