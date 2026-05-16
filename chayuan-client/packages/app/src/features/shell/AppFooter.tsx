@@ -22,7 +22,7 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { cn } from '@chayuan/ui';
 import type { LocalRuntimeCapability, LocalRuntimeStatus, RuntimeOcrHealth } from '@chayuan/api';
-import { runtimeOcr } from '@chayuan/api';
+import { runtimeModels, runtimeOcr } from '@chayuan/api';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
 
 interface CapabilityIndicator {
@@ -61,9 +61,12 @@ const TONE_HINT: Record<Tone, string> = {
   ready:   '运行中',
   pending: '启停中…',
   failed:  '异常',
-  idle:    '未启动',
+  idle:    '未配置',
   missing: '未随包(轻量版)',
 };
+
+/** "已配置但 sidecar 没跑" 时的提示文案,区别于 ready=运行中。 */
+const READY_CONFIGURED_HINT = '已配置(待启动)';
 
 /** 后端 install_info.bundled_caps 用的短名 ↔ footer indicator key 映射。
  *  后端用 'image' 表示图像嵌入,前端用 'image-embedding';其它一致。 */
@@ -100,6 +103,39 @@ export const AppFooter: React.FC = () => {
     if (!installInfo?.bundled_caps) return null;
     return new Set(installInfo.bundled_caps);
   }, [installInfo?.bundled_caps]);
+
+  // 已配置(本地装了模型文件)的 cap 集合 — "配置即绿" 语义靠它。
+  // 60s 拉一次 /runtime/models,按 capability 字段聚合;reachable=false 时清空避免误判。
+  const [installedCaps, setInstalledCaps] = React.useState<Set<LocalRuntimeCapability>>(
+    () => new Set(),
+  );
+  React.useEffect(() => {
+    let cancelled = false;
+    const pull = async () => {
+      if (!reachable) {
+        if (!cancelled) setInstalledCaps(new Set());
+        return;
+      }
+      try {
+        const { items } = await runtimeModels.list();
+        const s = new Set<LocalRuntimeCapability>();
+        for (const m of items) {
+          // m.capability 是 string,narrow 到我们关心的 5 个
+          const cap = m.capability as LocalRuntimeCapability;
+          s.add(cap);
+        }
+        if (!cancelled) setInstalledCaps(s);
+      } catch {
+        // 接口报错不清状态,保留上次结果
+      }
+    };
+    void pull();
+    const t = window.setInterval(pull, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [reachable]);
 
   // OCR 健康检查:走 /runtime/ocr/health 真实探测(rapidocr pkg + ONNX 模型齐全)。
   // 30s 拉一次,后端 reachable 翻 false 时不重试避免狂打 404。
@@ -168,20 +204,39 @@ export const AppFooter: React.FC = () => {
       {/* 右:6 个 capability 状态点 */}
       <div className="flex shrink-0 items-center gap-3">
         {INDICATORS.map((ind) => {
-          // 「未随包」状态优先级最高:轻量版没嵌该 cap → 灰斜线,引导用户去模型广场下载
+          // "配置即绿" 语义优先级(从高到低):
+          //   1. 实际进程状态 starting/restarting/failed → 反映真实运行情况
+          //   2. 实际 ready → 绿(运行中)
+          //   3. 本地有装该 cap 的模型文件 → 绿(已配置,待启动)— 这是 "配置即绿" 主路径
+          //   4. lite 包且后端 bundled_caps 没含此 cap、本地也没装 → missing(灰斜线)
+          //   5. 其它(reachable 但啥都没) → idle(未配置)
           const backendCap = BACKEND_CAP_KEY[ind.key];
-          const isMissing =
+          const hasInstalled =
+            ind.key !== 'ocr' && installedCaps.has(ind.key as LocalRuntimeCapability);
+          const isBundleMissing =
             bundledCaps != null &&
             !bundledCaps.has(backendCap) &&
-            // OCR 的"未随包"也走 health,不靠 install_info(OCR 模型在 ocr/ 子目录或缺,
-            // 由 /runtime/ocr/health 给出更精准的诊断,避免双重判定混乱)
-            ind.key !== 'ocr';
+            ind.key !== 'ocr' &&
+            !hasInstalled; // 用户已手动下载就不再标 "未随包"
 
-          const tone: Tone = isMissing
-            ? 'missing'
-            : ind.key === 'ocr'
-              ? ocrTone
-              : toneOf(statuses[ind.key]?.state);
+          let tone: Tone;
+          let hintOverride: string | null = null;
+          if (ind.key === 'ocr') {
+            tone = ocrTone;
+          } else {
+            const state = statuses[ind.key]?.state;
+            const runtimeTone = toneOf(state);
+            if (runtimeTone === 'pending' || runtimeTone === 'failed' || runtimeTone === 'ready') {
+              tone = runtimeTone;
+            } else if (hasInstalled) {
+              tone = 'ready';
+              hintOverride = READY_CONFIGURED_HINT;
+            } else if (isBundleMissing) {
+              tone = 'missing';
+            } else {
+              tone = 'idle';
+            }
+          }
 
           const status =
             ind.key === 'ocr'
@@ -189,8 +244,8 @@ export const AppFooter: React.FC = () => {
               : statuses[ind.key];
 
           // 鼠标悬停 title:状态 + endpoint/model_id + 「点击跳设置」提示
-          const titleParts: string[] = [`${ind.label}: ${TONE_HINT[tone]}`];
-          if (isMissing) {
+          const titleParts: string[] = [`${ind.label}: ${hintOverride ?? TONE_HINT[tone]}`];
+          if (isBundleMissing) {
             titleParts.push('当前是轻量版安装包,该能力未随包嵌入。');
             titleParts.push('点击进设置 → 本地模型服务 → 下载模型后再启动。');
           }
@@ -203,7 +258,7 @@ export const AppFooter: React.FC = () => {
           if (ind.key === 'ocr' && ocrHealth?.reason) {
             titleParts.push(ocrHealth.reason);
           }
-          if (!isMissing) {
+          if (!isBundleMissing) {
             titleParts.push('点击 → 设置页本地模型服务');
           }
           const title = titleParts.join('\n');
@@ -220,7 +275,7 @@ export const AppFooter: React.FC = () => {
                 'hover:bg-[var(--cy-surface-2)] focus-visible:outline-none',
                 'focus-visible:ring-1 focus-visible:ring-[var(--cy-border-focus,#0ea5e9)]',
               )}
-              aria-label={`${ind.label}: ${TONE_HINT[tone]},点击跳转到设置页本地模型服务`}
+              aria-label={`${ind.label}: ${hintOverride ?? TONE_HINT[tone]},点击跳转到设置页本地模型服务`}
             >
               <span
                 aria-hidden="true"
