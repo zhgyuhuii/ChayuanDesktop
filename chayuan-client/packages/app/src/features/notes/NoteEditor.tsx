@@ -18,6 +18,7 @@ import {
   List, ListOrdered, Mic, MicOff, Quote, Save, Strikethrough,
 } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
+import { modality } from '@chayuan/api';
 import { useMicRecorder } from '../composer/useMicRecorder';
 import { useNoteDraft } from './useNoteDraft';
 import { SaveNoteDialog } from './SaveNoteDialog';
@@ -79,12 +80,35 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
     },
     onFinal: (full) => {
       if (partialCountRef.current === 0 && !full) {
-        // 录了但完全没收到文字 — 几乎都是后端 ASR 模型未就绪或网络问题
-        notifyInfo(
-          '未识别到语音文字',
-          '检查:① 后端 ASR 模型(whisper)是否已下载并加载;② 麦克风是否真实在录音(说话声音是否在 4-30 字以上);③ 浏览器/系统控制台是否有 transcribe 失败日志。',
-          7000,
-        );
+        // 实时调诊断端点 — 4 层后端逐个 probe,展示具体哪一层不通
+        void (async () => {
+          let body = '所有 chunk 转写都返回空字符串。常见原因:后端 ASR 后端不可用 / 麦克风没真实录音 / 没说够 1-2 秒。';
+          try {
+            const d = await modality.asrDiag();
+            const lines: string[] = [];
+            // sidecar
+            if (d.sidecar.state === 'ready' && !d.sidecar.reachable) {
+              lines.push(
+                `❌ Sidecar 假 ready @ ${d.sidecar.endpoint}` +
+                  ` (probe: ${d.sidecar.probe_error || 'HTTP ' + d.sidecar.http_status})`,
+              );
+            } else if (d.sidecar.reachable) {
+              lines.push(`✅ Sidecar 实时可达 @ ${d.sidecar.endpoint}`);
+            } else {
+              lines.push(`— Sidecar: ${d.sidecar.state}${d.sidecar.last_error ? ' / ' + d.sidecar.last_error : ''}`);
+            }
+            lines.push(`${d.faster_whisper.installed ? '✅' : '❌'} faster-whisper`);
+            lines.push(`${d.openai_whisper.installed ? '✅' : '❌'} openai-whisper`);
+            lines.push(`${d.openai_api.configured ? '✅' : '❌'} OpenAI API`);
+            lines.push(`默认 ASR 模型: ${d.default_model}`);
+            lines.push('');
+            lines.push(d.recommend);
+            body = lines.join('\n');
+          } catch (err) {
+            console.warn('[mic] asrDiag failed:', err);
+          }
+          notifyInfo('未识别到语音文字', body, 20000);
+        })();
       }
       partialCountRef.current = 0;
     },

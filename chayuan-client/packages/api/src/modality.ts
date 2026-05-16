@@ -17,6 +17,30 @@ export interface TranscribeResult {
   language: string;
 }
 
+export interface AsrDiagSidecar {
+  state: string;
+  endpoint: string;
+  reachable: boolean;
+  http_status: number;
+  last_error: string;
+  probe_error: string;
+}
+
+export interface AsrDiagBackend {
+  installed?: boolean;
+  configured?: boolean;
+  error: string;
+}
+
+export interface AsrDiagResult {
+  sidecar: AsrDiagSidecar;
+  faster_whisper: AsrDiagBackend;
+  openai_whisper: AsrDiagBackend;
+  openai_api: AsrDiagBackend;
+  default_model: string;
+  recommend: string;
+}
+
 export const modality = {
   /**
    * 对一张图做 OCR。
@@ -53,5 +77,17 @@ export const modality = {
       raw: true,
     });
     return r.data?.data ?? { text: '', language: opts.language ?? 'auto' };
+  },
+
+  /**
+   * 实时探测 4 层 ASR 后端可用性 — sidecar / faster-whisper / openai-whisper / OpenAI API。
+   * 用于"录完没文字"时给用户精确诊断,不读 registry 缓存。
+   */
+  async asrDiag(): Promise<AsrDiagResult> {
+    const r = await request<{ data: AsrDiagResult }>(`/modality/asr/diag`, {
+      method: 'GET',
+      raw: true,
+    });
+    return r.data?.data as AsrDiagResult;
   },
 };
