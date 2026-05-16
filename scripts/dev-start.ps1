@@ -352,15 +352,29 @@ $logFile    = Join-Path $env:TEMP 'chayuan-dev.log'      # stdout
 $errLogFile = Join-Path $env:TEMP 'chayuan-dev.err.log'  # stderr
 $pidFile    = Join-Path $env:TEMP 'chayuan-dev.pid'
 
-# 清理已有进程
+# 清理已有进程(用 taskkill /T 把整个进程树杀掉,避免子进程占着 8509 配置面板
+# 端口或 62582+ sidecar 端口,导致新 server 起来 preflight 失败)
 if (Test-Path $pidFile) {
     $oldPid = Get-Content $pidFile -ErrorAction SilentlyContinue
     if ($oldPid -and (Get-Process -Id $oldPid -ErrorAction SilentlyContinue)) {
-        Write-Warn "已有 dev sidecar pid=$oldPid,先停掉"
-        Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
+        Write-Warn "已有 dev sidecar pid=$oldPid,先停掉(整棵进程树)"
+        & taskkill /F /T /PID $oldPid 2>$null | Out-Null
         Start-Sleep -Seconds 1
     }
 }
+
+# 兜底:即使 pid 文件丢了,也按端口反查残留 server 主进程或 sidecar 孤儿
+foreach ($p in @($Port, 8509, 62582, 62583, 62584, 62585, 62586)) {
+    try {
+        $line = (netstat -ano | Select-String -Pattern ":$p\s+.*LISTENING" | Select-Object -First 1).ToString()
+        if ($line -match '\s(\d+)\s*$') {
+            $orphan = [int]$matches[1]
+            & taskkill /F /T /PID $orphan 2>$null | Out-Null
+            Write-Warn "清理孤儿 pid=$orphan (占着 :$p)"
+        }
+    } catch {}
+}
+Start-Sleep -Milliseconds 500
 
 Set-Location $Server
 if ($poetryExe -and $venvPath) {

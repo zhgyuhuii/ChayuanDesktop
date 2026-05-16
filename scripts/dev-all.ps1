@@ -90,16 +90,31 @@ if ($Stop) {
         }
     }
 
-    # 2) kill server 主进程
+    # 2) kill server 主进程 + 整个进程树(/T 关键!)
+    # 之前用 Stop-Process -Force 只杀单进程,留下子孙进程占着 8509 配置面板 + sidecar
+    # 端口(62582/62583/...),下次启动 preflight 探到端口被占直接 abort。
     if (Test-Path $PidFile) {
         $svrPid = Get-Content $PidFile -ErrorAction SilentlyContinue
         if ($svrPid -and (Get-Process -Id $svrPid -ErrorAction SilentlyContinue)) {
-            Stop-Process -Id $svrPid -Force -ErrorAction SilentlyContinue
-            Write-Ok "kill chayuan-server pid=$svrPid"
+            & taskkill /F /T /PID $svrPid 2>$null | Out-Null
+            Write-Ok "kill chayuan-server tree (pid=$svrPid + 子进程)"
         }
         Remove-Item $PidFile -ErrorAction SilentlyContinue
     } else {
         Write-Warn "$PidFile 不存在,server 可能不是本脚本起的"
+    }
+
+    # 3) 兜底:按端口反查孤儿进程并清掉(server 主进程之前被 -Force 强杀过、
+    #    子进程脱离父子关系变孤儿;或 server 不是本脚本起的)
+    foreach ($p in @($Port, 8509, 62582, 62583, 62584, 62585, 62586)) {
+        try {
+            $line = (netstat -ano | Select-String -Pattern ":$p\s+.*LISTENING" | Select-Object -First 1).ToString()
+            if ($line -match '\s(\d+)\s*$') {
+                $orphan = [int]$matches[1]
+                & taskkill /F /T /PID $orphan 2>$null | Out-Null
+                Write-Ok "kill orphan pid=$orphan (端口 :$p)"
+            }
+        } catch {}
     }
 
     Write-Ok '环境已停止'
