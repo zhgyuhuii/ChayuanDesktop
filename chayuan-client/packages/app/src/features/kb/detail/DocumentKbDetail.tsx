@@ -205,6 +205,31 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
     }
   };
 
+  const onDeleteOne = React.useCallback(async (fileName: string) => {
+    if (!mine) return;
+    if (!confirm(`删除「${fileName}」?该操作不可恢复`)) return;
+    setBusy(true);
+    try {
+      await kbApi.deleteDocs({
+        knowledge_base_name: detail.meta.name,
+        file_names: [fileName],
+        delete_content: true,
+      });
+      notifySuccess(`已删除「${fileName}」`);
+      setSelected((s) => {
+        if (!s.has(fileName)) return s;
+        const next = new Set(s);
+        next.delete(fileName);
+        return next;
+      });
+      onMutate();
+    } catch (e) {
+      reportError(e, '删除失败');
+    } finally {
+      setBusy(false);
+    }
+  }, [mine, detail.meta.name, onMutate]);
+
   const runReindex = async (fileNames: string[]) => {
     if (!mine || fileNames.length === 0) return;
     const label = fileNames.length === 1 ? `「${fileNames[0]}」` : `${fileNames.length} 个文件`;
@@ -338,6 +363,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
                   onToggle={() => toggle(f.file_name)}
                   onChunks={() => setChunkFile(f.file_name)}
                   onReindex={() => runReindex([f.file_name])}
+                  onDelete={() => void onDeleteOne(f.file_name)}
                 />
               ))}
             </tbody>
@@ -529,7 +555,8 @@ const FileRow: React.FC<{
   onToggle(): void;
   onChunks(): void;
   onReindex(): void;
-}> = ({ file, kbName, ingestTask, mine, checked, onToggle, onChunks, onReindex }) => {
+  onDelete(): void;
+}> = ({ file, kbName, ingestTask, mine, checked, onToggle, onChunks, onReindex, onDelete }) => {
   const openPreview = usePreviewStore((s) => s.open);
   const progress = fileIngestProgress(file.file_name, ingestTask);
   const onPreview = () => {
@@ -606,6 +633,17 @@ const FileRow: React.FC<{
             title="删除旧向量并重新生成"
           >
             <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {mine && (
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label="删除"
+            title="删除这个文件"
+            className={cn('mx-0.5 rounded p-1 text-[var(--cy-text-tertiary)] hover:bg-red-500/10 hover:text-red-600')}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
         )}
       </td>

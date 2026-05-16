@@ -295,6 +295,32 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
     }
   };
 
+  const onDeleteOne = React.useCallback(async (img: ImageItem) => {
+    if (!mine || sourceId == null) return;
+    if (!confirm(`删除「${img.caption || img.id}」?该操作不可恢复`)) return;
+    setBusy(true);
+    try {
+      const ok = await imageSource.remove(sourceId, img.id).catch(() => false);
+      if (ok) {
+        notifySuccess('已删除');
+        // 把选中里面残留这张图的 id 清掉
+        setSelected((s) => {
+          if (!s.has(img.id)) return s;
+          const next = new Set(s);
+          next.delete(img.id);
+          return next;
+        });
+        onMutate();
+      } else {
+        reportError(new Error('imageSource.remove 返回 false'), '删除失败');
+      }
+    } catch (e) {
+      reportError(e, '删除失败');
+    } finally {
+      setBusy(false);
+    }
+  }, [mine, sourceId, onMutate]);
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-4 py-2">
@@ -480,8 +506,10 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
                 score={scoreMap?.get(img.id)}
                 checked={selected.has(img.id)}
                 showCheckbox={mine}
+                canDelete={mine}
                 onToggle={() => toggle(img.id)}
                 onPreview={() => setPreview(img)}
+                onDelete={() => void onDeleteOne(img)}
               />
             ))}
           </div>
@@ -498,9 +526,11 @@ const ImageCard: React.FC<{
   score?: number;
   checked: boolean;
   showCheckbox: boolean;
+  canDelete: boolean;
   onToggle(): void;
   onPreview(): void;
-}> = ({ img, score, checked, showCheckbox, onToggle, onPreview }) => {
+  onDelete(): void;
+}> = ({ img, score, checked, showCheckbox, canDelete, onToggle, onPreview, onDelete }) => {
   const [src, setSrc] = React.useState<string>('');
   React.useEffect(() => {
     let live = true;
@@ -600,14 +630,27 @@ const ImageCard: React.FC<{
           {img.caption}
         </div>
       )}
-      <button
-        type="button"
-        onClick={onPreview}
-        aria-label="查看大图"
-        className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/40 text-white opacity-0 backdrop-blur transition-opacity hover:bg-black/60 group-hover:opacity-100"
-      >
-        <Eye className="h-3 w-3" />
-      </button>
+      <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={onPreview}
+          aria-label="查看大图"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/60"
+        >
+          <Eye className="h-3 w-3" />
+        </button>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            aria-label="删除"
+            title="删除这张图片"
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-red-500/85 text-white backdrop-blur hover:bg-red-600"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
+      </div>
     </div>
   );
 };
