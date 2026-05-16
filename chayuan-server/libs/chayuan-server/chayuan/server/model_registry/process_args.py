@@ -288,8 +288,10 @@ def resolve_llamacpp_args(
 # ───────────────────────── infinity ─────────────────────────
 
 _INFINITY_CAPABILITIES = ("image-embedding",)
+# scanner identifier 把 CLIP / image-text 多模态都标 'image-to-text'(_CAPABILITY_BY_MODELTYPE
+# 见 identifier.py:_PATH_HINTS);用这个去 local_index 查才能命中。原来写 'image' 永远找不到。
 _INFINITY_LOCAL_CAP_MAP = {
-    "image-embedding": "image",
+    "image-embedding": "image-to-text",
 }
 
 
@@ -321,10 +323,22 @@ def resolve_image_embedding_args(
 
     local_cap = _INFINITY_LOCAL_CAP_MAP[capability]
     r = Resolution(process="infinity")
-    entry, reason = _resolve(capability, local_cap=local_cap)
+    # prefer_format='hf_transformers' 让 _pick_by_capability_local_only 把
+    # CLIP(hf_transformers + safetensors)排到 OCR(onnx)前面。
+    entry, reason = _resolve(capability, prefer_format="hf_transformers", local_cap=local_cap)
     if entry is None:
         r.missing.append(capability)
         r.reason = reason
+        return r
+    # 显式拒 OCR onnx 模型:scanner 同样标 image-to-text(PP-OCRv3/PP-OCRv4),
+    # 但 OCR 走 rapidocr 进程内不走 infinity sidecar,被 prefer_format fallback
+    # 抓到会让 infinity 加载失败。
+    if entry.format == "onnx":
+        r.missing.append(capability)
+        r.reason = (
+            f"image-embedding 候选 {entry.model_id!r} format={entry.format!r} 是 OCR ONNX,"
+            f"不是 CLIP-like 模型;安装 transformers/safetensors 版 CLIP 后再启动"
+        )
         return r
 
     frozen = getattr(sys, "frozen", False)
@@ -407,8 +421,11 @@ def resolve_ollama_env(*, models_dir: Optional[str] = None) -> Resolution:
 # ───────────────────────── whispercpp ─────────────────────────
 
 _WHISPER_CAPABILITIES = ("asr",)
+# scanner identifier 把 whisper / wav2vec2 等都标 'speech-to-text'(见
+# identifier.py:_PATH_HINTS + _CAPABILITY_BY_MODELTYPE),用这个去 local_index 查
+# 才能命中。原来写 'asr' 永远找不到本地 ggml-tiny.bin。
 _WHISPER_LOCAL_CAP_MAP = {
-    "asr": "asr",
+    "asr": "speech-to-text",
 }
 
 
