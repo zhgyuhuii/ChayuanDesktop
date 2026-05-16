@@ -3,25 +3,30 @@
   下载 llama-server.exe (Win64) 到 vendor/services/llama-server/<target>/。
 
 .PARAMETER Version
-  llama.cpp release tag,默认 'b4404'。
+  llama.cpp release tag,默认 'b9174' (latest 2026-05-16)。
+  qwen3 / qwen3-moe / phi-4 / 2025 后的架构需要 b5092+ 才能加载。
+  老 b4404 默认不支持 qwen3,撞 'unknown model architecture' 直接 fail。
 
 .PARAMETER Target
-  vendor 平台子目录 + 对应 upstream asset。不传 = 按 PROCESSOR_ARCHITECTURE 选默认 win-x64 / win-arm64。
+  vendor 平台子目录。不传 = 按 PROCESSOR_ARCHITECTURE 选默认 win-x64 / win-arm64。
   支持:
-    win-x64         (AVX2,Haswell 2013+,默认)
-    win-x64-avx     (AVX 老 Sandy/Ivy Bridge)
-    win-x64-avx512  (Skylake-X / Xeon)
-    win-x64-noavx   (Pentium/Celeron / VM)
-    win-arm64       (Surface Pro X / Copilot+ PC)
+    win-x64         x86_64,默认。运行时 SIMD 探测(AVX2/AVX/SSE)
+    win-x64-avx     兼容别名 → 同 win-x64(新版只出一种 zip,自动 SIMD detect)
+    win-x64-avx512  兼容别名 → 同 win-x64
+    win-x64-noavx   兼容别名 → 同 win-x64
+    win-arm64       Surface Pro X / Copilot+ PC
+
+  注意:b5400 起 llama.cpp 不再分 avx2/avx/avx512/noavx 多个 zip,改单一 -cpu-x64.zip
+  内置运行时 CPU dispatch。旧别名只为脚本调用向后兼容,实际拉的是同一个 asset。
 
 .EXAMPLE
-  .\scripts\install-llama-server.ps1                              # 自动 host
-  .\scripts\install-llama-server.ps1 -Target win-x64-noavx        # 强制 noavx
-  .\scripts\install-llama-server.ps1 -Version b4500 -Target win-arm64
+  .\scripts\install-llama-server.ps1                              # 自动 host,最新版
+  .\scripts\install-llama-server.ps1 -Target win-arm64            # ARM64 PC
+  .\scripts\install-llama-server.ps1 -Version b9000               # 指定 build
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = 'b4404',
+    [string]$Version = 'b9174',
     [string]$Target = ''
 )
 
@@ -48,12 +53,31 @@ if (-not $Target) {
 }
 
 # Target → upstream asset
-$assetMap = @{
-    'win-x64'        = "llama-$Version-bin-win-avx2-x64.zip"
-    'win-x64-avx'    = "llama-$Version-bin-win-avx-x64.zip"
-    'win-x64-avx512' = "llama-$Version-bin-win-avx512-x64.zip"
-    'win-x64-noavx'  = "llama-$Version-bin-win-noavx-x64.zip"
-    'win-arm64'      = "llama-$Version-bin-win-llvm-arm64.zip"
+# 2026-05-16:b5400 起 llama.cpp 把 win avx/avx2/avx512/noavx 四个 zip 合并成单一
+# `-cpu-x64.zip`(运行时 SIMD dispatch)。低于 b5400 的旧 build 是分版本 zip;两套
+# schema 都支持。版本号简单 numeric 比较即可(b 前缀剥掉,看后面整数)。
+$verNum = 0
+if ($Version -match '^b(\d+)$') { $verNum = [int]$Matches[1] }
+$useNewSchema = ($verNum -ge 5400)
+
+if ($useNewSchema) {
+    $assetMap = @{
+        # 新 schema:所有 x64 别名都映到同一个 -cpu-x64.zip(内置 SIMD dispatch)
+        'win-x64'        = "llama-$Version-bin-win-cpu-x64.zip"
+        'win-x64-avx'    = "llama-$Version-bin-win-cpu-x64.zip"
+        'win-x64-avx512' = "llama-$Version-bin-win-cpu-x64.zip"
+        'win-x64-noavx'  = "llama-$Version-bin-win-cpu-x64.zip"
+        'win-arm64'      = "llama-$Version-bin-win-cpu-arm64.zip"
+    }
+} else {
+    # 旧 schema:四个 SIMD 变体各自 zip + arm64 用 llvm 命名
+    $assetMap = @{
+        'win-x64'        = "llama-$Version-bin-win-avx2-x64.zip"
+        'win-x64-avx'    = "llama-$Version-bin-win-avx-x64.zip"
+        'win-x64-avx512' = "llama-$Version-bin-win-avx512-x64.zip"
+        'win-x64-noavx'  = "llama-$Version-bin-win-noavx-x64.zip"
+        'win-arm64'      = "llama-$Version-bin-win-llvm-arm64.zip"
+    }
 }
 if (-not $assetMap.ContainsKey($Target)) {
     Write-Error "未识别的 target: $Target  (支持: $($assetMap.Keys -join ', '))"
