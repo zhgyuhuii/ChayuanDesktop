@@ -34,7 +34,15 @@ export function useDesktopIntegrations(): void {
       handler: () => void | Promise<void>,
     ): Promise<() => Promise<void>> =>
       platform.shortcut!.register(accelerator, handler).catch((e: unknown) => {
-        console.warn(`[shortcut] register ${accelerator} failed:`, e);
+        // "HotKey already registered" 在 React StrictMode dev 模式下是常态 —
+        // effect 双触发,cleanup 是 async unregister 没赶上第二次 register。
+        // 降到 debug 不污染 console;其它真实错误仍 warn。
+        const msg = String((e as { message?: string })?.message ?? e);
+        if (/already registered/i.test(msg)) {
+          console.debug(`[shortcut] register ${accelerator} skipped (already registered)`);
+        } else {
+          console.warn(`[shortcut] register ${accelerator} failed:`, e);
+        }
         return (async () => {}) as () => Promise<void>;
       });
 

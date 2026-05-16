@@ -670,12 +670,16 @@ const Lightbox: React.FC<{ img: ImageItem; onClose(): void }> = ({ img, onClose 
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-8"
       onClick={onClose}
     >
-      <img
-        src={src}
-        alt={img.caption || img.id}
-        className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      />
+      {src ? (
+        <img
+          src={src}
+          alt={img.caption || img.id}
+          className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <div className="text-sm text-white/60">加载中…</div>
+      )}
       <button
         type="button"
         onClick={onClose}

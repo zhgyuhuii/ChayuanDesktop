@@ -64,10 +64,14 @@ export const ErrorDialogRoot: React.FC = () => {
           </div>
           <div className="min-w-0 flex-1">
             <DialogTitle>{current.title}</DialogTitle>
-            {current.detail && (
+            {/* 始终渲染 DialogDescription 以满足 Radix a11y(aria-describedby)要求;
+                无 detail 时给一个 sr-only fallback,不影响视觉。 */}
+            {current.detail ? (
               <DialogDescription className="mt-1 break-words">
                 {current.detail}
               </DialogDescription>
+            ) : (
+              <DialogDescription className="sr-only">{current.title}</DialogDescription>
             )}
             {current.raw && (
               <div className="mt-3">
