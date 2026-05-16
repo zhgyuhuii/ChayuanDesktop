@@ -122,6 +122,39 @@ def _doc_kb_to_universe(row: Dict[str, Any], current_uid: Optional[int], user: A
     }
 
 
+def _resolve_store_name_for_image(raw: int) -> str:
+    """与 image_routes._resolve_store_name 同源。"""
+    from chayuan.server.api_server.image_routes import _resolve_store_name
+    return _resolve_store_name(int(raw))
+
+
+def _image_items_for_universe(raw: int, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    from chayuan.server.image_source.store import get_store
+    store_name = _resolve_store_name_for_image(int(raw))
+    store = get_store(store_name)
+    items: List[Dict[str, Any]] = []
+    for m in store.list_items(200):
+        img_id = m.get("id")
+        items.append({
+            "id": img_id,
+            "url": f"/knowledge_source/{int(raw)}/image/{img_id}",
+            "thumb_url": f"/knowledge_source/{int(raw)}/image/{img_id}",
+            "caption": m.get("tags") or "",
+            "state": m.get("state", "ready"),
+            "progress": int(m.get("progress") or 0),
+            "error": m.get("error"),
+            "has_text_vector": bool(m.get("has_text_vector")),
+            "ocr_text": (m.get("ocr_text") or "")[:200] or None,
+            "meta": {
+                "size_bytes": m.get("size_bytes"),
+                "md5": m.get("md5"),
+                "embedder_model": m.get("embedder_model"),
+                "created_at": m.get("created_at"),
+            },
+        })
+    return items
+
+
 def _source_to_universe(row: Dict[str, Any], current_uid: Optional[int], user: Any = None) -> Dict[str, Any]:
     """knowledge_source row → 统一 item"""
     raw_kind = (row.get("kind") or "").lower()
@@ -394,27 +427,8 @@ def universe_detail(
 
         # 按 sub_kind 拉具体内容
         if sub_kind == "image":
-            # 与 /knowledge_source/{id}/image/list 同款 store,字段形状对齐前端契约
             try:
-                from chayuan.server.image_source.store import get_store
-                from chayuan.server.api_server.image_routes import _resolve_store_name
-                store = get_store(_resolve_store_name(int(raw)))
-                items = []
-                for m in store._meta[-200:]:
-                    img_id = m.get("id")
-                    items.append({
-                        "id": img_id,
-                        # url 用 universe 同源端点,前端拼后带 token query 即可预览/下载
-                        "url": f"/knowledge_source/{int(raw)}/image/{img_id}",
-                        "thumb_url": f"/knowledge_source/{int(raw)}/image/{img_id}",
-                        "caption": m.get("tags") or "",
-                        "meta": {
-                            "size_bytes": m.get("size_bytes"),
-                            "md5": m.get("md5"),
-                            "embedder_model": m.get("embedder_model"),
-                            "created_at": m.get("created_at"),
-                        },
-                    })
+                items = _image_items_for_universe(int(raw), payload)
                 payload["items"] = items
             except Exception as e:  # noqa: BLE001
                 logger.warning("image source list failed: %r", e)
