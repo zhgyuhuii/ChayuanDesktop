@@ -209,11 +209,38 @@ if ($poetryExe -and $venvPath) {
 if ($Bg) {
     $p = Start-Process -FilePath $cmdExe -ArgumentList $cmdArgs -RedirectStandardOutput $logFile -RedirectStandardError $logFile -PassThru -WindowStyle Hidden
     $p.Id | Set-Content $pidFile
-    Start-Sleep -Seconds 1
-    Write-Ok "后台启动 pid=$($p.Id),日志:$logFile"
-    Write-Host "    Get-Content -Wait $logFile   # 看日志"
-    Write-Host "    Invoke-RestMethod http://127.0.0.1:$Port/healthz   # 探活"
-    Write-Host "    Stop-Process -Id (Get-Content $pidFile)   # 关掉"
+    Write-Ok "spawned pid=$($p.Id),日志:$logFile"
+
+    # health probe:60s 内每 2s curl /healthz,任一成功就退;期间检测进程还活着
+    Write-Step "等 health(最多 60s):http://127.0.0.1:$Port/healthz"
+    $deadline = (Get-Date).AddSeconds(60)
+    $healthy = $false
+    while ((Get-Date) -lt $deadline) {
+        if ($p.HasExited) {
+            Write-Err "chayuan-server 已退出(pid=$($p.Id), exitcode=$($p.ExitCode)),启动失败"
+            Write-Host '    最后 20 行日志:' -ForegroundColor DarkGray
+            Get-Content $logFile -Tail 20 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
+            Remove-Item $pidFile -ErrorAction SilentlyContinue
+            exit 3
+        }
+        try {
+            $r = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/healthz" -TimeoutSec 2 -ErrorAction Stop
+            if ($r.StatusCode -eq 200) { $healthy = $true; break }
+        } catch { }
+        Start-Sleep -Seconds 2
+    }
+
+    if ($healthy) {
+        Write-Ok "ready ✓ (pid=$($p.Id) listening on :$Port)"
+        Write-Host "    Get-Content -Wait $logFile   # 看日志"
+        Write-Host "    Invoke-RestMethod http://127.0.0.1:$Port/healthz   # 再探活"
+        Write-Host "    Stop-Process -Id (Get-Content $pidFile)   # 关掉"
+    } else {
+        Write-Err "60s 内 /healthz 没返 200,server 可能卡在启动中"
+        Write-Host "    pid=$($p.Id) 还活着,看日志:Get-Content -Wait $logFile" -ForegroundColor DarkGray
+        Write-Host "    要强制关:Stop-Process -Id $($p.Id) -Force" -ForegroundColor DarkGray
+        exit 4
+    }
 } else {
     Write-Ok '前台启动(Ctrl+C 退出)'
     & $cmdExe @cmdArgs

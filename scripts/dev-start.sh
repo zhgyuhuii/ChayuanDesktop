@@ -175,12 +175,39 @@ fi
 cd "$SERVER"
 if [ $BG -eq 1 ]; then
     nohup "${CMD[@]}" > "$LOG_FILE" 2>&1 &
-    echo $! > "$PID_FILE"
-    sleep 1
-    ok "后台启动 pid=$(cat "$PID_FILE"),日志:$LOG_FILE"
-    echo "    tail -f $LOG_FILE   # 看日志"
-    echo "    curl http://127.0.0.1:$PORT/healthz   # 探活"
-    echo "    kill \$(cat $PID_FILE)   # 关掉"
+    SERVER_PID=$!
+    echo "$SERVER_PID" > "$PID_FILE"
+    ok "spawned pid=$SERVER_PID,日志:$LOG_FILE"
+
+    # health probe:60s 内每 2s curl 一次 /healthz,任一成功就退;期间检测进程还活着
+    step "等 health(最多 60s):curl http://127.0.0.1:$PORT/healthz"
+    deadline=$((SECONDS + 60))
+    healthy=0
+    while [ $SECONDS -lt $deadline ]; do
+        if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+            err "chayuan-server 已退出(pid=$SERVER_PID),启动失败"
+            echo "    最后 20 行日志:" >&2
+            tail -20 "$LOG_FILE" | sed 's/^/      /' >&2
+            rm -f "$PID_FILE"
+            exit 3
+        fi
+        if curl -sf --max-time 2 "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
+            healthy=1; break
+        fi
+        sleep 2
+    done
+
+    if [ $healthy -eq 1 ]; then
+        ok "ready ✓ (pid=$SERVER_PID listening on :$PORT)"
+        echo "    tail -f $LOG_FILE         # 看日志"
+        echo "    curl http://127.0.0.1:$PORT/healthz   # 再探活"
+        echo "    kill \$(cat $PID_FILE)     # 关掉"
+    else
+        err "60s 内 /healthz 没返 200,server 可能卡在启动中"
+        echo "    pid=$SERVER_PID 还活着,看日志:tail -f $LOG_FILE" >&2
+        echo "    要强制关:kill $SERVER_PID" >&2
+        exit 4
+    fi
 else
     ok "前台启动(Ctrl+C 退出)"
     exec "${CMD[@]}"
