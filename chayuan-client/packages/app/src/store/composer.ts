@@ -26,6 +26,12 @@ export interface AttachmentDraft {
   remoteUrl?: string;
   status: 'pending' | 'uploading' | 'ready' | 'error';
   error?: string;
+  // ── OCR 双轨字段(2026-05-16 加):图片上传时并发跑 OCR,文本拼进 prompt ──
+  /** 'pending' = OCR 进行中;'ok' = 已完成有文本;'empty' = 已完成无文本(图上没字);
+   *  'failed' = OCR 服务失败(原图仍走 vision);'skipped' = 非图像类型,不做 OCR */
+  ocrStatus?: 'pending' | 'ok' | 'empty' | 'failed' | 'skipped';
+  ocrText?: string;
+  ocrError?: string;
 }
 
 interface ComposerState {

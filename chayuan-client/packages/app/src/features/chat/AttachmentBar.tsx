@@ -45,6 +45,21 @@ export const AttachmentBar: React.FC<AttachmentBarProps> = ({ items, onRemove })
               {a.status === 'error' && (a.error ?? '失败')}
               {a.status === 'pending' && '等待…'}
             </span>
+            {a.type === 'image' && a.ocrStatus && (
+              <span className="text-[10px]">
+                {a.ocrStatus === 'pending' && (
+                  <span className="text-amber-600">OCR 中…</span>
+                )}
+                {a.ocrStatus === 'ok' && (
+                  <span className="text-emerald-600" title={a.ocrText}>
+                    +{(a.ocrText ?? '').length} 字
+                  </span>
+                )}
+                {a.ocrStatus === 'failed' && (
+                  <span className="text-red-600" title={a.ocrError}>OCR 失败</span>
+                )}
+              </span>
+            )}
           </div>
 
           {a.status === 'uploading' && <Loader2 className="h-3 w-3 animate-spin text-primary" />}

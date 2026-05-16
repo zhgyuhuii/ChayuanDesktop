@@ -262,7 +262,13 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       onConversationCreated?.(id, title);
       void qc.invalidateQueries({ queryKey: CONVERSATION_KEYS.list });
     }
-    await chat.sendMessage(text);
+    // 双轨 OCR:把图片附件的 OCR 文本拼进 prompt,跟原图(vision)并行发给模型
+    let finalText = text;
+    if (enableAttachments) {
+      const ocrAppendix = attachments.getOcrPromptAppendix();
+      if (ocrAppendix) finalText = text + ocrAppendix;
+    }
+    await chat.sendMessage(finalText);
     if (enableAttachments) attachments.reset();
   };
 
