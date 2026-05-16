@@ -154,4 +154,40 @@ describe('useLocalRuntimeStore', () => {
     await useLocalRuntimeStore.getState().stopCapability('rerank');
     expect(useLocalRuntimeStore.getState().statuses.rerank?.state).toBe('stopped');
   });
+
+  it('startCapability("chat", { model_id }) 透传给 localRuntime.startFor', async () => {
+    (api.startFor as ReturnType<typeof vi.fn>).mockResolvedValue({
+      state: 'ready',
+      endpoint: 'http://127.0.0.1:62582',
+      pid: 1234,
+      model_id: 'qwen3-4b',
+    });
+    await useLocalRuntimeStore.getState().startCapability('chat', { model_id: 'qwen3-4b' });
+    expect((api.startFor as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('chat', {
+      model_id: 'qwen3-4b',
+    });
+  });
+
+  it('startCapability 不带 opts 时 startFor 收到 undefined', async () => {
+    (api.startFor as ReturnType<typeof vi.fn>).mockResolvedValue({
+      state: 'ready',
+      endpoint: 'http://127.0.0.1:62582',
+      pid: 1234,
+    });
+    await useLocalRuntimeStore.getState().startCapability('embedding');
+    expect((api.startFor as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('embedding', undefined);
+  });
+
+  it('restartCapability("rerank", { model_id }) 透传给 localRuntime.restartFor', async () => {
+    (api.restartFor as ReturnType<typeof vi.fn>).mockResolvedValue({
+      state: 'ready',
+      endpoint: 'http://127.0.0.1:62584',
+      pid: 5678,
+      model_id: 'bge-rerank-q8',
+    });
+    await useLocalRuntimeStore.getState().restartCapability('rerank', { model_id: 'bge-rerank-q8' });
+    expect((api.restartFor as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('rerank', {
+      model_id: 'bge-rerank-q8',
+    });
+  });
 });

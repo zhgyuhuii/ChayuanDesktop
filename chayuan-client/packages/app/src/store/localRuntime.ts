@@ -50,9 +50,9 @@ export interface LocalRuntimeStoreState {
 
   // Plan 3B
   refreshRegistry(): Promise<void>;
-  startCapability(cap: LocalRuntimeCapability): Promise<void>;
+  startCapability(cap: LocalRuntimeCapability, opts?: { model_id?: string }): Promise<void>;
   stopCapability(cap: LocalRuntimeCapability): Promise<void>;
-  restartCapability(cap: LocalRuntimeCapability): Promise<void>;
+  restartCapability(cap: LocalRuntimeCapability, opts?: { model_id?: string }): Promise<void>;
 }
 
 export const useLocalRuntimeStore = create<LocalRuntimeStoreState>((set, get) => ({
@@ -149,14 +149,14 @@ export const useLocalRuntimeStore = create<LocalRuntimeStoreState>((set, get) =>
     }
   },
 
-  async startCapability(cap) {
+  async startCapability(cap, opts) {
     if (get().pendingFor[cap]) return;
     set((s) => ({
       pendingFor: { ...s.pendingFor, [cap]: 'start' },
       lastError: null,
     }));
     try {
-      const status = await localRuntime.startFor(cap);
+      const status = await localRuntime.startFor(cap, opts);
       set((s) => ({
         statuses: { ...s.statuses, [cap]: status },
         pendingFor: { ...s.pendingFor, [cap]: null },
@@ -189,14 +189,14 @@ export const useLocalRuntimeStore = create<LocalRuntimeStoreState>((set, get) =>
     }
   },
 
-  async restartCapability(cap) {
+  async restartCapability(cap, opts) {
     if (get().pendingFor[cap]) return;
     set((s) => ({
       pendingFor: { ...s.pendingFor, [cap]: 'restart' },
       lastError: null,
     }));
     try {
-      const status = await localRuntime.restartFor(cap);
+      const status = await localRuntime.restartFor(cap, opts);
       set((s) => ({
         statuses: { ...s.statuses, [cap]: status },
         pendingFor: { ...s.pendingFor, [cap]: null },
