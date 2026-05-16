@@ -62,7 +62,11 @@ interface PlatformGroup {
 function groupByPlatform(list: ReadonlyArray<RawModelItem>): PlatformGroup[] {
   const map = new Map<string, { displayName: string; items: Map<string, RawModelItem> }>();
   for (const m of list) {
-    const key = m.platform_name || '其它';
+    const rawName = m.platform_name || '其它';
+    // local / local-chat / local-embedding / ... 都归到同一个「本地模型」分组,
+    // 否则会看到 1 个模型分裂成两组(老前端 'local' + 后端注册的 'local-chat' 同 id
+    // 各自一组)。m.platform_name 在 items 里保留原值,路由 / 选中匹配仍按真名走。
+    const key = isLocalPlatform(rawName) ? LOCAL_PLATFORM_KEY : rawName;
     const display = m.platform_display_name || m.platform_name || '其它';
     const entry = map.get(key) ?? { displayName: display, items: new Map<string, RawModelItem>() };
     if (!entry.displayName && display) entry.displayName = display;
