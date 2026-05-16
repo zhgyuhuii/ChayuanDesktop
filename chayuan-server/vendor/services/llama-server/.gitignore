@@ -19,3 +19,15 @@
 /*.dylib
 /llama-server
 /VERSION
+
+# chayuan-server/.gitignore 里的 *.so / *.dylib / build/ / dist/ 等 Python 通配
+# 会顺带屏蔽掉平台子目录里的 binary。下面 negation 显式取消屏蔽:
+!*/llama-server
+!*/llama-server.exe
+!*/*.so
+!*/*.so.*
+!*/*.dll
+!*/*.dylib
+!*/*.metal
+!*/VERSION
+!*/LICENSE

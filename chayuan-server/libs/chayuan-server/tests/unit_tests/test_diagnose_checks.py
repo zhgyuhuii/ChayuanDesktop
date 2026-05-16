@@ -272,10 +272,10 @@ def test_run_all_checks_returns_report_with_summary(tmp_path, monkeypatch):
 
     report = run_all_checks()
     assert isinstance(report, DiagnoseReport)
-    assert len(report.checks) == 14  # Plan 3D: + image-embedding
-    # summary 计数加和等于 14
+    assert len(report.checks) == 15  # Plan 3D: + image-embedding;+ vendor.platform.detected
+    # summary 计数加和等于 15
     s = report.summary
-    assert s["ok"] + s["warn"] + s["fail"] == 14
+    assert s["ok"] + s["warn"] + s["fail"] == 15
 
 
 def test_check_runtime_llama_status_for_asr_ready(monkeypatch):
@@ -302,6 +302,30 @@ def test_check_runtime_llama_status_for_image_embedding_ready(monkeypatch):
     assert c.name == "runtime.llama.image-embedding.status"
     assert c.severity == "ok"
     assert "siglip2-base" in c.detail
+
+
+def test_check_vendor_platform_detected_includes_candidates_and_override(monkeypatch):
+    """vendor.platform.detected 应含 candidates / override / resolved 三块 context。"""
+    from chayuan.server.diagnose import checks as _checks
+
+    monkeypatch.setenv("CHAYUAN_VENDOR_PLATFORM", "win-x64-noavx")
+    c = _checks.check_vendor_platform_detected()
+    assert c.name == "vendor.platform.detected"
+    assert c.context["override"] == "win-x64-noavx"
+    assert c.context["candidates"] == ["win-x64-noavx"]
+    assert "llama" in c.context["resolved"]
+    assert "whisper" in c.context["resolved"]
+
+
+def test_check_vendor_platform_detected_no_override(monkeypatch):
+    """没 env 时 candidates 跟 OS 自动检测一致。"""
+    from chayuan.server.diagnose import checks as _checks
+    from chayuan.server.model_registry.local_runtime import _platform_subdir_candidates
+
+    monkeypatch.delenv("CHAYUAN_VENDOR_PLATFORM", raising=False)
+    c = _checks.check_vendor_platform_detected()
+    assert c.context["override"] is None
+    assert c.context["candidates"] == _platform_subdir_candidates()
 
 
 def test_run_all_checks_does_not_raise_when_check_raises(tmp_path, monkeypatch):

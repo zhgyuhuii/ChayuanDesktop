@@ -47,6 +47,7 @@ Plan 3D 后该页显示 5 个 capability 卡片(chat / 文本嵌入 / 重排 / �
 
 | 现象 | 可能原因 | 诊断报告里的标记 |
 |---|---|---|
+| `vendor.platform.detected fail` | host OS / 架构没对应的 vendor 子目录,或 CHAYUAN_VENDOR_PLATFORM 指向不存在的目录 | detail 字段里报 `candidates=[...]`,`override=...`,`llama=None / 路径`;参考 `chayuan-server/vendor/services/llama-server/README.md` 选对的子目录 |
 | sidecar 进程没找到 | chayuan-server 启动失败 / 装机不全 | CLI 退出码 2 + 日志写「sidecar 进程未发现」 |
 | `vendor.llama-server.binary fail` | 集成版打包遗漏 vendor 二进制 | 重装;或开发机跑 `scripts/install-llama-server.{ps1,sh}` |
 | `vendor.bundled_models.chat fail` | bundled_models 没打进 .msi | 重装;或手动放 .gguf 到 chayuan_root/models/bundled/chat/ |

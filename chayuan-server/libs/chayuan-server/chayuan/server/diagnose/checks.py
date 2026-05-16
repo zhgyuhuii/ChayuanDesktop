@@ -345,6 +345,67 @@ def check_runtime_llama_status() -> DiagnoseCheck:
     return check_runtime_llama_status_for("chat")
 
 
+def check_vendor_platform_detected() -> DiagnoseCheck:
+    """报当前 host 的 vendor 平台 candidate 列表 + 解析后 binary 实际路径 + env 覆盖。
+
+    主要排查:user 说"找不到 llama-server"时,这一项直接告诉:
+    1) 自动检测到的候选(_platform_subdir_candidates)
+    2) CHAYUAN_VENDOR_PLATFORM env 是否设了什么
+    3) find_server_exe 实际命中哪条(扁平 / 子目录 / None)
+    """
+    import os
+    from chayuan.server.model_registry.local_runtime import (
+        SidecarRuntimeManager, _platform_subdir_candidates,
+    )
+
+    candidates = _platform_subdir_candidates()
+    override = (os.environ.get("CHAYUAN_VENDOR_PLATFORM") or "").strip() or None
+
+    resolved = {}
+    for engine in ("llama", "whisper"):
+        try:
+            mgr = SidecarRuntimeManager(
+                chayuan_root=Path("/tmp"),
+                engine=engine,
+                capability="chat" if engine == "llama" else "asr",
+                port_offset=0,
+            )
+            exe = mgr.find_server_exe()
+            resolved[engine] = str(exe) if exe else None
+        except Exception as e:
+            resolved[engine] = f"<error: {type(e).__name__}: {e}>"
+
+    # llama 是必须的(chat/embedding/rerank 都靠它),没找到就 fail
+    llama_ok = bool(resolved.get("llama")) and not str(resolved["llama"]).startswith("<error")
+    # whisper 缺只是 warn(Mac/Linux upstream 没发,fallback 到 Python faster-whisper)
+    whisper_ok = bool(resolved.get("whisper")) and not str(resolved["whisper"]).startswith("<error")
+
+    if llama_ok and whisper_ok:
+        severity: Severity = "ok"
+    elif llama_ok:
+        severity = "warn"  # whisper 缺,降级 fallback 可用
+    else:
+        severity = "fail"
+
+    detail_parts = [
+        f"candidates={candidates}",
+        f"override={override!r}",
+        f"llama={resolved.get('llama')}",
+        f"whisper={resolved.get('whisper')}",
+    ]
+    return DiagnoseCheck(
+        name="vendor.platform.detected",
+        ok=(severity == "ok"),
+        severity=severity,
+        detail=" | ".join(detail_parts),
+        context={
+            "candidates": candidates,
+            "override": override,
+            "resolved": resolved,
+        },
+    )
+
+
 def _safe_call(name: str, fn) -> DiagnoseCheck:
     """check 内部如果还能漏出异常,这里再兜一层"""
     try:

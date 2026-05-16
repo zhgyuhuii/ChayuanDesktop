@@ -164,6 +164,11 @@ fn poll_healthz_once(port: u16) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SidecarStartArgs {
     pub data_dir: String,
+    /// 可选:vendor 平台子目录强制覆盖(对齐 chayuan-server 的 CHAYUAN_VENDOR_PLATFORM env)。
+    /// 用户在「本地模型」设置页选了 win-x64-noavx / win-x64-avx512 等 CPU 变体时填这个;
+    /// 不传 = sidecar 走自动检测(_platform_subdir_candidates)。
+    #[serde(default)]
+    pub vendor_platform: Option<String>,
 }
 
 /// 前端 FirstRunSetup 确认后调用一次。已 ready 时是 no-op。
@@ -202,7 +207,7 @@ pub fn chayuan_sidecar_start<R: Runtime>(
 
     // ── 1. 通过 plugin-shell 拼 sidecar 命令 ─────────────────────────
     let shell = app.shell();
-    let cmd = shell
+    let mut cmd = shell
         .sidecar("chayuan-server")
         .map_err(|e| format!("locate sidecar binary: {e}"))?
         .args(["start", "-a", "--single-machine"])
@@ -220,6 +225,24 @@ pub fn chayuan_sidecar_start<R: Runtime>(
         .env("CHAYUAN_REDIS", "disabled")
         .env("CHAYUAN_QUEUE", "inproc")
         .env("CHAYUAN_VECTOR_STORE", "sqlite-vec");
+
+    // CPU 变体覆盖:用户在「本地模型」设置页选了 win-x64-noavx / win-x64-avx512 等
+    // 自定义平台后,Tauri 把值存进 vendor_platform_override 设置项,这里透传给 sidecar。
+    // 让 local_runtime.py:_platform_subdir_candidates() 走 env 路径,跳自动检测。
+    // 来源 1:进程 env(开发机 / CI 调试)
+    if let Ok(v) = std::env::var("CHAYUAN_VENDOR_PLATFORM") {
+        let v = v.trim();
+        if !v.is_empty() {
+            cmd = cmd.env("CHAYUAN_VENDOR_PLATFORM", v);
+        }
+    }
+    // 来源 2:start args 字段(前端设置页传过来)
+    if let Some(v) = args.vendor_platform.as_ref() {
+        let v = v.trim();
+        if !v.is_empty() {
+            cmd = cmd.env("CHAYUAN_VENDOR_PLATFORM", v);
+        }
+    }
 
     let (mut rx, child) = cmd
         .spawn()

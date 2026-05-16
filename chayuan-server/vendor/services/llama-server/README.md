@@ -19,7 +19,7 @@
 | subdir              | 来源(b4404)                              | 默认在 | 用途                                         | 大小  |
 |---------------------|-------------------------------------------|--------|---------------------------------------------|-------|
 | `linux-x64/`        | `llama-bXXXX-bin-ubuntu-x64.zip`          | Linux  | Ubuntu 22.04+ glibc 2.34, x86_64            | ~5 MB |
-| `linux-arm64/`      | (upstream 没发,占位)                     | Linux  | Linux aarch64 — 用户自行 cmake build       | 0     |
+| `linux-arm64/`      | Docker `ghcr.io/ggml-org/llama.cpp:server` (arm64) | Linux | Linux aarch64(Apple M VM / Raspberry Pi / AWS Graviton 等);动态链接,带 .so 共享库 | ~26 MB |
 | `macos-arm64/`      | `llama-bXXXX-bin-macos-arm64.zip`         | macOS  | Apple Silicon(M1+),带 Metal shader        | ~6 MB |
 | `macos-x64/`        | `llama-bXXXX-bin-macos-x64.zip`           | macOS  | Intel Mac                                   | ~5 MB |
 | `win-x64/`          | `llama-bXXXX-bin-win-avx2-x64.zip`        | Win    | AVX2 默认(Haswell 2013+,绝大多数 PC)     | ~5 MB |

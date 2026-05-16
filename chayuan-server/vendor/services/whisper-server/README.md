@@ -12,8 +12,13 @@ whisper-server/
 │   ├── whisper-server.exe
 │   ├── whisper.dll / ggml-base.dll / ggml-cpu.dll / ggml.dll
 │   └── VERSION
-├── linux-x64/      ← upstream 没发 binary,空目录占位(.gitkeep)
-└── macos-arm64/    ← upstream 没发 binary,空目录占位(.gitkeep)
+├── linux-x64/      ← Docker `ghcr.io/ggml-org/whisper.cpp:main` (amd64) ~4 MB
+│   ├── whisper-server
+│   ├── libwhisper.so* / libggml*.so*
+│   └── VERSION
+├── linux-arm64/    ← (占位,upstream Docker 没发 arm64)
+├── macos-arm64/    ← (占位)
+└── macos-x64/      ← (占位)
 ```
 
 **Upstream 现状**:whisper.cpp 官方只发 Windows pre-built(`whisper-bin-Win32.zip` /

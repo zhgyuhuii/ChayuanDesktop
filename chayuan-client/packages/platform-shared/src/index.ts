@@ -276,8 +276,12 @@ export interface SidecarApi {
   /**
    * 启动 sidecar(把数据目录通过 ``CHAYUAN_ROOT`` env 注入子进程)。
    * FirstRunSetup 确认后 Shell 调一次。已 ready/starting 是 no-op。
+   *
+   * vendorPlatform: 可选 CPU 变体覆盖,对齐 chayuan-server 的 CHAYUAN_VENDOR_PLATFORM env。
+   * 「本地模型」设置页选了非默认变体(win-x64-noavx / win-x64-avx512 等)时填这个;
+   * 不传 = sidecar 走 _platform_subdir_candidates 自动检测。
    */
-  start(args: { dataDir: string }): Promise<SidecarStatus>;
+  start(args: { dataDir: string; vendorPlatform?: string }): Promise<SidecarStatus>;
   /** 主动停(关窗 / 切换数据目录向导)。 */
   kill(): Promise<SidecarStatus>;
   /**

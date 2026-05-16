@@ -23,13 +23,14 @@ def _resolve_chayuan_root() -> Path:
 
 
 def run_all_checks() -> DiagnoseReport:
-    """跑 14 项 check,聚合成报告。单个 check 抛异常不阻塞其它 check。"""
+    """跑 15 项 check,聚合成报告。单个 check 抛异常不阻塞其它 check。"""
     root = _resolve_chayuan_root()
     settings_path = root / "model_registry" / "local_runtime.yaml"
     status_path = root / "runtime.json"
 
     results = [
         _checks._safe_call("sidecar.healthz", _checks.check_sidecar_healthz),
+        _checks._safe_call("vendor.platform.detected", _checks.check_vendor_platform_detected),
         _checks._safe_call("vendor.llama-server.binary", _checks.check_vendor_llama_server_binary),
         _checks._safe_call("vendor.bundled_models.chat", _checks.check_bundled_models_chat),
         _checks._safe_call("chayuan_root.writable", lambda: _checks.check_chayuan_root_writable(root)),

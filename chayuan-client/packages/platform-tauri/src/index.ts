@@ -806,8 +806,14 @@ const tauriSidecar: SidecarApi = {
   },
   async start(args) {
     const { invoke } = await import('@tauri-apps/api/core');
+    const payload: { data_dir: string; vendor_platform?: string } = {
+      data_dir: args.dataDir,
+    };
+    if (args.vendorPlatform && args.vendorPlatform.trim()) {
+      payload.vendor_platform = args.vendorPlatform.trim();
+    }
     const raw = await invoke<RawSidecarStatus>('chayuan_sidecar_start', {
-      args: { data_dir: args.dataDir },
+      args: payload,
     });
     return normalizeSidecarStatus(raw);
   },
