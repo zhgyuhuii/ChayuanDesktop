@@ -345,9 +345,10 @@ else
     pkill -f 'chayuan-server' 2>/dev/null && note "已清理残留 chayuan-server 进程" || true
 
     # 优先 poetry,无 poetry 用裸 python(假定 deps 已用 pip 装好)
+    # 把 host triple 显式传给 build.py,确保 sync_services 按对的平台选 vendor 子目录
     if command -v poetry >/dev/null 2>&1; then
         invoke_step 'pyinstaller (poetry)' "$SERVER_DIR" \
-            poetry run python packaging/pyinstaller/build.py
+            poetry run python packaging/pyinstaller/build.py --target "$TRIPLE"
     else
         # 检查 pyinstaller 是否就绪
         if ! python3 -c "import PyInstaller" 2>/dev/null; then
@@ -355,7 +356,7 @@ else
             exit 127
         fi
         invoke_step 'pyinstaller (python3)' "$SERVER_DIR" \
-            python3 packaging/pyinstaller/build.py
+            python3 packaging/pyinstaller/build.py --target "$TRIPLE"
     fi
 
     if [[ ! -f "$SIDECAR_PATH" ]]; then
@@ -381,10 +382,10 @@ fi
 step "Step 1b: 同步 src-tauri/bundled_models/ ($FLAVOR)"
 if command -v poetry >/dev/null 2>&1; then
     invoke_step "sync bundled (poetry)" "$SERVER_DIR" \
-        poetry run python packaging/pyinstaller/build.py --sync-bundled-only
+        poetry run python packaging/pyinstaller/build.py --sync-bundled-only --target "$TRIPLE"
 else
     invoke_step "sync bundled (python3)" "$SERVER_DIR" \
-        python3 packaging/pyinstaller/build.py --sync-bundled-only
+        python3 packaging/pyinstaller/build.py --sync-bundled-only --target "$TRIPLE"
 fi
 
 # ── 6. Step 2: /healthz 探测 ─────────────────────────────────────

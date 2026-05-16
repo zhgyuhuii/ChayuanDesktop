@@ -493,7 +493,15 @@ function Invoke-FlavorBuild {
 # ====================================================================
 # Step 1: chayuan-server PyInstaller
 # ====================================================================
-$sidecarName = 'chayuan-server-x86_64-pc-windows-msvc.exe'
+# Host Rust triple — Win 上的 PROCESSOR_ARCHITECTURE 可能是 AMD64 / ARM64 / EM64T。
+$cpuArch = ($env:PROCESSOR_ARCHITECTURE + '').ToUpperInvariant()
+if ($cpuArch -eq 'ARM64') {
+    $hostTriple = 'aarch64-pc-windows-msvc'
+} else {
+    # AMD64 / EM64T / 默认都按 x86_64
+    $hostTriple = 'x86_64-pc-windows-msvc'
+}
+$sidecarName = "chayuan-server-${hostTriple}.exe"
 $sidecarPath = Join-Path $BinariesDir $sidecarName
 
 if ($SkipServer) {
@@ -537,9 +545,10 @@ if ($SkipServer) {
         -Command 'poetry' -Arguments @('run', 'pip', 'uninstall', '-y', 'pathlib')
 
     # build.py 路径相对 $ServerPkgDir:..\..\packaging\pyinstaller\build.py
+    # 显式传 --target,确保 sync_services 按对的平台选 vendor 子目录(host 一致就走 host)
     Invoke-Step -Name 'pyinstaller-build' `
         -WorkDir $ServerPkgDir `
-        -Command 'poetry' -Arguments @('run', 'python', '..\..\packaging\pyinstaller\build.py')
+        -Command 'poetry' -Arguments @('run', 'python', '..\..\packaging\pyinstaller\build.py', '--target', $hostTriple)
 
     if (-not (Test-Path $sidecarPath)) {
         Write-Fail "PyInstaller 跑完了但 sidecar 没出现在预期位置:$sidecarPath"
@@ -561,11 +570,11 @@ $poetryExe = Get-Command poetry -ErrorAction SilentlyContinue
 if ($poetryExe) {
     Invoke-Step -Name 'sync bundled (poetry)' `
         -WorkDir $ServerDir `
-        -Command 'poetry' -Arguments @('run', 'python', 'packaging\pyinstaller\build.py', '--sync-bundled-only')
+        -Command 'poetry' -Arguments @('run', 'python', 'packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple)
 } else {
     Invoke-Step -Name 'sync bundled (python)' `
         -WorkDir $ServerDir `
-        -Command 'python' -Arguments @('packaging\pyinstaller\build.py', '--sync-bundled-only')
+        -Command 'python' -Arguments @('packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple)
 }
 
 # ====================================================================

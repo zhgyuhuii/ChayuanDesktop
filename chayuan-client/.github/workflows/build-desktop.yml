@@ -139,8 +139,9 @@ jobs:
 
       - name: Build chayuan-server with PyInstaller
         working-directory: chayuan-server
-        # build.py 自动按 rust target triple 命名拷到 ../chayuan-client/apps/desktop/src-tauri/binaries/
-        run: poetry run python packaging/pyinstaller/build.py
+        # build.py 自动按 rust target triple 命名拷到 ../chayuan-client/apps/desktop/src-tauri/binaries/。
+        # --target 让 sync_services 按对的平台选 vendor 子目录(host == target 时跟默认一致)。
+        run: poetry run python packaging/pyinstaller/build.py --target ${{ matrix.rust-target }}
 
       - name: Verify sidecar binary exists
         shell: bash
