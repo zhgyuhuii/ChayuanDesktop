@@ -45,12 +45,17 @@ async def test_transcribe_endpoint_happy(monkeypatch):
     captured = {}
     class _FakePipe:
         def transcribe(self, audio, *, language=None, **kw):
-            captured["audio_size"] = len(audio.read())
+            # 新版传 path string,不是 BytesIO;读 path 字节算大小
+            with open(audio, "rb") as f:
+                captured["audio_size"] = len(f.read())
+            captured["audio_path"] = audio
             captured["language"] = language
             return "你好世界"
     monkeypatch.setattr(mr, "_get_audio_pipeline", lambda: _FakePipe())
 
     class _UF:
+        content_type = "audio/webm;codecs=opus"
+        filename = "chunk-0.webm"
         async def read(self): return b"webm-bytes"
     resp = await mr.transcribe_endpoint(
         file=_UF(), language="zh", user={"id": 1, "role": "admin"},
@@ -58,6 +63,20 @@ async def test_transcribe_endpoint_happy(monkeypatch):
     assert resp["code"] == 0
     assert resp["data"]["text"] == "你好世界"
     assert resp["data"]["language"] == "zh"
+    assert resp["data"]["audio_format"] == ".webm"
+    assert resp["data"]["audio_bytes"] == len(b"webm-bytes")
+    # tmp 文件后缀必须是 .webm,whisper 才能 sniff 出格式
+    assert captured["audio_path"].endswith(".webm")
+
+
+def test_guess_audio_ext():
+    from chayuan.server.api_server.modality_routes import _guess_audio_ext
+    assert _guess_audio_ext("audio/webm;codecs=opus", "x") == ".webm"
+    assert _guess_audio_ext("audio/wav", "x") == ".wav"
+    assert _guess_audio_ext("audio/mp3", "x") == ".mp3"
+    assert _guess_audio_ext("audio/ogg", "x") == ".ogg"
+    assert _guess_audio_ext("", "voice.m4a") == ".m4a"
+    assert _guess_audio_ext("", "") == ".webm"  # MediaRecorder 默认
 
 
 @pytest.mark.asyncio

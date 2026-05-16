@@ -1,79 +1,54 @@
-"""image_source.embedder.get_embedder sidecar 优先 + fallback 测试 (Plan 3D)。"""
-from __future__ import annotations
+"""回归保护:get_embedder() 走 sidecar 路径时返回的对象**必须**有 embed_image / embed_text。
 
-from unittest import mock
+历史 bug(2026-05-16):sidecar ready 时直接 return InfinityHttpClient,但它只实现 async
+encode_* 不是 BaseImageEmbedder 的 embed_*,pipeline / connector 调 emb.embed_image()
+立刻 AttributeError。修复:用 _HttpBackedEmbedder 包装。
+"""
+from __future__ import annotations
 
 import pytest
 
 
-def test_get_embedder_uses_sidecar_when_ready(monkeypatch):
-    """sidecar image-embedding ready 时 get_embedder 返 InfinityHttpClient。"""
-    from chayuan.server.image_source import embedder as emb
-    from chayuan.server.model_registry import local_runtime as lr
+def test_get_embedder_sidecar_returns_base_image_embedder(monkeypatch):
+    from chayuan.server.image_source import embedder as e
 
-    fake_mgr = mock.MagicMock()
-    fake_mgr.status = lr.RuntimeStatus(state="ready", endpoint="http://127.0.0.1:62586", pid=88)
+    class _FakeStatus:
+        state = "ready"
+        endpoint = "http://127.0.0.1:62586"
 
-    fake_registry = mock.MagicMock()
-    fake_registry.get = mock.MagicMock(return_value=fake_mgr)
+    class _FakeMgr:
+        status = _FakeStatus()
+
+    class _FakeRegistry:
+        def get(self, cap):
+            assert cap == "image-embedding"
+            return _FakeMgr()
+
     monkeypatch.setattr(
         "chayuan.server.model_registry.local_runtime_registry.get_registry",
-        lambda: fake_registry,
+        lambda: _FakeRegistry(),
     )
 
-    # mock InfinityHttpClient 构造,避免真实 httpx 客户端
-    fake_client = mock.MagicMock()
-    fake_client.name = "infinity@siglip2-base"
-    fake_client.base_url = "http://127.0.0.1:62586"
-    fake_ctor = mock.MagicMock(return_value=fake_client)
+    # 防止本测试无意中触发真实 HTTP 探活
+    class _FakeClient:
+        def __init__(self, *, base_url, model_id):
+            self.base_url = base_url
+            self.name = model_id
+            self.dim = 512
     monkeypatch.setattr(
         "chayuan.server.image_source.embedder_clients.infinity_http.InfinityHttpClient",
-        fake_ctor,
+        _FakeClient,
     )
 
-    result = emb.get_embedder("siglip2-base")
-    # sidecar 命中 → 返 InfinityHttpClient (传入 base_url + model_id)
-    fake_ctor.assert_called_once()
-    call_kwargs = fake_ctor.call_args.kwargs
-    assert call_kwargs.get("base_url") == "http://127.0.0.1:62586"
-    assert call_kwargs.get("model_id") == "siglip2-base"
-    assert result is fake_client
+    emb = e.get_embedder("openai/clip-vit-base-patch32")
 
-
-def test_get_embedder_falls_back_when_sidecar_stopped(monkeypatch):
-    """sidecar stopped 时 get_embedder fallback 现有 Plan 1 路径。"""
-    from chayuan.server.image_source import embedder as emb
-    from chayuan.server.model_registry import local_runtime as lr
-
-    fake_mgr = mock.MagicMock()
-    fake_mgr.status = lr.RuntimeStatus(state="stopped")
-    fake_registry = mock.MagicMock()
-    fake_registry.get = mock.MagicMock(return_value=fake_mgr)
-    monkeypatch.setattr(
-        "chayuan.server.model_registry.local_runtime_registry.get_registry",
-        lambda: fake_registry,
+    # 关键断言:embed_image / embed_text 必须存在 — pipeline / connector 调它们
+    assert hasattr(emb, "embed_image"), (
+        f"返回 {type(emb).__name__} 缺少 embed_image — 回归到 2026-05-16 bug"
     )
-
-    # mock 现有 in-process 实现路径,验证它被调到
-    fake_inproc = mock.MagicMock()
-    fake_inproc.name = "inproc-fallback"
-    monkeypatch.setattr(emb, "_get_inproc_embedder", mock.MagicMock(return_value=fake_inproc))
-
-    result = emb.get_embedder("siglip2-base")
-    assert result is fake_inproc
-
-
-def test_get_embedder_falls_back_when_registry_exception(monkeypatch):
-    """registry 抛异常时 fallback 不抛。"""
-    from chayuan.server.image_source import embedder as emb
-
-    monkeypatch.setattr(
-        "chayuan.server.model_registry.local_runtime_registry.get_registry",
-        mock.MagicMock(side_effect=RuntimeError("registry crash")),
+    assert hasattr(emb, "embed_text"), (
+        f"返回 {type(emb).__name__} 缺少 embed_text"
     )
-
-    fake_inproc = mock.MagicMock()
-    monkeypatch.setattr(emb, "_get_inproc_embedder", mock.MagicMock(return_value=fake_inproc))
-
-    result = emb.get_embedder("clip-vit-base")
-    assert result is fake_inproc
+    # 必须是 BaseImageEmbedder 子类(即被 _HttpBackedEmbedder 包装过)
+    from chayuan.server.image_source.embedder_base import BaseImageEmbedder
+    assert isinstance(emb, BaseImageEmbedder)

@@ -918,8 +918,14 @@ def get_embedder(model_name: Optional[str] = None) -> BaseImageEmbedder:
                 base_url=mgr.status.endpoint,
                 model_id=name,
             )
+            # 关键:InfinityHttpClient 实现的是 ImageEmbedderClient(async encode_*) 协议,
+            # 没有 connector / pipeline 老代码需要的同步 embed_image / embed_text。
+            # 必须套 _HttpBackedEmbedder 包装层(已有的 BaseImageEmbedder 实现),
+            # 它内部用同步 httpx 调 /embeddings,暴露 embed_image / embed_text。
+            # 历史 bug:之前直接 return client → 'InfinityHttpClient' object has no attribute 'embed_image'。
+            wrapped = _HttpBackedEmbedder(client, name)
             logger.info("get_embedder: sidecar 命中 %s @ %s", name, mgr.status.endpoint)
-            return client
+            return wrapped
     except Exception as e:  # noqa: BLE001
         logger.debug("[get_embedder] sidecar 路径不可用,fallback in-process: %r", e)
 

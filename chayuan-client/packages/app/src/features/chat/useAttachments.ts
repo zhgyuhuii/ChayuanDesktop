@@ -57,40 +57,27 @@ export function useAttachments(): {
       logEvent(Events.ComposerAttachmentAdd, { metadata: { count: items.length, kind } });
 
       if (kind === 'image') {
-        // 上传前先 preflight：没有 image-embedding 模型 → 给用户一个明确引导，
-        // 而不是让上传"看似成功 → 后续 RAG / vision 静默无效果"。
+        // 预检 image-embedding 模型是否就绪 — 注意这只影响"image KB 持久化向量化",
+        // 跟 OCR(RapidOCR)和 Vision(multimodal LLM image_url)都**没关系**。
+        // 即使 image-embedding 未装,OCR 和 vision 都应该正常跑。
+        // 历史:之前在 preflight 失败时 `return` 提前结束,导致用户上传图后
+        // "什么都没发生" — OCR 文本也没出,vision 原图也没上传。修正:只 notify
+        // 不阻断主流程。
         try {
           const pre = await aiPlatform.embeddingsPreflight.check('image');
           if (!pre.ok) {
             const recName = pre.setup?.default?.id ?? 'jina-clip-v1';
-            // 把 upload 转成 error 状态 + setup 提示；保留预览，让用户看到自己选的图
-            for (const d of drafts) {
-              upsert({
-                ...d,
-                status: 'error',
-                error: `未安装图像嵌入模型；建议安装 ${recName}`,
-              });
-            }
-            // 通过事件告诉 Settings 面板"打开 image-embedding 选项卡"
-            try {
-              window.dispatchEvent(
-                new CustomEvent('chayuan:open-settings', {
-                  detail: { tab: 'aiPlatform', capability: 'image-embedding' },
-                }),
-              );
-            } catch {
-              /* noop */
-            }
             notifyInfo(
-              '图像未向量化',
-              `本地未安装图像嵌入模型；点击"设置 → AI 平台 → 图像嵌入"一键安装 ${recName}。`,
+              '图像向量化能力未就绪(不影响本次对话)',
+              `本次对话仍会做 OCR + 原图 vision;但若要后续以图搜图 / image KB 检索,` +
+                `建议在「设置 → AI 平台 → 图像嵌入」安装 ${recName}。`,
               5000,
             );
-            return;
+            // 不改 status,不 return — 继续走 OCR + vision
           }
         } catch (err: unknown) {
-          // preflight 端点不可用：降级——继续上传（保留旧行为），但提示一次
-          reportError(err, '图像嵌入预检失败');
+          // preflight 端点不可用 — 静默降级继续走;真实问题会在后续 OCR/vision 失败时再暴露
+          console.debug('[image attach] embeddingsPreflight unavailable, skipping:', err);
         }
         // 双轨 OCR:并行触发(不阻塞 vision 上传),识别结果异步回填 ocrText
         for (const d of drafts) {

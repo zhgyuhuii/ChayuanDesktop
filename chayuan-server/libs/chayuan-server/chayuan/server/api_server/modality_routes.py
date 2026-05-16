@@ -123,6 +123,33 @@ async def ocr_endpoint(
     }
 
 
+def _guess_audio_ext(content_type: str, filename: str) -> str:
+    """根据 mime 或 filename 推断音频文件后缀。
+
+    whisper-server / faster-whisper 都依赖文件后缀(或 magic bytes)识别格式;
+    AudioPipeline._materialize 默认存为 input.audio(无扩展名)→ 无法解码。
+    本函数保证下游拿到 .webm / .wav / .mp3 等正确后缀。
+    """
+    ct = (content_type or "").lower()
+    if "webm" in ct:
+        return ".webm"
+    if "ogg" in ct or "opus" in ct:
+        return ".ogg"
+    if "wav" in ct:
+        return ".wav"
+    if "mp3" in ct or "mpeg" in ct:
+        return ".mp3"
+    if "mp4" in ct or "m4a" in ct or "aac" in ct:
+        return ".m4a"
+    if "flac" in ct:
+        return ".flac"
+    lower = (filename or "").lower()
+    for ext in (".webm", ".ogg", ".wav", ".mp3", ".m4a", ".flac", ".opus"):
+        if lower.endswith(ext):
+            return ext
+    return ".webm"  # 浏览器 MediaRecorder 默认
+
+
 @modality_router.post("/transcribe", summary="对一段音频做 ASR 转写")
 async def transcribe_endpoint(
     file: UploadFile = File(...),
@@ -133,22 +160,53 @@ async def transcribe_endpoint(
 
     Form fields:
         - file: audio 字节
-        - language: 语言提示（"zh"/"en"/""为自动）
+        - language: 语言提示("zh"/"en"/""为自动)
 
-    Resp: {code: 0, data: {text, language}}
-    永不抛 ASR exception；失败时 text 为 "" + 顶层 code 仍 0。
+    Resp: {code: 0, data: {text, language, audio_format, audio_bytes}}
+    永不抛 ASR exception;失败时 text 为 "" + 顶层 code 仍 0。
     """
     data = await file.read()
     if not data:
-        return {"code": 0, "data": {"text": "", "language": language or "auto"}}
+        return {"code": 0, "data": {"text": "", "language": language or "auto",
+                                     "audio_format": "", "audio_bytes": 0}}
+    # 写到带正确扩展名的 temp file,让 AudioPipeline 下游能 sniff 出格式
+    import os as _os
+    import tempfile as _tempfile
+    ext = _guess_audio_ext(file.content_type or "", file.filename or "")
+    audio_bytes = len(data)
+    logger.info(
+        "transcribe in: %d bytes, ct=%s, fn=%s → ext=%s, lang=%s",
+        audio_bytes, file.content_type, file.filename, ext, language or "auto",
+    )
     pipe = _get_audio_pipeline()
+    tmp_path: Optional[str] = None
+    text = ""
     async with _ASR_SEMAPHORE:
         try:
+            with _tempfile.NamedTemporaryFile(suffix=ext, delete=False,
+                                                prefix="chayuan_asr_") as tf:
+                tf.write(data)
+                tmp_path = tf.name
             text = await asyncio.to_thread(
-                pipe.transcribe, io.BytesIO(data),
+                pipe.transcribe, tmp_path,
                 language=(language or None),
             )
+            logger.info("transcribe out: %d chars", len(text or ""))
         except Exception as e:  # noqa: BLE001
             logger.warning("transcribe failed: %r", e)
             text = ""
-    return {"code": 0, "data": {"text": text or "", "language": language or "auto"}}
+        finally:
+            if tmp_path:
+                try:
+                    _os.unlink(tmp_path)
+                except Exception:  # noqa: BLE001
+                    pass
+    return {
+        "code": 0,
+        "data": {
+            "text": text or "",
+            "language": language or "auto",
+            "audio_format": ext,
+            "audio_bytes": audio_bytes,
+        },
+    }

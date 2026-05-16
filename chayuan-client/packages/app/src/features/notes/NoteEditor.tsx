@@ -21,7 +21,7 @@ import { Button, cn } from '@chayuan/ui';
 import { useMicRecorder } from '../composer/useMicRecorder';
 import { useNoteDraft } from './useNoteDraft';
 import { SaveNoteDialog } from './SaveNoteDialog';
-import { reportError } from '../../store/errorDialog';
+import { notifyInfo, reportError } from '../../store/errorDialog';
 
 const defaultTitle = () => {
   const d = new Date();
@@ -66,14 +66,27 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
     if (editor) draft.save(title, editor.getJSON());
   }, [title, editor, draft]);
 
-  // ASR
+  // ASR — partialCount 用来检测"录完一段一字未入" → 给用户明确提示
+  const partialCountRef = React.useRef(0);
   const mic = useMicRecorder({
-    sliceMs: 4000,
+    sliceMs: 2500,
     language: '',
     onPartial: (text) => {
       if (!text || !editor) return;
-      // 在当前光标位置插入 text + 一个空格
+      partialCountRef.current += 1;
+      // 在当前光标位置插入 text + 一个空格(focus 保证插到当前光标处)
       editor.chain().focus().insertContent(text + ' ').run();
+    },
+    onFinal: (full) => {
+      if (partialCountRef.current === 0 && !full) {
+        // 录了但完全没收到文字 — 几乎都是后端 ASR 模型未就绪或网络问题
+        notifyInfo(
+          '未识别到语音文字',
+          '检查:① 后端 ASR 模型(whisper)是否已下载并加载;② 麦克风是否真实在录音(说话声音是否在 4-30 字以上);③ 浏览器/系统控制台是否有 transcribe 失败日志。',
+          7000,
+        );
+      }
+      partialCountRef.current = 0;
     },
     onError: (err) => reportError(err, '录音失败'),
   });

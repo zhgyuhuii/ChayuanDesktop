@@ -44,7 +44,8 @@ export interface UseMicRecorderResult {
 }
 
 export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorderResult {
-  const sliceMs = opts.sliceMs ?? 4000;
+  // 默认 2.5s 切片:首字反馈在 ~3-4s,体感"近实时";继续录音持续追加。
+  const sliceMs = opts.sliceMs ?? 2500;
   const [recording, setRecording] = React.useState(false);
   const [elapsed, setElapsed] = React.useState(0);
 
@@ -122,13 +123,27 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
       const idx = chunkIndexRef.current++;
       const ac = new AbortController();
       abortersRef.current.push(ac);
+      // 给 blob 取个有效文件名,让后端通过 filename 推断格式(否则只能靠 content-type)
+      const ext = e.data.type.includes('webm')
+        ? 'webm' : e.data.type.includes('ogg')
+        ? 'ogg' : 'webm';
+      const named = new File(
+        [e.data], `chunk-${idx}.${ext}`,
+        { type: e.data.type || 'audio/webm' },
+      );
+      console.debug(
+        `[mic] chunk #${idx} size=${named.size}B type=${named.type}`,
+      );
       modality
-        .transcribe(e.data, { language: optsRef.current.language, signal: ac.signal })
+        .transcribe(named, { language: optsRef.current.language, signal: ac.signal })
         .then((r) => {
-          pendingRef.current.set(idx, (r.text || '').trim());
+          const text = (r.text || '').trim();
+          console.debug(`[mic] chunk #${idx} → "${text}" (${text.length} chars)`);
+          pendingRef.current.set(idx, text);
           flushBuffered();
         })
-        .catch(() => {
+        .catch((err) => {
+          console.warn(`[mic] chunk #${idx} transcribe failed`, err);
           pendingRef.current.set(idx, '');
           flushBuffered();
         });
