@@ -98,16 +98,18 @@ MANIFEST: dict[str, dict[str, Any]] = {
         ],
     },
     "embedding": {
-        "approx_mb": 1220,
-        "note": "Alibaba 多语种 embedding(~1.22 GB,跟 reranker 对齐);GGUF 候选给 llama-server --embedding 用,transformers 候选给 infinity_emb 用",
+        "approx_mb": 300,
+        "note": "Alibaba 多语种 embedding GGUF Q8_0(~300 MB,8192 ctx,304M 参数);"
+                "GGUF 给 llama-server --embedding 单文件加载,safetensors 给 infinity_emb fallback",
         "dest_subdir": "gte-multilingual-base",
         "hf": [
-            # Plan 3B: GGUF 优先 — llama-server --embedding 直接加载,
-            # 用 bge-small-en-v1.5 GGUF(~33 MB Q8_0,英文为主但多语种可接受)
-            # 找不到中文 multilingual GGUF 时的最小可用项
-            {"repo": "CompendiumLabs/bge-small-en-v1.5-gguf",
-             "allow_patterns": ["*.gguf"]},
-            # 旧 HF transformers fallback (infinity_emb 路径)
+            # GGUF 首选 — llama-server --embedding 单文件加载,Q8 ~300 MB
+            # 多镜像兜底:存在性预检会跳过 404 的,落到下一条
+            {"repo": "gpustack/gte-multilingual-base-GGUF",
+             "allow_patterns": ["*Q8_0.gguf", "*q8_0.gguf"]},
+            {"repo": "second-state/gte-multilingual-base-GGUF",
+             "allow_patterns": ["*Q8_0.gguf", "*q8_0.gguf"]},
+            # transformers fallback (infinity_emb 路径,~1.22 GB 全权重)
             {"repo": "Alibaba-NLP/gte-multilingual-base",
              "allow_patterns": [
                  "*.json", "*.txt", "*.safetensors", "*.bin",
@@ -130,8 +132,10 @@ MANIFEST: dict[str, dict[str, Any]] = {
         "hf": [
             # Plan 3B: GGUF 优先 — llama-server --reranking 直接加载
             # bge-reranker-v2-m3 多语种 reranker,gpustack 镜像的 GGUF(~600 MB Q8_0)
+            # 注意: gpustack repo 里有 F32/F16/Q8/Q6/Q5/Q4/Q3/Q2 八种量化共 ~4.85 GB,
+            #       必须用具体文件名限制,否则 *.gguf 会把全家桶都拉下来。
             {"repo": "gpustack/bge-reranker-v2-m3-GGUF",
-             "allow_patterns": ["*.gguf"]},
+             "allow_patterns": ["*Q8_0.gguf"]},
             # 旧 HF transformers fallback
             {"repo": "Alibaba-NLP/gte-multilingual-reranker-base",
              "allow_patterns": [
@@ -505,14 +509,21 @@ def _download_one(
     *,
     vendor_root: Path,
     clean: bool,
+    clean_cap: bool,
     source: str,
 ) -> None:
     cap_dir = vendor_root / cap
     dest_dir = cap_dir / cap_spec["dest_subdir"]
+
+    # --clean-cap: 抹掉整个 cap 目录后重建,把误下的其它子目录(旧模型/废候选)
+    # 一并清理,只留这次要装的 dest_subdir。比 --clean 更彻底。
+    if clean_cap and cap_dir.exists():
+        _print(f"[{cap}] --clean-cap:删除整个 {cap_dir}")
+        shutil.rmtree(cap_dir)
     cap_dir.mkdir(parents=True, exist_ok=True)
 
-    # Skip-if-exists 预检 (--clean 时绕过,因为 clean 用户明确要重下)
-    if not clean:
+    # Skip-if-exists 预检 (--clean / --clean-cap 时绕过,用户明确要重下)
+    if not (clean or clean_cap):
         already, reason = _is_already_complete(
             dest_dir, approx_mb=cap_spec["approx_mb"], cap_spec=cap_spec,
         )
@@ -522,7 +533,7 @@ def _download_one(
         elif reason:
             _print(f"[{cap}] (本地不完整: {reason} — 继续下载)")
 
-    if clean and dest_dir.exists():
+    if clean and not clean_cap and dest_dir.exists():
         _print(f"[{cap}] --clean:删除旧目录 {dest_dir}")
         shutil.rmtree(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -616,7 +627,12 @@ def main() -> int:
     parser.add_argument(
         "--clean",
         action="store_true",
-        help="下载前清空目标子目录(干净换装)",
+        help="下载前清空目标子目录(干净换装,仅清 dest_subdir)",
+    )
+    parser.add_argument(
+        "--clean-cap",
+        action="store_true",
+        help="下载前清空整个 cap 目录(embedding/、chat/ 等),把误下的旧模型 / 废候选一并清掉;比 --clean 更彻底",
     )
     parser.add_argument(
         "--source",
@@ -660,7 +676,13 @@ def main() -> int:
     for cap in plan:
         spec = MANIFEST[cap]
         try:
-            _download_one(cap, spec, vendor_root=vendor_root, clean=args.clean, source=args.source)
+            _download_one(
+                cap, spec,
+                vendor_root=vendor_root,
+                clean=args.clean,
+                clean_cap=args.clean_cap,
+                source=args.source,
+            )
         except KeyboardInterrupt:
             _print("[install] 用户中断,退出。已下载的部分文件保留(下次跑会续传)。")
             return 130

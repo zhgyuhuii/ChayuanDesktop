@@ -23,7 +23,11 @@
   只下指定 capability:chat / embedding / rerank / asr
 
 .PARAMETER Clean
-  下载前清空目标子目录(干净换装)
+  下载前清空目标子目录(干净换装,仅清 dest_subdir)
+
+.PARAMETER CleanCap
+  下载前清空整个 cap 目录(embedding/、chat/ 等),把误下的旧模型 / 废候选一并清掉;
+  比 -Clean 更彻底。适合切换 manifest 后清理之前留下的废模型。
 
 .PARAMETER Endpoint
   指定 HF 镜像 URL。默认 https://hf-mirror.com;
@@ -52,6 +56,7 @@ param(
     [ValidateSet('chat','embedding','rerank','asr','ocr','image')]
     [string]$Only,
     [switch]$Clean,
+    [switch]$CleanCap,
     [string]$Endpoint = 'https://hf-mirror.com',
     [ValidateSet('auto','hf','modelscope')]
     [string]$Source = 'auto'
@@ -89,8 +94,9 @@ Write-Host ""
 
 # 把参数装回 .py 用的形式
 $pyArgs = @($pyScript, '--workspace', $workspace, '--endpoint', $Endpoint, '--source', $Source)
-if ($Only)  { $pyArgs += @('--only', $Only) }
-if ($Clean) { $pyArgs += '--clean' }
+if ($Only)     { $pyArgs += @('--only', $Only) }
+if ($Clean)    { $pyArgs += '--clean' }
+if ($CleanCap) { $pyArgs += '--clean-cap' }
 
 # 给 .py 也喂一份 env(它内部还会 set 一次,这里是双保险)
 $env:HF_ENDPOINT = $Endpoint
