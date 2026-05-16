@@ -21,6 +21,7 @@ import {
   ArrowUp,
   Image as ImageIcon,
   Mic,
+  MicOff,
   Paperclip,
   Scissors,
   Sparkles,
@@ -28,11 +29,12 @@ import {
 } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from '../../i18n';
-import { useComposerStore, useComposerS } from '../../store/composer';
+import { useComposerS, useComposerScopedStore } from '../../store/composer';
 import { McpPickerPill, ToolsPickerPill } from './CapabilityPickers';
 import { ComposerModelPill } from './ComposerModelPill';
 import { KnowledgePickerPill, type KnowledgePickerPillProps } from './KnowledgePickerPill';
 import { SearchModePill } from './SearchModePill';
+import { useMicRecorder } from './useMicRecorder';
 import type { ComposerModelPillProps } from './ComposerModelPill';
 
 export interface ChatComposerProps {
@@ -98,6 +100,31 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const selectedKuCount = useComposerS((s) => s.selectedKuIds.length);
   const taRef = React.useRef<HTMLTextAreaElement>(null);
   const composingRef = React.useRef(false);
+  // 用 store 实例引用,避免 onPartial 回调中的 stale closure
+  const composerStore = useComposerScopedStore();
+
+  // 麦克风:实时录音 + 4s 分片 ASR;每片转写完追加到 draft
+  const mic = useMicRecorder({
+    sliceMs: 4000,
+    language: '',
+    onPartial: (text) => {
+      if (!text) return;
+      const current = composerStore.getState().draft;
+      const sep = current && !current.endsWith(' ') ? ' ' : '';
+      composerStore.getState().setDraft(current + sep + text);
+    },
+    onError: (err) => console.warn('[useMicRecorder]', err),
+  });
+
+  const handleMicClick = () => {
+    // 外部传了 onMicrophone 时优先用外部(允许 caller 覆盖)
+    if (onMicrophone) {
+      onMicrophone();
+      return;
+    }
+    if (mic.recording) mic.stop();
+    else void mic.start();
+  };
 
   const ph = placeholder ?? t('chat.inputPlaceholder', { model: modelId });
 
@@ -219,8 +246,17 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
           <IconBtn aria-label={t('chat.uploadImage')} title={t('chat.uploadImage')} onClick={onPickImage}>
             <ImageIcon className="h-4 w-4" />
           </IconBtn>
-          <IconBtn aria-label={t('chat.voice')} title={t('chat.voice')} onClick={onMicrophone}>
-            <Mic className="h-4 w-4" />
+          <IconBtn
+            aria-label={t('chat.voice')}
+            title={mic.recording ? `${t('chat.voice')} · ${mic.elapsed}s — 点击停止` : t('chat.voice')}
+            onClick={handleMicClick}
+            className={mic.recording ? 'bg-red-500/15 text-red-600 hover:bg-red-500/25' : undefined}
+          >
+            {mic.recording ? (
+              <MicOff className="h-4 w-4 animate-pulse" />
+            ) : (
+              <Mic className="h-4 w-4" />
+            )}
           </IconBtn>
 
           {isStreaming ? (
