@@ -16,7 +16,7 @@
  * 此分组只暴露"启停 + 选模型 + 诊断"三个高频动作。
  */
 import * as React from 'react';
-import { ClipboardList, Play, RefreshCw, RotateCw, Square } from 'lucide-react';
+import { ClipboardList, FileBarChart2, Play, RefreshCw, RotateCw, Square } from 'lucide-react';
 import {
   type LocalModelEntry,
   type LocalRuntimeCapability,
@@ -24,6 +24,7 @@ import {
 } from '@chayuan/api';
 import { Button } from '@chayuan/ui';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
+import { CallLogDialog } from './CallLogDialog';
 import { DiagnoseModal } from './DiagnoseModal';
 import { LocalRuntimeStatusBadge } from './LocalRuntimeStatusBadge';
 
@@ -111,6 +112,7 @@ export const LocalRuntimeServicesSection: React.FC = () => {
   const [modelsError, setModelsError] = React.useState<string | null>(null);
   const [chosen, setChosen] = React.useState<Partial<Record<LocalRuntimeCapability, string>>>({});
   const [diagnoseOpen, setDiagnoseOpen] = React.useState(false);
+  const [callLogOpen, setCallLogOpen] = React.useState(false);
 
   const reloadModels = React.useCallback(async () => {
     setModelsLoading(true);
@@ -195,6 +197,15 @@ export const LocalRuntimeServicesSection: React.FC = () => {
             <RefreshCw className={'mr-1 h-3.5 w-3.5' + (modelsLoading ? ' animate-spin' : '')} />
             刷新
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setCallLogOpen(true)}
+            title="查看语音识别 / OCR 最近调用日志"
+          >
+            <FileBarChart2 className="mr-1 h-3.5 w-3.5" />
+            调用日志
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setDiagnoseOpen(true)}>
             <ClipboardList className="mr-1 h-3.5 w-3.5" />
             诊断
@@ -264,6 +275,7 @@ export const LocalRuntimeServicesSection: React.FC = () => {
       </div>
 
       <DiagnoseModal open={diagnoseOpen} onOpenChange={setDiagnoseOpen} />
+      <CallLogDialog open={callLogOpen} onOpenChange={setCallLogOpen} />
     </section>
   );
 };

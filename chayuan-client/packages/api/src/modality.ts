@@ -41,6 +41,24 @@ export interface AsrDiagResult {
   recommend: string;
 }
 
+/** call_log entry — preview/error 都已被后端截到 300 字符。 */
+export interface CallLogEntry {
+  ts: string;
+  success: boolean;
+  duration_ms: number;
+  bytes_in: number;
+  preview: string;
+  error: string;
+  // extra 透传字段(filename / language / lang / box_count / port / audio_format 等)
+  [key: string]: unknown;
+}
+
+export interface CallLogResult {
+  key: string;
+  limit: number;
+  entries: CallLogEntry[];
+}
+
 export const modality = {
   /**
    * 对一张图做 OCR。
@@ -89,5 +107,17 @@ export const modality = {
       raw: true,
     });
     return r.data?.data as AsrDiagResult;
+  },
+
+  /**
+   * 读取某 capability 最近的调用日志。
+   * 当前后端支持 key: 'asr' / 'ocr'(后续若加 chat/embedding record,key 同名)。
+   */
+  async callLog(key: string, limit = 200): Promise<CallLogResult> {
+    const r = await request<{ data: CallLogResult }>(
+      `/modality/call-log/${encodeURIComponent(key)}?limit=${limit}`,
+      { method: 'GET', raw: true },
+    );
+    return r.data?.data ?? { key, limit, entries: [] };
   },
 };

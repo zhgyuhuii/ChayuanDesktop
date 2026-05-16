@@ -18,6 +18,7 @@ async def test_ocr_endpoint_happy(monkeypatch):
     monkeypatch.setattr(mr, "resolve_ocr_port", lambda: 18380)
 
     class _UF:
+        filename = "test.png"
         async def read(self): return b"\x89PNG..."
     resp = await mr.ocr_endpoint(file=_UF(), user={"id": 1, "role": "admin"})
     assert resp["code"] == 0
@@ -32,6 +33,7 @@ async def test_ocr_endpoint_sidecar_unavail(monkeypatch):
     monkeypatch.setattr(mr, "resolve_ocr_port", lambda: None)
 
     class _UF:
+        filename = "x.png"
         async def read(self): return b"x"
     with pytest.raises(HTTPException) as exc:
         await mr.ocr_endpoint(file=_UF(), user={"id": 1, "role": "admin"})
@@ -87,9 +89,41 @@ async def test_transcribe_endpoint_empty_returns_empty_text(monkeypatch):
     monkeypatch.setattr(mr, "_get_audio_pipeline", lambda: _FakePipe())
 
     class _UF:
+        filename = ""
         async def read(self): return b""
     resp = await mr.transcribe_endpoint(
         file=_UF(), language="", user={"id": 1, "role": "admin"},
     )
     assert resp["code"] == 0
     assert resp["data"]["text"] == ""
+
+
+@pytest.mark.asyncio
+async def test_call_log_endpoint_records_asr(monkeypatch):
+    """transcribe_endpoint 应在 call_log("asr") 里 push 一条记录,GET endpoint 能读回。"""
+    from chayuan.server.api_server import modality_routes as mr
+    from chayuan.server.modality import call_log
+    call_log.clear("asr")
+
+    class _FakePipe:
+        def transcribe(self, audio, *, language=None, **kw): return "你好"
+    monkeypatch.setattr(mr, "_get_audio_pipeline", lambda: _FakePipe())
+
+    class _UF:
+        content_type = "audio/webm"
+        filename = "test.webm"
+        async def read(self): return b"webm-data"
+
+    await mr.transcribe_endpoint(file=_UF(), language="zh",
+                                  user={"id": 1, "role": "admin"})
+
+    resp = await mr.call_log_endpoint(key="asr", limit=10,
+                                       user={"id": 1, "role": "admin"})
+    assert resp["code"] == 0
+    entries = resp["data"]["entries"]
+    assert len(entries) == 1
+    assert entries[0]["success"] is True
+    assert entries[0]["preview"] == "你好"
+    assert entries[0]["bytes_in"] == len(b"webm-data")
+    # extra 字段透传(filename/language 这种)
+    assert entries[0].get("language") == "zh"

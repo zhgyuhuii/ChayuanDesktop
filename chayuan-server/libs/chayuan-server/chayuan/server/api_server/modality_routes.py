@@ -21,6 +21,8 @@ from fastapi.responses import Response
 
 from chayuan.server.auth.deps import require_auth_enabled
 from chayuan.server.modality import get_modality_service
+from chayuan.server.modality.call_log import get_log as get_call_log
+from chayuan.server.modality.call_log import record as record_call
 from chayuan.server.image_source.ocr_client import resolve_port as resolve_ocr_port
 from chayuan.server.image_source.ocr_client import run_ocr
 from chayuan.server.image_source.pipeline import _OCR_SEMAPHORE
@@ -100,17 +102,40 @@ async def ocr_endpoint(
 
     Resp: {code: 0, data: {text, lang, confidence, box_count, elapsed_ms}}
     503 if OCR sidecar 未就绪；502 if 转写异常。
+    每次调用 record 到 call_log("ocr"),前端"调用日志"面板可见。
     """
+    import time as _time
+    t0 = _time.perf_counter()
     data = await file.read()
+    bytes_in = len(data) if data else 0
+    fname = file.filename or ""
     if not data:
+        record_call("ocr", success=False, duration_ms=(_time.perf_counter() - t0) * 1000,
+                    bytes_in=0, error="empty file", extra={"filename": fname})
         raise HTTPException(400, "empty file")
     port = resolve_ocr_port()
     if not port:
+        record_call("ocr", success=False, duration_ms=(_time.perf_counter() - t0) * 1000,
+                    bytes_in=bytes_in, error="OCR sidecar not ready",
+                    extra={"filename": fname})
         raise HTTPException(503, "OCR sidecar not ready")
     async with _OCR_SEMAPHORE:
         result = await run_ocr(data, port=port)
+    dur = (_time.perf_counter() - t0) * 1000
     if result.error:
+        record_call("ocr", success=False, duration_ms=dur, bytes_in=bytes_in,
+                    error=result.error, extra={"filename": fname, "port": port})
         raise HTTPException(502, f"OCR failed: {result.error}")
+    record_call(
+        "ocr", success=True, duration_ms=dur, bytes_in=bytes_in,
+        preview=result.text or "",
+        extra={
+            "filename": fname,
+            "lang": result.lang,
+            "box_count": result.box_count,
+            "port": port,
+        },
+    )
     return {
         "code": 0,
         "data": {
@@ -262,8 +287,15 @@ async def transcribe_endpoint(
     Resp: {code: 0, data: {text, language, audio_format, audio_bytes}}
     永不抛 ASR exception;失败时 text 为 "" + 顶层 code 仍 0。
     """
+    import time as _time
+    t0 = _time.perf_counter()
     data = await file.read()
+    fname = file.filename or ""
     if not data:
+        record_call("asr", success=False,
+                    duration_ms=(_time.perf_counter() - t0) * 1000,
+                    bytes_in=0, error="empty file",
+                    extra={"filename": fname, "language": language or "auto"})
         return {"code": 0, "data": {"text": "", "language": language or "auto",
                                      "audio_format": "", "audio_bytes": 0}}
     # 写到带正确扩展名的 temp file,让 AudioPipeline 下游能 sniff 出格式
@@ -278,6 +310,7 @@ async def transcribe_endpoint(
     pipe = _get_audio_pipeline()
     tmp_path: Optional[str] = None
     text = ""
+    transcribe_err = ""
     async with _ASR_SEMAPHORE:
         try:
             with _tempfile.NamedTemporaryFile(suffix=ext, delete=False,
@@ -292,12 +325,26 @@ async def transcribe_endpoint(
         except Exception as e:  # noqa: BLE001
             logger.warning("transcribe failed: %r", e)
             text = ""
+            transcribe_err = f"{type(e).__name__}: {e}"
         finally:
             if tmp_path:
                 try:
                     _os.unlink(tmp_path)
                 except Exception:  # noqa: BLE001
                     pass
+    dur = (_time.perf_counter() - t0) * 1000
+    # success 定义:无 exception 且 text 非空(因为 pipeline 把所有后端失败都吞成 "")
+    success = bool(text)
+    record_call(
+        "asr", success=success, duration_ms=dur, bytes_in=audio_bytes,
+        preview=text or "",
+        error=transcribe_err or ("" if success else "所有 ASR 后端返空 / 见 /modality/asr/diag"),
+        extra={
+            "filename": fname,
+            "language": language or "auto",
+            "audio_format": ext,
+        },
+    )
     return {
         "code": 0,
         "data": {
@@ -307,3 +354,15 @@ async def transcribe_endpoint(
             "audio_bytes": audio_bytes,
         },
     }
+
+
+@modality_router.get("/call-log/{key}", summary="读取某 capability 最近的调用日志")
+async def call_log_endpoint(
+    key: str,
+    limit: int = 200,
+    user=Depends(require_auth_enabled()),
+):
+    """key 当前支持:asr / ocr(其他 capability 暂不 record)。返回时间升序数组。"""
+    limit = max(1, min(int(limit or 200), 200))
+    entries = get_call_log(key, limit=limit)
+    return {"code": 0, "data": {"key": key, "limit": limit, "entries": entries}}
