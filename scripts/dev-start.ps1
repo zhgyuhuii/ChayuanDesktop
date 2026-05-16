@@ -347,8 +347,10 @@ except Exception: pass
 
 # ────────────────── 5. 启 chayuan-server ──────────────────
 Write-Step "Step 4/4: 启 chayuan-server (port=$Port)"
-$logFile = Join-Path $env:TEMP 'chayuan-dev.log'
-$pidFile = Join-Path $env:TEMP 'chayuan-dev.pid'
+# PowerShell Start-Process 禁止 stdout/stderr 重定向到同一文件,拆成两个
+$logFile    = Join-Path $env:TEMP 'chayuan-dev.log'      # stdout
+$errLogFile = Join-Path $env:TEMP 'chayuan-dev.err.log'  # stderr
+$pidFile    = Join-Path $env:TEMP 'chayuan-dev.pid'
 
 # 清理已有进程
 if (Test-Path $pidFile) {
@@ -370,9 +372,9 @@ if ($poetryExe -and $venvPath) {
 }
 
 if ($Bg) {
-    $p = Start-Process -FilePath $cmdExe -ArgumentList $cmdArgs -RedirectStandardOutput $logFile -RedirectStandardError $logFile -PassThru -WindowStyle Hidden
+    $p = Start-Process -FilePath $cmdExe -ArgumentList $cmdArgs -RedirectStandardOutput $logFile -RedirectStandardError $errLogFile -PassThru -WindowStyle Hidden
     $p.Id | Set-Content $pidFile
-    Write-Ok "spawned pid=$($p.Id),日志:$logFile"
+    Write-Ok "spawned pid=$($p.Id),stdout=$logFile  stderr=$errLogFile"
 
     # health probe:60s 内每 2s curl /healthz,任一成功就退;期间检测进程还活着
     Write-Step "等 health(最多 60s):http://127.0.0.1:$Port/healthz"
@@ -381,8 +383,14 @@ if ($Bg) {
     while ((Get-Date) -lt $deadline) {
         if ($p.HasExited) {
             Write-Err "chayuan-server 已退出(pid=$($p.Id), exitcode=$($p.ExitCode)),启动失败"
-            Write-Host '    最后 20 行日志:' -ForegroundColor DarkGray
-            Get-Content $logFile -Tail 20 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
+            Write-Host '    最后 20 行 stdout:' -ForegroundColor DarkGray
+            if (Test-Path $logFile) {
+                Get-Content $logFile -Tail 20 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
+            }
+            Write-Host '    最后 20 行 stderr:' -ForegroundColor DarkGray
+            if (Test-Path $errLogFile) {
+                Get-Content $errLogFile -Tail 20 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
+            }
             Remove-Item $pidFile -ErrorAction SilentlyContinue
             exit 3
         }
@@ -395,12 +403,14 @@ if ($Bg) {
 
     if ($healthy) {
         Write-Ok "ready ✓ (pid=$($p.Id) listening on :$Port)"
-        Write-Host "    Get-Content -Wait $logFile   # 看日志"
+        Write-Host "    Get-Content -Wait $logFile   # 看 stdout"
+        Write-Host "    Get-Content -Wait $errLogFile   # 看 stderr"
         Write-Host "    Invoke-RestMethod http://127.0.0.1:$Port/healthz   # 再探活"
         Write-Host "    Stop-Process -Id (Get-Content $pidFile)   # 关掉"
     } else {
         Write-Err "60s 内 /healthz 没返 200,server 可能卡在启动中"
         Write-Host "    pid=$($p.Id) 还活着,看日志:Get-Content -Wait $logFile" -ForegroundColor DarkGray
+        Write-Host "    错误日志:Get-Content -Wait $errLogFile" -ForegroundColor DarkGray
         Write-Host "    要强制关:Stop-Process -Id $($p.Id) -Force" -ForegroundColor DarkGray
         exit 4
     }
