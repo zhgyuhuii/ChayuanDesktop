@@ -1,8 +1,30 @@
-# 本地 Runtime 开发调试指南
+# 本地 Runtime 开发调试指南 — 跨平台主页
 
 适用于:在 dev 机上直接跑 `chayuan-server` 源码,手动调试 5 个 capability(`chat` / `embedding` / `rerank` / `asr` / `image-embedding`)对应的本地 sidecar。
 
 > 装机版用户验收用的是 `docs/RUNBOOK-local-runtime-diagnose.md` 那条路径(安装包 → 桌面 UI → 一键诊断按钮);本文档是给**改代码 / 跑 PR / 单步调试**用的。
+
+## 🚀 一键启动
+
+| 平台    | 命令                                        | 编码备注                                            |
+|---------|---------------------------------------------|-----------------------------------------------------|
+| Windows | `.\scripts\dev-start.cmd` 或 `dev-start.ps1` | `.ps1` 必须 **UTF-8 BOM**,`.cmd` 自动 `chcp 65001` |
+| macOS   | `./scripts/dev-start.sh`                    | LANG=UTF-8 + PYTHONIOENCODING=utf-8                 |
+| Linux   | `./scripts/dev-start.sh`                    | 同上                                                |
+
+加 `--check-only` 只跑 preflight 不真启;加 `--bg`(sh)/ `-Bg`(ps1)后台跑。
+
+## 📚 平台专属说明
+
+各平台的"一次性准备"+ "常见坑"看专门文档:
+
+- 🪟 [DEV-WINDOWS.md](./DEV-WINDOWS.md) — PowerShell BOM / ExecutionPolicy / AVX2 变体 / Defender 误报
+- 🍎 [DEV-MACOS.md](./DEV-MACOS.md) — Xcode CLT / brew install whisper-cpp / Gatekeeper / Apple Silicon vs Intel
+- 🐧 [DEV-LINUX.md](./DEV-LINUX.md) — GLIBC 2.34 要求 / Docker fallback / CRLF / systemd locale
+
+---
+
+## 跨平台细节(都通用)
 
 ---
 
