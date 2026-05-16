@@ -21,6 +21,7 @@
  */
 
 import * as React from 'react';
+import { AppFooter } from '../features/shell/AppFooter';
 import { Sidebar } from '../features/shell/Sidebar';
 import { TabBar } from '../features/shell/TabBar';
 import { TabHost } from '../features/shell/TabHost';
@@ -70,8 +71,8 @@ export const Chrome: React.FC = () => {
         data-shell="sidebar"
       />
 
-      {/* 右:TabBar + Main */}
-      <div className="grid min-h-0 min-w-0 grid-rows-[40px_1fr]" data-shell="main-column">
+      {/* 右:TabBar + Main + 底部状态栏(全局) */}
+      <div className="grid min-h-0 min-w-0 grid-rows-[40px_1fr_28px]" data-shell="main-column">
         {/* 顶部标签条:紧贴左侧菜单面板起始,右侧保留账号/窗口按钮 */}
         <header
           className={cn(
@@ -113,6 +114,9 @@ export const Chrome: React.FC = () => {
         >
           <TabHost />
         </main>
+
+        {/* 底部全局状态栏:版权 + 6 个 capability 健康灯 */}
+        <AppFooter />
       </div>
 
       {/* 全局浮层 — 不参与 grid 布局 */}
