@@ -68,6 +68,9 @@ const SkillTemplate = React.lazy(() =>
 const HelpPage = React.lazy(() =>
   import('../help/HelpPage').then((m) => ({ default: m.HelpPage })),
 );
+const NoteEditorPage = React.lazy(() =>
+  import('../notes/NoteEditorPage').then((m) => ({ default: m.NoteEditorPage })),
+);
 
 export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
   {
@@ -177,6 +180,12 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     render: () => <HelpPage />,
     defaultTitle: 'settings.helpCenter',
     defaultIcon: 'help-circle',
+  },
+  {
+    pattern: /^\/notes\/new$/,
+    render: () => <NoteEditorPage />,
+    defaultTitle: 'AI 笔记',
+    defaultIcon: 'pen',
   },
   {
     pattern: /^\/admin\/(?<tab>traces|outbox|prompts|platforms)$/,

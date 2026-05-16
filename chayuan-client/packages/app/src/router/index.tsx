@@ -139,6 +139,7 @@ const workspaceRoutes: ReadonlyArray<{ path: string; id: string }> = [
   { path: '/tools', id: 'tools' },
   { path: '/mcp', id: 'mcp' },
   { path: '/help', id: 'help' },
+  { path: '/notes/new', id: 'notes-new' },
 ];
 
 const tabRoutes = workspaceRoutes.map((r) =>
