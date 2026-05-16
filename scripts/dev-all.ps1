@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   一键拉起察元开发环境:chayuan-server + 6 个本地模型服务 + 桌面 Tauri app。
 
@@ -193,7 +193,7 @@ if ($NoCapabilities) {
             $st = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/runtime/llama/$cap/status" -TimeoutSec 3 -ErrorAction Stop
             $state = if ($st.data) { $st.data.state } else { $st.state }
             if ($state -eq 'ready') {
-                Write-Ok "$cap: 已 ready,跳过"
+                Write-Ok "${cap}: 已 ready,跳过"
                 continue
             }
         } catch {
