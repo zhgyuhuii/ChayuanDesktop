@@ -52,6 +52,11 @@ $env:PYTHONIOENCODING = 'utf-8'
 $env:LANG = 'en_US.UTF-8'
 
 $ErrorActionPreference = 'Stop'
+# PS 7+ 默认把 native exe 的非零退出码 + stderr 当 terminating error,这里关掉
+# 让我们自己用 $LASTEXITCODE 检查
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 
 # ────────────────── 颜色辅助 ──────────────────
 function Write-Ok    { param($m) Write-Host "✓ $m" -ForegroundColor Green }
@@ -83,13 +88,40 @@ Write-Step 'Step 1/4: 检查 Python 环境'
 
 # 实测 Python 3.13 上 chayuan-server multiprocessing 子 worker 100% SIGSEGV
 # (C 扩展不兼容)。优先 3.12 / 3.11 / 3.10;3.13 退化为最后兜底并 warn。
+#
+# 返回 hashtable @{ ver = '3.12' / $null; err = '原因' }。
+# 设计点:
+#   1. 用 --version 不用 `-c '...'`,前者输出格式稳定 + 不触发 Microsoft Store
+#      的 python3.exe stub 假阳性(Store stub 跑 `-c '...'` 返 exit 0 但 stdout 空)
+#   2. PS 7+ 默认 PSNativeCommandErrorActionPreference=true,会把 stderr 当
+#      terminating error 抛出 try/catch;这里临时关掉 + 用 *>&1 合并捕获
+#   3. WindowsApps python.exe 大小通常 0,提前剔除
 function Get-PyVersion($exePath) {
-    if (-not (Test-Path $exePath)) { return $null }
+    if (-not (Test-Path $exePath)) { return @{ ver=$null; err='文件不存在' } }
     try {
-        $v = & $exePath -c 'import sys;print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>$null
-        if ($LASTEXITCODE -ne 0 -or -not $v) { return $null }
-        return $v.Trim()
-    } catch { return $null }
+        $fi = Get-Item $exePath -ErrorAction Stop
+        # Microsoft Store stub:全是 0 字节 reparse alias
+        if ($fi.Length -eq 0) { return @{ ver=$null; err='零字节 alias (Microsoft Store stub)' } }
+    } catch {
+        return @{ ver=$null; err="stat 失败: $_" }
+    }
+
+    # 用 cmd.exe 包一层规避 PS 7 NativeCommandErrorActionPreference 把 stderr
+    # 当 fatal,以及解决 conda env python.exe 偶尔需要 cmd 子 shell DLL 解析
+    # 路径的怪事。`2>&1` 把 stderr 合到 stdout 一起 capture。
+    try {
+        $out = & cmd.exe /c "`"$exePath`" --version 2>&1"
+        $exit = $LASTEXITCODE
+    } catch {
+        return @{ ver=$null; err="cmd.exe 调用抛: $($_.Exception.Message)" }
+    }
+    $text = if ($out) { ($out | Out-String).Trim() } else { '' }
+    if ($text -match 'Python\s+(\d+)\.(\d+)') {
+        return @{ ver = "$($matches[1]).$($matches[2])"; err = $null }
+    }
+    # 没匹配:把 exit + 头 100 字符吐出来排错
+    $snippet = if ($text.Length -gt 100) { $text.Substring(0,100) + '...' } else { $text }
+    return @{ ver=$null; err="exit=$exit out=[$snippet]" }
 }
 
 $candidates = @()
@@ -173,21 +205,21 @@ $candidates = $candidates | Where-Object { $_ } | Select-Object -Unique
 $pythonBin = $null
 $pythonVersion = $null
 $fallback313 = $null
-$probed = @()   # 记录探测过的 (path, 版本) 给失败时排错用
+$probed = @()   # 记录探测过的 (path, 版本/err) 给失败时排错用
 foreach ($cand in $candidates) {
-    if (-not $cand -or -not (Test-Path $cand)) { continue }
-    $ver = Get-PyVersion $cand
-    if (-not $ver) {
-        $probed += "[$cand]  (跑 -c 'import sys' 失败)"
+    if (-not $cand) { continue }
+    $result = Get-PyVersion $cand
+    if (-not $result.ver) {
+        $probed += "[$cand]  $($result.err)"
         continue
     }
-    $probed += "[$cand]  Python $ver"
-    if ($ver -in @('3.10','3.11','3.12')) {
+    $probed += "[$cand]  Python $($result.ver)"
+    if ($result.ver -in @('3.10','3.11','3.12')) {
         $pythonBin = $cand
-        $pythonVersion = $ver
+        $pythonVersion = $result.ver
         break
     }
-    if ($ver -eq '3.13' -and -not $fallback313) {
+    if ($result.ver -eq '3.13' -and -not $fallback313) {
         $fallback313 = $cand
     }
 }
