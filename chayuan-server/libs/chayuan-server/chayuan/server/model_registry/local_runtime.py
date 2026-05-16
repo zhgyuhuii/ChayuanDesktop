@@ -374,7 +374,11 @@ class SidecarRuntimeManager:
         try:
             self._process = subprocess.Popen(
                 args,
-                stdout=subprocess.DEVNULL,
+                # stdout / stderr 都走 PIPE — llama-server 启动期 fatal(model load
+                # failure / OOM / arch mismatch / 不存在的 GGUF 文件等)可能打 stdout
+                # 或 stderr,不固定。原来 stdout=DEVNULL 把 stdout 吞了,导致
+                # last_error 空白拿不到任何诊断。两边都 PIPE,死时合并读一次。
+                stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=proc_env,
                 # Windows 下 CREATE_NO_WINDOW = 0x08000000,避免弹黑框
@@ -396,10 +400,15 @@ class SidecarRuntimeManager:
                 # stop() 已经被 await 过,我们不要再覆盖它写的 stopped 状态
                 return self._status
             if proc.poll() is not None:
-                err = (proc.stderr.read() if proc.stderr else b"").decode("utf-8", errors="replace")[-500:]
+                # 合并 stdout + stderr,llama-server 早期 fatal 打哪边不固定。
+                # 截最后 800 字节避免 last_error 字段被超长堆栈撑爆。
+                out_bytes = proc.stdout.read() if proc.stdout else b""
+                err_bytes = proc.stderr.read() if proc.stderr else b""
+                merged = (out_bytes + err_bytes).decode("utf-8", errors="replace").strip()
+                tail = merged[-800:] if merged else f"(无 stdout/stderr 输出,退出码 {proc.returncode})"
                 self._status = RuntimeStatus(
                     state="failed",
-                    last_error=f"llama-server 启动时退出:{err}",
+                    last_error=f"llama-server 启动时退出:{tail}",
                 )
                 self._process = None
                 self._persist_status()
