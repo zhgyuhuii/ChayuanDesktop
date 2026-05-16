@@ -28,7 +28,6 @@ import {
   type BootstrapResponse,
   type CapabilityDefaultsResponse,
   type InstallJob,
-  configureClient,
   serverCapabilityDefaults,
   serverModelsBootstrap,
   serverModelsInstall,
@@ -49,19 +48,8 @@ export const SettingsAsPage: React.FC = () => {
   const { t } = useTranslation();
   const settings = useSettingsStore();
   const platform = getPlatform();
-  const defaultApi = platform.runtime.defaultApiBase;
 
   const [nameInput, setNameInput] = React.useState(settings.displayName);
-  const [apiInput, setApiInput] = React.useState(settings.apiBaseOverride);
-  const [apiTesting, setApiTesting] = React.useState(false);
-  const [apiTestResult, setApiTestResult] = React.useState<null | { ok: boolean; msg: string }>(
-    null,
-  );
-  const [uploadTesting, setUploadTesting] = React.useState(false);
-  const [uploadTestResult, setUploadTestResult] = React.useState<null | {
-    ok: boolean;
-    msg: string;
-  }>(null);
   const [localModel, setLocalModel] = React.useState(false);
   const [deviceOpt, setDeviceOpt] = React.useState(true);
   const [teachMe, setTeachMe] = React.useState(true);
@@ -75,77 +63,6 @@ export const SettingsAsPage: React.FC = () => {
     const v = nameInput.trim();
     settings.setDisplayName(v);
     notifySuccess('名称已保存', v || '已恢复默认显示');
-  };
-
-  const onApplyApi = () => {
-    const trimmed = apiInput.trim();
-    settings.setApiBaseOverride(trimmed);
-    configureClient({ baseURL: trimmed || defaultApi });
-    notifySuccess('后端服务已切换', trimmed || defaultApi || '同源');
-  };
-
-  /** GET /healthz,5s 超时,只看 reachable + 状态码 */
-  const onTestApi = async () => {
-    const target = (apiInput.trim() || defaultApi || '').replace(/\/+$/, '');
-    if (!target) {
-      setApiTestResult({ ok: false, msg: '请先填写后端地址' });
-      return;
-    }
-    setApiTesting(true);
-    setApiTestResult(null);
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 5000);
-    try {
-      const resp = await fetch(`${target}/healthz`, { signal: ctrl.signal, mode: 'cors' });
-      setApiTestResult(
-        resp.ok
-          ? { ok: true, msg: `连通 · HTTP ${resp.status}` }
-          : { ok: false, msg: `不可用 · HTTP ${resp.status}` },
-      );
-    } catch (e) {
-      setApiTestResult({
-        ok: false,
-        msg:
-          (e as Error)?.name === 'AbortError' ? '超时(5s)' : ((e as Error)?.message ?? '网络错误'),
-      });
-    } finally {
-      clearTimeout(timer);
-      setApiTesting(false);
-    }
-  };
-
-  /** 验证「后端可达 + 上传遥测开关已开」即视为上传通道通畅。 */
-  const onTestUpload = async () => {
-    setUploadTesting(true);
-    setUploadTestResult(null);
-    try {
-      const target = (settings.apiBaseOverride.trim() || defaultApi || '').replace(/\/+$/, '');
-      if (!target) {
-        setUploadTestResult({ ok: false, msg: '后端地址未配置' });
-        return;
-      }
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
-      try {
-        const resp = await fetch(`${target}/healthz`, { signal: ctrl.signal, mode: 'cors' });
-        if (!resp.ok) {
-          setUploadTestResult({ ok: false, msg: `后端不可用 · HTTP ${resp.status}` });
-          return;
-        }
-      } finally {
-        clearTimeout(timer);
-      }
-      setUploadTestResult(
-        settings.telemetry
-          ? { ok: true, msg: '后端可达,遥测开关已开,上传通道正常' }
-          : { ok: true, msg: '后端可达;遥测开关已关,仅本地暂存' },
-      );
-    } catch (e) {
-      reportError(e, '上传测试失败');
-      setUploadTestResult({ ok: false, msg: (e as Error)?.message ?? '未知错误' });
-    } finally {
-      setUploadTesting(false);
-    }
   };
 
   return (
@@ -230,68 +147,6 @@ export const SettingsAsPage: React.FC = () => {
             >
               {t('common.save')}
             </Button>
-          </div>
-        </Row>
-        <Row title={t('settings.backend')} description={t('settings.backendUrlDesc')}>
-          <div className="mt-3 flex items-center gap-2">
-            <Input
-              value={apiInput}
-              placeholder={defaultApi || '同源 / 留空使用默认'}
-              onChange={(e) => {
-                setApiInput(e.target.value);
-                setApiTestResult(null);
-              }}
-            />
-            <Button size="sm" variant="outline" onClick={onTestApi} disabled={apiTesting}>
-              {apiTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              测试
-            </Button>
-            <Button size="sm" variant="outline" onClick={onApplyApi}>
-              {t('common.save')}
-            </Button>
-          </div>
-          {apiTestResult ? (
-            <p
-              className={cn(
-                'mt-2 text-xs',
-                apiTestResult.ok
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-rose-600 dark:text-rose-400',
-              )}
-            >
-              {apiTestResult.ok ? '✓ ' : '✗ '}
-              {apiTestResult.msg}
-            </p>
-          ) : null}
-        </Row>
-        <Row
-          title="上传遥测"
-          description="开启后会把对话/检索的非内容指标(token、延迟、错误码)异步上传给本机后端;关闭后仅本地暂存"
-          trailing={
-            <Switch
-              checked={settings.telemetry}
-              onCheckedChange={(b) => settings.setTelemetry(b)}
-            />
-          }
-        >
-          <div className="mt-3 flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={onTestUpload} disabled={uploadTesting}>
-              {uploadTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              测试上传
-            </Button>
-            {uploadTestResult ? (
-              <span
-                className={cn(
-                  'text-xs',
-                  uploadTestResult.ok
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-600 dark:text-rose-400',
-                )}
-              >
-                {uploadTestResult.ok ? '✓ ' : '✗ '}
-                {uploadTestResult.msg}
-              </span>
-            ) : null}
           </div>
         </Row>
       </Section>
@@ -386,9 +241,7 @@ export const SettingsAsPage: React.FC = () => {
           onClick={() => {
             if (!confirm('恢复默认设置?')) return;
             settings.reset();
-            setApiInput('');
             setNameInput('');
-            configureClient({ baseURL: defaultApi });
           }}
         >
           <RotateCcw className="h-4 w-4" />
