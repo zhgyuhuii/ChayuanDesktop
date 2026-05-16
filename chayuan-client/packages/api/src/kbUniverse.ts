@@ -57,6 +57,17 @@ export interface KuDocumentDetail extends KuDetailBase<'document'> {
   files: DocumentFile[];
 }
 
+/**
+ * upload / status / pipeline 各阶段的状态机:
+ *   queued → ocr_and_embedding → ready  (或 failed)
+ * 老数据迁移时 state 默认为 "ready"。
+ */
+export type ImageItemState =
+  | 'queued'
+  | 'ocr_and_embedding'
+  | 'ready'
+  | 'failed';
+
 export interface ImageItem {
   id: string;
   url?: string;
@@ -65,6 +76,16 @@ export interface ImageItem {
   width?: number;
   height?: number;
   meta?: Record<string, unknown>;
+  /** Pipeline 状态(2026-05-16 加,老数据/老后端可能没有,默认按 "ready" 处理)*/
+  state?: ImageItemState;
+  /** 0-100 整数;state=ready 时通常 100 */
+  progress?: number;
+  /** state=failed 时非空 */
+  error?: string | null;
+  /** 用户默认文本向量模型已经为本条图的 OCR 文本生成向量 */
+  has_text_vector?: boolean;
+  /** OCR 抽取的图上文字(可能截断到 200/500 字)*/
+  ocr_text?: string | null;
 }
 export interface KuImageDetail extends KuDetailBase<'image'> {
   sub_kind: 'image';
@@ -322,9 +343,62 @@ export interface KbQueryOptions {
 
 // ── Image source 子端点(/knowledge_source/{id}/image/*) ──────────────────
 
+/** upload 响应的单条 item(后端 _item_to_wire 形态)。
+ *  与 KuImageDetail.items 的 ImageItem 不同 — 这边用 image_id/filename/path/preview_url。
+ */
+export interface ImageUploadItem {
+  filename: string;
+  image_id: string;
+  path: string;
+  state: ImageItemState;
+  progress: number;
+  error: string | null;
+  has_text_vector: boolean;
+  ocr_text: string | null;
+  preview_url: string;
+  /** 老前端契约保留:'indexed' | 'queued' | 'missing'。 */
+  vector_status: string;
+}
+
 export interface ImageUploadResult {
-  added: Array<{ filename: string; image_id: string; path: string }>;
+  added: ImageUploadItem[];
   errors: Array<{ filename: string; error: string }>;
+}
+
+/** GET /knowledge_source/{id}/image/{image_id}/status 返回。供前端轮询。 */
+export interface ImageItemStatus {
+  id: string;
+  state: ImageItemState;
+  progress: number;
+  error: string | null;
+  has_text_vector: boolean;
+  ocr_text: string | null;
+}
+
+/** POST /knowledge_source/{id}/image/search_by_text 返回的单条 hit。
+ *  source_path:文本向量路 / CLIP 跨模态路 / 融合。
+ *  与文件顶部的 ImageHit(用于 ask blocks)不同。 */
+export interface ImageRrfHit {
+  id: string;
+  filename: string;
+  thumbnail_url: string;
+  score: number;
+  source_path: 'text_vec' | 'clip_text' | 'clip_image' | 'fused';
+  fused: boolean;
+  ocr_snippet: string | null;
+  has_text_vector: boolean;
+  meta: Record<string, unknown>;
+}
+
+export interface ImageRrfDiagnostics {
+  /** "ok" 或 "unavailable: <reason>" */
+  text_path: string;
+  image_path: string;
+}
+
+export interface ImageRrfSearchResponse {
+  hits: ImageRrfHit[];
+  diagnostics: ImageRrfDiagnostics;
 }
 
 /**
@@ -388,6 +462,35 @@ export const imageSource = {
       { method: 'POST', body: form, signal: opts.signal, raw: true },
     );
     return r.data?.data ?? [];
+  },
+  /** GET 单条 item 状态(供前端轮询占位卡片);404 时抛 — 调用方应包 try。 */
+  async itemStatus(sourceId: number | string, imageId: string): Promise<ImageItemStatus> {
+    const r = await request<{ data: ImageItemStatus }>(
+      `/knowledge_source/${sourceId}/image/${encodeURIComponent(imageId)}/status`,
+      { raw: true },
+    );
+    return r.data?.data as ImageItemStatus;
+  },
+  /**
+   * 按文字搜图。后端两路并行(用户默认文本向量模型 + CLIP 跨模态)+ RRF 融合。
+   * 任一路降级时 diagnostics 会标 "unavailable: <reason>",前端应据此显示提示 banner。
+   */
+  async searchByText(
+    sourceId: number | string,
+    query: string,
+    topK = 20,
+    opts: { kRrf?: number; signal?: AbortSignal } = {},
+  ): Promise<ImageRrfSearchResponse> {
+    const r = await request<{ data: ImageRrfSearchResponse }>(
+      `/knowledge_source/${sourceId}/image/search_by_text`,
+      {
+        method: 'POST',
+        body: { query, top_k: topK, k_rrf: opts.kRrf ?? 60 },
+        signal: opts.signal,
+        raw: true,
+      },
+    );
+    return r.data?.data ?? { hits: [], diagnostics: { text_path: 'unavailable: empty response', image_path: 'unavailable: empty response' } };
   },
   /** 拼出预览 / 下载 URL,带 token 走 query(image 端点是 token 白名单一员的话;不是的话仍可用 fetch) */
   fileUrl(sourceId: number | string, imageId: string, opts: { download?: boolean; token?: string } = {}): string {
