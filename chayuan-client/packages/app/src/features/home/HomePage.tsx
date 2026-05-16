@@ -143,6 +143,13 @@ export const HomePage: React.FC = () => {
   }, [t]);
 
   const onCapClick = (cap: CapItem) => {
+    // 「AI 笔记」每次进来都是空白:已有 `/notes/new` tab 先关掉,让 NoteEditorPage
+    // 重新 mount → useMemo 生成新 draftKey → 不会被上次未保存草稿污染。
+    if (cap.id === 'notes') {
+      const store = useTabsStore.getState();
+      const existing = store.tabs.find((t) => t.path === cap.to);
+      if (existing) store.close(existing.id);
+    }
     open(cap.to, { title: cap.title, icon: cap.id });
     void navigate({ to: cap.to as never });
   };
