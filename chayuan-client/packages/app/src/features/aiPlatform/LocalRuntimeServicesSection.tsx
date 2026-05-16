@@ -54,6 +54,32 @@ const BACKEND_CAP_KEY: Record<LocalRuntimeCapability, string> = {
   'image-embedding': 'image',
 };
 
+/** scanner identifier(chayuan-server identifier.py:_CAPABILITY_BY_MODELTYPE)给的 capability 字符串
+ *  ↔ 前端 LocalRuntimeCapability 映射。scanner 用的是 HF-style 长名,前端用短名。
+ *  没匹配上返回 null,跳过这条 entry(不计入任何 cap 的模型清单)。 */
+function mapScannerCapability(
+  scannerCap: string,
+  format: string,
+): LocalRuntimeCapability | null {
+  switch (scannerCap) {
+    case 'chat':           return 'chat';
+    case 'text-embedding':
+    case 'embedding':      return 'embedding';
+    case 'rerank':         return 'rerank';
+    case 'speech-to-text':
+    case 'asr':            return 'asr';
+    case 'image-to-text':
+    case 'image-embedding':
+    case 'image':
+      // OCR(PP-OCRv3/v4)scanner 同样标 image-to-text/onnx,但 OCR 走进程内
+      // rapidocr,不出现在 image-embedding 下拉;按 format 过滤掉。
+      if (format === 'onnx') return null;
+      return 'image-embedding';
+    default:
+      return null;
+  }
+}
+
 export const LocalRuntimeServicesSection: React.FC = () => {
   const { statuses, pendingFor, reachable, startCapability, stopCapability, restartCapability } =
     useLocalRuntimeStore();
@@ -96,9 +122,13 @@ export const LocalRuntimeServicesSection: React.FC = () => {
         chat: [], embedding: [], rerank: [], asr: [], 'image-embedding': [],
       };
       for (const m of items) {
-        // runtime.ts LocalModelEntry.capability 是 string,需 narrow 到 LocalRuntimeCapability
-        const cap = m.capability as LocalRuntimeCapability;
-        if (grouped[cap]) grouped[cap].push(m);
+        // scanner identifier 给的 capability 跟前端 LocalRuntimeCapability enum 不一致:
+        //   text-embedding   ↔ embedding
+        //   speech-to-text   ↔ asr
+        //   image-to-text    ↔ image-embedding(注意:OCR onnx 也是 image-to-text,要排除)
+        // 原来直接 grouped[m.capability] 永远 undefined,模型被静默丢弃 → UI 显示"未安装"。
+        const cap = mapScannerCapability(m.capability, m.format);
+        if (cap && grouped[cap]) grouped[cap].push(m);
       }
       setModels(grouped);
     } catch (e) {
