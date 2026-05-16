@@ -318,3 +318,42 @@ kill %1
 ```
 
 提交规则参考 `/work/CLAUDE.md`(固定 branch = `main`,不要 force push,不要带 `.env` / 模型权重 / 临时日志)。
+
+---
+
+## 12. 打集成包(选 vendor 二进制 + 验证可运行)
+
+`chayuan-server/packaging/pyinstaller/build.py` 在打集成版时:
+
+- **按 target triple 选 platform 子目录**:`x86_64-pc-windows-msvc → win-x64`,
+  `aarch64-apple-darwin → macos-arm64` 等(详见 README 矩阵)。
+- **缺子目录就跳过**:不会因为 whisper Linux 没 upstream binary 而 fail —— 那个
+  capability 在装机后就没本地加速,fallback 到 Python 实现。
+- **复制内容到扁平 layout**:`vendor/services/llama-server/win-x64/*` → `src-tauri/services/llama-server/*`(无 `win-x64/` 一层),end-user 装机后由 `find_server_exe` 扁平 fallback 命中。
+- **验证 binary**:
+  1. 文件存在 + 大小 > 100 KB(防 LFS 占位 / 半下载)
+  2. magic bytes(MZ for PE / `\x7fELF` for Linux / `\xcf\xfa\xed\xfe` for Mach-O)
+  3. host == target 时跑 `binary --help`:5s 超时 / OSError / 非常规退出码 → fail;
+     GLIBC 等 runtime-linker 错误 → 软警告不阻断 build(给目标机器跑,跟本机无关)
+
+用法:
+
+```bash
+cd chayuan-server
+# 默认:用当前 host 的 target triple,跑完顺带 verify
+poetry run python packaging/pyinstaller/build.py --release lite
+
+# 显式 cross-build target(CI 矩阵跨平台打包)
+poetry run python packaging/pyinstaller/build.py \
+    --release lite --target aarch64-apple-darwin
+
+# Win 上想打 noavx 变体的安装包(给老 CPU / VM 用户)
+set CHAYUAN_VENDOR_PLATFORM=win-x64-noavx
+poetry run python packaging/pyinstaller/build.py --release lite
+
+# 跳过 verify(只 sync 不检查,iter dev 用)
+poetry run python packaging/pyinstaller/build.py --sync-services-only --skip-verify
+```
+
+`build-desktop.{sh,ps1}` 不需要改 —— 它已经透传 `--release`,verify 自动跑。CI 矩阵的
+`rust-target` 通过 `--target` 透传(后续 CI workflow 改一行即可)。
