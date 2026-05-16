@@ -349,6 +349,10 @@ export const modelPlatform = {
 export interface CapabilityDefaultsCandidate {
   id: string;
   runtime: string | null;
+  /** 后端 model_platform 的 platform_name(本地 sidecar 是 'local-<cap>',
+   *  云厂商是 'deepseek' / 'qwen' / 'openrouter' 等)。前端按这个分组渲染
+   *  optgroup。老服务端可能没返回 → undefined,前端兜底归到「其它」。 */
+  platform_name?: string | null;
   format: string | null;
   size_bytes: number;
   is_default: boolean;

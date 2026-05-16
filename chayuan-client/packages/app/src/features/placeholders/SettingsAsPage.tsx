@@ -28,6 +28,7 @@
 
 import {
   type BootstrapResponse,
+  type CapabilityDefaultsCandidate,
   type CapabilityDefaultsResponse,
   type InstallJob,
   serverCapabilityDefaults,
@@ -38,12 +39,11 @@ import { getPlatform } from '@chayuan/platform-shared';
 import { Button, Input, Pill, Slider, Switch, cn } from '@chayuan/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { Cpu, Database, Loader2, Monitor, Moon, Plus, RotateCcw, Sun } from 'lucide-react';
+import { Cpu, Loader2, Monitor, Moon, Plus, RotateCcw, Sun } from 'lucide-react';
 import * as React from 'react';
 import { SUPPORTED_LOCALES, useTranslation } from '../../i18n';
 import { notifySuccess, reportError } from '../../store/errorDialog';
 import { type LocalePreference, type ThemeMode, useSettingsStore } from '../../store/settings';
-import { AddStructuredSourceDialog } from '../kb/AddStructuredSourceDialog';
 import { LocalRuntimeServicesSection } from '../aiPlatform';
 
 export const SettingsAsPage: React.FC = () => {
@@ -55,7 +55,6 @@ export const SettingsAsPage: React.FC = () => {
   const [localModel, setLocalModel] = React.useState(false);
   const [deviceOpt, setDeviceOpt] = React.useState(true);
   const [teachMe, setTeachMe] = React.useState(true);
-  const [addStructuredOpen, setAddStructuredOpen] = React.useState(false);
 
   React.useEffect(() => {
     setNameInput(settings.displayName);
@@ -183,21 +182,6 @@ export const SettingsAsPage: React.FC = () => {
       {/* 默认模型 — 模型广场配好厂商后,这里挑哪一个用做默认 */}
       <DefaultModelsSection />
 
-      {/* 知识库管理 */}
-      <Section>
-        <Row
-          title="结构化数据库"
-          description="MySQL / PostgreSQL / SQL Server / Oracle / 金仓 / 达梦 / ClickHouse / Doris / Hive 等"
-          trailing={
-            <Button size="sm" variant="outline" onClick={() => setAddStructuredOpen(true)}>
-              <Database className="h-3.5 w-3.5" />
-              <Plus className="h-3 w-3" />
-              添加
-            </Button>
-          }
-        />
-      </Section>
-
       {/* 快捷工具 */}
       <Section>
         <Row
@@ -284,8 +268,6 @@ export const SettingsAsPage: React.FC = () => {
           恢复默认
         </Button>
       </div>
-
-      <AddStructuredSourceDialog open={addStructuredOpen} onOpenChange={setAddStructuredOpen} />
     </div>
   );
 };
@@ -524,6 +506,58 @@ const BootstrapBanner: React.FC = () => {
   );
 };
 
+/** 候选 model id 短显:本地 scanner 路径(models/bundled/chat/Qwen3-...-GGUF)
+ *  只取最后一段 + 去 -GGUF 后缀;云厂商裸 id (deepseek-v4-flash) 原样。 */
+function shortModelLabel(id: string): string {
+  if (!id.includes('/')) return id;
+  const tail = id.split('/').filter(Boolean).pop() ?? id;
+  return tail.replace(/-(gguf|GGUF)$/, '');
+}
+
+function fmtSizeMB(bytes: number): string {
+  if (!bytes || bytes <= 0) return '';
+  const mb = bytes / 1024 / 1024;
+  if (mb < 1024) return `${mb.toFixed(0)} MB`;
+  return `${(mb / 1024).toFixed(1)} GB`;
+}
+
+/** platform_name 归一到 group key + 显示 label。本地 sidecar(local / local-*)
+ *  归一到「本地模型」;云厂商按 platform_name 各自一组。platform_name 缺失 →「其它」。 */
+function platformGroupKeyForSettings(p: string | null | undefined): { key: string; label: string } {
+  if (!p) return { key: '__other__', label: '其它' };
+  if (p === 'local' || p.startsWith('local-')) {
+    return { key: '__local__', label: '本地模型' };
+  }
+  return { key: p, label: p };
+}
+
+function groupCandidatesByPlatform(
+  candidates: CapabilityDefaultsCandidate[],
+): Array<{ label: string; items: CapabilityDefaultsCandidate[] }> {
+  const map = new Map<string, { label: string; items: CapabilityDefaultsCandidate[] }>();
+  for (const c of candidates) {
+    // local_index 来源(scanner 直出)兜底走「本地模型」组,即使后端忘了带 platform_name
+    const effectivePlatform =
+      c.platform_name ?? (c.source === 'local_index' ? 'local' : undefined);
+    const { key, label } = platformGroupKeyForSettings(effectivePlatform);
+    const entry = map.get(key) ?? { label, items: [] };
+    entry.items.push(c);
+    map.set(key, entry);
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => {
+      if (a === '__local__') return -1;
+      if (b === '__local__') return 1;
+      if (a === '__other__') return 1;
+      if (b === '__other__') return -1;
+      return a.localeCompare(b);
+    })
+    .map(([, v]) => ({
+      label: v.label,
+      items: v.items.slice().sort((x, y) => x.id.localeCompare(y.id)),
+    }));
+}
+
 const DefaultModelsSection: React.FC = () => {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -587,11 +621,10 @@ const DefaultModelsSection: React.FC = () => {
               />
             );
           }
-          // 本地模型单独抽出来,按用户体验要求:
-          //   - 单条 → 平铺一个选项 "本地模型 - <id>"
-          //   - 多条 → <optgroup label="本地模型"> 包住,子项是模型 id
-          const localCandidates = candidates.filter((c) => c.source === 'local_index');
-          const cloudCandidates = candidates.filter((c) => c.source !== 'local_index');
+          // 按 platform_name 分组渲染 <optgroup>:本地 sidecar(local / local-<cap>)
+          // 归一到「本地模型」首位,云厂商(deepseek / qwen / openrouter / ...)各自一组按字母序。
+          // 本地路径式 id 短化显示,云厂商 id 原样。
+          const groups = groupCandidatesByPlatform(candidates);
           return (
             <Row
               key={cap}
@@ -612,26 +645,16 @@ const DefaultModelsSection: React.FC = () => {
                       请选择
                     </option>
                   )}
-                  {cloudCandidates.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.id}
-                      {c.runtime ? ` · ${c.runtime}` : ''}
-                    </option>
-                  ))}
-                  {localCandidates.length === 1 && (
-                    <option key={localCandidates[0]!.id} value={localCandidates[0]!.id}>
-                      本地模型 - {localCandidates[0]!.id}
-                    </option>
-                  )}
-                  {localCandidates.length > 1 && (
-                    <optgroup label="本地模型">
-                      {localCandidates.map((c) => (
+                  {groups.map((g) => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.items.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.id}
+                          {shortModelLabel(c.id)}
+                          {c.size_bytes ? ` · ${fmtSizeMB(c.size_bytes)}` : ''}
                         </option>
                       ))}
                     </optgroup>
-                  )}
+                  ))}
                 </select>
               }
             />
