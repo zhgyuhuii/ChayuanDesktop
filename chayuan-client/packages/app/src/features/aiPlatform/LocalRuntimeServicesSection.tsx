@@ -86,6 +86,21 @@ export const LocalRuntimeServicesSection: React.FC = () => {
     void reloadModels();
   }, [reloadModels]);
 
+  // 自己挂 capability registry 轮询(5s)。 Shell.tsx 全局轮询只跑 refreshStatus,
+  // 不跑 refreshRegistry; LocalRuntimePanel 的轮询挂在 LocalRuntimePanel 内部,
+  // 用户不打开它就拿不到 statuses,首次进 /settings 会看到 5 行 capability 全显示
+  // stopped 即使实际 ready。这里独立挂一个,跟 LocalRuntimePanel 互不干扰。
+  React.useEffect(() => {
+    const { refreshStatus, refreshRegistry } = useLocalRuntimeStore.getState();
+    void refreshStatus();
+    void refreshRegistry();
+    const t = window.setInterval(() => {
+      void useLocalRuntimeStore.getState().refreshStatus();
+      void useLocalRuntimeStore.getState().refreshRegistry();
+    }, 5_000);
+    return () => window.clearInterval(t);
+  }, []);
+
   const resolveModelId = (cap: LocalRuntimeCapability): string | undefined =>
     chosen[cap] ?? statuses[cap]?.model_id ?? models[cap][0]?.model_id;
 
