@@ -356,6 +356,11 @@ def _detect_format_from_files(p: Path) -> str:
     """格式只看文件扩展名 / 标志文件（不做内容嗅探，速度优先）。"""
     if p.is_file():
         ext = p.suffix.lower()
+        # 特殊:ggml-*.bin 是 whisper.cpp / llama.cpp 的旧式 ggml 权重(file magic 'ggml'),
+        # 跟普通 pytorch .bin 完全不同。按文件名前缀识别,避免被通用 .bin 规则吃成 pytorch
+        # → 导致 resolve_whisper_args 拿到 format='pytorch' 与期望的 'ggml' 不匹配而报错。
+        if ext == ".bin" and p.name.lower().startswith("ggml"):
+            return "ggml"
         return {
             ".gguf": "gguf",
             ".onnx": "onnx",
@@ -380,6 +385,10 @@ def _detect_format_from_files(p: Path) -> str:
     has_gguf = any(p.glob("*.gguf"))
     if has_gguf:
         return "gguf"
+    # ggml-*.bin 单独识别(同上,跟普通 .bin 区分);whisper.cpp 装机典型布局
+    # asr/whisper.cpp/ggml-tiny.bin 在这里命中
+    if any(p.glob("ggml-*.bin")) or any(p.glob("ggml-*.gguf")):
+        return "ggml"
     return "unknown"
 
 
