@@ -23,6 +23,12 @@ try {
 } catch {}
 
 $ErrorActionPreference = 'Stop'
+# PS 7+ 默认会把 native exe 写 stderr 视作 PS 错误,与 ErrorActionPreference=Stop
+# 叠加后会把"whisper-server.exe --help 顺手往 stderr 写说明"误判成失败而中断整个脚本。
+# 与 dev-start.ps1 的 Get-PyVersion 同源问题,这里统一关闭。
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $workspaceRoot = Split-Path -Parent $here
@@ -102,10 +108,16 @@ Write-Host "[install-whisper-server] 完成。$destDir 内容:"
 Get-ChildItem $destDir -File | Format-Table Name, @{N='MB';E={$([math]::Round($_.Length/1MB,2))}}
 
 Write-Host "[install-whisper-server] 验证 binary..."
-$testOut = & $bin --help 2>&1 | Select-Object -First 3
-$testOut | ForEach-Object { Write-Host "  $_" }
-if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) {
-    Write-Warning "[install-whisper-server] whisper-server.exe --help 退出码 $LASTEXITCODE，可能 AVX2 / Visual C++ Runtime 缺失"
-} else {
-    Write-Host "[install-whisper-server] OK"
+try {
+    # 用 cmd.exe 包一层规避 PS native stderr 误判;Select-Object 截前 3 行避免刷屏。
+    $testOut = & cmd.exe /c "`"$bin`" --help 2>&1" | Select-Object -First 3
+    $exit = $LASTEXITCODE
+    $testOut | ForEach-Object { Write-Host "  $_" }
+    if ($exit -ne 0 -and $null -ne $exit) {
+        Write-Warning "[install-whisper-server] whisper-server.exe --help 退出码 $exit，可能 AVX2 / Visual C++ Runtime 缺失"
+    } else {
+        Write-Host "[install-whisper-server] OK"
+    }
+} catch {
+    Write-Warning "[install-whisper-server] verify 步骤异常(不影响 binary 已安装): $($_.Exception.Message)"
 }

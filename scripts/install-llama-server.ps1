@@ -31,6 +31,11 @@ try {
 } catch {}
 
 $ErrorActionPreference = 'Stop'
+# PS 7+ 默认会把 native exe 写 stderr 当成 PS 错误,叠加 ErrorActionPreference=Stop
+# 会把无害的 --help 输出误判为失败而中断,跟 install-whisper-server.ps1 同源。
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 
 # Auto host detection
 if (-not $Target) {
