@@ -49,7 +49,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 # ===== 镜像优先级:CLI 显式 > 环境变量 > 默认 hf-mirror.com =====
 DEFAULT_ENDPOINTS = [
@@ -679,7 +679,15 @@ def main() -> int:
     parser.add_argument(
         "--workspace",
         type=Path,
-        help="仓库根目录(含 chayuan-server/)。不传 = 由脚本相对路径自动推。",
+        help="仓库根目录(含 chayuan-server/)。不传 = 由脚本相对路径自动推。"
+             "仅在装到 vendor/bundled_models/(打包暂存)时有意义,与 --chayuan-root 互斥。",
+    )
+    parser.add_argument(
+        "--chayuan-root",
+        type=Path,
+        help="直接装到 <CHAYUAN_ROOT>/models/bundled/<cap>/...,跳过 vendor/bundled_models/。"
+             "scanner 直接扫得到,免去 first_launch seed 拷贝 + 双倍磁盘占用。"
+             "不传时:若 $CHAYUAN_ROOT 环境变量有值则用它,否则 fallback 到 vendor/bundled_models/(打包模式)。",
     )
     args = parser.parse_args()
 
@@ -690,13 +698,32 @@ def main() -> int:
         _print(f"[install] HF 镜像 = {endpoint}")
         _print(f"[install] HF_HUB_DOWNLOAD_TIMEOUT = {os.environ['HF_HUB_DOWNLOAD_TIMEOUT']}s")
 
-    if args.workspace:
+    # 装到哪 — 优先级:--chayuan-root CLI > $CHAYUAN_ROOT env > --workspace > 自动探测 vendor/
+    # vendor/bundled_models/ 路径仅用于打包暂存(build.py 抓这里),运行时 scanner
+    # 不扫这个目录,必须靠 first_launch.seed_bundled_models() 拷到 chayuan_root。
+    # 直接装 chayuan_root 可以省掉 seed 这一步 + 双倍磁盘占用。
+    if args.chayuan_root and args.workspace:
+        raise SystemExit("[install] --chayuan-root 和 --workspace 互斥;选一个")
+
+    chayuan_root: Optional[Path] = args.chayuan_root
+    if not chayuan_root:
+        env_root = os.environ.get("CHAYUAN_ROOT")
+        if env_root:
+            chayuan_root = Path(env_root).expanduser()
+
+    if chayuan_root:
+        vendor_root = chayuan_root / "models" / "bundled"
+        vendor_root.mkdir(parents=True, exist_ok=True)
+        _print(f"[install] target = {vendor_root}  (直装 chayuan_root,scanner 立即扫得到,免 seed)")
+    elif args.workspace:
         vendor_root = args.workspace / "chayuan-server" / "vendor" / "bundled_models"
         if not vendor_root.is_dir():
             raise SystemExit(f"--workspace 下找不到 vendor/bundled_models/: {vendor_root}")
+        _print(f"[install] target = {vendor_root}  (vendor 打包暂存,需 server 首启 seed 拷到 chayuan_root)")
     else:
         vendor_root = _resolve_vendor_root()
-    _print(f"[install] vendor_root = {vendor_root}")
+        _print(f"[install] target = {vendor_root}  (vendor 打包暂存,需 server 首启 seed 拷到 chayuan_root)")
+        _print("[install] 提示:可加 --chayuan-root <path> 或 export CHAYUAN_ROOT=<path> 直装运行时目录,省一份磁盘空间。")
     _print("")
 
     if args.lite and args.only:

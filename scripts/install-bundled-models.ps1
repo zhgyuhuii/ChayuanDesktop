@@ -50,6 +50,11 @@
 .EXAMPLE
   .\scripts\install-bundled-models.ps1 -Only chat -Source modelscope
   # 只重下 chat(走 MS)
+
+.EXAMPLE
+  .\scripts\install-bundled-models.ps1 -ChayuanRoot $env:CHAYUAN_ROOT
+  # Dev 模式推荐:直接装到运行时目录,scanner 立刻扫到,免 first_launch seed
+  # 不带 -ChayuanRoot 时如果 $CHAYUAN_ROOT 已设,自动走这条路径
 #>
 [CmdletBinding()]
 param(
@@ -60,7 +65,10 @@ param(
     [switch]$Lite,
     [string]$Endpoint = 'https://hf-mirror.com',
     [ValidateSet('auto','hf','modelscope')]
-    [string]$Source = 'auto'
+    [string]$Source = 'auto',
+    # Dev 模式直装运行时目录(<root>/models/bundled/<cap>/...)
+    # 不传 = 看 $env:CHAYUAN_ROOT,都没设 = 装到 vendor/bundled_models/(打包模式)
+    [string]$ChayuanRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -94,7 +102,14 @@ Write-Host "[install] HF_ENDPOINT: $Endpoint"
 Write-Host ""
 
 # 把参数装回 .py 用的形式
-$pyArgs = @($pyScript, '--workspace', $workspace, '--endpoint', $Endpoint, '--source', $Source)
+# 注:-ChayuanRoot 与 --workspace 互斥(.py 内部会拒)。给了 -ChayuanRoot 就不传 --workspace,
+# 让 .py 走 chayuan_root 模式。没传 -ChayuanRoot 时,.py 内部还会再看一次 $env:CHAYUAN_ROOT。
+$pyArgs = @($pyScript, '--endpoint', $Endpoint, '--source', $Source)
+if ($ChayuanRoot) {
+    $pyArgs += @('--chayuan-root', $ChayuanRoot)
+} else {
+    $pyArgs += @('--workspace', $workspace)
+}
 if ($Only)     { $pyArgs += @('--only', $Only) }
 if ($Clean)    { $pyArgs += '--clean' }
 if ($CleanCap) { $pyArgs += '--clean-cap' }
