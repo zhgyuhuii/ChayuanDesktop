@@ -1,0 +1,8 @@
+# whisper-server 二进制 + 依赖 dll 不入 git
+# (~30 MB,跑 scripts/install-whisper-server.{ps1,sh} 拉取)
+*.exe
+*.dll
+*.so
+*.dylib
+whisper-server
+VERSION

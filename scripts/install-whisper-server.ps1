@@ -24,7 +24,10 @@ $ErrorActionPreference = 'Stop'
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $workspaceRoot = Split-Path -Parent $here
-$destDir = Join-Path $workspaceRoot 'vendor\services\whisper-server'
+# 注意:必须装到 chayuan-server\vendor\services\ 才能被
+# chayuan/server/model_registry/local_runtime.py:_default_install_services_dirs()
+# 的 parents[5] = chayuan-server 搜到(跟 install-llama-server 一致)。
+$destDir = Join-Path $workspaceRoot 'chayuan-server\vendor\services\whisper-server'
 
 if (-not (Test-Path $destDir)) {
     New-Item -ItemType Directory -Force -Path $destDir | Out-Null

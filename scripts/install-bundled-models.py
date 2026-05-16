@@ -605,10 +605,13 @@ def main() -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    # 别名:runtime registry / API / settings 使用 "image-embedding",但本脚本
+    # MANIFEST 历史上用短名 "image"。两个都接受,内部归一到 "image"。
+    _ALIASES = {"image-embedding": "image"}
     parser.add_argument(
         "--only",
-        choices=list(MANIFEST.keys()),
-        help="只下指定 capability,不传 = 全下",
+        choices=list(MANIFEST.keys()) + list(_ALIASES.keys()),
+        help="只下指定 capability,不传 = 全下;支持 chat/embedding/rerank/asr/ocr/image(=image-embedding)",
     )
     parser.add_argument(
         "--clean",
@@ -651,7 +654,8 @@ def main() -> int:
     _print(f"[install] vendor_root = {vendor_root}")
     _print("")
 
-    plan = [args.only] if args.only else list(MANIFEST.keys())
+    only = _ALIASES.get(args.only, args.only) if args.only else None
+    plan = [only] if only else list(MANIFEST.keys())
     failures: list[tuple[str, str]] = []
     for cap in plan:
         spec = MANIFEST[cap]

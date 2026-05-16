@@ -7,7 +7,10 @@ set -euo pipefail
 VERSION="${1:-v1.7.4}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DEST_DIR="$REPO_ROOT/vendor/services/whisper-server"
+# 注意:必须装到 chayuan-server/vendor/services/ 才能被
+# chayuan/server/model_registry/local_runtime.py:_default_install_services_dirs()
+# 的 parents[5] = chayuan-server 搜到(跟 install-llama-server.sh 一致)。
+DEST_DIR="$REPO_ROOT/chayuan-server/vendor/services/whisper-server"
 
 mkdir -p "$DEST_DIR"
 
