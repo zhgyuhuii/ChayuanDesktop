@@ -42,19 +42,22 @@ interface PlatformGroup {
 }
 
 function groupByPlatform(list: ReadonlyArray<RawModelItem>): PlatformGroup[] {
-  const map = new Map<string, { displayName: string; items: RawModelItem[] }>();
+  const map = new Map<string, { displayName: string; items: Map<string, RawModelItem> }>();
   for (const m of list) {
     const key = m.platform_name || '其它';
     const display = m.platform_display_name || m.platform_name || '其它';
-    const entry = map.get(key) ?? { displayName: display, items: [] };
-    // 同一分组内 display_name 应一致,但兜底:取最先出现的非空值
+    const entry = map.get(key) ?? { displayName: display, items: new Map<string, RawModelItem>() };
     if (!entry.displayName && display) entry.displayName = display;
-    entry.items.push(m);
+    // 按 id 去重:同一 platform 下 model_id 重复(后端 scanner / auto-detect 双源
+    // 偶尔会返同一条目两次)只保留首次出现,避免 React 渲染时 duplicate key 警告 +
+    // 下拉视觉上同一模型显示两条。
+    if (!entry.items.has(m.id)) {
+      entry.items.set(m.id, m);
+    }
     map.set(key, entry);
   }
   return Array.from(map.entries())
     .sort(([a], [b]) => {
-      // 本地永远首位,其它按字母序
       if (a === LOCAL_PLATFORM_KEY) return -1;
       if (b === LOCAL_PLATFORM_KEY) return 1;
       return a.localeCompare(b);
@@ -63,7 +66,7 @@ function groupByPlatform(list: ReadonlyArray<RawModelItem>): PlatformGroup[] {
       platform,
       displayName:
         platform === LOCAL_PLATFORM_KEY ? LOCAL_PLATFORM_LABEL : displayName || platform,
-      items: items.slice().sort((a, b) => a.id.localeCompare(b.id)),
+      items: Array.from(items.values()).sort((a, b) => a.id.localeCompare(b.id)),
     }));
 }
 
