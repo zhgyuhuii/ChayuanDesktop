@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from chayuan.server.auth.deps import require_auth_enabled
@@ -55,106 +55,115 @@ def _resolve_store_name(source_id: int) -> str:
 # Upload / list / delete
 # ---------------------------------------------------------------------------
 
-@image_router.post("/{source_id}/image/upload", summary="上传图像到知识源并入索引")
+@image_router.post("/{source_id}/image/upload", summary="上传图像到知识源(即时占位 + 异步流水线)")
 async def upload_image_endpoint(
     source_id: int,
     files: List[UploadFile] = File(...),
     tags: str = Form(""),
+    background_tasks: "BackgroundTasks" = None,
     user=Depends(require_auth_enabled()),
 ):
+    """同步阶段:落盘 + 插占位(state=queued)。异步阶段:OCR ‖ CLIP + 默认文本向量模型。
+
+    返回每张图的 ``state="queued"`` item;前端立即渲染占位卡片,然后轮询
+    ``/image/{image_id}/status`` 拿状态更新。
+    """
+    from fastapi import BackgroundTasks as _BG
+    if background_tasks is None:
+        background_tasks = _BG()
     if not can_write(user, int(source_id)):
         raise HTTPException(403, "no write permission")
     _get_source_or_404(int(source_id))
     conn = _build_image_connector(int(source_id))
-    added: List[Dict[str, Any]] = []
-    errors: List[Dict[str, Any]] = []
-    # 持久化到图片目录：CHAYUAN_ROOT/data/images/{source_id}/
-    from chayuan.server.image_source.store import _image_indexes_root
+    store_name = conn.source_name
+
+    from chayuan.server.image_source.store import _image_indexes_root, get_store
+    from chayuan.server.image_source.pipeline import process_item
+    import hashlib
+
+    store = get_store(store_name)
     img_dir = _image_indexes_root() / f"{int(source_id)}_files"
     img_dir.mkdir(parents=True, exist_ok=True)
+
     try:
         from chayuan.server.file_storage import NS, get_storage
         storage = get_storage()
     except Exception:  # noqa: BLE001
         storage = None
 
-    # 上传循环。新策略(用户诉求"即使图像嵌入模型不能用 也要能够上传图像"):
-    #   1. 文件**总是**先落盘(用户的图必须保住)
-    #   2. 再尝试入向量索引;embedder 缺失/失败时:
-    #      - 不阻断 — image 仍记录到 added,只是 ``image_id=None``,
-    #        ``vector_status="missing"``
-    #      - 收集 missing 信号,响应 ``code=0`` 但 ``warning`` 字段提示用户装模型
-    #   3. 老的 422 只在用户**显式要求**入向量(以后加 ?require_vector=true 时)
-    embedder_missing = False
-    embedder_missing_reason = ""
+    added: List[Dict[str, Any]] = []
+    errors: List[Dict[str, Any]] = []
+
     for f in files:
         data = await f.read()
+        if not data:
+            errors.append({"filename": f.filename or "?", "error": "empty file"})
+            continue
+        md5_full = hashlib.md5(data).hexdigest()
+        md5 = md5_full[:8]
         fname = os.path.basename(f.filename or "upload.bin")
-        import hashlib
-        md5 = hashlib.md5(data).hexdigest()[:8]
         out = img_dir / f"{md5}_{fname}"
-        # ---- 第 1 步:文件落盘(永不失败地保住用户的图) ----
+        item_id = f"img_{md5_full[:12]}"
+
+        # 同 hash 去重:已存在的 item 直接返回,不再走 pipeline
+        existing = store.get(item_id)
+        if existing is not None:
+            added.append(_item_to_wire(existing, int(source_id)))
+            continue
+
+        # 落盘(永不阻断主流程;失败也算 error 但不抛)
         try:
             out.write_bytes(data)
         except Exception as e:  # noqa: BLE001
             logger.warning("upload_image 落盘失败 %s: %r", fname, e)
             errors.append({"filename": fname, "error": f"落盘失败: {e}"})
             continue
-        # 同步到统一存储(失败不影响主流程)
         if storage is not None:
             try:
                 storage.put(
-                    NS.IMAGE_FILES,
-                    f"{int(source_id)}/{md5}_{fname}",
+                    NS.IMAGE_FILES, f"{int(source_id)}/{md5}_{fname}",
                     data, content_type=f.content_type or "image/jpeg",
                 )
             except Exception as _e:  # noqa: BLE001
                 logger.debug("image_files 存储同步失败(忽略):%r", _e)
-        # ---- 第 2 步:尝试入向量索引(允许失败) ----
-        try:
-            image_id = conn.add_image(str(out), tags=tags or "")
-            added.append({
-                "filename": fname, "image_id": image_id,
-                "path": str(out), "vector_status": "indexed",
-            })
-        except Exception as e:  # noqa: BLE001
-            if _looks_like_missing_embedder(e):
-                embedder_missing = True
-                embedder_missing_reason = embedder_missing_reason or str(e)
-                logger.warning(
-                    "upload_image %s 落盘成功但向量化失败(embedder 缺失): %r",
-                    fname, e,
-                )
-                # 仍算上传成功,只是没向量
-                added.append({
-                    "filename": fname, "image_id": None,
-                    "path": str(out), "vector_status": "missing",
-                    "vector_error": str(e)[:200],
-                })
-            else:
-                logger.warning("upload_image %s 向量化失败(其它原因): %r", fname, e)
-                added.append({
-                    "filename": fname, "image_id": None,
-                    "path": str(out), "vector_status": "error",
-                    "vector_error": str(e)[:200],
-                })
 
-    payload: Dict[str, Any] = {"code": 0, "data": {"added": added, "errors": errors}}
-    if embedder_missing:
-        suggested = _suggest_image_embedder()
-        payload["warning"] = {
-            "code": "image_embedder_missing",
-            "message": (
-                "图像已上传保存,但向量化失败(图像嵌入模型不可用),"
-                "暂不能做以图搜图 / 文搜图。装好模型后可重建索引。"
-            ),
-            "reason": embedder_missing_reason[:200],
-            "suggested_model": suggested["repo"],
-            "suggested_capability": suggested["capability"],
-            "suggested_runtime": suggested["runtime"],
-            "marketplace_deeplink": suggested.get("marketplace_deeplink", ""),
-        }
-    return payload
+        rec = store.insert_placeholder(
+            item_id=item_id, filename=fname,
+            mime_type=f.content_type or "image/octet-stream",
+            size_bytes=len(data), path=str(out),
+            md5=md5_full, tags=tags or "",
+        )
+        added.append(_item_to_wire(rec, int(source_id)))
+        background_tasks.add_task(
+            process_item, store_name, item_id, data,
+            model_name=conn._model_name,
+        )
+
+    return {
+        "code": 0,
+        "data": {"added": added, "errors": errors},
+    }
+
+
+def _item_to_wire(rec: Dict[str, Any], source_id: int) -> Dict[str, Any]:
+    """统一前端契约:image_id / state / progress / preview url / has_text_vector。"""
+    img_id = rec.get("id")
+    return {
+        "filename": rec.get("filename"),
+        "image_id": img_id,
+        "path": rec.get("path"),
+        "state": rec.get("state", "ready"),
+        "progress": int(rec.get("progress") or 0),
+        "error": rec.get("error"),
+        "has_text_vector": bool(rec.get("has_text_vector")),
+        "ocr_text": rec.get("ocr_text"),
+        "preview_url": f"/knowledge_source/{int(source_id)}/image/{img_id}",
+        # 老字段保留
+        "vector_status": (
+            "indexed" if rec.get("image_vector_id") is not None
+            else ("queued" if rec.get("state") == "queued" else "missing")
+        ),
+    }
 
 
 def _looks_like_missing_embedder(e: Exception) -> bool:
@@ -220,17 +229,43 @@ def list_images_endpoint(
         raise HTTPException(403, "no read permission")
     _get_source_or_404(int(source_id))
     from chayuan.server.image_source.store import get_store
-    store = get_store(_resolve_store_name(source_id))
+    store = get_store(_resolve_store_name(int(source_id)))
     items = []
-    for m in store._meta[-int(limit):]:  # 简单取最近 limit 条
-        items.append({
-            "id": m.get("id"), "path": m.get("path"),
-            "size_bytes": m.get("size_bytes"), "md5": m.get("md5"),
-            "tags": m.get("tags") or "",
-            "embedder_model": m.get("embedder_model"),
-            "created_at": m.get("created_at"),
-        })
-    return {"code": 0, "data": {"count": store.count(), "dim": store.dim(), "items": items}}
+    for m in store.list_items(int(limit)):
+        items.append(_item_to_wire(m, int(source_id)))
+    return {
+        "code": 0,
+        "data": {"count": store.count(), "dim": store.dim(), "items": items},
+    }
+
+
+@image_router.get(
+    "/{source_id}/image/{image_id}/status",
+    summary="单条图像 item 处理状态(供前端轮询)",
+)
+def item_status_endpoint(
+    source_id: int, image_id: str,
+    user=Depends(require_auth_enabled()),
+):
+    if not can_read(user, int(source_id)):
+        raise HTTPException(403, "no read permission")
+    _get_source_or_404(int(source_id))
+    from chayuan.server.image_source.store import get_store
+    store = get_store(_resolve_store_name(int(source_id)))
+    rec = store.get(image_id)
+    if rec is None:
+        raise HTTPException(404, f"image {image_id} not found")
+    return {
+        "code": 0,
+        "data": {
+            "id": image_id,
+            "state": rec.get("state", "ready"),
+            "progress": int(rec.get("progress") or 0),
+            "error": rec.get("error"),
+            "has_text_vector": bool(rec.get("has_text_vector")),
+            "ocr_text": (rec.get("ocr_text") or "")[:500] or None,
+        },
+    }
 
 
 @image_router.delete("/{source_id}/image/{image_id}", summary="从索引删除图像")
