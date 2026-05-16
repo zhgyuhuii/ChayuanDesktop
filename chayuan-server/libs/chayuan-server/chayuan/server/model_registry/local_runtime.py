@@ -186,6 +186,97 @@ async def _probe_health(url: str, *, timeout: float = 2.0) -> "object":
         return await client.get(url)
 
 
+# capability → PlatformConfig 字段名;sidecar 注册 platform 时按 cap 把
+# model_id 放进对应清单字段(其它字段留空,平台只承载这一个 capability)。
+_CAP_TO_PLATFORM_FIELD: Dict[str, str] = {
+    "chat":            "llm_models",
+    "embedding":       "embed_models",
+    "rerank":          "rerank_models",
+    "asr":             "speech2text_models",
+    "image-embedding": "image2text_models",
+}
+
+
+def _register_local_platform(*, capability: str, host: str, port: int, model_id: Optional[str]) -> None:
+    """sidecar ready 时,把它注册成一个 PlatformConfig 注入 Settings.model_settings.MODEL_PLATFORMS。
+
+    platform_name 是 ``local-<capability>`` 唯一标识(get_config_platforms 用 platform_name
+    做 dict key,不能重名)。前端要拼 ``local-<cap>::<model_id>`` 命名空间发请求,
+    chat 路径会 get_model_info → 解出 platform_name → 拿到这个 platform 的 api_base_url
+    打 sidecar。
+
+    幂等:同名 platform 已存在就 update,不重复 append。bump_platform_version 触发
+    get_config_platforms 的 5s TTL cache 立即穿透。
+    """
+    from chayuan.settings import Settings, PlatformConfig
+
+    platform_name = f"local-{capability}"
+    api_base_url = f"http://{host if host != '0.0.0.0' else '127.0.0.1'}:{port}/v1"
+
+    # 构造 cap 对应的 model_list 字段
+    model_field = _CAP_TO_PLATFORM_FIELD.get(capability)
+    field_value: list = [model_id] if (model_field and model_id) else []
+
+    new_platform = PlatformConfig(
+        platform_name=platform_name,
+        platform_type="openai",  # llama-server / infinity 都是 OpenAI 兼容 API
+        api_base_url=api_base_url,
+        api_key="EMPTY",
+        enabled=True,
+        # auto_detect 这条 path 还不通(_detect_oneapi 没实现),先用显式 model_id
+        auto_detect_model=False,
+    )
+    # 按 cap 填对应字段(其它字段保持默认空)
+    if model_field and field_value:
+        setattr(new_platform, model_field, field_value)
+
+    platforms = list(Settings.model_settings.MODEL_PLATFORMS or [])
+    # 已存在同名 → 替换(覆盖 endpoint / model_id 变化);否则 append
+    for i, p in enumerate(platforms):
+        if p.platform_name == platform_name:
+            platforms[i] = new_platform
+            break
+    else:
+        platforms.append(new_platform)
+    Settings.model_settings.MODEL_PLATFORMS = platforms
+
+    # 触发 get_config_platforms 5s TTL cache 立即失效(写完立刻能查到)
+    try:
+        from chayuan.server.db.repository.model_platform_repository import bump_platform_version
+        bump_platform_version()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[local-runtime] bump_platform_version skipped: %r", e)
+
+    logger.info(
+        "[local-runtime] registered MODEL_PLATFORMS entry: %s @ %s (model=%s)",
+        platform_name, api_base_url, model_id,
+    )
+
+
+def _deregister_local_platform(*, capability: str) -> None:
+    """sidecar stop/failed 时,把对应 platform 设 enabled=False。
+
+    不删条目:保留 api_base_url 等信息,下次 sidecar 重启重 enable 时省一次构造;
+    enabled=False 时 get_config_platforms 会把它过滤掉,chat / /v1/models 都看不到。
+    """
+    from chayuan.settings import Settings
+
+    platform_name = f"local-{capability}"
+    platforms = Settings.model_settings.MODEL_PLATFORMS or []
+    for p in platforms:
+        if p.platform_name == platform_name:
+            p.enabled = False
+            break
+
+    try:
+        from chayuan.server.db.repository.model_platform_repository import bump_platform_version
+        bump_platform_version()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[local-runtime] bump_platform_version skipped: %r", e)
+
+    logger.info("[local-runtime] deregistered MODEL_PLATFORMS entry: %s", platform_name)
+
+
 def _resolve_args_for(
     capability: str,
     *,
@@ -447,22 +538,45 @@ class SidecarRuntimeManager:
 
         if self._process is not proc:
             return self._status
+        resolved_model_id = resolution.resolved_models.get(self.capability)
         self._status = RuntimeStatus(
             state="ready",
             endpoint=endpoint,
             pid=proc.pid,
-            model_id=resolution.resolved_models.get("chat"),
+            # 原来硬编码 "chat" key,导致非 chat sidecar status.model_id 永远 None
+            # (诊断报告 embedding/rerank/asr/image-embedding model=None 的来源)。
+            model_id=resolved_model_id,
             model_path=model_path,
             started_at=datetime.now(),
             last_health_at=datetime.now(),
         )
         self._persist_status()
+        # sidecar ready → 注册 MODEL_PLATFORMS,让 chat / embedding 调用路径能找到它
+        try:
+            _register_local_platform(
+                capability=self.capability,
+                host=host,
+                port=port,
+                model_id=resolved_model_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[local-runtime] register MODEL_PLATFORMS for %s failed: %r",
+                self.capability, e,
+            )
         return self._status
 
     async def stop(self, *, timeout: float = 10.0) -> None:
         if self._process is None:
             self._status = RuntimeStatus(state="stopped")
             self._persist_status()
+            try:
+                _deregister_local_platform(capability=self.capability)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "[local-runtime] deregister MODEL_PLATFORMS for %s failed: %r",
+                    self.capability, e,
+                )
             return
         proc_local = self._process  # snapshot too,defensive
         try:
@@ -476,6 +590,13 @@ class SidecarRuntimeManager:
             self._process = None
         self._status = RuntimeStatus(state="stopped")
         self._persist_status()
+        try:
+            _deregister_local_platform(capability=self.capability)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[local-runtime] deregister MODEL_PLATFORMS for %s failed: %r",
+                self.capability, e,
+            )
 
     async def restart(self, *, model_id: str | None = None) -> RuntimeStatus:
         """等价于 stop + start;先写 state=restarting 让观察者看到过渡态。"""

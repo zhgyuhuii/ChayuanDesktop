@@ -29,9 +29,16 @@ function isChatModel(model: RawModelItem): boolean {
 
 const STORAGE_KEY = 'cy.modelPicker.override.v2';
 
-/** 本地 runtime 合成出的虚拟 platform,跟真平台 (deepseek/qwen 等) 平行展示 */
+/** 本地 runtime 合成出的虚拟 platform,跟真平台 (deepseek/qwen 等) 平行展示。
+ *  后端 SidecarRuntimeManager 注册的真 platform_name 是 `local-<cap>` (local-chat /
+ *  local-embedding / ...),前端按前缀识别归到「本地模型」分组 + 排序首位。 */
 export const LOCAL_PLATFORM_KEY = 'local';
 export const LOCAL_PLATFORM_LABEL = '本地模型';
+
+/** platform_name 是否属于本地 sidecar 命名空间(`local-*` 或裸 `local` 兼容老前端)。 */
+function isLocalPlatform(name: string): boolean {
+  return name === LOCAL_PLATFORM_KEY || name.startsWith('local-');
+}
 
 interface PlatformGroup {
   /** 用作分组 key + 内部识别(同 platform_name) */
@@ -58,14 +65,17 @@ function groupByPlatform(list: ReadonlyArray<RawModelItem>): PlatformGroup[] {
   }
   return Array.from(map.entries())
     .sort(([a], [b]) => {
-      if (a === LOCAL_PLATFORM_KEY) return -1;
-      if (b === LOCAL_PLATFORM_KEY) return 1;
+      // 本地 sidecar(local / local-chat / ...)排首位,其它按字母序
+      const aLocal = isLocalPlatform(a);
+      const bLocal = isLocalPlatform(b);
+      if (aLocal && !bLocal) return -1;
+      if (!aLocal && bLocal) return 1;
       return a.localeCompare(b);
     })
     .map(([platform, { displayName, items }]) => ({
       platform,
       displayName:
-        platform === LOCAL_PLATFORM_KEY ? LOCAL_PLATFORM_LABEL : displayName || platform,
+        isLocalPlatform(platform) ? LOCAL_PLATFORM_LABEL : displayName || platform,
       items: Array.from(items.values()).sort((a, b) => a.id.localeCompare(b.id)),
     }));
 }

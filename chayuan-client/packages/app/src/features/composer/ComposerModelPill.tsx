@@ -94,7 +94,11 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
     const localItem: RawModelItem = {
       id: localStatus.model_id,
       object: 'model',
-      platform_name: LOCAL_PLATFORM_KEY,
+      // 后端 SidecarRuntimeManager 注册的 platform_name 是 `local-<capability>`(必须唯一,
+      // 不能重名),这里 chat sidecar 对应 `local-chat`。前端用这个 namespace 后,
+      // get_model_info 才能在 MODEL_PLATFORMS 找到对应 sidecar endpoint;
+      // 老的 'local' 单值 namespace 永远找不到 → ModelNotConfigured。
+      platform_name: 'local-chat',
       platform_display_name: LOCAL_PLATFORM_LABEL,
       model_type: 'llm',
       available: true,
