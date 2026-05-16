@@ -44,7 +44,15 @@ class ImageConnector(BaseConnector):
     def __init__(self, spec: ConnectionSpec, source_id: int = 0):
         super().__init__(spec, source_id)
         self._model_name = (self.spec.options or {}).get("embedder_model") or default_model_name()
-        self._source_name = (self.spec.options or {}).get("source_name") or self.spec.database or f"src_{self.source_id}"
+        # 与列表 / 详情端点一致的解析顺序:
+        #   options.source_name → spec.database → "src_{id}"
+        self.source_name = (
+            (self.spec.options or {}).get("source_name")
+            or self.spec.database
+            or f"src_{self.source_id}"
+        )
+        # 老内部代号保留,避免一次性大改
+        self._source_name = self.source_name
 
     # ---- 检验 ----
 

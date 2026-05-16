@@ -46,6 +46,11 @@ def _build_image_connector(source_id: int):
     return ImageConnector(spec=spec, source_id=int(source_id))
 
 
+def _resolve_store_name(source_id: int) -> str:
+    """统一 store 名解析,与 ImageConnector 完全同源。"""
+    return _build_image_connector(int(source_id)).source_name
+
+
 # ---------------------------------------------------------------------------
 # Upload / list / delete
 # ---------------------------------------------------------------------------
@@ -213,9 +218,9 @@ def list_images_endpoint(
 ):
     if not can_read(user, int(source_id)):
         raise HTTPException(403, "no read permission")
-    src = _get_source_or_404(int(source_id))
+    _get_source_or_404(int(source_id))
     from chayuan.server.image_source.store import get_store
-    store = get_store((src.get("name") or f"src_{source_id}"))
+    store = get_store(_resolve_store_name(source_id))
     items = []
     for m in store._meta[-int(limit):]:  # 简单取最近 limit 条
         items.append({
@@ -235,9 +240,9 @@ def delete_image_endpoint(
 ):
     if not can_write(user, int(source_id)):
         raise HTTPException(403, "no write permission")
-    src = _get_source_or_404(int(source_id))
+    _get_source_or_404(int(source_id))
     from chayuan.server.image_source.store import get_store
-    ok = get_store((src.get("name") or f"src_{source_id}")).remove(image_id)
+    ok = get_store(_resolve_store_name(source_id)).remove(image_id)
     return {"code": 0 if ok else 1, "msg": "ok" if ok else "not found"}
 
 
@@ -249,9 +254,9 @@ def image_file_endpoint(
 ):
     if not can_read(user, int(source_id)):
         raise HTTPException(403, "no read permission")
-    src = _get_source_or_404(int(source_id))
+    _get_source_or_404(int(source_id))
     from chayuan.server.image_source.store import get_store
-    store = get_store((src.get("name") or f"src_{source_id}"))
+    store = get_store(_resolve_store_name(source_id))
     rec = next((m for m in store._meta if m.get("id") == image_id), None)
     if rec is None:
         raise HTTPException(404, "image not found")

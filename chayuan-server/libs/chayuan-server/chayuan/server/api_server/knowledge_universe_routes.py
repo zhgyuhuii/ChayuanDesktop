@@ -397,7 +397,8 @@ def universe_detail(
             # 与 /knowledge_source/{id}/image/list 同款 store,字段形状对齐前端契约
             try:
                 from chayuan.server.image_source.store import get_store
-                store = get_store(src.get("name") or f"src_{raw}")
+                from chayuan.server.api_server.image_routes import _resolve_store_name
+                store = get_store(_resolve_store_name(int(raw)))
                 items = []
                 for m in store._meta[-200:]:
                     img_id = m.get("id")
