@@ -46,7 +46,7 @@ vendor/
 
 | 服务 | 上游默认端口 | 察元偏好端口（不冲突） | 备注 |
 |---|---|---|---|
-| API Server | — | **7861**（本仓库默认） | yaml 改 `API_SERVER.port` |
+| API Server | — | **62581**（本仓库默认） | yaml 改 `API_SERVER.port` |
 | 配置面板 | — | **8502** | yaml 改 `CONFIG_SERVER.port` |
 | PostgreSQL | 5432 | **35432** | +30000 偏移，远离 docker 默认 |
 | Redis | 6379 | **36379** | |

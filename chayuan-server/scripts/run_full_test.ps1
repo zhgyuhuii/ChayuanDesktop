@@ -26,7 +26,7 @@ param(
     [switch]$SkipWhiteBox,
     [switch]$SkipSmoke,
     [switch]$SkipE2E,
-    [string]$ApiBase = "http://127.0.0.1:7861",
+    [string]$ApiBase = "http://127.0.0.1:62581",
     [string]$WebUIBase = "http://127.0.0.1:8501",
     [string]$LangfuseBase = "http://127.0.0.1:3000",
     [string]$MinioBase = "http://127.0.0.1:9001"

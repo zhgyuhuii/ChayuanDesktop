@@ -4,8 +4,8 @@
  * packages/api/generated/types.ts。
  *
  * 用法：
- *   API_BASE=http://127.0.0.1:7861 node tools/api-codegen.mjs           # 写盘
- *   API_BASE=http://127.0.0.1:7861 node tools/api-codegen.mjs --check   # CI: 只 diff 不写
+ *   API_BASE=http://127.0.0.1:62581 node tools/api-codegen.mjs           # 写盘
+ *   API_BASE=http://127.0.0.1:62581 node tools/api-codegen.mjs --check   # CI: 只 diff 不写
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -14,7 +14,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const API_BASE = process.env.API_BASE || 'http://127.0.0.1:7861';
+const API_BASE = process.env.API_BASE || 'http://127.0.0.1:62581';
 const OUT = resolve(ROOT, 'packages/api/generated/types.ts');
 const CHECK_MODE = process.argv.includes('--check');
 
