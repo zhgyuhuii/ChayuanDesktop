@@ -92,36 +92,79 @@ pick_python() {
     esac
 }
 
-# 候选优先级:CHAYUAN_PYTHON env 显式 > conda envs/py312 > pyenv shims/3.12.x >
-# 系统 python3.12 > poetry venv > python3(任意)
-# `set -e` 在 command -v 找不到时会跳;暂时关掉
+# 候选优先级:CHAYUAN_PYTHON env > conda 所有 env(任意名字) > 系统 / pyenv >
+# poetry venv > python3(任意)
+# `set -e` 在 command -v 找不到时会跳;关掉
 set +e
 declare -a candidates=()
 [ -n "${CHAYUAN_PYTHON:-}" ] && candidates+=("$CHAYUAN_PYTHON")
+
+# 1) 找 conda(PATH 或常见安装路径)
+CONDA_EXE=""
+for c in conda mamba micromamba; do
+    p="$(command -v $c 2>/dev/null)"
+    [ -n "$p" ] && CONDA_EXE="$p" && break
+done
+if [ -z "$CONDA_EXE" ]; then
+    for p in \
+        "$HOME/miniconda3/bin/conda" "$HOME/anaconda3/bin/conda" \
+        "$HOME/miniforge3/bin/conda" "$HOME/mambaforge/bin/conda" \
+        /opt/conda/bin/conda /opt/miniconda3/bin/conda /opt/anaconda3/bin/conda \
+        /root/miniconda3/bin/conda; do
+        [ -x "$p" ] && CONDA_EXE="$p" && break
+    done
+fi
+
+# 2) 用 conda 自身枚举所有 env(env 名 / 路径 / 别的发行版都不依赖)
+if [ -n "$CONDA_EXE" ]; then
+    while IFS= read -r envpath; do
+        [ -n "$envpath" ] && [ -x "$envpath/bin/python3" ] && candidates+=("$envpath/bin/python3")
+    done < <("$CONDA_EXE" info --json 2>/dev/null | \
+             python3 -c 'import json,sys;d=json.load(sys.stdin);[print(e) for e in d.get("envs",[])];p=d.get("root_prefix");p and print(p)' 2>/dev/null)
+fi
+
+# 3) 通用安装位置
 candidates+=(
     "$HOME/miniconda3/envs/py312/bin/python3"
-    "$HOME/miniconda3/envs/py312/bin/python"
-    "/root/miniconda3/envs/py312/bin/python3"
+    "$HOME/miniforge3/envs/py312/bin/python3"
+    "$HOME/mambaforge/envs/py312/bin/python3"
+    "$HOME/anaconda3/envs/py312/bin/python3"
     "/opt/conda/envs/py312/bin/python3"
     "$HOME/.pyenv/versions/3.12.13/bin/python3"
 )
-P312="$(command -v python3.12 2>/dev/null)"
-[ -n "$P312" ] && candidates+=("$P312")
-P311="$(command -v python3.11 2>/dev/null)"
-[ -n "$P311" ] && candidates+=("$P311")
 
+# 4) PATH 搜索
+for exe in python3.12 python3.11 python3.10 python3; do
+    p="$(command -v $exe 2>/dev/null)"
+    [ -n "$p" ] && candidates+=("$p")
+done
+
+# 5) poetry venv
 if command -v poetry >/dev/null 2>&1; then
     POETRY_VENV="$(cd "$SERVER" && poetry env info --path 2>/dev/null)"
     [ -n "$POETRY_VENV" ] && [ -x "$POETRY_VENV/bin/python" ] && candidates+=("$POETRY_VENV/bin/python")
 fi
-PY3="$(command -v python3 2>/dev/null)"
-[ -n "$PY3" ] && candidates+=("$PY3")
 
+# 去重
+declare -a uniq_candidates=()
+declare -A seen=()
 for c in "${candidates[@]}"; do
     [ -z "$c" ] && continue
+    if [ -z "${seen[$c]:-}" ]; then
+        seen[$c]=1
+        uniq_candidates+=("$c")
+    fi
+done
+
+declare -a probed=()
+for c in "${uniq_candidates[@]}"; do
     [ -x "$c" ] || continue
     pyver=$(pick_python "$c")
-    [ -z "$pyver" ] && continue
+    if [ -z "$pyver" ]; then
+        probed+=("[$c]  (跑 -c 'import sys' 失败 / 不存在)")
+        continue
+    fi
+    probed+=("[$c]  Python $pyver")
     if [ "$pyver" = "3.13-bad" ]; then
         [ -z "${PYTHON_BIN_FALLBACK:-}" ] && PYTHON_BIN_FALLBACK="$c"
         continue
@@ -142,10 +185,21 @@ if [ -z "$PYTHON_BIN" ] && [ -n "${PYTHON_BIN_FALLBACK:-}" ]; then
     PYTHON_VERSION="3.13(危险)"
 fi
 if [ -z "$PYTHON_BIN" ]; then
-    err "找不到 Python 3.10-3.12;chayuan-server 不支持 3.13(C 扩展 SIGSEGV)"
-    echo "    macOS:  brew install python@3.12;然后 export CHAYUAN_PYTHON=\$(brew --prefix python@3.12)/bin/python3.12" >&2
-    echo "    Linux:  conda create -n py312 python=3.12 -y;CHAYUAN_PYTHON=\$HOME/miniconda3/envs/py312/bin/python3 bash $0" >&2
-    echo "          或 apt install -y python3.12 python3.12-venv;export CHAYUAN_PYTHON=\$(command -v python3.12)" >&2
+    err "找不到 Python 3.10/3.11/3.12;chayuan-server 不支持 3.13(C 扩展 SIGSEGV)"
+    if [ "${#probed[@]}" -gt 0 ]; then
+        echo "    探测过(都不是 3.10/3.11/3.12):" >&2
+        for p in "${probed[@]:0:20}"; do echo "      $p" >&2; done
+    else
+        echo "    一个 Python 候选都没找到(conda + PATH 都空)" >&2
+    fi
+    echo "" >&2
+    echo "  解法:" >&2
+    echo "    1) 已装 conda 但 env 名字不是 py312 → 显式指定:" >&2
+    echo "       export CHAYUAN_PYTHON=\$(conda info --json | python3 -c \\" >&2
+    echo "         \"import json,sys;[print(e+'/bin/python3') for e in json.load(sys.stdin)['envs']]\" | head -1)" >&2
+    echo "    2) macOS:  brew install python@3.12;export CHAYUAN_PYTHON=\$(brew --prefix python@3.12)/bin/python3.12" >&2
+    echo "    3) Linux:  conda create -n py312 python=3.12 -y" >&2
+    echo "              或 apt install -y python3.12 python3.12-venv" >&2
     exit 1
 fi
 

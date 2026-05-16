@@ -87,22 +87,73 @@ function Get-PyVersion($exePath) {
     if (-not (Test-Path $exePath)) { return $null }
     try {
         $v = & $exePath -c 'import sys;print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $v) { return $null }
         return $v.Trim()
     } catch { return $null }
 }
 
 $candidates = @()
 if ($env:CHAYUAN_PYTHON) { $candidates += $env:CHAYUAN_PYTHON }
+
+# 1) 用 conda 自身列出所有 env(最可靠;env 名 / 路径 / 是否在 USERPROFILE 都不依赖)
+$condaExe = Get-Command conda -ErrorAction SilentlyContinue
+if (-not $condaExe) {
+    # 用户可能装了 conda 但没 PATH;扫常见路径
+    foreach ($p in @(
+        "$env:USERPROFILE\miniconda3\Scripts\conda.exe"
+        "$env:USERPROFILE\Anaconda3\Scripts\conda.exe"
+        "$env:USERPROFILE\miniforge3\Scripts\conda.exe"
+        "$env:USERPROFILE\mambaforge\Scripts\conda.exe"
+        "$env:LOCALAPPDATA\miniconda3\Scripts\conda.exe"
+        "$env:LOCALAPPDATA\Anaconda3\Scripts\conda.exe"
+        "C:\ProgramData\miniconda3\Scripts\conda.exe"
+        "C:\ProgramData\Anaconda3\Scripts\conda.exe"
+        'C:\Miniconda3\Scripts\conda.exe'
+        'C:\Anaconda3\Scripts\conda.exe'
+    )) {
+        if (Test-Path $p) { $condaExe = $p; break }
+    }
+}
+if ($condaExe) {
+    try {
+        $envListRaw = & $condaExe info --json 2>$null
+        if ($LASTEXITCODE -eq 0 -and $envListRaw) {
+            $envInfo = ($envListRaw -join "`n") | ConvertFrom-Json
+            foreach ($envPath in @($envInfo.envs)) {
+                $py = Join-Path $envPath 'python.exe'
+                if (-not (Test-Path $py)) { $py = Join-Path $envPath 'bin\python.exe' }
+                if (Test-Path $py) { $candidates += $py }
+            }
+            # base env 也算
+            if ($envInfo.root_prefix) {
+                $rootPy = Join-Path $envInfo.root_prefix 'python.exe'
+                if (Test-Path $rootPy) { $candidates += $rootPy }
+            }
+        }
+    } catch { }
+}
+
+# 2) 通用安装位置(以防 conda 没列全 / 用户用了别的发行版)
 $candidates += @(
     "$env:USERPROFILE\miniconda3\envs\py312\python.exe"
     "$env:USERPROFILE\Anaconda3\envs\py312\python.exe"
+    "$env:USERPROFILE\miniforge3\envs\py312\python.exe"
+    "$env:USERPROFILE\mambaforge\envs\py312\python.exe"
+    "$env:LOCALAPPDATA\miniconda3\envs\py312\python.exe"
+    "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
+    "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe"
     "C:\Python312\python.exe"
     "C:\Python311\python.exe"
+    "C:\Python310\python.exe"
 )
-foreach ($exe in @('python3.12.exe','python3.11.exe','python.exe','python3.exe')) {
+
+# 3) PATH 搜索
+foreach ($exe in @('python3.12.exe','python3.11.exe','python3.10.exe','python.exe','python3.exe')) {
     $cmd = Get-Command $exe -ErrorAction SilentlyContinue
     if ($cmd) { $candidates += $cmd.Source }
 }
+
+# 4) poetry venv
 $poetryExe = Get-Command poetry -ErrorAction SilentlyContinue
 if ($poetryExe) {
     Push-Location $Server
@@ -116,13 +167,21 @@ if ($poetryExe) {
     } finally { Pop-Location }
 }
 
+# 去重
+$candidates = $candidates | Where-Object { $_ } | Select-Object -Unique
+
 $pythonBin = $null
 $pythonVersion = $null
 $fallback313 = $null
+$probed = @()   # 记录探测过的 (path, 版本) 给失败时排错用
 foreach ($cand in $candidates) {
     if (-not $cand -or -not (Test-Path $cand)) { continue }
     $ver = Get-PyVersion $cand
-    if (-not $ver) { continue }
+    if (-not $ver) {
+        $probed += "[$cand]  (跑 -c 'import sys' 失败)"
+        continue
+    }
+    $probed += "[$cand]  Python $ver"
     if ($ver -in @('3.10','3.11','3.12')) {
         $pythonBin = $cand
         $pythonVersion = $ver
@@ -137,14 +196,28 @@ if (-not $pythonBin -and $fallback313) {
     Write-Warn '  multiprocessing 子 worker 100% SIGSEGV(C 扩展不兼容)。装 3.12:'
     Write-Host '    winget install Python.Python.3.12' -ForegroundColor DarkGray
     Write-Host '    或:conda create -n py312 python=3.12 -y' -ForegroundColor DarkGray
-    Write-Host '    然后:$env:CHAYUAN_PYTHON = ...; .\scripts\dev-start.ps1' -ForegroundColor DarkGray
+    Write-Host '    然后:$env:CHAYUAN_PYTHON = "C:\path\to\python.exe"; .\scripts\dev-start.ps1' -ForegroundColor DarkGray
     $pythonBin = $fallback313
     $pythonVersion = '3.13(危险)'
 }
 if (-not $pythonBin) {
     Write-Err '找不到 Python 3.10/3.11/3.12;chayuan-server 不支持 3.13(C 扩展 SIGSEGV)'
-    Write-Host '    装法:winget install Python.Python.3.12' -ForegroundColor DarkGray
-    Write-Host '         或 conda create -n py312 python=3.12 -y' -ForegroundColor DarkGray
+    if ($probed.Count -gt 0) {
+        Write-Host '    探测过(都不是 3.10/3.11/3.12):' -ForegroundColor DarkGray
+        foreach ($p in ($probed | Select-Object -First 20)) {
+            Write-Host "      $p" -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Host '    一个 Python 候选都没找到(conda + PATH 都空)' -ForegroundColor DarkGray
+    }
+    Write-Host ''
+    Write-Host '  解法:' -ForegroundColor Yellow
+    Write-Host '    1) 已装 conda 但 env 名字不是 py312 → 直接指定:' -ForegroundColor DarkGray
+    Write-Host '       $env:CHAYUAN_PYTHON = "$(conda env list | findstr 3.12 | %% { ($_ -split ''\s+'')[-1] })\python.exe"' -ForegroundColor DarkGray
+    Write-Host '       或手动:$env:CHAYUAN_PYTHON = "C:\Users\<you>\miniconda3\envs\<envname>\python.exe"' -ForegroundColor DarkGray
+    Write-Host '    2) 没装 3.12:' -ForegroundColor DarkGray
+    Write-Host '       winget install Python.Python.3.12' -ForegroundColor DarkGray
+    Write-Host '       或 conda create -n py312 python=3.12 -y' -ForegroundColor DarkGray
     exit 1
 }
 
