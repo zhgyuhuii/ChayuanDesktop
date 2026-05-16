@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Windows 一键下载 vendor/bundled_models/ 的瘦身默认集。
 
