@@ -150,6 +150,103 @@ def _guess_audio_ext(content_type: str, filename: str) -> str:
     return ".webm"  # 浏览器 MediaRecorder 默认
 
 
+@modality_router.get("/asr/diag", summary="ASR 4 层后端实时可用性诊断")
+async def asr_diag_endpoint(user=Depends(require_auth_enabled())):
+    """对 sidecar / faster-whisper / openai-whisper / OpenAI API 各跑一次实时探测。
+
+    专治"前端显示 ASR 已就绪、实际录音无文字"— sidecar 假 ready / Python 没装 /
+    云端没配,全部能在这里看清楚。返回结构稳定,前端 onFinal=0 时自动调。
+    """
+    import httpx  # type: ignore
+
+    # 1) 本地 sidecar — registry status + 实时 HTTP probe(不信缓存)
+    sidecar = {
+        "state": "unknown",
+        "endpoint": "",
+        "reachable": False,
+        "http_status": 0,
+        "last_error": "",
+        "probe_error": "",
+    }
+    try:
+        from chayuan.server.model_registry.local_runtime_registry import get_registry
+        mgr = get_registry().get("asr")
+        sidecar["state"] = mgr.status.state
+        sidecar["endpoint"] = mgr.status.endpoint or ""
+        sidecar["last_error"] = mgr.status.last_error or ""
+        if sidecar["endpoint"]:
+            try:
+                async with httpx.AsyncClient(timeout=2.0) as c:
+                    r = await c.get(sidecar["endpoint"].rstrip("/") + "/")
+                    sidecar["http_status"] = r.status_code
+                    sidecar["reachable"] = 200 <= r.status_code < 500
+            except Exception as e:  # noqa: BLE001
+                sidecar["probe_error"] = f"{type(e).__name__}: {e}"
+    except Exception as e:  # noqa: BLE001
+        sidecar["probe_error"] = f"registry: {e}"
+
+    # 2) Python: faster-whisper
+    def _imp(name: str) -> dict:
+        try:
+            __import__(name)
+            return {"installed": True, "error": ""}
+        except Exception as e:  # noqa: BLE001
+            return {"installed": False, "error": str(e)}
+
+    faster_whisper = _imp("faster_whisper")
+    openai_whisper = _imp("whisper")
+
+    # 3) OpenAI API
+    openai_api = {"configured": False, "error": ""}
+    try:
+        from chayuan.server.utils import get_OpenAI
+        client = get_OpenAI()
+        openai_api["configured"] = client is not None
+    except Exception as e:  # noqa: BLE001
+        openai_api["error"] = str(e)
+
+    # 4) 默认模型
+    try:
+        from chayuan.server.capability_router import resolve_model
+        default_model = resolve_model("asr") or "(未配置)"
+    except Exception:  # noqa: BLE001
+        default_model = "(未配置)"
+
+    # 5) 推荐
+    if sidecar["reachable"]:
+        recommend = "ASR sidecar 实时可达,语音应能工作。如仍无文字,看后端 transcribe 日志。"
+    elif sidecar["state"] == "ready" and not sidecar["reachable"]:
+        recommend = (
+            f"⚠ ASR sidecar 显示 ready @ {sidecar['endpoint']} 但实时不可达 "
+            f"(probe: {sidecar['probe_error'] or 'http ' + str(sidecar['http_status'])})。"
+            f"进程可能已死,请到「设置 → AI 平台 → 本地服务」停止并重新启动 ASR。"
+        )
+    elif faster_whisper["installed"] or openai_whisper["installed"]:
+        recommend = "Python whisper 后端可用,但你的请求可能没触达 — 检查后端 transcribe 日志。"
+    elif openai_api["configured"]:
+        recommend = "OpenAI API 已配,可作云端 fallback;否则建议本地启 sidecar 或 pip install faster-whisper。"
+    else:
+        recommend = (
+            "所有 ASR 后端都不可用,任选其一启用:\n"
+            "1) 设置 → AI 平台 → 本地服务,启动 ASR sidecar(whisper-server)\n"
+            "2) pip install faster-whisper(轻量、CPU 友好)\n"
+            "3) pip install openai-whisper\n"
+            "4) 配置 OpenAI API key(云端)"
+        )
+
+    return {
+        "code": 0,
+        "data": {
+            "sidecar": sidecar,
+            "faster_whisper": faster_whisper,
+            "openai_whisper": openai_whisper,
+            "openai_api": openai_api,
+            "default_model": default_model,
+            "recommend": recommend,
+        },
+    }
+
+
 @modality_router.post("/transcribe", summary="对一段音频做 ASR 转写")
 async def transcribe_endpoint(
     file: UploadFile = File(...),
