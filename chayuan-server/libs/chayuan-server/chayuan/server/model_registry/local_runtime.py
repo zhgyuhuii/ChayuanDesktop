@@ -358,11 +358,25 @@ class SidecarRuntimeManager:
         if "--threads" not in resolution.args:
             args.extend(["--threads", str(min(8, os.cpu_count() or 4))])
 
+        # 动态链接的 vendor binary(如 Docker 提取的 whisper-server / linux-arm64
+        # llama-server)依赖同目录 .so / .dylib;loader 默认不看 exe 旁路径,需要
+        # LD_LIBRARY_PATH(Linux)或 DYLD_LIBRARY_PATH(macOS)显式注入。
+        # Win 没此问题(DLL search 默认包含 exe 同目录)。infinity engine 用 sys.executable
+        # 跑 Python module,不需要这个。
+        proc_env = None
+        if self.engine != "infinity" and sys.platform != "win32":
+            proc_env = os.environ.copy()
+            exe_dir = str(exe.parent)
+            var = "DYLD_LIBRARY_PATH" if sys.platform == "darwin" else "LD_LIBRARY_PATH"
+            existing = proc_env.get(var, "")
+            proc_env[var] = f"{exe_dir}:{existing}" if existing else exe_dir
+
         try:
             self._process = subprocess.Popen(
                 args,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
+                env=proc_env,
                 # Windows 下 CREATE_NO_WINDOW = 0x08000000,避免弹黑框
                 creationflags=0x08000000 if sys.platform == "win32" else 0,
             )

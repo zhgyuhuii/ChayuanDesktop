@@ -245,6 +245,50 @@ async def test_manager_start_spawns_subprocess(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_manager_start_injects_ld_library_path_for_dynamic_binary(tmp_path, monkeypatch):
+    """Linux/Mac spawn 时应注入 LD_LIBRARY_PATH=$exe.parent / DYLD_LIBRARY_PATH。"""
+    from chayuan.server.model_registry import local_runtime
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    exe = services / "llama-server"
+    exe.write_bytes(b"stub")
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    fake_resolution = mock.MagicMock(
+        missing=[],
+        args=["--model", "/tmp/fake.gguf"],
+        resolved_models={"chat": "fake-chat-model"},
+        reason="",
+    )
+    monkeypatch.setattr(
+        local_runtime, "_resolve_args_for",
+        lambda *a, **kw: (fake_resolution, "/tmp/fake.gguf"),
+    )
+
+    captured: dict = {}
+
+    def fake_popen(args, **kw):
+        captured["env"] = kw.get("env")
+        return mock.MagicMock(pid=4321, poll=mock.MagicMock(return_value=None))
+
+    monkeypatch.setattr(local_runtime.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(local_runtime.sys, "platform", "linux")
+
+    async def fake_health(url, **kw):
+        return mock.MagicMock(status_code=200)
+    monkeypatch.setattr(local_runtime, "_probe_health", fake_health)
+
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
+    await m.start()
+
+    env = captured["env"]
+    assert env is not None  # 不能裸 inherit
+    assert str(services) in env.get("LD_LIBRARY_PATH", "")
+    # 其它环境变量(PATH 等)应该被继承
+    assert "PATH" in env
+
+
+@pytest.mark.asyncio
 async def test_manager_start_missing_exe_fails(tmp_path, monkeypatch):
     """vendor 二进制缺失时,start() 状态 → failed"""
     from chayuan.server.model_registry import local_runtime

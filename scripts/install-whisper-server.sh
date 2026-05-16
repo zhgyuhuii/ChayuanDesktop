@@ -1,36 +1,105 @@
 #!/usr/bin/env bash
 # install-whisper-server.sh — 装 whisper-server 二进制 (Mac / Linux)
 #
-# 现状(2026-05-16):whisper.cpp upstream 官方只发 Windows pre-built
-# (whisper-bin-Win32.zip / whisper-bin-x64.zip,从 v1.7.6 起),**没有**
-# Linux/Mac 现成 binary。所以本脚本走两条路:
+# 现状(2026-05-16):whisper.cpp upstream 官方只发 Windows pre-built,**没有**
+# Linux/Mac binary。本脚本两条路:
 #
-#  1. Mac:优先用 `brew install whisper-cpp`(主仓 formula,带 whisper-server),
-#         brew 不在就 fallback 到源码 cmake build。
-#  2. Linux:只能源码 cmake build,需要 cmake + g++ + git。
+#  1. Mac:优先 `brew install whisper-cpp`,brew 不在就源码 cmake build。
+#  2. Linux:用 Docker (ghcr.io/ggml-org/whisper.cpp:main, amd64 only) 提取,
+#     或源码 cmake build。
 #
-# 用法: bash scripts/install-whisper-server.sh [tag]
-#   tag: 可选 git tag(源码 build 时 checkout 用),默认 v1.7.6
+# 用法:
+#   bash scripts/install-whisper-server.sh [tag] [--target <plat>]
+#
+#   tag: 可选 git tag,默认 v1.7.6
+#   --target: 平台子目录名。不传 = 按 host 自动:
+#     linux-x64    (Docker 提取或源码 build)
+#     linux-arm64  (源码 build,Docker 无 arm64)
+#     macos-arm64  (brew 或源码)
+#     macos-x64    (brew 或源码)
 set -euo pipefail
 
-VERSION="${1:-v1.7.6}"
+VERSION=""
+TARGET=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --target) TARGET="$2"; shift 2 ;;
+        --target=*) TARGET="${1#*=}"; shift ;;
+        -h|--help)
+            grep -E '^#' "$0" | sed 's/^# \?//'; exit 0 ;;
+        --) shift; break ;;
+        -*) echo "[install] 未知参数 $1" >&2; exit 64 ;;
+        *) VERSION="$1"; shift ;;
+    esac
+done
+VERSION="${VERSION:-v1.7.6}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-# 注意:必须装到 chayuan-server/vendor/services/ 才能被
-# chayuan/server/model_registry/local_runtime.py:_default_install_services_dirs()
-# 的 parents[5] = chayuan-server 搜到(跟 install-llama-server.sh 一致)。
-DEST_DIR="$REPO_ROOT/chayuan-server/vendor/services/whisper-server"
 
-mkdir -p "$DEST_DIR"
-
-OS="$(uname -s)"
-case "$OS" in
-    Darwin|Linux) ;;
-    *)
-        echo "[install-whisper-server] 不支持的 OS: $OS(只支持 macOS / Linux)" >&2
+# 自动 host 检测(TARGET 没传时)
+detect_host_target() {
+    case "$(uname -s)" in
+        Darwin)
+            case "$(uname -m)" in
+                arm64|aarch64) echo "macos-arm64" ;;
+                *)             echo "macos-x64" ;;
+            esac ;;
+        Linux)
+            case "$(uname -m)" in
+                aarch64|arm64) echo "linux-arm64" ;;
+                *)             echo "linux-x64" ;;
+            esac ;;
+        *) echo "" ;;
+    esac
+}
+if [ -z "$TARGET" ]; then
+    TARGET="$(detect_host_target)"
+    if [ -z "$TARGET" ]; then
+        echo "[install] 不支持的 host OS $(uname -s),请显式传 --target" >&2
         exit 1
-        ;;
+    fi
+fi
+
+case "$TARGET" in
+    linux-x64|linux-arm64|macos-arm64|macos-x64) ;;
+    *) echo "[install] 未识别的 target: $TARGET (支持 linux-x64/linux-arm64/macos-arm64/macos-x64)" >&2; exit 1 ;;
 esac
+
+DEST_DIR="$REPO_ROOT/chayuan-server/vendor/services/whisper-server/$TARGET"
+mkdir -p "$DEST_DIR"
+OS="$(uname -s)"
+echo "[install-whisper-server] target=$TARGET version=$VERSION dest=$DEST_DIR"
+
+# ────────────────────────── 路径 0:Linux x64 Docker 提取 ────────────────
+try_docker_linux() {
+    [ "$TARGET" = "linux-x64" ] || return 1
+    command -v docker >/dev/null 2>&1 || return 1
+    echo "[install-whisper-server] 尝试从 ghcr.io/ggml-org/whisper.cpp:main (amd64) 提取..."
+    docker pull --platform linux/amd64 ghcr.io/ggml-org/whisper.cpp:main >/dev/null 2>&1 || return 1
+    local cid
+    cid="$(docker create --platform linux/amd64 ghcr.io/ggml-org/whisper.cpp:main 2>/dev/null)" || return 1
+    # 清旧 binary + .so(保留 LICENSE 等)
+    find "$DEST_DIR" -maxdepth 1 -type f \
+        \( -name 'whisper-server' -o -name '*.so' -o -name '*.so.*' -o -name 'Makefile' \
+           -o -name 'CMakeCache.txt' -o -name 'cmake_install.cmake' \) -delete 2>/dev/null || true
+    docker cp "$cid:/app/build/bin/whisper-server" "$DEST_DIR/whisper-server" >/dev/null 2>&1
+    # 只挑 .so / .so.* 文件,过滤 docker cp 顺手带的 Makefile / CMakeCache 等
+    local stage; stage="$(mktemp -d)"
+    docker cp "$cid:/app/build/src/." "$stage/src/" >/dev/null 2>&1 || true
+    docker cp "$cid:/app/build/ggml/src/." "$stage/ggml/" >/dev/null 2>&1 || true
+    # 注意 find -o 优先级:括起来不让 -type 偏到 -o 另一边。
+    # 我们要的是 "(name 匹配 lib*.so* )AND ( 文件或软链 )"。
+    find "$stage" \( -name 'lib*.so' -o -name 'lib*.so.*' \) \
+                  \( -type f -o -type l \) \
+        -exec cp -a {} "$DEST_DIR/" \; 2>/dev/null || true
+    rm -rf "$stage"
+    docker rm "$cid" >/dev/null 2>&1 || true
+    [ -x "$DEST_DIR/whisper-server" ] || return 1
+    chmod +x "$DEST_DIR/whisper-server"
+    printf 'docker:ghcr.io/ggml-org/whisper.cpp:main (amd64)\n%s\n' "$(date '+%Y-%m-%d')" > "$DEST_DIR/VERSION"
+    return 0
+}
 
 # ────────────────────────── 路径 1:macOS brew ──────────────────────────
 try_brew() {
@@ -102,8 +171,12 @@ try_build_from_source() {
 }
 
 ok=0
-echo "[install-whisper-server] OS=$OS DEST=$DEST_DIR"
-if try_brew; then
+echo "[install-whisper-server] OS=$OS target=$TARGET DEST=$DEST_DIR"
+# 优先级:Docker(只对 linux-x64) > brew(Mac) > cmake build(都行)
+if try_docker_linux; then
+    ok=1
+    echo "[install-whisper-server] Docker 提取完成 → $DEST_DIR"
+elif try_brew; then
     ok=1
     echo "[install-whisper-server] brew 装好 → $DEST_DIR"
 elif try_build_from_source; then
@@ -114,7 +187,8 @@ fi
 if [ $ok -eq 0 ]; then
     echo "[install-whisper-server] 装失败。可选解法:" >&2
     echo "  - macOS:brew install whisper-cpp;然后重跑本脚本" >&2
-    echo "  - Linux:装 cmake / build-essential / git;然后重跑本脚本" >&2
+    echo "  - Linux x64:装 docker(本脚本会自动从 ghcr.io 提取);或装 cmake build-essential git 走源码" >&2
+    echo "  - Linux arm64:upstream Docker 没 arm64,必须装 cmake build-essential git 走源码" >&2
     echo "  - 或直接拷一份你自己编好的 whisper-server 到 $DEST_DIR/" >&2
     exit 1
 fi
@@ -125,8 +199,25 @@ ls -lh "$DEST_DIR"
 
 echo ""
 echo "[install-whisper-server] 验证 binary..."
-"$DEST_DIR/whisper-server" --help 2>&1 | head -3 || {
-    echo "[install-whisper-server] whisper-server --help 失败,可能依赖库缺失" >&2
-    exit 2
-}
+# 动态链接:loader 默认不看 exe 旁路径,要 LD_LIBRARY_PATH;chayuan-server runtime
+# spawn 时会自动注入,这里 verify 手动设。Mac 用 DYLD_LIBRARY_PATH。
+case "$OS" in
+    Darwin) LDV="DYLD_LIBRARY_PATH=$DEST_DIR" ;;
+    *)      LDV="LD_LIBRARY_PATH=$DEST_DIR" ;;
+esac
+# 不能 `set -e` 让验证失败拖垮整个脚本 —— GLIBC 错误是软警告
+set +e
+verify_out=$(env "$LDV" "$DEST_DIR/whisper-server" --help 2>&1)
+verify_exit=$?
+set -e
+echo "$verify_out" | head -3
+if [ $verify_exit -ne 0 ]; then
+    if echo "$verify_out" | grep -qiE 'glibc|glibcxx|cxxabi|version not found|no version information'; then
+        echo "[install-whisper-server] ⚠ 本机 glibc/glibcxx 比 binary 要求旧,跑不起来" >&2
+        echo "  目标用户机器(Ubuntu 22.04+)上是可运行的;参考 docs/DEV-LOCAL-RUNTIME.md §3.1。" >&2
+    else
+        echo "[install-whisper-server] whisper-server --help 真失败,binary 可能不完整" >&2
+        exit 2
+    fi
+fi
 echo "[install-whisper-server] OK"
