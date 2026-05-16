@@ -391,8 +391,14 @@ class SidecarRuntimeManager:
 
         proc = self._process  # snapshot:外部 stop() 会把 self._process 抢成 None,本地引用还能干净退出
 
-        # 等 /health 200(最长 HEALTH_READY_TIMEOUT_SEC 秒)
+        # 等 health 200(最长 HEALTH_READY_TIMEOUT_SEC 秒)。
+        # 引擎不同 health endpoint 也不同:
+        #   - llama-server (llama.cpp): GET /health 200 = 模型加载完成,可服务
+        #   - whisper-server (whisper.cpp): 没有 /health,GET / 返 HTML UI 200
+        #     (whisper-server 启动即加载模型,/ 200 等价于就绪)
+        #   - infinity (Python sidecar): /health 200
         endpoint = f"http://{host if host != '0.0.0.0' else '127.0.0.1'}:{port}"
+        health_path = "/" if self.engine == "whisper" else "/health"
         ready = False
         deadline = datetime.now().timestamp() + HEALTH_READY_TIMEOUT_SEC
         while datetime.now().timestamp() < deadline:
@@ -414,7 +420,7 @@ class SidecarRuntimeManager:
                 self._persist_status()
                 return self._status
             try:
-                resp = await _probe_health(f"{endpoint}/health", timeout=2.0)
+                resp = await _probe_health(f"{endpoint}{health_path}", timeout=2.0)
                 if getattr(resp, "status_code", None) == 200:
                     ready = True
                     break
@@ -432,7 +438,10 @@ class SidecarRuntimeManager:
             except Exception:
                 pass
             self._process = None
-            self._status = RuntimeStatus(state="failed", last_error="启动 60s 内 /health 没返 200")
+            self._status = RuntimeStatus(
+                state="failed",
+                last_error=f"启动 {HEALTH_READY_TIMEOUT_SEC}s 内 {health_path} 没返 200",
+            )
             self._persist_status()
             return self._status
 
