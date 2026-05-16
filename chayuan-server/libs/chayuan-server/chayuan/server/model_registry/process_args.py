@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from chayuan.server.model_registry.local_index import (
@@ -202,7 +203,21 @@ def resolve_llamacpp_args(
         )
         return r
 
-    r.args.extend(["--model", entry.path])
+    # scanner 把含 .gguf 的目录登记成 entry,entry.path 可能是目录。llama-server
+    # --model 期望具体 .gguf 文件路径,直接传目录会在 gguf_init_from_file 阶段
+    # 拿到 EACCES / Permission denied(Windows 上 open(dir) 即返此错)。
+    # 此处展开:目录 → 选里面的 .gguf。多个候选(同一仓库不同 quantization)
+    # 时取字典序第一个(install-bundled-models 当前 manifest 每个 cap 只装一种量化,
+    # 所以一般唯一;真有多个时让用户在设置页显式 model_id 选择)。
+    model_path = Path(entry.path)
+    if model_path.is_dir():
+        ggufs = sorted(model_path.glob("*.gguf"))
+        if not ggufs:
+            r.missing.append(capability)
+            r.reason = f"{capability} entry {entry.model_id!r} 是目录但里面没找到 .gguf 文件"
+            return r
+        model_path = ggufs[0]
+    r.args.extend(["--model", str(model_path)])
     if capability == "chat":
         r.args.extend(["--ctx-size", str(int(n_ctx))])
     elif capability == "embedding":
