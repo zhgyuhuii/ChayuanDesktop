@@ -497,7 +497,15 @@ def llama_config_post(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
 
 @runtime_router.get("/llama/install-info")
 def llama_install_info() -> Dict[str, Any]:
-    """透出关键路径给设置页"模型存放路径" section 显示"""
+    """透出关键路径给设置页"模型存放路径" section 显示。
+
+    新字段(2026-05-16):
+      - ``is_lite_build``  当前安装包是否轻量版(installer 没嵌全部 cap)
+      - ``bundled_caps``   随包嵌入的 capability 短名列表(空 = 全空 / 即 lite 模式
+                           但用户后续手动补装过)
+      - ``missing_caps``   FULL_CAPS - bundled_caps,前端可据此提示"需先下载"
+    """
+    from pathlib import Path
     m = _llama_manager()
     exe = m.find_llama_server_exe()  # 受 _INSTALL_SERVICES_DIRS monkeypatch 影响,测试可注入
     version = None
@@ -505,12 +513,60 @@ def llama_install_info() -> Dict[str, Any]:
         v_path = exe.parent / "VERSION"
         if v_path.is_file():
             version = v_path.read_text(encoding="utf-8").splitlines()[0].strip()
+
+    # lite/full 判定:扫 bundled_models 根目录的 cap 子目录;
+    # 出现 chat/image 子目录 = full build。lite 也允许后续用户手动补装,届时跟 full 视觉等同。
+    bundled_root = m.chayuan_root / "models" / "bundled"
+    # 兼容 Tauri install_dir/bundled_models/(packaging 阶段拷过来的随包模型)
+    alt_roots: List[Path] = []
+    try:
+        from chayuan.server.model_registry.local_runtime import _default_install_services_dirs
+        for svc_dir in _default_install_services_dirs():
+            alt_roots.append(svc_dir.parent / "bundled_models")
+    except Exception:  # noqa: BLE001
+        pass
+
+    bundled_caps: List[str] = []
+    for root in [bundled_root] + alt_roots:
+        if not root.is_dir():
+            continue
+        for entry in root.iterdir():
+            if entry.is_dir() and not entry.name.startswith(".") and entry.name not in bundled_caps:
+                # 只算非空目录(.gitkeep 不算真有模型)
+                if any(p.is_file() and p.name != ".gitkeep" for p in entry.rglob("*")):
+                    bundled_caps.append(entry.name)
+
+    # 单一真源:packaging/bundle_manifest.py
+    full_caps: tuple = ()
+    try:
+        import sys as _sys
+        from pathlib import Path as _P
+        pkg = _P(__file__).resolve().parents[3] / "packaging"
+        _sys.path.insert(0, str(pkg))
+        try:
+            from bundle_manifest import FULL_CAPS as _FULL  # type: ignore[import-not-found]
+            full_caps = tuple(_FULL)
+        finally:
+            _sys.path.pop(0)
+    except Exception:  # noqa: BLE001
+        # 兜底:6 项硬编码,避免老 checkout 缺 bundle_manifest 时整接口炸
+        full_caps = ("chat", "embedding", "rerank", "asr", "ocr", "image")
+
+    missing = [c for c in full_caps if c not in bundled_caps]
+    # is_lite_build:严格定义为「不嵌 chat」(chat 是大头);
+    # 即使用户后续手装了 chat 也保留 is_lite_build=true 直观告知"原始 installer 是 lite"
+    # —— 但有 chat 嵌入即视为 full(用户拿到的就是 full installer 或他主动等价)。
+    is_lite_build = "chat" not in bundled_caps
+
     return _ok({
         "chayuan_root": str(m.chayuan_root),
         "models_root": str(m.chayuan_root / "models"),
         "bundled_models_root": str(m.chayuan_root / "models" / "bundled"),
         "llama_server_exe": str(exe) if exe else None,
         "build_version": version,
+        "is_lite_build": is_lite_build,
+        "bundled_caps": bundled_caps,
+        "missing_caps": missing,
     })
 
 

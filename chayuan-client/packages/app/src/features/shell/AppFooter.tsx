@@ -39,13 +39,14 @@ const INDICATORS: CapabilityIndicator[] = [
   { key: 'ocr',              label: 'OCR' },
 ];
 
-type Tone = 'ready' | 'pending' | 'failed' | 'idle';
+type Tone = 'ready' | 'pending' | 'failed' | 'idle' | 'missing';
 
 const TONE_DOT: Record<Tone, string> = {
   ready:   'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.55)]',
   pending: 'bg-amber-400  shadow-[0_0_4px_rgba(245,158,11,0.55)] animate-pulse',
   failed:  'bg-rose-500   shadow-[0_0_4px_rgba(244,63,94,0.55)]',
   idle:    'bg-zinc-400/60',
+  missing: 'bg-zinc-300 ring-1 ring-zinc-400/70 ring-dashed',
 };
 
 const TONE_LABEL: Record<Tone, string> = {
@@ -53,6 +54,7 @@ const TONE_LABEL: Record<Tone, string> = {
   pending: 'text-amber-700  dark:text-amber-300',
   failed:  'text-rose-700   dark:text-rose-300',
   idle:    'text-[var(--cy-text-tertiary)]',
+  missing: 'text-zinc-400 dark:text-zinc-500 line-through decoration-zinc-400/60',
 };
 
 const TONE_HINT: Record<Tone, string> = {
@@ -60,6 +62,18 @@ const TONE_HINT: Record<Tone, string> = {
   pending: '启停中…',
   failed:  '异常',
   idle:    '未启动',
+  missing: '未随包(轻量版)',
+};
+
+/** 后端 install_info.bundled_caps 用的短名 ↔ footer indicator key 映射。
+ *  后端用 'image' 表示图像嵌入,前端用 'image-embedding';其它一致。 */
+const BACKEND_CAP_KEY: Record<LocalRuntimeCapability | 'ocr', string> = {
+  chat: 'chat',
+  embedding: 'embedding',
+  rerank: 'rerank',
+  asr: 'asr',
+  'image-embedding': 'image',
+  ocr: 'ocr',
 };
 
 function toneOf(state: LocalRuntimeStatus['state'] | null | undefined): Tone {
@@ -76,7 +90,16 @@ function toneOf(state: LocalRuntimeStatus['state'] | null | undefined): Tone {
 export const AppFooter: React.FC = () => {
   const statuses = useLocalRuntimeStore((s) => s.statuses);
   const reachable = useLocalRuntimeStore((s) => s.reachable);
+  const installInfo = useLocalRuntimeStore((s) => s.installInfo);
   const navigate = useNavigate();
+
+  // 当前安装包随包嵌入的 cap 集合(后端 install_info.bundled_caps)。
+  // 老服务端没返此字段 → 未知,所有 cap 都视为已随包(不打"未随包"标签),
+  // 维持向后兼容。
+  const bundledCaps = React.useMemo<Set<string> | null>(() => {
+    if (!installInfo?.bundled_caps) return null;
+    return new Set(installInfo.bundled_caps);
+  }, [installInfo?.bundled_caps]);
 
   // OCR 健康检查:走 /runtime/ocr/health 真实探测(rapidocr pkg + ONNX 模型齐全)。
   // 30s 拉一次,后端 reachable 翻 false 时不重试避免狂打 404。
@@ -145,8 +168,18 @@ export const AppFooter: React.FC = () => {
       {/* 右:6 个 capability 状态点 */}
       <div className="flex shrink-0 items-center gap-3">
         {INDICATORS.map((ind) => {
-          const tone =
-            ind.key === 'ocr'
+          // 「未随包」状态优先级最高:轻量版没嵌该 cap → 灰斜线,引导用户去模型广场下载
+          const backendCap = BACKEND_CAP_KEY[ind.key];
+          const isMissing =
+            bundledCaps != null &&
+            !bundledCaps.has(backendCap) &&
+            // OCR 的"未随包"也走 health,不靠 install_info(OCR 模型在 ocr/ 子目录或缺,
+            // 由 /runtime/ocr/health 给出更精准的诊断,避免双重判定混乱)
+            ind.key !== 'ocr';
+
+          const tone: Tone = isMissing
+            ? 'missing'
+            : ind.key === 'ocr'
               ? ocrTone
               : toneOf(statuses[ind.key]?.state);
 
@@ -157,6 +190,10 @@ export const AppFooter: React.FC = () => {
 
           // 鼠标悬停 title:状态 + endpoint/model_id + 「点击跳设置」提示
           const titleParts: string[] = [`${ind.label}: ${TONE_HINT[tone]}`];
+          if (isMissing) {
+            titleParts.push('当前是轻量版安装包,该能力未随包嵌入。');
+            titleParts.push('点击进设置 → 本地模型服务 → 下载模型后再启动。');
+          }
           if (status && 'endpoint' in status && status.endpoint) {
             titleParts.push(String(status.endpoint));
           }
@@ -166,7 +203,9 @@ export const AppFooter: React.FC = () => {
           if (ind.key === 'ocr' && ocrHealth?.reason) {
             titleParts.push(ocrHealth.reason);
           }
-          titleParts.push('点击 → 设置页本地模型服务');
+          if (!isMissing) {
+            titleParts.push('点击 → 设置页本地模型服务');
+          }
           const title = titleParts.join('\n');
 
           return (

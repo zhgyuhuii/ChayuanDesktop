@@ -44,9 +44,35 @@ const CAP_LABEL: Record<LocalRuntimeCapability, string> = {
   'image-embedding': '图像嵌入',
 };
 
+/** 后端 install_info.bundled_caps / missing_caps 用的短名 ↔ 前端 capability key 映射。
+ *  后端用 'image' 表示图像嵌入,前端用 'image-embedding';其它一致。 */
+const BACKEND_CAP_KEY: Record<LocalRuntimeCapability, string> = {
+  chat: 'chat',
+  embedding: 'embedding',
+  rerank: 'rerank',
+  asr: 'asr',
+  'image-embedding': 'image',
+};
+
 export const LocalRuntimeServicesSection: React.FC = () => {
   const { statuses, pendingFor, reachable, startCapability, stopCapability, restartCapability } =
     useLocalRuntimeStore();
+  const installInfo = useLocalRuntimeStore((s) => s.installInfo);
+
+  // 当前安装包随包嵌入的 cap 集合(后端 install_info.bundled_caps)。
+  // 老服务端没返此字段 → null,所有 cap 都视为已随包(向后兼容)。
+  const bundledCaps = React.useMemo<Set<string> | null>(() => {
+    if (!installInfo?.bundled_caps) return null;
+    return new Set(installInfo.bundled_caps);
+  }, [installInfo?.bundled_caps]);
+
+  // 本 section 涉及的 5 个 cap 里,有哪些未随包(用于顶部 banner 列表)。
+  const sectionMissingCaps = React.useMemo<LocalRuntimeCapability[]>(() => {
+    if (bundledCaps == null) return [];
+    return CAPABILITIES.filter((cap) => !bundledCaps.has(BACKEND_CAP_KEY[cap]));
+  }, [bundledCaps]);
+
+  const isLite = installInfo?.is_lite_build === true;
 
   const [models, setModels] = React.useState<Record<LocalRuntimeCapability, LocalModelEntry[]>>({
     chat: [],
@@ -91,9 +117,13 @@ export const LocalRuntimeServicesSection: React.FC = () => {
   // 用户不打开它就拿不到 statuses,首次进 /settings 会看到 5 行 capability 全显示
   // stopped 即使实际 ready。这里独立挂一个,跟 LocalRuntimePanel 互不干扰。
   React.useEffect(() => {
-    const { refreshStatus, refreshRegistry } = useLocalRuntimeStore.getState();
+    const { refreshStatus, refreshRegistry, refreshInstallInfo } = useLocalRuntimeStore.getState();
     void refreshStatus();
     void refreshRegistry();
+    // installInfo 只有 LocalRuntimePanel mount 时才拉,这里独立兜底一次,
+    // 不然用户没打开 LocalRuntimePanel 就拿不到 bundled_caps / is_lite_build
+    // → 无法在轻量版下显示「未随包」横幅。
+    void refreshInstallInfo();
     const t = window.setInterval(() => {
       void useLocalRuntimeStore.getState().refreshStatus();
       void useLocalRuntimeStore.getState().refreshRegistry();
@@ -155,32 +185,52 @@ export const LocalRuntimeServicesSection: React.FC = () => {
         </div>
       )}
 
+      {isLite && sectionMissingCaps.length > 0 && (
+        <div className="rounded-sm border border-amber-400/40 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          <div className="font-medium">当前是轻量版安装包</div>
+          <div className="mt-0.5 text-amber-800 dark:text-amber-300">
+            以下能力未随包嵌入,需在「模型广场」下载模型后才能启动:
+            {sectionMissingCaps.map((cap, i) => (
+              <span key={cap}>
+                {i > 0 ? '、' : ' '}
+                <span className="font-medium">{CAP_LABEL[cap]}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
-        {CAPABILITIES.map((cap) => (
-          <CapabilityRow
-            key={cap}
-            capability={cap}
-            label={CAP_LABEL[cap]}
-            status={statuses[cap]}
-            pending={pendingFor[cap]}
-            models={models[cap]}
-            chosen={chosen[cap]}
-            resolvedModelId={resolveModelId(cap)}
-            onChoose={(id) => setChosen((s) => ({ ...s, [cap]: id }))}
-            onStart={() => {
-              const modelId = resolveModelId(cap);
-              void startCapability(cap, modelId ? { model_id: modelId } : undefined);
-            }}
-            onStop={() => {
-              void stopCapability(cap);
-            }}
-            onRestart={() => {
-              const modelId = resolveModelId(cap);
-              void restartCapability(cap, modelId ? { model_id: modelId } : undefined);
-            }}
-            onOpenDiagnose={() => setDiagnoseOpen(true)}
-          />
-        ))}
+        {CAPABILITIES.map((cap) => {
+          const isMissing =
+            bundledCaps != null && !bundledCaps.has(BACKEND_CAP_KEY[cap]);
+          return (
+            <CapabilityRow
+              key={cap}
+              capability={cap}
+              label={CAP_LABEL[cap]}
+              status={statuses[cap]}
+              pending={pendingFor[cap]}
+              models={models[cap]}
+              chosen={chosen[cap]}
+              resolvedModelId={resolveModelId(cap)}
+              isMissing={isMissing}
+              onChoose={(id) => setChosen((s) => ({ ...s, [cap]: id }))}
+              onStart={() => {
+                const modelId = resolveModelId(cap);
+                void startCapability(cap, modelId ? { model_id: modelId } : undefined);
+              }}
+              onStop={() => {
+                void stopCapability(cap);
+              }}
+              onRestart={() => {
+                const modelId = resolveModelId(cap);
+                void restartCapability(cap, modelId ? { model_id: modelId } : undefined);
+              }}
+              onOpenDiagnose={() => setDiagnoseOpen(true)}
+            />
+          );
+        })}
       </div>
 
       <DiagnoseModal open={diagnoseOpen} onOpenChange={setDiagnoseOpen} />
@@ -196,6 +246,7 @@ interface CapabilityRowProps {
   models: LocalModelEntry[];
   chosen?: string;
   resolvedModelId?: string;
+  isMissing: boolean;
   onChoose(id: string): void;
   onStart(): void;
   onStop(): void;
@@ -210,6 +261,7 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
   pending,
   models,
   resolvedModelId,
+  isMissing,
   onChoose,
   onStart,
   onStop,
@@ -232,6 +284,14 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
       <div className="flex flex-wrap items-center gap-2">
         <LocalRuntimeStatusBadge status={status} />
         <span className="text-sm font-medium text-[var(--cy-text-primary)]">{label}</span>
+        {isMissing && (
+          <span
+            className="rounded-sm border border-amber-400/50 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+            title="该能力未随当前安装包嵌入,需先在「模型广场」下载模型"
+          >
+            未随包
+          </span>
+        )}
         {isReady && status?.endpoint && (
           <code className="text-xs text-[var(--cy-text-secondary)]">{status.endpoint}</code>
         )}

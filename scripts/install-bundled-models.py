@@ -268,6 +268,27 @@ def _resolve_vendor_root() -> Path:
     )
 
 
+def _resolve_lite_plan() -> list[str]:
+    """从 chayuan-server/packaging/bundle_manifest.py 拿 LITE_CAPS 单一真源。
+
+    路径相对脚本固定 (`<repo>/scripts/` → `<repo>/chayuan-server/packaging/`)。
+    任何 import 错误立刻 fail-fast 而不是默默用硬编码兜底,避免清单漂移。
+    """
+    pkg_dir = Path(__file__).resolve().parent.parent / "chayuan-server" / "packaging"
+    if not (pkg_dir / "bundle_manifest.py").is_file():
+        raise SystemExit(
+            f"--lite 模式找不到清单真源:{pkg_dir}/bundle_manifest.py\n"
+            "本仓库 packaging/bundle_manifest.py 是 LITE_CAPS / FULL_CAPS 的唯一来源,"
+            "缺失说明 checkout 不完整。"
+        )
+    sys.path.insert(0, str(pkg_dir))
+    try:
+        from bundle_manifest import LITE_CAPS  # type: ignore[import-not-found]
+    finally:
+        sys.path.pop(0)
+    return list(LITE_CAPS)
+
+
 # ──────────────────────────── 存在性预检 ────────────────────────────
 
 def _hf_repo_exists(repo: str) -> tuple[bool, str]:
@@ -635,6 +656,14 @@ def main() -> int:
         help="下载前清空整个 cap 目录(embedding/、chat/ 等),把误下的旧模型 / 废候选一并清掉;比 --clean 更彻底",
     )
     parser.add_argument(
+        "--lite",
+        action="store_true",
+        help=("只下载轻量版子集(embedding / rerank / asr / ocr,~990 MB);"
+              "省去 chat (~1.85 GB) 和 image-embedding (~605 MB)。"
+              "与 --only 互斥(--only 已经显式指定单 cap 时无须再加 --lite)。"
+              "清单真源:chayuan-server/packaging/bundle_manifest.py LITE_CAPS"),
+    )
+    parser.add_argument(
         "--source",
         choices=["auto", "hf", "modelscope"],
         default="auto",
@@ -670,8 +699,18 @@ def main() -> int:
     _print(f"[install] vendor_root = {vendor_root}")
     _print("")
 
+    if args.lite and args.only:
+        raise SystemExit("[install] --lite 和 --only 互斥;只下单 cap 直接用 --only,不必再加 --lite")
+
     only = _ALIASES.get(args.only, args.only) if args.only else None
-    plan = [only] if only else list(MANIFEST.keys())
+    if only:
+        plan = [only]
+    elif args.lite:
+        # 从单一真源拿轻量版清单(LITE_CAPS = embedding/rerank/asr/ocr)
+        plan = _resolve_lite_plan()
+        _print(f"[install] --lite 模式:只下 {' / '.join(plan)} 子集 (~990 MB)")
+    else:
+        plan = list(MANIFEST.keys())
     failures: list[tuple[str, str]] = []
     for cap in plan:
         spec = MANIFEST[cap]

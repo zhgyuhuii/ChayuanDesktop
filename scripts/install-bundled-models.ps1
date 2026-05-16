@@ -57,6 +57,7 @@ param(
     [string]$Only,
     [switch]$Clean,
     [switch]$CleanCap,
+    [switch]$Lite,
     [string]$Endpoint = 'https://hf-mirror.com',
     [ValidateSet('auto','hf','modelscope')]
     [string]$Source = 'auto'
@@ -97,6 +98,7 @@ $pyArgs = @($pyScript, '--workspace', $workspace, '--endpoint', $Endpoint, '--so
 if ($Only)     { $pyArgs += @('--only', $Only) }
 if ($Clean)    { $pyArgs += '--clean' }
 if ($CleanCap) { $pyArgs += '--clean-cap' }
+if ($Lite)     { $pyArgs += '--lite' }
 
 # 给 .py 也喂一份 env(它内部还会 set 一次,这里是双保险)
 $env:HF_ENDPOINT = $Endpoint

@@ -83,21 +83,38 @@ param(
     [switch]$NoColor,
     [switch]$VerboseSubprocess,
     [switch]$LiteOnly,
+    [switch]$FullOnly,
+    # 兼容旧名(`-IntegratedOnly` 仍可用,等价 `-FullOnly`,触发时打 deprecation hint)
     [switch]$IntegratedOnly,
     [switch]$SkipModelCheck
 )
 
+# 旧名兼容 + 提示
+if ($IntegratedOnly) {
+    Write-Host "[hint] -IntegratedOnly 已重命名为 -FullOnly(旧名仍可用,但建议改用新名)" `
+        -ForegroundColor Yellow
+    $FullOnly = $true
+}
+
 # 互斥检查
-if ($LiteOnly -and $IntegratedOnly) {
-    Write-Host "[FAIL] -LiteOnly 与 -IntegratedOnly 互斥(不带 = 都打)" -ForegroundColor Red
+if ($LiteOnly -and $FullOnly) {
+    Write-Host "[FAIL] -LiteOnly 与 -FullOnly 互斥(不带 = 都打)" -ForegroundColor Red
     exit 2
 }
 
 # 决定本次要打哪些 flavor
 $Flavors = @()
 if ($LiteOnly) { $Flavors = @('lite') }
-elseif ($IntegratedOnly) { $Flavors = @('integrated') }
-else { $Flavors = @('lite', 'integrated') }
+elseif ($FullOnly) { $Flavors = @('full') }
+else { $Flavors = @('lite', 'full') }
+
+# #8:不传任何 *Only 时给个本地试用提示
+if (-not $LiteOnly -and -not $FullOnly -and -not $BundleOnly) {
+    Write-Host '[hint] 本次会出 lite + full 两个 installer(约 30 分钟)。本地仅试用推荐:' `
+        -ForegroundColor DarkCyan
+    Write-Host '       .\build-desktop.ps1 -LiteOnly       # 只出轻量版,~5 分钟' `
+        -ForegroundColor DarkCyan
+}
 
 # ``-BundleOnly`` 是个组合开关:展开后等价于把 sidecar / health / install /
 # typecheck 全跳过,只重做 Tauri bundle 那步(cargo + vite 走增量缓存)。
@@ -463,7 +480,7 @@ if ($SkipModelCheck) {
         if ($pyExe) {
             & $pyExe.Source $checkScript
             if ($LASTEXITCODE -eq 0) { $ModelCheckOk = $true }
-            else { Write-Note 'bundled_models 全空 — 集成版将退化为轻量版(都不嵌模型)' }
+            else { Write-Note 'bundled_models 全空 — 全量版将退化为轻量版(都不嵌模型)' }
         } else {
             Write-Note '未找到 python,跳过体检'
         }
@@ -480,12 +497,16 @@ if ($SkipModelCheck) {
 $AllArtifacts = @()    # 各 flavor 的产物:flavor / src / dest / sizeMB
 function Invoke-FlavorBuild {
     param([string]$Flavor)
+    # Flavor → build.py --lite 显式 CLI 参数(优先);保留 CHAYUAN_LITE_BUILD env
+    # 双轨,用于直接调 build.py 而绕过本脚本的旧 CI/CD 兼容。
     if ($Flavor -eq 'lite') {
         $env:CHAYUAN_LITE_BUILD = '1'
+        $script:BuildPyLiteFlag = @('--lite')
         $flavorLabel = '轻量版(lite)'
     } else {
         Remove-Item Env:CHAYUAN_LITE_BUILD -ErrorAction SilentlyContinue
-        $flavorLabel = '集成版(integrated)'
+        $script:BuildPyLiteFlag = @()
+        $flavorLabel = '全量版(full)'
     }
     Write-Host ''
     Write-Step "═══ [$flavorLabel] 开始 ═══"
@@ -548,7 +569,7 @@ if ($SkipServer) {
     # 显式传 --target,确保 sync_services 按对的平台选 vendor 子目录(host 一致就走 host)
     Invoke-Step -Name 'pyinstaller-build' `
         -WorkDir $ServerPkgDir `
-        -Command 'poetry' -Arguments @('run', 'python', '..\..\packaging\pyinstaller\build.py', '--target', $hostTriple)
+        -Command 'poetry' -Arguments (@('run', 'python', '..\..\packaging\pyinstaller\build.py', '--target', $hostTriple) + $BuildPyLiteFlag)
 
     if (-not (Test-Path $sidecarPath)) {
         Write-Fail "PyInstaller 跑完了但 sidecar 没出现在预期位置:$sidecarPath"
@@ -562,19 +583,20 @@ if ($SkipServer) {
 # ====================================================================
 # Step 1b: 同步 src-tauri/bundled_models/ 给 Tauri resources
 # ====================================================================
-# build.py --sync-bundled-only 清空 src-tauri/bundled_models/,然后按
-# CHAYUAN_LITE_BUILD env 决定是清空(轻量版)还是拷整树(集成版)。
-# sidecar 不嵌模型,Step 1 不必 rebuild,只这步随 flavor 切。
+# build.py --sync-bundled-only:按 --lite CLI 标记选择性嵌入 capability 子集
+# (LITE_CAPS = embedding/rerank/asr/ocr 给 lite;FULL_CAPS = 全部给 full)。
+# 清单真源 chayuan-server/packaging/bundle_manifest.py;sidecar 不嵌模型,Step 1
+# 不必 rebuild,只这步随 flavor 切。
 Write-Step "Step 1b: 同步 src-tauri/bundled_models/ ($Flavor)"
 $poetryExe = Get-Command poetry -ErrorAction SilentlyContinue
 if ($poetryExe) {
     Invoke-Step -Name 'sync bundled (poetry)' `
         -WorkDir $ServerDir `
-        -Command 'poetry' -Arguments @('run', 'python', 'packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple)
+        -Command 'poetry' -Arguments (@('run', 'python', 'packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag)
 } else {
     Invoke-Step -Name 'sync bundled (python)' `
         -WorkDir $ServerDir `
-        -Command 'python' -Arguments @('packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple)
+        -Command 'python' -Arguments (@('packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag)
 }
 
 # ====================================================================
@@ -672,11 +694,11 @@ if ($SkipFrontend) {
     #      LZMA solid 累积 offset 32-bit 寻址。3+ GB 原始 payload 压缩 ~2.6 GB
     #      就溢出报"Internal compiler error #12345 error mmapping file ... out of range"。
     #
-    # 集成版 vendor 现在嵌 emb+rerank+chat+asr 总 ~3.2 GB,撞 NSIS 总尺寸限制;
-    # **WiX 3 MSI 总大小可到 4 GB+,通过 CAB 分卷处理**,所以集成版改走 MSI。
+    # 全量版 vendor 现在嵌 emb+rerank+chat+asr 总 ~3.2 GB,撞 NSIS 总尺寸限制;
+    # **WiX 3 MSI 总大小可到 4 GB+,通过 CAB 分卷处理**,所以全量版改走 MSI。
     # 轻量版 vendor 是空的,sidecar ~500 MB 远低于 2 GB,继续走 NSIS 保住
     # installer.nsh 的"察元AI"中文图标 rename。
-    $useMsi = ($Flavor -eq 'integrated') -and ($IsWindows -or $env:OS -eq 'Windows_NT')
+    $useMsi = ($Flavor -eq 'full') -and ($IsWindows -or $env:OS -eq 'Windows_NT')
     if ($BundleOnly) {
         # cargo / vite 走增量缓存,只重做 Tauri bundle(makensis / WiX 等)。
         # 不能直接调 ``pnpm --filter @chayuan/desktop build``,因为那里面带
@@ -685,20 +707,20 @@ if ($SkipFrontend) {
         $tauriArgs = @('exec', 'tauri', 'build')
         if ($useMsi) {
             # Tauri 2 CLI 的 --bundles 只接受当前平台支持的 target;
-            # Windows 上要么 msi 要么 nsis,集成版选 msi。
+            # Windows 上要么 msi 要么 nsis,全量版选 msi。
             $tauriArgs = @('exec', 'tauri', 'build', '--bundles', 'msi')
         }
         Invoke-Step -Name 'tauri-build (bundle-only)' `
             -WorkDir $DesktopDir `
             -Command 'pnpm' -Arguments $tauriArgs
     } else {
-        $buildScript = if ($useMsi) { 'build:desktop:integrated' } else { 'build:desktop' }
+        $buildScript = if ($useMsi) { 'build:desktop:full' } else { 'build:desktop' }
         Invoke-Step -Name "pnpm-$buildScript" `
             -WorkDir $ClientDir `
             -Command 'pnpm' -Arguments @($buildScript)
     }
 
-    # 收产物:.msi / NSIS .exe (主安装器) + .cab (外置 cabinet,集成版 EmbedCab="no" 才会有)
+    # 收产物:.msi / NSIS .exe (主安装器) + .cab (外置 cabinet,全量版 EmbedCab="no" 才会有)
     #
     # cab 文件实际放在哪取决于 WiX 调 light 时的 CWD;Tauri 2 把 light 调起来后,
     # cab 既可能跟 .msi 同目录(target/release/bundle/msi/),也可能落在
@@ -733,9 +755,9 @@ if ($SkipFrontend) {
     }
     $artifacts += $cabFiles
 
-    # 集成版 EmbedCab=no 必须出 cab,否则 .msi 装时 1311/1335 找 cab 失败
-    if ($Flavor -eq 'integrated' -and $msiFiles.Count -gt 0 -and $cabFiles.Count -eq 0) {
-        Write-Fail "集成版 .msi 出了但没找到任何 cab*.cab — light.exe 可能没产 cabinet"
+    # 全量版 EmbedCab=no 必须出 cab,否则 .msi 装时 1311/1335 找 cab 失败
+    if ($Flavor -eq 'full' -and $msiFiles.Count -gt 0 -and $cabFiles.Count -eq 0) {
+        Write-Fail "全量版 .msi 出了但没找到任何 cab*.cab — light.exe 可能没产 cabinet"
         Write-Note "手动确认:Get-ChildItem `"$($msiFiles[0].DirectoryName)`" -Recurse | ? Name -like '*.cab'"
         Write-Note "或扩搜 target/release/ 下:Get-ChildItem `"$(Split-Path -Parent $TauriBundle)`" -Recurse -Filter '*.cab'"
         Restore-Console; exit 1
@@ -802,11 +824,11 @@ if ($AllArtifacts.Count -gt 0) {
 if ($Flavors.Count -eq 2) {
     Write-Host ''
     Write-Host '  轻量版:不嵌模型,装机包小,需联网下载或扫盘配置'
-    Write-Host '  集成版:vendor\bundled_models\ 进 Tauri resources,装机即用 (模型清单见上方"模型体检"输出,'
+    Write-Host '  全量版:vendor\bundled_models\ 进 Tauri resources,装机即用 (模型清单见上方"模型体检"输出,'
     Write-Host '          或 chayuan-server\vendor\bundled_models\README.md)'
     Write-Host ''
-    Write-Host '  ⚠ 集成版 .msi 走外置 CAB (EmbedCab="no") 绕国产杀软对 C:\Windows\Installer\ 的拦截。'
-    Write-Host '    分发时把 dist-integrated\ 下的 .msi + 所有 .cab 一起打 zip 给用户,'
+    Write-Host '  ⚠ 全量版 .msi 走外置 CAB (EmbedCab="no") 绕国产杀软对 C:\Windows\Installer\ 的拦截。'
+    Write-Host '    分发时把 dist-full\ 下的 .msi + 所有 .cab 一起打 zip 给用户,'
     Write-Host '    用户解压后再双击 .msi 安装。只发 .msi 不带 .cab 会装到一半 1311/1335 找 cab 失败。'
 }
 Write-Host ''

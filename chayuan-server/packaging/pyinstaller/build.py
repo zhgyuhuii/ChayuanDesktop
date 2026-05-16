@@ -201,55 +201,86 @@ def _guard_oversized_files() -> None:
     raise SystemExit(2)
 
 
+def _load_bundle_caps(flavor: str) -> tuple[str, ...]:
+    """从 packaging/bundle_manifest.py 拿单一真源的 caps 清单。
+
+    跨同 package 内 import 没问题,这里用 sys.path 是因为 build.py 直接被当脚本跑,
+    `python packaging/pyinstaller/build.py` 时 packaging 不是 import path 上的 root。
+    """
+    import importlib
+    pkg_root = Path(__file__).resolve().parent.parent  # chayuan-server/packaging/
+    sys.path.insert(0, str(pkg_root))
+    try:
+        manifest = importlib.import_module("bundle_manifest")
+    finally:
+        sys.path.pop(0)
+    return tuple(manifest.caps_for(flavor))
+
+
 def sync_bundled_models(*, lite: bool) -> None:
     """同步 vendor/bundled_models/ → src-tauri/bundled_models/(给 Tauri resources)。
 
-    * ``lite=True``  → 清空 src-tauri/bundled_models/(轻量版,不嵌模型)
-    * ``lite=False`` → 整树拷贝 vendor/bundled_models/ 到 src-tauri/bundled_models/
-                       (集成版,Tauri NSIS installer 会把它打进 ``<install_dir>/bundled_models/``)
+    * ``lite=True``  → 只拷 LITE_CAPS(embedding/rerank/asr/ocr,~990 MB)
+                       chat / image 由用户运行时按需下载
+    * ``lite=False`` → 拷 FULL_CAPS 全集(整 ~3.5 GB)
+                       (Tauri NSIS installer 会把它打进 <install_dir>/bundled_models/)
 
+    清单真源 packaging/bundle_manifest.py。哪些 cap 算 lite/full 调整只改那一处。
     幂等:重复跑结果相同。每次都先清掉旧目录避免上一次 flavor 残留。
     """
+    flavor = "lite" if lite else "full"
+    caps = _load_bundle_caps(flavor)
+
     if DESKTOP_BUNDLED_MODELS_DIR.exists():
         shutil.rmtree(DESKTOP_BUNDLED_MODELS_DIR)
     DESKTOP_BUNDLED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    if lite:
-        # 留一个 .gitkeep 防 Tauri glob 命中空目录时的 edge case
-        (DESKTOP_BUNDLED_MODELS_DIR / ".gitkeep").touch()
-        print(f"[build] 轻量版:清空 {DESKTOP_BUNDLED_MODELS_DIR}", flush=True)
-        return
-
     if not BUNDLED_SRC.is_dir():
-        print(f"[build] 警告:bundled 源不存在 {BUNDLED_SRC},集成版退化为空目录", flush=True)
+        print(f"[build] 警告:bundled 源不存在 {BUNDLED_SRC},{flavor} 退化为空目录", flush=True)
         (DESKTOP_BUNDLED_MODELS_DIR / ".gitkeep").touch()
         return
 
-    # 集成版打包前 size guard:撞 2 GB 就拒(详见上方 _guard_oversized_files 注释)
-    _guard_oversized_files()
+    # full 模式打包前 size guard:撞 2 GB 就拒(详见上方 _guard_oversized_files 注释)
+    if not lite:
+        _guard_oversized_files()
 
-    # 跳过 README / .gitkeep 这类元文件,只拷 capability 子目录的真实模型
+    print(f"[build] flavor={flavor}, caps = {' / '.join(caps)}", flush=True)
+
+    caps_set = set(caps)
     n_files = 0
     n_bytes = 0
+    skipped: list[str] = []
     for entry in sorted(BUNDLED_SRC.iterdir()):
         if entry.name.startswith(".") or entry.name in ("README.md",):
             continue
-        if entry.is_dir():
-            # 子目录内只拷"非占位"内容:跳过 .gitkeep
-            for sub in entry.rglob("*"):
-                if sub.is_file() and sub.name != ".gitkeep":
-                    rel = sub.relative_to(BUNDLED_SRC)
-                    dst = DESKTOP_BUNDLED_MODELS_DIR / rel
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(sub, dst)
-                    n_files += 1
-                    n_bytes += dst.stat().st_size
+        if not entry.is_dir():
+            continue
+        if entry.name not in caps_set:
+            skipped.append(entry.name)
+            continue
+        # 该 cap 在清单内 → 整子目录拷过去(跳过 .gitkeep)
+        for sub in entry.rglob("*"):
+            if sub.is_file() and sub.name != ".gitkeep":
+                rel = sub.relative_to(BUNDLED_SRC)
+                dst = DESKTOP_BUNDLED_MODELS_DIR / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(sub, dst)
+                n_files += 1
+                n_bytes += dst.stat().st_size
+
+    # 留一个 .gitkeep 防 Tauri glob 命中空目录时的 edge case(lite 时如果连
+    # bundled_models 都未装填,目录还要存在让 cargo:rerun-if-changed 有 anchor)
+    if n_files == 0:
+        (DESKTOP_BUNDLED_MODELS_DIR / ".gitkeep").touch()
+
     mb = n_bytes / 1024 / 1024
     print(
-        f"[build] 集成版:bundled_models 已同步 {n_files} 个文件 ({mb:.1f} MB) "
+        f"[build] {flavor}: bundled_models 已同步 {n_files} 个文件 ({mb:.1f} MB) "
         f"→ {DESKTOP_BUNDLED_MODELS_DIR}",
         flush=True,
     )
+    if skipped:
+        print(f"[build] {flavor}: 跳过非 {flavor} 清单内 cap: {', '.join(skipped)}", flush=True)
 
 
 # Rust target triple → vendor 平台子目录名映射。
@@ -556,6 +587,14 @@ def main() -> None:
         action="store_true",
         help="跳过 src-tauri/services/ 里 vendor 二进制的可运行性验证(默认会跑)。",
     )
+    parser.add_argument(
+        "--lite",
+        action="store_true",
+        help=("打 lite installer:bundled_models/ 只嵌轻量版子集"
+              "(embedding/rerank/asr/ocr,~990 MB);chat、image-embedding 由用户运行时下。"
+              "等价旧 env CHAYUAN_LITE_BUILD=1 但更显式。优先级高于 env。"
+              "清单真源:packaging/bundle_manifest.py"),
+    )
     # 用 parse_known_args:任何 build.py 不认识的参数(--clean / --log-level=DEBUG /
     # --noupx / 等)都直接转发给 PyInstaller。免得用户记错 ``--`` 分隔符位置 ──
     # poetry / argparse REMAINDER 组合下 ``--`` 经常被吃掉,导致 ``--clean`` 报
@@ -565,9 +604,10 @@ def main() -> None:
     if extra and extra[0] == "--":
         extra = extra[1:]
 
-    # 2026-05-15:CHAYUAN_LITE_BUILD env 决定本次 build 是轻量版还是集成版,
-    # 影响 bundled_models 是否同步到 Tauri resources 暂存目录。
-    lite = os.environ.get("CHAYUAN_LITE_BUILD", "").strip().lower() in (
+    # 2026-05-15:lite vs full 控制 bundled_models 同步到 Tauri resources 的范围。
+    # 优先级:--lite CLI 参数 > CHAYUAN_LITE_BUILD env(保留向后兼容,旧 build-desktop.ps1
+    # 还在通过 env 传)。两者都没设 = full。
+    lite = bool(args.lite) or os.environ.get("CHAYUAN_LITE_BUILD", "").strip().lower() in (
         "1", "true", "yes",
     )
 

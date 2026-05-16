@@ -53,6 +53,13 @@ export interface LocalRuntimeInstallInfo {
   bundled_models_root: string;
   llama_server_exe: string | null;
   build_version: string | null;
+  /** 当前 installer 是否轻量版(没嵌 chat);后端 2026-05-16 起返回此字段。
+   *  老服务端没返时前端取 undefined → 视为 false(向后兼容 full 行为)。 */
+  is_lite_build?: boolean;
+  /** 随包真实嵌入的 capability 短名列表(chat / embedding / rerank / asr / ocr / image) */
+  bundled_caps?: string[];
+  /** FULL_CAPS - bundled_caps,前端可在 footer / 设置页提示"需先下载"。 */
+  missing_caps?: string[];
 }
 
 // 注:`request<T>(path)` 内部已经自动拆 `{code, msg, data}` 信封 (见 client.ts:198-211),
