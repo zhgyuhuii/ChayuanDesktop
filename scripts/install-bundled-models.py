@@ -74,79 +74,93 @@ MANIFEST: dict[str, dict[str, Any]] = {
         "approx_mb": 1850,
         "note": "Qwen3-4B chat,Q3 系列量化(~1.7-1.95 GB,Windows installer 友好)",
         "dest_subdir": "Qwen3-4B-Instruct-2507-GGUF",
+        # 2026-05-16 全部 HF 验证过:HEAD api/models/<repo> 返 200。
+        # 老 bartowski/Qwen3-4B-Instruct-2507-GGUF 已被作者改名(返 401),
+        # 用 bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF 新路径。
         "hf": [
-            # 首选:unsloth 全量化矩阵(Q3_K_S/M/L、IQ3 系列)
+            # 首选:unsloth 全量化矩阵(Q3_K_S/M/L、IQ3 系列),77k downloads 最稳
             {"repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
              "allow_patterns": ["*Q3_K_S*"]},
-            # 备选:bartowski 也常做全量化,Q3_K_S 同样齐
-            {"repo": "bartowski/Qwen3-4B-Instruct-2507-GGUF",
-             "allow_patterns": ["*Q3_K_S*"]},
-            # 备选:lmstudio-community,LM Studio 团队整理
+            # 备选:lmstudio-community,LM Studio 团队整理,9.8k downloads
             {"repo": "lmstudio-community/Qwen3-4B-Instruct-2507-GGUF",
+             "allow_patterns": ["*Q3_K_S*"]},
+            # 备选:bartowski 新路径(老路径 bartowski/Qwen3-4B-Instruct-2507-GGUF 401)
+            {"repo": "bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF",
+             "allow_patterns": ["*Q3_K_S*"]},
+            # 兜底:gabriellarson 也做全量化(73 downloads,新)
+            {"repo": "gabriellarson/Qwen3-4B-Instruct-2507-GGUF",
              "allow_patterns": ["*Q3_K_S*"]},
         ],
         "ms": [
-            # 首选:Qwen 官方 GGUF(MS 一般用小写 qwen namespace)
-            {"repo": "qwen/Qwen3-4B-Instruct-2507-GGUF",
-             "allow_patterns": ["*Q3_K_S*", "*Q3_K_M*", "*IQ3*"]},
-            # 备选:有些上传者用大写 Qwen 命名
-            {"repo": "Qwen/Qwen3-4B-Instruct-2507-GGUF",
-             "allow_patterns": ["*Q3_K_S*", "*Q3_K_M*", "*IQ3*"]},
-            # 兜底:Qwen2.5-3B 官方 GGUF(2024 老版,但 MS 上稳存在,1.96 GB)
+            # 2026-05-16 验证:MS 上 qwen/Qwen3-4B-Instruct-2507-GGUF 404(社区尚无镜像)。
+            # 兜底 Qwen2.5-3B 官方 GGUF(2024 老版但 MS 上稳存在,~1.96 GB Q4_K_M)。
             {"repo": "qwen/Qwen2.5-3B-Instruct-GGUF",
              "allow_patterns": ["*q4_k_m*"]},
         ],
     },
     "embedding": {
-        "approx_mb": 300,
-        "note": "Alibaba 多语种 embedding GGUF Q8_0(~300 MB,8192 ctx,304M 参数);"
-                "GGUF 给 llama-server --embedding 单文件加载,safetensors 给 infinity_emb fallback",
-        "dest_subdir": "gte-multilingual-base",
+        "approx_mb": 605,
+        "note": "BAAI BGE-M3 多语种 embedding GGUF Q8_0(~605 MB,8192 ctx,568M 参数);"
+                "GGUF 给 llama-server --embedding 单文件加载。"
+                "原计划用 gte-multilingual-base GGUF 但社区无人做(2026-05-16 HF 全网无效),"
+                "改用 bge-m3 — 同档多语种 embedding,功能等价。",
+        "dest_subdir": "bge-m3",
+        # 2026-05-16 验证:gpustack/bge-m3-GGUF 17.5k downloads 最稳;
+        # vonjack/bge-m3-gguf 备份;原 gte-multilingual GGUF 全 404 已删除。
         "hf": [
-            # GGUF 首选 — llama-server --embedding 单文件加载,Q8 ~300 MB
-            # 多镜像兜底:存在性预检会跳过 404 的,落到下一条
-            {"repo": "gpustack/gte-multilingual-base-GGUF",
+            # GGUF 首选 — llama-server --embedding 单文件加载,Q8 ~605 MB
+            {"repo": "gpustack/bge-m3-GGUF",
              "allow_patterns": ["*Q8_0.gguf", "*q8_0.gguf"]},
-            {"repo": "second-state/gte-multilingual-base-GGUF",
+            # 备选:bbvch-ai 镜像 1.7k downloads
+            {"repo": "bbvch-ai/bge-m3-GGUF",
              "allow_patterns": ["*Q8_0.gguf", "*q8_0.gguf"]},
-            # transformers fallback (infinity_emb 路径,~1.22 GB 全权重)
-            {"repo": "Alibaba-NLP/gte-multilingual-base",
+            # transformers fallback(infinity_emb 路径,~2.4 GB 全权重 — llama-server
+            # 不要 transformers 格式,但保留给 infinity sidecar / 通用 fallback)
+            {"repo": "BAAI/bge-m3",
              "allow_patterns": [
-                 "*.json", "*.txt", "*.safetensors", "*.bin",
+                 "*.json", "*.txt", "*.safetensors",
                  "sentencepiece*", "tokenizer*", "vocab*",
              ]},
         ],
         "ms": [
-            # iic = Institute for Intelligent Computing,Alibaba 在 MS 的官方组织
-            {"repo": "iic/gte-multilingual-base",
+            # BAAI 在 MS 上的官方 repo(transformers 格式;MS 上没 bge-m3 GGUF)
+            {"repo": "BAAI/bge-m3",
              "allow_patterns": [
-                 "*.json", "*.txt", "*.safetensors", "*.bin",
+                 "*.json", "*.txt", "*.safetensors",
                  "sentencepiece*", "tokenizer*", "vocab*",
              ]},
         ],
     },
     "rerank": {
-        "approx_mb": 584,
-        "note": "Alibaba 多语种 reranker(~584 MB,从 bge-reranker-v2-m3 2.12 GB 瘦身);GGUF 候选给 llama-server --reranking 用",
-        "dest_subdir": "gte-multilingual-reranker-base",
+        "approx_mb": 600,
+        "note": "BAAI BGE-Reranker-v2-m3 GGUF Q8_0(~600 MB,多语种 cross-encoder reranker);"
+                "GGUF 给 llama-server --reranking 单文件加载。",
+        # dest_subdir 跟实际拉的 repo 对齐(原 gte-multilingual-reranker-base 是历史遗留命名;
+        # 现在用 gpustack/bge-reranker-v2-m3-GGUF 作主源)。
+        "dest_subdir": "bge-reranker-v2-m3",
+        # 2026-05-16 验证:gpustack/bge-reranker-v2-m3-GGUF 11.2k downloads 主源;
+        # gpustack/gte-multilingual-reranker-base-GGUF 213 downloads(更轻 ~316 MB Q8)备选。
         "hf": [
-            # Plan 3B: GGUF 优先 — llama-server --reranking 直接加载
-            # bge-reranker-v2-m3 多语种 reranker,gpustack 镜像的 GGUF(~600 MB Q8_0)
+            # 首选:bge-reranker-v2-m3 GGUF — Q8_0 单文件,~600 MB
             # 注意: gpustack repo 里有 F32/F16/Q8/Q6/Q5/Q4/Q3/Q2 八种量化共 ~4.85 GB,
-            #       必须用具体文件名限制,否则 *.gguf 会把全家桶都拉下来。
+            #       allow_patterns 必须卡死 *Q8_0.gguf,否则 *.gguf 会把全家桶拉下来。
             {"repo": "gpustack/bge-reranker-v2-m3-GGUF",
              "allow_patterns": ["*Q8_0.gguf"]},
-            # 旧 HF transformers fallback
-            {"repo": "Alibaba-NLP/gte-multilingual-reranker-base",
+            # 备选:更轻的 gte-multilingual-reranker-base GGUF(~316 MB Q8)
+            {"repo": "gpustack/gte-multilingual-reranker-base-GGUF",
+             "allow_patterns": ["*Q8_0.gguf"]},
+            # transformers fallback(走 infinity_emb 或自实现 cross-encoder)
+            {"repo": "BAAI/bge-reranker-v2-m3",
              "allow_patterns": [
-                 "*.json", "*.txt", "*.safetensors", "*.bin",
+                 "*.json", "*.txt", "*.safetensors",
                  "sentencepiece*", "tokenizer*", "vocab*",
              ]},
         ],
         "ms": [
-            {"repo": "iic/gte-multilingual-reranker-base",
+            # MS 上 GGUF 稀缺,fallback 走 transformers
+            {"repo": "BAAI/bge-reranker-v2-m3",
              "allow_patterns": [
-                 "*.json", "*.txt", "*.safetensors", "*.bin",
+                 "*.json", "*.txt", "*.safetensors",
                  "sentencepiece*", "tokenizer*", "vocab*",
              ]},
         ],
@@ -203,13 +217,17 @@ MANIFEST: dict[str, dict[str, Any]] = {
                  "*.json", "*.txt",   # config / preprocessor / tokenizer / vocab / merges
              ]},
         ],
-        # MS 上 AI-ModelScope/clip-vit-base-patch32 实测 API 返"record not found"
-        # (页面 200 但 files 树空),iic 下唯一存在的是 multi-modal_clip-vit-base-patch16_zh
-        # —— 那是 Alibaba 自家 Chinese-CLIP,跟 OpenAI CLIP 模型架构 / 加载接口都不同,
-        # 给 chayuan-server 当 CLIP fallback 会加载失败。所以这里**不给 MS 候选**,
-        # 让脚本直接走 HF。clip-vit-base-patch32 仓库 2021 年的老仓库,不在 Xet,
-        # hf-mirror 上拉 pytorch_model.bin (605 MB) 稳。
-        "ms": [],
+        # 2026-05-16 验证:AI-ModelScope/clip-vit-base-patch32 404;openai-mirror
+        # 命名空间下存在(200),用它作 MS fallback。如果 openai-mirror 下文件布局
+        # 与 HF 官方一致(pytorch_model.bin + config/preprocessor/tokenizer.json),
+        # chayuan-server 加载逻辑能复用。
+        "ms": [
+            {"repo": "openai-mirror/clip-vit-base-patch32",
+             "allow_patterns": [
+                 "pytorch_model.bin",
+                 "*.json", "*.txt",
+             ]},
+        ],
     },
 }
 
