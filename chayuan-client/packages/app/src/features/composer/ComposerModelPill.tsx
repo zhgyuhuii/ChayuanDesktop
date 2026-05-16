@@ -26,7 +26,7 @@ import { models, type RawModelItem } from '@chayuan/api';
 import { logEvent, Events } from '@chayuan/observability';
 import { useComposerStore, useComposerS } from '../../store/composer';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
-import { LOCAL_PLATFORM_KEY, LOCAL_PLATFORM_LABEL } from './ModelMenuList';
+import { LOCAL_PLATFORM_KEY, LOCAL_PLATFORM_LABEL, displayLabel } from './ModelMenuList';
 import { useLogosManifest, useResolveLogo } from '../catalog/useLogos';
 import { useTranslation } from '../../i18n';
 import { ModelMenuList } from './ModelMenuList';
@@ -128,7 +128,9 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   }, [modelId, modelsWithLocal, current, setModel]);
 
   const currentLogo = resolveLogo(current?.platform_name, current?.id);
-  const currentLabel = current?.id ?? (modelId || '— 未选 —');
+  // pill 上显示用 displayLabel(本地模型短化:Qwen3-4B-Instruct-2507 而不是
+  // models/bundled/chat/Qwen3-4B-Instruct-2507-GGUF);完整 id 仍走 title hover。
+  const currentLabel = current ? displayLabel(current) : (modelId || '— 未选 —');
   const compact = true || iconOnly;
 
   return (
@@ -138,7 +140,7 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
           tone="outline"
           size="sm"
           aria-label={t('chat.modelSelector')}
-          title={`当前模型：${currentLabel}`}
+          title={`当前模型：${currentLabel}${current && current.id !== currentLabel ? `\n${current.id}` : ''}`}
           className={cn(
             'shrink-0',
             compact

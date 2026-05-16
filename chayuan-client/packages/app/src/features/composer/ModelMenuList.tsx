@@ -40,6 +40,17 @@ function isLocalPlatform(name: string): boolean {
   return name === LOCAL_PLATFORM_KEY || name.startsWith('local-');
 }
 
+/** 模型下拉 / pill 上显示的友好名:本地 sidecar 模型只取路径最后一段 + 去掉 -GGUF 后缀,
+ *  否则用裸 model id(三方 platform 的 id 一般已经够短,如 deepseek-v4-flash)。
+ *
+ *  例:'models/bundled/chat/Qwen3-4B-Instruct-2507-GGUF' → 'Qwen3-4B-Instruct-2507'
+ *      'deepseek-v4-flash' → 'deepseek-v4-flash' */
+export function displayLabel(m: { id: string; platform_name?: string | null }): string {
+  if (!m.platform_name || !isLocalPlatform(m.platform_name)) return m.id;
+  const last = m.id.split('/').filter(Boolean).pop() ?? m.id;
+  return last.replace(/-(gguf|GGUF)$/, '');
+}
+
 interface PlatformGroup {
   /** 用作分组 key + 内部识别(同 platform_name) */
   platform: string;
@@ -347,7 +358,12 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
                           )}
                         >
                           <Logo src={logo} name={m.platform_name ?? m.id} />
-                          <span className="min-w-0 flex-1 truncate font-medium">{m.id}</span>
+                          <span
+                            className="min-w-0 flex-1 truncate font-medium"
+                            title={m.id}
+                          >
+                            {displayLabel(m)}
+                          </span>
                           {disabled && (
                             <TriangleAlert className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
                           )}
