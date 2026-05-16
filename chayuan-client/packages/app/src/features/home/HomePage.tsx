@@ -17,7 +17,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  Library, Layers3, Plug, Wrench,
+  Library, Layers3, Plug, Wrench, Pen,
   AlertCircle, ExternalLink, Github, Globe,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
@@ -78,6 +78,15 @@ const CAPS: ReadonlyArray<CapItem> = [
     to: '/tools',
     gradient: 'from-rose-50 to-pink-100 dark:from-rose-900/30 dark:to-pink-800/40',
     iconBg: 'bg-gradient-to-br from-rose-400 to-pink-500',
+  },
+  {
+    id: 'notes',
+    icon: Pen,
+    title: 'AI 笔记',
+    subtitle: '随手记录 · 实时语音转文字 · 自动入库可检索',
+    to: '/notes/new',
+    gradient: 'from-sky-50 to-cyan-100 dark:from-sky-900/30 dark:to-cyan-800/40',
+    iconBg: 'bg-gradient-to-br from-sky-400 to-cyan-500',
   },
 ];
 
@@ -293,7 +302,7 @@ export const HomePage: React.FC = () => {
           设计:窄屏 2 列、桌面 4 列等宽并列,卡片高度统一 h-40,
           gap 略增到 5,卡内 padding p-5,左上图标 + 左下文案的固定网格,
           上下左右留白对称 — 视觉平衡感比之前 5 列(残余空隙)好。 */}
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
         {CAPS.map((c) => {
           const Icon = c.icon;
           return (

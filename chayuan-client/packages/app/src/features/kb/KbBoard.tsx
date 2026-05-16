@@ -26,8 +26,10 @@ import {
   Database,
   Edit3,
   FileText,
+  FileUp,
   Folder,
   ImageIcon,
+  ImageUp,
   Images,
   LayoutGrid,
   Library,
@@ -78,6 +80,7 @@ import { CreateKbDialog } from './create/CreateKbDialog';
 import { KbCard } from './KbCard';
 import { EditKbInfoDialog } from './KbAdminMenu';
 import { sourceIdFromKuId } from './SchemaScopePicker';
+import { UploadTargetDialog } from '../notes/UploadTargetDialog';
 
 // ──────────────────────────────────────────────────────────────
 // kind 显示元数据
@@ -184,6 +187,7 @@ export const KbBoard: React.FC = () => {
   const kbImgSearch = useKbImageSearch();
   const [contextMenu, setContextMenu] = React.useState<KbContextMenuState>(null);
   const [editKu, setEditKu] = React.useState<KuItem | null>(null);
+  const [uploadTarget, setUploadTarget] = React.useState<null | { kind: 'document' | 'image' }>(null);
 
   const list = useQuery<KuItem[]>({
     queryKey: ['ku.list'],
@@ -215,6 +219,23 @@ export const KbBoard: React.FC = () => {
     },
     [openTab, list.data],
   );
+
+  const goToAiNote = () => {
+    openTab('/notes/new', { title: 'AI 笔记', icon: 'pen' });
+  };
+
+  const onUploadTargetPick = (kuId: string) => {
+    const path = `/kb/${encodeURIComponent(kuId)}`;
+    const item = (list.data ?? []).find((k) => k.ku_id === kuId);
+    const title = item?.display_name || item?.name || kuId;
+    openTab(path, { title, icon: 'library' });
+    setUploadTarget(null);
+  };
+
+  const onUploadTargetCreate = (kind: 'document' | 'image') => {
+    setUploadTarget(null);
+    setCreateOpen({ kind });
+  };
 
   const items = React.useMemo<KuItem[]>(() => {
     let arr = list.data ?? [];
@@ -530,6 +551,9 @@ export const KbBoard: React.FC = () => {
               onCreateDb={() => setAddStructuredOpen(true)}
               onCreateImage={() => setCreateOpen({ kind: 'image' })}
               onCreateVector={() => setCreateOpen({ kind: 'vector' })}
+              onAiNote={goToAiNote}
+              onUploadDoc={() => setUploadTarget({ kind: 'document' })}
+              onUploadImage={() => setUploadTarget({ kind: 'image' })}
               showCloseOverlay={chatStarted && pickerOpen}
               onCloseOverlay={() => setPickerOpen(false)}
             />
@@ -656,6 +680,16 @@ export const KbBoard: React.FC = () => {
 
       {/* 兼容老路径:CreateKbDialog 之外的地方暂未来得及切;详情 Dialog 仍可被外部 setDetailKuId 唤起 */}
       <KbDetailDialog kuId={detailKuId} onClose={() => setDetailKuId(null)} />
+
+      {uploadTarget && (
+        <UploadTargetDialog
+          open={true}
+          kind={uploadTarget.kind}
+          onClose={() => setUploadTarget(null)}
+          onPick={onUploadTargetPick}
+          onRequestCreate={onUploadTargetCreate}
+        />
+      )}
       {editDetail && (
         <EditKbInfoDialog
           detail={editDetail}
@@ -696,9 +730,13 @@ const Header: React.FC<{
   onCreateDb(): void;
   onCreateImage(): void;
   onCreateVector(): void;
+  /** 新增:AI 笔记 / 快捷上传入口 */
+  onAiNote(): void;
+  onUploadDoc(): void;
+  onUploadImage(): void;
   showCloseOverlay: boolean;
   onCloseOverlay(): void;
-}> = ({ total, view, onView, onCreate, onCreateDoc, onCreateDb, onCreateImage, onCreateVector, showCloseOverlay, onCloseOverlay }) => {
+}> = ({ total, view, onView, onCreate, onCreateDoc, onCreateDb, onCreateImage, onCreateVector, onAiNote, onUploadDoc, onUploadImage, showCloseOverlay, onCloseOverlay }) => {
   const { t } = useTranslation();
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -720,6 +758,25 @@ const Header: React.FC<{
 
         <button
           type="button"
+          onClick={onUploadDoc}
+          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-3 text-xs text-[var(--cy-text-secondary)] transition-colors hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
+          title="上传文件到任一文档知识库"
+        >
+          <FileUp className="h-3.5 w-3.5" />
+          上传文件
+        </button>
+        <button
+          type="button"
+          onClick={onUploadImage}
+          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-3 text-xs text-[var(--cy-text-secondary)] transition-colors hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
+          title="上传图像到任一图像知识库"
+        >
+          <ImageUp className="h-3.5 w-3.5" />
+          上传图像
+        </button>
+        <button
+          type="button"
+          onClick={onAiNote}
           className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-3 text-xs text-[var(--cy-text-secondary)] transition-colors hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
         >
           <NotebookPen className="h-3.5 w-3.5" />
