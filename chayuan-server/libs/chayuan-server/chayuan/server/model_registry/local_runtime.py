@@ -133,27 +133,47 @@ def _default_install_services_dirs() -> list[Path]:
 _INSTALL_SERVICES_DIRS: list[Path] | None = None  # 单元测试可 monkeypatch 覆盖
 
 
-def _platform_subdir() -> str:
-    """当前 OS / 架构对应的预编译子目录名(对齐 vendor/services/<engine>-server/<plat>/)。
+def _platform_subdir_candidates() -> list[str]:
+    """当前 OS / 架构按优先级的 vendor 预编译子目录候选列表。
 
-    返回 ``''`` 表示不识别此平台 — 调用方会跳过 platform-subdir 查找,fallback 到扁平
-    layout(install 脚本现写现拷的旧布局)。
+    `find_server_exe` 依次走这个列表,选第一个真存在 binary 的子目录。
 
-    布局约定:
-      * win-x64    — Windows x86_64
-      * macos-arm64 — Apple Silicon
-      * macos-x64  — Intel Mac
-      * linux-x64  — Linux x86_64
-      * linux-arm64 — Linux aarch64
+    可通过 env var ``CHAYUAN_VENDOR_PLATFORM`` 强制覆盖(单值);常见用法:
+      * Win 老 CPU 没 AVX2:``CHAYUAN_VENDOR_PLATFORM=win-x64-noavx``
+      * Win 新 Xeon 想用 AVX-512:``CHAYUAN_VENDOR_PLATFORM=win-x64-avx512``
+
+    默认按 OS / 架构推:
+      Win x64   → [win-x64, win-x64-avx, win-x64-noavx]   (默认 AVX2,自动 fallback)
+      Win arm64 → [win-arm64]
+      macOS ARM → [macos-arm64]
+      macOS Intel → [macos-x64]
+      Linux x64 → [linux-x64]
+      Linux arm64 → [linux-arm64]
+
+    返回空列表表示不识别此平台 — 调用方会 fallback 到扁平 layout(install 脚本现写现拷)。
     """
     import platform as _platform
+    override = os.environ.get("CHAYUAN_VENDOR_PLATFORM", "").strip()
+    if override:
+        return [override]
+    machine = _platform.machine().lower()
     if sys.platform == "win32":
-        return "win-x64"
+        if machine in ("arm64", "aarch64"):
+            return ["win-arm64"]
+        # x86_64:默认 AVX2 → 老 CPU 没 AVX2 自动 fallback 到 win-x64-noavx
+        # (win-x64-avx 是中间档,2011 年 Sandy Bridge ~ 2013 年 Haswell 之间的极少数 CPU 才需要)
+        return ["win-x64", "win-x64-noavx"]
     if sys.platform == "darwin":
-        return "macos-arm64" if _platform.machine().lower() in ("arm64", "aarch64") else "macos-x64"
+        return ["macos-arm64"] if machine in ("arm64", "aarch64") else ["macos-x64"]
     if sys.platform.startswith("linux"):
-        return "linux-arm64" if _platform.machine().lower() in ("aarch64", "arm64") else "linux-x64"
-    return ""
+        return ["linux-arm64"] if machine in ("aarch64", "arm64") else ["linux-x64"]
+    return []
+
+
+def _platform_subdir() -> str:
+    """Deprecated single-value variant. 新代码用 :func:`_platform_subdir_candidates`。"""
+    cands = _platform_subdir_candidates()
+    return cands[0] if cands else ""
 
 
 async def _probe_health(url: str, *, timeout: float = 2.0) -> "object":
@@ -269,11 +289,12 @@ class SidecarRuntimeManager:
         dirs = _INSTALL_SERVICES_DIRS if _INSTALL_SERVICES_DIRS is not None else _default_install_services_dirs()
         bin_name = f"{self.engine}-server"
         names = [f"{bin_name}.exe", bin_name]
-        plat = _platform_subdir()
+        cands = _platform_subdir_candidates()
         for d in dirs:
             server_dir = d / bin_name
             # 优先 platform 子目录(预编译 binary 提交进 git 时的布局)
-            if plat:
+            # 按 candidate 列表顺序找(Win x64 默认 AVX2,缺时退到 noavx)
+            for plat in cands:
                 for name in names:
                     p = server_dir / plat / name
                     if p.is_file():

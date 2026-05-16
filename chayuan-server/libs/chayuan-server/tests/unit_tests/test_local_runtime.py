@@ -107,7 +107,7 @@ def test_manager_find_server_exe_prefers_platform_subdir(tmp_path, monkeypatch):
     flat = services / "llama-server.exe"
     flat.write_bytes(b"flat")
     # platform 子目录
-    monkeypatch.setattr(local_runtime, "_platform_subdir", lambda: "win-x64")
+    monkeypatch.setattr(local_runtime, "_platform_subdir_candidates", lambda: ["win-x64"])
     plat_dir = services / "win-x64"
     plat_dir.mkdir()
     plat_bin = plat_dir / "llama-server.exe"
@@ -128,13 +128,47 @@ def test_manager_find_server_exe_falls_back_to_flat(tmp_path, monkeypatch):
     flat = services / "llama-server.exe"
     flat.write_bytes(b"flat")
     # 子目录存在但空
-    monkeypatch.setattr(local_runtime, "_platform_subdir", lambda: "win-x64")
+    monkeypatch.setattr(local_runtime, "_platform_subdir_candidates", lambda: ["win-x64"])
     (services / "win-x64").mkdir()
 
     monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
 
     m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
     assert m.find_server_exe() == flat
+
+
+def test_manager_find_server_exe_walks_candidate_list(tmp_path, monkeypatch):
+    """Win x64 默认 candidate = [win-x64, win-x64-noavx];第一个空,选第二个。"""
+    from chayuan.server.model_registry import local_runtime
+
+    services = tmp_path / "services" / "llama-server"
+    services.mkdir(parents=True)
+    monkeypatch.setattr(
+        local_runtime, "_platform_subdir_candidates",
+        lambda: ["win-x64", "win-x64-noavx"],
+    )
+    # 主候选目录空
+    (services / "win-x64").mkdir()
+    # 备选有 binary
+    (services / "win-x64-noavx").mkdir()
+    fallback_bin = services / "win-x64-noavx" / "llama-server.exe"
+    fallback_bin.write_bytes(b"noavx")
+
+    monkeypatch.setattr(local_runtime, "_INSTALL_SERVICES_DIRS", [tmp_path / "services"])
+
+    m = local_runtime.LlamaRuntimeManager(chayuan_root=tmp_path)
+    assert m.find_server_exe() == fallback_bin
+
+
+def test_platform_subdir_candidates_env_override(monkeypatch):
+    """CHAYUAN_VENDOR_PLATFORM env 覆盖自动检测,返回单值列表。"""
+    from chayuan.server.model_registry import local_runtime
+
+    monkeypatch.setenv("CHAYUAN_VENDOR_PLATFORM", "win-x64-noavx")
+    assert local_runtime._platform_subdir_candidates() == ["win-x64-noavx"]
+    monkeypatch.delenv("CHAYUAN_VENDOR_PLATFORM")
+    # 没 env 时返回 OS 自动推断 — 至少有一个候选
+    assert local_runtime._platform_subdir_candidates()
 
 
 def test_manager_allocate_port_default_free(tmp_path):

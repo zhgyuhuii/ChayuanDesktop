@@ -54,18 +54,50 @@ mkdir -p "$CHAYUAN_ROOT/models/bundled"  # 5 个 capability 真正读模型的�
 ## 3. 装 vendor 二进制(llama-server / whisper-server)
 
 **注意**:常用平台预编译 binary **已经 commit 进 git** 了,clone 即用 — 不必跑脚本。
-布局(`local_runtime.py:find_server_exe()` 按 OS 自动挑):
+布局(`local_runtime.py:find_server_exe()` 按 OS 自动挑;命名 = `<os>-<arch>[-cpu-variant]`):
 
 ```
 chayuan-server/vendor/services/llama-server/
-├── linux-x64/    llama-server                          (b4404, 5 MB)
-├── macos-arm64/  llama-server + ggml-metal.metal       (b4404, 6 MB)
-└── win-x64/      llama-server.exe + 6 DLL              (b4404, 5 MB)
+├── linux-x64/        ← Ubuntu 22.04+ glibc 2.34, x86_64       (b4404, 5 MB)
+├── linux-arm64/      ← (占位,upstream 没发)
+├── macos-arm64/      ← Apple Silicon + Metal shader            (b4404, 6 MB)
+├── macos-x64/        ← Intel Mac                               (b4404, 5 MB)
+├── win-x64/          ← Win x64 默认(AVX2,Haswell 2013+)      (b4404, 5 MB)
+├── win-x64-avx/      ← Win x64 AVX(Sandy/Ivy Bridge 2011-13)  (b4404, 5 MB)
+├── win-x64-avx512/   ← Win x64 AVX-512(Skylake-X / Xeon)     (b4404, 5 MB)
+├── win-x64-noavx/    ← Win x64 无 AVX(Pentium/Celeron / VM)  (b4404, 5 MB)
+└── win-arm64/        ← Windows on ARM(Surface Pro X)         (b4404, 5 MB)
 
 chayuan-server/vendor/services/whisper-server/
-└── win-x64/      whisper-server.exe + 4 DLL            (v1.7.6, 2 MB)
-   linux-x64/    (空 — upstream 没发,brew/cmake build 自己装)
-   macos-arm64/  (空 — 同上)
+├── win-x64/          ← Win64 whisper-server                    (v1.7.6, 2 MB)
+├── linux-x64/        ← (占位,upstream 没发,brew/cmake build 自己装)
+├── linux-arm64/      ← (占位)
+├── macos-arm64/      ← (占位)
+└── macos-x64/        ← (占位)
+```
+
+**默认 candidate(按 OS / 架构推断)**:
+
+| 主机平台              | candidate 列表(高优先级在前)         |
+|-----------------------|--------------------------------------|
+| Win x86_64            | `[win-x64, win-x64-noavx]`            |
+| Win ARM64             | `[win-arm64]`                         |
+| macOS Apple Silicon   | `[macos-arm64]`                       |
+| macOS Intel           | `[macos-x64]`                         |
+| Linux x86_64          | `[linux-x64]`                         |
+| Linux aarch64         | `[linux-arm64]`                       |
+
+**强制覆盖**:`CHAYUAN_VENDOR_PLATFORM=<subdir>` env 变量。例:
+
+```bash
+# Win 强制 AVX512 build
+set CHAYUAN_VENDOR_PLATFORM=win-x64-avx512
+
+# Win 强制无 AVX(VM 里 / 老 CPU)
+set CHAYUAN_VENDOR_PLATFORM=win-x64-noavx
+
+# 临时禁用平台子目录,只看扁平 install 脚本落点
+set CHAYUAN_VENDOR_PLATFORM=__none__   # 任意不存在的值都行
 ```
 
 需要别的版本时(或 git 里的二进制版本太老)再跑下面脚本:
