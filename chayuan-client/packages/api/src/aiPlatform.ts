@@ -728,6 +728,10 @@ export const aiPlatformRuntimes = {
 export interface DefaultsCandidate {
   id: string;
   runtime: string | null;
+  /** 后端 model_platform 的 platform_name(本地 sidecar 是 'local-<cap>',云厂商
+   *  是 'deepseek' / 'openrouter' / 'qwen' 等)。前端按这个分组渲染 optgroup。
+   *  老服务端可能没返回 → undefined,前端兜底归到「其它」。 */
+  platform_name?: string | null;
   format: string | null;
   size_bytes: number;
   is_default: boolean;

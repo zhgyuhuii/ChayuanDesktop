@@ -102,6 +102,8 @@ def local_candidates_for(panel_cap: str, *, do_scan: bool = True) -> List[Dict[s
             out.append({
                 "id": e.model_id,
                 "runtime": "local",
+                # platform_name 让前端按厂商分组时把 scanner 直出条目归到「本地模型」
+                "platform_name": f"local-{panel_cap}",
                 "format": e.format,
                 "size_bytes": int(e.size_bytes),
                 "is_default": False,

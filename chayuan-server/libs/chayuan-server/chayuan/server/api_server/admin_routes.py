@@ -939,6 +939,7 @@ async def get_capability_defaults(
         if not p.get("enabled", True):
             continue
         platform_type = p.get("platform_type")
+        platform_name = p.get("platform_name")
         for cap in capabilities:
             field = _CAP_TO_GROUP_KEY.get(cap)
             if not field:
@@ -953,6 +954,9 @@ async def get_capability_defaults(
                 candidates[cap].append({
                     "id": mid,
                     "runtime": platform_type,
+                    # platform_name 用于前端按厂商分组(本地 sidecar 是 'local-<cap>',
+                    # 云厂商是 'deepseek' / 'qwen' / 'openrouter' 等)
+                    "platform_name": platform_name,
                     "format": None,
                     "size_bytes": 0,
                     "is_default": defaults.get(cap) == mid,
