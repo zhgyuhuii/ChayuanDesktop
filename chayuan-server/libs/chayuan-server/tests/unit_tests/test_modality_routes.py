@@ -130,6 +130,29 @@ async def test_call_log_endpoint_records_asr(monkeypatch):
     assert entries[0].get("language") == "zh"
 
 
+def test_strip_whisper_artifacts():
+    """whisper 静音 marker 应该被 strip 掉,空文本视为"无有效语音"。"""
+    from chayuan.server.modality.audio import _strip_whisper_artifacts
+    assert _strip_whisper_artifacts("hello world")[0] == "hello world"
+    # 仅 marker → 全 strip,artifact_only=True
+    out, only = _strip_whisper_artifacts("[INAUDIBLE]")
+    assert out == "" and only is True
+    out, only = _strip_whisper_artifacts(" [BLANK_AUDIO] ")
+    assert out == "" and only is True
+    out, only = _strip_whisper_artifacts("[ BLANK AUDIO ]")
+    assert out == "" and only is True
+    out, only = _strip_whisper_artifacts("[空白音频]")
+    assert out == "" and only is True
+    # 混合:marker + 实际文字 → 留实际文字
+    out, only = _strip_whisper_artifacts("[INAUDIBLE] 你好 [NOISE]")
+    assert out == "你好" and only is False
+    # 完全空
+    out, only = _strip_whisper_artifacts("")
+    assert out == "" and only is False
+    out, only = _strip_whisper_artifacts("   ")
+    assert out == "" and only is False
+
+
 @pytest.mark.asyncio
 async def test_transcribe_diagnostics_flow_to_call_log(monkeypatch):
     """pipe 返 ("", [diag...]) 时,call_log.error 应包含每层 diag。"""

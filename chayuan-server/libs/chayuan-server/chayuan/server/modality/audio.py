@@ -25,6 +25,33 @@ def _safe_cleanup(cleanup) -> None:
     except Exception:  # noqa: BLE001
         pass
 
+
+import re as _re
+
+# whisper / whisper.cpp 在静音 / 低音量 / 纯噪声片段会返这些方括号 marker,
+# 不是用户实际说的话。前端拿到这些会把"[INAUDIBLE]"当文字插入笔记 — 错误体感。
+# 所有 ASR backend 拿到 text 后统一 strip 这类 token,strip 后空就视为"无有效语音"。
+_WHISPER_ARTIFACT_PATTERN = _re.compile(
+    r"\[\s*(?:INAUDIBLE|BLANK[_\s]?AUDIO|SOUND|MUSIC|NOISE|"
+    r"UNINTELLIGIBLE|silence|空白音频|无声|噪声)\s*\]",
+    flags=_re.IGNORECASE,
+)
+
+
+def _strip_whisper_artifacts(text: str) -> Tuple[str, bool]:
+    """返 (cleaned_text, was_artifact_only)。
+
+    was_artifact_only=True 表示原文本只含 marker / 空白(整段没有任何有效内容)。
+    caller 据此决定是否继续 fallback / 给用户提示麦克风音量问题。
+    """
+    if not text:
+        return "", False
+    raw_stripped = text.strip()
+    if not raw_stripped:
+        return "", False
+    cleaned = _WHISPER_ARTIFACT_PATTERN.sub("", raw_stripped).strip()
+    return cleaned, (raw_stripped != "" and cleaned == "")
+
 logger = logging.getLogger("chayuan.modality.audio")
 
 
@@ -193,10 +220,14 @@ class AudioPipeline:
                 segments, _info = m.transcribe(
                     path, language=language, beam_size=1,
                 )
-                out = "".join(seg.text for seg in segments).strip()
+                raw_out = "".join(seg.text for seg in segments).strip()
+                out, artifact_only = _strip_whisper_artifacts(raw_out)
                 if out:
                     return out, diag
-                diag.append(f"[faster-whisper] returned empty text (model={model})")
+                if artifact_only:
+                    diag.append(f"[faster-whisper] 只返回静音/噪声标记 {raw_out!r} (model={model})")
+                else:
+                    diag.append(f"[faster-whisper] returned empty text (model={model})")
             except Exception as e:  # noqa: BLE001
                 logger.debug("faster-whisper 不可用：%r", e)
                 diag.append(f"[faster-whisper] {type(e).__name__}: {e}")
@@ -205,10 +236,14 @@ class AudioPipeline:
                 import whisper  # type: ignore
                 m = whisper.load_model(model)
                 out_obj = m.transcribe(path, language=language)
-                out = (out_obj.get("text") or "").strip()
+                raw_out = (out_obj.get("text") or "").strip()
+                out, artifact_only = _strip_whisper_artifacts(raw_out)
                 if out:
                     return out, diag
-                diag.append(f"[openai-whisper] returned empty text (model={model})")
+                if artifact_only:
+                    diag.append(f"[openai-whisper] 只返回静音/噪声标记 {raw_out!r} (model={model})")
+                else:
+                    diag.append(f"[openai-whisper] returned empty text (model={model})")
             except Exception as e:  # noqa: BLE001
                 logger.debug("openai-whisper 不可用：%r", e)
                 diag.append(f"[openai-whisper] {type(e).__name__}: {e}")
@@ -328,16 +363,23 @@ class AudioPipeline:
                 f"[sidecar] POST {url} → 200 but invalid JSON: {body_preview!r} ({e})"
             )
             return "", diag
-        text = (payload.get("text") or "").strip()
-        if not text:
-            # 这是当前用户场景:sidecar 通、HTTP 200、但 text 为空。
-            # 通常是 whisper.cpp 的 ffmpeg/SDL build 不支持 webm/opus 容器,
-            # 或音频太短/全静音。把详细信息留到 call_log 给用户诊断。
+        raw_text = (payload.get("text") or "").strip()
+        text, artifact_only = _strip_whisper_artifacts(raw_text)
+        if artifact_only:
+            # whisper 返了 [INAUDIBLE] / [BLANK_AUDIO] 等 marker → 这段录音无有效语音。
+            # 常见原因:麦克风音量太低 / 离得远 / OS 选错输入设备 / 该 chunk 正好说话间隙。
             diag.append(
-                f"[sidecar] HTTP 200 但 text 为空 — 常见原因:whisper.cpp 不解码 "
-                f"webm/opus(需在前端转 wav 或装 faster-whisper);"
-                f"或音频过短/全静音 (in={file_size}B file={file_name} "
-                f"resp={body_preview!r})"
+                f"[sidecar] whisper 只返回静音/噪声标记 {raw_text!r} — "
+                f"通常是麦克风音量太低或没拾到声;离麦克风近点、调高 OS 输入音量、"
+                f"或确认输入设备选对(in={file_size}B file={file_name})"
+            )
+            return "", diag
+        if not text:
+            # sidecar 通、HTTP 200、但 text 为空(已不在转码不通的场景下)。
+            # 一般是音频过短(<1s)或全静音。
+            diag.append(
+                f"[sidecar] HTTP 200 但 text 为空 — 音频可能过短/全静音 "
+                f"(in={file_size}B file={file_name} resp={body_preview!r})"
             )
             return "", diag
         logger.info("[asr] sidecar text len=%d preview=%r", len(text), text[:80])
