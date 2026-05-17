@@ -43,9 +43,112 @@ def model_cache_root() -> Path:
 
 
 def _model_local_dir(model_name: str) -> Path:
-    """模型在 cache 下的预期路径（HF 规范）。"""
+    """模型在 chayuan 自家 cache 下的预期路径（HF 规范)。
+
+    ⚠ 这是"理想路径"。实际查模型在不在,用 ``find_cached_model_dir(name)`` —
+    它会同时查 HF 默认 cache / HF_HOME / 用户扁平目录,覆盖所有合法落点。
+    """
     safe = model_name.replace("/", "--")
     return _cache_root() / "hub" / f"models--{safe}"
+
+
+def _candidate_cache_roots() -> List[Path]:
+    """枚举所有可能放 HF 模型的 cache 根目录。
+
+    HF Transformers / huggingface_hub 默认查找顺序:
+      1. ``cache_dir=`` 显式参数(我们传 chayuan 自家)
+      2. ``TRANSFORMERS_CACHE`` 环境变量
+      3. ``HF_HOME / hub``
+      4. ``~/.cache/huggingface/hub``
+
+    用户在装机时常用 ``huggingface-cli download <name>``,会落到 (4);跑 chayuan
+    时如果只看 (1),就出现"模型明明在硬盘上,却报没下载"的现象。
+    """
+    out: List[Path] = []
+    seen: set = set()
+
+    def _add(p: Optional[Path]) -> None:
+        if p is None:
+            return
+        try:
+            ap = p.expanduser().resolve()
+        except Exception:  # noqa: BLE001
+            ap = p
+        key = str(ap)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(ap)
+
+    # 1. chayuan 自家(下载按钮主路径)
+    _add(_cache_root())
+    # 2. TRANSFORMERS_CACHE 环境变量
+    tc = os.environ.get("TRANSFORMERS_CACHE")
+    if tc:
+        _add(Path(tc))
+    # 3. HF_HOME / hub
+    hh = os.environ.get("HF_HOME")
+    if hh:
+        _add(Path(hh))
+    # 4. 默认 ~/.cache/huggingface
+    _add(Path.home() / ".cache" / "huggingface")
+    return out
+
+
+def find_cached_model_dir(model_name: str) -> Optional[Path]:
+    """在所有候选 cache 根里找名为 ``model_name`` 的模型,返第一个命中的 dir。
+
+    匹配两种布局(都常见):
+      - **HF 规范**: ``<root>/hub/models--<safe>/`` 下含 snapshots/
+      - **扁平**: 用户 git clone / 离线导入,直接 ``<root>/<org>/<name>/`` 含
+        config.json + safetensors 文件
+
+    都没找到返 None,caller 应抛带"已检查的路径列表"的诊断 error。
+    """
+    safe = model_name.replace("/", "--")
+    for root in _candidate_cache_roots():
+        # HF 规范布局
+        hf_dir = root / "hub" / f"models--{safe}"
+        if hf_dir.is_dir():
+            # 至少有 snapshots/<hash> 才算真正下载完(空 dir 是 stale download)
+            snap = hf_dir / "snapshots"
+            if snap.is_dir() and any(snap.iterdir()):
+                return hf_dir
+        # 扁平布局:<root>/<org>/<name> 或 <root>/<safe>
+        if "/" in model_name:
+            org, name = model_name.split("/", 1)
+            flat1 = root / org / name
+            if flat1.is_dir() and (flat1 / "config.json").is_file():
+                return flat1
+        flat2 = root / safe
+        if flat2.is_dir() and (flat2 / "config.json").is_file():
+            return flat2
+    return None
+
+
+def find_model_load_path(model_name: str) -> Optional[str]:
+    """给 ``from_pretrained(..., pretrained_model_name_or_path=X)`` 用的 X。
+
+    - 找到 HF 规范布局 → 返 cache 根字符串(让 caller 传 ``cache_dir=root``)
+    - 找到扁平布局     → 返扁平目录字符串(让 caller 直接 from_pretrained(dir))
+    - 都没找到         → None
+    """
+    safe = model_name.replace("/", "--")
+    for root in _candidate_cache_roots():
+        hf_dir = root / "hub" / f"models--{safe}"
+        if hf_dir.is_dir() and (hf_dir / "snapshots").is_dir() and any(
+            (hf_dir / "snapshots").iterdir()
+        ):
+            return str(root)
+        if "/" in model_name:
+            org, name = model_name.split("/", 1)
+            flat = root / org / name
+            if flat.is_dir() and (flat / "config.json").is_file():
+                return str(flat)
+        flat2 = root / safe
+        if flat2.is_dir() and (flat2 / "config.json").is_file():
+            return str(flat2)
+    return None
 
 
 def _hf_endpoint() -> str:
@@ -68,9 +171,11 @@ def list_models(kind: str = "image") -> List[Dict[str, Any]]:
     from chayuan.server.image_source.embedder import SUPPORTED_MODELS, is_model_ready
     out: List[Dict[str, Any]] = []
     for name, spec in SUPPORTED_MODELS.items():
-        local_dir = _model_local_dir(name)
-        exists = local_dir.exists()
-        size_bytes = _dir_size(local_dir) if exists else 0
+        # 用 find_cached_model_dir 而不是固定路径 — 用户可能把模型放在 HF 默认
+        # cache(~/.cache/huggingface)或 HF_HOME / TRANSFORMERS_CACHE 指定的位置,
+        # 之前只看 chayuan 自家 cache 会把"已下载"误报成"未下载"。
+        cached_dir = find_cached_model_dir(name)
+        size_bytes = _dir_size(cached_dir) if cached_dir else 0
         ready = is_model_ready(name)
         out.append({
             "name": name,
@@ -80,11 +185,12 @@ def list_models(kind: str = "image") -> List[Dict[str, Any]]:
             "chinese_level": spec.chinese_level,
             "languages": spec.languages,
             "description": spec.description,
-            "cached": bool(exists),
+            "cached": cached_dir is not None,
             "cached_size_mb": round(size_bytes / (1024 * 1024), 1),
             "deps_available": ready.get("available"),
             "deps_reason": ready.get("reason"),
-            "local_dir": str(local_dir),
+            # local_dir 既给 UI 显示也方便用户排查 — 没下时给 chayuan 默认路径
+            "local_dir": str(cached_dir if cached_dir else _model_local_dir(name)),
         })
     return out
 
