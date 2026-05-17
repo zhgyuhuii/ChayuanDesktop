@@ -190,9 +190,15 @@ def _find_offline_wheels(variant: str) -> List[Path]:
     # 例如 cu124:torch-2.6.0+cu124-cp312-cp312-win_amd64.whl
     # 但 PyPI 官方 cpu wheel 文件名是 torch-2.6.0-cp312-...(没 +cpu),
     # 所以 cpu 走 "没 +cuXXX" 兜底。
+    #
+    # ⚠ 必须用 rglob — chayuan-server.spec 把 wheel 打到子目录
+    # ``vendor/torch_wheels/<platform>_py<ver>_<variant>/*.whl``(见 spec:200-206),
+    # 顶层是空的。早期用 d.glob 在装机后永远扫不到 wheel,默默走在线下载。
+    # 多 variant 共存(cpu + cu124 都打)时,下面 variant 过滤会按 +cuXXX 标识
+    # 把跨 variant 的混入剔掉,所以 rglob 不会乱串。
     found_torch: Optional[Path] = None
     found_tv: Optional[Path] = None
-    for whl in d.glob("*.whl"):
+    for whl in d.rglob("*.whl"):
         name = whl.name.lower()
         if variant == "cpu":
             # cpu wheel 通常没 +cuXXX,文件名也不含 cu1xx

@@ -13,6 +13,7 @@ import { kbCollections, type KbCollection } from '@chayuan/api';
 import { reportError, notifySuccess } from '../../../store/errorDialog';
 import { KbCollectionCard } from './KbCollectionCard';
 import { CreateCollectionDialog } from './CreateCollectionDialog';
+import { getPlatform } from '@chayuan/platform-shared';
 
 export function KbCollectionsPage(): React.JSX.Element {
   const [collections, setCollections] = React.useState<KbCollection[]>([]);
@@ -34,9 +35,11 @@ export function KbCollectionsPage(): React.JSX.Element {
   React.useEffect(() => { void refresh(); }, [refresh]);
 
   const handleDelete = async (id: number, name: string) => {
-    if (!confirm(`确定删除集合「${name}」?\n所有子 KB(文档+图像)会被一并删除。此操作不可撤销。`)) {
-      return;
-    }
+    const ok = await getPlatform().dialog.confirm(
+      `确定删除集合「${name}」?\n所有子 KB(文档+图像)会被一并删除。此操作不可撤销。`,
+      { title: '删除集合' },
+    );
+    if (!ok) return;
     try {
       const ret = await kbCollections.remove(id);
       const errCount = (ret.errors as unknown[])?.length || 0;

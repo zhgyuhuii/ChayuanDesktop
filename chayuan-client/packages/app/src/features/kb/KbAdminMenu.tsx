@@ -53,6 +53,7 @@ import {
   sourceIdFromKuId,
 } from './SchemaScopePicker';
 import { AssistantBrandLogo } from '../../components/AssistantBrandLogo';
+import { getPlatform } from '@chayuan/platform-shared';
 
 export interface KbAdminMenuProps {
   detail: KuDetail;
@@ -72,16 +73,14 @@ export const KbAdminMenu: React.FC<KbAdminMenuProps> = ({ detail, onDeleted }) =
   const scopeKind = scopeKindFor((detail as { sub_kind?: string }).sub_kind);
 
   const onDelete = async () => {
-    if (
-      !confirm(
-        `确定删除知识库「${detail.meta.display_name}」?\n` +
-          (isDoc
-            ? '所有文件 + 向量数据将被清除,该操作不可恢复。'
-            : '数据源记录(连接信息 + 白名单 + 缓存)将被删除,但远端真实数据库不动。'),
-      )
-    ) {
-      return;
-    }
+    const ok0 = await getPlatform().dialog.confirm(
+      `确定删除知识库「${detail.meta.display_name}」?\n` +
+        (isDoc
+          ? '所有文件 + 向量数据将被清除,该操作不可恢复。'
+          : '数据源记录(连接信息 + 白名单 + 缓存)将被删除,但远端真实数据库不动。'),
+      { title: '删除知识库' },
+    );
+    if (!ok0) return;
     setDeletePending(true);
     try {
       if (isDoc) {

@@ -275,8 +275,10 @@ export const AudioToTextPage: React.FC = () => {
     void runAsr([it]);
   }, [items, runAsr]);
 
-  const onClearAll = React.useCallback(() => {
-    if (!confirm('清空所有音频和编辑内容?')) return;
+  const onClearAll = React.useCallback(async () => {
+    // 走 platform.dialog.confirm — 见 ImageToTextPage 同处注释
+    const ok = await getPlatform().dialog.confirm('清空所有音频和编辑内容?', { title: '清空' });
+    if (!ok) return;
     for (const it of items) {
       try { URL.revokeObjectURL(it.url); } catch { /* ignore */ }
     }

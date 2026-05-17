@@ -49,6 +49,7 @@ import { useComposerStore } from '../../store/composer';
 import { useAuthStore } from '../../store/auth';
 import { useTabsStore } from '../../store/tabs';
 import { useTranslation } from '../../i18n';
+import { getPlatform } from '@chayuan/platform-shared';
 
 export interface SidebarProps {
   collapsed: boolean;
@@ -289,8 +290,15 @@ const ConversationItem: React.FC<{
             重命名
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => {
-              if (confirm(`删除「${item.title}」?此操作不可恢复。`)) onDelete();
+            onClick={async () => {
+              // 走 platform.dialog.confirm(plugin-dialog.ask),不要裸 confirm():
+              // Tauri 2 webview 把 window.confirm 重定向到 plugin:dialog|confirm,
+              // 某些 Tauri 2.x 版本即使授权 dialog:allow-confirm 也会 ACL 拒。
+              const ok = await getPlatform().dialog.confirm(
+                `删除「${item.title}」?此操作不可恢复。`,
+                { title: '删除会话' },
+              );
+              if (ok) onDelete();
             }}
             className="text-destructive focus:text-destructive"
           >

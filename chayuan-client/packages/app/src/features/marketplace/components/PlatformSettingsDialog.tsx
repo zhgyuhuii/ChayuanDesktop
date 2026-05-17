@@ -42,6 +42,7 @@ import { modelPlatform } from '@chayuan/api';
 import { MODEL_TYPES, type ModelType } from '../lib/modelTypes';
 import { EMPTY_MODELS_BY_TYPE, ModelTypeAccordion, type ModelsByType } from './ModelTypeAccordion';
 import { AssistantBrandLogo } from '../../../components/AssistantBrandLogo';
+import { getPlatform } from '@chayuan/platform-shared';
 
 const PLATFORM_TYPES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'custom openai', label: 'OpenAI 兼容(自定义)' },
@@ -225,7 +226,11 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
 
   const onDelete = async () => {
     if (!platform) return;
-    if (!confirm(`删除厂商「${platform.platform_name}」?(yaml seed 仍可作为兜底)`)) return;
+    const ok = await getPlatform().dialog.confirm(
+      `删除厂商「${platform.platform_name}」?(yaml seed 仍可作为兜底)`,
+      { title: '删除厂商' },
+    );
+    if (!ok) return;
     try {
       await deleteMut.mutateAsync(platform.platform_name);
       notifySuccess(`${platform.platform_name} 已删除`);

@@ -26,6 +26,7 @@ import {
   Input,
 } from '@chayuan/ui';
 import { mcp, type McpConnection, type McpConnectionInput } from '@chayuan/api';
+import { getPlatform } from '@chayuan/platform-shared';
 
 const QK = ['mcp', 'list-all'] as const;
 
@@ -112,8 +113,12 @@ export const McpPage: React.FC = () => {
                   size="icon"
                   variant="ghost"
                   className="text-destructive"
-                  onClick={() => {
-                    if (confirm(`删除连接「${c.server_name}」？`)) deleteM.mutate(c.id);
+                  onClick={async () => {
+                    const ok = await getPlatform().dialog.confirm(
+                      `删除连接「${c.server_name}」?`,
+                      { title: '删除 MCP 连接' },
+                    );
+                    if (ok) deleteM.mutate(c.id);
                   }}
                   title="删除"
                 >

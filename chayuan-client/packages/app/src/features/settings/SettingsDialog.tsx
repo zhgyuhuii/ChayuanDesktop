@@ -173,7 +173,14 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onOpenChan
                   onClick={async () => {
                     const upd = await platform.updater!.check();
                     if (upd.available) {
-                      if (confirm(`发现新版本 ${upd.version}。立即安装？`)) {
+                      // 走 platform.dialog.confirm,不要裸 confirm() — Tauri 2 webview
+                      // 把 window.confirm 重定向到 plugin:dialog|confirm,某些 2.x 版
+                      // 即使授权 dialog:allow-confirm 也会 ACL 拒。
+                      const ok = await platform.dialog.confirm(
+                        `发现新版本 ${upd.version}。立即安装?`,
+                        { title: '更新' },
+                      );
+                      if (ok) {
                         await platform.updater!.install();
                       }
                     } else {
@@ -192,8 +199,9 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onOpenChan
         <DialogFooter>
           <Button
             variant="ghost"
-            onClick={() => {
-              if (!confirm('恢复默认设置？')) return;
+            onClick={async () => {
+              const ok = await platform.dialog.confirm('恢复默认设置?', { title: '恢复默认' });
+              if (!ok) return;
               settings.reset();
               setApiInput('');
               configureClient({ baseURL: defaultApi });

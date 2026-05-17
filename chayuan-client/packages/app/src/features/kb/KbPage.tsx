@@ -109,7 +109,15 @@ export const KbPage: React.FC = () => {
               await updateInfo.mutateAsync({ knowledge_base_name: active, kb_info: info });
             }}
             onDeleteKb={async () => {
-              if (!confirm(`删除知识库「${active}」？所有文件将被清除`)) return;
+              // 用 platform.dialog.confirm(走 plugin-dialog ask),不要裸 confirm():
+              // Tauri 2 webview 把 window.confirm 重定向到 plugin:dialog|confirm,
+              // 在某些 Tauri 2.x 版本下即使声明了 dialog:allow-confirm 也会 ACL 拒,
+              // 走 ask 走得通(见 platform-tauri/src/index.ts:733 注释)。
+              const ok = await getPlatform().dialog.confirm(
+                `删除知识库「${active}」?所有文件将被清除`,
+                { title: '删除知识库' },
+              );
+              if (!ok) return;
               await del.mutateAsync(active);
               setActive(null);
             }}
@@ -249,7 +257,11 @@ const KbDetail: React.FC<{ name: string; onRename: (info: string) => void; onDel
             size="sm"
             variant="destructive"
             onClick={async () => {
-              if (!confirm(`删除选中的 ${selected.size} 个文件？`)) return;
+              const ok = await getPlatform().dialog.confirm(
+                `删除选中的 ${selected.size} 个文件?`,
+                { title: '删除文件' },
+              );
+              if (!ok) return;
               await delDocs.mutateAsync([...selected]);
               setSelected(new Set());
             }}

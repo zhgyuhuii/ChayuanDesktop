@@ -204,8 +204,12 @@ export const ImageToTextPage: React.FC = () => {
     void runOcr([it]);
   }, [items, runOcr]);
 
-  const onClearAll = React.useCallback(() => {
-    if (!confirm('清空所有图片和编辑内容?')) return;
+  const onClearAll = React.useCallback(async () => {
+    // 走 platform.dialog.confirm(plugin-dialog.ask),不要裸 confirm():
+    // Tauri 2 webview 把 window.confirm 重定向到 plugin:dialog|confirm,某些
+    // Tauri 2.x 版本即使授权 dialog:allow-confirm 也会 ACL 拒。
+    const ok = await getPlatform().dialog.confirm('清空所有图片和编辑内容?', { title: '清空' });
+    if (!ok) return;
     for (const it of items) {
       try { URL.revokeObjectURL(it.url); } catch { /* ignore */ }
     }

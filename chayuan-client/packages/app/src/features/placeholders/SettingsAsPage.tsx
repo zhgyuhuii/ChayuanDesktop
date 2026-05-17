@@ -238,7 +238,12 @@ export const SettingsAsPage: React.FC = () => {
                   // biome-ignore lint/style/noNonNullAssertion: 上面 platform.updater 真值守卫已确保非空
                   const upd = await platform.updater!.check();
                   if (upd.available) {
-                    if (confirm(`发现新版本 ${upd.version}。立即安装?`)) {
+                    // 走 platform.dialog.confirm — 详见 ImageToTextPage 同处注释
+                    const ok = await platform.dialog.confirm(
+                      `发现新版本 ${upd.version}。立即安装?`,
+                      { title: '更新' },
+                    );
+                    if (ok) {
                       // biome-ignore lint/style/noNonNullAssertion: 同上
                       await platform.updater!.install();
                     }
@@ -258,8 +263,9 @@ export const SettingsAsPage: React.FC = () => {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => {
-            if (!confirm('恢复默认设置?')) return;
+          onClick={async () => {
+            const ok = await platform.dialog.confirm('恢复默认设置?', { title: '恢复默认' });
+            if (!ok) return;
             settings.reset();
             setNameInput('');
           }}

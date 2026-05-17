@@ -15,6 +15,7 @@ import {
   type KbCollection, type KbCollectionMember, type KuItem, type KuKind,
 } from '@chayuan/api';
 import { reportError, notifySuccess } from '../../../store/errorDialog';
+import { getPlatform } from '@chayuan/platform-shared';
 
 interface Props {
   open: boolean;
@@ -68,7 +69,11 @@ export function ManageMembersDialog({
   };
 
   const handleRemove = async (m: KbCollectionMember) => {
-    if (!confirm(`从集合中移除「${m.ku_id}」?\n(只解绑不删 KB)`)) return;
+    const ok = await getPlatform().dialog.confirm(
+      `从集合中移除「${m.ku_id}」?\n(只解绑不删 KB)`,
+      { title: '移除成员' },
+    );
+    if (!ok) return;
     setBusy(true);
     try {
       await kbCollections.removeMember(collection.id, m.ku_id);

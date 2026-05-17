@@ -290,7 +290,11 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
 
   const onDelete = async () => {
     if (!mine || selected.size === 0 || sourceId == null) return;
-    if (!confirm(`删除选中的 ${selected.size} 张图片?该操作不可恢复`)) return;
+    const ok0 = await getPlatform().dialog.confirm(
+      `删除选中的 ${selected.size} 张图片?该操作不可恢复`,
+      { title: '删除图片' },
+    );
+    if (!ok0) return;
     setBusy(true);
     try {
       // 串行删,避免并发冲击 store._meta;失败的继续
@@ -311,7 +315,11 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
 
   const onDeleteOne = React.useCallback(async (img: ImageItem) => {
     if (!mine || sourceId == null) return;
-    if (!confirm(`删除「${img.caption || img.id}」?该操作不可恢复`)) return;
+    const ok0 = await getPlatform().dialog.confirm(
+      `删除「${img.caption || img.id}」?该操作不可恢复`,
+      { title: '删除图片' },
+    );
+    if (!ok0) return;
     setBusy(true);
     try {
       const ok = await imageSource.remove(sourceId, img.id).catch(() => false);

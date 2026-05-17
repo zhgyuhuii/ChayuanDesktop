@@ -34,6 +34,7 @@ import {
 import { mcp, type McpConnection, type McpConnectionInput } from '@chayuan/api';
 import { reportError, notifySuccess } from '../../store/errorDialog';
 import { AssistantBrandLogo } from '../../components/AssistantBrandLogo';
+import { getPlatform } from '@chayuan/platform-shared';
 
 export interface McpEditDialogProps {
   mode: 'create' | 'edit' | undefined;
@@ -251,8 +252,12 @@ export const McpEditDialog: React.FC<McpEditDialogProps> = ({
             <Button
               variant="ghost"
               className="text-destructive"
-              onClick={() => {
-                if (confirm(`删除 MCP 连接「${seed.server_name}」?`)) del.mutate();
+              onClick={async () => {
+                const ok = await getPlatform().dialog.confirm(
+                  `删除 MCP 连接「${seed.server_name}」?`,
+                  { title: '删除 MCP 连接' },
+                );
+                if (ok) del.mutate();
               }}
               disabled={del.isPending || save.isPending}
             >

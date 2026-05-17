@@ -13,6 +13,7 @@ import { Button, cn } from '@chayuan/ui';
 import { folderSync, type FolderSyncJob } from '@chayuan/api';
 import { reportError, notifySuccess } from '../../../store/errorDialog';
 import { FolderSyncJobDialog } from './FolderSyncJobDialog';
+import { getPlatform } from '@chayuan/platform-shared';
 
 export function FolderSyncPage(): React.JSX.Element {
   const [jobs, setJobs] = React.useState<FolderSyncJob[]>([]);
@@ -72,7 +73,11 @@ export function FolderSyncPage(): React.JSX.Element {
   };
 
   const handleDelete = async (j: FolderSyncJob) => {
-    if (!confirm(`删除任务「${j.name}」?\n(不影响已同步的文件,只停止后续同步)`)) return;
+    const ok = await getPlatform().dialog.confirm(
+      `删除任务「${j.name}」?\n(不影响已同步的文件,只停止后续同步)`,
+      { title: '删除同步任务' },
+    );
+    if (!ok) return;
     try {
       await folderSync.remove(j.id);
       notifySuccess('任务已删除');

@@ -187,7 +187,11 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
 
   const onDeleteSelected = async () => {
     if (!mine || selected.size === 0) return;
-    if (!confirm(`删除选中的 ${selected.size} 个文件?该操作不可恢复`)) return;
+    const ok0 = await getPlatform().dialog.confirm(
+      `删除选中的 ${selected.size} 个文件?该操作不可恢复`,
+      { title: '删除文件' },
+    );
+    if (!ok0) return;
     setBusy(true);
     try {
       await kbApi.deleteDocs({
@@ -207,7 +211,11 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
 
   const onDeleteOne = React.useCallback(async (fileName: string) => {
     if (!mine) return;
-    if (!confirm(`删除「${fileName}」?该操作不可恢复`)) return;
+    const ok0 = await getPlatform().dialog.confirm(
+      `删除「${fileName}」?该操作不可恢复`,
+      { title: '删除文件' },
+    );
+    if (!ok0) return;
     setBusy(true);
     try {
       await kbApi.deleteDocs({
@@ -233,7 +241,11 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
   const runReindex = async (fileNames: string[]) => {
     if (!mine || fileNames.length === 0) return;
     const label = fileNames.length === 1 ? `「${fileNames[0]}」` : `${fileNames.length} 个文件`;
-    if (!confirm(`重新生成 ${label} 的向量数据?\n旧向量会先删除,然后基于源文件重新切片入库。`)) return;
+    const ok0 = await getPlatform().dialog.confirm(
+      `重新生成 ${label} 的向量数据?\n旧向量会先删除,然后基于源文件重新切片入库。`,
+      { title: '重建向量' },
+    );
+    if (!ok0) return;
     setBusy(true);
     try {
       const resp = await kbApi.reindexDocs({
