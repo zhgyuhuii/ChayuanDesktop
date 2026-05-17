@@ -439,6 +439,29 @@ function Invoke-Step {
     Write-Note "$ $Command $($Arguments -join ' ')"
     $logFile = Join-Path $env:TEMP "chayuan-build-$($Name -replace '[^\w]','_').log"
 
+    # 上一轮 build 没善后干净(chayuan-server.exe / pyinstaller 子进程残留)会
+    # 把这个日志文件锁住,Out-File 直接 IOException 退出。先探活:试独占打开,
+    # 拿不到就把锁住的那份 rename 成 .locked-<ts>.log 让位,新轮干净起步。
+    if (Test-Path $logFile) {
+        $fs = $null
+        try {
+            $fs = [System.IO.File]::Open($logFile, 'Open', 'ReadWrite', 'None')
+        } catch [System.IO.IOException] {
+            $ts = (Get-Date -Format 'yyyyMMdd-HHmmss')
+            $stash = "$logFile.locked-$ts"
+            try {
+                Rename-Item -Path $logFile -NewName (Split-Path -Leaf $stash) -Force
+                Write-Note "上一轮 $Name 日志被进程锁住,改名让位:$stash"
+            } catch {
+                # rename 也失败(极少见,通常是 ACL 问题)— 换个文件名兜底
+                $logFile = "$logFile.run-$ts.log"
+                Write-Note "rename 失败,本轮日志改写:$logFile"
+            }
+        } finally {
+            if ($fs) { $fs.Close() }
+        }
+    }
+
     # 局部把 ErrorActionPreference 调成 Continue:许多 native 命令(poetry / pnpm /
     # cargo)正常情况下也往 stderr 写信息行,在 Stop 模式 + 2>&1 下会被当成
     # 致命错误抛 NativeCommandError。退出码才是事实真相。
