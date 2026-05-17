@@ -71,7 +71,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
   const partialCountRef = React.useRef(0);
   const mic = useMicRecorder({
     sliceMs: 2500,
-    language: '',
+    // 默认 zh — whisper 在 language="" / auto 下,短/嘈杂片段会被误判为西语/葡语
+    // 等,返回 `[Spanish]` 这种语言名 marker(不是用户实际说的话)。中文用户主
+    // 场景下,显式提示 zh 大幅减少误判 + 提升识别率。后续若要支持英文/混合,
+    // 加 UI 切换器即可。
+    language: 'zh',
     onPartial: (text) => {
       if (!text || !editor) return;
       partialCountRef.current += 1;

@@ -28,12 +28,42 @@ def _safe_cleanup(cleanup) -> None:
 
 import re as _re
 
-# whisper / whisper.cpp 在静音 / 低音量 / 纯噪声片段会返这些方括号 marker,
-# 不是用户实际说的话。前端拿到这些会把"[INAUDIBLE]"当文字插入笔记 — 错误体感。
+# whisper / whisper.cpp 在静音 / 低音量 / 纯噪声片段 / 短音频被误判为外语时,
+# 会返这些方括号 marker(`[INAUDIBLE]` `[Spanish]` 等),不是用户实际说的话。
+# 前端拿到这些会把"[INAUDIBLE]"或"[Spanish]"当文字插入笔记 — 错误体感。
 # 所有 ASR backend 拿到 text 后统一 strip 这类 token,strip 后空就视为"无有效语音"。
+#
+# 覆盖三类 marker:
+#   1) 状态描述:INAUDIBLE / BLANK_AUDIO / SOUND / MUSIC / NOISE / silence
+#   2) whisper 内置语言名(英文形式,~ 100 种 supported)— `[Spanish]` `[English]` 等
+#   3) 中文等价标签:空白音频 / 无声 / 噪声
+_WHISPER_STATE_MARKERS = (
+    "INAUDIBLE", "BLANK[_\\s]?AUDIO", "SOUND", "MUSIC", "NOISE",
+    "UNINTELLIGIBLE", "silence",
+    "空白音频", "无声", "噪声",
+)
+# whisper.cpp src/whisper.cpp g_lang 表(主流 70+ 语言英文名,首字母大写形式)
+_WHISPER_LANGUAGE_NAMES = (
+    "English", "Chinese", "Spanish", "French", "German", "Japanese", "Korean",
+    "Russian", "Italian", "Portuguese", "Dutch", "Polish", "Arabic", "Hindi",
+    "Turkish", "Swedish", "Norwegian", "Danish", "Finnish", "Greek", "Czech",
+    "Hungarian", "Romanian", "Ukrainian", "Vietnamese", "Thai", "Indonesian",
+    "Malay", "Hebrew", "Catalan", "Bulgarian", "Croatian", "Serbian", "Slovak",
+    "Slovenian", "Lithuanian", "Latvian", "Estonian", "Welsh", "Icelandic",
+    "Maori", "Tamil", "Bengali", "Marathi", "Gujarati", "Punjabi", "Kannada",
+    "Telugu", "Malayalam", "Sinhala", "Nepali", "Mongolian", "Belarusian",
+    "Macedonian", "Albanian", "Armenian", "Azerbaijani", "Georgian", "Kazakh",
+    "Uzbek", "Persian", "Urdu", "Pashto", "Yiddish", "Swahili", "Afrikaans",
+    "Filipino", "Tagalog", "Burmese", "Khmer", "Lao", "Tibetan", "Tajik",
+    "Turkmen", "Yoruba", "Zulu", "Hausa", "Igbo", "Esperanto", "Latin",
+    "Maltese", "Tatar", "Bashkir", "Sundanese", "Javanese", "Cantonese",
+    "Hawaiian", "Haitian", "Bosnian", "Galician", "Basque", "Breton",
+    "Faroese", "Luxembourgish", "Occitan", "Sanskrit", "Somali", "Amharic",
+)
 _WHISPER_ARTIFACT_PATTERN = _re.compile(
-    r"\[\s*(?:INAUDIBLE|BLANK[_\s]?AUDIO|SOUND|MUSIC|NOISE|"
-    r"UNINTELLIGIBLE|silence|空白音频|无声|噪声)\s*\]",
+    r"\[\s*(?:"
+    + "|".join(_WHISPER_STATE_MARKERS + _WHISPER_LANGUAGE_NAMES)
+    + r")\s*\]",
     flags=_re.IGNORECASE,
 )
 

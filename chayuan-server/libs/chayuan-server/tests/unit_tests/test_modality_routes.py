@@ -143,9 +143,18 @@ def test_strip_whisper_artifacts():
     assert out == "" and only is True
     out, only = _strip_whisper_artifacts("[空白音频]")
     assert out == "" and only is True
+    # whisper 语言名 marker(auto detection 失败时输出)
+    out, only = _strip_whisper_artifacts("[Spanish] [Spanish] [Spanish]")
+    assert out == "" and only is True
+    out, only = _strip_whisper_artifacts("[English]")
+    assert out == "" and only is True
+    out, only = _strip_whisper_artifacts("[Japanese] [Korean]")
+    assert out == "" and only is True
     # 混合:marker + 实际文字 → 留实际文字
     out, only = _strip_whisper_artifacts("[INAUDIBLE] 你好 [NOISE]")
     assert out == "你好" and only is False
+    out, only = _strip_whisper_artifacts("[Spanish] 测试 [English]")
+    assert out == "测试" and only is False
     # 完全空
     out, only = _strip_whisper_artifacts("")
     assert out == "" and only is False

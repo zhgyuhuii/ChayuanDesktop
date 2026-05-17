@@ -50,7 +50,13 @@ export const CallLogDialog: React.FC<CallLogDialogProps> = ({
       const r = await modality.callLog(k, 200);
       setEntries(r.entries ?? []);
     } catch (e) {
-      reportError(e, '读取调用日志失败');
+      // dialog 关闭瞬间 / 切 tab 瞬间 in-flight 请求会被 abort,这是正常清理流程,
+      // 不弹错误框。只匹配 AbortError 名字 / 中文消息,不吞掉真正网络错误。
+      const isAbort = e instanceof Error && (
+        e.name === 'AbortError' ||
+        /aborted|abort|已中止/i.test(e.message)
+      );
+      if (!isAbort) reportError(e, '读取调用日志失败');
     } finally {
       setLoading(false);
     }
