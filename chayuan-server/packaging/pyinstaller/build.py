@@ -50,6 +50,19 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+# Windows GBK 兜底:build-desktop.ps1 把这个脚本的输出 `2>&1 | Out-File`,
+# Python 检测到 stdout 不是 tty 时默认走 locale 编码(zh-CN Windows = GBK),
+# 一遇到非 ASCII 字符(本文件大量用 ✓ / ✗ / ⚠ / 中文)直接抛 UnicodeEncodeError
+# → 整条打包链路挂掉。强制 stdout/stderr UTF-8,与 build-desktop.ps1 的
+# chcp 65001 配套(那一边管控制台代码页,这一边管 Python 内部 encoding)。
+# errors='replace':极端情况下(如系统没装 UTF-8 codec)用 ? 替换而不是炸。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+except (AttributeError, OSError):
+    # Python < 3.7 没 reconfigure;或者 stdout 被替换成无 reconfigure 方法的对象
+    pass
+
 
 HERE = Path(__file__).resolve().parent                       # packaging/pyinstaller
 ROOT = HERE.parent.parent                                    # chayuan-server/(repo root)
