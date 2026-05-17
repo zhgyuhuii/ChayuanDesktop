@@ -317,10 +317,10 @@ const THEME_OPTS: Array<{
 // 显示哪几类:对应 UI 上"聊天 / 文本嵌入 / 图像嵌入 / 重排"等用户最常配置的能力;
 // 其它(t2i/t2v/tts/asr/ocr)留在 RuntimeCenter 全量面板,这里只暴露 4 类高频。
 const VISIBLE_CAPS: Array<{ cap: string; label: string; hint: string }> = [
-  { cap: 'chat', label: '聊天模型', hint: '问答 / 写作 / 多轮对话' },
-  { cap: 'embedding', label: '文本向量模型', hint: '知识库索引 / 语义检索' },
-  { cap: 'clip', label: '图像向量模型', hint: '图片知识库 / 多模态检索' },
-  { cap: 'rerank', label: '重排模型', hint: '检索后精排提升相关性' },
+  { cap: 'chat', label: '聊天模型', hint: '用于问答 / 写作 / 多轮对话' },
+  { cap: 'embedding', label: '文本向量模型', hint: '用于知识库索引和语义检索' },
+  { cap: 'clip', label: '图像向量模型', hint: '用于图片知识库和图文检索' },
+  { cap: 'rerank', label: '结果重排模型', hint: '检索后再排一次,让最相关的结果排到前面' },
 ];
 
 // 模型库自检 Banner — 缺模型时引导用户走三条配置路径:

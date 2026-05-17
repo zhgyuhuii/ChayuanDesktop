@@ -540,7 +540,7 @@ const Step3ModeAndScope: React.FC<{
       {(form.scope_type === 'kb' || form.scope_type === 'group') && (
         <Input
           className="mt-2 h-8 w-64 text-xs"
-          placeholder={form.scope_type === 'kb' ? '输入 kb_name' : '输入 group_id'}
+          placeholder={form.scope_type === 'kb' ? '输入知识库名称' : '输入分组 ID'}
           value={form.scope_id}
           onChange={(e) => setForm({ ...form, scope_id: e.target.value })}
         />
@@ -549,7 +549,7 @@ const Step3ModeAndScope: React.FC<{
 
     <div className="grid gap-3 md:grid-cols-3">
       <div>
-        <label className="text-xs font-medium">物化条数上限</label>
+        <label className="text-xs font-medium">最多挂载条数</label>
         <Input type="number" value={String(form.max_items)} onChange={(e) => setForm({ ...form, max_items: Number(e.target.value || 0) })} className="mt-1 h-8 text-xs" />
       </div>
       <div>
@@ -652,11 +652,11 @@ const FALLBACK_SOURCES: SourceCatalogItem[] = [
     description: '从已建好的本地知识库取切片',
     capabilities: ['corpus', 'context', 'fewshot'],
     spec_form: { fields: [
-      { name: 'kb_name', label: '知识库名称', type: 'string', required: true,
+      { name: 'kb_name', label: '知识库', type: 'string', required: true,
         help: '从已建 KB 列表选;留空走兜底' },
-      { name: 'query', label: '过滤检索词', type: 'string', default: '',
-        help: '留空 = 拉前 N 条;非空 = hybrid_search 取 top_k' },
-      { name: 'top_k', label: '条数上限', type: 'int', default: 200 },
+      { name: 'query', label: '搜索关键词', type: 'string', default: '',
+        help: '留空 = 拉前 N 条;填了走混合检索取前 N 条相关结果' },
+      { name: 'top_k', label: '最多返回条数', type: 'int', default: 200 },
     ] },
   },
   {
@@ -665,7 +665,7 @@ const FALLBACK_SOURCES: SourceCatalogItem[] = [
     capabilities: ['corpus', 'context'],
     spec_form: { fields: [
       { name: 'source_id', label: '知识源 ID', type: 'int', required: true },
-      { name: 'query', label: '过滤查询', type: 'string', default: '' },
+      { name: 'query', label: '条件筛选', type: 'string', default: '' },
     ] },
   },
   {
@@ -709,7 +709,7 @@ const FALLBACK_SOURCES: SourceCatalogItem[] = [
     spec_form: { fields: [
       { name: 'url', label: 'SQLAlchemy URL', type: 'password', required: true,
         help: '如 postgresql://user:pass@host:5432/db' },
-      { name: 'query', label: 'SELECT 语句', type: 'string', required: true },
+      { name: 'query', label: '查询语句(SELECT)', type: 'string', required: true },
       { name: 'text_column', label: '文本字段名', type: 'string', default: '' },
       { name: 'id_column', label: 'ID 字段名', type: 'string', default: '' },
     ] },

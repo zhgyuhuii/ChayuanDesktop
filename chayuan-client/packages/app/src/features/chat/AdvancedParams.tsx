@@ -42,7 +42,7 @@ export const AdvancedParams: React.FC = () => {
         className="w-72 p-3"
         onClick={(e) => e.stopPropagation()}
       >
-        <Field label="Temperature" hint="0–1；高 = 更发散；空 = 后端默认 0.3">
+        <Field label="发散度" hint="0–1,值越大回答越多样;留空 = 0.3">
           <Slider
             value={temperature ?? 0.3}
             min={0}
@@ -52,7 +52,7 @@ export const AdvancedParams: React.FC = () => {
           />
           <span className="text-xs tabular-nums text-muted-foreground">{temperature?.toFixed(2) ?? '默认'}</span>
         </Field>
-        <Field label="Max tokens" hint="单次回复最多 token；空 = 模型默认">
+        <Field label="回复长度上限" hint="单次回复最多字数;留空 = 模型默认">
           <Input
             type="number"
             placeholder="默认"
@@ -62,7 +62,7 @@ export const AdvancedParams: React.FC = () => {
             min={1}
           />
         </Field>
-        <Field label="Prompt 模板" hint="后端 Langfuse / 内置 prompt 名">
+        <Field label="系统提示词模板" hint="可选,指定一套预设系统提示;留空 = 默认">
           <Input
             placeholder="default"
             value={promptName ?? ''}
@@ -70,7 +70,7 @@ export const AdvancedParams: React.FC = () => {
             className="h-8 text-xs"
           />
         </Field>
-        <Field label="KB top_k" hint="知识库检索条数；空 = 默认 5">
+        <Field label="知识库返回条数" hint="检索时返回前 N 条最相关结果;留空 = 5">
           <Input
             type="number"
             placeholder="5"
@@ -81,7 +81,7 @@ export const AdvancedParams: React.FC = () => {
             max={50}
           />
         </Field>
-        <Field label="Score 阈值" hint="只接受 score ≥ 阈值的检索结果；空 = 默认 2.0">
+        <Field label="相关度最低分" hint="只采用相关度 ≥ 该值的检索结果;留空 = 2.0">
           <Input
             type="number"
             placeholder="2.0"

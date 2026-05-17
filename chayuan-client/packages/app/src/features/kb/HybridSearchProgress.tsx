@@ -28,8 +28,8 @@ import { cn } from '@chayuan/ui';
 import type { HybridSearchChunk, HybridSearchFrame } from '@chayuan/api';
 
 const ROUTE_LABEL: Record<string, string> = {
-  vector: '向量召回',
-  bm25: 'BM25 关键词',
+  vector: '语义检索',
+  bm25: '关键词检索',
   title: '标题命中',
   section: '章节定位',
 };
@@ -151,7 +151,7 @@ export const HybridSearchProgress: React.FC<HybridSearchProgressProps> = ({
         <div className="border-t border-[var(--cy-border-subtle)] px-3 py-2 text-xs">
           {view.hyde && (
             <p className="mb-2 text-[var(--cy-text-tertiary)]">
-              <strong>查询改写 (HyDE):</strong> {view.hyde}
+              <strong>问题改写:</strong> {view.hyde}
             </p>
           )}
           <ul className="space-y-1">
@@ -189,7 +189,7 @@ export const HybridSearchProgress: React.FC<HybridSearchProgressProps> = ({
                 <span className="text-[var(--cy-text-secondary)]">
                   融合 {view.fuseTotal} 条
                   {view.rerankTopK !== undefined && (
-                    <> → Rerank → top {view.rerankTopK} ({view.rerankDuration}ms)</>
+                    <> → 重排后保留前 {view.rerankTopK} 条({view.rerankDuration}ms)</>
                   )}
                 </span>
               </li>

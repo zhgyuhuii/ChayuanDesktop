@@ -24,10 +24,10 @@ interface VsDialect {
 }
 
 const VS_DIALECTS: VsDialect[] = [
-  { value: 'milvus', label: 'Milvus / Zilliz', defaultPort: 19530 },
-  { value: 'pg', label: 'PostgreSQL + pgvector', defaultPort: 5432 },
-  { value: 'es', label: 'Elasticsearch (dense_vector)', defaultPort: 9200 },
-  { value: 'chromadb', label: 'Chroma', defaultPort: 8000 },
+  { value: 'milvus', label: 'Milvus / Zilliz(向量数据库)', defaultPort: 19530 },
+  { value: 'pg', label: 'PostgreSQL(向量扩展)', defaultPort: 5432 },
+  { value: 'es', label: 'Elasticsearch(向量字段)', defaultPort: 9200 },
+  { value: 'chromadb', label: 'Chroma(向量数据库)', defaultPort: 8000 },
 ];
 
 export const VectorKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({
@@ -83,10 +83,10 @@ export const VectorKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = (
         password: password || undefined,
         visibility: isPublic ? 'public' : 'private',
       });
-      notifySuccess(`已挂接外部向量库:${name}`);
+      notifySuccess(`已连接外部向量库:${name}`);
       onSubmitted(r.id);
     } catch (e) {
-      reportError(e, '挂接外部向量库失败');
+      reportError(e, '连接外部向量库失败');
     }
   };
 

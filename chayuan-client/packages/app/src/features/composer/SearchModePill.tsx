@@ -20,19 +20,19 @@ const MODES = [
     value: 'precise' as const,
     label: '精准',
     Icon: Crosshair,
-    desc: '原 query 不改写,top 3 命中,阈值 0.5,无 hybrid/无 rerank;少而准',
+    desc: '不改写问题、返回最相关的 3 条 — 结果少但准',
   },
   {
     value: 'balanced' as const,
     label: '全面',
     Icon: Layers,
-    desc: 'auto 改写(短/含代词→hyde,复杂→multi-query),top 8,hybrid + rerank',
+    desc: '智能改写问题、关键词+语义双路检索、自动重排,返回 8 条 — 召回更全',
   },
   {
     value: 'fast' as const,
     label: '速度',
     Icon: Rabbit,
-    desc: '不改写、不 rerank,top 5,适合 SQL/结构化或低延迟场景',
+    desc: '不改写、不重排,返回 5 条 — 适合结构化数据或追求快响应',
   },
 ] as const;
 
