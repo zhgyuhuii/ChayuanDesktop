@@ -105,6 +105,16 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
   const SLICES_BEFORE_STREAM_REFRESH = 8;
   // 后端 ASR Semaphore(1) 串行跑;若 in-flight 超过这个数就丢新 chunk(详见 mr.ondataavailable)
   const MAX_IN_FLIGHT = 3;
+  // ── VAD(Voice Activity Detection):RMS < 阈值 视为静音 → 跳过 chunk 不发后端 ──
+  // 不做 VAD 时,whisper 在静音 chunk 上会 hallucinate 出"獲勝荒謬將原裙封開"
+  // 这种乱码 + 重复刷。前端在送 chunk 前用 AnalyserNode 算 RMS,持续静音直接丢。
+  //  - SILENCE_RMS_THRESHOLD: 经验值,人声 ~0.05-0.15,白噪 ~0.005-0.02,完全静音 ~0.0005
+  //  - 取整 chunk 时间窗内的 max RMS 比平均更鲁棒(咳嗽/呼吸不漏)
+  const SILENCE_RMS_THRESHOLD = 0.015;
+  const audioCtxRef = React.useRef<AudioContext | null>(null);
+  const analyserRef = React.useRef<AnalyserNode | null>(null);
+  const rmsSamplesRef = React.useRef<number[]>([]);
+  const rmsIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const slicesOnStreamRef = React.useRef(0);
   // finalize 防重入 — stop 调一次、watchdog 调一次、mr.onstop 调一次都可能同时
   // 排队,onFinal 必须只 fire 一次(用户拿到一次 full text 提示)
@@ -139,6 +149,73 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     }
   }, []);
 
+  // VAD:对当前 stream 起 AnalyserNode + 50ms 周期采 RMS 进 ring buffer
+  const startVad = React.useCallback((mediaStream: MediaStream) => {
+    // 先收掉旧的(refresh stream 时会重挂)
+    if (rmsIntervalRef.current) {
+      clearInterval(rmsIntervalRef.current);
+      rmsIntervalRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close(); } catch { /* ignore */ }
+      audioCtxRef.current = null;
+    }
+    analyserRef.current = null;
+    const AudioCtor =
+      (window as Window & { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext
+      ?? (window as Window & { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtor) return;
+    try {
+      const ctx = new AudioCtor();
+      audioCtxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(mediaStream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      src.connect(analyser);
+      analyserRef.current = analyser;
+      const buf = new Uint8Array(analyser.fftSize);
+      rmsIntervalRef.current = setInterval(() => {
+        const a = analyserRef.current;
+        if (!a) return;
+        a.getByteTimeDomainData(buf);
+        // RMS in [0, 1]:byte 128 = 静音中线
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = ((buf[i] ?? 128) - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / buf.length);
+        rmsSamplesRef.current.push(rms);
+        // 只保留最近 ~5 秒(50ms × 100 = 5s)足够覆盖最长 sliceMs
+        if (rmsSamplesRef.current.length > 100) rmsSamplesRef.current.shift();
+      }, 50);
+    } catch (e) {
+      console.warn('[mic-vad] 启动 AnalyserNode 失败,VAD 退化为不做(可能会有 hallucination):', e);
+    }
+  }, []);
+
+  const stopVad = React.useCallback(() => {
+    if (rmsIntervalRef.current) {
+      clearInterval(rmsIntervalRef.current);
+      rmsIntervalRef.current = null;
+    }
+    analyserRef.current = null;
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close(); } catch { /* ignore */ }
+      audioCtxRef.current = null;
+    }
+    rmsSamplesRef.current = [];
+  }, []);
+
+  /** 取最近 windowMs 的 RMS 峰值 — 用来判 chunk 是不是静音。 */
+  const recentRmsPeak = React.useCallback((windowMs: number): number => {
+    const sampleCount = Math.max(1, Math.floor(windowMs / 50));
+    const samples = rmsSamplesRef.current.slice(-sampleCount);
+    let peak = 0;
+    for (const v of samples) if (v > peak) peak = v;
+    return peak;
+  }, []);
+
   const cleanup = React.useCallback(() => {
     if (tickerRef.current) {
       clearInterval(tickerRef.current);
@@ -148,6 +225,7 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
       clearTimeout(sliceTimerRef.current);
       sliceTimerRef.current = null;
     }
+    stopVad();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     setStream(null);
@@ -156,7 +234,7 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     abortersRef.current = [];
     setRecording(false);
     setElapsed(0);
-  }, []);
+  }, [stopVad]);
 
   /** 等所有 in-flight transcribe 完成,触发 onFinal + cleanup。stop / cancel /
    *  watchdog 强制收尾都走这里,不依赖 mr.onstop(MediaRecorder 进入 stale 状态
@@ -187,6 +265,7 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
       const old = streamRef.current;
       streamRef.current = next;
       setStream(next);
+      startVad(next);  // 新 stream → 重挂 VAD analyser
       slicesOnStreamRef.current = 0;
       // 老 stream 释放放后面,避免某些浏览器 close 时连带 disrupt 新 stream
       try { old?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
@@ -252,6 +331,20 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
         console.warn(
           `[mic] chunk #${idx} 跳过(后端跟不上,in-flight=${inFlight} > ${MAX_IN_FLIGHT}) — ` +
             `若长期出现,说明 ASR 模型对 CPU 太重,换 small/tiny 或启用 GPU`,
+        );
+        pendingRef.current.set(idx, '');
+        flushBuffered();
+        return;
+      }
+
+      // VAD 静音跳过 — whisper 在静音 chunk 上 hallucinate 出"獲勝荒謬將原裙
+      // 封開"反复刷的乱码,根因就是这。前端取整 chunk 时间窗的 RMS 峰值,低
+      // 于阈值整段都没"信号" → 直接丢,根本不让 whisper 见到静音
+      const sliceRmsPeak = recentRmsPeak(sliceMs);
+      if (sliceRmsPeak < SILENCE_RMS_THRESHOLD) {
+        console.debug(
+          `[mic] chunk #${idx} 静音跳过 (peak RMS ${sliceRmsPeak.toFixed(4)} < ` +
+            `${SILENCE_RMS_THRESHOLD})`,
         );
         pendingRef.current.set(idx, '');
         flushBuffered();
@@ -398,6 +491,7 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     }
     streamRef.current = stream;
     setStream(stream);
+    startVad(stream);  // 起 VAD analyser:50ms 采 RMS,送 chunk 前判静音用
     mimeTypeRef.current = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
       : MediaRecorder.isTypeSupported('audio/webm')

@@ -103,11 +103,47 @@ def zhconv_missing_diag() -> Optional[str]:
     )
 
 
+def _is_whisper_hallucination_repetition(text: str, min_repeat: int = 3) -> bool:
+    """检测 whisper 在静音/噪声上 hallucinate 的"同一子串重复 N 次"退化输出。
+
+    典型样本(用户报):
+      "獲勝荒謬將原裙封開獲勝荒謬將原裙封開獲勝荒謬將原裙封開..."
+      "謝謝觀看謝謝觀看謝謝觀看..."
+      "请订阅请订阅请订阅..."
+
+    判定:长度 2-30 的子串若占据文本 ≥min_repeat 次连续出现且**几乎占满整段**
+    (留 < 20% 余料容差),视为 hallucination 返回 True。
+
+    保留正常重复(如 "你好你好" 二次),要求 ≥3 次才判定。
+    """
+    if not text or len(text) < 6:
+        return False
+    s = text.strip()
+    n = len(s)
+    # 试 2~min(30, n//min_repeat) 长度的子串
+    max_slen = min(30, n // min_repeat)
+    for slen in range(2, max_slen + 1):
+        sub = s[:slen]
+        # sub * min_repeat 已经覆盖了开头 slen*min_repeat 字符;若整段几乎全
+        # 由 sub 重复构成 → hallucination
+        repeats = 0
+        i = 0
+        while i + slen <= n and s[i:i + slen] == sub:
+            repeats += 1
+            i += slen
+        if repeats >= min_repeat:
+            covered = repeats * slen
+            # 整段 ≥80% 被这个子串重复占据 → 判 hallucination
+            if covered / n >= 0.8:
+                return True
+    return False
+
+
 def _strip_whisper_artifacts(text: str) -> Tuple[str, bool]:
     """返 (cleaned_text, was_artifact_only)。
 
-    was_artifact_only=True 表示原文本只含 marker / 空白(整段没有任何有效内容)。
-    caller 据此决定是否继续 fallback / 给用户提示麦克风音量问题。
+    was_artifact_only=True 表示原文本只含 marker / 空白 / hallucination repetition
+    (整段没有任何有效内容)。caller 据此决定是否继续 fallback / 给用户提示。
     """
     if not text:
         return "", False
@@ -115,7 +151,13 @@ def _strip_whisper_artifacts(text: str) -> Tuple[str, bool]:
     if not raw_stripped:
         return "", False
     cleaned = _WHISPER_ARTIFACT_PATTERN.sub("", raw_stripped).strip()
-    return cleaned, (raw_stripped != "" and cleaned == "")
+    if not cleaned:
+        return "", (raw_stripped != "")
+    # whisper hallucination 兜底:静音 chunk 上 whisper 常返某子串重复 N 次
+    # (用户报"獲勝荒謬將原裙封開"反复刷)。这种从语义上是噪声,直接判 artifact_only。
+    if _is_whisper_hallucination_repetition(cleaned):
+        return "", True
+    return cleaned, False
 
 logger = logging.getLogger("chayuan.modality.audio")
 

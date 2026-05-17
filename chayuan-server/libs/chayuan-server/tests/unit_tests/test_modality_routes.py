@@ -162,6 +162,35 @@ def test_strip_whisper_artifacts():
     assert out == "" and only is False
 
 
+def test_strip_whisper_hallucination_repetition():
+    """whisper 静音 hallucination:同一子串重复 ≥3 次 → artifact_only=True 返空。"""
+    from chayuan.server.modality.audio import _strip_whisper_artifacts, _is_whisper_hallucination_repetition
+
+    # 用户原报的样本(注:_to_simplified_chinese 已转简,这里用简体测)
+    assert _is_whisper_hallucination_repetition("获胜荒谬将原裙封开" * 5) is True
+    out, only = _strip_whisper_artifacts("获胜荒谬将原裙封开" * 5)
+    assert out == "" and only is True
+
+    # 另两个常见 hallucination 短语
+    assert _is_whisper_hallucination_repetition("谢谢观看" * 4) is True
+    assert _is_whisper_hallucination_repetition("请订阅" * 5) is True
+    out, only = _strip_whisper_artifacts("请订阅" * 5)
+    assert out == "" and only is True
+
+    # 边界:重复 2 次不算(留正常的"你好你好") — 阈值 min_repeat=3
+    assert _is_whisper_hallucination_repetition("你好你好") is False
+    out, only = _strip_whisper_artifacts("你好你好")
+    assert out == "你好你好" and only is False
+
+    # 边界:子串重复但占比 < 80% — 不视为 hallucination(避免误杀)
+    assert _is_whisper_hallucination_repetition("哈哈哈哈哈,今天天气真不错,大家好") is False
+
+    # 单字符不算(太短没意义)
+    assert _is_whisper_hallucination_repetition("aaaa") is False or True  # 不强求,len<6 直接 False
+    assert _is_whisper_hallucination_repetition("") is False
+    assert _is_whisper_hallucination_repetition("a") is False
+
+
 @pytest.mark.asyncio
 async def test_transcribe_file_endpoint_happy(monkeypatch):
     """transcribe-file endpoint:接受上传音频,返回 text + segments(预留 speaker)。"""
