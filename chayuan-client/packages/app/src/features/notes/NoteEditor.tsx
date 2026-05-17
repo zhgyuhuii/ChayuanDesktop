@@ -15,7 +15,7 @@ import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import {
   Bold, Code, FileAudio, Heading1, Heading2, Image as ImageIcon, Italic, Link as LinkIcon,
-  List, ListOrdered, Loader2, Mic, MicOff, Quote, Save, Strikethrough,
+  List, ListOrdered, Loader2, Mic, MicOff, Paperclip, Quote, RefreshCw, Save, Strikethrough, X,
 } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { modality } from '@chayuan/api';
@@ -205,20 +205,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
 
   // 上传语音文件转写
   const [uploadingFile, setUploadingFile] = React.useState(false);
-  const onUploadAudio = React.useCallback(async () => {
-    if (!editor || uploadingFile) return;
-    let file: File | null = null;
-    try {
-      const picked = await getPlatform().fs.pickFiles({
-        multiple: false,
-        accept: 'audio/*',
-      });
-      if (!picked.length) return;
-      file = picked[0] as File;
-    } catch (e) {
-      reportError(e, '选择文件失败');
-      return;
-    }
+  // 最近一次上传的语音文件 — 用户可点 header 上的「重新转文字」用它再跑一次,
+  // 不用再选文件。File 对象在浏览器内存里,session 关闭就丢(可接受 — 这不是
+  // 持久化"附件",而是"刚上传的那个文件,允许重转"的纯 UX 便捷)。
+  const [lastUploadedAudio, setLastUploadedAudio] = React.useState<File | null>(null);
+
+  // 转写 + 插入逻辑提到独立 callback,onUploadAudio / onRetranscribe 共用
+  const doTranscribeAndInsert = React.useCallback(async (file: File) => {
+    if (!editor) return;
     setUploadingFile(true);
     try {
       const r = await modality.transcribeFile(file, { language: 'zh' });
@@ -266,12 +260,37 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
         ? `共 ${r.segments.length} 段,识别到 ${new Set(r.segments.map((s) => s.speaker)).size} 个说话人`
         : `共 ${r.text.length} 字`;
       notifySuccess('录音转写完成', meta, 4000);
+      // 记下这次文件,header 上会出现「重新转文字」芯片(用户可点再跑一遍,
+      // 比如 ASR 服务刚刚 fail / 想换语言重转 / 想验证 sidecar 修好了)
+      setLastUploadedAudio(file);
     } catch (e) {
       reportError(e, '上传录音转写失败');
     } finally {
       setUploadingFile(false);
     }
-  }, [editor, uploadingFile]);
+  }, [editor]);
+
+  const onUploadAudio = React.useCallback(async () => {
+    if (!editor || uploadingFile) return;
+    let file: File | null = null;
+    try {
+      const picked = await getPlatform().fs.pickFiles({
+        multiple: false,
+        accept: 'audio/*',
+      });
+      if (!picked.length) return;
+      file = picked[0] as File;
+    } catch (e) {
+      reportError(e, '选择文件失败');
+      return;
+    }
+    await doTranscribeAndInsert(file);
+  }, [editor, uploadingFile, doTranscribeAndInsert]);
+
+  const onRetranscribe = React.useCallback(async () => {
+    if (!editor || uploadingFile || !lastUploadedAudio) return;
+    await doTranscribeAndInsert(lastUploadedAudio);
+  }, [editor, uploadingFile, lastUploadedAudio, doTranscribeAndInsert]);
 
   // Ctrl/Cmd+S 触发保存
   React.useEffect(() => {
@@ -361,6 +380,42 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
           <Save className="h-3.5 w-3.5" /> 保存到知识中心
         </Button>
       </header>
+
+      {lastUploadedAudio && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]/50 px-4 py-1.5 text-xs">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[var(--cy-text-secondary)]"
+            title={`本次会话刚上传的录音文件 · ${(lastUploadedAudio.size / 1024).toFixed(0)} KB`}
+          >
+            <Paperclip className="h-3 w-3" />
+            <span className="max-w-[240px] truncate font-mono text-[11px]">{lastUploadedAudio.name}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => void onRetranscribe()}
+            disabled={uploadingFile || mic.recording}
+            className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[var(--cy-brand-700)] hover:bg-[var(--cy-brand-500)]/10 disabled:opacity-50"
+            title="重新对该录音跑一次 ASR,新文字会接到文档末尾(便于 sidecar 修好后重试 / 验证)"
+          >
+            {uploadingFile ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3 w-3" />
+            )}
+            重新转文字
+          </button>
+          <button
+            type="button"
+            onClick={() => setLastUploadedAudio(null)}
+            disabled={uploadingFile}
+            className="inline-flex items-center justify-center rounded-md p-1 text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)] disabled:opacity-50"
+            title="清掉这个语音附件(只移除芯片,不影响已插入的文字)"
+            aria-label="清除附件"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
 
       <Toolbar editor={editor} />
 
