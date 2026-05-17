@@ -79,14 +79,32 @@ export function useNoteSummary(initialSummary?: string): UseNoteSummaryResult {
     }
     setLoading(true);
     try {
-      // 取默认 chat 模型 —— 没拿到走兜底 'gpt-4o-mini'(server 端会用 capability_router 解析)
-      let modelId = 'gpt-4o-mini';
+      // 取**实际注册**的 chat 模型 — recommended.list 返回的是"推荐默认"可能没装,
+      // models.list 是 MODEL_PLATFORMS 里真在跑的(本地 bundled + 远端 deepseek/openai 等)。
+      // 先按推荐默认匹配实际可用的;匹配不上回退到列表第一个。
+      let availableChats: { id: string; isDefault?: boolean }[] = [];
+      try {
+        const chats = await aiPlatform.models.list({ capability: 'chat' });
+        availableChats = chats.map((m) => ({ id: m.id }));
+      } catch (e) {
+        console.debug('[summary] 取 chat 模型列表失败:', e);
+      }
+      if (availableChats.length === 0) {
+        setError(
+          '后端未注册任何 chat 模型。请到「设置 → AI 平台」启用一个本地或远端的 LLM 模型',
+        );
+        return null;
+      }
+      // 优先用 recommended.default_for_capability.chat,且该 id 在 availableChats 里
+      let modelId = availableChats[0]!.id;
       try {
         const r = await aiPlatform.recommended.list('chat');
-        const m = r.default_for_capability?.chat;
-        if (m) modelId = m;
+        const preferred = r.default_for_capability?.chat;
+        if (preferred && availableChats.some((m) => m.id === preferred)) {
+          modelId = preferred;
+        }
       } catch (e) {
-        console.debug('[summary] 取默认 chat 模型失败,fallback', e);
+        console.debug('[summary] 取推荐默认失败,用 list 第一个:', e);
       }
       const titlePrefix = opts.title ? `标题: ${opts.title}\n\n` : '';
       const userMsg = `${titlePrefix}笔记内容:\n${text.slice(0, 8000)}`;  // 限 8K 防超 context
