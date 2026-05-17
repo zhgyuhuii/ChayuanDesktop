@@ -68,6 +68,18 @@ _WHISPER_ARTIFACT_PATTERN = _re.compile(
 )
 
 
+def _to_simplified_chinese(text: str) -> str:
+    """繁体 → 简体。whisper.cpp 默认输出繁体(尤其大模型),用户笔记主诉求简体。
+    zhconv 是纯 Python(无 native deps),无 zhconv 时 fallback 原样返回。"""
+    if not text:
+        return text
+    try:
+        import zhconv  # type: ignore
+        return zhconv.convert(text, "zh-cn")
+    except Exception:  # noqa: BLE001
+        return text
+
+
 def _strip_whisper_artifacts(text: str) -> Tuple[str, bool]:
     """返 (cleaned_text, was_artifact_only)。
 
@@ -369,8 +381,35 @@ class AudioPipeline:
         try:
             with open(actual_path, "rb") as f:
                 files = {"file": (file_name, f, "audio/wav" if actual_path.endswith(".wav") else "application/octet-stream")}
-                with httpx.Client(timeout=120.0) as client:
+                # sidecar 单次 inference 在 12s 滑窗下 latency ~2-4s。timeout 20s
+                # 留宽裕;比 120s 短能让 stale connection 快速失败,触发上层 fallback
+                # / 诊断,不让前端干等 120s。
+                with httpx.Client(timeout=20.0) as client:
                     resp = client.post(url, data=data, files=files)
+        except httpx.ReadTimeout as e:
+            # sidecar 卡住(whisper.cpp 处理某段音频死循环 / 内存炸 / 进程已挂)。
+            # 主动把 registry 的 sidecar status mark 为 failed,这样下次 diag 端点
+            # 能反映真实状态,UI 也能看到红色 banner。后续 chunk 会 fallback 到 Python
+            # whisper / OpenAI API(如配置了),或干净失败而不是连续 timeout。
+            try:
+                mgr_to_mark = mgr
+                # 通过 dataclass replace 而非戳私有 _status
+                from dataclasses import replace as _dc_replace
+                mgr_to_mark._status = _dc_replace(
+                    mgr_to_mark.status, state="failed",
+                    last_error=f"sidecar ReadTimeout ({e});可能进程已挂或卡死",
+                )
+                # registry 持久化(尽力)
+                if hasattr(mgr_to_mark, "_persist_status"):
+                    mgr_to_mark._persist_status()
+            except Exception:  # noqa: BLE001
+                pass
+            diag.append(
+                f"[sidecar] POST {url} ReadTimeout {e} — sidecar 进程可能已挂死,"
+                f"已把 registry status mark 为 failed。请到「设置 → AI 平台 → 本地服务」"
+                f"重启 ASR sidecar。"
+            )
+            raise
         finally:
             if wav_cleanup is not None:
                 try:
@@ -394,6 +433,8 @@ class AudioPipeline:
             )
             return "", diag
         raw_text = (payload.get("text") or "").strip()
+        # 繁体 → 简体(whisper.cpp 默认偏繁体输出)
+        raw_text = _to_simplified_chinese(raw_text)
         text, artifact_only = _strip_whisper_artifacts(raw_text)
         if artifact_only:
             # whisper 返了 [INAUDIBLE] / [BLANK_AUDIO] 等 marker → 这段录音无有效语音。

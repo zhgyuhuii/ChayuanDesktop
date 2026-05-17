@@ -66,6 +66,9 @@ piper-tts = ">=1.2,<2.0"
 # whisper.cpp(它某些 build 不解 webm),也给 video.py 抽帧/抽音兜底。免去
 # 用户自己装系统 ffmpeg。代码层用 imageio_ffmpeg.get_ffmpeg_exe() 拿绝对路径。
 imageio-ffmpeg = ">=0.4,<1.0"
+# 纯 Python 繁简转换(~280 KB),用在 ASR 路径里把 whisper.cpp 默认输出的繁体
+# 中文统一转简体 — 用户主诉求是简体笔记。无 native deps,跨平台稳。
+zhconv = ">=1.4,<2.0"
 # 单机版本地 embedding (chayuan/server/embeddings/onnx_local.py):
 # rapidocr_onnxruntime 已经把 onnxruntime 拉进来,但版本约束在 1.x 后期/2.x;
 # 显式钉 >=1.16 保证有稳定的 ORT_ENABLE_ALL graph optimization。

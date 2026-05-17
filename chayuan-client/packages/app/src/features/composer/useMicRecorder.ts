@@ -334,12 +334,27 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     } catch (e) {
       console.warn('[mic] mr.stop() throw,直接 force finalize', e);
     }
-    // 如果 mr 已经 stale(state != 'recording' 或 stop 抛异常),mr.onstop 不会
-    // fire → finalizeAndCleanup 永不被触发 → UI 停不下来。这里主动 finalize,
-    // 双保险即使 onstop 也 fire 也只是 idempotent(checkDone 走两次都 OK)。
+    // 如果 mr 已 stale → onstop 不 fire → finalizeAndCleanup 永不被触发 → UI
+    // 停不下来。主动 finalize 走兜底路径,双保险幂等(finalizedRef 保证 onFinal
+    // 只 fire 一次)。
     if (!onstopWillFire) {
       finalizeAndCleanup();
     }
+    // 兜底 5s:in-flight transcribe 可能 stuck(后端 sidecar ReadTimeout),
+    // 那么 chunkIndexRef 永远不等 expectedRef,finalizeAndCleanup 卡死在
+    // checkDone 循环。force abort 所有 in-flight → fetch reject → catch 设 ""
+    // → expectedRef 推进 → checkDone 完成 → cleanup → UI 退出录音态。
+    setTimeout(() => {
+      if (finalizedRef.current && abortersRef.current.length === 0) return;
+      const pending = chunkIndexRef.current - expectedRef.current;
+      if (pending > 0) {
+        console.warn(
+          `[mic] stop 5s 兜底:abort ${pending} in-flight transcribe(s),后端 sidecar 可能 stuck`,
+        );
+      }
+      abortersRef.current.forEach((ac) => { try { ac.abort(); } catch { /* ignore */ } });
+      abortersRef.current = [];
+    }, 5000);
   }, [recording, finalizeAndCleanup]);
 
   const cancel = React.useCallback(() => {

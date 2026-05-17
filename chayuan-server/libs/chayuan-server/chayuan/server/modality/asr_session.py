@@ -31,8 +31,21 @@ from .local_agreement import compute_increment, local_agreement_2
 # 单声道 16k 16bit PCM:每秒 32000 字节
 PCM_SAMPLE_RATE = 16000
 PCM_BYTES_PER_SECOND = PCM_SAMPLE_RATE * 2  # mono, 16-bit
-MAX_SESSION_SECONDS = 30  # 单 session 最多累积 30s,超了客户端 restart
-MAX_SESSION_BYTES = MAX_SESSION_SECONDS * PCM_BYTES_PER_SECOND
+
+# ⚠ 关键:必须用**固定窗口**,不能让 audio 无限累积。
+# 若每次 chunk 来都跑整段累积音频,whisper latency 随长度 O(n) 增长 — 8 个
+# chunk(20s)时 latency ~5s > sliceMs(2.5s),后端 semaphore 立刻堆爆,
+# 前端 httpx 全部 ReadTimeout → 用户体感"20s 后卡死"。
+#
+# 窗口设计:
+#   WINDOW_SECONDS=12  → whisper 每次跑 ≤ 12s 音频,latency 恒定 ~2-3s,稳。
+#   超过窗口:把当前 last_hyp 整段 hard-commit,清空 buffer 开新段。
+#   trade-off:段切换那一刻没有跨次 LocalAgreement 确认,可能漏掉 hallucination,
+#   但比线性增长爆炸好太多。
+#
+# 单 session 不再有"is_full / 客户端必须 rotate"概念 — 滑窗内置兜底了。
+WINDOW_SECONDS = 12
+WINDOW_BYTES = WINDOW_SECONDS * PCM_BYTES_PER_SECOND
 
 SESSION_TTL_SEC = 300  # 5 分钟 idle 自动 evict
 
@@ -58,45 +71,87 @@ TranscribeFn = Callable[[bytes], Tuple[str, list]]
 
 @dataclass
 class AsrSession:
+    """流式 ASR session — 固定 12 秒滑窗,每段内 LocalAgreement-2 双重确认。
+
+    数据流:
+        audio_pcm: 当前段累积音频(≤ WINDOW_BYTES)
+        last_hyp: 上次跑出的 hypothesis(对当前段)
+        segment_committed_prefix: 当前段内已 commit 的部分(== last_hyp 的某个前缀)
+        committed_text: 跨段累计的全部已 commit 文本(返给客户端 commit 到笔记)
+
+    chunk 来:
+        1. 累积超 WINDOW_BYTES → 切段:
+             - last_hyp 减去段内已 commit 的部分 = 段尾未 commit 文字 → 加到
+               committed_text(段切换 hard-commit,不再做 LocalAgreement)
+             - 清空 audio_pcm / last_hyp / segment_committed_prefix
+        2. append 新 pcm
+        3. 跑 whisper(audio_pcm)→ new_hyp
+        4. LocalAgreement-2(last_hyp ↔ new_hyp)→ stable_prefix + volatile
+        5. increment = stable_prefix - segment_committed_prefix
+           committed_text += increment;segment_committed_prefix = stable_prefix
+        6. last_hyp = new_hyp
+
+    返 stable_increment(本次新 commit 的字符,前端直接 insert)+ volatile_suffix
+    (灰色未确认,前端可选展示)+ committed_text(全局校对,前端兜底用)。
+    """
     session_id: str
     language: Optional[str] = None
     audio_pcm: bytearray = field(default_factory=bytearray)
     last_hyp: str = ""
     committed_text: str = ""
+    # 当前段内已 commit 部分;== last_hyp 的某个前缀,所以总能用它算 increment
+    segment_committed_prefix: str = ""
     last_active_at: float = field(default_factory=time.time)
     chunk_count: int = 0
 
     def append_chunk(
         self, pcm_chunk: bytes, transcribe_fn: TranscribeFn,
     ) -> Dict:
-        """累积新 PCM + 跑 whisper 全段 + LocalAgreement-2 → 返 commit 决策。"""
+        """滑窗 + LocalAgreement-2 → 返 commit 决策。latency 恒定。"""
+        # ── 滑窗:超出窗口前先切段 ──
+        # 注意是 "前缀" 检查,即如果 append 后会超出 → 先 hard-commit 段尾再开新段。
+        # hard_commit_increment 这一刻"段切 hard-commit 的字符",会和后面段内
+        # LocalAgreement 的 increment 合并返回给客户端,确保客户端不漏 commit。
+        hard_commit_increment = ""
+        will_exceed = len(self.audio_pcm) + len(pcm_chunk) > WINDOW_BYTES
+        if will_exceed and self.last_hyp:
+            hard_commit_increment = self.last_hyp[len(self.segment_committed_prefix):]
+            self.committed_text += hard_commit_increment
+            self.audio_pcm = bytearray()
+            self.last_hyp = ""
+            self.segment_committed_prefix = ""
+
+        # ── 累积当前 chunk ──
         self.audio_pcm.extend(pcm_chunk)
         self.chunk_count += 1
         self.last_active_at = time.time()
 
-        is_full = len(self.audio_pcm) >= MAX_SESSION_BYTES
-        # 跑 whisper:整段 PCM 包成 WAV
+        # ── 跑 whisper(整段 ≤ WINDOW_BYTES,latency 恒定)──
         wav_bytes = make_wav_bytes(bytes(self.audio_pcm))
         new_hyp, diag = transcribe_fn(wav_bytes)
 
-        # LocalAgreement-2:这次 confirm 的稳定前缀
+        # ── LocalAgreement-2 在当前段内 ──
         stable_prefix, volatile = local_agreement_2(self.last_hyp, new_hyp)
         stable_increment, retroactive = compute_increment(
-            self.committed_text, stable_prefix,
+            self.segment_committed_prefix, stable_prefix,
         )
 
-        # 更新 session 状态
         if not retroactive:
-            self.committed_text = stable_prefix or self.committed_text
+            self.committed_text += stable_increment
+            self.segment_committed_prefix = stable_prefix or self.segment_committed_prefix
         self.last_hyp = new_hyp
 
+        # 合并段切 hard-commit + 段内 LocalAgreement increment,客户端一次性 commit
+        total_increment = hard_commit_increment + stable_increment
+
         return {
-            "stable_increment": stable_increment,
+            "stable_increment": total_increment,
             "volatile_suffix": volatile,
             "hypothesis": new_hyp,
             "committed_text": self.committed_text,
             "retroactive_change": retroactive,
-            "is_full": is_full,
+            # 滑窗内置兜底,无 "is_full" 概念了 — 始终 False 让客户端持续录
+            "is_full": False,
             "chunk_count": self.chunk_count,
             "audio_seconds": len(self.audio_pcm) / PCM_BYTES_PER_SECOND,
             "diagnostics": diag,
