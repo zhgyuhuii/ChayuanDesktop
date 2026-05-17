@@ -52,7 +52,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      // Tiptap v3 起 StarterKit 自带 Link;关掉它用下面自己 configure 的版本,
+      // 否则 "Duplicate extension names found: ['link']" 警告 + 配置可能被前者覆盖
+      StarterKit.configure({ link: false }),
       Image.configure({ inline: false }),
       Link.configure({ openOnClick: false }),
       Placeholder.configure({

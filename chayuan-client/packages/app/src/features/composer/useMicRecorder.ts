@@ -97,6 +97,8 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
   // 后 ondataavailable 不再触发(用户报告"40s 卡死"即此现象)。close 老 stream
   // + getUserMedia 拿新 stream 后立刻恢复,只丢 ~100ms 音频,可接受。
   const SLICES_BEFORE_STREAM_REFRESH = 8;
+  // 后端 ASR Semaphore(1) 串行跑;若 in-flight 超过这个数就丢新 chunk(详见 mr.ondataavailable)
+  const MAX_IN_FLIGHT = 3;
   const slicesOnStreamRef = React.useRef(0);
   // finalize 防重入 — stop 调一次、watchdog 调一次、mr.onstop 调一次都可能同时
   // 排队,onFinal 必须只 fire 一次(用户拿到一次 full text 提示)
@@ -231,6 +233,23 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
       if (watchdog) { clearTimeout(watchdog); watchdog = null; }
       if (!e.data || e.data.size === 0) return;
       const idx = chunkIndexRef.current++;
+
+      // backpressure:实时模式下后端 Semaphore(1) 串行跑 whisper,单 chunk
+      // ~0.5-2s。若用户 CPU 慢、每 chunk > 2.5s 切片间隔,队列就会无限增长 —
+      // stop 时一堆 in-flight,5s 兜底 abort 会刷一行"abort N in-flight"警告,
+      // 用户体感"卡死"。这里硬性丢弃超出 MAX_IN_FLIGHT 的新 chunk(标空让
+      // flushBuffered 推 expectedRef),牺牲少量音频换"录到哪显示到哪"。
+      const inFlight = idx - expectedRef.current;
+      if (inFlight > MAX_IN_FLIGHT) {
+        console.warn(
+          `[mic] chunk #${idx} 跳过(后端跟不上,in-flight=${inFlight} > ${MAX_IN_FLIGHT}) — ` +
+            `若长期出现,说明 ASR 模型对 CPU 太重,换 small/tiny 或启用 GPU`,
+        );
+        pendingRef.current.set(idx, '');
+        flushBuffered();
+        return;
+      }
+
       const ac = new AbortController();
       abortersRef.current.push(ac);
       // 此时 blob 是一个完整的 WebM 文件(含 EBML 头),whisper 可独立解码

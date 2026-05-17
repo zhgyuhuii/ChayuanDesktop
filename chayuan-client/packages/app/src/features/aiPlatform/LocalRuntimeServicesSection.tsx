@@ -173,14 +173,37 @@ export const LocalRuntimeServicesSection: React.FC = () => {
   };
 
   if (!reachable) {
+    const lastError = useLocalRuntimeStore.getState().lastError;
     return (
       <section
         id="local-runtime-services"
-        className="rounded-md border border-rose-500/30 bg-rose-50 p-4 text-sm text-rose-800 dark:bg-rose-950/30 dark:text-rose-200"
+        className="rounded-md border border-rose-500/30 bg-rose-50 p-4 text-sm text-rose-800 dark:bg-rose-950/30 dark:text-rose-200 space-y-2"
       >
-        无法连接 sidecar (
-        <code className="rounded bg-rose-100 px-1 dark:bg-rose-900/40">/runtime/llama/*</code>)。
-        本地模型服务仅在集成版桌面应用中可用。
+        <div>
+          无法连接 sidecar (
+          <code className="rounded bg-rose-100 px-1 dark:bg-rose-900/40">/runtime/llama/*</code>)。
+        </div>
+        {lastError && (
+          <div className="rounded bg-rose-100 px-2 py-1 font-mono text-xs dark:bg-rose-900/40">
+            {lastError}
+          </div>
+        )}
+        <div className="text-xs opacity-80">
+          常见原因:① chayuan-server 没起来(检查端口 62581 / 看终端是否在跑);
+          ② 后端启动中(过几秒再试);
+          ③ Web / Thin 模式下不带本地服务(只在集成版 .msi 里可用)。
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            void useLocalRuntimeStore.getState().refreshStatus();
+            void useLocalRuntimeStore.getState().refreshRegistry();
+            void useLocalRuntimeStore.getState().refreshInstallInfo();
+          }}
+        >
+          <RefreshCw className="mr-1 h-3.5 w-3.5" /> 重试
+        </Button>
       </section>
     );
   }
