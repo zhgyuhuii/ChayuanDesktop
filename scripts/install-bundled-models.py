@@ -184,6 +184,33 @@ MANIFEST: dict[str, dict[str, Any]] = {
              "ggml-tiny.bin"),
         ],
     },
+    "tts": {
+        "approx_mb": 64,
+        "note": "piper zh_CN-huayan-medium 中文女声(~60 MB,CPU 实时 离线)",
+        "dest_subdir": "piper",
+        # rhasspy/piper-voices 整仓 ~500 个 voice 几 GB;allow_patterns 只拉
+        # 中文 huayan-medium 两个文件(.onnx + .onnx.json)。snapshot_download
+        # 会保留源仓库的 zh/zh_CN/huayan/medium/ 嵌套目录 — chayuan-server
+        # audio._find_bundled_piper_voice() 用 rglob 递归扫,不嫌嵌套。
+        "hf": [
+            {"repo": "rhasspy/piper-voices",
+             "allow_patterns": [
+                 "zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx",
+                 "zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json",
+             ]},
+        ],
+        # ModelScope 上 piper-voices 没现成镜像。
+        "ms": [],
+        # SDK 都炸时:直链兜底。两个小文件(~60 MB onnx + ~1 KB json)放扁平 dest_subdir/。
+        # 注意:_download_one 的 urls 循环遇到第一个成功就 return —— 所以兜底直链路径不能
+        # 保证拿到 json 一并下载;真依赖直链兜底时建议 HF 路径修通再说。
+        "urls": [
+            ("https://hf-mirror.com/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx",
+             "zh_CN-huayan-medium.onnx"),
+            ("https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx",
+             "zh_CN-huayan-medium.onnx"),
+        ],
+    },
     "ocr": {
         "approx_mb": 16,
         "note": "RapidOCR PP-OCRv4 det + rec + PP-OCRv3 cls(中文文档,~16 MB)",

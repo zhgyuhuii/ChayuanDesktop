@@ -29,6 +29,7 @@ LITE_CAPS: tuple[str, ...] = (
     "rerank",
     "asr",
     "ocr",
+    "tts",   # piper zh_CN-huayan-medium ~60 MB,离线 CPU TTS,装机即用
 )
 
 #: 全量版安装包随包嵌入的 capability(磁盘 ~ 3.5 GB,含 chat 主力模型)

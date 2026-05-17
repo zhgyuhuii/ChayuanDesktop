@@ -603,43 +603,86 @@ class AudioPipeline:
     def _resolve_piper_voice_path(self, voice: str) -> Optional[str]:
         """voice 参数兼容多形态:
           - 绝对路径 ``/x/y/foo.onnx`` → 直接用
-          - ``piper:zh_CN-huayan-medium`` 显式前缀 → 去前缀后查 CHAYUAN_ROOT/models/piper/
-          - 看不像 piper 命名(包含 ``Neural`` 后缀的 edge-tts 风格)→ 用默认 zh_CN-huayan-medium
-          - 命名匹配 piper 风格 ``zh_CN-name-quality`` → 直接查
-        都找不到 + 启用 auto-download → 尝试拉一次。
-        全失败返 None,caller fallback edge-tts。"""
+          - ``piper:zh_CN-huayan-medium`` 显式前缀 → 去前缀
+          - edge-tts 风格(``zh-CN-XiaoxiaoNeural`` 等)或空 → 用默认 zh_CN-huayan-medium
+          - 命名匹配 piper 风格 ``zh_CN-name-quality`` → 直接用
+
+        查找顺序:
+          1. **bundled**: <CHAYUAN_ROOT>/models/bundled/tts/piper/**/<name>.onnx
+             (装机就有 — install-bundled-models.py 或安装包 seed 进来的;HF 保留
+              源仓库 zh/zh_CN/huayan/medium/ 嵌套,所以递归找)
+          2. **user-local 平铺**: <CHAYUAN_ROOT>/models/piper/<name>.onnx
+             (用户手动放在这里覆盖打包版,或 auto-download 落地点)
+          3. auto-download → user-local(默认开;CHAYUAN_PIPER_AUTO_DOWNLOAD=0 关)
+          4. 默认 voice 也没 → 返 None,caller fallback edge-tts。
+        """
         if voice and voice.endswith(".onnx") and os.path.isabs(voice):
             return voice if os.path.exists(voice) else None
         try:
             from chayuan.settings import CHAYUAN_ROOT
-            piper_dir = CHAYUAN_ROOT / "models" / "piper"
         except Exception:  # noqa: BLE001
             return None
         # 规整 voice name
         name = voice or ""
         if name.startswith("piper:"):
             name = name[len("piper:"):]
-        # edge-tts 风格("zh-CN-XiaoxiaoNeural")或空 → 用默认
         if (not name) or "Neural" in name or "_" not in name:
             name = self._PIPER_DEFAULT_VOICE
+
+        # 1) 装机 bundled 优先 — recurse 跳过 HF 嵌套
+        bundled = self._find_bundled_piper_voice(name)
+        if bundled:
+            return bundled
+
+        # 2) user-local 平铺(老版本 / 用户手动覆盖 / auto-download 落地)
+        piper_dir = CHAYUAN_ROOT / "models" / "piper"
         candidate = piper_dir / f"{name}.onnx"
         cfg = piper_dir / f"{name}.onnx.json"
         if candidate.exists() and cfg.exists():
             return str(candidate)
-        # 尝试下载(默认开,可关:CHAYUAN_PIPER_AUTO_DOWNLOAD=0)
+
+        # 3) 尝试 auto-download(默认开,CHAYUAN_PIPER_AUTO_DOWNLOAD=0 关掉)
         if os.environ.get("CHAYUAN_PIPER_AUTO_DOWNLOAD", "1") != "0":
             ok = self._try_download_piper_voice(name, piper_dir)
             if ok and candidate.exists() and cfg.exists():
                 return str(candidate)
-        # 兜底:默认 voice 也没就放弃
-        default = piper_dir / f"{self._PIPER_DEFAULT_VOICE}.onnx"
-        if name != self._PIPER_DEFAULT_VOICE and default.exists():
-            return str(default)
+
+        # 4) 兜底默认 voice
+        if name != self._PIPER_DEFAULT_VOICE:
+            default_bundled = self._find_bundled_piper_voice(self._PIPER_DEFAULT_VOICE)
+            if default_bundled:
+                return default_bundled
+            default_user = piper_dir / f"{self._PIPER_DEFAULT_VOICE}.onnx"
+            if default_user.exists():
+                return str(default_user)
+
         logger.info(
-            "[tts:piper] voice 模型不在本地(期望 %s);若需离线 TTS,"
-            "把 .onnx + .onnx.json 放到 %s 或允许自动下载",
-            candidate, piper_dir,
+            "[tts:piper] voice 模型未找到(期望 %s.onnx + .onnx.json)。"
+            "装机版应在 %s/models/bundled/tts/piper/;用户自管在 %s。"
+            "可手动下载或开 CHAYUAN_PIPER_AUTO_DOWNLOAD=1 自动拉。",
+            name, CHAYUAN_ROOT, piper_dir,
         )
+        return None
+
+    def _find_bundled_piper_voice(self, name: str) -> Optional[str]:
+        """在 <CHAYUAN_ROOT>/models/bundled/tts/piper/ 递归找 <name>.onnx + .onnx.json。
+
+        HF snapshot_download 保留源仓库目录,所以打包版文件在:
+          .../bundled/tts/piper/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx
+        rglob 走 ≤几百 entries 不卡。.onnx 必须 .onnx.json 同目录 — piper 严格要 config。
+        """
+        try:
+            from chayuan.settings import CHAYUAN_ROOT
+            bundled_root = CHAYUAN_ROOT / "models" / "bundled" / "tts" / "piper"
+            if not bundled_root.is_dir():
+                return None
+            target = f"{name}.onnx"
+            for onnx in bundled_root.rglob(target):
+                cfg = onnx.parent / f"{name}.onnx.json"
+                if cfg.exists():
+                    return str(onnx)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[tts:piper] bundled lookup 异常: %r", e)
         return None
 
     def _try_download_piper_voice(self, name: str, target_dir: Path) -> bool:

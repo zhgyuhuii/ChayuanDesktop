@@ -78,7 +78,7 @@ def local_index_path() -> Path:
 
 
 # bundled_models 子目录约定（与 vendor/bundled_models/README.md 对齐）。
-BUNDLED_CAPABILITY_DIRS = ("chat", "embedding", "rerank", "asr", "ocr", "image", "custom")
+BUNDLED_CAPABILITY_DIRS = ("chat", "embedding", "rerank", "asr", "tts", "ocr", "image", "custom")
 BUNDLED_DIRNAME = "bundled_models"
 
 
