@@ -122,7 +122,40 @@ class AsrSession:
         self.chunk_count += 1
         self.last_active_at = time.time()
 
-        # ── 跑 whisper ──
+        # ── 硬上限兜底(**必须在 whisper 之前**):若 LocalAgreement 一直不进展
+        # (whisper 在边界处反复改),segment_committed_prefix 永远空,软 trim
+        # 永远不触发。如果不在 whisper 前砍,whisper 仍然会跑 22s+ 完整音频,
+        # latency ~8-10s > 前端 fetch timeout → "chunk #N AbortError"。
+        # 这里无条件砍 — 留最后 OVERLAP_SECONDS 给上下文,把被砍音频对应的
+        # last_hyp 前段 **force commit** 进 committed_text(宁可硬切丢音色也
+        # 不能让前端 fetch 卡死)。
+        audio_secs_now = len(self.audio_pcm) / PCM_BYTES_PER_SECOND
+        if audio_secs_now > HARD_MAX_AUDIO_SECONDS:
+            keep_bytes = OVERLAP_BYTES
+            drop_bytes = len(self.audio_pcm) - keep_bytes
+            drop_secs = drop_bytes / PCM_BYTES_PER_SECOND
+            # 按时间比例算被砍部分对应多少文字 — last_hyp 是上一次 whisper 的输出,
+            # 对应"audio_secs_now - 2.5s"那么多音频(这次 chunk 还没跑过 whisper)。
+            # 近似当作 audio_secs_now 就行,误差 ±1 char 无所谓。
+            if self.last_hyp and audio_secs_now > 0:
+                drop_ratio = drop_secs / audio_secs_now
+                drop_chars = max(1, int(len(self.last_hyp) * drop_ratio))
+                drop_chars = min(drop_chars, len(self.last_hyp))
+                forced_chunk = self.last_hyp[:drop_chars]
+                commit_overlap = (
+                    self.segment_committed_prefix[:drop_chars]
+                    if self.segment_committed_prefix else ""
+                )
+                extra = forced_chunk[len(commit_overlap):]
+                if extra:
+                    self.committed_text += extra
+                self.last_hyp = self.last_hyp[drop_chars:]
+                if self.segment_committed_prefix:
+                    self.segment_committed_prefix = self.segment_committed_prefix[drop_chars:]
+            self.audio_pcm = bytearray(self.audio_pcm[drop_bytes:])
+            audio_secs_now = len(self.audio_pcm) / PCM_BYTES_PER_SECOND  # 重算
+
+        # ── 跑 whisper(此时 audio_pcm 已被硬上限锁定 ≤ HARD_MAX_AUDIO_SECONDS) ──
         wav_bytes = make_wav_bytes(bytes(self.audio_pcm))
         new_hyp, diag = transcribe_fn(wav_bytes)
 
@@ -137,38 +170,11 @@ class AsrSession:
             self.segment_committed_prefix = stable_prefix or self.segment_committed_prefix
         self.last_hyp = new_hyp
 
-        # ── audio trim(对齐 UFAL whisper-streaming):基于"已 commit / hyp"比例
-        # 估算"已 commit 文字对应多少秒 audio",砍掉但保留 OVERLAP_SECONDS 末尾给
-        # 上下文。trim 后 last_hyp / segment_committed_prefix 同步砍前缀,坐标系
-        # 一致,LocalAgreement 全程工作,**不**做段切清空 — 不再"上一句不接下一句"。
+        # ── 软 trim(基于 commit 比例)— 硬 trim 已经把音频卡到 ≤ HARD_MAX_AUDIO,
+        # 软 trim 进一步在 commit 进展时及早释放上下文。两层 trim 都用 OVERLAP
+        # 防"上一句不接下一句"。
         audio_secs_now = len(self.audio_pcm) / PCM_BYTES_PER_SECOND
-
-        # ── 硬上限兜底:若 LocalAgreement 一直不进展(whisper 在边界处反复改),
-        # segment_committed_prefix 永远空,软 trim 永远不触发,audio 累积到 30s+
-        # 时 whisper latency ~8-10s > 前端 fetch 默认 timeout,出现 "chunk #17
-        # TimeoutError"。这里无条件砍 — 留最后 OVERLAP_SECONDS 给上下文,把被砍
-        # 音频对应的 hyp 前段 **force commit** 进 committed_text(宁可硬切也不
-        # 能让前端 fetch 卡死)。
-        if audio_secs_now > HARD_MAX_AUDIO_SECONDS:
-            keep_bytes = OVERLAP_BYTES
-            drop_bytes = len(self.audio_pcm) - keep_bytes
-            drop_secs = drop_bytes / PCM_BYTES_PER_SECOND
-            # 按时间比例算被砍部分对应多少文字
-            if self.last_hyp and audio_secs_now > 0:
-                drop_ratio = drop_secs / audio_secs_now
-                drop_chars = max(1, int(len(self.last_hyp) * drop_ratio))
-                drop_chars = min(drop_chars, len(self.last_hyp))
-                forced_chunk = self.last_hyp[:drop_chars]
-                # 已经 commit 的部分跟 forced_chunk 可能有重叠,取差集追加
-                commit_overlap = self.segment_committed_prefix[:drop_chars] if self.segment_committed_prefix else ""
-                extra = forced_chunk[len(commit_overlap):]
-                if extra:
-                    self.committed_text += extra
-                self.last_hyp = self.last_hyp[drop_chars:]
-                if self.segment_committed_prefix:
-                    self.segment_committed_prefix = self.segment_committed_prefix[drop_chars:]
-            self.audio_pcm = bytearray(self.audio_pcm[drop_bytes:])
-        elif (
+        if (
             audio_secs_now > WINDOW_SECONDS
             and self.segment_committed_prefix
             and self.last_hyp

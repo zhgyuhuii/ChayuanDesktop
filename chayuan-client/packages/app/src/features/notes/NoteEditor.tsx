@@ -24,6 +24,7 @@ import { useMicRecorder } from '../composer/useMicRecorder';
 import { useNoteDraft } from './useNoteDraft';
 import { SaveNoteDialog } from './SaveNoteDialog';
 import { AsrVolatileMark } from './AsrVolatileMark';
+import { convertEditorChinese, type ChineseScript } from './chineseScript';
 import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
 
 const defaultTitle = () => {
@@ -184,6 +185,21 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
     onError: (err) => reportError(err, '录音失败'),
   });
 
+  // 简体 / 繁体切换 — 把整个 editor 文档过一遍 opencc-js,setContent 重建。
+  // 默认 'cn'(笔记主诉求简体);后端 ASR sidecar 有时返繁体,用户点 简 修正。
+  // setContent 会重置 cursor;能接受。volatile mark 内的文字也会被转换,体验自然。
+  const [chineseScript, setChineseScript] = React.useState<ChineseScript>('cn');
+  const applyChineseScript = React.useCallback((target: ChineseScript) => {
+    if (!editor) return;
+    if (target === chineseScript) return;
+    const json = editor.getJSON();
+    const converted = convertEditorChinese(json, target);
+    editor.commands.setContent(converted as Parameters<typeof editor.commands.setContent>[0], {
+      emitUpdate: true,
+    });
+    setChineseScript(target);
+  }, [editor, chineseScript]);
+
   // 上传语音文件转写
   const [uploadingFile, setUploadingFile] = React.useState(false);
   const onUploadAudio = React.useCallback(async () => {
@@ -277,6 +293,40 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
           placeholder={defaultTitle()}
           className="flex-1 min-w-[200px] border-0 bg-transparent text-base font-semibold focus:outline-none"
         />
+        <div
+          className="inline-flex h-8 items-center rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-0.5 text-xs"
+          role="group"
+          aria-label="简体繁体切换"
+        >
+          <button
+            type="button"
+            onClick={() => applyChineseScript('cn')}
+            className={cn(
+              'flex h-7 items-center justify-center rounded px-2 transition',
+              chineseScript === 'cn'
+                ? 'bg-[var(--cy-brand-500)] text-white shadow-sm'
+                : 'text-[var(--cy-text-secondary)] hover:text-[var(--cy-text-primary)]',
+            )}
+            title="把整个笔记转为简体(含正在录的语音文字)"
+            aria-pressed={chineseScript === 'cn'}
+          >
+            简
+          </button>
+          <button
+            type="button"
+            onClick={() => applyChineseScript('tw')}
+            className={cn(
+              'flex h-7 items-center justify-center rounded px-2 transition',
+              chineseScript === 'tw'
+                ? 'bg-[var(--cy-brand-500)] text-white shadow-sm'
+                : 'text-[var(--cy-text-secondary)] hover:text-[var(--cy-text-primary)]',
+            )}
+            title="把整个笔记转为繁体(台湾标准)"
+            aria-pressed={chineseScript === 'tw'}
+          >
+            繁
+          </button>
+        </div>
         <Button
           size="sm"
           variant="ghost"

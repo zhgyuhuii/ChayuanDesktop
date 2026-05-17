@@ -130,27 +130,14 @@ export const modality = {
     form.append('file', blob, (blob as File).name || 'audio.webm');
     if (opts.language) form.append('language', opts.language);
     if (opts.sessionId) form.append('session_id', opts.sessionId);
-    // 显式 30s timeout —— 后端硬上限是 15s audio + ~5s whisper(最坏),30s 兜底足够。
-    // AbortSignal.any 合并 caller 的 signal 和 timeout,任一触发就 abort。
-    // 老 WebView2 可能没有 AbortSignal.any,降级为手动 AbortController 桥接。
-    const timeoutSig = AbortSignal.timeout(30_000);
-    const anyFn = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;
-    let sig: AbortSignal;
-    if (!opts.signal) {
-      sig = timeoutSig;
-    } else if (typeof anyFn === 'function') {
-      sig = anyFn([opts.signal, timeoutSig]);
-    } else {
-      const ctl = new AbortController();
-      const onAbort = () => ctl.abort();
-      opts.signal.addEventListener('abort', onAbort, { once: true });
-      timeoutSig.addEventListener('abort', onAbort, { once: true });
-      sig = ctl.signal;
-    }
+    // 显式 45s timeout —— 后端硬上限是 audio_pcm ≤ 15s + ~5s whisper(最坏),
+    // 25s 兜够;给 25s × 1.8 ≈ 45s 留余量,避免 24s 慢请求被错杀。比客户端
+    // 默认 30s 长 — 这是因为 ASR sidecar 在低端 CPU 上首 chunk 偶尔 ~20s 冷启动。
     const r = await request<{ data: TranscribeResult }>(`/modality/transcribe`, {
       method: 'POST',
       body: form,
-      signal: sig,
+      signal: opts.signal,
+      timeoutMs: 45_000,
       raw: true,
     });
     return r.data?.data ?? { text: '', language: opts.language ?? 'auto' };

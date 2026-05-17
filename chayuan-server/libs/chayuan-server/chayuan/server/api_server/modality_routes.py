@@ -650,6 +650,15 @@ async def transcribe_file_endpoint(
         "speaker": "speaker_0",
     }] if text else []
 
+    # 成功时也带 zhconv 缺失提示 — 用户看到繁体不会再以为是 bug,知道按右上角「简」转
+    from chayuan.server.modality.audio import zhconv_missing_diag as _zhconv_diag
+    diag_lines: list = []
+    if not success and err_text:
+        diag_lines.append(err_text)
+    zh_diag = _zhconv_diag()
+    if zh_diag:
+        diag_lines.append(zh_diag)
+
     return {
         "code": 0,
         "data": {
@@ -659,7 +668,7 @@ async def transcribe_file_endpoint(
             "segments": segments,
             # 客户端据此判断要不要把"Speaker N:"前缀加上
             "speaker_diarization_available": False,
-            "diagnostics": err_text if not success else "",
+            "diagnostics": "\n".join(diag_lines),
         },
     }
 

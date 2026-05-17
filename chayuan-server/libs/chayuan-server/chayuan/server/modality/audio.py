@@ -68,16 +68,39 @@ _WHISPER_ARTIFACT_PATTERN = _re.compile(
 )
 
 
+try:
+    import zhconv as _zhconv  # type: ignore
+    _HAS_ZHCONV = True
+except Exception:  # noqa: BLE001 — ImportError 或 zhconv 内部 pkg_resources error
+    _zhconv = None  # type: ignore[assignment]
+    _HAS_ZHCONV = False
+
+
 def _to_simplified_chinese(text: str) -> str:
     """繁体 → 简体。whisper.cpp 默认输出繁体(尤其大模型),用户笔记主诉求简体。
-    zhconv 是纯 Python(无 native deps),无 zhconv 时 fallback 原样返回。"""
-    if not text:
+    zhconv 是纯 Python(无 native deps),无 zhconv 时 fallback 原样返回。
+
+    ⚠ 静默 fallback 会让用户看到繁体却不知道为什么 — 调用方应同时调
+    ``zhconv_missing_diag()`` 把状态加入 diagnostics,前端能给提示。
+    """
+    if not text or not _HAS_ZHCONV:
         return text
     try:
-        import zhconv  # type: ignore
-        return zhconv.convert(text, "zh-cn")
+        return _zhconv.convert(text, "zh-cn")  # type: ignore[union-attr]
     except Exception:  # noqa: BLE001
         return text
+
+
+def zhconv_missing_diag() -> Optional[str]:
+    """zhconv 缺失时返回一行 diag(给 transcribe-file 之类整段响应用);装好时返 None。
+    前端拿到这行 diag 可弹"后端缺 zhconv,请在编辑器右上角手动 简/繁 切换"提示。"""
+    if _HAS_ZHCONV:
+        return None
+    return (
+        "[zhconv-missing] 后端未安装 zhconv,whisper 输出的繁体没自动转简体 — "
+        "运行 `pip install zhconv` 或重装 chayuan-server 依赖。"
+        "临时可在编辑器右上角点「简」按钮转。"
+    )
 
 
 def _strip_whisper_artifacts(text: str) -> Tuple[str, bool]:
@@ -95,6 +118,14 @@ def _strip_whisper_artifacts(text: str) -> Tuple[str, bool]:
     return cleaned, (raw_stripped != "" and cleaned == "")
 
 logger = logging.getLogger("chayuan.modality.audio")
+
+if not _HAS_ZHCONV:
+    # 起服时打一次 warning,让运维 / 开发者立刻看到根因。许多"语音文件转化后
+    # 还是繁体"的报告就是 zhconv 没装(pyproject 里列了 dep 但环境没同步)。
+    logger.warning(
+        "[audio] zhconv 未安装 — whisper.cpp 输出的繁体字符不会转简体。"
+        "运行 `pip install zhconv` 即可,客户端用户也可点编辑器右上角的「简」按钮临时转。"
+    )
 
 
 class AudioPipeline:
