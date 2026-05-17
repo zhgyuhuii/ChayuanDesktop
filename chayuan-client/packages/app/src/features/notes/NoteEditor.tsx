@@ -208,13 +208,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
         notifyInfo('未识别到语音文字', detail, 15000);
         return;
       }
-      // 不带 speaker_diarization 时,把所有 segment 当作单一说话人,合并成一段
-      // 文字 + 一个换行(用户在编辑器里读着方便,不挤一坨)。
-      // 带 diarization(后续 pyannote 集成)时,segment 按 speaker 切,每段
-      // 前面加 "Speaker A: " 前缀。
+      // 关键:Tiptap insertContent(string) 把 string 当 HTML 解析,'\n' 不被
+      // 识别为换行 → 多段文字会挤成一坨,甚至 '<','>' 等字符被当 tag 吃掉。
+      // 改用 **ProseMirror JSON nodes**,每行一个 paragraph,Tiptap 直接构造
+      // 文档结构,无 HTML 解析、无字符吞噬。
       const lines: string[] = [];
       if (r.speaker_diarization_available && r.segments.length > 1) {
-        // speaker_id → 用户友好 label(A/B/C/...)
         const speakerLabels = new Map<string, string>();
         let next = 0;
         for (const s of r.segments) {
@@ -230,7 +229,20 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
       } else {
         lines.push(r.text.replace(/\r?\n+/g, ' '));
       }
-      editor.chain().focus().insertContent(lines.join('\n')).run();
+      // 把每行包成 paragraph node 数组,一次性 insert
+      const nodes = lines
+        .filter((l) => l.length > 0)
+        .map((line) => ({
+          type: 'paragraph' as const,
+          content: [{ type: 'text' as const, text: line }],
+        }));
+      console.debug(
+        `[upload-asr] ${lines.length} lines, total ${r.text.length} chars,` +
+          ` diarization=${r.speaker_diarization_available}`,
+      );
+      if (nodes.length > 0) {
+        editor.chain().focus('end').insertContent(nodes).run();
+      }
       const meta = r.speaker_diarization_available
         ? `共 ${r.segments.length} 段,识别到 ${new Set(r.segments.map((s) => s.speaker)).size} 个说话人`
         : `共 ${r.text.length} 字`;

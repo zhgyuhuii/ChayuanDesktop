@@ -76,6 +76,11 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
   // **onPartial 先(stable 文字 commit)→ onVolatile 后(灰色显示)**,避免
   // 之前"onVolatile 插完灰色,onPartial 把它删了"的 bug。
   const volatilesRef = React.useRef<Map<number, string>>(new Map());
+  // 前端"已 commit 全局文本"对账锚点:每个 chunk 后端会返 committed_text(全局
+  // 累积),前端比对 lastCommittedAllRef 算真增量,不依赖后端 stable_increment
+  // 字段。这避免某些 corner case(retroactive_change / LocalAgreement 不进展)
+  // 导致 stable_increment="" 但 committed_text 实际增长了 → 用户看到的"文字丢失"。
+  const lastCommittedAllRef = React.useRef<string>('');
   const fullTextRef = React.useRef<string[]>([]);
   const abortersRef = React.useRef<AbortController[]>([]);
   const startTsRef = React.useRef(0);
@@ -246,25 +251,47 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
           sessionId: sessionIdRef.current,
         })
         .then((r) => {
-          // session 模式:r.text 是 stable_increment(LocalAgreement-2 二次校验后
-          // 新 commit 的字符),r.volatile_suffix 是当前未确认尾部
-          const text = (r.text || '').trim();
+          // session 模式:用 committed_text 全局对账算真增量,不依赖后端
+          // stable_increment 字段(可能为空但 committed_text 增长了)。
+          const stableInc = (r.text || '').trim();
+          const committedAll = (r.committed_text || '').trim();
           const volatileText = (r.volatile_suffix || '').trim();
           const isFull = !!r.is_full;
+
+          // 增量优先用 committed_text - lastCommittedAll;只有当 committed_text
+          // 缺失(非 session 路径 / 后端老版本)或两者不一致时,fallback stableInc
+          let increment = stableInc;
+          if (committedAll) {
+            if (committedAll.startsWith(lastCommittedAllRef.current)) {
+              increment = committedAll.slice(lastCommittedAllRef.current.length);
+            } else {
+              // committed_text 倒退或分叉(罕见,sessionId rotate 时可能发生)
+              // → 用 stableInc 兜底,但更新锚点保证下次对账正确
+              console.warn(
+                '[mic] committed_text divergence:',
+                'last=', lastCommittedAllRef.current.slice(-30),
+                'new=', committedAll.slice(-30),
+              );
+            }
+            lastCommittedAllRef.current = committedAll;
+          }
+
           console.debug(
             `[mic] chunk #${idx} sid=${sessionIdRef.current.slice(0, 6)} ` +
-              `+"${text}" vola="${volatileText.slice(0, 30)}" full=${isFull}`,
+              `+"${increment}" (raw stable="${stableInc}", committed=${committedAll.length}c) ` +
+              `vola="${volatileText.slice(0, 30)}" full=${isFull}`,
           );
           if (isFull) {
             // 后端旧版若返 is_full,自动换新 sid;新版滑窗后 is_full 永远 false
             sessionIdRef.current = uuid();
+            lastCommittedAllRef.current = '';  // 新 session 锚点重置
             console.debug('[mic] session full,rotated to', sessionIdRef.current.slice(0, 6));
           }
           // 把 volatile 暂存到 volatilesRef,flushBuffered 推进 expected 后才用
           // 最新已 flush idx 对应的 volatile 触发 onVolatile — 这样**onPartial
           // 先 commit 黑字,onVolatile 后插灰色尾部**,顺序对了
           volatilesRef.current.set(idx, volatileText);
-          pendingRef.current.set(idx, text);
+          pendingRef.current.set(idx, increment);
           flushBuffered();
         })
         .catch((err) => {
@@ -324,6 +351,7 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     expectedRef.current = 0;
     pendingRef.current.clear();
     volatilesRef.current.clear();
+    lastCommittedAllRef.current = '';
     fullTextRef.current = [];
     abortersRef.current = [];
     stopRequestedRef.current = false;
