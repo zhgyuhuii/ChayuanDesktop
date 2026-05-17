@@ -33,6 +33,19 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@chayuan/ui';
 import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
+import { resolveLocale, useSettingsStore } from '../../store/settings';
+
+/**
+ * 把 chayuan UI locale 映射成 whisper / FunASR 能识别的 ASR 语言码。
+ * - zh-CN → zh(简体中文,后端会走 zhconv 二次保证简体)
+ * - en/ja/ko/de/fr → 原样(ISO 639-1)
+ * - 未知 → 'auto' 让 whisper 自动检测
+ */
+function localeToAsrLanguage(locale: string): string {
+  if (locale === 'zh-CN' || locale === 'zh') return 'zh';
+  if (['en', 'ja', 'ko', 'de', 'fr'].includes(locale)) return locale;
+  return 'auto';
+}
 
 interface AsrItem {
   id: string;
@@ -75,6 +88,13 @@ export const AudioToTextPage: React.FC = () => {
   const [items, setItems] = React.useState<AsrItem[]>([]);
   const [title, setTitle] = React.useState(() => defaultTitle());
   const [busy, setBusy] = React.useState(false);
+  // 读"设置 → 语言"偏好,转成 ASR 用的语言码;'system' 走 resolveLocale 拿
+  // 真实系统 locale。这条订阅让用户切语言后下次转写立刻生效,无需重启。
+  const localePref = useSettingsStore((s) => s.locale);
+  const asrLanguage = React.useMemo(
+    () => localeToAsrLanguage(resolveLocale(localePref)),
+    [localePref],
+  );
 
   const editor = useEditor({
     extensions: [
@@ -174,7 +194,10 @@ export const AudioToTextPage: React.FC = () => {
         ? { ...x, status: 'running', startedAt: Date.now() }
         : x));
       try {
-        const res = await modality.transcribeFile(it.file, { diarize: true });
+        const res = await modality.transcribeFile(it.file, {
+          diarize: true,
+          language: asrLanguage,
+        });
         setItems((prev) => prev.map((x) => x.id === it.id
           ? { ...x, status: 'done', result: res }
           : x));
@@ -199,7 +222,7 @@ export const AudioToTextPage: React.FC = () => {
       }
     }
     setBusy(false);
-  }, [insertAsr]);
+  }, [insertAsr, asrLanguage]);
 
   const addFiles = React.useCallback((files: File[]) => {
     if (files.length === 0) return;

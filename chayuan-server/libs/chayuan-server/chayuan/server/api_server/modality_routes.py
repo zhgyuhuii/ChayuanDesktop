@@ -646,11 +646,25 @@ async def _try_funasr_diarize(
         body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
         if not isinstance(body, dict):
             return None
+        # 中文语言:对 text + segments[].text 都走 zhconv 简化
+        # —— FunASR paraformer-zh 输出**可能含繁体字**(模型训练语料混杂),用户在
+        # 「设置 → 系统语言」选了简体中文,期望看到简体输出。跟 whisper 路径 zhconv
+        # 主路对齐(modality/audio.py:_to_simplified_chinese)。
+        from chayuan.server.modality.audio import _to_simplified_chinese
+        is_chinese = (language or "").lower().startswith("zh") or (language or "") == "" or language == "auto"
+        text = body.get("text") or ""
+        segments = body.get("segments") or []
+        if is_chinese:
+            text = _to_simplified_chinese(text)
+            segments = [
+                {**s, "text": _to_simplified_chinese(s.get("text", "") or "")}
+                for s in segments if isinstance(s, dict)
+            ]
         return {
-            "text": body.get("text") or "",
+            "text": text,
             "language": language or "auto",
             "audio_seconds": 0.0,
-            "segments": body.get("segments") or [],
+            "segments": segments,
             "speaker_diarization_available": bool(body.get("speaker_diarization_available")),
             "speaker_count": int(body.get("speaker_count") or 0),
         }
