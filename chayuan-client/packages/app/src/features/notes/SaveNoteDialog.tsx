@@ -17,6 +17,8 @@ export interface SaveNoteDialogProps {
   open: boolean;
   title: string;
   content: any;
+  /** AI 摘要 markdown(可选)— 传了就嵌进保存的 .md 头部,KB 检索时可见 */
+  summary?: string;
   onClose(): void;
   onSaved(kbName: string): void;
   /** 默认选中(回填上次的库名;localStorage 持久化) */
@@ -24,7 +26,7 @@ export interface SaveNoteDialogProps {
 }
 
 export const SaveNoteDialog: React.FC<SaveNoteDialogProps> = ({
-  open, title, content, onClose, onSaved, defaultKbName,
+  open, title, content, summary, onClose, onSaved, defaultKbName,
 }) => {
   const [selected, setSelected] = React.useState<string>(defaultKbName ?? '');
   const [saving, setSaving] = React.useState(false);
@@ -46,7 +48,7 @@ export const SaveNoteDialog: React.FC<SaveNoteDialogProps> = ({
     try {
       // ku_id 形如 'doc:my-kb';保存调 upload_docs 用 raw kbName 即 ku_id 去掉 'doc:'
       const kbName = selected.startsWith('doc:') ? selected.slice(4) : selected;
-      const r = await saveNoteToKB({ title, content, kbName });
+      const r = await saveNoteToKB({ title, content, kbName, summary });
       if (r.saved_files.length === 0 && Object.keys(r.failed).length > 0) {
         throw new Error(Object.values(r.failed)[0] ?? '保存失败');
       }

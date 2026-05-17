@@ -15,7 +15,8 @@ import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import {
   Bold, Code, FileAudio, Heading1, Heading2, Image as ImageIcon, Italic, Link as LinkIcon,
-  List, ListOrdered, Loader2, Mic, MicOff, Paperclip, Quote, RefreshCw, Save, Strikethrough, X,
+  List, ListOrdered, Loader2, Mic, MicOff, Paperclip, Quote, RefreshCw, Save, Sparkles,
+  Strikethrough, X,
 } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { modality } from '@chayuan/api';
@@ -25,6 +26,8 @@ import { RecorderBar } from '../composer/RecorderBar';
 import { useNoteDraft } from './useNoteDraft';
 import { SaveNoteDialog } from './SaveNoteDialog';
 import { AsrVolatileMark } from './AsrVolatileMark';
+import { useNoteSummary } from './useNoteSummary';
+import { SummaryPanel } from './SummaryPanel';
 import {
   convertEditorChinese, convertText, detectChineseScript, persistChineseScript,
   type ChineseScript,
@@ -54,6 +57,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
     catch { return undefined; }
   }, []);
 
+  // AI 摘要 — 默认值取草稿里持久化的;打开时面板自动恢复
+  const summaryHook = useNoteSummary(initial?.summary);
+  const [summaryOpen, setSummaryOpen] = React.useState<boolean>(!!initial?.summary);
+
   const editor = useEditor({
     extensions: [
       // Tiptap v3 起 StarterKit 自带 Link;关掉它用下面自己 configure 的版本,
@@ -70,14 +77,27 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
     ],
     content: initial?.content ?? '',
     onUpdate({ editor }) {
-      draft.save(title, editor.getJSON());
+      // 笔记内容变化时,summary 跟着一起保存(避免丢)
+      draft.save(title, editor.getJSON(), summaryHook.summary || undefined);
     },
   });
 
-  // 标题变化也写草稿
+  // summary 变了也写草稿(用最新 editor json + title)
   React.useEffect(() => {
-    if (editor) draft.save(title, editor.getJSON());
-  }, [title, editor, draft]);
+    if (editor) draft.save(title, editor.getJSON(), summaryHook.summary || undefined);
+    // editor 是稳定 ref,主要靠 summary 变化触发
+  }, [summaryHook.summary, editor, title, draft]);
+
+  const onGenerateSummary = React.useCallback(async () => {
+    if (!editor) return;
+    setSummaryOpen(true);
+    await summaryHook.generate(editor.getJSON(), { title });
+  }, [editor, title, summaryHook]);
+
+  // 标题变化也写草稿(连带 summary 一起,防止改标题时丢摘要)
+  React.useEffect(() => {
+    if (editor) draft.save(title, editor.getJSON(), summaryHook.summary || undefined);
+  }, [title, editor, draft, summaryHook.summary]);
 
   // ASR 新模式:不实时转,**录完整段送模型**(避免 chunk 边界 hallucination)。
   // 录音过程只看频谱条 + 时长(RecorderBar),停止后 onRecorded 触发整段转写。
@@ -254,7 +274,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
   if (!editor) return null;
 
   return (
-    <div className="flex h-full flex-col bg-[var(--cy-surface-base)]">
+    <div className="flex h-full bg-[var(--cy-surface-base)]">
+      <div className="flex h-full flex-1 flex-col min-w-0">
       <header className="flex flex-wrap items-center gap-2 border-b border-[var(--cy-border-subtle)] px-4 py-2">
         <input
           value={title}
@@ -323,6 +344,24 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
             <><FileAudio className="h-3.5 w-3.5" /> 上传录音</>
           )}
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void onGenerateSummary()}
+          disabled={summaryHook.loading || !editor}
+          className="h-8 text-xs"
+          title={
+            summaryHook.summary
+              ? '重新生成 AI 摘要(覆盖现有,右侧面板展示)'
+              : 'AI 根据笔记内容自动生成 1-2 句摘要 + 3-5 个要点(右侧面板)'
+          }
+        >
+          {summaryHook.loading ? (
+            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> 生成中</>
+          ) : (
+            <><Sparkles className="h-3.5 w-3.5" /> AI 摘要</>
+          )}
+        </Button>
         <Button size="sm" onClick={() => setSaveOpen(true)} className="h-8 text-xs">
           <Save className="h-3.5 w-3.5" /> 保存到知识中心
         </Button>
@@ -386,11 +425,22 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
         onStop={mic.stop}
         onCancel={mic.cancel}
       />
+      </div>{/* /editor column */}
+
+      <SummaryPanel
+        open={summaryOpen}
+        summary={summaryHook.summary}
+        loading={summaryHook.loading}
+        error={summaryHook.error}
+        onClose={() => setSummaryOpen(false)}
+        onRegenerate={() => void onGenerateSummary()}
+      />
 
       <SaveNoteDialog
         open={saveOpen}
         title={title}
         content={editor.getJSON()}
+        summary={summaryHook.summary}
         defaultKbName={defaultKb}
         onClose={() => setSaveOpen(false)}
         onSaved={(kbName) => {

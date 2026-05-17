@@ -13,11 +13,13 @@ export interface NoteDraftPayload {
   title: string;
   content: any; // Tiptap JSON
   savedAt: string;
+  /** AI 生成的摘要 markdown(可选)。老草稿无此字段,load 时为 undefined。 */
+  summary?: string;
 }
 
 export interface UseNoteDraftResult {
   load: () => NoteDraftPayload | null;
-  save: (title: string, content: any) => void;
+  save: (title: string, content: any, summary?: string) => void;
   clear: () => void;
 }
 
@@ -35,14 +37,15 @@ export function useNoteDraft(key = 'chayuan:note-draft:new'): UseNoteDraftResult
   }, [key]);
 
   const save = React.useCallback(
-    (title: string, content: any) => {
+    (title: string, content: any, summary?: string) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         try {
-          localStorage.setItem(
-            key,
-            JSON.stringify({ title, content, savedAt: new Date().toISOString() }),
-          );
+          const payload: NoteDraftPayload = {
+            title, content, savedAt: new Date().toISOString(),
+          };
+          if (summary !== undefined) payload.summary = summary;
+          localStorage.setItem(key, JSON.stringify(payload));
         } catch {
           /* quota / privacy 模式;静默忽略 */
         }
