@@ -425,8 +425,9 @@ async def _transcribe_in_session(
     """session 分支主体 — ffmpeg 转 wav → 抽 PCM → AsrSession.append_chunk → 返
     (data_dict, success, err_text, preview)。
 
-    每个 chunk 都把累积 PCM 包成 WAV 整段送 whisper(LocalAgreement-2 比对)。
-    比单 chunk 转写准确率高,但开销也大些(每次跑 1-30s 的 audio,而不只是 2.5s)。
+    实时模式(2026-05-17 重构后):每个 chunk **独立**送 whisper,不再累积音频、
+    不再 LocalAgreement-2 二次校验。whisper 输入永远只是单 chunk(~2.5s)→
+    CPU latency 0.3-2s,永不 ReadTimeout;前端拿到 stable_increment 直接 commit。
     """
     import os as _os
     import tempfile as _tempfile

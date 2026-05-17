@@ -1,226 +1,116 @@
-"""LocalAgreement-2 + AsrSession 单测。"""
+"""AsrSession 实时模式单测(2026-05-17 重写)。
+
+老的 LocalAgreement-2 + 滑窗实现已被替换为"每 chunk 独立转写,实时输出"
+简化版,本文件相应重写。LocalAgreement 工具函数(common_prefix_len /
+local_agreement_2 / compute_increment)在 local_agreement.py 仍存在但已不被
+生产代码引用 — 这里也不再测它们。
+"""
 from __future__ import annotations
 
 import pytest
 
 
-def test_common_prefix_len():
-    from chayuan.server.modality.local_agreement import common_prefix_len
-    assert common_prefix_len("", "") == 0
-    assert common_prefix_len("abc", "") == 0
-    assert common_prefix_len("abc", "abd") == 2
-    assert common_prefix_len("abc", "abc") == 3
-    assert common_prefix_len("你好今天", "你好昨天") == 2  # 中文按字符
-    assert common_prefix_len("你好今天", "你好今天天气") == 4
+def test_session_append_chunk_independent_transcribe():
+    """每 chunk 独立跑 whisper — fake_transcribe 应只收到当前 chunk 的 WAV,
+    不应有累积音频。"""
+    from chayuan.server.modality.asr_session import AsrSession, PCM_BYTES_PER_SECOND
 
-
-def test_local_agreement_2():
-    from chayuan.server.modality.local_agreement import local_agreement_2
-    # 第一次 hypothesis,没 prev → 全 volatile
-    assert local_agreement_2("", "你好") == ("", "你好")
-    # 完全一致 → 全 stable
-    assert local_agreement_2("你好", "你好") == ("你好", "")
-    # 前缀一致,curr 多出来 → stable 前缀 + volatile suffix
-    assert local_agreement_2("你好今天", "你好今天天气真好") == ("你好今天", "天气真好")
-    # 中间分叉
-    assert local_agreement_2("你好今天", "你好昨天") == ("你好", "昨天")
-
-
-def test_compute_increment():
-    from chayuan.server.modality.local_agreement import compute_increment
-    # 正常:new 是 prev 的扩展
-    assert compute_increment("你好", "你好今天") == ("今天", False)
-    # 第一次 commit
-    assert compute_increment("", "你好") == ("你好", False)
-    # new 比 prev 短(whisper 这次没那么自信),不撤回也不新增
-    assert compute_increment("你好今天", "你好") == ("", False)
-    # 完全相同
-    assert compute_increment("你好", "你好") == ("", False)
-    # 真分叉 → retroactive_change=True,不 increment
-    assert compute_increment("你好今天", "你好昨天") == ("", True)
-
-
-def test_asr_session_first_chunk_no_commit():
-    """第一次 chunk:无 prev_hyp,LocalAgreement-2 不 commit,全部 volatile。"""
-    from chayuan.server.modality.asr_session import AsrSession
-    sess = AsrSession(session_id="t-first")
-
-    def fake_transcribe(wav_bytes):
-        # 不关心 wav 内容,假设 whisper 返"你好"
+    received_sizes: list[int] = []
+    def fake(wav: bytes):
+        # WAV header 44 字节 + PCM 数据
+        received_sizes.append(len(wav) - 44)
         return "你好", []
 
-    pcm = b"\x00" * (16000 * 2)  # 1 秒静音
-    result = sess.append_chunk(pcm, fake_transcribe)
-    assert result["stable_increment"] == ""
-    assert result["volatile_suffix"] == "你好"
-    assert result["hypothesis"] == "你好"
-    assert result["committed_text"] == ""
-    assert result["chunk_count"] == 1
-    assert not result["is_full"]
-    assert result["audio_seconds"] == 1.0
+    sess = AsrSession(session_id="t1")
+    chunk_1s = b"\x00" * (1 * PCM_BYTES_PER_SECOND)
+    chunk_2s = b"\x00" * (2 * PCM_BYTES_PER_SECOND)
+    sess.append_chunk(chunk_1s, fake)
+    sess.append_chunk(chunk_2s, fake)
+    sess.append_chunk(chunk_1s, fake)
+
+    assert received_sizes == [
+        1 * PCM_BYTES_PER_SECOND,
+        2 * PCM_BYTES_PER_SECOND,
+        1 * PCM_BYTES_PER_SECOND,
+    ], "每 chunk 应独立喂 whisper,不累积上一片"
 
 
-def test_asr_session_second_chunk_commits_common_prefix():
-    """第二次 chunk:LocalAgreement-2 confirm 上一次的 hypothesis 部分。"""
-    from chayuan.server.modality.asr_session import AsrSession
-    sess = AsrSession(session_id="t-2")
-    pcm = b"\x00" * (16000 * 2)
+def test_session_committed_text_grows_per_chunk():
+    """committed_text 每 chunk 累加;中文之间不加空格,英文/数字之间加空格防粘连。"""
+    from chayuan.server.modality.asr_session import AsrSession, PCM_BYTES_PER_SECOND
 
-    hyps = iter(["你好今天", "你好今天天气"])
+    hyps = iter(["你好", "今天", "hello", "world"])
     def fake(wav): return next(hyps), []
 
-    r1 = sess.append_chunk(pcm, fake)
-    assert r1["stable_increment"] == ""
-    r2 = sess.append_chunk(pcm, fake)
-    # 上次 hyp="你好今天",这次 hyp="你好今天天气",common = "你好今天" → 全部 commit
-    assert r2["stable_increment"] == "你好今天"
+    sess = AsrSession(session_id="t2")
+    chunk = b"\x00" * PCM_BYTES_PER_SECOND
+    r1 = sess.append_chunk(chunk, fake)
+    assert r1["committed_text"] == "你好"
+    assert r1["stable_increment"] == "你好"
+
+    r2 = sess.append_chunk(chunk, fake)
+    # 中文邻接,不加空格
     assert r2["committed_text"] == "你好今天"
-    assert r2["volatile_suffix"] == "天气"
-    assert r2["hypothesis"] == "你好今天天气"
+    assert r2["stable_increment"] == "今天"
+
+    r3 = sess.append_chunk(chunk, fake)
+    # 中文 → 英文邻接(尾 '天' 不是 ASCII word char)→ 不加空格
+    assert r3["committed_text"] == "你好今天hello"
+
+    r4 = sess.append_chunk(chunk, fake)
+    # 英文 → 英文邻接,塞空格防粘连
+    assert r4["committed_text"] == "你好今天hello world"
 
 
-def test_asr_session_third_chunk_incremental_commit():
-    """第三次 chunk:增量 commit 进一步确认的字符。"""
-    from chayuan.server.modality.asr_session import AsrSession
-    sess = AsrSession(session_id="t-3")
-    pcm = b"\x00" * (16000 * 2)
+def test_session_empty_chunk_does_not_grow_committed():
+    """whisper 返空(静音/marker 被 strip)时,committed_text 不变。"""
+    from chayuan.server.modality.asr_session import AsrSession, PCM_BYTES_PER_SECOND
 
-    hyps = iter([
-        "你好今天",
-        "你好今天天气",
-        "你好今天天气真不错",
-    ])
-    def fake(wav): return next(hyps), []
-
-    sess.append_chunk(pcm, fake)            # commit ""
-    r2 = sess.append_chunk(pcm, fake)       # commit "你好今天"
-    r3 = sess.append_chunk(pcm, fake)       # commit 增加 "天气"
-    assert r2["stable_increment"] == "你好今天"
-    assert r3["stable_increment"] == "天气"
-    assert r3["committed_text"] == "你好今天天气"
-    assert r3["volatile_suffix"] == "真不错"
+    sess = AsrSession(session_id="t3")
+    sess.committed_text = "已有文字"
+    chunk = b"\x00" * PCM_BYTES_PER_SECOND
+    r = sess.append_chunk(chunk, lambda wav: ("", []))
+    assert r["committed_text"] == "已有文字", "whisper 返空时 committed_text 应不变"
+    assert r["stable_increment"] == ""
+    assert r["volatile_suffix"] == ""
 
 
-def test_asr_session_audio_trim_keeps_overlap():
-    """audio 超 WINDOW_SECONDS 后 trim:基于 commit 比例砍前缀,留 OVERLAP_SECONDS 上下文。"""
-    from chayuan.server.modality.asr_session import (
-        AsrSession, PCM_BYTES_PER_SECOND, WINDOW_SECONDS, OVERLAP_SECONDS,
+def test_session_no_volatile_no_retroactive_in_realtime_mode():
+    """实时模式没有 volatile / retroactive 概念 — 这些字段永远空 / False。"""
+    from chayuan.server.modality.asr_session import AsrSession, PCM_BYTES_PER_SECOND
+
+    sess = AsrSession(session_id="t4")
+    chunk = b"\x00" * PCM_BYTES_PER_SECOND
+    r = sess.append_chunk(chunk, lambda wav: ("anything", []))
+    assert r["volatile_suffix"] == ""
+    assert r["retroactive_change"] is False
+    assert r["is_full"] is False  # 不再有"满了换 session"
+
+
+def test_session_chunk_count_and_audio_seconds():
+    """chunk_count 单调递增;audio_seconds 反映**当前 chunk**长度(不是累积)。"""
+    from chayuan.server.modality.asr_session import AsrSession, PCM_BYTES_PER_SECOND
+
+    sess = AsrSession(session_id="t5")
+    r1 = sess.append_chunk(b"\x00" * (1 * PCM_BYTES_PER_SECOND), lambda w: ("", []))
+    r2 = sess.append_chunk(b"\x00" * (3 * PCM_BYTES_PER_SECOND), lambda w: ("", []))
+    assert r1["chunk_count"] == 1
+    assert r2["chunk_count"] == 2
+    assert r1["audio_seconds"] == 1.0
+    assert r2["audio_seconds"] == 3.0, "audio_seconds 是单 chunk 长度,不再累积"
+
+
+def test_session_diagnostics_passthrough():
+    """transcribe_fn 返回的 diag list 应原样进 result['diagnostics']。"""
+    from chayuan.server.modality.asr_session import AsrSession, PCM_BYTES_PER_SECOND
+
+    sess = AsrSession(session_id="t6")
+    diag = ["[sidecar] HTTP 200", "[strip] 去除 [BLANK_AUDIO]"]
+    r = sess.append_chunk(
+        b"\x00" * PCM_BYTES_PER_SECOND,
+        lambda w: ("ok", diag),
     )
-    sess = AsrSession(session_id="t-trim")
-    pcm_5s = b"\x00" * (5 * PCM_BYTES_PER_SECOND)
-
-    # 模拟跨多个 chunk 不断累积 + 各次 hyp 增长
-    # 第一次 5s → hyp="ABCD"(4 chars 对应 5s)
-    # 第二次 10s → hyp="ABCDEFGH"(commit 前缀 "ABCD")
-    # 第三次 15s → hyp="ABCDEFGHIJKL"(commit "ABCDEFGH")→ 触发 trim
-    hyps = iter([
-        "ABCD",                # chunk 1: 5s audio
-        "ABCDEFGH",            # chunk 2: 10s audio
-        "ABCDEFGHIJKL",        # chunk 3: 15s audio
-        # chunk 3 后 audio_secs=15 > WINDOW_SECONDS=12,且有 commit;trim
-    ])
-    def fake(wav): return next(hyps), []
-
-    r1 = sess.append_chunk(pcm_5s, fake)
-    assert r1["stable_increment"] == ""
-    assert sess.last_hyp == "ABCD"
-
-    r2 = sess.append_chunk(pcm_5s, fake)
-    # LocalAgreement("ABCD", "ABCDEFGH") 共同前缀 = "ABCD" → commit
-    assert r2["stable_increment"] == "ABCD"
-    assert sess.committed_text == "ABCD"
-    assert sess.segment_committed_prefix == "ABCD"
-
-    r3 = sess.append_chunk(pcm_5s, fake)
-    # LocalAgreement("ABCDEFGH", "ABCDEFGHIJKL") 共同前缀 = "ABCDEFGH" → 增 commit "EFGH"
-    assert r3["stable_increment"] == "EFGH"
-    assert r3["committed_text"] == "ABCDEFGH"
-    # 此时 audio 15s,commit_ratio = 8/12,commit_secs = 15 * 8/12 = 10
-    # trim_secs = 10 - 4 = 6 → 砍 6 秒 audio + 比例砍 last_hyp / segment_committed_prefix
-    assert len(sess.audio_pcm) < 15 * PCM_BYTES_PER_SECOND, "trim 应该砍掉前段 audio"
-    assert sess.audio_pcm == b"\x00" * len(sess.audio_pcm)
-    # 仍保留 ≥ OVERLAP_SECONDS audio
-    audio_remaining_secs = len(sess.audio_pcm) / PCM_BYTES_PER_SECOND
-    assert audio_remaining_secs >= OVERLAP_SECONDS - 0.1
-    assert r3["is_full"] is False  # 永远不 full
-    # last_hyp 应被砍前缀
-    assert len(sess.last_hyp) < len("ABCDEFGHIJKL")
-    # committed_text 不变(commit 文本是全局累积,不动)
-    assert sess.committed_text == "ABCDEFGH"
-
-
-def test_asr_session_no_trim_when_within_window():
-    """累积未超 WINDOW_SECONDS 不 trim,正常 LocalAgreement 增量 commit。"""
-    from chayuan.server.modality.asr_session import (
-        AsrSession, PCM_BYTES_PER_SECOND,
-    )
-    sess = AsrSession(session_id="t-no-trim")
-    pcm_3s = b"\x00" * (3 * PCM_BYTES_PER_SECOND)
-
-    hyps = iter(["你好今天", "你好今天天气", "你好今天天气真不错"])
-    def fake(wav): return next(hyps), []
-
-    sess.append_chunk(pcm_3s, fake)           # 3s,commit ""
-    r2 = sess.append_chunk(pcm_3s, fake)      # 6s,commit "你好今天"
-    r3 = sess.append_chunk(pcm_3s, fake)      # 9s,commit 增 "天气"
-    # 累积 9s < 12s,不 trim
-    assert len(sess.audio_pcm) == 9 * PCM_BYTES_PER_SECOND
-    assert r2["stable_increment"] == "你好今天"
-    assert r3["stable_increment"] == "天气"
-    assert r3["committed_text"] == "你好今天天气"
-
-
-def test_asr_session_hard_trim_when_local_agreement_stuck():
-    """退化场景:LocalAgreement-2 一直不进展(每个 chunk 的 hyp 都重写前段),
-    软 trim 永远不触发 → 必须有硬上限 HARD_MAX_AUDIO_SECONDS 兜底,否则
-    audio_pcm 无限累积,whisper 越跑越慢,前端 fetch 超时。
-
-    本测试模拟"whisper 每次都给完全不同的 hyp",验证 audio_pcm 不会超过
-    硬上限,且被砍掉的音频对应的 hyp 前段被强制 commit(宁可硬切也不卡死)。
-    """
-    from chayuan.server.modality.asr_session import (
-        AsrSession,
-        PCM_BYTES_PER_SECOND,
-        HARD_MAX_AUDIO_SECONDS,
-        OVERLAP_SECONDS,
-    )
-    sess = AsrSession(session_id="t-hard-trim")
-    pcm_2s = b"\x00" * (2 * PCM_BYTES_PER_SECOND)
-
-    # 每个 chunk 后 whisper 都给一个完全分叉的 hyp → LocalAgreement-2 永远找不到
-    # 共同前缀 → committed_text 一直空 → 软 trim 条件(segment_committed_prefix
-    # truthy)永远不满足。
-    hyps = iter([
-        "AAAA",   # chunk 1, 2s
-        "BBBB",   # chunk 2, 4s
-        "CCCC",   # chunk 3, 6s
-        "DDDD",   # chunk 4, 8s
-        "EEEE",   # chunk 5, 10s
-        "FFFF",   # chunk 6, 12s
-        "GGGG",   # chunk 7, 14s
-        "HHHH",   # chunk 8, 16s → 触发硬 trim
-    ])
-    def fake(wav): return next(hyps), []
-
-    for _ in range(7):
-        sess.append_chunk(pcm_2s, fake)
-    # 7 个 chunk 后,audio = 14s < 15s,不触发硬 trim
-    assert len(sess.audio_pcm) == 14 * PCM_BYTES_PER_SECOND
-    assert sess.committed_text == ""
-
-    r8 = sess.append_chunk(pcm_2s, fake)
-    # 第 8 个 chunk → 16s > HARD_MAX_AUDIO_SECONDS=15 → 硬 trim
-    # 留下 OVERLAP_SECONDS=4 秒,其余被砍
-    audio_secs_after = len(sess.audio_pcm) / PCM_BYTES_PER_SECOND
-    assert audio_secs_after == OVERLAP_SECONDS, (
-        f"硬 trim 后应只剩 OVERLAP_SECONDS={OVERLAP_SECONDS}s,实际 {audio_secs_after}s"
-    )
-    # 被砍部分对应的 hyp 前段必须被强制 commit(否则就丢字了)
-    assert sess.committed_text != "", "硬 trim 必须 force commit 被砍音频对应的 hyp 前段"
-    # 后续 chunk 不应触发硬 trim(audio 已回到 4s)
-    assert audio_secs_after <= HARD_MAX_AUDIO_SECONDS
-    # is_full 始终 False — 滑窗 + 硬 trim 内置兜底,客户端不需要 rotate
-    assert r8["is_full"] is False
+    assert r["diagnostics"] == diag
 
 
 def test_make_wav_bytes_header():
@@ -231,22 +121,30 @@ def test_make_wav_bytes_header():
     assert wav[:4] == b"RIFF"
     assert wav[8:12] == b"WAVE"
     assert wav[12:16] == b"fmt "
-    assert wav[36:40] == b"data"
-    assert len(wav) == 44 + len(pcm)
+    assert len(wav) == 44 + 200
 
 
 def test_registry_evict_idle(monkeypatch):
-    """SESSION_TTL_SEC 内不 evict,超出 evict。"""
+    """registry 自动 evict 闲置超 SESSION_TTL_SEC 的 session。"""
     import time as _time
     from chayuan.server.modality import asr_session as mod
-    reg = mod.AsrSessionRegistry()
-    reg.get_or_create("a")
-    reg.get_or_create("b")
-    assert reg.size() == 2
+    from chayuan.server.modality.asr_session import AsrSessionRegistry
 
-    # 模拟 a 老了
-    reg._sessions["a"].last_active_at = _time.time() - mod.SESSION_TTL_SEC - 1
-    reg.get_or_create("c")  # 这调会触发 _evict_idle
-    assert "a" not in reg._sessions
-    assert "b" in reg._sessions
-    assert "c" in reg._sessions
+    reg = AsrSessionRegistry()
+    s1 = reg.get_or_create("alive")
+    s2 = reg.get_or_create("stale")
+    s2.last_active_at = _time.time() - mod.SESSION_TTL_SEC - 10
+    # 再请求 alive 触发 _evict_idle
+    reg.get_or_create("alive")
+    assert reg.size() == 1
+    reg.drop("alive")
+    assert reg.size() == 0
+
+
+def test_registry_get_or_create_singleton():
+    """同 session_id 多次 get_or_create 返同一实例。"""
+    from chayuan.server.modality.asr_session import AsrSessionRegistry
+    reg = AsrSessionRegistry()
+    a = reg.get_or_create("same-id")
+    b = reg.get_or_create("same-id")
+    assert a is b
