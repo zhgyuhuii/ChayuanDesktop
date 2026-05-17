@@ -92,9 +92,10 @@ param(
     # 通过 -BundledSource $env:CHAYUAN_ROOT\models\bundled 复用同一份模型。
     # 不传 = build.py 默认走 vendor/bundled_models/(也可由 $CHAYUAN_BUILD_BUNDLED_SOURCE env 覆盖)。
     [string]$BundledSource,
-    # ISO 打包开关(默认 full 自动出 ISO,lite 不出 — lite 就一个 .exe 不分散)
-    [switch]$NoIso,    # 不论 lite/full 都不打 ISO(开发者本机迭代)
-    [switch]$IsoBoth   # lite 也出 ISO(罕用,一般 full 才需要)
+    # ISO 打包开关。2026-05-18 起 Windows 一律走 MSI(NSIS 撞 32-bit 限制),
+    # MSI + 外置 CAB 必须 ISO 打包分发,所以 lite/full 都默认出 ISO。
+    [switch]$NoIso,    # 跳过 ISO 生成(开发本机迭代不需要 ISO)
+    [switch]$IsoBoth   # 历史兼容参数,新逻辑下已无意义(lite/full 都出 ISO)
 )
 
 # 旧名兼容 + 提示
@@ -705,14 +706,15 @@ if ($SkipFrontend) {
     #      LGHT0263 硬编码 INT32_MAX。build.py --sync-bundled-only 已加 size-guard
     #      在 sync 阶段就 abort。
     #   2) **总 payload 压缩后 < 2 GB** — 仅 NSIS 受此限,32-bit makensis 的
-    #      LZMA solid 累积 offset 32-bit 寻址。3+ GB 原始 payload 压缩 ~2.6 GB
+    #      LZMA solid 累积 offset 32-bit 寻址。1.3+ GB raw payload 经 LZMA solid
     #      就溢出报"Internal compiler error #12345 error mmapping file ... out of range"。
     #
-    # 全量版 vendor 现在嵌 emb+rerank+chat+asr 总 ~3.2 GB,撞 NSIS 总尺寸限制;
-    # **WiX 3 MSI 总大小可到 4 GB+,通过 CAB 分卷处理**,所以全量版改走 MSI。
-    # 轻量版 vendor 是空的,sidecar ~500 MB 远低于 2 GB,继续走 NSIS 保住
-    # installer.nsh 的"察元AI"中文图标 rename。
-    $useMsi = ($Flavor -eq 'full') -and ($IsWindows -or $env:OS -eq 'Windows_NT')
+    # 2026-05-18 实测:lite (LITE_CAPS=emb+rerank+asr+ocr+tts ~990 MB) + sidecar
+    # (~500 MB) + services 总 raw 1.5 GB,LZMA solid 中也撞限制 (#12345)。
+    # 所以 **Windows 一律走 MSI**(WiX 3 MSI 总大小 4 GB+,通过 CAB 分卷,无此限),
+    # 不再尝试 NSIS。代价是 lite 也变成 .msi + 外置 CAB(WiX 模板写死 EmbedCab=no
+    # 绕国产杀软),所以 lite 也必须靠 ISO 打包分发(同 full)。
+    $useMsi = ($IsWindows -or $env:OS -eq 'Windows_NT')
     if ($BundleOnly) {
         # cargo / vite 走增量缓存,只重做 Tauri bundle(makensis / WiX 等)。
         # 不能直接调 ``pnpm --filter @chayuan/desktop build``,因为那里面带
@@ -769,9 +771,10 @@ if ($SkipFrontend) {
     }
     $artifacts += $cabFiles
 
-    # 全量版 EmbedCab=no 必须出 cab,否则 .msi 装时 1311/1335 找 cab 失败
-    if ($Flavor -eq 'full' -and $msiFiles.Count -gt 0 -and $cabFiles.Count -eq 0) {
-        Write-Fail "全量版 .msi 出了但没找到任何 cab*.cab — light.exe 可能没产 cabinet"
+    # WiX EmbedCab="no" 写死了,lite/full MSI 都必须出外置 cab,否则 .msi 装到
+    # cabinet 阶段会 1311/1335 找不到文件。
+    if ($msiFiles.Count -gt 0 -and $cabFiles.Count -eq 0) {
+        Write-Fail "$Flavor .msi 出了但没找到任何 cab*.cab — light.exe 可能没产 cabinet"
         Write-Note "手动确认:Get-ChildItem `"$($msiFiles[0].DirectoryName)`" -Recurse | ? Name -like '*.cab'"
         Write-Note "或扩搜 target/release/ 下:Get-ChildItem `"$(Split-Path -Parent $TauriBundle)`" -Recurse -Filter '*.cab'"
         Restore-Console; exit 1
@@ -847,12 +850,11 @@ if ($SkipFrontend) {
     # 单文件分发:用户双击 ISO,Win10+ 自动挂载成虚拟光驱,进光驱目录双击 MSI
     # 即可,MSI 在同目录(光驱根)能找到所有 CAB。
     #
-    # 默认:full 自动出 ISO;lite 不出(就一个 .exe,本来不分散)。
-    # 开关:-NoIso 一律不出;-IsoBoth lite 也出。
+    # 2026-05-18 起 Windows 一律走 MSI(lite/full 都因 NSIS 撞 32-bit 限制不能用),
+    # WiX 模板写死 EmbedCab=no,MSI 必须带着外置 CAB 一起分发,所以 lite/full
+    # 都默认出 ISO 单文件分发(用户双击挂载光驱后双击 MSI 即装)。-NoIso 跳过
+    # (开发本机迭代不需要)。IsoBoth 历史参数保留兼容,新逻辑下已无意义。
     $shouldMakeIso = (-not $NoIso) -and (-not $SkipFrontend) -and ($IsWindows -or $env:OS -eq 'Windows_NT')
-    if ($shouldMakeIso -and $Flavor -eq 'lite' -and (-not $IsoBoth)) {
-        $shouldMakeIso = $false
-    }
     if ($shouldMakeIso) {
         Write-Step "ISO 镜像 ($Flavor)"
 
@@ -937,14 +939,14 @@ if ($AllArtifacts.Count -gt 0) {
 }
 if ($Flavors.Count -eq 2) {
     Write-Host ''
-    Write-Host '  轻量版:不嵌模型,装机包小,需联网下载或扫盘配置'
+    Write-Host '  轻量版:嵌 LITE_CAPS (emb/rerank/asr/ocr/tts ~990 MB),其他需联网下载或扫盘配置'
     Write-Host '  全量版:vendor\bundled_models\ 进 Tauri resources,装机即用 (模型清单见上方"模型体检"输出,'
     Write-Host '          或 chayuan-server\vendor\bundled_models\README.md)'
     Write-Host ''
-    Write-Host '  ⚠ 全量版 .msi 走外置 CAB (EmbedCab="no") 绕国产杀软对 C:\Windows\Installer\ 的拦截。'
-    Write-Host '    推荐分发方式 — 直接发 chayuan-desktop_full_setup.iso 给用户(单文件,'
-    Write-Host '    Win10+ 双击自动挂载成光驱,进光驱后双击 MSI 即装。MSI 在光驱根能找到 CAB。'
-    Write-Host '    不需要 ISO 的话也可以把 dist-full\ 里的 .msi + 所有 .cab 一起打 zip。'
+    Write-Host '  ⚠ Windows 一律走 MSI + 外置 CAB (EmbedCab="no" 绕国产杀软对 C:\Windows\Installer\ 的拦截)。'
+    Write-Host '    推荐分发方式 — 直接发 chayuan-desktop_{lite,full}_setup.iso 给用户:'
+    Write-Host '    Win10+ 双击 ISO 自动挂载成光驱,进光驱后双击 MSI 即装(MSI 在光驱根能找到 CAB)。'
+    Write-Host '    不用 ISO 也可把 dist-{lite,full}\ 里的 .msi + 所有 .cab 一起打 zip 给用户。'
     Write-Host '    切忌 只发 .msi 不带 .cab — 会装到一半报 1311/1335。'
 }
 Write-Host ''
