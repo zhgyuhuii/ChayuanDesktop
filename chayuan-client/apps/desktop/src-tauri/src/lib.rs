@@ -1,5 +1,5 @@
 use std::io::Cursor;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use sha2::{Digest, Sha256};
 use tauri::{
@@ -7,6 +7,36 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, RunEvent,
 };
+
+/// 截图选区流程的跨窗口共享状态。
+///
+/// 流程:主窗调 ``chayuan_capture_for_overlay`` → Rust 抓屏写到 ``buffer`` →
+/// 主窗自己创建 overlay 窗口 → overlay 窗读 ``buffer`` 渲图 + 让用户拖框 →
+/// 用户确认/取消 → overlay 调 ``chayuan_submit_screenshot_result`` 写 ``result``
+/// + emit 事件 + 自关 → 主窗收事件 → 调 ``chayuan_take_screenshot_result`` 拿
+/// 最终裁剪 PNG(或 None=用户取消)。
+///
+/// 用 Tauri State 而非 ``Lazy<Mutex>``: 测试时可隔离;清理在 RunEvent::Exit
+/// 自动 drop。bytes 走 Rust 全程不经 JSON,前后端零序列化开销。
+#[derive(Default)]
+struct ScreenshotState {
+    /// 主窗抓屏后写,overlay 窗读一次(take)后清空
+    buffer: Mutex<Option<Vec<u8>>>,
+    /// overlay 窗交付的最终结果:
+    ///   Some(Some(bytes)) → 用户确认了选区
+    ///   Some(None)        → 用户取消
+    ///   None              → overlay 还没交付(主窗早调时的初始态)
+    result: Mutex<Option<Option<Vec<u8>>>>,
+}
+
+/// 主显示器尺寸 — 创建 overlay 窗口时定位 + 设大小用
+#[derive(serde::Serialize)]
+struct MonitorGeom {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
 
 mod data_dir;
 mod sidecar;
@@ -66,6 +96,81 @@ fn chayuan_screenshot() -> Result<Vec<u8>, String> {
         .write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
         .map_err(|e| format!("png: {e}"))?;
     Ok(buf)
+}
+
+/// 截图 → 写到共享 state,返回显示器几何信息给 caller 用来创建 overlay 窗口。
+///
+/// 主窗调用时机:用户点剪刀 → 抓屏入 state → JS 端用 ``WebviewWindow`` 在主显示
+/// 器位置创建无边框透明 overlay → overlay 调 ``chayuan_take_screenshot_buffer``
+/// 读回 PNG 字节 → 拖框选区。
+///
+/// 同时清空 result slot(防止上次 cancelled 残留污染本次结果)。
+#[tauri::command]
+fn chayuan_capture_for_overlay(
+    state: tauri::State<'_, ScreenshotState>,
+) -> Result<MonitorGeom, String> {
+    let monitors = xcap::Monitor::all().map_err(|e| format!("xcap: {e}"))?;
+    let primary = monitors.into_iter().next().ok_or_else(|| "no monitor".to_string())?;
+    let geom = MonitorGeom {
+        x: primary.x(),
+        y: primary.y(),
+        width: primary.width(),
+        height: primary.height(),
+    };
+    let img = primary.capture_image().map_err(|e| format!("capture: {e}"))?;
+    let mut buf: Vec<u8> = Vec::new();
+    let dyn_img = image::DynamicImage::ImageRgba8(img);
+    dyn_img
+        .write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
+        .map_err(|e| format!("png: {e}"))?;
+    *state.buffer.lock().map_err(|e| format!("buffer lock: {e}"))? = Some(buf);
+    *state.result.lock().map_err(|e| format!("result lock: {e}"))? = None;
+    Ok(geom)
+}
+
+/// overlay 窗口拉取主窗刚抓的 PNG;take 一次后 state 清空(避免悬挂大块内存)
+#[tauri::command]
+fn chayuan_take_screenshot_buffer(
+    state: tauri::State<'_, ScreenshotState>,
+) -> Result<Vec<u8>, String> {
+    state.buffer.lock().map_err(|e| format!("buffer lock: {e}"))?
+        .take()
+        .ok_or_else(|| "screenshot buffer empty — capture_for_overlay 没先调?".to_string())
+}
+
+/// overlay 窗口提交最终结果:
+///   bytes=Some(裁剪 PNG) → 用户确认
+///   bytes=None           → 用户取消
+/// 写入 state 后立刻 emit ``chayuan://screenshot/done`` 到主窗,主窗 listen
+/// 到后用 ``chayuan_take_screenshot_result`` 取走。
+#[tauri::command]
+async fn chayuan_submit_screenshot_result(
+    bytes: Option<Vec<u8>>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ScreenshotState>,
+) -> Result<(), String> {
+    *state.result.lock().map_err(|e| format!("result lock: {e}"))? = Some(bytes);
+    // emit 到所有窗口,主窗自己 listen 即可;事件没有 payload,bytes 在 state
+    let _ = app.emit("chayuan://screenshot/done", ());
+    // 自关 overlay — 用户 confirm/cancel 后窗口立刻消失,体验跟 QQ 一致
+    if let Some(overlay) = app.get_webview_window("screenshot-overlay") {
+        let _ = overlay.close();
+    }
+    Ok(())
+}
+
+/// 主窗在收到 done 事件后拉走结果。
+/// 返 None:用户取消 / 还没提交(异常路径,主窗 listen 之后才会调)
+#[tauri::command]
+fn chayuan_take_screenshot_result(
+    state: tauri::State<'_, ScreenshotState>,
+) -> Result<Option<Vec<u8>>, String> {
+    Ok(state
+        .result
+        .lock()
+        .map_err(|e| format!("result lock: {e}"))?
+        .take()
+        .flatten())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -130,11 +235,16 @@ pub fn run() {
         }).build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::new(sidecar::SidecarManager::new(62581)))
+        .manage(ScreenshotState::default())
         .invoke_handler(tauri::generate_handler![
             chayuan_vault_password,
             chayuan_tray_set_menu,
             chayuan_tray_set_tooltip,
             chayuan_screenshot,
+            chayuan_capture_for_overlay,
+            chayuan_take_screenshot_buffer,
+            chayuan_submit_screenshot_result,
+            chayuan_take_screenshot_result,
             chayuan_close_splashscreen,
             data_dir::chayuan_data_dir_state,
             data_dir::chayuan_data_dir_set,

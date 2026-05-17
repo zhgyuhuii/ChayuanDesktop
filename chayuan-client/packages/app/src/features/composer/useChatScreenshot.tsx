@@ -1,34 +1,20 @@
 /**
- * 截图 → 弹窗拖框选区 → 裁剪 → 自动附到聊天输入框 的编排 hook。
+ * 截图 → 自动附到聊天输入框 的编排 hook(顶层"按需选 UI 路径")。
  *
  * **架构定位**:
- * 唯一封装"截图按钮点击后到底发生什么"的编排层 —— 截屏能力(`platform.capture`)
- * 在 platform-tauri / platform-web 各自实现;附件管线(`useAttachments`)在 chat 域
- * 内;选区裁剪 UI 是独立的 ``ScreenshotRegionDialog``。本 hook 把三者粘起来,谁
- * 也不依赖谁。
+ * 唯一封装"截图按钮点击后到底发生什么"的编排层。下层有两条互斥实现:
  *
- * **流程**(2026-05-17 重做):
- *   1. 用户点剪刀 icon
- *   2. 抓全屏(不 minimize 主窗;察元自己也会进画面,但用户能看到完整截图)
- *   3. setState capturedBlob → dialog 自动渲染
- *   4. 用户在 dialog 里鼠标拖矩形选区,Enter 或点确认
- *   5. canvas 按原图分辨率裁剪 → Blob → `addImages([File])`
- *   6. 关 dialog,清理 state
- *   Esc / 点蒙版 = 取消,不入附件。
+ *   ① **Desktop(Tauri):系统级 overlay**(微信 / QQ / Lightshot 风格)
+ *      ``platform.capture.screenshotInteractive()`` 走 Tauri 创独立无边框透明
+ *      窗口覆盖整个屏幕,用户在桌面任意位置拖框,确认后直接拿到**已裁剪**的
+ *      Blob — 主窗这里只负责接 Blob 入附件,没有任何选区 UI。
  *
- * 早期方案是"minimize 主窗 → 截整屏 → 直接当附件"。用户反馈"窗口隐藏了,不
- * 知道截了什么 + 截的就是整屏,要的是窗内拖选"。这版改成所见即所得。
+ *   ② **Web fallback:应用内 modal 选区**
+ *      浏览器没有"全屏覆盖整个桌面"的能力,只能 ``getDisplayMedia`` 让用户选
+ *      屏后,在 chayuan 主窗内部弹个 ``ScreenshotRegionDialog`` 让用户拖框裁剪。
  *
- * **复用**:consumer 把 `dialog` 节点放进 render tree,`onScreenshot` 接给
- * ChatComposer.onScreenshot 即可:
- *
- *   const screenshot = useChatScreenshot(attachments.addImages);
- *   return (
- *     <>
- *       <ChatComposer onScreenshot={screenshot.onScreenshot} ... />
- *       {screenshot.dialog}
- *     </>
- *   );
+ * 上层 caller(ChatComposer / KbBoard / ConversationView)对此**完全无感**:
+ * 都只看到 ``onScreenshot`` 一个回调 + 可选 ``dialog`` 节点。
  */
 import * as React from 'react';
 import { getPlatform } from '@chayuan/platform-shared';
@@ -36,13 +22,11 @@ import { reportError } from '../../store/errorDialog';
 import { ScreenshotRegionDialog } from './ScreenshotRegionDialog';
 
 export interface ChatScreenshotApi {
-  /** 截图能力是否可用(Tauri 端总是 true;web 端要求 https + getDisplayMedia) */
   available: boolean;
-  /** in-flight 标记(抓屏 + 用户拖框期间都是 true)。UI 可拿来禁用按钮 */
   busy: boolean;
-  /** 触发截图;成功后通过传入的 addImages 注入附件 */
   onScreenshot: () => void;
-  /** 选区对话框 — consumer 放到 render tree 任意位置(走 fixed 定位,挂哪都行) */
+  /** Web fallback 路径用的选区 dialog;consumer 放进 render tree。
+   *  Desktop 路径不需要(系统级 overlay 是独立窗),始终为 null。 */
   dialog: React.ReactNode;
 }
 
@@ -50,16 +34,31 @@ export function useChatScreenshot(
   addImages: (files: File[]) => Promise<void>,
 ): ChatScreenshotApi {
   const pal = getPlatform();
-  const available = typeof pal.capture?.screenshot === 'function'
-    && (pal.kind === 'desktop' || (typeof navigator !== 'undefined'
-        && !!navigator.mediaDevices?.getDisplayMedia));
+  const hasInteractive = typeof pal.capture?.screenshotInteractive === 'function';
+  const hasScreenshot = typeof pal.capture?.screenshot === 'function';
+  // Desktop 走 interactive;Web 走 screenshot + 应用内选区
+  const available = hasInteractive
+    || (hasScreenshot && typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia);
 
-  // 当前抓屏到的全屏 PNG;非 null 时 dialog 显示
-  const [captured, setCaptured] = React.useState<Blob | null>(null);
-  // capturing = "正在调 platform.capture",userPicking = "dialog 开着等用户选区"
-  // 两个状态都算 busy,避免连点
-  const [capturing, setCapturing] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
   const inFlightRef = React.useRef(false);
+  const [webCaptured, setWebCaptured] = React.useState<Blob | null>(null);
+
+  const finishWith = React.useCallback(async (cropped: Blob | null) => {
+    inFlightRef.current = false;
+    setWebCaptured(null);
+    setBusy(false);
+    if (!cropped) return;
+    const ts = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const name = `screenshot-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.png`;
+    const file = new File([cropped], name, { type: cropped.type || 'image/png' });
+    try {
+      await addImages([file]);
+    } catch (e) {
+      reportError(e, '截图加入附件失败');
+    }
+  }, [addImages]);
 
   const onScreenshot = React.useCallback(() => {
     if (!available) {
@@ -69,52 +68,46 @@ export function useChatScreenshot(
     }
     if (inFlightRef.current) return;
     inFlightRef.current = true;
-    setCapturing(true);
+    setBusy(true);
 
     (async () => {
+      // 优先 desktop 系统级 overlay
+      if (hasInteractive) {
+        try {
+          const cropped = await pal.capture!.screenshotInteractive!();
+          await finishWith(cropped);
+        } catch (e) {
+          const name = (e instanceof DOMException) ? e.name : '';
+          if (name !== 'AbortError' && name !== 'NotAllowedError') {
+            reportError(e, '截图失败');
+          }
+          inFlightRef.current = false;
+          setBusy(false);
+        }
+        return;
+      }
+      // Web fallback
       try {
-        const blob = await pal.capture!.screenshot();
-        setCaptured(blob);  // dialog 显示
+        const raw = await pal.capture!.screenshot();
+        setWebCaptured(raw);
       } catch (e) {
-        // web 端用户取消选屏 dialog → NotAllowedError / AbortError,静默
         const name = (e instanceof DOMException) ? e.name : '';
         if (name !== 'NotAllowedError' && name !== 'AbortError') {
           reportError(e, '截图失败');
         }
-        inFlightRef.current = false;  // 失败时立刻释放
-      } finally {
-        setCapturing(false);
+        inFlightRef.current = false;
+        setBusy(false);
       }
     })();
-  }, [available, pal]);
+  }, [available, hasInteractive, pal, finishWith]);
 
-  const handleConfirm = React.useCallback((cropped: Blob) => {
-    setCaptured(null);  // 关 dialog
-    inFlightRef.current = false;
-    const ts = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const name = `screenshot-${ts.getFullYear()}${pad(ts.getMonth() + 1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}.png`;
-    const file = new File([cropped], name, { type: cropped.type || 'image/png' });
-    void addImages([file]);
-  }, [addImages]);
-
-  const handleCancel = React.useCallback(() => {
-    setCaptured(null);
-    inFlightRef.current = false;
-  }, []);
-
-  const dialog = captured ? (
+  const dialog = webCaptured ? (
     <ScreenshotRegionDialog
-      blob={captured}
-      onConfirm={handleConfirm}
-      onCancel={handleCancel}
+      blob={webCaptured}
+      onConfirm={(cropped) => void finishWith(cropped)}
+      onCancel={() => void finishWith(null)}
     />
   ) : null;
 
-  return {
-    available,
-    busy: capturing || !!captured,
-    onScreenshot,
-    dialog,
-  };
+  return { available, busy, onScreenshot, dialog };
 }

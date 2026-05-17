@@ -2,9 +2,43 @@ import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import { setPlatform } from '@chayuan/platform-shared';
 import { createTauriPlatform } from '@chayuan/platform-tauri';
-import { Shell } from '@chayuan/app';
+import { Shell, ScreenshotOverlayApp } from '@chayuan/app';
 import '@chayuan/ui/styles.css';
 import { ensureSplash, hideSplash } from './splash';
+
+// ── 截图选区子窗口分支(微信 / QQ 风格的系统级截图)─────────────────────
+// 主窗用 ``WebviewWindow`` 创建一个 label=screenshot-overlay 的无边框透明窗,
+// 加载 ``/screenshot-overlay`` 路径。本入口检测到这个路径,**不挂 Shell**(没
+// router / 鉴权 / sidecar / i18n …),也不加 splash — 直接渲染选区组件。
+// 启动毫秒级,内存几 MB,关窗即销毁。
+const IS_SCREENSHOT_OVERLAY =
+  typeof window !== 'undefined' && window.location.pathname.startsWith('/screenshot-overlay');
+
+if (IS_SCREENSHOT_OVERLAY) {
+  // overlay 窗不需要主窗的 i18n / Shell / sidecar gate,直接 mount。
+  // ipc 在这里就近注入 — @chayuan/app 包没有 @tauri-apps/api 依赖,所以把
+  // invoke 包成 ScreenshotOverlayIpc 喂给组件,组件本身 platform-agnostic。
+  const el = document.getElementById('app') ?? (() => {
+    const e = document.createElement('div');
+    e.id = 'app';
+    document.body.appendChild(e);
+    return e;
+  })();
+  const ipc = {
+    async loadBuffer(): Promise<Uint8Array> {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const bytes = await invoke<number[]>('chayuan_take_screenshot_buffer');
+      return new Uint8Array(bytes);
+    },
+    async submit(bytes: Uint8Array | null): Promise<void> {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('chayuan_submit_screenshot_result', {
+        bytes: bytes ? Array.from(bytes) : null,
+      });
+    },
+  };
+  createRoot(el).render(<ScreenshotOverlayApp ipc={ipc} />);
+} else {
 
 // 入口最早调用:HTML 已经内联 splash 时本函数 no-op;任何原因导致 dist
 // HTML 缺失 splash 节点时(stale -BundleOnly 缓存 / 第三方注入器 / SSR
@@ -85,3 +119,4 @@ window.setTimeout(dismissSplash, 8000);
     </React.StrictMode>,
   );
 })();
+}  // end else (非 overlay 子窗主分支)

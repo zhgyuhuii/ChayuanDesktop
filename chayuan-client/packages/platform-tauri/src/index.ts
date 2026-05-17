@@ -524,6 +524,115 @@ const tauriCapture: CaptureApi = {
     const bytes = await invoke<number[]>('chayuan_screenshot');
     return new Blob([new Uint8Array(bytes)], { type: 'image/png' });
   },
+
+  /**
+   * 微信 / QQ / Lightshot 风格的"系统级交互截图":
+   *   1. 抓主显示器原图 → 存 Rust state(零序列化开销)
+   *   2. 主窗用 ``WebviewWindow`` 创建一个**无边框 / 透明 / always-on-top /
+   *      skipTaskbar / 全显示器尺寸** 的 overlay 窗(label=screenshot-overlay)
+   *   3. overlay 加载 ``/screenshot-overlay`` 路由 → 主程序 main.tsx 早期分支
+   *      检测到这个路径,渲染独立的 ``ScreenshotOverlayApp``(不挂 Shell / 路由 / 鉴权)
+   *   4. ScreenshotOverlayApp 从 Rust 拉原图字节 → 渲全屏 → 拖框选区 → 用户
+   *      Enter/确认 → canvas 裁剪 → ``chayuan_submit_screenshot_result(bytes)``
+   *      → Rust emit ``chayuan://screenshot/done`` + 自关 overlay 窗
+   *   5. 主窗 listen 到事件 → 调 ``chayuan_take_screenshot_result`` → Blob
+   *
+   * 用户 Esc / 关窗 → 同样 submit 但 bytes=null → Rust 拿到 None → 主窗 reject
+   * AbortError,caller 跟 web 取消同形处理。
+   *
+   * 多显示器:当前 V1 只覆盖主显示器(xcap 也只抓主屏);多屏用户在主屏框任意
+   * 区域。后续要支持的话:Rust 端走 ``Monitor::all()`` 拼大图,window 几何
+   * 设成所有屏的 union bounding box。
+   */
+  async screenshotInteractive(): Promise<Blob> {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const { listen } = await import('@tauri-apps/api/event');
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+
+    // 1. 抓屏写到 state + 拿主屏几何
+    const geom = await invoke<{ x: number; y: number; width: number; height: number }>(
+      'chayuan_capture_for_overlay',
+    );
+
+    // 2. 关掉残留的 overlay(异常路径下可能没清干净;Tauri 不允许同 label 重开)
+    try {
+      const stale = await WebviewWindow.getByLabel('screenshot-overlay');
+      if (stale) await stale.close();
+    } catch { /* ignore */ }
+
+    // 3. 创窗口:无边框 / 透明 / 置顶 / 不进任务栏;盖在主显示器上
+    const win = new WebviewWindow('screenshot-overlay', {
+      url: '/screenshot-overlay',
+      decorations: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      maximizable: false,
+      fullscreen: false,  // 用 inner_size 精确盖主屏 — fullscreen=true 在 Windows 上会触发 OS 全屏动画,跟"截图"语义不搭
+      focus: true,
+      x: geom.x,
+      y: geom.y,
+      width: geom.width,
+      height: geom.height,
+      // 不写 title — 反正 decorations=false 没标题栏
+    });
+
+    // 4. 等 overlay 创建完(throw 时直接抛错,主窗 caller 看到失败)
+    await new Promise<void>((resolve, reject) => {
+      const offCreated = win.once('tauri://created', () => {
+        offCreated.then((u) => u()).catch(() => undefined);
+        resolve();
+      });
+      const offError = win.once('tauri://error', (ev) => {
+        offError.then((u) => u()).catch(() => undefined);
+        reject(new Error(`open screenshot overlay failed: ${ev.payload}`));
+      });
+    });
+
+    // 5. 监听 overlay 提交结果 — 只取第一次,然后 unlisten
+    return new Promise<Blob>((resolve, reject) => {
+      let settled = false;
+      // 兜底:如果 overlay 因 crash / 用户关 X 等异常关掉,主窗这边会卡住等永
+      // 远 — 多挂一道 destroyed 监听
+      let unlistenDone: (() => void) | null = null;
+      let unlistenDestroyed: (() => void) | null = null;
+
+      const cleanup = () => {
+        unlistenDone?.();
+        unlistenDestroyed?.();
+      };
+
+      listen('chayuan://screenshot/done', async () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        try {
+          const bytes = await invoke<number[] | null>('chayuan_take_screenshot_result');
+          if (bytes == null) {
+            // 跟 web getDisplayMedia 用户拒绝同 error type,caller 一条 catch 通吃
+            reject(new DOMException('用户取消了截图', 'AbortError'));
+            return;
+          }
+          resolve(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
+        } catch (e) {
+          reject(e instanceof Error ? e : new Error(String(e)));
+        }
+      }).then((fn) => { unlistenDone = fn; });
+
+      // overlay 被外力关掉(用户 alt+f4 / 系统终止)— 当作取消处理
+      win.onCloseRequested(() => {
+        if (settled) return;
+        // close request 来了,但 submit 事件可能还在路上,给个短延迟兜底
+        setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(new DOMException('用户取消了截图', 'AbortError'));
+        }, 150);
+      }).then((fn) => { unlistenDestroyed = fn; });
+    });
+  },
 };
 
 const tauriUpdater: UpdaterApi = {

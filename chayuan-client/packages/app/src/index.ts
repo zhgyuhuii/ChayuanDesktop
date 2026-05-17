@@ -1,4 +1,5 @@
 export { Shell, type ShellEnv } from './Shell';
+export { ScreenshotOverlayApp } from './features/composer/ScreenshotOverlayApp';
 export { useAuthStore } from './store/auth';
 export { useComposerStore } from './store/composer';
 export { useSettingsStore, type ThemeMode } from './store/settings';

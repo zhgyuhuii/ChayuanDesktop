@@ -109,8 +109,17 @@ export interface TrayApi {
 }
 
 export interface CaptureApi {
-  /** 截图（屏幕 / 窗口）；仅桌面 */
+  /** 截图（屏幕 / 窗口）；仅桌面。返回的是**全屏 PNG 原图**,caller 自己做裁剪。 */
   screenshot(opts?: { region?: 'fullscreen' | 'window' | 'area' }): Promise<Blob>;
+  /**
+   * 交互式截图:像微信 / QQ / 截图工具那样,弹一个**全屏覆盖整个桌面**的透明窗
+   * 让用户拖框选区,返回**已裁剪**的 PNG Blob。Tauri 端实现,Web 端可不实现
+   * (caller 应该 fallback 到 ``screenshot()`` + 应用内 dialog 选区)。
+   *
+   * 用户取消 reject ``DOMException('cancelled', 'AbortError')`` —— 跟 web 端
+   * ``getDisplayMedia`` 用户拒绝的错误同形,caller 一条 catch 通吃。
+   */
+  screenshotInteractive?(): Promise<Blob>;
 }
 
 export interface UpdateInfo {
