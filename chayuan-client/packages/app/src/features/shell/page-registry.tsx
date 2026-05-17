@@ -71,6 +71,9 @@ const HelpPage = React.lazy(() =>
 const NoteEditorPage = React.lazy(() =>
   import('../notes/NoteEditorPage').then((m) => ({ default: m.NoteEditorPage })),
 );
+const ImageToTextPage = React.lazy(() =>
+  import('../imageToText/ImageToTextPage').then((m) => ({ default: m.ImageToTextPage })),
+);
 
 export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
   {
@@ -186,6 +189,12 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     render: () => <NoteEditorPage />,
     defaultTitle: 'AI 笔记',
     defaultIcon: 'pen',
+  },
+  {
+    pattern: /^\/image-to-text$/,
+    render: () => <ImageToTextPage />,
+    defaultTitle: '图转文',
+    defaultIcon: 'scan-text',
   },
   {
     pattern: /^\/admin\/(?<tab>traces|outbox|prompts|platforms)$/,

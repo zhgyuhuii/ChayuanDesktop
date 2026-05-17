@@ -3,7 +3,7 @@
  *
  *   1. Greeting(早/午/晚 + 用户名)+ 流式产品介绍气泡(进首页跑一次,流完即静止)
  *   2. [可选 banner] 还没配模型 → 跳模型广场
- *   3. 4 张炫酷功能入口卡(知识库 / 模型广场 / MCP 服务 / 工具中心)— 4 列等宽
+ *   3. 4 张炫酷功能入口卡(知识库 / 模型广场 / 图转文 / AI 笔记)— 4 列等宽
  *   4. 关注我们 + 收款码 三张二维码
  *   5. 特性 chip + WPS 加载项 / GitHub / 官网链接
  *
@@ -17,7 +17,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  Library, Layers3, Plug, Wrench, Pen,
+  Library, Layers3, Pen, ScanText,
   AlertCircle, ExternalLink, Github, Globe,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
@@ -62,22 +62,13 @@ const CAPS: ReadonlyArray<CapItem> = [
     iconBg: 'bg-gradient-to-br from-violet-400 to-fuchsia-500',
   },
   {
-    id: 'mcp',
-    icon: Plug,
-    title: 'MCP 服务',
-    subtitle: '接入 stdio / sse 工具协议',
-    to: '/mcp',
+    id: 'image-to-text',
+    icon: ScanText,
+    title: '图转文',
+    subtitle: '上传图像 · OCR 自动提取文字 · 富文本编辑 · 导出 Word/MD/TXT',
+    to: '/image-to-text',
     gradient: 'from-amber-50 to-orange-100 dark:from-amber-900/30 dark:to-orange-800/40',
     iconBg: 'bg-gradient-to-br from-amber-400 to-orange-500',
-  },
-  {
-    id: 'tools',
-    icon: Wrench,
-    title: '工具中心',
-    subtitle: '内置常用 agent 工具,可启停',
-    to: '/tools',
-    gradient: 'from-rose-50 to-pink-100 dark:from-rose-900/30 dark:to-pink-800/40',
-    iconBg: 'bg-gradient-to-br from-rose-400 to-pink-500',
   },
   {
     id: 'notes',
