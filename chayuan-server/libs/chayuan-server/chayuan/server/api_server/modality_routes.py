@@ -177,6 +177,21 @@ async def ocr_sidecar_stop_endpoint(user=Depends(require_auth_enabled())):
     return {"code": 0, "data": data}
 
 
+@modality_router.post(
+    "/sidecar/ocr/auto-start",
+    summary="设置 chayuan-server 启动时是否自动拉起 RapidOCR sidecar",
+)
+async def ocr_sidecar_set_auto_start_endpoint(
+    enabled: bool = Body(..., embed=True, description="true=开机自启,false=不自动起"),
+    user=Depends(require_auth_enabled()),
+):
+    from chayuan.server.modality.rapidocr_lifecycle import (
+        ocr_sidecar_status, set_auto_start,
+    )
+    set_auto_start(bool(enabled))
+    return {"code": 0, "data": ocr_sidecar_status()}
+
+
 def _guess_audio_ext(content_type: str, filename: str) -> str:
     """根据 mime 或 filename 推断音频文件后缀。
 

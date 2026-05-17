@@ -104,6 +104,8 @@ export interface OcrSidecarStatus {
   /** 后台 stdout/stderr 落盘位置;UI 显示出来给用户复制粘贴排查 */
   log_path: string;
   listening: boolean;
+  /** chayuan-server 启动时是否自动拉起。持久化到 <CHAYUAN_ROOT>/data/sidecar_settings.json */
+  auto_start: boolean;
   error?: string;
 }
 
@@ -221,6 +223,14 @@ export const modality = {
     async stop(): Promise<OcrSidecarStatus> {
       const r = await request<{ data: OcrSidecarStatus }>(
         `/modality/sidecar/ocr/stop`, { method: 'POST', raw: true },
+      );
+      return r.data!.data;
+    },
+    async setAutoStart(enabled: boolean): Promise<OcrSidecarStatus> {
+      const r = await request<{ data: OcrSidecarStatus }>(
+        `/modality/sidecar/ocr/auto-start`,
+        { method: 'POST', body: JSON.stringify({ enabled }), raw: true,
+          headers: { 'Content-Type': 'application/json' } },
       );
       return r.data!.data;
     },

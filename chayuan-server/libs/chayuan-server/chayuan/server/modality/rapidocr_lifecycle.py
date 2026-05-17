@@ -20,12 +20,14 @@ recipe 的硬编码对齐。
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
 import subprocess
 import sys
 import time
+import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -37,6 +39,57 @@ RAPIDOCR_HOST = "127.0.0.1"
 # 启动后等多久 TCP 探测到 ready;超过这个时间认作启动失败(典型 cold start 2-4s)
 _READY_TIMEOUT_SEC = 10.0
 _READY_PROBE_INTERVAL_SEC = 0.3
+
+# auto-start 持久化:用户在「设置 → 本地模型服务」UI 切换 → 写本文件 →
+# 下次 chayuan-server 启动时读这里决定要不要拉起 RapidOCR。
+# 默认 True(开箱即用),只有用户显式关闭才写 false。
+_SETTINGS_FILE_NAME = "sidecar_settings.json"
+_SETTINGS_LOCK = threading.Lock()
+
+
+def _settings_path() -> Path:
+    """<CHAYUAN_ROOT>/data/sidecar_settings.json — 跟 LOG_PATH 同级,跨重启持久。"""
+    from chayuan.settings import Settings
+    base = Path(Settings.basic_settings.DATA_PATH)
+    base.mkdir(parents=True, exist_ok=True)
+    return base / _SETTINGS_FILE_NAME
+
+
+def _read_settings() -> Dict[str, Any]:
+    p = _settings_path()
+    if not p.is_file():
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError) as e:
+        logger.warning("[ocr-sidecar] 读 %s 失败: %r;视作空配置", p, e)
+        return {}
+
+
+def _write_settings(data: Dict[str, Any]) -> None:
+    p = _settings_path()
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, p)
+
+
+def get_auto_start() -> bool:
+    """RapidOCR sidecar 是否在 chayuan-server 启动时自动拉起。默认 True。"""
+    with _SETTINGS_LOCK:
+        return bool(_read_settings().get("rapidocr_auto_start", True))
+
+
+def set_auto_start(enabled: bool) -> bool:
+    """保存 auto-start 开关。返回写入后的值。"""
+    with _SETTINGS_LOCK:
+        data = _read_settings()
+        data["rapidocr_auto_start"] = bool(enabled)
+        _write_settings(data)
+        logger.info("[ocr-sidecar] auto_start 设为 %s", enabled)
+        return bool(enabled)
 
 
 def _log_path() -> str:
@@ -111,6 +164,7 @@ def ocr_sidecar_status() -> Dict[str, Any]:
         "port": RAPIDOCR_PORT,
         "log_path": _log_path(),
         "listening": listening,
+        "auto_start": get_auto_start(),
     }
 
 

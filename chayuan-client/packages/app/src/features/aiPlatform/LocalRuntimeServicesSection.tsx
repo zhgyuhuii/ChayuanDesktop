@@ -24,7 +24,7 @@ import {
   type OcrSidecarStatus,
   runtimeModels,
 } from '@chayuan/api';
-import { Button } from '@chayuan/ui';
+import { Button, Switch } from '@chayuan/ui';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
 import { CallLogDialog } from './CallLogDialog';
 import { DiagnoseModal } from './DiagnoseModal';
@@ -448,7 +448,7 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
  */
 const OcrSidecarRow: React.FC = () => {
   const [status, setStatus] = React.useState<OcrSidecarStatus | null>(null);
-  const [pending, setPending] = React.useState<'start' | 'stop' | null>(null);
+  const [pending, setPending] = React.useState<'start' | 'stop' | 'autostart' | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const refresh = React.useCallback(async () => {
@@ -484,6 +484,18 @@ const OcrSidecarRow: React.FC = () => {
     setPending('stop');
     try {
       const s = await modality.ocrSidecar.stop();
+      setStatus(s);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPending(null);
+    }
+  };
+  const onToggleAutoStart = async (enabled: boolean) => {
+    setPending('autostart');
+    try {
+      const s = await modality.ocrSidecar.setAutoStart(enabled);
       setStatus(s);
       setError(null);
     } catch (e) {
@@ -554,6 +566,27 @@ const OcrSidecarRow: React.FC = () => {
             </Button>
           )}
         </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <label
+          htmlFor="ocr-auto-start"
+          className="flex flex-col gap-0.5 cursor-pointer select-none"
+          title="开启:chayuan-server 启动时一并拉起 RapidOCR daemon;关闭:需要手动点上方启动"
+        >
+          <span className="text-xs font-medium text-[var(--cy-text-primary)]">
+            随 chayuan-server 自动启动
+          </span>
+          <span className="text-[10px] text-[var(--cy-text-tertiary)]">
+            关闭后重启 chayuan-server 不会拉起 OCR,需手动点上方「启动」
+          </span>
+        </label>
+        <Switch
+          id="ocr-auto-start"
+          checked={status?.auto_start ?? true}
+          disabled={pending === 'autostart' || status == null}
+          onCheckedChange={(checked) => void onToggleAutoStart(Boolean(checked))}
+        />
       </div>
 
       <div className="text-[11px] text-[var(--cy-text-tertiary)] space-y-0.5">
