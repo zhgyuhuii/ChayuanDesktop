@@ -97,7 +97,19 @@ def resolve_port() -> Optional[int]:
     它是 install_task_manager 起的独立 daemon,端口在 install_task_manager 里
     硬编码(rapidocr=18380, paddleocr=18480)。
     """
+    probed: list[tuple[int, bool]] = []
     for port in _OCR_PORTS:
-        if _port_listening(port):
+        ok = _port_listening(port)
+        probed.append((port, ok))
+        if ok:
+            logger.info("[ocr] resolve_port: %d listening — 用它", port)
             return port
+    # 全没起 → 告诉用户去看 sidecar log(install_task_manager._bg_log_path),
+    # 那里能看到 rapidocr_server.py 启动失败的真根因(常见:onnx 没装/端口占)。
+    logger.warning(
+        "[ocr] resolve_port: 无 OCR sidecar 在监听 — probed=%s。"
+        "看 /tmp/chayuan_rapidocr.log(Linux/Mac)或 "
+        "%%TEMP%%\\chayuan_rapidocr.log(Windows)排查启动失败原因",
+        probed,
+    )
     return None
