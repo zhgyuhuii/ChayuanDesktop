@@ -63,6 +63,52 @@ class AudioPipeline:
     # ASR
     # ==================================================================
 
+    @staticmethod
+    def _transcode_to_wav(src_path: str) -> Tuple[Optional[str], Optional["tempfile.TemporaryDirectory"], Optional[str]]:
+        """用 ffmpeg 转任意音频 → 16kHz mono WAV(whisper.cpp / whisper 通吃)。
+
+        whisper.cpp 的某些 build 不能解 webm/opus → POST /inference 直接返
+        `{"error":"failed to read audio data"}`。转 wav 一劳永逸。
+
+        返回 (wav_path, cleanup_dir, err_msg):
+            - wav_path 非空 → 转码成功,用 wav_path 跑识别
+            - wav_path None → 转码失败,err_msg 写明原因(ffmpeg 不在 / 转码出错)
+        cleanup_dir 用于 caller 在用完后 .cleanup()。
+        """
+        import shutil
+        import subprocess
+
+        # 已经是 wav 就直接返回原路径,免一次落盘
+        if src_path.lower().endswith(".wav"):
+            return src_path, None, None
+        if not shutil.which("ffmpeg"):
+            return None, None, "ffmpeg 不在 PATH(装一个就能解码 webm/opus → wav)"
+        td = tempfile.TemporaryDirectory(prefix="chayuan_asr_wav_")
+        out_path = str(Path(td.name) / "audio.wav")
+        try:
+            r = subprocess.run(
+                ["ffmpeg", "-loglevel", "error", "-y", "-i", src_path,
+                 "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", out_path],
+                check=False, capture_output=True, timeout=30,
+            )
+            if r.returncode != 0:
+                err = (r.stderr or b"").decode("utf-8", errors="replace")[-300:]
+                td.cleanup()
+                return None, None, f"ffmpeg 转码失败 rc={r.returncode}: {err}"
+            return out_path, td, None
+        except subprocess.TimeoutExpired:
+            try:
+                td.cleanup()
+            except Exception:  # noqa: BLE001
+                pass
+            return None, None, "ffmpeg 转码超时 (>30s)"
+        except Exception as e:  # noqa: BLE001
+            try:
+                td.cleanup()
+            except Exception:  # noqa: BLE001
+                pass
+            return None, None, f"ffmpeg 异常: {type(e).__name__}: {e}"
+
     def transcribe(self, audio: Any, *, language: Optional[str] = None,
                     model: Optional[str] = None) -> str:
         """旧 API,只回 text(向后兼容)。新代码用 transcribe_with_diag。"""
@@ -145,10 +191,11 @@ class AudioPipeline:
             except Exception as e:  # noqa: BLE001
                 logger.debug("openai-whisper 不可用：%r", e)
                 diag.append(f"[openai-whisper] {type(e).__name__}: {e}")
-            # 4) OpenAI API(云端)
+            # 4) OpenAI API(云端) — 用真 SDK,而非 chayuan.server.utils.get_OpenAI
+            # (后者是 langchain ChatOpenAI wrapper,不暴露 audio.transcriptions)
             try:
-                from chayuan.server.utils import get_OpenAI
-                client = get_OpenAI()
+                import openai as _oa  # type: ignore
+                client = _oa.OpenAI()  # 读 env OPENAI_API_KEY / OPENAI_BASE_URL
                 with open(path, "rb") as f:
                     resp = client.audio.transcriptions.create(
                         file=f, model="whisper-1", language=language or None,
@@ -217,16 +264,33 @@ class AudioPipeline:
         if language:
             data["language"] = language
 
-        file_size = os.path.getsize(audio_path)
-        file_name = Path(audio_path).name
+        # 转 16kHz mono wav — whisper.cpp 某些 build 不解 webm/opus,转 wav 解决
+        wav_path, wav_cleanup, transcode_err = self._transcode_to_wav(audio_path)
+        if wav_path is None:
+            diag.append(f"[sidecar-pre] {transcode_err}(仍尝试直接喂原文件)")
+            actual_path = audio_path
+        else:
+            if wav_path != audio_path:
+                diag.append(f"[sidecar-pre] ffmpeg 转码 {Path(audio_path).suffix} → wav 16kHz mono OK")
+            actual_path = wav_path
+
+        file_size = os.path.getsize(actual_path)
+        file_name = Path(actual_path).name
         logger.info(
             "[asr] sidecar POST %s file=%s size=%dB lang=%s",
             url, file_name, file_size, language or "auto",
         )
-        with open(audio_path, "rb") as f:
-            files = {"file": (file_name, f, "application/octet-stream")}
-            with httpx.Client(timeout=120.0) as client:
-                resp = client.post(url, data=data, files=files)
+        try:
+            with open(actual_path, "rb") as f:
+                files = {"file": (file_name, f, "audio/wav" if actual_path.endswith(".wav") else "application/octet-stream")}
+                with httpx.Client(timeout=120.0) as client:
+                    resp = client.post(url, data=data, files=files)
+        finally:
+            if wav_cleanup is not None:
+                try:
+                    wav_cleanup.cleanup()
+                except Exception:  # noqa: BLE001
+                    pass
         body_preview = (resp.text or "")[:300]
         if resp.status_code != 200:
             diag.append(
