@@ -71,6 +71,33 @@ def _resolve_text_embed_endpoint() -> Tuple[Optional[str], Optional[str], Option
 
 # ---- 主流程 ----
 
+_CLIP_ERR_HINTS: tuple[tuple[str, str], ...] = (
+    # transformers 旧版没 AutoProcessor — 用户必装 transformers>=4.21 才有
+    ("AutoProcessor",
+     "图像向量化失败:当前 transformers 包没有 AutoProcessor。"
+     "在 chayuan-server 的 Python 环境运行 `pip install -U transformers` 升级,"
+     "然后重启 chayuan-server。"),
+    # CUDA / GPU 类
+    ("CUDA out of memory",
+     "图像向量化失败:GPU 显存不足。换更小的 CLIP 模型,或在「设置 → "
+     "本地模型服务 → 图像嵌入」配 device=cpu。"),
+    # 网络下载模型
+    ("HTTPSConnectionPool", "图像向量化失败:首次加载 CLIP 模型需要下载,网络不通。"
+     "先在 HF 上手动下载模型,或挂代理。"),
+)
+
+
+def _friendly_clip_error(raw: str) -> str:
+    """把底层 stack 翻译成产品级提示;命中规则返友好文案,**不匹配返空字符串**,
+    让 caller 走默认 fallback("以图搜图不可用 ...")。"""
+    if not raw:
+        return ""
+    for pattern, hint in _CLIP_ERR_HINTS:
+        if pattern in raw:
+            return hint
+    return ""
+
+
 async def process_item(
     store_name: str, item_id: str, image_bytes: bytes,
     *, model_name: str = "",
@@ -78,11 +105,14 @@ async def process_item(
     """处理一个 upload item。永不抛异常,失败信息写到 item.state/error。
 
     两条路径(OCR 文字 / CLIP 图像向量)**互相独立**,任一可用即视为可用:
-      - 都成功 → state=ready,可以以图搜图 + 文字检索
-      - 只 CLIP 成功 → state=ready,只能以图搜图(无 OCR 文本)
-      - 只 OCR 成功 → state=ready,只能文字检索(以图搜图缺位,UI 提示)
-      - 都失败    → state=failed
-    避免之前"CLIP 没装 → 整个 item failed,OCR 文字也丢"的体验。
+      - 都成功     → state=ready,以图搜图 + 文字检索
+      - 只 CLIP 成功 → state=ready,只能以图搜图
+      - 只 OCR 成功  → state=ready,只能文字检索
+      - 都失败     → state=partial — 图已落盘,记录在库,但无任何向量索引;
+                                       用户改完环境(装/升 transformers / 装 RapidOCR)后
+                                       可点 UI 上的"重新索引"重跑 pipeline。
+                                       (相比 failed,partial 让用户至少在图像 KB 列表
+                                        看到这张图,而不是被隐藏掉)
     """
     store = get_store(store_name)
 
@@ -137,13 +167,12 @@ async def process_item(
 
     store.update(item_id, has_text_vector=has_text_vector)
 
-    # 任一路径可用 → ready;都失败 → failed(把两边错误拼出来便于排查)
+    # 任一路径可用 → ready;都没货 → partial(图保留可见,用户修环境后重索引)
+    clip_friendly = _friendly_clip_error(clip_res.error or "")
     if has_image_vector or has_text_vector or ocr_res.text:
-        # 注:有 OCR 文本但没 text_vector 也算可用 — 用户至少可以 grep 全文
-        # diagnostics:告诉用户哪些功能受限
         notes: list[str] = []
         if not has_image_vector:
-            notes.append("以图搜图不可用(CLIP 未装/失败)")
+            notes.append(clip_friendly or "以图搜图不可用(CLIP 未装/失败)")
         if ocr_res.text and not has_text_vector:
             notes.append("OCR 文字向量缺失(默认文本嵌入未配)")
         if not ocr_res.text:
@@ -151,9 +180,11 @@ async def process_item(
         diag = " · ".join(notes) or None
         store.update(item_id, state="ready", progress=100, error=diag)
     else:
-        # 两条路径都没货 — 真的 failed
-        err = f"CLIP={clip_res.error or 'no vector'} · OCR={ocr_res.error or 'no text'}"
-        store.update(item_id, state="failed", error=err, progress=0)
+        # 两边都没货:保留图,state=partial(降级 ready);用户修完环境可重索引
+        clip_part = clip_friendly or (clip_res.error or "no vector")
+        ocr_part = ocr_res.error or "no text"
+        err = f"CLIP: {clip_part} · OCR: {ocr_part}"
+        store.update(item_id, state="partial", error=err, progress=100)
 
     store.flush()
 

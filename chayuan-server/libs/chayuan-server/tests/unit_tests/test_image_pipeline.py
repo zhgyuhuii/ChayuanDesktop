@@ -125,8 +125,9 @@ async def test_pipeline_clip_fails_still_ready_if_ocr_ok(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_both_fail_state_failed(monkeypatch):
-    """CLIP 和 OCR 都失败 → state=failed,error 拼两边原因。"""
+async def test_pipeline_both_fail_state_partial(monkeypatch):
+    """CLIP 和 OCR 都失败 → state=partial(降级 ready),图保留可见,
+    error 拼两边原因。用户修完环境后可"重新索引"。"""
     from chayuan.server.image_source import pipeline
 
     async def _ocr(b, *, port, timeout=30.0):
@@ -147,9 +148,43 @@ async def test_pipeline_both_fail_state_failed(monkeypatch):
     await pipeline.process_item(ctx.store_name, "img_p1", b"fakepng",
                                  model_name="clip-test")
     rec = ctx.store.get("img_p1")
-    assert rec["state"] == "failed"
+    assert rec["state"] == "partial"
+    assert rec["progress"] == 100
     assert "CLIP sidecar dead" in (rec["error"] or "")
     assert "rapidocr" in (rec["error"] or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_transformers_error_friendly_message(monkeypatch):
+    """CLIP 失败原因含 AutoProcessor → error 字段是产品级提示而不是裸 stack。"""
+    from chayuan.server.image_source import pipeline
+
+    async def _ocr(b, *, port, timeout=30.0):
+        return OCRResult(error="no text")
+    async def _clip(b, *, model_name=""):
+        raise RuntimeError(
+            "embed failed: cannot import name 'AutoProcessor' from 'transformers'"
+        )
+    async def _text(t, *, base_url, model, api_key=None, timeout=30.0):
+        return EmbedResult(error="not called")
+
+    ctx = _Ctx()
+    monkeypatch.setattr(pipeline, "_run_ocr", _ocr)
+    monkeypatch.setattr(pipeline, "_run_clip_embed", _clip)
+    monkeypatch.setattr(pipeline, "_run_text_embed", _text)
+    monkeypatch.setattr(pipeline, "_resolve_ocr_port", lambda: 18380)
+    monkeypatch.setattr(pipeline, "_resolve_text_embed_endpoint",
+                        lambda: (None, None, None))
+
+    await pipeline.process_item(ctx.store_name, "img_p1", b"fakepng",
+                                 model_name="clip-test")
+    rec = ctx.store.get("img_p1")
+    assert rec["state"] == "partial"
+    err = rec["error"] or ""
+    assert "transformers" in err
+    assert "pip install -U transformers" in err
+    # 裸 'cannot import name' 不该出现在友好文案里(被翻译掉了)
+    assert "AutoProcessor" not in err or "升级" in err
 
 
 @pytest.mark.asyncio

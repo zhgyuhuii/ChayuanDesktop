@@ -109,8 +109,14 @@ async def _run_clip_text_path(store, query, top_k, source_id, model_name) -> _Pa
     try:
         vec = await _clip_embed_text(query, model_name=model_name)
     except Exception as e:  # noqa: BLE001
+        # 复用 pipeline 的产品级错误翻译(transformers AutoProcessor 缺失等),
+        # 让"视觉跨模态路 unavailable" 给到的不是裸 stack 而是修复指引。
+        from chayuan.server.image_source.pipeline import _friendly_clip_error
+        raw = str(e)
+        friendly = _friendly_clip_error(raw)
+        msg = friendly or f"clip text encode failed: {raw}"
         logger.info("CLIP text encode failed: %r", e)
-        return _PathResult(hits=[], error=f"clip text encode failed: {e}")
+        return _PathResult(hits=[], error=msg)
     hits = store.search_image(vec, top_k=top_k)
     return _PathResult(
         hits=[_rec_to_hit(rec, score, "clip_text", source_id)
