@@ -334,6 +334,9 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
             : {})}
         />
       </div>
+
+      {/* 截图选区裁剪对话框 — 走 fixed 定位,挂在 ConversationView 根下即可全屏 */}
+      {screenshot.dialog}
     </div>
   );
 };
