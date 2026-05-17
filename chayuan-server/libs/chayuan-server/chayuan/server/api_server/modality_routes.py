@@ -311,17 +311,20 @@ async def transcribe_endpoint(
     tmp_path: Optional[str] = None
     text = ""
     transcribe_err = ""
+    pipe_diag: list = []
     async with _ASR_SEMAPHORE:
         try:
             with _tempfile.NamedTemporaryFile(suffix=ext, delete=False,
                                                 prefix="chayuan_asr_") as tf:
                 tf.write(data)
                 tmp_path = tf.name
-            text = await asyncio.to_thread(
-                pipe.transcribe, tmp_path,
+            # transcribe_with_diag 把每层后端的具体失败原因 collect 出来
+            text, pipe_diag = await asyncio.to_thread(
+                pipe.transcribe_with_diag, tmp_path,
                 language=(language or None),
             )
-            logger.info("transcribe out: %d chars", len(text or ""))
+            logger.info("transcribe out: %d chars, %d diag lines",
+                         len(text or ""), len(pipe_diag))
         except Exception as e:  # noqa: BLE001
             logger.warning("transcribe failed: %r", e)
             text = ""
@@ -333,12 +336,23 @@ async def transcribe_endpoint(
                 except Exception:  # noqa: BLE001
                     pass
     dur = (_time.perf_counter() - t0) * 1000
-    # success 定义:无 exception 且 text 非空(因为 pipeline 把所有后端失败都吞成 "")
+    # success 定义:无 exception 且 text 非空(pipeline 把所有后端失败都吞成 "")
     success = bool(text)
+    # 失败时把每层 diagnostics 拼到 error 字段,call_log 直接显示
+    if not success:
+        parts = []
+        if transcribe_err:
+            parts.append(transcribe_err)
+        parts.extend(pipe_diag)
+        if not parts:
+            parts.append("所有 ASR 后端返空 / 见 /modality/asr/diag")
+        err_text = "\n".join(parts)
+    else:
+        err_text = ""
     record_call(
         "asr", success=success, duration_ms=dur, bytes_in=audio_bytes,
         preview=text or "",
-        error=transcribe_err or ("" if success else "所有 ASR 后端返空 / 见 /modality/asr/diag"),
+        error=err_text,
         extra={
             "filename": fname,
             "language": language or "auto",

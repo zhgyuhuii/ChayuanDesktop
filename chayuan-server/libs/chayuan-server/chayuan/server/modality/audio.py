@@ -15,6 +15,16 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
+
+def _safe_cleanup(cleanup) -> None:
+    """tempfile.TemporaryDirectory cleanup,失败静默(测试用例传 None 跳过)。"""
+    if cleanup is None:
+        return
+    try:
+        cleanup.cleanup()
+    except Exception:  # noqa: BLE001
+        pass
+
 logger = logging.getLogger("chayuan.modality.audio")
 
 
@@ -55,64 +65,87 @@ class AudioPipeline:
 
     def transcribe(self, audio: Any, *, language: Optional[str] = None,
                     model: Optional[str] = None) -> str:
-        """Whisper 风格转录。失败返回空字符串。
+        """旧 API,只回 text(向后兼容)。新代码用 transcribe_with_diag。"""
+        text, _diag = self.transcribe_with_diag(
+            audio, language=language, model=model,
+        )
+        return text
 
-        ``model`` 不传 → 走 capability_router("asr") 拿用户在 UI 配的默认 ASR 模型;
-        若 router 也未配,fallback "base"(faster-whisper 默认)。
+    def transcribe_with_diag(
+        self, audio: Any, *,
+        language: Optional[str] = None, model: Optional[str] = None,
+    ) -> Tuple[str, list]:
+        """Whisper 风格转录,顺带回每一层的具体失败原因。失败返回 ("", diagnostics)。
+
+        ``model`` 不传 → 走 capability_router("asr");router 未配 → "base"。
 
         Plan 3C 起 fallback 顺序:
-          1) 本地 sidecar (whisper-server, /runtime/llama/asr/inference)
+          1) 本地 sidecar (whisper-server, /inference)
           2) faster-whisper (Python in-process)
           3) openai-whisper (Python in-process)
           4) OpenAI API
+
+        diagnostics 元素形如 "[sidecar] HTTP 200 returned empty text (1234B in)";
+        modality_routes.transcribe_endpoint 把它写到 call_log 的 error 字段,
+        用户在"调用日志"面板能直接看到每层挂在哪。
         """
+        diag: list[str] = []
+
         if not model:
             try:
                 from chayuan.server.capability_router import resolve_model
                 model = resolve_model("asr") or "base"
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                diag.append(f"[router] resolve_model('asr') 异常:{e};fallback model='base'")
                 model = "base"
         try:
             path, cleanup = self._materialize(audio)
         except Exception as e:  # noqa: BLE001
             logger.warning("materialize audio 失败：%r", e)
-            return ""
+            diag.append(f"[materialize] {type(e).__name__}: {e}")
+            return "", diag
 
-        # Plan 3C: 1) 本地 sidecar 优先
+        # 1) 本地 sidecar 优先
         try:
-            text = self._transcribe_via_sidecar(path, language=language)
+            text, sidecar_diag = self._transcribe_via_sidecar_with_diag(
+                path, language=language,
+            )
+            diag.extend(sidecar_diag)
             if text:
-                if cleanup is not None:
-                    try:
-                        cleanup.cleanup()
-                    except Exception:  # noqa: BLE001
-                        pass
-                return text
+                _safe_cleanup(cleanup)
+                return text, diag
         except Exception as e:  # noqa: BLE001
             logger.info("[asr] sidecar 不可用,fallback Python:%r", e)
+            diag.append(f"[sidecar] exception: {type(e).__name__}: {e}")
 
         try:
-            # 2) faster-whisper（首选，速度 3-5x）
+            # 2) faster-whisper(首选,速度 3-5x)
             try:
                 from faster_whisper import WhisperModel  # type: ignore
-                m = WhisperModel(
-                    model, device="cpu", compute_type="int8",
-                )
+                m = WhisperModel(model, device="cpu", compute_type="int8")
                 segments, _info = m.transcribe(
                     path, language=language, beam_size=1,
                 )
-                return "".join(seg.text for seg in segments).strip()
+                out = "".join(seg.text for seg in segments).strip()
+                if out:
+                    return out, diag
+                diag.append(f"[faster-whisper] returned empty text (model={model})")
             except Exception as e:  # noqa: BLE001
                 logger.debug("faster-whisper 不可用：%r", e)
-            # 3) openai-whisper（CPU/GPU 皆可）
+                diag.append(f"[faster-whisper] {type(e).__name__}: {e}")
+            # 3) openai-whisper(CPU/GPU 皆可)
             try:
                 import whisper  # type: ignore
                 m = whisper.load_model(model)
-                out = m.transcribe(path, language=language)
-                return (out.get("text") or "").strip()
+                out_obj = m.transcribe(path, language=language)
+                out = (out_obj.get("text") or "").strip()
+                if out:
+                    return out, diag
+                diag.append(f"[openai-whisper] returned empty text (model={model})")
             except Exception as e:  # noqa: BLE001
                 logger.debug("openai-whisper 不可用：%r", e)
-            # 4) OpenAI API（云端）
+                diag.append(f"[openai-whisper] {type(e).__name__}: {e}")
+            # 4) OpenAI API(云端)
             try:
                 from chayuan.server.utils import get_OpenAI
                 client = get_OpenAI()
@@ -120,18 +153,27 @@ class AudioPipeline:
                     resp = client.audio.transcriptions.create(
                         file=f, model="whisper-1", language=language or None,
                     )
-                return (getattr(resp, "text", None) or "").strip()
+                out = (getattr(resp, "text", None) or "").strip()
+                if out:
+                    return out, diag
+                diag.append("[openai-api] returned empty text")
             except Exception as e:  # noqa: BLE001
                 logger.warning("OpenAI ASR 失败：%r", e)
-            return ""
+                diag.append(f"[openai-api] {type(e).__name__}: {e}")
+            return "", diag
         finally:
-            if cleanup is not None:
-                try:
-                    cleanup.cleanup()
-                except Exception:  # noqa: BLE001
-                    pass
+            _safe_cleanup(cleanup)
 
     def _transcribe_via_sidecar(self, audio_path: str, *, language: Optional[str] = None) -> str:
+        """旧 API,只回 text。新代码用 _transcribe_via_sidecar_with_diag。"""
+        text, _diag = self._transcribe_via_sidecar_with_diag(
+            audio_path, language=language,
+        )
+        return text
+
+    def _transcribe_via_sidecar_with_diag(
+        self, audio_path: str, *, language: Optional[str] = None,
+    ) -> Tuple[str, list]:
         """Plan 3C: 走本地 whisper-server。
 
         步骤:
@@ -140,10 +182,14 @@ class AudioPipeline:
           3. POST http://127.0.0.1:<port>/inference (multipart, file)
           4. 返 JSON text 字段
         sidecar 不可用任何环节抛 Exception,上层 fallback Python。
+
+        除返 text 外,collect 详细诊断:HTTP 状态码 / 响应字节数 / body 预览 /
+        异常类型,方便用户在"调用日志"面板看到 sidecar 实际返回。
         """
         import asyncio
         import httpx  # type: ignore
 
+        diag: list[str] = []
         try:
             from chayuan.server.model_registry.local_runtime_registry import get_registry
             mgr = get_registry().get("asr")
@@ -170,13 +216,47 @@ class AudioPipeline:
         data = {}
         if language:
             data["language"] = language
+
+        file_size = os.path.getsize(audio_path)
+        file_name = Path(audio_path).name
+        logger.info(
+            "[asr] sidecar POST %s file=%s size=%dB lang=%s",
+            url, file_name, file_size, language or "auto",
+        )
         with open(audio_path, "rb") as f:
-            files = {"file": (Path(audio_path).name, f, "application/octet-stream")}
+            files = {"file": (file_name, f, "application/octet-stream")}
             with httpx.Client(timeout=120.0) as client:
                 resp = client.post(url, data=data, files=files)
-                resp.raise_for_status()
-                payload = resp.json()
-                return (payload.get("text") or "").strip()
+        body_preview = (resp.text or "")[:300]
+        if resp.status_code != 200:
+            diag.append(
+                f"[sidecar] POST {url} → HTTP {resp.status_code}, "
+                f"body={body_preview!r} (in={file_size}B file={file_name})"
+            )
+            raise RuntimeError(
+                f"sidecar HTTP {resp.status_code}: {body_preview[:150]}"
+            )
+        try:
+            payload = resp.json()
+        except Exception as e:  # noqa: BLE001
+            diag.append(
+                f"[sidecar] POST {url} → 200 but invalid JSON: {body_preview!r} ({e})"
+            )
+            return "", diag
+        text = (payload.get("text") or "").strip()
+        if not text:
+            # 这是当前用户场景:sidecar 通、HTTP 200、但 text 为空。
+            # 通常是 whisper.cpp 的 ffmpeg/SDL build 不支持 webm/opus 容器,
+            # 或音频太短/全静音。把详细信息留到 call_log 给用户诊断。
+            diag.append(
+                f"[sidecar] HTTP 200 但 text 为空 — 常见原因:whisper.cpp 不解码 "
+                f"webm/opus(需在前端转 wav 或装 faster-whisper);"
+                f"或音频过短/全静音 (in={file_size}B file={file_name} "
+                f"resp={body_preview!r})"
+            )
+            return "", diag
+        logger.info("[asr] sidecar text len=%d preview=%r", len(text), text[:80])
+        return text, diag
 
     # ==================================================================
     # TTS

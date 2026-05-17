@@ -46,13 +46,12 @@ async def test_transcribe_endpoint_happy(monkeypatch):
 
     captured = {}
     class _FakePipe:
-        def transcribe(self, audio, *, language=None, **kw):
-            # 新版传 path string,不是 BytesIO;读 path 字节算大小
+        def transcribe_with_diag(self, audio, *, language=None, **kw):
             with open(audio, "rb") as f:
                 captured["audio_size"] = len(f.read())
             captured["audio_path"] = audio
             captured["language"] = language
-            return "你好世界"
+            return "你好世界", []
     monkeypatch.setattr(mr, "_get_audio_pipeline", lambda: _FakePipe())
 
     class _UF:
@@ -85,7 +84,8 @@ def test_guess_audio_ext():
 async def test_transcribe_endpoint_empty_returns_empty_text(monkeypatch):
     from chayuan.server.api_server import modality_routes as mr
     class _FakePipe:
-        def transcribe(self, audio, *, language=None, **kw): return ""
+        def transcribe_with_diag(self, audio, *, language=None, **kw):
+            return "", []
     monkeypatch.setattr(mr, "_get_audio_pipeline", lambda: _FakePipe())
 
     class _UF:
@@ -106,7 +106,8 @@ async def test_call_log_endpoint_records_asr(monkeypatch):
     call_log.clear("asr")
 
     class _FakePipe:
-        def transcribe(self, audio, *, language=None, **kw): return "你好"
+        def transcribe_with_diag(self, audio, *, language=None, **kw):
+            return "你好", []
     monkeypatch.setattr(mr, "_get_audio_pipeline", lambda: _FakePipe())
 
     class _UF:
@@ -127,3 +128,33 @@ async def test_call_log_endpoint_records_asr(monkeypatch):
     assert entries[0]["bytes_in"] == len(b"webm-data")
     # extra 字段透传(filename/language 这种)
     assert entries[0].get("language") == "zh"
+
+
+@pytest.mark.asyncio
+async def test_transcribe_diagnostics_flow_to_call_log(monkeypatch):
+    """pipe 返 ("", [diag...]) 时,call_log.error 应包含每层 diag。"""
+    from chayuan.server.api_server import modality_routes as mr
+    from chayuan.server.modality import call_log
+    call_log.clear("asr")
+
+    class _FakePipe:
+        def transcribe_with_diag(self, audio, *, language=None, **kw):
+            return "", [
+                "[sidecar] HTTP 200 但 text 为空 — webm 解码失败",
+                "[faster-whisper] ModuleNotFoundError: No module named 'faster_whisper'",
+            ]
+    monkeypatch.setattr(mr, "_get_audio_pipeline", lambda: _FakePipe())
+
+    class _UF:
+        content_type = "audio/webm"
+        filename = "x.webm"
+        async def read(self): return b"webm-bytes"
+
+    await mr.transcribe_endpoint(file=_UF(), language="",
+                                  user={"id": 1, "role": "admin"})
+    entries = call_log.get_log("asr")
+    assert len(entries) == 1
+    assert entries[0]["success"] is False
+    err = entries[0]["error"]
+    assert "[sidecar]" in err and "webm 解码失败" in err
+    assert "[faster-whisper]" in err

@@ -39,8 +39,9 @@ def record(
         "success": bool(success),
         "duration_ms": int(max(0, duration_ms)),
         "bytes_in": int(max(0, bytes_in)),
+        # preview 是用户内容,300 够;error 可能是多层 diagnostics,放宽到 1500
         "preview": (preview or "")[:300],
-        "error": (error or "")[:300],
+        "error": (error or "")[:1500],
     }
     if extra:
         # 不让 extra 覆盖标准字段
