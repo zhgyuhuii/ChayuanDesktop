@@ -295,7 +295,10 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
           flushBuffered();
         })
         .catch((err) => {
-          console.warn(`[mic] chunk #${idx} transcribe failed`, err);
+          // 单 chunk 失败(sidecar ReadTimeout / 网络抖动)— LocalAgreement-2 在
+          // 下一 chunk 会自愈,这次只是没贡献文字。降级为 debug 不刷屏。真长期
+          // 不通会在 onFinal 的"零文字"分支走 asrDiag 报给用户。
+          console.debug(`[mic] chunk #${idx} transcribe failed (容错继续)`, err);
           pendingRef.current.set(idx, '');
           flushBuffered();
         });

@@ -412,22 +412,27 @@ class AudioPipeline:
         try:
             with open(actual_path, "rb") as f:
                 files = {"file": (file_name, f, "audio/wav" if actual_path.endswith(".wav") else "application/octet-stream")}
-                # sidecar 单次 inference 在 12s 滑窗下 latency ~2-4s。timeout 20s
-                # 留宽裕;比 120s 短能让 stale connection 快速失败,触发上层 fallback
-                # / 诊断,不让前端干等 120s。
-                with httpx.Client(timeout=20.0) as client:
+                # sidecar timeout 必须**对齐前端 transcribe 的 45s 预算**:
+                #   - audio_pcm 硬上限 15s(asr_session.HARD_MAX_AUDIO_SECONDS)
+                #   - whisper.cpp medium 在 CPU 上跑 15s 音频 ≈ 8-25s(看 CPU)
+                #   - 旧 20s 太紧 — 任何慢一点的 CPU/碎片化负载都直接 ReadTimeout,
+                #     即便后端马上能回也已经被砍 → 用户看到 "[session-transcribe]
+                #     ReadTimeout: timed out" 反复刷屏。
+                #   - 45s 给了 1.8× 的 CPU 退化裕度,且不超出前端等待预算
+                #     (前端 timeoutMs=45_000,这里给 45s 让最坏情况下前端也能拿到结果)。
+                with httpx.Client(timeout=45.0) as client:
                     resp = client.post(url, data=data, files=files)
         except httpx.ReadTimeout as e:
-            # sidecar 单次推理超 20s 没回。**不**主动 mark registry failed —
-            # 那会触发下个 chunk 进入 transcribe 时看 state!=ready → 主动调
-            # mgr.start() restart sidecar,30s 内启动不完就 raise RuntimeError
-            # (用户已经遇到过)。改为:只记录到 diag,sidecar 状态保持 ready,
-            # 下次 chunk 还能尝试调用 — 如果是偶发慢则自愈,如果是真挂了用户
-            # 会持续看到 ReadTimeout,需手动重启 sidecar。
+            # sidecar 单次推理超 45s 没回 — 这才真的是模型/CPU 配不上录音节奏。
+            # **不**主动 mark registry failed:那会触发下个 chunk 进入 transcribe 时
+            # 看 state!=ready → 主动调 mgr.start() restart sidecar,30s 内启动不完
+            # 就 raise RuntimeError(用户曾遇到过)。改为:只记录到 diag,sidecar
+            # 状态保持 ready,下次 chunk 还能尝试调用 — 偶发慢自愈,真挂了用户会
+            # 持续看到 ReadTimeout 提示换更小模型 / 启用 GPU。
             diag.append(
-                f"[sidecar] POST {url} ReadTimeout({e}) — sidecar 单次推理 >20s,"
-                f"通常是 whisper.cpp 内部某段音频卡死;若持续出现请到「设置 → AI 平台 "
-                f"→ 本地服务」手动重启 ASR sidecar。"
+                f"[sidecar] POST {url} ReadTimeout({e}) — sidecar 单次推理 >45s,"
+                f"通常是当前 ASR 模型对 CPU 太重(medium/large)。建议:① 设置 → AI 平台 "
+                f"→ 本地服务 切到 'small' 或 'tiny' 模型;② 若有独显,启用 faster-whisper GPU。"
             )
             raise
         finally:

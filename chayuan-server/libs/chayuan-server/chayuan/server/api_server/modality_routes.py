@@ -80,7 +80,11 @@ async def video_understand_endpoint(
 # Multimodal UX M0: /ocr + /transcribe 通用端点
 # ──────────────────────────────────────────────────────────────────────────────
 
-_ASR_SEMAPHORE = asyncio.Semaphore(2)
+# 串行 ASR 调用:whisper.cpp 单次 /inference 内部是单线程 CPU 推理,两个
+# 并发请求会**相互抢 CPU**导致单次 latency 翻倍,反而触发 sidecar timeout。
+# 用 Semaphore(1) 强制串行,单次更快 → 整体队列吞吐反而更高 + 更稳。
+# (历史上 =2 是猜的"留一个 buffer",实测得不偿失。)
+_ASR_SEMAPHORE = asyncio.Semaphore(1)
 _AUDIO_PIPE = None
 
 
