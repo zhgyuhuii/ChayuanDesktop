@@ -119,7 +119,32 @@ def _doc_kb_to_universe(row: Dict[str, Any], current_uid: Optional[int], user: A
         "vs_type": row.get("vs_type"),
         "embed_model": row.get("embed_model"),
         "create_time": row.get("create_time"),
+        # KB 卡片封面用 — 前 4 个文件名(供前端显示文件 chip 九宫格)
+        "cover_files": _doc_kb_cover_files(row.get("kb_name") or ""),
     }
+
+
+def _doc_kb_cover_files(kb_name: str, *, limit: int = 4) -> List[Dict[str, Any]]:
+    """document KB:取前 limit 个文件名 + 扩展名给前端卡片封面用。
+
+    失败一律返空 list — 列表页性能敏感,不让单 KB 文件扫描异常拖垮整页加载。
+    """
+    if not kb_name:
+        return []
+    try:
+        from chayuan.server.knowledge_base.utils import list_files_from_folder
+        files = list_files_from_folder(kb_name) or []
+    except Exception:  # noqa: BLE001
+        return []
+    out: List[Dict[str, Any]] = []
+    for fname in files[:limit]:
+        if not fname:
+            continue
+        # fname 可能是 "doc.pdf" 或带子目录 "subdir/doc.pdf";取末段
+        base = fname.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        ext = base.rsplit(".", 1)[-1].lower() if "." in base else ""
+        out.append({"name": base, "ext": ext})
+    return out
 
 
 def _resolve_store_name_for_image(raw: int) -> str:
@@ -168,8 +193,10 @@ def _source_to_universe(row: Dict[str, Any], current_uid: Optional[int], user: A
         access_role = None
     if guest_mode:
         access_role = "owner"
-    return {
-        "ku_id": _encode_id("source", row.get("id")),
+
+    src_id = row.get("id")
+    out: Dict[str, Any] = {
+        "ku_id": _encode_id("source", src_id),
         "kind": universe_kind,
         "sub_kind": raw_kind,  # 'sql'/'mongo'/'es'/'image'/'vector'/'vs'
         "name": row.get("name"),
@@ -183,6 +210,43 @@ def _source_to_universe(row: Dict[str, Any], current_uid: Optional[int], user: A
         "visibility": row.get("visibility") or "private",
         "create_time": row.get("create_time"),
     }
+
+    # structured KB:从 connection 查 dialect(mysql / postgresql / mongodb / ...),
+    # 前端 KbCard 用它选品牌 logo 渲染封面。失败返空,KbCard 走 sub_kind 启发式。
+    if universe_kind == "structured" and src_id is not None:
+        try:
+            from chayuan.server.db.repository.knowledge_source_repository import (
+                connection_spec_for_source,
+            )
+            resolved = connection_spec_for_source(int(src_id))
+            if resolved is not None:
+                dialect_str, _spec = resolved
+                if dialect_str:
+                    out["dialect"] = str(dialect_str)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # image KB:取前 4 张图给前端做封面九宫格;复用现有 image preview URL。
+    # 失败返空,KbCard 走渐变 + 大 icon 兜底。
+    if universe_kind == "image" and src_id is not None:
+        try:
+            out["cover_thumbnails"] = _image_kb_cover_thumbnails(int(src_id), limit=4)
+        except Exception:  # noqa: BLE001
+            pass
+
+    return out
+
+
+def _image_kb_cover_thumbnails(source_id: int, *, limit: int = 4) -> List[str]:
+    """image KB:取前 limit 张图的 preview URL 给卡片封面用。"""
+    from chayuan.server.image_source.store import get_store
+    try:
+        store_name = _resolve_store_name_for_image(source_id)
+    except Exception:  # noqa: BLE001
+        return []
+    store = get_store(store_name)
+    items = store.list_items(limit)
+    return [f"/knowledge_source/{source_id}/image/{m.get('id')}" for m in items if m.get("id")]
 
 
 def can_read_ku(user: Any, ku_id: str) -> bool:
