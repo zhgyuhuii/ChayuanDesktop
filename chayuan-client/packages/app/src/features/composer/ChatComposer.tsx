@@ -300,10 +300,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-1">
-          {/* 截图按钮只在 onScreenshot 真接入时才显示 —— 其它 composer 站(KbBoard
-              ask / SkillTemplate / KbDetail)没有附件管线,不该出现一个点了没反应
-              的幽灵按钮(2026-05-17 用户反馈 fix) */}
-          {onScreenshot && (
+          {/* 截图按钮当前隐藏(2026-05-17 用户反馈)— 系统级 overlay 链路还在
+              迭代,先不暴露入口避免误用。onScreenshot prop / useChatScreenshot
+              hook / platform.capture 全保留,后续接回来只要解开这段注释。 */}
+          {false && onScreenshot && (
             <IconBtn aria-label={t('chat.scissors')} title={t('chat.scissors')} onClick={onScreenshot}>
               <Scissors className="h-4 w-4" />
             </IconBtn>
