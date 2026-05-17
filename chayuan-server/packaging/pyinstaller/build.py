@@ -202,6 +202,56 @@ _WIN_INSTALLER_FILE_LIMIT = 2 * 1024 * 1024 * 1024  # 2 GiB
 # 老格式,新模型基本都给 .safetensors / .gguf。
 _REDUNDANT_WEIGHT_SUFFIXES = (".bin", ".onnx_data", ".pt", ".pth")
 
+# 与运行时 local_index.BUNDLED_CAPABILITY_DIRS 对齐 — vendor/bundled_models/ 下
+# 允许出现的合法 cap 目录名。出现在这之外的目录(如 vendor/bundled_models/bge-m3/
+# 直接挂根级)十有八九是用户/老 install 脚本把"模型目录"放错了一级。
+_KNOWN_CAP_DIRS = frozenset(
+    ("chat", "embedding", "rerank", "asr", "tts", "ocr", "image", "custom")
+)
+
+# vendor 根级"非法子目录"被跳过时,如果体积超过这个阈值就拉警报(疑似误放),
+# 否则当成噪音(README 同侧 / .gitkeep / 小杂项)轻量提示一下就过。
+_SUSPICIOUS_SKIP_THRESHOLD = 100 * 1024 * 1024   # 100 MB
+
+
+# 把孤立模型目录名按"启发式"猜回它该归哪个 cap,只用作 hint(不强行 move)。
+# 命名约定看 HF/ModelScope 主流模型仓库,新模型只要主流命名都能命中;命不中
+# 也无所谓 — 提示用户"请确认 cap"即可。
+_CAP_HINT_PATTERNS = (
+    # cap, list of substrings (lowercase) suggestive of this cap
+    ("embedding", ("bge-m3", "bge-small", "bge-large", "embedding", "gte-",
+                   "e5-", "jina-embeddings", "text-embedding")),
+    ("rerank",    ("reranker", "rerank", "cross-encoder")),
+    ("chat",      ("qwen", "llama", "mistral", "phi", "deepseek", "yi-",
+                   "chatglm", "gemma", "-chat", "-instruct", ".gguf")),
+    ("asr",       ("whisper", "paraformer", "sense-voice", "funasr")),
+    ("tts",       ("piper", "vits", "xtts", "edge-tts")),
+    ("ocr",       ("rapidocr", "pp-ocr", "paddleocr", "ocr-")),
+    ("image",     ("clip", "siglip", "dinov2", "vit-")),
+)
+
+
+def _guess_cap_for_dir(name: str) -> Optional[str]:
+    """启发式猜模型目录该归哪个 cap;猜不中返回 None。"""
+    n = name.lower()
+    for cap, patterns in _CAP_HINT_PATTERNS:
+        for pat in patterns:
+            if pat in n:
+                return cap
+    return None
+
+
+def _dir_size_bytes(dir_path: Path) -> int:
+    """递归求目录大小(字节)。容错:单文件 stat 失败计 0。"""
+    total = 0
+    for p in dir_path.rglob("*"):
+        try:
+            if p.is_file():
+                total += p.stat().st_size
+        except OSError:
+            continue
+    return total
+
 
 def _has_alt_weight(dir_path: Path) -> bool:
     """目录树里递归找 .gguf / .safetensors — 有就说明同目录的 .bin/.onnx_data 是冗余。"""
@@ -396,7 +446,8 @@ def sync_bundled_models(
     n_external = 0
     n_external_bytes = 0
     n_redundant_skipped = 0
-    skipped: list[str] = []
+    skipped: list[str] = []                                    # 已知 cap 但不在本 flavor
+    suspicious_skipped: list[tuple[str, int]] = []             # 未知子目录 + 体积 ≥ 100 MB
     external_files: list[dict[str, object]] = []
     redundant_examples: list[str] = []
 
@@ -406,7 +457,17 @@ def sync_bundled_models(
         if not entry.is_dir():
             continue
         if entry.name not in caps_set:
-            skipped.append(entry.name)
+            # 分两类:
+            #   (a) 已知 cap 名但不在本 flavor 清单(例:full 不要 custom)→ 轻量提示
+            #   (b) 完全未知名称(例:bge-m3 直接挂根级)→ 看体积,大就响警报
+            if entry.name in _KNOWN_CAP_DIRS:
+                skipped.append(entry.name)
+            else:
+                size = _dir_size_bytes(entry)
+                if size >= _SUSPICIOUS_SKIP_THRESHOLD:
+                    suspicious_skipped.append((entry.name, size))
+                else:
+                    skipped.append(entry.name)
             continue
         # 该 cap 在清单内 → 整子目录拷过去(跳过 .gitkeep + 冗余权重 + 分流大文件)
         for sub in entry.rglob("*"):
@@ -492,6 +553,41 @@ def sync_bundled_models(
             print(f"  ... 共 {n_redundant_skipped} 个", flush=True)
     if skipped:
         print(f"[build] {flavor}: 跳过非 {flavor} 清单内 cap: {', '.join(skipped)}", flush=True)
+
+    # 疑似误放警告:vendor 根级出现了非已知 cap 的大目录(≥ 100 MB),装包里
+    # 不会包含这些模型,运行时直接缺。打成 WARN 而不是 FATAL,因为这个目录
+    # 也可能是用户故意放在 vendor 下面"暂存"的(虽然不推荐)。
+    if suspicious_skipped:
+        total_gb = sum(s for _, s in suspicious_skipped) / 1024 / 1024 / 1024
+        print(
+            f"[build] ⚠ {flavor}: vendor 根级有 {len(suspicious_skipped)} 个"
+            f"**非 cap 名**子目录({total_gb:.2f} GB)被跳过,装包不含这些模型:",
+            flush=True,
+        )
+        for name, size in suspicious_skipped:
+            gb = size / 1024 / 1024 / 1024
+            hint = _guess_cap_for_dir(name)
+            if hint:
+                print(
+                    f"  - {name}/  ({gb:.2f} GB) "
+                    f"→ 看起来该归 {hint!r} cap,建议 Move-Item:",
+                    flush=True,
+                )
+                print(
+                    f'      Move-Item "{src}\\{name}" "{src}\\{hint}\\{name}"',
+                    flush=True,
+                )
+            else:
+                print(
+                    f"  - {name}/  ({gb:.2f} GB) "
+                    "→ 不像主流模型命名,请确认它属于哪个 cap "
+                    f"(可选:{' / '.join(sorted(_KNOWN_CAP_DIRS))})后 Move-Item 进去。",
+                    flush=True,
+                )
+        print(
+            "[build]   修完再跑 build,这些子目录会被正确同步进 installer / external seed。",
+            flush=True,
+        )
 
 
 # Rust target triple → vendor 平台子目录名映射。
