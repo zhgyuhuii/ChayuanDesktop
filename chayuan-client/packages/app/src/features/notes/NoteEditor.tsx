@@ -20,12 +20,12 @@ import {
 import { Button, cn } from '@chayuan/ui';
 import { modality } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
-import { useMicRecorder } from '../composer/useMicRecorder';
-import { VoiceVisualizer } from '../composer/VoiceVisualizer';
+import { useMicSimpleRecorder } from '../composer/useMicSimpleRecorder';
+import { RecorderBar } from '../composer/RecorderBar';
 import { useNoteDraft } from './useNoteDraft';
 import { SaveNoteDialog } from './SaveNoteDialog';
 import { AsrVolatileMark } from './AsrVolatileMark';
-import { convertEditorChinese, type ChineseScript } from './chineseScript';
+import { convertEditorChinese, convertText, type ChineseScript } from './chineseScript';
 import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
 
 const defaultTitle = () => {
@@ -71,120 +71,57 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
     },
   });
 
-  // 找编辑器里所有 asrVolatile mark 覆盖的连续文本 range(可能多段,取
-  // [最左, 最右])。volatile 永远是末尾的灰色斜体那段。
-  const findVolatileRange = React.useCallback((): { from: number; to: number } | null => {
-    if (!editor) return null;
-    const markType = editor.schema.marks.asrVolatile;
-    if (!markType) return null;
-    let from: number | null = null;
-    let to: number | null = null;
-    editor.state.doc.descendants((node, pos) => {
-      if (node.isText && node.marks.some((m) => m.type === markType)) {
-        if (from === null) from = pos;
-        to = pos + node.nodeSize;
-      }
-    });
-    if (from === null || to === null) return null;
-    return { from, to };
-  }, [editor]);
-
-  // 删除 volatile 占位(chunk 间 replace 用)
-  const removeVolatileRange = React.useCallback(() => {
-    const range = findVolatileRange();
-    if (range && editor) editor.chain().deleteRange(range).run();
-  }, [editor, findVolatileRange]);
-
-  // stop 时不要直接删 volatile — 用户说的话都识别出来了,即便没二次确认也应该
-  // 留在笔记里。把 asrVolatile mark 移除(灰色斜体变正常黑字),保留文字。
-  const commitVolatileAsStable = React.useCallback(() => {
-    const range = findVolatileRange();
-    if (!range || !editor) return;
-    editor
-      .chain()
-      .setTextSelection(range)
-      .unsetMark('asrVolatile')
-      .setTextSelection(range.to)
-      .run();
-  }, [editor, findVolatileRange]);
-
   // 标题变化也写草稿
   React.useEffect(() => {
     if (editor) draft.save(title, editor.getJSON());
   }, [title, editor, draft]);
 
-  // ASR — partialCount 用来检测"录完一段一字未入" → 给用户明确提示
-  const partialCountRef = React.useRef(0);
-  const mic = useMicRecorder({
-    sliceMs: 2500,
-    // 默认 zh — whisper 在 language="" / auto 下,短/嘈杂片段会被误判为西语/葡语
-    // 等,返回 `[Spanish]` 这种语言名 marker(不是用户实际说的话)。中文用户主
-    // 场景下,显式提示 zh 大幅减少误判 + 提升识别率。后续若要支持英文/混合,
-    // 加 UI 切换器即可。
-    language: 'zh',
-    onPartial: (text) => {
-      if (!text || !editor) return;
-      partialCountRef.current += 1;
-      // commit stable_increment(LocalAgreement-2 二次确认的字符)— 黑色固化
-      // 先删 volatile 占位避免新文字插到 volatile 后面;commit 后 volatile 由
-      // onVolatile 重新插入(顺序:onPartial 先 → onVolatile 后,在 useMicRecorder
-      // flushBuffered 里保证)
-      removeVolatileRange();
-      // 防换行:whisper 偶尔输出 \n,Tiptap insertContent 会解析成 hardBreak。
-      // **focus('end')**:无论用户光标在哪,识别文字始终钉在文档末尾(用户要求)。
-      editor.chain().focus('end').insertContent(text.replace(/\r?\n+/g, ' ')).run();
-    },
-    onVolatile: (volatileText) => {
+  // ASR 新模式:不实时转,**录完整段送模型**(避免 chunk 边界 hallucination)。
+  // 录音过程只看频谱条 + 时长(RecorderBar),停止后 onRecorded 触发整段转写。
+  const [transcribingRecording, setTranscribingRecording] = React.useState(false);
+  const mic = useMicSimpleRecorder({
+    onRecorded: async (blob, mimeType) => {
       if (!editor) return;
-      removeVolatileRange();
-      if (!volatileText) return;
-      // 末尾插新 volatile 带 asrVolatile mark(灰色斜体)。
-      // 防换行 + focus('end') 把灰色尾部也钉在最下方,跟 stable 文字连贯。
-      editor.chain()
-        .focus('end')
-        .insertContent({
-          type: 'text',
-          text: volatileText.replace(/\r?\n+/g, ' '),
-          marks: [{ type: 'asrVolatile' }],
-        })
-        .run();
-    },
-    onFinal: (full) => {
-      // ⭐ stop 时残留的 volatile(灰色斜体)直接转黑色保留 — 用户说的话已经识别
-      // 出来,即便没二次 LocalAgreement 确认也不该被吞掉
-      commitVolatileAsStable();
-      if (partialCountRef.current === 0 && !full) {
-        // 实时调诊断端点 — 4 层后端逐个 probe,展示具体哪一层不通
-        void (async () => {
-          let body = '所有 chunk 转写都返回空字符串。常见原因:后端 ASR 后端不可用 / 麦克风没真实录音 / 没说够 1-2 秒。';
-          try {
-            const d = await modality.asrDiag();
-            const lines: string[] = [];
-            // sidecar
-            if (d.sidecar.state === 'ready' && !d.sidecar.reachable) {
-              lines.push(
-                `❌ Sidecar 假 ready @ ${d.sidecar.endpoint}` +
-                  ` (probe: ${d.sidecar.probe_error || 'HTTP ' + d.sidecar.http_status})`,
-              );
-            } else if (d.sidecar.reachable) {
-              lines.push(`✅ Sidecar 实时可达 @ ${d.sidecar.endpoint}`);
-            } else {
-              lines.push(`— Sidecar: ${d.sidecar.state}${d.sidecar.last_error ? ' / ' + d.sidecar.last_error : ''}`);
-            }
-            lines.push(`${d.faster_whisper.installed ? '✅' : '❌'} faster-whisper`);
-            lines.push(`${d.openai_whisper.installed ? '✅' : '❌'} openai-whisper`);
-            lines.push(`${d.openai_api.configured ? '✅' : '❌'} OpenAI API`);
-            lines.push(`默认 ASR 模型: ${d.default_model}`);
-            lines.push('');
-            lines.push(d.recommend);
-            body = lines.join('\n');
-          } catch (err) {
-            console.warn('[mic] asrDiag failed:', err);
-          }
-          notifyInfo('未识别到语音文字', body, 20000);
-        })();
+      setTranscribingRecording(true);
+      try {
+        // 整段送 modality.transcribeFile — 比逐 chunk transcribe 准确得多,
+        // whisper 内部 VAD 在整段上工作正常,不会 hallucinate "謝謝" 之类。
+        // 给文件起个名好让后端 _guess_audio_ext 选对扩展。
+        const ext = mimeType.includes('webm') ? 'webm' : 'wav';
+        const filename = `recording-${Date.now()}.${ext}`;
+        const file = new File([blob], filename, { type: mimeType });
+        console.debug(`[mic-simple] 整段送转 ${filename} (${blob.size} bytes, ${mimeType})`);
+        const r = await modality.transcribeFile(file, { language: 'zh' });
+        if (!r.text) {
+          const detail = r.diagnostics || '未识别到任何语音。检查:① 麦克风音量;② ASR 服务可用性(设置 → 本地模型服务);③ 是否真的有说话';
+          notifyInfo('未识别到语音', detail, 12000);
+          return;
+        }
+        // **前端强转简体兜底** — 后端 zhconv 没装时还能拿到简体输出。opencc-js
+        // 词组级转换,准确度高于后端 zhconv 字级。用户原报"选简体还是繁体"就是
+        // 后端 _HAS_ZHCONV=False 时静默 fallthrough,这里前端兜底彻底解决。
+        const simplifiedText = convertText(r.text, 'cn');
+        // 拆 paragraph node 插入末尾(避免 insertContent(string) 走 HTML 解析吃换行)
+        const lines = simplifiedText.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+        const nodes = lines.map((line) => ({
+          type: 'paragraph' as const,
+          content: [{ type: 'text' as const, text: line }],
+        }));
+        if (nodes.length > 0) {
+          editor.chain().focus('end').insertContent(nodes).run();
+        }
+        notifySuccess(
+          '录音转写完成',
+          `${simplifiedText.length} 字 · ${(blob.size / 1024).toFixed(0)} KB`,
+          4000,
+        );
+        // 记下这次录音,允许"重新转文字"重跑
+        setLastUploadedAudio(file);
+      } catch (e) {
+        reportError(e, '录音转写失败');
+      } finally {
+        setTranscribingRecording(false);
       }
-      partialCountRef.current = 0;
     },
     onError: (err) => reportError(err, '录音失败'),
   });
@@ -382,12 +319,6 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
         </Button>
       </header>
 
-      {mic.recording && (
-        <div className="flex items-center justify-center border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]/30 px-4 py-2">
-          <VoiceVisualizer stream={mic.stream} active={mic.recording} />
-        </div>
-      )}
-
       {lastUploadedAudio && (
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]/50 px-4 py-1.5 text-xs">
           <span
@@ -434,6 +365,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
           />
         </div>
       </div>
+
+      <RecorderBar
+        recording={mic.recording}
+        paused={mic.paused}
+        elapsedSec={mic.elapsed}
+        stream={mic.stream}
+        transcribing={transcribingRecording}
+        onPause={mic.pause}
+        onResume={mic.resume}
+        onStop={mic.stop}
+        onCancel={mic.cancel}
+      />
 
       <SaveNoteDialog
         open={saveOpen}
