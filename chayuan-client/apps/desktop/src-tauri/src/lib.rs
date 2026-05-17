@@ -38,6 +38,22 @@ fn chayuan_tray_set_tooltip(text: String, app: tauri::AppHandle) -> Result<(), S
     Ok(())
 }
 
+/// 关闭独立 splashscreen 窗口 + 显示主窗口。
+/// 前端 main.tsx 在 React 首屏 paint 之后调用本 command,把 splash 渐隐换主窗。
+/// 兜底:无 splashscreen 窗口时也要让 main show(避免主窗口卡在 visible=false)。
+#[tauri::command]
+async fn chayuan_close_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(splash) = app.get_webview_window("splashscreen") {
+        // 关 splash 失败不阻塞 main show — 至少让用户能看到主窗
+        let _ = splash.close();
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        main.show().map_err(|e| format!("show main: {e}"))?;
+        let _ = main.set_focus();
+    }
+    Ok(())
+}
+
 /// 截图（全屏第一块显示器）→ PNG 字节
 #[tauri::command]
 fn chayuan_screenshot() -> Result<Vec<u8>, String> {
@@ -98,6 +114,7 @@ pub fn run() {
             chayuan_tray_set_menu,
             chayuan_tray_set_tooltip,
             chayuan_screenshot,
+            chayuan_close_splashscreen,
             data_dir::chayuan_data_dir_state,
             data_dir::chayuan_data_dir_set,
             data_dir::chayuan_data_dir_default,
@@ -157,6 +174,23 @@ pub fn run() {
                 let window = app.get_webview_window("main").unwrap();
                 window.open_devtools();
             }
+
+            // splash 兜底:前端 30s 没 invoke chayuan_close_splashscreen 也强制 show main
+            // (异步 import 失败 / sidecar 卡死 / 前端 crash 等极端情况),让用户能看到错误。
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                if let Some(main) = handle.get_webview_window("main") {
+                    if !main.is_visible().unwrap_or(false) {
+                        let _ = main.show();
+                        let _ = main.set_focus();
+                    }
+                }
+                if let Some(splash) = handle.get_webview_window("splashscreen") {
+                    let _ = splash.close();
+                }
+            });
+
             Ok(())
         })
         .build(tauri::generate_context!())

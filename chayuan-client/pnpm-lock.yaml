@@ -44,6 +44,9 @@ importers:
       '@chayuan/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@tauri-apps/api':
+        specifier: ^2.1.1
+        version: 2.10.1
       react:
         specifier: ^19.0.0
         version: 19.2.5

@@ -12,6 +12,22 @@
   "app": {
     "windows": [
       {
+        "label": "splashscreen",
+        "url": "splashscreen.html",
+        "title": "察元 AI",
+        "width": 420,
+        "height": 420,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": false,
+        "center": true,
+        "skipTaskbar": false,
+        "shadow": true,
+        "focus": true
+      },
+      {
+        "label": "main",
         "title": "察元 AI",
         "width": 1200,
         "height": 800,
@@ -21,7 +37,8 @@
         "fullscreen": false,
         "resizable": true,
         "transparent": false,
-        "backgroundColor": "#0f172a"
+        "backgroundColor": "#0f172a",
+        "visible": false
       }
     ],
     "security": {
