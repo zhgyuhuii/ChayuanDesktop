@@ -21,7 +21,6 @@ import {
   ArrowUp,
   Image as ImageIcon,
   Mic,
-  MicOff,
   Paperclip,
   Scissors,
   Sparkles,
@@ -30,11 +29,15 @@ import {
 import * as React from 'react';
 import { useTranslation } from '../../i18n';
 import { useComposerS, useComposerScopedStore } from '../../store/composer';
+import { modality } from '@chayuan/api';
 import { McpPickerPill, ToolsPickerPill } from './CapabilityPickers';
 import { ComposerModelPill } from './ComposerModelPill';
 import { KnowledgePickerPill, type KnowledgePickerPillProps } from './KnowledgePickerPill';
 import { SearchModePill } from './SearchModePill';
-import { useMicRecorder } from './useMicRecorder';
+import { useMicSimpleRecorder } from './useMicSimpleRecorder';
+import { ChatRecorderPanel } from './ChatRecorderPanel';
+import { pushVoiceAttachment } from './voiceAttachments';
+import { reportError } from '../../store/errorDialog';
 import type { ComposerModelPillProps } from './ComposerModelPill';
 
 export interface ChatComposerProps {
@@ -103,17 +106,43 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   // 用 store 实例引用,避免 onPartial 回调中的 stale closure
   const composerStore = useComposerScopedStore();
 
-  // 麦克风:实时录音 + 4s 分片 ASR;每片转写完追加到 draft
-  const mic = useMicRecorder({
-    sliceMs: 4000,
-    language: '',
-    onPartial: (text) => {
-      if (!text) return;
-      const current = composerStore.getState().draft;
-      const sep = current && !current.endsWith(' ') ? ' ' : '';
-      composerStore.getState().setDraft(current + sep + text);
+  // 录音 + 转写 → 发送:整段录完送 transcribe-file,准确率远高于实时分片。
+  // 流程:用户点麦 → 录音面板出现 → 录制中可暂停/继续/取消 → 点「发送」→
+  //   stop MediaRecorder → onRecorded 给完整 webm Blob →
+  //   transcribeFile 得到文本 → setDraft(text) + submit → push blob 到
+  //   voiceAttachments(MessageBubble 挂载用户消息时 consume 渲染播放按钮)
+  const [recorderTranscribing, setRecorderTranscribing] = React.useState(false);
+  // pending blob ref:onRecorded 拿到 blob 后,需要在 transcribe + submit 完成后
+  // 再 push 到 voiceAttachments,使队列 push 时机 ≤ MessageBubble 挂载新消息的时机
+  const pendingSendRef = React.useRef(false);
+
+  const mic = useMicSimpleRecorder({
+    onRecorded: async (blob, _mimeType) => {
+      const shouldSend = pendingSendRef.current;
+      pendingSendRef.current = false;
+      if (!shouldSend) return;  // 用户走 cancel 路径,不送
+      setRecorderTranscribing(true);
+      try {
+        const ext = _mimeType.includes('webm') ? 'webm' : 'wav';
+        const file = new File([blob], `chat-recording-${Date.now()}.${ext}`, { type: _mimeType });
+        const r = await modality.transcribeFile(file, { language: 'zh' });
+        const text = (r.text ?? '').trim();
+        if (!text) {
+          reportError(new Error(r.diagnostics || '未识别到任何语音'), '录音转写失败');
+          return;
+        }
+        // 文字先填进 draft 让用户看见;然后压队,最后触发 submit
+        composerStore.getState().setDraft(text);
+        pushVoiceAttachment(text, blob);  // 在 submit 之前 push,MessageBubble 挂载时能 consume 到
+        // 直接调 submit(用 ref 拿到内层 submit 句柄)
+        await submitRef.current?.();
+      } catch (e) {
+        reportError(e, '录音发送失败');
+      } finally {
+        setRecorderTranscribing(false);
+      }
     },
-    onError: (err) => console.warn('[useMicRecorder]', err),
+    onError: (err) => reportError(err, '录音失败'),
   });
 
   const handleMicClick = () => {
@@ -122,8 +151,18 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       onMicrophone();
       return;
     }
-    if (mic.recording) mic.stop();
-    else void mic.start();
+    if (!mic.recording) void mic.start();
+    // 录音中再点 mic 按钮不做事;面板上自己有 暂停/取消/发送 三个按钮
+  };
+
+  const handleRecorderSubmit = () => {
+    if (recorderTranscribing) return;
+    pendingSendRef.current = true;
+    mic.stop();  // 触发 onRecorded → 走 transcribe + submit
+  };
+  const handleRecorderCancel = () => {
+    pendingSendRef.current = false;
+    mic.cancel();
   };
 
   const ph = placeholder ?? t('chat.inputPlaceholder', { model: modelId });
@@ -141,7 +180,9 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   }, [draft, minHeight]);
 
   const submit = async () => {
-    const text = draft.trim();
+    // 从 store 实时读 draft,而不是闭包 — 录音发送链路里 setDraft(transcript)
+    // 后立即调 submit,React 还没 rerender,闭包的 draft 还是旧空值会 early return。
+    const text = composerStore.getState().draft.trim();
     if (!text || isStreaming) return;
     // 行业惯例(ChatGPT / Claude / Cursor):点发送立刻清空输入框 + 让消息进列表,
     // SSE 流式由 onSend 在后台跑。之前 await onSend 完才 setDraft 会让用户在
@@ -156,6 +197,9 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       throw e;
     }
   };
+  // 暴露给录音 onRecorded 回调用 — 它在 hook 内部,不能直接读 submit 的最新闭包
+  const submitRef = React.useRef<() => Promise<void>>(submit);
+  submitRef.current = submit;
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -179,6 +223,20 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       )}
     >
       {topSlot && <div className="mb-2">{topSlot}</div>}
+
+      {(mic.recording || recorderTranscribing) && (
+        <ChatRecorderPanel
+          recording={mic.recording}
+          paused={mic.paused}
+          elapsedSec={mic.elapsed}
+          stream={mic.stream}
+          transcribing={recorderTranscribing}
+          onPause={mic.pause}
+          onResume={mic.resume}
+          onCancel={handleRecorderCancel}
+          onSubmit={handleRecorderSubmit}
+        />
+      )}
 
       <textarea
         ref={taRef}
@@ -248,15 +306,20 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
           </IconBtn>
           <IconBtn
             aria-label={t('chat.voice')}
-            title={mic.recording ? `${t('chat.voice')} · ${mic.elapsed}s — 点击停止` : t('chat.voice')}
+            title={
+              mic.recording || recorderTranscribing
+                ? '录音中 — 上方面板有发送/暂停/取消按钮'
+                : '点击开始录音(整段录完后送模型转写发送)'
+            }
             onClick={handleMicClick}
-            className={mic.recording ? 'bg-red-500/15 text-red-600 hover:bg-red-500/25' : undefined}
+            disabled={mic.recording || recorderTranscribing}
+            className={
+              mic.recording || recorderTranscribing
+                ? 'bg-red-500/15 text-red-600'
+                : undefined
+            }
           >
-            {mic.recording ? (
-              <MicOff className="h-4 w-4 animate-pulse" />
-            ) : (
-              <Mic className="h-4 w-4" />
-            )}
+            <Mic className="h-4 w-4" />
           </IconBtn>
 
           {isStreaming ? (

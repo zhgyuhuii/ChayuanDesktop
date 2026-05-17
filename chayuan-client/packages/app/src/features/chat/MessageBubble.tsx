@@ -8,6 +8,7 @@ import type { ChatMessage, ChatCitation } from './useChayuanChat';
 import { ToolCallsRow } from './toolcards/ToolCallsRow';
 import { chatCitationsToSources } from '@chayuan/api';
 import { KbResultsView } from '../kb/components/KbResultsView';
+import { consumeVoiceAttachment } from '../composer/voiceAttachments';
 
 export interface MessageBubbleProps {
   message: ChatMessage;
@@ -23,6 +24,21 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(message.content);
   React.useEffect(() => setDraft(message.content), [message.content]);
+
+  // 检查这条用户消息是不是 ChatComposer 录音发送过来的 — 用 content 匹配
+  // voiceAttachments 队列;命中拿 Blob 给 <audio> 播。Blob → Object URL 后
+  // 必须在卸载时 revoke 防内存泄漏。
+  const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!isUser) return;
+    const blob = consumeVoiceAttachment(message.content);
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    setAudioUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [message.id, isUser, message.content]);
 
   const onCopy = async () => {
     await getPlatform().clipboard.writeText(message.content);
@@ -116,6 +132,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
               <TypingIndicator />
             ) : (
               <StreamMarkdown content={message.content || ''} streaming={message.streaming} />
+            )}
+            {audioUrl && (
+              <div className="mt-2 -mx-1">
+                {/* 原始录音播放器 — 出现在文字下方,样式跟随 message bubble 主题 */}
+                <audio
+                  controls
+                  preload="metadata"
+                  src={audioUrl}
+                  className="h-8 w-full max-w-[280px]"
+                  title="本条消息的原始录音"
+                />
+              </div>
             )}
           </div>
         )}
