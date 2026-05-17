@@ -25,7 +25,10 @@ import { RecorderBar } from '../composer/RecorderBar';
 import { useNoteDraft } from './useNoteDraft';
 import { SaveNoteDialog } from './SaveNoteDialog';
 import { AsrVolatileMark } from './AsrVolatileMark';
-import { convertEditorChinese, convertText, type ChineseScript } from './chineseScript';
+import {
+  convertEditorChinese, convertText, detectChineseScript, persistChineseScript,
+  type ChineseScript,
+} from './chineseScript';
 import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
 
 const defaultTitle = () => {
@@ -97,12 +100,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
           notifyInfo('未识别到语音', detail, 12000);
           return;
         }
-        // **前端强转简体兜底** — 后端 zhconv 没装时还能拿到简体输出。opencc-js
-        // 词组级转换,准确度高于后端 zhconv 字级。用户原报"选简体还是繁体"就是
-        // 后端 _HAS_ZHCONV=False 时静默 fallthrough,这里前端兜底彻底解决。
-        const simplifiedText = convertText(r.text, 'cn');
+        // **前端强转简/繁兜底** — 后端 zhconv 没装时还能拿到目标形态输出。
+        // opencc-js 词组级转换,准确度高于后端 zhconv 字级。chineseScript 默认
+        // 跟随系统语言(navigator.language),用户在简/繁按钮切过的话用持久化值。
+        const convertedText = convertText(r.text, chineseScript);
         // 拆 paragraph node 插入末尾(避免 insertContent(string) 走 HTML 解析吃换行)
-        const lines = simplifiedText.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+        const lines = convertedText.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
         const nodes = lines.map((line) => ({
           type: 'paragraph' as const,
           content: [{ type: 'text' as const, text: line }],
@@ -112,7 +115,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
         }
         notifySuccess(
           '录音转写完成',
-          `${simplifiedText.length} 字 · ${(blob.size / 1024).toFixed(0)} KB`,
+          `${convertedText.length} 字 · ${(blob.size / 1024).toFixed(0)} KB`,
           4000,
         );
         // 记下这次录音,允许"重新转文字"重跑
@@ -129,7 +132,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
   // 简体 / 繁体切换 — 把整个 editor 文档过一遍 opencc-js,setContent 重建。
   // 默认 'cn'(笔记主诉求简体);后端 ASR sidecar 有时返繁体,用户点 简 修正。
   // setContent 会重置 cursor;能接受。volatile mark 内的文字也会被转换,体验自然。
-  const [chineseScript, setChineseScript] = React.useState<ChineseScript>('cn');
+  // 默认跟随系统语言:navigator.language 含 Hant/TW/HK/MO → 'tw',否则 'cn'。
+  // 用户在 UI 上点过简/繁切换会持久化到 localStorage,detectChineseScript 优先读它。
+  const [chineseScript, setChineseScript] = React.useState<ChineseScript>(() => detectChineseScript());
   const applyChineseScript = React.useCallback((target: ChineseScript) => {
     if (!editor) return;
     if (target === chineseScript) return;
@@ -139,6 +144,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
       emitUpdate: true,
     });
     setChineseScript(target);
+    persistChineseScript(target);  // 记住用户选择,下次启动按此默认
   }, [editor, chineseScript]);
 
   // 上传语音文件转写
@@ -163,7 +169,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
       // 识别为换行 → 多段文字会挤成一坨,甚至 '<','>' 等字符被当 tag 吃掉。
       // 改用 **ProseMirror JSON nodes**,每行一个 paragraph,Tiptap 直接构造
       // 文档结构,无 HTML 解析、无字符吞噬。
-      const lines: string[] = [];
+      const rawLines: string[] = [];
       if (r.speaker_diarization_available && r.segments.length > 1) {
         const speakerLabels = new Map<string, string>();
         let next = 0;
@@ -175,11 +181,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
         }
         for (const s of r.segments) {
           const label = speakerLabels.get(s.speaker) ?? '?';
-          lines.push(`Speaker ${label}:${s.text.replace(/\r?\n+/g, ' ')}`);
+          rawLines.push(`Speaker ${label}:${s.text.replace(/\r?\n+/g, ' ')}`);
         }
       } else {
-        lines.push(r.text.replace(/\r?\n+/g, ' '));
+        rawLines.push(r.text.replace(/\r?\n+/g, ' '));
       }
+      // **前端强转目标中文形态** — 跟 onRecorded 一样,后端 zhconv 没装 / 出繁体
+      // 时这里兜底转。chineseScript 默认跟随系统语言。
+      const lines = rawLines.map((line) => convertText(line, chineseScript));
       // 把每行包成 paragraph node 数组,一次性 insert
       const nodes = lines
         .filter((l) => l.length > 0)
@@ -206,7 +215,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
     } finally {
       setUploadingFile(false);
     }
-  }, [editor]);
+  }, [editor, chineseScript]);
 
   const onUploadAudio = React.useCallback(async () => {
     if (!editor || uploadingFile) return;

@@ -52,3 +52,55 @@ export function convertText(text: string, target: ChineseScript): string {
   const fn = target === 'cn' ? toSimplified() : toTraditional();
   return fn(text);
 }
+
+/** 检测系统语言偏好,决定笔记的中文形态默认值。
+ *
+ * 信号源(按优先级):
+ *   1. localStorage 'cy.note.chinese-script'(用户上次选过的)
+ *   2. navigator.languages / navigator.language 的 BCP 47 标签
+ *      - 含 'Hant' / 'TW' / 'HK' / 'MO' → 'tw'(繁体)
+ *      - 含 'Hans' / 'CN' / 'SG' / 'MY' → 'cn'(简体)
+ *      - 任何其它(包括非中文系统、纯 'zh')→ 'cn'(笔记应用主诉求简体)
+ *
+ * 跟 chayuan i18n('zh-CN' / 'en' / 'ja' …)解耦:i18n 不区分繁简,这里
+ * 单独检测 OS 层的 zh-Hant / zh-TW 信号。
+ */
+export function detectChineseScript(): ChineseScript {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = window.localStorage.getItem('cy.note.chinese-script');
+      if (stored === 'cn' || stored === 'tw') return stored;
+    }
+  } catch {
+    // localStorage 在某些 sandbox 下不可用,fallthrough
+  }
+  const tags: string[] = [];
+  if (typeof navigator !== 'undefined') {
+    if (Array.isArray(navigator.languages)) tags.push(...navigator.languages);
+    if (navigator.language) tags.push(navigator.language);
+  }
+  for (const tag of tags) {
+    const t = tag.toLowerCase();
+    if (
+      t.includes('hant') || t.includes('-tw') || t.includes('-hk') || t.includes('-mo')
+    ) {
+      return 'tw';
+    }
+    if (t.includes('hans') || t.includes('-cn') || t.includes('-sg') || t.includes('-my') || t === 'zh') {
+      return 'cn';
+    }
+  }
+  // 非中文系统默认简体(笔记应用主流诉求)
+  return 'cn';
+}
+
+/** 持久化用户的简繁偏好,下次启动 detectChineseScript 优先读这个。 */
+export function persistChineseScript(script: ChineseScript): void {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('cy.note.chinese-script', script);
+    }
+  } catch {
+    // ignore
+  }
+}
