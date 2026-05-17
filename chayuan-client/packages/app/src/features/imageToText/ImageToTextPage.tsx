@@ -147,7 +147,14 @@ export const ImageToTextPage: React.FC = () => {
   /** 添加文件 → 进队列 → 自动启动 OCR */
   const addFiles = React.useCallback((files: File[]) => {
     if (files.length === 0) return;
-    const imgFiles = files.filter((f) => f.type.startsWith('image/'));
+    // 1. MIME 优先 — 浏览器原生 File 走这里
+    // 2. 扩展名兜底 — Tauri pickFiles 老版本 File.type 为空,会全被 MIME 滤掉,
+    //    导致用户"明明选了 jpg 还报请选图片文件"。新版 Tauri 已经推 MIME,
+    //    保留这条兜底纯属防御
+    const isImg = (f: File) =>
+      f.type.startsWith('image/') ||
+      /\.(jpe?g|png|webp|bmp|gif|tiff?|avif|heic|heif|svg|ico)$/i.test(f.name);
+    const imgFiles = files.filter(isImg);
     if (imgFiles.length === 0) {
       notifyInfo('请选图片文件(jpg / png / webp / bmp …)');
       return;

@@ -285,7 +285,10 @@ const tauriFs: FsApi = {
     for (const p of paths) {
       const bytes = await readFile(p);
       const name = p.split(/[\\/]/).pop() ?? 'file';
-      files.push(new File([new Uint8Array(bytes)], name));
+      // ⚠ 不传 type 会导致 caller 的 `f.type.startsWith('image/')` 全失效 —
+      // 比如"图转文"页面会因此拒收所有 Tauri 选出的图片。按扩展名兜底推 MIME,
+      // 跟浏览器 File 行为对齐。
+      files.push(new File([new Uint8Array(bytes)], name, { type: mimeFromName(name) }));
     }
     return files;
   },
@@ -316,7 +319,7 @@ const tauriFs: FsApi = {
         } else if (e.isFile) {
           try {
             const bytes = await readFile(sub);
-            const f = new File([new Uint8Array(bytes)], e.name);
+            const f = new File([new Uint8Array(bytes)], e.name, { type: mimeFromName(e.name) });
             // 对齐 web 行为:暴露 webkitRelativePath = '<rootName>/<rel>'
             Object.defineProperty(f, 'webkitRelativePath', {
               value: `${rootName}/${subRel}`,
@@ -357,6 +360,50 @@ const tauriFs: FsApi = {
     return list;
   },
 };
+
+/**
+ * 按文件扩展名推 MIME — Tauri plugin-fs.readFile 只给 bytes 不给 MIME,这里补一
+ * 张最小映射表,覆盖图像/文档/视频/音频/办公场景。命中失败返空(File.type 留空,
+ * 不影响 caller 后续的 MIME-agnostic 处理 — 但有名字总比啥都没有强)。
+ */
+function mimeFromName(name: string): string {
+  const m = /\.([a-z0-9]+)$/i.exec(name);
+  if (!m) return '';
+  const ext = m[1]!.toLowerCase();
+  // 高频图像 — 跟 'image/*' picker 接受的扩展名对齐
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'bmp') return 'image/bmp';
+  if (ext === 'gif') return 'image/gif';
+  if (ext === 'tif' || ext === 'tiff') return 'image/tiff';
+  if (ext === 'avif') return 'image/avif';
+  if (ext === 'heic' || ext === 'heif') return 'image/heic';
+  if (ext === 'svg') return 'image/svg+xml';
+  if (ext === 'ico') return 'image/x-icon';
+  // 文档 / 文本
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'md' || ext === 'markdown') return 'text/markdown';
+  if (ext === 'txt') return 'text/plain';
+  if (ext === 'csv') return 'text/csv';
+  if (ext === 'json') return 'application/json';
+  if (ext === 'html' || ext === 'htm') return 'text/html';
+  // 办公(MS / WPS)
+  if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (ext === 'doc') return 'application/msword';
+  if (ext === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (ext === 'xls') return 'application/vnd.ms-excel';
+  if (ext === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  if (ext === 'ppt') return 'application/vnd.ms-powerpoint';
+  // 音视频(语音消息 / KB 上传)
+  if (ext === 'mp3') return 'audio/mpeg';
+  if (ext === 'wav') return 'audio/wav';
+  if (ext === 'webm') return 'audio/webm';
+  if (ext === 'ogg') return 'audio/ogg';
+  if (ext === 'mp4') return 'video/mp4';
+  if (ext === 'mov') return 'video/quicktime';
+  return '';
+}
 
 function optsToFilters(opts?: PickOptions) {
   if (!opts?.accept) return undefined;
