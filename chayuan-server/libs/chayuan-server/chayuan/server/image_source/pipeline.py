@@ -75,7 +75,15 @@ async def process_item(
     store_name: str, item_id: str, image_bytes: bytes,
     *, model_name: str = "",
 ) -> None:
-    """处理一个 upload item。永不抛异常,失败信息写到 item.state/error。"""
+    """处理一个 upload item。永不抛异常,失败信息写到 item.state/error。
+
+    两条路径(OCR 文字 / CLIP 图像向量)**互相独立**,任一可用即视为可用:
+      - 都成功 → state=ready,可以以图搜图 + 文字检索
+      - 只 CLIP 成功 → state=ready,只能以图搜图(无 OCR 文本)
+      - 只 OCR 成功 → state=ready,只能文字检索(以图搜图缺位,UI 提示)
+      - 都失败    → state=failed
+    避免之前"CLIP 没装 → 整个 item failed,OCR 文字也丢"的体验。
+    """
     store = get_store(store_name)
 
     store.update(item_id, state="ocr_and_embedding", progress=10)
@@ -88,23 +96,23 @@ async def process_item(
     clip_coro = _run_clip_embed_safe(image_bytes, model_name=model_name)
     ocr_res, clip_res = await asyncio.gather(ocr_coro, clip_coro)
 
-    if clip_res.error or clip_res.vector is None:
-        store.update(item_id, state="failed",
-                     error=f"embedding failed: {clip_res.error or 'no vector'}",
-                     progress=0)
-        store.flush()
-        return
+    has_image_vector = False
+    if clip_res.vector is not None and not clip_res.error:
+        store.add_image_vector(item_id, clip_res.vector)
+        has_image_vector = True
+        store.update(item_id, progress=50)
+    else:
+        logger.info("CLIP embed unavailable for %s: %s",
+                    item_id, clip_res.error or "no vector")
 
-    store.add_image_vector(item_id, clip_res.vector)
-    store.update(item_id, progress=70)
-
+    has_text_vector = False
     if ocr_res.text:
         store.update(
             item_id,
             ocr_text=ocr_res.text,
             ocr_lang=ocr_res.lang,
             ocr_confidence=ocr_res.confidence,
-            progress=85,
+            progress=70,
         )
         base_url, model, api_key = _resolve_text_embed_endpoint()
         if base_url and model:
@@ -113,24 +121,40 @@ async def process_item(
             )
             if txt_res.vector is not None:
                 store.add_text_vector(item_id, txt_res.vector)
-                store.update(item_id, progress=95)
+                has_text_vector = True
+                store.update(item_id, progress=90)
             else:
                 logger.info("text embed failed for %s (%s): %s",
                             item_id, model, txt_res.error)
-                store.update(item_id, has_text_vector=False)
         else:
             logger.info(
                 "default text embedding model unresolved;"
                 " soft-degrade %s (user must configure 默认模型选择 → 文本嵌入)",
                 item_id,
             )
-            store.update(item_id, has_text_vector=False)
-    else:
-        store.update(item_id, has_text_vector=False)
-        if ocr_res.error:
-            logger.info("OCR failed for %s: %s", item_id, ocr_res.error)
+    elif ocr_res.error:
+        logger.info("OCR failed for %s: %s", item_id, ocr_res.error)
 
-    store.update(item_id, state="ready", progress=100, error=None)
+    store.update(item_id, has_text_vector=has_text_vector)
+
+    # 任一路径可用 → ready;都失败 → failed(把两边错误拼出来便于排查)
+    if has_image_vector or has_text_vector or ocr_res.text:
+        # 注:有 OCR 文本但没 text_vector 也算可用 — 用户至少可以 grep 全文
+        # diagnostics:告诉用户哪些功能受限
+        notes: list[str] = []
+        if not has_image_vector:
+            notes.append("以图搜图不可用(CLIP 未装/失败)")
+        if ocr_res.text and not has_text_vector:
+            notes.append("OCR 文字向量缺失(默认文本嵌入未配)")
+        if not ocr_res.text:
+            notes.append("无 OCR 文本(空图/OCR 未跑)")
+        diag = " · ".join(notes) or None
+        store.update(item_id, state="ready", progress=100, error=diag)
+    else:
+        # 两条路径都没货 — 真的 failed
+        err = f"CLIP={clip_res.error or 'no vector'} · OCR={ocr_res.error or 'no text'}"
+        store.update(item_id, state="failed", error=err, progress=0)
+
     store.flush()
 
 

@@ -91,8 +91,11 @@ async def test_pipeline_ocr_fails_still_ready(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_clip_fails_state_failed(monkeypatch):
-    """CLIP 失败 → fatal,state=failed。"""
+async def test_pipeline_clip_fails_still_ready_if_ocr_ok(monkeypatch):
+    """CLIP 失败 + OCR 成功 → state=ready(以图搜图缺位,可文字检索)。
+
+    2026-05 起两条路径独立:CLIP/OCR 任一可用就 ready,error 字段写降级提示;
+    只有两边都失败才 state=failed。"""
     from chayuan.server.image_source import pipeline
 
     async def _ocr(b, *, port, timeout=30.0):
@@ -113,8 +116,40 @@ async def test_pipeline_clip_fails_state_failed(monkeypatch):
     await pipeline.process_item(ctx.store_name, "img_p1", b"fakepng",
                                  model_name="clip-test")
     rec = ctx.store.get("img_p1")
+    assert rec["state"] == "ready"
+    assert rec["ocr_text"] == "x"
+    assert rec["has_text_vector"] is True
+    # image_vector_id 未设(CLIP 失败) — 老 store 可能 default 给 None / 缺字段
+    assert rec.get("image_vector_id") is None
+    assert "以图搜图不可用" in (rec["error"] or "")
+
+
+@pytest.mark.asyncio
+async def test_pipeline_both_fail_state_failed(monkeypatch):
+    """CLIP 和 OCR 都失败 → state=failed,error 拼两边原因。"""
+    from chayuan.server.image_source import pipeline
+
+    async def _ocr(b, *, port, timeout=30.0):
+        return OCRResult(error="503 rapidocr 未安装")
+    async def _clip(b, *, model_name=""):
+        raise RuntimeError("CLIP sidecar dead")
+    async def _text(t, *, base_url, model, api_key=None, timeout=30.0):
+        return EmbedResult(error="not called")
+
+    ctx = _Ctx()
+    monkeypatch.setattr(pipeline, "_run_ocr", _ocr)
+    monkeypatch.setattr(pipeline, "_run_clip_embed", _clip)
+    monkeypatch.setattr(pipeline, "_run_text_embed", _text)
+    monkeypatch.setattr(pipeline, "_resolve_ocr_port", lambda: 18380)
+    monkeypatch.setattr(pipeline, "_resolve_text_embed_endpoint",
+                        lambda: ("http://x", "user-default-embed", None))
+
+    await pipeline.process_item(ctx.store_name, "img_p1", b"fakepng",
+                                 model_name="clip-test")
+    rec = ctx.store.get("img_p1")
     assert rec["state"] == "failed"
     assert "CLIP sidecar dead" in (rec["error"] or "")
+    assert "rapidocr" in (rec["error"] or "").lower()
 
 
 @pytest.mark.asyncio
