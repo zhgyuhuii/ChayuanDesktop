@@ -163,6 +163,52 @@ def test_strip_whisper_artifacts():
 
 
 @pytest.mark.asyncio
+async def test_transcribe_file_endpoint_happy(monkeypatch):
+    """transcribe-file endpoint:接受上传音频,返回 text + segments(预留 speaker)。"""
+    from chayuan.server.api_server import modality_routes as mr
+
+    class _FakePipe:
+        def transcribe_with_diag(self, audio, *, language=None, **kw):
+            return "你好世界这是一段会议录音", []
+    monkeypatch.setattr(mr, "_get_audio_pipeline", lambda: _FakePipe())
+
+    class _UF:
+        content_type = "audio/wav"
+        filename = "meeting.wav"
+        async def read(self): return b"wav-data"
+
+    resp = await mr.transcribe_file_endpoint(
+        file=_UF(), language="zh", user={"id": 1, "role": "admin"},
+    )
+    assert resp["code"] == 0
+    d = resp["data"]
+    assert d["text"] == "你好世界这是一段会议录音"
+    assert d["language"] == "zh"
+    assert d["speaker_diarization_available"] is False
+    assert len(d["segments"]) == 1
+    assert d["segments"][0]["speaker"] == "speaker_0"
+    assert d["segments"][0]["text"] == "你好世界这是一段会议录音"
+
+
+@pytest.mark.asyncio
+async def test_transcribe_file_endpoint_empty(monkeypatch):
+    """空文件 → 不报错,返空 segments + diarization_available=False。"""
+    from chayuan.server.api_server import modality_routes as mr
+
+    class _UF:
+        content_type = "audio/wav"
+        filename = "empty.wav"
+        async def read(self): return b""
+
+    resp = await mr.transcribe_file_endpoint(
+        file=_UF(), language="zh", user={"id": 1, "role": "admin"},
+    )
+    assert resp["code"] == 0
+    assert resp["data"]["text"] == ""
+    assert resp["data"]["segments"] == []
+
+
+@pytest.mark.asyncio
 async def test_transcribe_diagnostics_flow_to_call_log(monkeypatch):
     """pipe 返 ("", [diag...]) 时,call_log.error 应包含每层 diag。"""
     from chayuan.server.api_server import modality_routes as mr

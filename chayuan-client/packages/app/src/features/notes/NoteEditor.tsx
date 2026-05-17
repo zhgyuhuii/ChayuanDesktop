@@ -14,16 +14,17 @@ import Image from '@tiptap/extension-image';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import {
-  Bold, Code, Heading1, Heading2, Image as ImageIcon, Italic, Link as LinkIcon,
-  List, ListOrdered, Mic, MicOff, Quote, Save, Strikethrough,
+  Bold, Code, FileAudio, Heading1, Heading2, Image as ImageIcon, Italic, Link as LinkIcon,
+  List, ListOrdered, Loader2, Mic, MicOff, Quote, Save, Strikethrough,
 } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { modality } from '@chayuan/api';
+import { getPlatform } from '@chayuan/platform-shared';
 import { useMicRecorder } from '../composer/useMicRecorder';
 import { useNoteDraft } from './useNoteDraft';
 import { SaveNoteDialog } from './SaveNoteDialog';
 import { AsrVolatileMark } from './AsrVolatileMark';
-import { notifyInfo, reportError } from '../../store/errorDialog';
+import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
 
 const defaultTitle = () => {
   const d = new Date();
@@ -183,6 +184,64 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
     onError: (err) => reportError(err, '录音失败'),
   });
 
+  // 上传语音文件转写
+  const [uploadingFile, setUploadingFile] = React.useState(false);
+  const onUploadAudio = React.useCallback(async () => {
+    if (!editor || uploadingFile) return;
+    let file: File | null = null;
+    try {
+      const picked = await getPlatform().fs.pickFiles({
+        multiple: false,
+        accept: 'audio/*',
+      });
+      if (!picked.length) return;
+      file = picked[0] as File;
+    } catch (e) {
+      reportError(e, '选择文件失败');
+      return;
+    }
+    setUploadingFile(true);
+    try {
+      const r = await modality.transcribeFile(file, { language: 'zh' });
+      if (!r.text) {
+        const detail = r.diagnostics || '后端未返回任何文本。检查:① ASR 服务是否就绪;② 音频是否包含可识别语音;③ 设置 → 本地模型服务 → 调用日志';
+        notifyInfo('未识别到语音文字', detail, 15000);
+        return;
+      }
+      // 不带 speaker_diarization 时,把所有 segment 当作单一说话人,合并成一段
+      // 文字 + 一个换行(用户在编辑器里读着方便,不挤一坨)。
+      // 带 diarization(后续 pyannote 集成)时,segment 按 speaker 切,每段
+      // 前面加 "Speaker A: " 前缀。
+      const lines: string[] = [];
+      if (r.speaker_diarization_available && r.segments.length > 1) {
+        // speaker_id → 用户友好 label(A/B/C/...)
+        const speakerLabels = new Map<string, string>();
+        let next = 0;
+        for (const s of r.segments) {
+          if (!speakerLabels.has(s.speaker)) {
+            speakerLabels.set(s.speaker, String.fromCharCode(65 + next));
+            next += 1;
+          }
+        }
+        for (const s of r.segments) {
+          const label = speakerLabels.get(s.speaker) ?? '?';
+          lines.push(`Speaker ${label}:${s.text.replace(/\r?\n+/g, ' ')}`);
+        }
+      } else {
+        lines.push(r.text.replace(/\r?\n+/g, ' '));
+      }
+      editor.chain().focus().insertContent(lines.join('\n')).run();
+      const meta = r.speaker_diarization_available
+        ? `共 ${r.segments.length} 段,识别到 ${new Set(r.segments.map((s) => s.speaker)).size} 个说话人`
+        : `共 ${r.text.length} 字`;
+      notifySuccess('录音转写完成', meta, 4000);
+    } catch (e) {
+      reportError(e, '上传录音转写失败');
+    } finally {
+      setUploadingFile(false);
+    }
+  }, [editor, uploadingFile]);
+
   // Ctrl/Cmd+S 触发保存
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -217,6 +276,20 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
             <><MicOff className="h-3.5 w-3.5 animate-pulse" /> {mic.elapsed}s</>
           ) : (
             <><Mic className="h-3.5 w-3.5" /> 语音</>
+          )}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => void onUploadAudio()}
+          disabled={uploadingFile || mic.recording}
+          className="h-8 text-xs"
+          title="上传录音文件 — 整段转写为文字插入笔记。说话人区分(diarization)暂未启用,所有内容归一个说话人"
+        >
+          {uploadingFile ? (
+            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> 转写中…</>
+          ) : (
+            <><FileAudio className="h-3.5 w-3.5" /> 上传录音</>
           )}
         </Button>
         <Button size="sm" onClick={() => setSaveOpen(true)} className="h-8 text-xs">

@@ -75,6 +75,25 @@ export interface CallLogResult {
   entries: CallLogEntry[];
 }
 
+/** 文件上传转写的 segment(预留 speaker_diarization,当前后端 speaker 都是 speaker_0)。 */
+export interface TranscribeFileSegment {
+  start: number;
+  end: number;
+  text: string;
+  speaker: string;
+}
+
+export interface TranscribeFileResult {
+  text: string;
+  language: string;
+  audio_seconds: number;
+  segments: TranscribeFileSegment[];
+  /** 后端是否接入了真实的 speaker diarization(pyannote / 类似)。
+   *  当前 false — 所有 segment 都标 speaker_0;前端据此决定不显示 "Speaker N:" 前缀。 */
+  speaker_diarization_available: boolean;
+  diagnostics?: string;
+}
+
 export const modality = {
   /**
    * 对一张图做 OCR。
@@ -136,6 +155,28 @@ export const modality = {
    * 读取某 capability 最近的调用日志。
    * 当前后端支持 key: 'asr' / 'ocr'(后续若加 chat/embedding record,key 同名)。
    */
+  /** 整段音频文件转写(非流式),后端 ffmpeg → wav → whisper.cpp /inference。
+   *  对大文件 latency 较高(>1 min 可能 10s+),caller 应给 loading 反馈。 */
+  async transcribeFile(
+    file: File | Blob,
+    opts: { language?: string; signal?: AbortSignal } = {},
+  ): Promise<TranscribeFileResult> {
+    const form = new FormData();
+    form.append('file', file, (file as File).name || 'upload.audio');
+    if (opts.language) form.append('language', opts.language);
+    const r = await request<{ data: TranscribeFileResult }>(`/modality/transcribe-file`, {
+      method: 'POST',
+      body: form,
+      signal: opts.signal,
+      raw: true,
+    });
+    return r.data?.data ?? {
+      text: '', language: opts.language ?? 'auto',
+      audio_seconds: 0, segments: [],
+      speaker_diarization_available: false,
+    };
+  },
+
   async callLog(key: string, limit = 200): Promise<CallLogResult> {
     const r = await request<{ data: CallLogResult }>(
       `/modality/call-log/${encodeURIComponent(key)}?limit=${limit}`,

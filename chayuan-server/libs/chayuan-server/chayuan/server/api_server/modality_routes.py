@@ -557,6 +557,113 @@ def _extract_pcm_from_wav(wav_bytes: bytes) -> bytes:
     return wav_bytes[44:]
 
 
+@modality_router.post(
+    "/transcribe-file",
+    summary="上传整段音频文件做转写(非流式,非实时)— 拖拽 / 选文件用",
+)
+async def transcribe_file_endpoint(
+    file: UploadFile = File(..., description="音频文件:webm/wav/mp3/m4a/flac/ogg 等"),
+    language: str = Form("zh"),
+    user=Depends(require_auth_enabled()),
+):
+    """跟 /transcribe 的区别:
+      - /transcribe:为流式录音设计,每个 chunk(~2.5s)送一次,带 session_id
+      - /transcribe-file:整段音频一次性转写,适合用户从磁盘上传录音/会议录音
+
+    流程:
+      1. 接 multipart 'file'(任意 audio 格式)
+      2. ffmpeg 转 16kHz mono wav
+      3. 整段送 whisper.cpp /inference
+      4. 繁体 → 简体,strip whisper 静音/语言名 marker
+      5. 返回 {text, language, audio_seconds, segments: [{start, end, text, speaker}]}
+         (当前 speaker 都标 "speaker_0";后续接入 pyannote 拿真实 diarization 时填)
+
+    audio 大文件:
+      - 后端 ASR_SEMAPHORE(2)限制并发
+      - whisper.cpp /inference 内部 30s chunked,长录音它自己分段跑
+      - 单文件 >5 min 时延迟可能几十秒,前端要给 loading 反馈
+    """
+    import os as _os
+    import tempfile as _tempfile
+    import time as _time
+
+    t0 = _time.perf_counter()
+    data = await file.read()
+    audio_bytes = len(data) if data else 0
+    fname = file.filename or "upload.audio"
+    if not data:
+        return {
+            "code": 0,
+            "data": {"text": "", "language": language or "auto", "audio_seconds": 0.0,
+                     "segments": [], "speaker_diarization_available": False},
+        }
+    ext = _guess_audio_ext(file.content_type or "", fname)
+    logger.info(
+        "transcribe-file in: %d bytes, ct=%s, fn=%s → ext=%s, lang=%s",
+        audio_bytes, file.content_type, fname, ext, language or "auto",
+    )
+    pipe = _get_audio_pipeline()
+
+    in_tmp: Optional[str] = None
+    text = ""
+    pipe_diag: list = []
+    transcribe_err = ""
+    async with _ASR_SEMAPHORE:
+        try:
+            with _tempfile.NamedTemporaryFile(suffix=ext, delete=False,
+                                                prefix="chayuan_asr_upload_") as tf:
+                tf.write(data)
+                in_tmp = tf.name
+            # 复用 transcribe_with_diag:它会 ffmpeg 转 wav + sidecar /inference
+            # + 繁简转换 + strip marker
+            text, pipe_diag = await asyncio.to_thread(
+                pipe.transcribe_with_diag, in_tmp,
+                language=(language or None),
+            )
+            logger.info("transcribe-file out: %d chars, %d diag lines",
+                         len(text or ""), len(pipe_diag))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("transcribe-file failed: %r", e)
+            transcribe_err = f"{type(e).__name__}: {e}"
+        finally:
+            if in_tmp:
+                try: _os.unlink(in_tmp)
+                except Exception: pass  # noqa: BLE001
+
+    success = bool(text)
+    err_text = "" if success else "\n".join([transcribe_err, *pipe_diag] if transcribe_err else pipe_diag)
+    record_call(
+        "asr", success=success,
+        duration_ms=(_time.perf_counter() - t0) * 1000,
+        bytes_in=audio_bytes, preview=text or "", error=err_text,
+        extra={
+            "filename": fname, "language": language or "auto",
+            "audio_format": ext, "endpoint": "transcribe-file",
+        },
+    )
+
+    # 当前不带 diarization:只返一个整段 segment 占位,speaker 都标 speaker_0。
+    # 接入 pyannote.audio 后,这里会变成多个 segment + 真实 speaker label。
+    segments = [{
+        "start": 0.0, "end": 0.0,  # whisper.cpp plain text 没时间戳
+        "text": text,
+        "speaker": "speaker_0",
+    }] if text else []
+
+    return {
+        "code": 0,
+        "data": {
+            "text": text or "",
+            "language": language or "auto",
+            "audio_seconds": 0.0,  # 没解析 wav 头,留 0.0 占位
+            "segments": segments,
+            # 客户端据此判断要不要把"Speaker N:"前缀加上
+            "speaker_diarization_available": False,
+            "diagnostics": err_text if not success else "",
+        },
+    }
+
+
 @modality_router.get("/call-log/{key}", summary="读取某 capability 最近的调用日志")
 async def call_log_endpoint(
     key: str,
