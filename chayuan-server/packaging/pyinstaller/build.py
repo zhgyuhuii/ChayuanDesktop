@@ -731,9 +731,22 @@ def _run_torch_preflight(
     allow_missing: bool,
 ) -> None:
     """调 packaging/preflight_torch.preflight,缺则下,失败则按 allow_missing 决定抛 or warn。"""
-    from packaging.preflight_torch import (
-        DEFAULT_OUT_ROOT, _PLATFORM_TAG, build_targets, parse_variants, preflight,
-    )
+    # ⚠ 不要写 `from packaging.preflight_torch import ...`:PyPI 上的 packaging
+    # 是个真包(pip/setuptools 的依赖,几乎所有 Python 都装),会撞到它而不是
+    # 本仓的 chayuan-server/packaging/(后者没 __init__.py,只是普通目录)。按
+    # 文件路径直接 load,绕开 namespace 冲突,跟外部环境无关。
+    import importlib.util as _ilu
+    _pf_path = ROOT / "packaging" / "preflight_torch.py"
+    _spec = _ilu.spec_from_file_location("chayuan_preflight_torch", _pf_path)
+    if _spec is None or _spec.loader is None:
+        raise SystemExit(f"[build] 无法加载 preflight_torch.py(路径:{_pf_path})")
+    _mod = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    DEFAULT_OUT_ROOT = _mod.DEFAULT_OUT_ROOT
+    _PLATFORM_TAG = _mod._PLATFORM_TAG
+    build_targets = _mod.build_targets
+    parse_variants = _mod.parse_variants
+    preflight = _mod.preflight
 
     # platform tag:CLI 显式覆盖优先;否则按 target triple 自动映射
     if platforms_override:
