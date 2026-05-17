@@ -73,11 +73,30 @@ async def text_search(
     向量路在它之后做语义补充。
     """
     store = get_store(store_name)
-    diagnostics = {"keyword_path": "ok", "text_path": "ok", "image_path": "ok"}
+    # 诊断用中文人话,前端 ImageKbDetail 直接展示 — 之前 "ok / unavailable: ..."
+    # 是工程黑话,用户看不懂。三路统一用"已命中 N 张" / "未启用:<原因>" 结构。
+    diagnostics: Dict[str, str] = {
+        "keyword_path": "未命中",
+        "text_path": "未启用",
+        "image_path": "未启用",
+    }
+
+    total = store.count()
+    if total == 0:
+        # 索引空 — 给个清晰提示,不让前端只看到 "未找到相关图片"
+        return {
+            "hits": [],
+            "diagnostics": {
+                **diagnostics,
+                "summary": "知识库还没有图片,请先上传后再搜索。",
+            },
+        }
 
     # 关键词路是 in-memory substring 扫描,~ O(N) 不耗时间;同步跑就行
     keyword_hits = _run_keyword_path(store, query, top_k, source_id)
-    diagnostics["keyword_path"] = f"matched {len(keyword_hits)}"
+    diagnostics["keyword_path"] = (
+        f"按关键词命中 {len(keyword_hits)} 张" if keyword_hits else "按关键词未命中"
+    )
 
     text_task = asyncio.create_task(
         _run_text_vec_path(store, query, top_k, source_id)
@@ -93,16 +112,29 @@ async def text_search(
     if keyword_hits:
         rankings.append(keyword_hits)
     if text_res.error:
-        diagnostics["text_path"] = f"unavailable: {text_res.error}"
+        diagnostics["text_path"] = f"文本向量搜索不可用:{text_res.error}"
     elif text_res.hits:
+        diagnostics["text_path"] = f"按 OCR 文字命中 {len(text_res.hits)} 张"
         rankings.append(text_res.hits)
+    else:
+        diagnostics["text_path"] = "按 OCR 文字未命中"
     if image_res.error:
-        diagnostics["image_path"] = f"unavailable: {image_res.error}"
+        diagnostics["image_path"] = f"视觉跨模态搜索不可用:{image_res.error}"
     elif image_res.hits:
+        diagnostics["image_path"] = f"按视觉相似命中 {len(image_res.hits)} 张"
         rankings.append(image_res.hits)
+    else:
+        diagnostics["image_path"] = "按视觉相似未命中"
 
     if not rankings:
-        return {"hits": [], "diagnostics": diagnostics}
+        return {
+            "hits": [],
+            "diagnostics": {
+                **diagnostics,
+                "summary": f"知识库共 {total} 张图,但三种搜索方式都没命中。"
+                            "建议:换关键词试试,或检查 KB 详情页有无「未索引」图。",
+            },
+        }
     fused = rrf_fuse(rankings, k=k_rrf)[:top_k]
     # 关键词命中的 id 集合 — 融合后 source_path 都会被改成 "fused",前端没法
     # 凭 ImageHit 区分哪些是字面命中。这里把这一信息单独传给前端,UI 可加

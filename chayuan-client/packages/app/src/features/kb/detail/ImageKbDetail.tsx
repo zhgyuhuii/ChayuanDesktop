@@ -475,17 +475,18 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
               <p className="text-[11px] font-medium text-violet-800">
                 按文字搜图:&ldquo;{textQuery}&rdquo; — {textResult.hits.length} 张相关
               </p>
-              {(textResult.diagnostics.text_path !== 'ok' ||
-                textResult.diagnostics.image_path !== 'ok') && (
+              {/* 命中诊断:后端已经把 keyword_path / text_path / image_path 都
+                  改成中文人话(例:"按关键词命中 3 张" / "按 OCR 文字未命中" /
+                  "视觉跨模态搜索不可用:..."),直接平铺展示即可。 */}
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-violet-700/80">
+                <span>· {textResult.diagnostics.keyword_path}</span>
+                <span>· {textResult.diagnostics.text_path}</span>
+                <span>· {textResult.diagnostics.image_path}</span>
+              </p>
+              {textResult.diagnostics.summary && (
                 <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-amber-700">
                   <AlertCircle className="h-3 w-3" />
-                  {textResult.diagnostics.text_path !== 'ok' && (
-                    <span>文本向量路:{textResult.diagnostics.text_path}。</span>
-                  )}
-                  {textResult.diagnostics.image_path !== 'ok' && (
-                    <span>视觉跨模态路:{textResult.diagnostics.image_path}。</span>
-                  )}
-                  结果可能不完整。
+                  {textResult.diagnostics.summary}
                 </p>
               )}
             </div>

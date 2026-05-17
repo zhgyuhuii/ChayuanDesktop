@@ -146,12 +146,23 @@ class ImageConnector(BaseConnector):
         if mismatch:
             return [_error_chunk(mismatch, self.source_id)]
 
-        hits = get_store(self._source_name).search(q_vec, top_k=max(1, int(query.top_k or 5)))
+        # ⚠ store 公开 API 是 search_image / search_text;没有裸 search() —
+        # 调 .search() 会抛 AttributeError 被路由 500 兜住,用户看到"无法搜出结
+        # 果"且无具体诊断。这里走 search_image:text → image 跨模态查图,query
+        # 向量空间跟 image_vector 同向(用户 KB 用 CLIP/SigLIP 时成立)。
+        store = get_store(self._source_name)
+        hits = store.search_image(q_vec, top_k=max(1, int(query.top_k or 5)))
         if not hits:
-            return [_error_chunk(
-                f"图像索引 {self._source_name!r} 为空或无匹配；请先上传图片完成索引。",
-                self.source_id,
-            )]
+            total = store.count()
+            if total == 0:
+                msg = f"图像索引 {self._source_name!r} 为空,请先上传图片完成索引。"
+            else:
+                msg = (
+                    f"图像索引 {self._source_name!r} 共 {total} 张,但当前查询"
+                    "无匹配。可能原因:图像未完成视觉向量化(看 KB 详情页有无"
+                    "「未索引」标记,修好 image-embedding 模型后重新上传)。"
+                )
+            return [_error_chunk(msg, self.source_id)]
         return [self._hit_to_chunk(rec, score) for rec, score in hits]
 
     # ---- 图像 → 图像 ----
@@ -159,15 +170,27 @@ class ImageConnector(BaseConnector):
     def search_by_image(self, src, top_k: int = 5) -> List[RetrievalChunk]:
         emb = get_embedder(self._model_name)
         if not emb.is_available():
-            return [_error_chunk("Embedder 未就绪", self.source_id)]
+            return [_error_chunk("图像向量模型未就绪,请到「设置 → 图像嵌入」检查。", self.source_id)]
         try:
             q_vec = emb.embed_image(src)
         except Exception as e:  # noqa: BLE001
-            return [_error_chunk(f"图像向量化失败：{e}", self.source_id)]
+            return [_error_chunk(f"图像向量化失败:{e}", self.source_id)]
         mismatch = self._check_consistency(emb)
         if mismatch:
             return [_error_chunk(mismatch, self.source_id)]
-        hits = get_store(self._source_name).search(q_vec, top_k=max(1, int(top_k or 5)))
+        # 同上:走 search_image 而非不存在的 .search()
+        store = get_store(self._source_name)
+        hits = store.search_image(q_vec, top_k=max(1, int(top_k or 5)))
+        if not hits:
+            total = store.count()
+            if total == 0:
+                msg = f"图像知识库为空,请先上传图片。"
+            else:
+                msg = (
+                    f"知识库共 {total} 张图,但没找到相似的。可能图像未完成"
+                    "视觉向量化,看 KB 详情页有无「未索引」标记。"
+                )
+            return [_error_chunk(msg, self.source_id)]
         return [self._hit_to_chunk(rec, score) for rec, score in hits]
 
     # ---- 添加 / 移除 ----

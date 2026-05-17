@@ -409,9 +409,12 @@ export interface ImageRrfHit {
 }
 
 export interface ImageRrfDiagnostics {
-  /** "ok" 或 "unavailable: <reason>" */
+  /** 中文人话:例 "按关键词命中 3 张" / "按关键词未命中" / "..." */
+  keyword_path: string;
   text_path: string;
   image_path: string;
+  /** 整体诊断摘要(空库 / 三路都失败时);存在时前端用 amber 警告条展示 */
+  summary?: string;
 }
 
 export interface ImageRrfSearchResponse {
