@@ -276,6 +276,7 @@ async def asr_diag_endpoint(user=Depends(require_auth_enabled())):
 async def transcribe_endpoint(
     file: UploadFile = File(...),
     language: str = Form(""),
+    session_id: str = Form(""),
     user=Depends(require_auth_enabled()),
 ):
     """POST multipart 'file' (audio: webm/opus/wav/mp3/ogg)。
@@ -283,31 +284,81 @@ async def transcribe_endpoint(
     Form fields:
         - file: audio 字节
         - language: 语言提示("zh"/"en"/""为自动)
+        - session_id: 可选;给了就走流式 LocalAgreement-2 session(每次返
+          stable_increment + volatile_suffix,前端只 commit 稳定前缀;比
+          chunk-by-chunk 转写准确率高,因为有跨 chunk 上下文)
 
-    Resp: {code: 0, data: {text, language, audio_format, audio_bytes}}
+    Resp 不带 session_id(向后兼容):{code: 0, data: {text, language, audio_format, audio_bytes}}
+    Resp 带 session_id:                {code: 0, data: {
+        text,                # = stable_increment(本次新 commit 的字符)
+        hypothesis,          # 当前完整 whisper 猜测(整段 audio_pcm)
+        committed_text,      # 截至本次的全部 stable 文本
+        volatile_suffix,     # 当前未确认的尾部
+        retroactive_change,  # whisper 改了之前 commit(罕见,仅诊断用)
+        is_full,             # session 累积 audio 已达 30s 上限,前端 should restart
+        chunk_count,         # session 收到的 chunk 累计
+        audio_seconds,       # session 累积音频时长
+        language, audio_format, audio_bytes,
+    }}
     永不抛 ASR exception;失败时 text 为 "" + 顶层 code 仍 0。
     """
     import time as _time
     t0 = _time.perf_counter()
     data = await file.read()
     fname = file.filename or ""
+    sid = (session_id or "").strip()
     if not data:
         record_call("asr", success=False,
                     duration_ms=(_time.perf_counter() - t0) * 1000,
                     bytes_in=0, error="empty file",
-                    extra={"filename": fname, "language": language or "auto"})
-        return {"code": 0, "data": {"text": "", "language": language or "auto",
-                                     "audio_format": "", "audio_bytes": 0}}
-    # 写到带正确扩展名的 temp file,让 AudioPipeline 下游能 sniff 出格式
+                    extra={"filename": fname, "language": language or "auto",
+                           "session_id": sid})
+        empty_resp = {"text": "", "language": language or "auto",
+                       "audio_format": "", "audio_bytes": 0}
+        if sid:
+            empty_resp.update({
+                "hypothesis": "", "committed_text": "", "volatile_suffix": "",
+                "retroactive_change": False, "is_full": False,
+                "chunk_count": 0, "audio_seconds": 0.0,
+            })
+        return {"code": 0, "data": empty_resp}
+
     import os as _os
     import tempfile as _tempfile
     ext = _guess_audio_ext(file.content_type or "", file.filename or "")
     audio_bytes = len(data)
     logger.info(
-        "transcribe in: %d bytes, ct=%s, fn=%s → ext=%s, lang=%s",
+        "transcribe in: %d bytes, ct=%s, fn=%s → ext=%s, lang=%s, sid=%s",
         audio_bytes, file.content_type, file.filename, ext, language or "auto",
+        sid or "(none)",
     )
     pipe = _get_audio_pipeline()
+
+    # ─────────── 走 session(LocalAgreement-2)分支 ───────────
+    if sid:
+        result_data, success, err_text, preview = await _transcribe_in_session(
+            sid=sid, raw_audio=data, audio_ext=ext, language=language, pipe=pipe,
+        )
+        result_data.update({
+            "language": language or "auto",
+            "audio_format": ext,
+            "audio_bytes": audio_bytes,
+        })
+        record_call(
+            "asr", success=success,
+            duration_ms=(_time.perf_counter() - t0) * 1000,
+            bytes_in=audio_bytes, preview=preview, error=err_text,
+            extra={
+                "filename": fname, "language": language or "auto",
+                "audio_format": ext, "session_id": sid,
+                "chunk_count": result_data.get("chunk_count", 0),
+                "audio_seconds": result_data.get("audio_seconds", 0.0),
+                "is_full": result_data.get("is_full", False),
+            },
+        )
+        return {"code": 0, "data": result_data}
+
+    # ─────────── 旧的单 chunk 分支(向后兼容,无 session_id 时走) ───────────
     tmp_path: Optional[str] = None
     text = ""
     transcribe_err = ""
@@ -318,7 +369,6 @@ async def transcribe_endpoint(
                                                 prefix="chayuan_asr_") as tf:
                 tf.write(data)
                 tmp_path = tf.name
-            # transcribe_with_diag 把每层后端的具体失败原因 collect 出来
             text, pipe_diag = await asyncio.to_thread(
                 pipe.transcribe_with_diag, tmp_path,
                 language=(language or None),
@@ -336,9 +386,7 @@ async def transcribe_endpoint(
                 except Exception:  # noqa: BLE001
                     pass
     dur = (_time.perf_counter() - t0) * 1000
-    # success 定义:无 exception 且 text 非空(pipeline 把所有后端失败都吞成 "")
     success = bool(text)
-    # 失败时把每层 diagnostics 拼到 error 字段,call_log 直接显示
     if not success:
         parts = []
         if transcribe_err:
@@ -351,13 +399,9 @@ async def transcribe_endpoint(
         err_text = ""
     record_call(
         "asr", success=success, duration_ms=dur, bytes_in=audio_bytes,
-        preview=text or "",
-        error=err_text,
-        extra={
-            "filename": fname,
-            "language": language or "auto",
-            "audio_format": ext,
-        },
+        preview=text or "", error=err_text,
+        extra={"filename": fname, "language": language or "auto",
+               "audio_format": ext},
     )
     return {
         "code": 0,
@@ -368,6 +412,149 @@ async def transcribe_endpoint(
             "audio_bytes": audio_bytes,
         },
     }
+
+
+async def _transcribe_in_session(
+    *, sid: str, raw_audio: bytes, audio_ext: str,
+    language: str, pipe,
+) -> tuple:
+    """session 分支主体 — ffmpeg 转 wav → 抽 PCM → AsrSession.append_chunk → 返
+    (data_dict, success, err_text, preview)。
+
+    每个 chunk 都把累积 PCM 包成 WAV 整段送 whisper(LocalAgreement-2 比对)。
+    比单 chunk 转写准确率高,但开销也大些(每次跑 1-30s 的 audio,而不只是 2.5s)。
+    """
+    import os as _os
+    import tempfile as _tempfile
+    from chayuan.server.modality.asr_session import (
+        PCM_BYTES_PER_SECOND, get_registry, make_wav_bytes,
+    )
+
+    err_text = ""
+    preview = ""
+    success = False
+
+    # 1) 先把上传的 webm(或别的格式)转 16kHz mono wav,抽 PCM 部分
+    in_tmp: Optional[str] = None
+    pcm_chunk: bytes = b""
+    try:
+        with _tempfile.NamedTemporaryFile(
+            suffix=audio_ext, delete=False, prefix="chayuan_asr_in_",
+        ) as tf:
+            tf.write(raw_audio)
+            in_tmp = tf.name
+        wav_path, wav_cleanup, transcode_err = await asyncio.to_thread(
+            pipe._transcode_to_wav, in_tmp,
+        )
+        if wav_path is None:
+            err_text = f"[session] ffmpeg 转 wav 失败:{transcode_err}"
+        else:
+            try:
+                with open(wav_path, "rb") as f:
+                    wav_full = f.read()
+                # WAV header 44 字节(我们 _transcode_to_wav 出来的是 pcm_s16le,RIFF
+                # header 固定 44 字节)。data chunk 之后才是 PCM。
+                pcm_chunk = _extract_pcm_from_wav(wav_full)
+            finally:
+                if wav_cleanup is not None:
+                    try: wav_cleanup.cleanup()
+                    except Exception: pass  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        err_text = f"[session] 转码异常:{type(e).__name__}: {e}"
+    finally:
+        if in_tmp:
+            try: _os.unlink(in_tmp)
+            except Exception: pass  # noqa: BLE001
+
+    if not pcm_chunk:
+        return (
+            {"text": "", "hypothesis": "", "committed_text": "",
+             "volatile_suffix": "", "retroactive_change": False,
+             "is_full": False, "chunk_count": 0, "audio_seconds": 0.0},
+            False, err_text or "[session] 没有可识别的音频", "",
+        )
+
+    # 2) transcribe_fn 闭包:接 wav_bytes,写 tempfile,调 sidecar
+    def transcribe_fn(wav_bytes: bytes) -> tuple:
+        wav_tmp: Optional[str] = None
+        try:
+            with _tempfile.NamedTemporaryFile(
+                suffix=".wav", delete=False, prefix="chayuan_asr_sess_",
+            ) as tf:
+                tf.write(wav_bytes)
+                wav_tmp = tf.name
+            # _transcribe_via_sidecar_with_diag 已对 .wav 跳过转码,直接送 sidecar
+            return pipe._transcribe_via_sidecar_with_diag(
+                wav_tmp, language=(language or None),
+            )
+        except Exception as e:  # noqa: BLE001
+            return "", [f"[session-transcribe] {type(e).__name__}: {e}"]
+        finally:
+            if wav_tmp:
+                try: _os.unlink(wav_tmp)
+                except Exception: pass  # noqa: BLE001
+
+    # 3) session.append_chunk(LocalAgreement-2 应用)
+    sess = get_registry().get_or_create(sid, language=(language or None))
+    async with _ASR_SEMAPHORE:
+        try:
+            result = await asyncio.to_thread(
+                sess.append_chunk, pcm_chunk, transcribe_fn,
+            )
+        except Exception as e:  # noqa: BLE001
+            err_text = f"[session] append_chunk 异常:{type(e).__name__}: {e}"
+            return (
+                {"text": "", "hypothesis": "", "committed_text": sess.committed_text,
+                 "volatile_suffix": "", "retroactive_change": False,
+                 "is_full": False, "chunk_count": sess.chunk_count,
+                 "audio_seconds": len(sess.audio_pcm) / PCM_BYTES_PER_SECOND},
+                False, err_text, "",
+            )
+
+    stable_inc = result["stable_increment"]
+    success = bool(stable_inc or result["volatile_suffix"] or result["hypothesis"])
+    preview = stable_inc or result["hypothesis"] or ""
+    if not success and result.get("diagnostics"):
+        err_text = "\n".join(result["diagnostics"])
+
+    # 满了就 drop session,下一个 chunk 客户端应该用新 session_id 重启
+    if result["is_full"]:
+        get_registry().drop(sid)
+
+    return (
+        {
+            "text": stable_inc,  # 兼容 TranscribeResult.text 语义:本次 commit 的字符
+            "hypothesis": result["hypothesis"],
+            "committed_text": result["committed_text"],
+            "volatile_suffix": result["volatile_suffix"],
+            "retroactive_change": result["retroactive_change"],
+            "is_full": result["is_full"],
+            "chunk_count": result["chunk_count"],
+            "audio_seconds": result["audio_seconds"],
+        },
+        success, err_text, preview,
+    )
+
+
+def _extract_pcm_from_wav(wav_bytes: bytes) -> bytes:
+    """ffmpeg 出来的 wav 通常是 44 字节 header + PCM。
+    严格起见 parse 一下 chunk 找 'data' 段。失败 fallback 44 字节假设。
+    """
+    if len(wav_bytes) < 44:
+        return b""
+    # RIFF header check
+    if wav_bytes[:4] != b"RIFF" or wav_bytes[8:12] != b"WAVE":
+        return wav_bytes  # 不是 wav,原样返(让 caller 自己处理)
+    # parse chunks 找 'data'
+    pos = 12
+    while pos + 8 <= len(wav_bytes):
+        chunk_id = wav_bytes[pos:pos + 4]
+        chunk_size = int.from_bytes(wav_bytes[pos + 4:pos + 8], "little")
+        if chunk_id == b"data":
+            return wav_bytes[pos + 8:pos + 8 + chunk_size]
+        pos += 8 + chunk_size
+    # fallback
+    return wav_bytes[44:]
 
 
 @modality_router.get("/call-log/{key}", summary="读取某 capability 最近的调用日志")

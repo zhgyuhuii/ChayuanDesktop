@@ -24,6 +24,7 @@
  */
 import * as React from 'react';
 import { modality } from '@chayuan/api';
+import { uuid } from '@chayuan/platform-shared';
 
 export interface UseMicRecorderOptions {
   /** 切片时长(ms),默认 4000 */
@@ -67,6 +68,11 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
   const tickerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const sliceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopRequestedRef = React.useRef(false);
+  // 流式 LocalAgreement-2 session id — start 时生成,每个 chunk POST 带上。
+  // 后端拿到 session_id 时走累积+二次校验路径,返 stable_increment(本次新 commit)
+  // 而不是整 chunk 文本;比单 chunk 转写准多了。is_full 时(后端积累 30s 上限)
+  // 客户端这层自动换新 session id 续录。
+  const sessionIdRef = React.useRef<string>('');
   // 长跑稳定性:每 N 个 chunk(~20s)refresh 一次 MediaStream — Tauri WebView2
   // 上反复 stop/start MediaRecorder 同一 stream 会逐步 leak 内部状态,16-20 次
   // 后 ondataavailable 不再触发(用户报告"40s 卡死"即此现象)。close 老 stream
@@ -203,10 +209,25 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
         `[mic] chunk #${idx} size=${named.size}B type=${named.type}`,
       );
       modality
-        .transcribe(named, { language: optsRef.current.language, signal: ac.signal })
+        .transcribe(named, {
+          language: optsRef.current.language,
+          signal: ac.signal,
+          sessionId: sessionIdRef.current,
+        })
         .then((r) => {
+          // session 模式:r.text 是 stable_increment(LocalAgreement-2 二次校验后
+          // 新 commit 的字符),而不是整 chunk 转写
           const text = (r.text || '').trim();
-          console.debug(`[mic] chunk #${idx} → "${text}" (${text.length} chars)`);
+          const isFull = !!r.is_full;
+          console.debug(
+            `[mic] chunk #${idx} sid=${sessionIdRef.current.slice(0, 6)} ` +
+              `+"${text}" (${text.length}c) hyp="${(r.hypothesis ?? '').slice(0, 40)}..." full=${isFull}`,
+          );
+          if (isFull) {
+            // 后端 session 积累已 30s,自动换新 sid 让下一个 chunk 续录
+            sessionIdRef.current = uuid();
+            console.debug('[mic] session full,rotated to', sessionIdRef.current.slice(0, 6));
+          }
           pendingRef.current.set(idx, text);
           flushBuffered();
         })
@@ -271,6 +292,8 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     stopRequestedRef.current = false;
     finalizedRef.current = false;
     slicesOnStreamRef.current = 0;
+    // 每次开录新一个 session id,后端用它做 LocalAgreement-2 上下文修正
+    sessionIdRef.current = uuid();
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });

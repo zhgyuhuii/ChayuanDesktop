@@ -59,7 +59,7 @@ async def test_transcribe_endpoint_happy(monkeypatch):
         filename = "chunk-0.webm"
         async def read(self): return b"webm-bytes"
     resp = await mr.transcribe_endpoint(
-        file=_UF(), language="zh", user={"id": 1, "role": "admin"},
+        file=_UF(), language="zh", session_id="", user={"id": 1, "role": "admin"},
     )
     assert resp["code"] == 0
     assert resp["data"]["text"] == "你好世界"
@@ -92,7 +92,7 @@ async def test_transcribe_endpoint_empty_returns_empty_text(monkeypatch):
         filename = ""
         async def read(self): return b""
     resp = await mr.transcribe_endpoint(
-        file=_UF(), language="", user={"id": 1, "role": "admin"},
+        file=_UF(), language="", session_id="", user={"id": 1, "role": "admin"},
     )
     assert resp["code"] == 0
     assert resp["data"]["text"] == ""
@@ -115,7 +115,7 @@ async def test_call_log_endpoint_records_asr(monkeypatch):
         filename = "test.webm"
         async def read(self): return b"webm-data"
 
-    await mr.transcribe_endpoint(file=_UF(), language="zh",
+    await mr.transcribe_endpoint(file=_UF(), language="zh", session_id="",
                                   user={"id": 1, "role": "admin"})
 
     resp = await mr.call_log_endpoint(key="asr", limit=10,
@@ -182,7 +182,7 @@ async def test_transcribe_diagnostics_flow_to_call_log(monkeypatch):
         filename = "x.webm"
         async def read(self): return b"webm-bytes"
 
-    await mr.transcribe_endpoint(file=_UF(), language="",
+    await mr.transcribe_endpoint(file=_UF(), language="", session_id="",
                                   user={"id": 1, "role": "admin"})
     entries = call_log.get_log("asr")
     assert len(entries) == 1

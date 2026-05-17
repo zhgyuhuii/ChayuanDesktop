@@ -13,8 +13,24 @@ export interface OcrResult {
 }
 
 export interface TranscribeResult {
+  /** 兼容字段:
+   *  - 无 sessionId 路径 → 整个 chunk 的转写文本
+   *  - 有 sessionId 路径 → 本次 LocalAgreement-2 新 commit 的 stable_increment */
   text: string;
   language: string;
+  // session 模式下的额外字段(无 session 时 undefined):
+  /** 当前 whisper 对累积音频的完整猜测(整段 audio_pcm) */
+  hypothesis?: string;
+  /** 截至本次的全部 stable 文本(包括本次的 increment) */
+  committed_text?: string;
+  /** 当前未确认的尾部(LocalAgreement 还在等第二次确认) */
+  volatile_suffix?: string;
+  /** whisper 改写了之前 commit 的内容(罕见,前端不撤销;仅诊断用) */
+  retroactive_change?: boolean;
+  /** session 累积音频已达 30s 上限,下一个 chunk 应换 sessionId 重启 */
+  is_full?: boolean;
+  chunk_count?: number;
+  audio_seconds?: number;
 }
 
 export interface AsrDiagSidecar {
@@ -83,11 +99,18 @@ export const modality = {
    */
   async transcribe(
     blob: Blob,
-    opts: { language?: string; signal?: AbortSignal } = {},
+    opts: {
+      language?: string;
+      signal?: AbortSignal;
+      /** 传 session_id 走流式 LocalAgreement-2 路径,后端会用累积音频跨 chunk 校验,
+       *  返 stable_increment(本次新 commit)+ volatile_suffix(未确认尾部) */
+      sessionId?: string;
+    } = {},
   ): Promise<TranscribeResult> {
     const form = new FormData();
     form.append('file', blob, (blob as File).name || 'audio.webm');
     if (opts.language) form.append('language', opts.language);
+    if (opts.sessionId) form.append('session_id', opts.sessionId);
     const r = await request<{ data: TranscribeResult }>(`/modality/transcribe`, {
       method: 'POST',
       body: form,
