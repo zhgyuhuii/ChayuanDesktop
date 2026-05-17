@@ -111,11 +111,13 @@ fn chayuan_capture_for_overlay(
 ) -> Result<MonitorGeom, String> {
     let monitors = xcap::Monitor::all().map_err(|e| format!("xcap: {e}"))?;
     let primary = monitors.into_iter().next().ok_or_else(|| "no monitor".to_string())?;
+    // xcap 0.6+ 把 x/y/width/height 改成 Result<T, XCapError>(底层 OS API 可能
+    // 失败,比如 Wayland 无权限);用 ? 解包,失败映射成 String
     let geom = MonitorGeom {
-        x: primary.x(),
-        y: primary.y(),
-        width: primary.width(),
-        height: primary.height(),
+        x: primary.x().map_err(|e| format!("monitor.x: {e}"))?,
+        y: primary.y().map_err(|e| format!("monitor.y: {e}"))?,
+        width: primary.width().map_err(|e| format!("monitor.width: {e}"))?,
+        height: primary.height().map_err(|e| format!("monitor.height: {e}"))?,
     };
     let img = primary.capture_image().map_err(|e| format!("capture: {e}"))?;
     let mut buf: Vec<u8> = Vec::new();
