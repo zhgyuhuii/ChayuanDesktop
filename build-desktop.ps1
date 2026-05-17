@@ -91,7 +91,10 @@ param(
     # 典型:开发者用 install-bundled-models.ps1 -ChayuanRoot 装到 chayuan_root,打包时
     # 通过 -BundledSource $env:CHAYUAN_ROOT\models\bundled 复用同一份模型。
     # 不传 = build.py 默认走 vendor/bundled_models/(也可由 $CHAYUAN_BUILD_BUNDLED_SOURCE env 覆盖)。
-    [string]$BundledSource
+    [string]$BundledSource,
+    # ISO 打包开关(默认 full 自动出 ISO,lite 不出 — lite 就一个 .exe 不分散)
+    [switch]$NoIso,    # 不论 lite/full 都不打 ISO(开发者本机迭代)
+    [switch]$IsoBoth   # lite 也出 ISO(罕用,一般 full 才需要)
 )
 
 # 旧名兼容 + 提示
@@ -803,6 +806,70 @@ if ($SkipFrontend) {
         }
         Write-Host "    $($a.FullName) -> $dest ($sz MB)"
     }
+
+    # ----------------------------------------------------------------
+    # ISO 打包:把 dist-{flavor}\ 整目录打成 .iso,Win10+ 双击挂载即可。
+    # ----------------------------------------------------------------
+    # 全量版 .msi 走外置 CAB (EmbedCab="no") 绕国产杀软,用户得拿到 .msi + 所有
+    # .cab 一起装。之前提示 zip 给用户 → 用户解压 → 双击 MSI;现在直接出 ISO
+    # 单文件分发:用户双击 ISO,Win10+ 自动挂载成虚拟光驱,进光驱目录双击 MSI
+    # 即可,MSI 在同目录(光驱根)能找到所有 CAB。
+    #
+    # 默认:full 自动出 ISO;lite 不出(就一个 .exe,本来不分散)。
+    # 开关:-NoIso 一律不出;-IsoBoth lite 也出。
+    $shouldMakeIso = (-not $NoIso) -and (-not $SkipFrontend) -and ($IsWindows -or $env:OS -eq 'Windows_NT')
+    if ($shouldMakeIso -and $Flavor -eq 'lite' -and (-not $IsoBoth)) {
+        $shouldMakeIso = $false
+    }
+    if ($shouldMakeIso) {
+        Write-Step "ISO 镜像 ($Flavor)"
+
+        # 加一份 README,装机用户挂载光驱后能立刻看到下一步
+        $readmePath = Join-Path $flavorOut '安装说明.txt'
+        $readmeLines = @(
+            '察元 AI 桌面版安装包',
+            '==========================',
+            '',
+            '请双击本目录下的 .msi 文件开始安装。',
+            '',
+            '注意:',
+            '  1. 安装期间不要把 .msi 单独拷到别处运行,.cab 文件必须留在它旁边,',
+            '     否则安装到一半会报 1311/1335「找不到文件」。',
+            '  2. 安装结束后可以把虚拟光驱弹出(右键此电脑 -> 弹出)。',
+            '  3. 如果是单文件 .exe (轻量版),直接双击即可,不需要 .cab。',
+            ''
+        )
+        Set-Content -Path $readmePath -Value $readmeLines -Encoding UTF8
+
+        $isoName = "chayuan-desktop_${Flavor}_setup.iso"
+        # ISO 输出放 dist-{flavor}\ 同级(WorkspaceRoot 根),不放回源目录 — 避免
+        # 用户混淆"是不是把自己卷进去了"(IMAPI2 AddTree 实际是快照式不会,但
+        # 命名清晰更重要)。AllArtifacts 表里也单独列出来方便定位。
+        $isoOut = Join-Path $WorkspaceRoot $isoName
+        $volumeLabel = "CHAYUAN_$($Flavor.ToUpper())"   # CHAYUAN_FULL / CHAYUAN_LITE
+        $makeIso = Join-Path $WorkspaceRoot 'scripts\make-iso.ps1'
+
+        if (-not (Test-Path $makeIso)) {
+            Write-Fail "scripts\make-iso.ps1 找不到,跳过 ISO 生成"
+        } else {
+            try {
+                # 同进程调用 — make-iso.ps1 内部 $ErrorActionPreference='Stop',
+                # 任何报错 throw 出来直接被外层 catch 接住,不需要 $LASTEXITCODE。
+                & $makeIso -SourceDir $flavorOut -OutputIso $isoOut -VolumeLabel $volumeLabel
+                $isoSize = [math]::Round((Get-Item $isoOut).Length / 1MB, 1)
+                Write-Ok "ISO 完成:$isoOut ($isoSize MB)"
+                $script:AllArtifacts += [PSCustomObject]@{
+                    Flavor = $Flavor
+                    Src    = $flavorOut
+                    Dest   = $isoOut
+                    SizeMB = $isoSize
+                }
+            } catch {
+                Write-Fail "ISO 生成失败:$_"
+                Write-Note "dist-$Flavor\ 里的 MSI + CAB 仍可手动 zip 分发,本步不阻断后续 flavor。"
+            }
+        }
+    }
 }
 
 }   # end Invoke-FlavorBuild
@@ -839,8 +906,10 @@ if ($Flavors.Count -eq 2) {
     Write-Host '          或 chayuan-server\vendor\bundled_models\README.md)'
     Write-Host ''
     Write-Host '  ⚠ 全量版 .msi 走外置 CAB (EmbedCab="no") 绕国产杀软对 C:\Windows\Installer\ 的拦截。'
-    Write-Host '    分发时把 dist-full\ 下的 .msi + 所有 .cab 一起打 zip 给用户,'
-    Write-Host '    用户解压后再双击 .msi 安装。只发 .msi 不带 .cab 会装到一半 1311/1335 找 cab 失败。'
+    Write-Host '    推荐分发方式 — 直接发 chayuan-desktop_full_setup.iso 给用户(单文件,'
+    Write-Host '    Win10+ 双击自动挂载成光驱,进光驱后双击 MSI 即装。MSI 在光驱根能找到 CAB。'
+    Write-Host '    不需要 ISO 的话也可以把 dist-full\ 里的 .msi + 所有 .cab 一起打 zip。'
+    Write-Host '    切忌 只发 .msi 不带 .cab — 会装到一半报 1311/1335。'
 }
 Write-Host ''
 if ($useColor) { Write-Host "$ESC[32m[OK] 全部步骤通过$ESC[0m" }
