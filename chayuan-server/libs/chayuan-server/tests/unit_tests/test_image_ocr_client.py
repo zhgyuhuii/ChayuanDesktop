@@ -68,3 +68,23 @@ async def test_ocr_timeout(monkeypatch):
     result = await ocr_client.run_ocr(b"x", port=18380)
     assert result.text == ""
     assert "timeout" in (result.error or "").lower()
+
+
+def test_resolve_port_probes_known_ports(monkeypatch):
+    """resolve_port 不再依赖 SidecarRuntimeManager(那个根本没 ocr capability);
+    改成 TCP probe 18380 / 18480 — 哪个在监听返哪个,都没起返 None。"""
+    from chayuan.server.image_source import ocr_client
+
+    listening: set[int] = {18380}
+    monkeypatch.setattr(
+        ocr_client, "_port_listening",
+        lambda port, **_: int(port) in listening,
+    )
+    assert ocr_client.resolve_port() == 18380
+
+    listening.clear()
+    listening.add(18480)
+    assert ocr_client.resolve_port() == 18480
+
+    listening.clear()
+    assert ocr_client.resolve_port() is None

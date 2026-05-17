@@ -1,23 +1,31 @@
-"""调 rapidocr sidecar 的异步瘦客户端。
+"""调 rapidocr / paddleocr sidecar 的异步瘦客户端。
 
 sidecar 协议见 chayuan/server/modality/rapidocr_server.py:
     POST /v1/ocr {"image": "<base64>"}
     → {"boxes": [{"box":[...], "text":"...", "score":0.x}, ...], "elapsed_ms": N}
 
-端口通过 SidecarRuntimeManager.get_runtime("ocr").info.port 拿;
-本模块只接受 port,**不直接耦合 manager**(方便单测)。
+端口解析:OCR sidecar 不走 SidecarRuntimeManager(那个只管 chat/embedding/
+rerank/asr/image-embedding 5 个 capability — 见 LocalRuntimeRegistry.CAPABILITIES);
+OCR 是 install_task_manager 起的独立 daemon,端口固定:
+    rapidocr  → 18380
+    paddleocr → 18480
+``resolve_port()`` 用 TCP probe 找在监听的那个。
 """
 from __future__ import annotations
 
 import base64
 import logging
 import re
+import socket
 from dataclasses import dataclass, field
 from typing import Optional
 
 import httpx
 
 logger = logging.getLogger("chayuan.image_source.ocr_client")
+
+# 顺序优先:rapidocr 默认更轻量;两个都装则优先用 rapidocr
+_OCR_PORTS: tuple[int, ...] = (18380, 18480)
 
 _CN_RE = re.compile(r"[一-鿿]")
 
@@ -70,16 +78,26 @@ async def run_ocr(image_bytes: bytes, *, port: int, timeout: float = 30.0) -> OC
     )
 
 
-def resolve_port() -> Optional[int]:
-    """从 SidecarRuntimeManager 查 ocr 端口;不可用返 None。"""
+def _port_listening(port: int, host: str = "127.0.0.1", timeout: float = 0.2) -> bool:
+    """TCP 探测 host:port 是否在监听。0.2s 超时,本机回环够用。"""
     try:
-        from chayuan.server.model_registry.local_runtime import (
-            SidecarRuntimeManager,
-        )
-        mgr = SidecarRuntimeManager.singleton()
-        rt = mgr.get_runtime("ocr")
-        if rt and rt.info and rt.info.port:
-            return int(rt.info.port)
-    except Exception as e:  # noqa: BLE001
-        logger.debug("resolve OCR port failed: %r", e)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            return s.connect_ex((host, int(port))) == 0
+    except OSError:
+        return False
+
+
+def resolve_port() -> Optional[int]:
+    """找在监听的 OCR sidecar 端口;两个都没起返 None。
+
+    历史 bug:之前调 SidecarRuntimeManager.singleton() — 这个方法不存在,
+    AttributeError 被 except 吞了,resolve_port 永远返 None,每次 OCR 都 503。
+    根因:OCR sidecar 不在 LocalRuntimeRegistry 管的 5 个 capability 里,
+    它是 install_task_manager 起的独立 daemon,端口在 install_task_manager 里
+    硬编码(rapidocr=18380, paddleocr=18480)。
+    """
+    for port in _OCR_PORTS:
+        if _port_listening(port):
+            return port
     return None

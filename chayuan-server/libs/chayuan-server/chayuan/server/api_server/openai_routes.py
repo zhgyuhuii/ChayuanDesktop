@@ -428,8 +428,55 @@ async def embeddings_preflight(modality: str = "text") -> Dict[str, Any]:
     capability_label = "text-embedding" if modality == "text" else "image-embedding"
     model_id = resolve_model(cap_internal)
 
+    # **fallback**:用户报"模型已装但还提示去安装" — 根因是用户在「AI 平台」
+    # 注册了模型但没设默认(model_settings.yaml 的 DEFAULT_*_MODEL 为空)。
+    # 模型有两条注册路径,都要兜:
+    #   A) MODEL_PLATFORMS(yaml 远端 / xinference / OpenAI 兼容平台等)
+    #      → 字段:embed_models(text) / image2text_models(image,实为 vision LLM)
+    #   B) local_index(本机已下载的 bundled / pip 模型)
+    #      → scanner identifier 给的 capability:text-embedding / image-embedding
+    # 任一命中即视为 ok=true,让对话上传图直接走;不阻塞用户体验。
     if not model_id:
-        # 未配 → 引导 UI 打开设置 → AI 平台 → image-embedding / text-embedding tab
+        # A) 扫 MODEL_PLATFORMS
+        try:
+            platforms = get_config_platforms() or {}
+            yaml_field = "embed_models" if modality == "text" else "image2text_models"
+            for pname, pinfo in platforms.items():
+                blacklist = set(pinfo.get("disabled_models") or [])
+                models = [m for m in (pinfo.get(yaml_field) or []) if m and m not in blacklist]
+                if models:
+                    model_id = models[0]
+                    logger.info(
+                        "[preflight] %s default 未配,fallback 用 %s 的第一个 %s: %s",
+                        cap_internal, pname, yaml_field, model_id,
+                    )
+                    break
+        except Exception:  # noqa: BLE001
+            logger.exception("[preflight] fallback 扫 MODEL_PLATFORMS 失败")
+
+    if not model_id:
+        # B) 扫本地已下载模型(bundled jina-clip-v1 等走这一条;它们没写进
+        #    yaml MODEL_PLATFORMS,但 scanner 已识别 capability)
+        try:
+            from chayuan.server.model_registry.local_index import get_local_index
+            local_cap = "text-embedding" if modality == "text" else "image-embedding"
+            entries = get_local_index().by_capability(local_cap)
+            for e in entries:
+                # OCR onnx 也被 identifier 标 image-to-text,但本地 index 写 image-embedding
+                # 时 format=onnx 通常是 CLIP onnx,可以直接用;不再额外过滤
+                if e.model_id:
+                    model_id = e.model_id
+                    logger.info(
+                        "[preflight] %s default 未配 & MODEL_PLATFORMS 也没,"
+                        "fallback 用 local_index %s 的第一个: %s",
+                        cap_internal, local_cap, model_id,
+                    )
+                    break
+        except Exception:  # noqa: BLE001
+            logger.exception("[preflight] fallback 扫 local_index 失败")
+
+    if not model_id:
+        # 真没装 → 引导 UI 打开设置 → AI 平台 → image-embedding / text-embedding tab
         return {
             "ok": False,
             "modality": modality,
