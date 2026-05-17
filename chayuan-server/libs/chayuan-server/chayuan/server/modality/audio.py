@@ -489,8 +489,14 @@ class AudioPipeline:
                     fmt: str = "mp3") -> bytes:
         """文本 → 音频 bytes。失败返回空 bytes。
 
+        Fallback 链(**离线优先**):
+          1. **piper-tts(纯本地 CPU,无网也工作)** — 首选,zh_CN-huayan-medium 默认中文女声
+          2. edge-tts(微软云端,联网 + 不要 API key)
+          3. OpenAI ``/audio/speech``(联网 + 要 API key)
+
         ``voice`` 不传 → 走 capability_router("tts");router 也无配置时 fallback
-        "zh-CN-XiaoxiaoNeural"(edge-tts 默认中文女声)。
+        "zh-CN-XiaoxiaoNeural"(edge-tts 风格默认名 — piper 收到这种风格名会
+        自动改用 zh_CN-huayan-medium 默认音色)。
         """
         if not voice:
             try:
@@ -500,7 +506,11 @@ class AudioPipeline:
                 voice = "zh-CN-XiaoxiaoNeural"
         if not text:
             return b""
-        # 1) edge-tts（本地 / 免费）
+        # 0) piper-tts(离线优先)— 模型 ≤ 60 MB,装好后没网也能用
+        piper_bytes = self._synthesize_via_piper(text, voice=voice, fmt=fmt)
+        if piper_bytes:
+            return piper_bytes
+        # 1) edge-tts(联网,微软免费)
         try:
             import asyncio
             import edge_tts  # type: ignore
@@ -539,3 +549,163 @@ class AudioPipeline:
         except Exception as e:  # noqa: BLE001
             logger.warning("OpenAI TTS 失败：%r", e)
         return b""
+
+    # ──────────────────────────────────────────────────────────────────
+    # piper-tts 离线 TTS — synthesize() 的第 0 档
+    # ──────────────────────────────────────────────────────────────────
+
+    # piper voice 默认中文女声(参数量小、CPU 1× 实时、~60 MB)。huggingface
+    # rhasspy/piper-voices 仓库下的标准命名,目录结构:
+    # zh/zh_CN/huayan/medium/{zh_CN-huayan-medium.onnx, zh_CN-huayan-medium.onnx.json}
+    _PIPER_DEFAULT_VOICE = "zh_CN-huayan-medium"
+
+    def _synthesize_via_piper(
+        self, text: str, *, voice: str, fmt: str,
+    ) -> Optional[bytes]:
+        """piper-tts 本地推理。任何环节失败/未配置返 None,由 caller fallback edge-tts。"""
+        try:
+            from piper.voice import PiperVoice  # type: ignore
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[tts:piper] piper-tts 未装,跳过: %r", e)
+            return None
+        model_path = self._resolve_piper_voice_path(voice)
+        if not model_path:
+            return None
+        # 实例缓存:PiperVoice.load 跑 ONNX 初始化 ~500ms-1s,反复合成时不能每次重建
+        if not hasattr(self, "_piper_voice_cache"):
+            self._piper_voice_cache: dict = {}
+        pv = self._piper_voice_cache.get(model_path)
+        if pv is None:
+            try:
+                pv = PiperVoice.load(model_path)
+                self._piper_voice_cache[model_path] = pv
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[tts:piper] PiperVoice.load 失败 %s: %r", model_path, e)
+                return None
+        # synthesize_wav 接 wave.Wave_write 对象;用内存 BytesIO 避免落盘
+        import io
+        import wave as _wave
+        wav_io = io.BytesIO()
+        try:
+            with _wave.open(wav_io, "wb") as wf:
+                pv.synthesize_wav(text, wf)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[tts:piper] synthesize_wav 失败: %r", e)
+            return None
+        wav_bytes = wav_io.getvalue()
+        if not wav_bytes:
+            return None
+        if fmt == "wav":
+            return wav_bytes
+        # 转 mp3 / ogg via 已经在 deps 的 imageio-ffmpeg
+        return self._wav_to_format(wav_bytes, fmt) or wav_bytes
+
+    def _resolve_piper_voice_path(self, voice: str) -> Optional[str]:
+        """voice 参数兼容多形态:
+          - 绝对路径 ``/x/y/foo.onnx`` → 直接用
+          - ``piper:zh_CN-huayan-medium`` 显式前缀 → 去前缀后查 CHAYUAN_ROOT/models/piper/
+          - 看不像 piper 命名(包含 ``Neural`` 后缀的 edge-tts 风格)→ 用默认 zh_CN-huayan-medium
+          - 命名匹配 piper 风格 ``zh_CN-name-quality`` → 直接查
+        都找不到 + 启用 auto-download → 尝试拉一次。
+        全失败返 None,caller fallback edge-tts。"""
+        if voice and voice.endswith(".onnx") and os.path.isabs(voice):
+            return voice if os.path.exists(voice) else None
+        try:
+            from chayuan.settings import CHAYUAN_ROOT
+            piper_dir = CHAYUAN_ROOT / "models" / "piper"
+        except Exception:  # noqa: BLE001
+            return None
+        # 规整 voice name
+        name = voice or ""
+        if name.startswith("piper:"):
+            name = name[len("piper:"):]
+        # edge-tts 风格("zh-CN-XiaoxiaoNeural")或空 → 用默认
+        if (not name) or "Neural" in name or "_" not in name:
+            name = self._PIPER_DEFAULT_VOICE
+        candidate = piper_dir / f"{name}.onnx"
+        cfg = piper_dir / f"{name}.onnx.json"
+        if candidate.exists() and cfg.exists():
+            return str(candidate)
+        # 尝试下载(默认开,可关:CHAYUAN_PIPER_AUTO_DOWNLOAD=0)
+        if os.environ.get("CHAYUAN_PIPER_AUTO_DOWNLOAD", "1") != "0":
+            ok = self._try_download_piper_voice(name, piper_dir)
+            if ok and candidate.exists() and cfg.exists():
+                return str(candidate)
+        # 兜底:默认 voice 也没就放弃
+        default = piper_dir / f"{self._PIPER_DEFAULT_VOICE}.onnx"
+        if name != self._PIPER_DEFAULT_VOICE and default.exists():
+            return str(default)
+        logger.info(
+            "[tts:piper] voice 模型不在本地(期望 %s);若需离线 TTS,"
+            "把 .onnx + .onnx.json 放到 %s 或允许自动下载",
+            candidate, piper_dir,
+        )
+        return None
+
+    def _try_download_piper_voice(self, name: str, target_dir: Path) -> bool:
+        """从 rhasspy/piper-voices HF 仓库一次性拉 voice 文件。
+        成功返 True,任何错误返 False(caller 会 fallback edge-tts)。
+        URL 模式: huggingface.co/rhasspy/piper-voices/resolve/main/{lang}/{locale}/{speaker}/{quality}/
+        name 格式应为 ``{locale}-{speaker}-{quality}`` 例如 ``zh_CN-huayan-medium``。"""
+        parts = name.split("-")
+        if len(parts) < 3:
+            logger.warning("[tts:piper] voice name 不符合 piper 命名: %s", name)
+            return False
+        locale, speaker, quality = parts[0], parts[1], parts[2]
+        lang = locale.split("_")[0] if "_" in locale else locale
+        base = (
+            f"https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+            f"{lang}/{locale}/{speaker}/{quality}"
+        )
+        files = [
+            (f"{base}/{name}.onnx", target_dir / f"{name}.onnx"),
+            (f"{base}/{name}.onnx.json", target_dir / f"{name}.onnx.json"),
+        ]
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            import httpx
+            logger.info("[tts:piper] 拉 voice 模型 %s ← %s ...", name, base)
+            with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+                for url, dest in files:
+                    if dest.exists() and dest.stat().st_size > 0:
+                        continue
+                    resp = client.get(url)
+                    resp.raise_for_status()
+                    dest.write_bytes(resp.content)
+                    logger.info("[tts:piper]   ✓ %s (%d KB)", dest.name, len(resp.content) // 1024)
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[tts:piper] 下载 %s 失败: %r — 若是离线环境,请手动从 "
+                "https://huggingface.co/rhasspy/piper-voices 下载 %s.onnx + .json "
+                "放到 %s,或设 CHAYUAN_PIPER_AUTO_DOWNLOAD=0 关闭自动下载尝试",
+                name, e, name, target_dir,
+            )
+            return False
+
+    def _wav_to_format(self, wav_bytes: bytes, fmt: str) -> Optional[bytes]:
+        """piper 输出是 WAV;TTS 路由按 fmt(mp3/ogg/wav)设 Content-Type,
+        所以非 wav 时要 ffmpeg 转。失败返 None,caller 兜底原 wav。"""
+        if fmt == "wav":
+            return wav_bytes
+        ffmpeg = self._resolve_ffmpeg()
+        if not ffmpeg:
+            logger.debug("[tts:piper] 无 ffmpeg,不能从 WAV 转 %s — 直接返 WAV", fmt)
+            return None
+        import subprocess
+        try:
+            proc = subprocess.run(
+                [ffmpeg, "-y", "-loglevel", "error",
+                 "-f", "wav", "-i", "pipe:0", "-f", fmt, "pipe:1"],
+                input=wav_bytes, capture_output=True, timeout=15,
+            )
+            if proc.returncode == 0 and proc.stdout:
+                return proc.stdout
+            logger.warning(
+                "[tts:piper] ffmpeg WAV→%s rc=%d stderr=%s",
+                fmt, proc.returncode,
+                proc.stderr[:200].decode("utf-8", "replace"),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[tts:piper] ffmpeg transcode 异常: %r", e)
+        return None
