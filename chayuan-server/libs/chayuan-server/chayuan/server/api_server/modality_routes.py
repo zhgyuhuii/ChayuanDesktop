@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -602,6 +602,67 @@ def _extract_pcm_from_wav(wav_bytes: bytes) -> bytes:
     return wav_bytes[44:]
 
 
+async def _try_funasr_diarize(
+    data: bytes, fname: str, ext: str, language: str,
+) -> Optional[Dict[str, Any]]:
+    """优先调本地 FunASR sidecar(18180)做"带说话人分离的"转写。
+
+    FunASR + spk_model="cam++"(funasr_server.py 默认开启)返回 sentence_info
+    里带 spk(int),CAM++ 聚类分话人。模型首次会自动下载(~200MB ModelScope)。
+
+    返回:成功 → {text, segments[{start,end,text,speaker}], speaker_count,
+                speaker_diarization_available}
+         FunASR 没起 / 没装 / 不带 spk_model → None,由 caller 回退到 whisper
+    """
+    import os as _os
+    import tempfile as _tempfile
+    import httpx
+
+    # FunASR sidecar 固定 127.0.0.1:18180(funasr_server.py default_port);
+    # 0.3s 超时探活,不卡总路径
+    base = "http://127.0.0.1:18180"
+    try:
+        async with httpx.AsyncClient(timeout=0.3) as cli:
+            r = await cli.get(f"{base}/runtime/health")
+            if r.status_code != 200:
+                return None
+    except Exception:  # noqa: BLE001
+        return None
+
+    in_tmp: Optional[str] = None
+    try:
+        with _tempfile.NamedTemporaryFile(suffix=ext, delete=False,
+                                            prefix="chayuan_funasr_") as tf:
+            tf.write(data)
+            in_tmp = tf.name
+        # FunASR 转写可能很慢(整段 + 模型懒加载首次几十秒),给 5 分钟上限
+        async with httpx.AsyncClient(timeout=300.0) as cli:
+            with open(in_tmp, "rb") as fp:
+                files = {"file": (fname, fp, "application/octet-stream")}
+                r = await cli.post(f"{base}/v1/audio/transcriptions", files=files)
+        if r.status_code != 200:
+            logger.warning("FunASR sidecar 返回 %d: %s", r.status_code, r.text[:300])
+            return None
+        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        if not isinstance(body, dict):
+            return None
+        return {
+            "text": body.get("text") or "",
+            "language": language or "auto",
+            "audio_seconds": 0.0,
+            "segments": body.get("segments") or [],
+            "speaker_diarization_available": bool(body.get("speaker_diarization_available")),
+            "speaker_count": int(body.get("speaker_count") or 0),
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.info("FunASR diarize 转写失败,回退 whisper: %r", e)
+        return None
+    finally:
+        if in_tmp:
+            try: _os.unlink(in_tmp)
+            except Exception: pass  # noqa: BLE001
+
+
 @modality_router.post(
     "/transcribe-file",
     summary="上传整段音频文件做转写(非流式,非实时)— 拖拽 / 选文件用",
@@ -609,6 +670,7 @@ def _extract_pcm_from_wav(wav_bytes: bytes) -> bytes:
 async def transcribe_file_endpoint(
     file: UploadFile = File(..., description="音频文件:webm/wav/mp3/m4a/flac/ogg 等"),
     language: str = Form("zh"),
+    diarize: bool = Form(False, description="True=尝试说话人分离(需 FunASR sidecar + spk_model)"),
     user=Depends(require_auth_enabled()),
 ):
     """跟 /transcribe 的区别:
@@ -644,9 +706,30 @@ async def transcribe_file_endpoint(
         }
     ext = _guess_audio_ext(file.content_type or "", fname)
     logger.info(
-        "transcribe-file in: %d bytes, ct=%s, fn=%s → ext=%s, lang=%s",
-        audio_bytes, file.content_type, fname, ext, language or "auto",
+        "transcribe-file in: %d bytes, ct=%s, fn=%s → ext=%s, lang=%s, diarize=%s",
+        audio_bytes, file.content_type, fname, ext, language or "auto", diarize,
     )
+
+    # 用户请求 diarize=true 时,先尝试 FunASR sidecar(带 CAM++ 说话人分离);
+    # FunASR 没装 / 没起 / 不带 spk_model → 静默回退到 whisper.cpp 单 speaker
+    if diarize:
+        funasr_resp = await _try_funasr_diarize(data, fname, ext, language)
+        if funasr_resp and funasr_resp.get("text"):
+            record_call(
+                "asr", success=True,
+                duration_ms=(_time.perf_counter() - t0) * 1000,
+                bytes_in=audio_bytes, preview=funasr_resp["text"][:200],
+                extra={
+                    "filename": fname, "language": language or "auto",
+                    "audio_format": ext, "endpoint": "transcribe-file",
+                    "backend": "funasr+cam++",
+                    "speaker_count": funasr_resp.get("speaker_count"),
+                },
+            )
+            return {"code": 0, "data": funasr_resp}
+        # 走到这里:FunASR 不可用 / 失败 / 没识别出文本 — 回退 whisper
+        logger.info("FunASR diarize 不可用或失败,回退 whisper 单 speaker 路径")
+
     pipe = _get_audio_pipeline()
 
     in_tmp: Optional[str] = None
