@@ -339,6 +339,34 @@ def create_app(run_mode: str = None):
         except Exception:  # noqa: BLE001
             pass
 
+    # 5 个 capability sidecar 自动拉起 — 默认 False(老用户原本就手动起),
+    # 用户在「设置 → 本地模型服务」打开 Switch 才在下次 startup 自动起。
+    # 失败仅 log,不阻塞其它 capability(单 capability 装不全是常态)。
+    @app.on_event("startup")
+    async def _auto_start_capabilities() -> None:
+        try:
+            from chayuan.server.runtime.auto_start_store import get as get_auto
+            from chayuan.server.model_registry.local_runtime_registry import (
+                LocalRuntimeRegistry, get_registry,
+            )
+        except Exception:  # noqa: BLE001
+            import logging as _logging
+            _logging.getLogger("chayuan.startup").exception(
+                "[auto-start] import 失败,跳过 5 capability 自动拉起"
+            )
+            return
+        import logging as _logging
+        log = _logging.getLogger("chayuan.startup")
+        reg = get_registry()
+        for cap in LocalRuntimeRegistry.CAPABILITIES:
+            if not get_auto(cap):
+                continue
+            try:
+                log.info("[auto-start] %s auto_start=true,拉起", cap)
+                await reg.get(cap).start()
+            except Exception:  # noqa: BLE001
+                log.exception("[auto-start] %s start failed (其它 capability 继续)", cap)
+
     # 其它接口
     app.post(
         "/other/completion",

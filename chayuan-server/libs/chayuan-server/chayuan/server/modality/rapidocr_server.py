@@ -30,7 +30,7 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
 
 
 def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
-    from fastapi import HTTPException, Request
+    from fastapi import Body, HTTPException
 
     def _ensure_loaded() -> Any:
         if app.state.lib_loaded and app.state.lib_handle is not None:
@@ -51,7 +51,13 @@ def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
         return handle
 
     @app.post("/v1/ocr")
-    async def ocr(request: Request) -> Dict[str, Any]:
+    async def ocr(
+        # ⚠ 之前用 `request: Request`,FastAPI 0.110+ / Pydantic 2.11 环境下把
+        # 它误识成 query param 返 422 `loc=("query","request")`。改用显式 Body 标注:
+        # `embed=False` 让整个 JSON 作 body,不强制 ``{"key": ...}`` 包裹;
+        # Body(default=...) 让空 body 不报缺失参数。
+        payload: Dict[str, Any] = Body(default_factory=dict, embed=False),
+    ) -> Dict[str, Any]:
         """OCR 端点。
 
         body:
@@ -59,10 +65,6 @@ def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
             * {"image_url": "https://..."}
             * {"image_path": "/abs/path"}
         """
-        try:
-            payload = await request.json()
-        except Exception:
-            payload = {}
         image = None
         if isinstance(payload, dict):
             if payload.get("image"):

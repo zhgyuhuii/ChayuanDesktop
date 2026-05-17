@@ -165,6 +165,30 @@ async function getRegistry(): Promise<Record<LocalRuntimeCapability, LocalRuntim
     .data;
 }
 
+// ─── auto-start 开关 ───
+// 5 个 capability + rapidocr 各自的"是否在 chayuan-server 启动时自动拉起"开关。
+// 切换 UI 不影响当前进程,只决定下次 server 启动行为(用户仍可手动启停)。
+// 持久化到 <CHAYUAN_ROOT>/data/sidecar_settings.json。
+
+export type AutoStartKey =
+  | LocalRuntimeCapability
+  | 'rapidocr';
+
+export type AutoStartDict = Partial<Record<AutoStartKey, boolean>>;
+
+async function listAutoStart(): Promise<AutoStartDict> {
+  return (await request<AutoStartDict>('/runtime/llama/auto-start')).data;
+}
+
+async function setAutoStart(capability: AutoStartKey, enabled: boolean): Promise<AutoStartDict> {
+  return (
+    await request<AutoStartDict>('/runtime/llama/auto-start', {
+      method: 'POST',
+      body: { capability, enabled },
+    })
+  ).data;
+}
+
 // ─── OCR (RapidOCR 进程内 onnxruntime,没有独立 sidecar) ───
 
 export interface RuntimeOcrHealth {
@@ -199,4 +223,7 @@ export const localRuntime = {
   stopFor,
   restartFor,
   getRegistry,
+  // auto-start 开关(5 cap + rapidocr 共用一份字典)
+  listAutoStart,
+  setAutoStart,
 };

@@ -18,6 +18,9 @@
 import * as React from 'react';
 import { ClipboardList, FileBarChart2, Play, RefreshCw, RotateCw, Square } from 'lucide-react';
 import {
+  type AutoStartDict,
+  type AutoStartKey,
+  localRuntime,
   type LocalModelEntry,
   type LocalRuntimeCapability,
   modality,
@@ -115,6 +118,29 @@ export const LocalRuntimeServicesSection: React.FC = () => {
   const [chosen, setChosen] = React.useState<Partial<Record<LocalRuntimeCapability, string>>>({});
   const [diagnoseOpen, setDiagnoseOpen] = React.useState(false);
   const [callLogOpen, setCallLogOpen] = React.useState(false);
+
+  // 5 个 capability + rapidocr 的 auto-start 开关字典 — 拉一次,Switch 切换写回。
+  // 后端默认 5 cap 全 false / rapidocr true(见 auto_start_store._DEFAULTS),
+  // 让老用户体验不变。
+  const [autoStart, setAutoStart] = React.useState<AutoStartDict>({});
+  const [autoStartPending, setAutoStartPending] = React.useState<AutoStartKey | null>(null);
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        setAutoStart(await localRuntime.listAutoStart());
+      } catch {
+        // 老服务端没有这个端点,静默 — UI 显示默认值(全 off,OCR on)
+      }
+    })();
+  }, []);
+  const toggleAutoStart = React.useCallback(async (cap: AutoStartKey, enabled: boolean) => {
+    setAutoStartPending(cap);
+    try {
+      setAutoStart(await localRuntime.setAutoStart(cap, enabled));
+    } finally {
+      setAutoStartPending(null);
+    }
+  }, []);
 
   const reloadModels = React.useCallback(async () => {
     setModelsLoading(true);
@@ -281,6 +307,8 @@ export const LocalRuntimeServicesSection: React.FC = () => {
               chosen={chosen[cap]}
               resolvedModelId={resolveModelId(cap)}
               isMissing={isMissing}
+              autoStart={autoStart[cap] ?? false}
+              autoStartPending={autoStartPending === cap}
               onChoose={(id) => setChosen((s) => ({ ...s, [cap]: id }))}
               onStart={() => {
                 const modelId = resolveModelId(cap);
@@ -293,6 +321,7 @@ export const LocalRuntimeServicesSection: React.FC = () => {
                 const modelId = resolveModelId(cap);
                 void restartCapability(cap, modelId ? { model_id: modelId } : undefined);
               }}
+              onToggleAutoStart={(enabled) => void toggleAutoStart(cap, enabled)}
               onOpenDiagnose={() => setDiagnoseOpen(true)}
             />
           );
@@ -319,10 +348,13 @@ interface CapabilityRowProps {
   chosen?: string;
   resolvedModelId?: string;
   isMissing: boolean;
+  autoStart: boolean;
+  autoStartPending: boolean;
   onChoose(id: string): void;
   onStart(): void;
   onStop(): void;
   onRestart(): void;
+  onToggleAutoStart(enabled: boolean): void;
   onOpenDiagnose(): void;
 }
 
@@ -334,10 +366,13 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
   models,
   resolvedModelId,
   isMissing,
+  autoStart,
+  autoStartPending,
   onChoose,
   onStart,
   onStop,
   onRestart,
+  onToggleAutoStart,
   onOpenDiagnose,
 }) => {
   const state = status?.state ?? 'stopped';
@@ -420,6 +455,27 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
             </>
           )}
         </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <label
+          htmlFor={`auto-start-${capability}`}
+          className="flex flex-col gap-0.5 cursor-pointer select-none"
+          title="开启:chayuan-server 启动时自动拉起;关闭:需手动点上方「启动」"
+        >
+          <span className="text-xs font-medium text-[var(--cy-text-primary)]">
+            随 chayuan-server 自动启动
+          </span>
+          <span className="text-[10px] text-[var(--cy-text-tertiary)]">
+            切换不影响当前进程,只决定下次 chayuan-server 启动行为
+          </span>
+        </label>
+        <Switch
+          id={`auto-start-${capability}`}
+          checked={autoStart}
+          disabled={autoStartPending}
+          onCheckedChange={(checked) => onToggleAutoStart(Boolean(checked))}
+        />
       </div>
 
       {isFailed && status?.last_error && (

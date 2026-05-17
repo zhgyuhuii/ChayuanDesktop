@@ -77,19 +77,19 @@ def _write_settings(data: Dict[str, Any]) -> None:
 
 
 def get_auto_start() -> bool:
-    """RapidOCR sidecar 是否在 chayuan-server 启动时自动拉起。默认 True。"""
-    with _SETTINGS_LOCK:
-        return bool(_read_settings().get("rapidocr_auto_start", True))
+    """RapidOCR sidecar 是否在 chayuan-server 启动时自动拉起。默认 True。
+
+    委托给通用 auto_start_store(key="rapidocr"),跟 5 个 capability 共用同一份
+    持久化文件 + schema。
+    """
+    from chayuan.server.runtime.auto_start_store import get as _get
+    return _get("rapidocr")
 
 
 def set_auto_start(enabled: bool) -> bool:
     """保存 auto-start 开关。返回写入后的值。"""
-    with _SETTINGS_LOCK:
-        data = _read_settings()
-        data["rapidocr_auto_start"] = bool(enabled)
-        _write_settings(data)
-        logger.info("[ocr-sidecar] auto_start 设为 %s", enabled)
-        return bool(enabled)
+    from chayuan.server.runtime.auto_start_store import set_ as _set
+    return _set("rapidocr", bool(enabled))
 
 
 def _log_path() -> str:

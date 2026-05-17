@@ -635,6 +635,42 @@ async def llama_capability_restart(
     return _ok(status.to_dict())
 
 
+# ─────────────────────── auto-start 开关 ───────────────────────
+
+
+@runtime_router.get(
+    "/llama/auto-start",
+    summary="读 5 个 capability + rapidocr 的自动启动开关",
+)
+def llama_auto_start_list() -> Dict[str, Any]:
+    """返回 {capability: bool} — 控制 chayuan-server 启动时是否自动拉起。
+    UI 切换不影响当前进程,只决定下次 server 启动行为。"""
+    from chayuan.server.runtime.auto_start_store import list_all
+    return _ok(list_all())
+
+
+@runtime_router.post(
+    "/llama/auto-start",
+    summary="设置某 capability 的自动启动开关",
+)
+def llama_auto_start_set(
+    body: Dict[str, Any] = Body(...),
+) -> Dict[str, Any]:
+    """body: ``{"capability": "chat", "enabled": true}``。返回更新后的全集字典。"""
+    from chayuan.server.runtime.auto_start_store import KNOWN_KEYS, list_all, set_ as _set
+    cap = body.get("capability") if isinstance(body, dict) else None
+    enabled = body.get("enabled") if isinstance(body, dict) else None
+    if not isinstance(cap, str) or cap not in KNOWN_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown capability: {cap!r};expected one of {KNOWN_KEYS}",
+        )
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=400, detail="`enabled` must be bool")
+    _set(cap, enabled)
+    return _ok(list_all())
+
+
 # ─────────────────────── OCR 健康检查 ───────────────────────
 
 
