@@ -69,8 +69,18 @@ export async function uploadWithProgress<T = unknown>(
   const traceId = opts.traceId ?? uuid();
 
   // Tauri:走 PAL.net.fetch,不支持 progress;此场景下退化为整体上传 + 0/100% 两段事件。
-  // 我们 detect 是否在浏览器主线程并能用 XHR(window.XMLHttpRequest 存在)
-  const hasXhr = typeof XMLHttpRequest !== 'undefined';
+  // 我们 detect 是否在浏览器主线程并能用 XHR(window.XMLHttpRequest 存在)。
+  //
+  // ⚠ Tauri 2 webview(WebView2)里 XMLHttpRequest 对象**存在但发不出去** —
+  // webview origin 是 tauri.localhost,目标是 127.0.0.1:62581,跨 scheme + CORS
+  // 在生产装机版会被拦,XHR 直接触发 onerror("网络错误")。所以 Tauri 环境
+  // 强制走 platform.net.fetch fallback(它走 Tauri 原生 fetch,不受 webview
+  // 跨 origin 约束)。代价:上传进度只有 0/100% 两段,但能传成功。
+  // 旁证:同样 endpoint 的图像上传走 platform.net.fetch 就稳;只有 doc 走
+  // XHR 的链路炸。
+  const platform = getPlatform();
+  const isTauri = platform.kind === 'desktop';
+  const hasXhr = typeof XMLHttpRequest !== 'undefined' && !isTauri;
   if (!hasXhr) {
     // 走 PAL.net.fetch 不带 progress:start = 0/total, end = total/total
     const totalGuess = approximateFormDataSize(body);
