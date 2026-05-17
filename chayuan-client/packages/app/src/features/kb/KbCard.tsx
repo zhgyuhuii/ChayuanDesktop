@@ -15,7 +15,7 @@
 import * as React from 'react';
 import { Boxes, CheckCheck, Database, FileText, Images, Lock } from 'lucide-react';
 import { cn } from '@chayuan/ui';
-import type { KuItem, KuKind } from '@chayuan/api';
+import { getAccessToken, getClientConfig, type KuItem, type KuKind } from '@chayuan/api';
 import { KbDropZone } from './upload/KbDropZone';
 import { KbProgressBar } from './components/KbProgressBar';
 import { DbLogo, resolveDbBrand } from './DbLogo';
@@ -228,10 +228,10 @@ const KbCardCover: React.FC<{
   meta: KindMeta & KindGradient;
 }> = ({ kb, meta }) => {
   if (kb.kind === 'structured') {
-    // 从 sub_kind / description 启发式找 dialect — KuItem 字段里 sub_kind
-    // 只到 sql/mongo/es 颗粒度(不区分具体 dbms),从 description 关键字进一步
-    // 推 mysql / postgresql / sqlite 等;两者都没命中 → 通用"数据库" chip
-    const dialectHint = inferStructuredDialect(kb);
+    // 优先用后端返的 dialect(2026-05-17 起 _source_to_universe 会查
+    // connection.dialect 返出);老 server 没返 → fallback sub_kind +
+    // description 关键字启发式
+    const dialectHint = kb.dialect || inferStructuredDialect(kb);
     const brand = resolveDbBrand(dialectHint);
     return (
       <div
@@ -251,7 +251,17 @@ const KbCardCover: React.FC<{
     );
   }
 
-  // document / image / vector — 渐变 + 大 icon + 数字
+  // image KB:后端给了 cover_thumbnails 就用真图;否则渐变 + 大 icon 兜底
+  if (kb.kind === 'image' && kb.cover_thumbnails && kb.cover_thumbnails.length > 0) {
+    return <ImageCoverGrid urls={kb.cover_thumbnails} meta={meta} count={kb.count} />;
+  }
+
+  // document KB:后端给了 cover_files 就显示文件名 chip 九宫格;否则兜底
+  if (kb.kind === 'document' && kb.cover_files && kb.cover_files.length > 0) {
+    return <DocumentCoverGrid files={kb.cover_files} meta={meta} count={kb.count} />;
+  }
+
+  // 兜底:渐变 + 大 icon + 数字(没数据 / vector 类)
   const Icon = meta.icon;
   return (
     <div
@@ -273,6 +283,116 @@ const KbCardCover: React.FC<{
       )}
     </div>
   );
+};
+
+/** image KB 封面九宫格:前 4 张图缩略图 + 右上角图片数 chip。 */
+const ImageCoverGrid: React.FC<{
+  urls: string[];
+  meta: KindMeta & KindGradient;
+  count: number | null;
+}> = ({ urls, meta, count }) => {
+  const slots = urls.slice(0, 4);
+  // 不足 4 个补占位(后续保持 grid 形态)
+  while (slots.length < 4) slots.push('');
+  return (
+    <div className={cn('relative grid h-16 w-full grid-cols-2 gap-px overflow-hidden', meta.coverBg)}>
+      {slots.map((url, i) => (
+        <CoverThumb key={i} url={url} />
+      ))}
+      {count != null && (
+        <span className={cn(
+          'absolute right-2 top-1.5 rounded-full bg-white/85 px-2 py-0.5 text-[10px] font-medium shadow-sm dark:bg-black/60',
+          meta.chipText,
+        )}>
+          {count} {meta.unit}
+        </span>
+      )}
+    </div>
+  );
+};
+
+/** image 单格缩略图;空 URL 显示灰底占位;token 异步拼接好后 swap src。 */
+const CoverThumb: React.FC<{ url: string }> = ({ url }) => {
+  const [src, setSrc] = React.useState<string>('');
+  React.useEffect(() => {
+    let live = true;
+    if (!url) { setSrc(''); return; }
+    void (async () => {
+      // 跟 ImageKbDetail.absImageUrl 同逻辑:走 baseURL + ?token= query
+      // 图像 endpoint 接受 query token 因 <img> 不能自定义 header
+      if (/^https?:/i.test(url)) {
+        if (live) setSrc(url);
+        return;
+      }
+      const cfg = getClientConfig();
+      const base = (cfg.baseURL || '').replace(/\/+$/, '');
+      const tok = await getAccessToken();
+      const sep = url.includes('?') ? '&' : '?';
+      if (live) setSrc(`${base}${url}${tok ? `${sep}token=${encodeURIComponent(tok)}` : ''}`);
+    })();
+    return () => { live = false; };
+  }, [url]);
+  if (!src) return <div className="bg-black/5 dark:bg-white/5" />;
+  // 图片加载失败显示空灰底,不暴露错误 / 不打 console — 卡片封面是装饰,
+  // 失败 silently degrade 体感更稳
+  return (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+      className="h-full w-full object-cover"
+    />
+  );
+};
+
+/** document KB 封面九宫格:前 4 个文件名 + 扩展名 chip。 */
+const DocumentCoverGrid: React.FC<{
+  files: NonNullable<KuItem['cover_files']>;
+  meta: KindMeta & KindGradient;
+  count: number | null;
+}> = ({ files, meta, count }) => {
+  const slots = files.slice(0, 4);
+  return (
+    <div className={cn('relative grid h-16 w-full grid-cols-2 gap-px overflow-hidden p-1', meta.coverBg)}>
+      {slots.map((f, i) => (
+        <div key={i} className="flex items-center gap-1 overflow-hidden rounded bg-white/70 px-1.5 py-0.5 dark:bg-black/30">
+          <FileTypeIcon ext={f.ext} className="h-3 w-3 flex-shrink-0" />
+          <span className="truncate text-[9px] font-medium text-[var(--cy-text-primary)]">
+            {f.name}
+          </span>
+        </div>
+      ))}
+      {/* 不足 4 个补占位 */}
+      {Array.from({ length: Math.max(0, 4 - slots.length) }).map((_, i) => (
+        <div key={`pad-${i}`} className="rounded bg-white/30 dark:bg-black/15" />
+      ))}
+      {count != null && (
+        <span className={cn(
+          'absolute right-2 top-1.5 rounded-full bg-white/85 px-2 py-0.5 text-[10px] font-medium shadow-sm dark:bg-black/60',
+          meta.chipText,
+        )}>
+          {count} {meta.unit}
+        </span>
+      )}
+    </div>
+  );
+};
+
+/** 文件类型颜色映射 — 跟 Office / 工程师社区习惯对齐。 */
+const _EXT_COLOR: Record<string, string> = {
+  pdf:  'text-red-600',
+  doc:  'text-blue-600', docx: 'text-blue-600',
+  xls:  'text-green-600', xlsx: 'text-green-600', csv: 'text-green-600',
+  ppt:  'text-orange-600', pptx: 'text-orange-600',
+  md:   'text-gray-700', txt: 'text-gray-700',
+  html: 'text-orange-500', htm: 'text-orange-500',
+  json: 'text-amber-600', yaml: 'text-amber-600', yml: 'text-amber-600',
+  png:  'text-pink-600', jpg: 'text-pink-600', jpeg: 'text-pink-600', gif: 'text-pink-600',
+};
+const FileTypeIcon: React.FC<{ ext: string; className?: string }> = ({ ext, className }) => {
+  const color = _EXT_COLOR[ext] || 'text-gray-500';
+  return <FileText className={cn(className, color)} />;
 };
 
 /**

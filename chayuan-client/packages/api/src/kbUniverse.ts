@@ -16,6 +16,12 @@ import { getClientConfig, request } from './client';
 export type KuKind = 'document' | 'image' | 'structured' | 'vector';
 export type KuSubKind = 'sql' | 'mongo' | 'es' | 'image' | 'vector' | 'vs';
 
+/** document KB 卡片封面用的文件预览条目 */
+export interface KuCoverFile {
+  name: string;   // 文件名(含扩展名),例 "report.pdf"
+  ext: string;    // 扩展名小写,例 "pdf" / "docx"
+}
+
 /** 列表项;list 端点返回数组 */
 export interface KuItem {
   ku_id: string;
@@ -37,6 +43,13 @@ export interface KuItem {
   vs_type?: string;
   embed_model?: string;
   create_time?: string | null;
+  // ─── KbCard 封面用字段(2026-05-17 起后端 list 端点开始返这些)─────────
+  /** structured KB:数据库 dialect,前端 DbLogo 选品牌图标用 */
+  dialect?: string;
+  /** document KB:前 4 个文件名 + 扩展名,前端做文件 chip 九宫格 */
+  cover_files?: KuCoverFile[];
+  /** image KB:前 4 张图的预览 URL,前端做缩略图九宫格 */
+  cover_thumbnails?: string[];
 }
 
 // ── Detail union ──────────────────────────────────────────────────────────
