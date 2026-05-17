@@ -171,6 +171,7 @@ def _process_one(
 
     from chayuan.server.retrieval.query.adapters import (
         search_document,
+        search_image,
         search_structured,
         search_vector,
     )
@@ -195,6 +196,8 @@ def _process_one(
         return search_structured(ref, query, options)
     if ref.kind == "vector":
         return search_vector(ref, query, options)
+    if ref.kind == "image":
+        return search_image(ref, query, options)
     return {"ku_id": ku_id, "kind": ref.kind, "ok": False, "error": f"未知知识类型: {ref.kind}"}
 
 
