@@ -130,10 +130,27 @@ export const modality = {
     form.append('file', blob, (blob as File).name || 'audio.webm');
     if (opts.language) form.append('language', opts.language);
     if (opts.sessionId) form.append('session_id', opts.sessionId);
+    // 显式 30s timeout —— 后端硬上限是 15s audio + ~5s whisper(最坏),30s 兜底足够。
+    // AbortSignal.any 合并 caller 的 signal 和 timeout,任一触发就 abort。
+    // 老 WebView2 可能没有 AbortSignal.any,降级为手动 AbortController 桥接。
+    const timeoutSig = AbortSignal.timeout(30_000);
+    const anyFn = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;
+    let sig: AbortSignal;
+    if (!opts.signal) {
+      sig = timeoutSig;
+    } else if (typeof anyFn === 'function') {
+      sig = anyFn([opts.signal, timeoutSig]);
+    } else {
+      const ctl = new AbortController();
+      const onAbort = () => ctl.abort();
+      opts.signal.addEventListener('abort', onAbort, { once: true });
+      timeoutSig.addEventListener('abort', onAbort, { once: true });
+      sig = ctl.signal;
+    }
     const r = await request<{ data: TranscribeResult }>(`/modality/transcribe`, {
       method: 'POST',
       body: form,
-      signal: opts.signal,
+      signal: sig,
       raw: true,
     });
     return r.data?.data ?? { text: '', language: opts.language ?? 'auto' };

@@ -170,6 +170,59 @@ def test_asr_session_no_trim_when_within_window():
     assert r3["committed_text"] == "你好今天天气"
 
 
+def test_asr_session_hard_trim_when_local_agreement_stuck():
+    """退化场景:LocalAgreement-2 一直不进展(每个 chunk 的 hyp 都重写前段),
+    软 trim 永远不触发 → 必须有硬上限 HARD_MAX_AUDIO_SECONDS 兜底,否则
+    audio_pcm 无限累积,whisper 越跑越慢,前端 fetch 超时。
+
+    本测试模拟"whisper 每次都给完全不同的 hyp",验证 audio_pcm 不会超过
+    硬上限,且被砍掉的音频对应的 hyp 前段被强制 commit(宁可硬切也不卡死)。
+    """
+    from chayuan.server.modality.asr_session import (
+        AsrSession,
+        PCM_BYTES_PER_SECOND,
+        HARD_MAX_AUDIO_SECONDS,
+        OVERLAP_SECONDS,
+    )
+    sess = AsrSession(session_id="t-hard-trim")
+    pcm_2s = b"\x00" * (2 * PCM_BYTES_PER_SECOND)
+
+    # 每个 chunk 后 whisper 都给一个完全分叉的 hyp → LocalAgreement-2 永远找不到
+    # 共同前缀 → committed_text 一直空 → 软 trim 条件(segment_committed_prefix
+    # truthy)永远不满足。
+    hyps = iter([
+        "AAAA",   # chunk 1, 2s
+        "BBBB",   # chunk 2, 4s
+        "CCCC",   # chunk 3, 6s
+        "DDDD",   # chunk 4, 8s
+        "EEEE",   # chunk 5, 10s
+        "FFFF",   # chunk 6, 12s
+        "GGGG",   # chunk 7, 14s
+        "HHHH",   # chunk 8, 16s → 触发硬 trim
+    ])
+    def fake(wav): return next(hyps), []
+
+    for _ in range(7):
+        sess.append_chunk(pcm_2s, fake)
+    # 7 个 chunk 后,audio = 14s < 15s,不触发硬 trim
+    assert len(sess.audio_pcm) == 14 * PCM_BYTES_PER_SECOND
+    assert sess.committed_text == ""
+
+    r8 = sess.append_chunk(pcm_2s, fake)
+    # 第 8 个 chunk → 16s > HARD_MAX_AUDIO_SECONDS=15 → 硬 trim
+    # 留下 OVERLAP_SECONDS=4 秒,其余被砍
+    audio_secs_after = len(sess.audio_pcm) / PCM_BYTES_PER_SECOND
+    assert audio_secs_after == OVERLAP_SECONDS, (
+        f"硬 trim 后应只剩 OVERLAP_SECONDS={OVERLAP_SECONDS}s,实际 {audio_secs_after}s"
+    )
+    # 被砍部分对应的 hyp 前段必须被强制 commit(否则就丢字了)
+    assert sess.committed_text != "", "硬 trim 必须 force commit 被砍音频对应的 hyp 前段"
+    # 后续 chunk 不应触发硬 trim(audio 已回到 4s)
+    assert audio_secs_after <= HARD_MAX_AUDIO_SECONDS
+    # is_full 始终 False — 滑窗 + 硬 trim 内置兜底,客户端不需要 rotate
+    assert r8["is_full"] is False
+
+
 def test_make_wav_bytes_header():
     """make_wav_bytes 生成 44 字节标准 WAV header。"""
     from chayuan.server.modality.asr_session import make_wav_bytes
