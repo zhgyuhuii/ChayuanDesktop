@@ -67,6 +67,15 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
   const tickerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const sliceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopRequestedRef = React.useRef(false);
+  // 长跑稳定性:每 N 个 chunk(~20s)refresh 一次 MediaStream — Tauri WebView2
+  // 上反复 stop/start MediaRecorder 同一 stream 会逐步 leak 内部状态,16-20 次
+  // 后 ondataavailable 不再触发(用户报告"40s 卡死"即此现象)。close 老 stream
+  // + getUserMedia 拿新 stream 后立刻恢复,只丢 ~100ms 音频,可接受。
+  const SLICES_BEFORE_STREAM_REFRESH = 8;
+  const slicesOnStreamRef = React.useRef(0);
+  // finalize 防重入 — stop 调一次、watchdog 调一次、mr.onstop 调一次都可能同时
+  // 排队,onFinal 必须只 fire 一次(用户拿到一次 full text 提示)
+  const finalizedRef = React.useRef(false);
   const optsRef = React.useRef(opts);
   optsRef.current = opts;
 
@@ -101,6 +110,45 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     setElapsed(0);
   }, []);
 
+  /** 等所有 in-flight transcribe 完成,触发 onFinal + cleanup。stop / cancel /
+   *  watchdog 强制收尾都走这里,不依赖 mr.onstop(MediaRecorder 进入 stale 状态
+   *  时它不会 fire)。幂等:finalizedRef 保证 onFinal 只 fire 一次。 */
+  const finalizeAndCleanup = React.useCallback(() => {
+    if (finalizedRef.current) return;
+    finalizedRef.current = true;
+    const checkDone = () => {
+      if (chunkIndexRef.current === expectedRef.current) {
+        const full = fullTextRef.current.join(' ').trim();
+        optsRef.current.onFinal?.(full);
+        cleanup();
+      } else {
+        setTimeout(checkDone, 200);
+      }
+    };
+    checkDone();
+  }, [cleanup]);
+
+  /** 重新拿 MediaStream — long-running 时 stale stream 自愈。返 true 表示新 stream
+   *  已就绪可继续录;false 表示获取失败(用户拒绝权限 / 设备失联),caller 应停。 */
+  const refreshStream = React.useCallback(async (): Promise<boolean> => {
+    try {
+      const next = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const old = streamRef.current;
+      streamRef.current = next;
+      slicesOnStreamRef.current = 0;
+      // 老 stream 释放放后面,避免某些浏览器 close 时连带 disrupt 新 stream
+      try { old?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+      console.debug('[mic] stream refreshed');
+      return true;
+    } catch (e) {
+      console.warn('[mic] stream refresh failed', e);
+      optsRef.current.onError?.(
+        e instanceof Error ? e : new Error('麦克风 stream 刷新失败'),
+      );
+      return false;
+    }
+  }, []);
+
   /** 启动单个 slice 的 MediaRecorder;mr.onstop 里要么开下一片,要么走 final。*/
   const startSlice = React.useCallback(() => {
     const stream = streamRef.current;
@@ -111,7 +159,34 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
       : new MediaRecorder(stream);
     recorderRef.current = mr;
 
+    // watchdog:这个 slice 应该在 sliceMs + 2s 内产生 chunk(stop + ondataavailable
+    // 都触发完)。若超时未拿到 chunk,认定 stream stale → 强制 refresh stream
+    // + 重启 slice。这是 stale 退化的主要兜底,用户 40s 后不再出文字就是这种情况。
+    let chunkArrived = false;
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
+    const armWatchdog = () => {
+      watchdog = setTimeout(async () => {
+        if (chunkArrived || stopRequestedRef.current) return;
+        if (recorderRef.current !== mr) return;
+        console.warn(
+          '[mic] watchdog fired — chunk 未在 %dms 内到达,认定 stream stale,refresh',
+          sliceMs * 3,
+        );
+        try { mr.stop(); } catch { /* ignore — stale */ }
+        const ok = await refreshStream();
+        if (!ok || stopRequestedRef.current) {
+          // refresh 也失败 → 强制结束
+          stopRequestedRef.current = true;
+          finalizeAndCleanup();
+          return;
+        }
+        startSlice();
+      }, sliceMs * 3);
+    };
+
     mr.ondataavailable = (e) => {
+      chunkArrived = true;
+      if (watchdog) { clearTimeout(watchdog); watchdog = null; }
       if (!e.data || e.data.size === 0) return;
       const idx = chunkIndexRef.current++;
       const ac = new AbortController();
@@ -143,25 +218,31 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     };
 
     mr.onstop = () => {
+      if (watchdog) { clearTimeout(watchdog); watchdog = null; }
       if (stopRequestedRef.current) {
-        // 用户主动停 — 等所有 in-flight transcribe 完成再 onFinal
-        const checkDone = () => {
-          if (chunkIndexRef.current === expectedRef.current) {
-            const full = fullTextRef.current.join(' ').trim();
-            optsRef.current.onFinal?.(full);
-            cleanup();
-          } else {
-            setTimeout(checkDone, 200);
+        finalizeAndCleanup();
+        return;
+      }
+      // slice 边界:N 次后 refresh stream 避免 long-running 累积
+      slicesOnStreamRef.current++;
+      if (slicesOnStreamRef.current >= SLICES_BEFORE_STREAM_REFRESH) {
+        void (async () => {
+          if (stopRequestedRef.current) { finalizeAndCleanup(); return; }
+          const ok = await refreshStream();
+          if (!ok || stopRequestedRef.current) {
+            stopRequestedRef.current = true;
+            finalizeAndCleanup();
+            return;
           }
-        };
-        checkDone();
+          startSlice();
+        })();
       } else {
-        // slice 边界 — 立刻在同一 stream 上开下一片(微秒级 gap)
         startSlice();
       }
     };
 
     mr.start();
+    armWatchdog();
     // 定时停 → 触发 ondataavailable(完整文件)→ onstop → 起下一片
     sliceTimerRef.current = setTimeout(() => {
       try {
@@ -170,7 +251,7 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
         // ignore
       }
     }, sliceMs);
-  }, [sliceMs, cleanup, flushBuffered]);
+  }, [sliceMs, finalizeAndCleanup, refreshStream, flushBuffered]);
 
   const start = React.useCallback(async () => {
     if (recording) return;
@@ -188,6 +269,8 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     fullTextRef.current = [];
     abortersRef.current = [];
     stopRequestedRef.current = false;
+    finalizedRef.current = false;
+    slicesOnStreamRef.current = 0;
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -218,12 +301,23 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
       clearTimeout(sliceTimerRef.current);
       sliceTimerRef.current = null;
     }
+    const mr = recorderRef.current;
+    let onstopWillFire = false;
     try {
-      recorderRef.current?.stop();
-    } catch {
-      // ignore
+      if (mr && mr.state === 'recording') {
+        mr.stop();
+        onstopWillFire = true;
+      }
+    } catch (e) {
+      console.warn('[mic] mr.stop() throw,直接 force finalize', e);
     }
-  }, [recording]);
+    // 如果 mr 已经 stale(state != 'recording' 或 stop 抛异常),mr.onstop 不会
+    // fire → finalizeAndCleanup 永不被触发 → UI 停不下来。这里主动 finalize,
+    // 双保险即使 onstop 也 fire 也只是 idempotent(checkDone 走两次都 OK)。
+    if (!onstopWillFire) {
+      finalizeAndCleanup();
+    }
+  }, [recording, finalizeAndCleanup]);
 
   const cancel = React.useCallback(() => {
     stopRequestedRef.current = true;
@@ -233,8 +327,9 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     }
     abortersRef.current.forEach((ac) => ac.abort());
     abortersRef.current = [];
+    const mr = recorderRef.current;
     try {
-      if (recording) recorderRef.current?.stop();
+      if (recording && mr && mr.state === 'recording') mr.stop();
     } catch {
       // ignore
     }
