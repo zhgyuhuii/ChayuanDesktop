@@ -30,9 +30,15 @@ use serde::{Deserialize, Serialize};
 
 const APP_DIR_NAME: &str = "chayuan";
 const CONFIG_FILE_NAME: &str = "desktop.json";
+/// install dir 下的 install 标识文件,首次启动写一次,后续启动用来对比 desktop.json
+/// 里 ``linked_install_id`` 看是不是同一份安装。MSI 卸载会清整个 install dir,
+/// 所以重装后这个文件消失 → 我们生成新 ID → 跟旧 desktop.json 对不上 → 弹首启
+/// 向导让用户重新确认数据目录(不删用户数据,只是重新 link)。
+const INSTALL_ID_FILE: &str = ".chayuan_install_id";
 
-/// 当前持久化 schema 版本,迁移老格式时检查。
-const PERSIST_SCHEMA_VERSION: u32 = 1;
+/// 当前持久化 schema 版本。v2 开始带 linked_install_id;读到 v1 旧文件 +
+/// 没字段 → 视为不匹配,fresh wizard。
+const PERSIST_SCHEMA_VERSION: u32 = 2;
 
 /// 持久化到 ``desktop.json`` 的最小载荷。
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -42,6 +48,11 @@ struct PersistedConfig {
     /// schema 版本,用于将来字段扩展时迁移。
     #[serde(default = "default_version")]
     version: u32,
+    /// 这条配置当时绑定的 install ID。卸载重装后 install dir 里的 install_id
+    /// 文件没了,首启时会生成新 ID,跟这里对不上就当 fresh install 处理。
+    /// v1 旧格式没这字段,反序列化得 None,等同对不上 → 弹向导。
+    #[serde(default)]
+    linked_install_id: Option<String>,
 }
 
 fn default_version() -> u32 {
@@ -122,6 +133,41 @@ fn write_persisted(cfg: &PersistedConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// 拿到当前安装的 install ID(install dir 里 ``.chayuan_install_id`` 文件内容)。
+///
+/// 行为:
+/// - 文件存在 → 读出 trim 后返回(同一份安装多次启动得同一个 ID)
+/// - 文件不存在 → 用 nanos 时间戳 + PID 拼一个 ID 写进去,返回新 ID
+///   (重装后 install dir 是全新的,这个文件没了,会触发这条路径生成新 ID)
+/// - 拿不到 install dir 或写文件失败 → 返 None(检测降级为"始终视作 fresh")
+fn current_install_id() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let install_dir = exe.parent()?;
+    let id_file = install_dir.join(INSTALL_ID_FILE);
+    if let Ok(s) = fs::read_to_string(&id_file) {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    // 没文件 / 空 → 生成新 ID 写下去。不引入 uuid crate(避免 deps 膨胀),
+    // nanos 时戳 + PID 已经够防撞:同一台机器同一秒同一 PID 的概率 ~ 0。
+    let now_nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let pid = std::process::id();
+    let id = format!("ins-{now_nanos:x}-{pid:x}");
+    if fs::write(&id_file, &id).is_ok() {
+        Some(id)
+    } else {
+        // 写失败(install dir 只读 / 权限 / 磁盘满) — 这种情况返回 ID 但不会持久化,
+        // 下次启动还是会生成新 ID,desktop.json 永远对不上,每次都弹向导。
+        // 比"静默用错路径"更安全。
+        Some(id)
+    }
+}
+
 /// 检查路径下是否已有察元历史数据。命中任一即认为存在(顺序大致按可信度):
 ///
 /// * 配置面板写的 marker:``data_dir_marker``
@@ -168,11 +214,28 @@ pub fn effective_data_dir() -> PathBuf {
 pub fn chayuan_data_dir_state() -> DataDirState {
     let default = default_data_dir();
     let persisted = read_persisted();
-    let configured = persisted.is_some();
-    let active = persisted
-        .as_ref()
-        .map(|c| PathBuf::from(&c.data_dir))
-        .unwrap_or_else(|| default.clone());
+
+    // 关键:configured 不能仅看 desktop.json 存不存在,还得看里面的 linked_install_id
+    // 跟当前安装的 install ID 是否匹配。重装后 install dir 是全新的(MSI 卸载会清),
+    // .chayuan_install_id 文件消失 → 我们生成新 ID → 跟 desktop.json 里旧 ID 对不上
+    // → configured=false → 前端 FirstRunSetup 弹向导,让用户重新选/确认数据目录。
+    // 老 v1 格式的 desktop.json 没 linked_install_id 字段(反序列化为 None),也走
+    // 这条 fresh 路径。
+    let cur_install_id = current_install_id();
+    let configured = match (persisted.as_ref(), cur_install_id.as_ref()) {
+        (Some(p), Some(cur)) => p.linked_install_id.as_deref() == Some(cur.as_str()),
+        _ => false,
+    };
+
+    let active = if configured {
+        persisted
+            .as_ref()
+            .map(|c| PathBuf::from(&c.data_dir))
+            .unwrap_or_else(|| default.clone())
+    } else {
+        // 不匹配时回显默认路径(向导首屏的 placeholder),不再透露旧 dataDir 误导用户
+        default.clone()
+    };
     let has_existing = check_has_existing_data(&active);
     DataDirState {
         configured,
@@ -222,6 +285,10 @@ pub fn chayuan_data_dir_set(path: String) -> Result<DataDirState, String> {
     let cfg = PersistedConfig {
         data_dir: dir.to_string_lossy().to_string(),
         version: PERSIST_SCHEMA_VERSION,
+        // 把当前安装的 install ID 一并落盘 — 下次启动 chayuan_data_dir_state 拿
+        // install dir 里的 ID 跟这个对比,只有匹配才算 configured;重装后对不上
+        // 就回退到 wizard,数据目录的设置不会跨安装"幽灵生效"。
+        linked_install_id: current_install_id(),
     };
     write_persisted(&cfg)?;
 
