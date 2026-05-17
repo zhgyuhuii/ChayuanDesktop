@@ -9,6 +9,7 @@ import { ToolCallsRow } from './toolcards/ToolCallsRow';
 import { chatCitationsToSources } from '@chayuan/api';
 import { KbResultsView } from '../kb/components/KbResultsView';
 import { consumeVoiceAttachment } from '../composer/voiceAttachments';
+import { VoiceMessagePlayer } from './VoiceMessagePlayer';
 
 export interface MessageBubbleProps {
   message: ChatMessage;
@@ -133,18 +134,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
             ) : (
               <StreamMarkdown content={message.content || ''} streaming={message.streaming} />
             )}
-            {audioUrl && (
-              <div className="mt-2 -mx-1">
-                {/* 原始录音播放器 — 出现在文字下方,样式跟随 message bubble 主题 */}
-                <audio
-                  controls
-                  preload="metadata"
-                  src={audioUrl}
-                  className="h-8 w-full max-w-[280px]"
-                  title="本条消息的原始录音"
-                />
-              </div>
-            )}
+            {audioUrl && <VoiceMessagePlayer audioUrl={audioUrl} />}
           </div>
         )}
 
