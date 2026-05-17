@@ -17,9 +17,11 @@
 读取时若没有 ``auto_start`` 字典 + 有老字段,自动迁移。
 
 为什么默认值有差异:
-  - rapidocr 默认 ``true`` — 装了就能用(用户报 OCR 该开箱即用)
-  - 5 个 capability 默认 ``false`` — 老用户原本就是手动启,贸然全开会拉起一堆没装
-    模型的进程出 failed 状态污染 UI;用户在 UI 显式打开后再生效。
+  - ``rapidocr`` / ``image-embedding`` 默认 ``true`` — 知识中心图像 KB 上传
+    需要这两个 sidecar 协作(OCR 文字 + CLIP 向量),装了察元就该可用;
+  - 其它 4 个 capability(chat / embedding / rerank / asr)默认 ``false`` —
+    老用户原本就是手动启,贸然全开会拉起一堆没装模型的进程出 failed 状态
+    污染 UI;用户在 UI 显式打开后再生效。
 """
 from __future__ import annotations
 
@@ -35,14 +37,15 @@ logger = logging.getLogger("chayuan.runtime.auto_start_store")
 _SETTINGS_FILE_NAME = "sidecar_settings.json"
 _LOCK = threading.Lock()
 
-# 各 key 默认值 — 装了就该用的(OCR)默认开;其它显式打开
+# 各 key 默认值 — 知识中心图像 KB 上传同时用 OCR + CLIP,两个都默认开,
+# 其它需要用户显式打开。
 _DEFAULTS: Dict[str, bool] = {
     "rapidocr": True,
+    "image-embedding": True,
     "chat": False,
     "embedding": False,
     "rerank": False,
     "asr": False,
-    "image-embedding": False,
 }
 
 # UI / 前端用的所有已知 key — POST .../auto-start 会校验
