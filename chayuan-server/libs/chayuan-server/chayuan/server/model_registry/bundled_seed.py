@@ -16,14 +16,21 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import platform
 import shutil
+import string
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 logger = logging.getLogger("chayuan.model_registry.bundled_seed")
+
+# 跟 build.py EXTERNAL_SEED_MANIFEST_NAME 对齐;不要换名字,装机后这个文件
+# 就在 <install>/bundled_models/.external_seed_manifest.json 这里。
+EXTERNAL_SEED_MANIFEST_NAME = ".external_seed_manifest.json"
 
 
 @dataclass
@@ -35,6 +42,12 @@ class SeedReport:
     copied: List[str] = field(default_factory=list)
     skipped: List[str] = field(default_factory=list)   # 目标已存在且未变
     errors: List[str] = field(default_factory=list)
+    # 外部介质种子(ISO 旁挂大文件):manifest 列出来的、装机后仍缺的文件路径。
+    # 空列表 = 全齐(或 manifest 不存在 = 不需要 external seed)。
+    external_pending: List[str] = field(default_factory=list)
+    # 这次成功扫描到并使用的外部介质路径(光驱根/models_seed 这种)。
+    # 不是 None = 这次至少试过从外部介质拷过文件;是 None = 没找到匹配介质 / 不需要。
+    external_source: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -43,6 +56,8 @@ class SeedReport:
             "copied": list(self.copied),
             "skipped": list(self.skipped),
             "errors": list(self.errors),
+            "external_pending": list(self.external_pending),
+            "external_source": self.external_source,
         }
 
 
@@ -89,6 +104,188 @@ def _copy_tree(src_root: Path, dst_root: Path, tag: str, report: SeedReport) -> 
             report.copied.append(f"{tag}/{rel}")
         except OSError as e:
             report.errors.append(f"{tag}/{rel}: {type(e).__name__}: {e}")
+
+
+# ──────────────────────────── 外部介质种子 ────────────────────────────
+
+
+def _load_external_manifest(bundled_root: Path) -> Optional[dict]:
+    """读 <install>/bundled_models/.external_seed_manifest.json。
+
+    没文件 / 解析失败 = 这个装机包没拆出大文件,正常路径走完即可。
+    """
+    p = bundled_root / EXTERNAL_SEED_MANIFEST_NAME
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("[bundled-seed] manifest 解析失败 %s: %r", p, e)
+        return None
+
+
+def _missing_external_files(manifest: dict, target_root: Path) -> List[dict]:
+    """对比 manifest 跟 target,返回缺/尺寸不对的条目列表。"""
+    missing: List[dict] = []
+    for entry in manifest.get("files", []) or []:
+        rel = entry.get("path") or ""
+        size = int(entry.get("size") or 0)
+        if not rel:
+            continue
+        dst = target_root / rel
+        try:
+            st = dst.stat() if dst.is_file() else None
+        except OSError:
+            st = None
+        if st is None or (size > 0 and st.st_size != size):
+            missing.append(entry)
+    return missing
+
+
+def _candidate_external_roots() -> Iterable[Path]:
+    """穷举可能挂载了 ISO 的位置,逐个返回 ``<mount>/models_seed/`` 候选。
+
+    Windows:扫 A-Z 全字母,任何 ``isdir`` 通过的根都看一眼有没 models_seed/。
+    Linux/Mac:扫 /mnt /media /Volumes 及其一级子目录(/media/<user>/<vol>)。
+    不验内容,只列候选 — 验证留给 _find_external_seed_root 做。
+    """
+    seen: set[Path] = set()
+    if platform.system() == "Windows":
+        for letter in string.ascii_uppercase:
+            drive = Path(f"{letter}:/")
+            try:
+                if not drive.is_dir():
+                    continue
+            except OSError:
+                continue
+            candidate = drive / "models_seed"
+            if candidate not in seen:
+                seen.add(candidate)
+                yield candidate
+    else:
+        roots = [Path(p) for p in ("/mnt", "/media", "/Volumes")]
+        for root in roots:
+            if not root.is_dir():
+                continue
+            try:
+                level1 = list(root.iterdir())
+            except OSError:
+                continue
+            for sub in level1:
+                if not sub.is_dir():
+                    continue
+                c1 = sub / "models_seed"
+                if c1 not in seen:
+                    seen.add(c1)
+                    yield c1
+                # /media/<user>/<volume>/ 这一层(Linux 桌面挂载默认布局)
+                try:
+                    level2 = list(sub.iterdir())
+                except OSError:
+                    continue
+                for sub2 in level2:
+                    if not sub2.is_dir():
+                        continue
+                    c2 = sub2 / "models_seed"
+                    if c2 not in seen:
+                        seen.add(c2)
+                        yield c2
+
+
+def _find_external_seed_root(manifest: dict) -> Optional[Path]:
+    """在挂载介质里找匹配的 models_seed/ 根。
+
+    验证策略:取 manifest 第一个条目(路径 + size),如果候选根下能找到这个
+    文件且 size 一致,就认这是对的介质。一项命中即可,不需要全检。
+    """
+    files = manifest.get("files", []) or []
+    if not files:
+        # 没具体文件清单也行 — 任何能找到 models_seed/ 的就用,稳健性优先
+        for cand in _candidate_external_roots():
+            if cand.is_dir():
+                return cand
+        return None
+    first = files[0]
+    expected_rel = first.get("path") or ""
+    expected_size = int(first.get("size") or 0)
+    if not expected_rel:
+        return None
+    for cand in _candidate_external_roots():
+        try:
+            if not cand.is_dir():
+                continue
+            probe = cand / expected_rel
+            if not probe.is_file():
+                continue
+            if expected_size > 0 and probe.stat().st_size != expected_size:
+                logger.warning(
+                    "[bundled-seed] 候选 %s 的 %s size 不一致 (%d vs %d),跳过",
+                    cand, expected_rel, probe.stat().st_size, expected_size,
+                )
+                continue
+            return cand
+        except OSError:
+            continue
+    return None
+
+
+def _copy_external_files(
+    seed_root: Path,
+    entries: List[dict],
+    target_root: Path,
+    report: SeedReport,
+) -> None:
+    """从外部介质把 entries 列出的文件拷到 target_root,失败写 report.errors。"""
+    for entry in entries:
+        rel = entry.get("path") or ""
+        if not rel:
+            continue
+        src = seed_root / rel
+        dst = target_root / rel
+        try:
+            if not src.is_file():
+                report.errors.append(f"external/{rel}: 源文件不在介质上")
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            report.copied.append(f"external/{rel}")
+        except OSError as e:
+            report.errors.append(f"external/{rel}: {type(e).__name__}: {e}")
+
+
+def _seed_external(src_root: Path, dst_root: Path, report: SeedReport) -> None:
+    """如果 src_root 里有 external seed manifest,处理外部介质拷贝路径。
+
+    幂等:每次启动都跑,但 manifest 文件都齐就直接 short-circuit。
+    """
+    manifest = _load_external_manifest(src_root)
+    if not manifest:
+        return
+    missing = _missing_external_files(manifest, dst_root)
+    if not missing:
+        return  # 全齐了,不用扫介质
+    logger.info(
+        "[bundled-seed] external manifest:%d 个大文件待复制(volume=%s)",
+        len(missing), manifest.get("iso_volume_hint") or "?",
+    )
+    ext_root = _find_external_seed_root(manifest)
+    if ext_root is None:
+        msg = (
+            f"未找到匹配的外部介质(期望 {manifest.get('iso_volume_hint') or 'CHAYUAN_FULL'} "
+            f"卷标的光驱下有 models_seed/),{len(missing)} 个大文件 "
+            f"({sum(int(e.get('size') or 0) for e in missing) // 1024 // 1024} MB) 还没就位。"
+            "请挂载 chayuan-desktop ISO 后重启 chayuan-server。"
+        )
+        report.errors.append(msg)
+        report.external_pending = [str(e.get("path") or "") for e in missing]
+        logger.warning("[bundled-seed] %s", msg)
+        return
+    report.external_source = str(ext_root)
+    logger.info("[bundled-seed] external seed root → %s", ext_root)
+    _copy_external_files(ext_root, missing, dst_root, report)
+    # 拷完再核查一次,记录残留(磁盘满 / 文件锁 / 中途介质弹出都可能让这里非空)
+    still_missing = _missing_external_files(manifest, dst_root)
+    report.external_pending = [str(e.get("path") or "") for e in still_missing]
 
 
 def seed_bundled_models(*, target_dir: Optional[Path] = None) -> SeedReport:
@@ -142,11 +339,19 @@ def seed_bundled_models(*, target_dir: Optional[Path] = None) -> SeedReport:
             continue
         _copy_tree(sub_src, dst_root / cap, f"bundled/{cap}", report)
 
-    if report.copied or report.errors:
+    # 处理 external seed(ISO 旁挂的 ≥ 2 GB 大文件):
+    # build.py 在分流时会把大文件清单写到 src/.external_seed_manifest.json,
+    # 装机后这里读 manifest → 比对 dst_root 缺啥 → 扫挂载光驱拷过去。
+    # manifest 不存在 = 本装机包没有 external seed,short-circuit。
+    _seed_external(src, dst_root, report)
+
+    if report.copied or report.errors or report.external_pending:
         logger.info(
-            "[bundled-seed] src=%s -> dst=%s copied=%d skipped=%d errors=%d",
+            "[bundled-seed] src=%s -> dst=%s copied=%d skipped=%d errors=%d "
+            "external_pending=%d external_source=%s",
             report.source, report.target,
             len(report.copied), len(report.skipped), len(report.errors),
+            len(report.external_pending), report.external_source,
         )
     return report
 

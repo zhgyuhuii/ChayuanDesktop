@@ -808,6 +808,38 @@ if ($SkipFrontend) {
     }
 
     # ----------------------------------------------------------------
+    # External seed:把 chayuan-server/dist/models_seed/ 拷进 dist-{flavor}/models_seed/
+    # ----------------------------------------------------------------
+    # build.py sync_bundled_models 把 ≥ 2 GB 单文件分流到 dist/models_seed/(不进 MSI),
+    # 这里把整树拷到 dist-{flavor}/,后面 make-iso.ps1 整目录打 ISO 时自动带上。
+    # 装机后 chayuan-server first_launch -> bundled_seed 会扫挂载光驱的 models_seed/
+    # 把这些大文件种到 <CHAYUAN_ROOT>/models/bundled/。
+    $extSeedSrc = Join-Path $ServerDir 'dist\models_seed'
+    if (Test-Path $extSeedSrc) {
+        $extFiles = Get-ChildItem -Path $extSeedSrc -Recurse -File -ErrorAction SilentlyContinue
+        if ($extFiles -and $extFiles.Count -gt 0) {
+            $extTotalMb = [math]::Round(($extFiles | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
+            $extSeedDest = Join-Path $flavorOut 'models_seed'
+            New-Item -ItemType Directory -Force -Path $extSeedDest | Out-Null
+            Write-Step "external seed ($Flavor): $($extFiles.Count) 个大文件 ($extTotalMb MB)"
+            # Copy-Item -Recurse 在大文件 (~2 GB) 上比 robocopy 慢且没进度。Win10+ 自带 robocopy,
+            # /MIR 镜像同步、/NFL /NDL 减少日志、/NJH /NJS 去掉头尾摘要。
+            # 退出码 0/1/3 都是成功语义(0=没改,1=有拷,3=有拷+有跳过);≥ 8 才算失败。
+            $robocopyArgs = @($extSeedSrc, $extSeedDest, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/NP')
+            $null = & robocopy @robocopyArgs
+            $rc = $LASTEXITCODE
+            $global:LASTEXITCODE = 0   # robocopy 非 0 不算 PowerShell 失败
+            if ($rc -ge 8) {
+                Write-Fail "robocopy external seed 失败 (exit $rc),dist-$Flavor/models_seed/ 可能不完整"
+            } else {
+                Write-Ok "models_seed 已就位 → $extSeedDest"
+            }
+        } else {
+            Write-Note "$extSeedSrc 存在但是空的 — 本次没有大文件分流,跳过"
+        }
+    }
+
+    # ----------------------------------------------------------------
     # ISO 打包:把 dist-{flavor}\ 整目录打成 .iso,Win10+ 双击挂载即可。
     # ----------------------------------------------------------------
     # 全量版 .msi 走外置 CAB (EmbedCab="no") 绕国产杀软,用户得拿到 .msi + 所有
@@ -835,8 +867,12 @@ if ($SkipFrontend) {
             '注意:',
             '  1. 安装期间不要把 .msi 单独拷到别处运行,.cab 文件必须留在它旁边,',
             '     否则安装到一半会报 1311/1335「找不到文件」。',
-            '  2. 安装结束后可以把虚拟光驱弹出(右键此电脑 -> 弹出)。',
-            '  3. 如果是单文件 .exe (轻量版),直接双击即可,不需要 .cab。',
+            '  2. **MSI 装完后,请先不要弹出虚拟光驱** —— 第一次启动察元 AI 时,',
+            '     程序会自动从本光驱的 models_seed\ 目录复制大模型(~2 GB)到用户',
+            '     数据目录。复制完成(几十秒到几分钟)后才能正常对话。',
+            '  3. 如果一时间不方便等待,你也可以现在弹出光驱;但是首次启动时',
+            '     察元 AI 会提示"模型缺失,请重新挂载安装介质"。',
+            '  4. 如果是单文件 .exe (轻量版),直接双击即可,不需要 .cab。',
             ''
         )
         Set-Content -Path $readmePath -Value $readmeLines -Encoding UTF8

@@ -164,3 +164,121 @@ def test_seed_to_dict_is_json_safe(chayuan_root_tmp, bundled_source):
     assert "target" in parsed
     assert "copied" in parsed
     assert isinstance(parsed["copied"], list)
+    # 新增 external_pending / external_source 字段也得 JSON 安全
+    assert "external_pending" in parsed
+    assert "external_source" in parsed
+
+
+# ──────────────────────────── External seed (ISO) ────────────────────────────
+
+
+def test_external_seed_copies_from_mounted_media(chayuan_root_tmp, bundled_source, tmp_path, monkeypatch):
+    """build.py 分流 ≥ 2 GB 大文件到外部介质,bundled_seed 应自动扫挂载点拷过去。
+
+    模拟链路:
+      bundled_source/  <-- 装机后的 <install>/bundled_models/(小文件 + manifest)
+        .external_seed_manifest.json    -> 期望 embedding/big-model.bin (size=42)
+        (没有 embedding/big-model.bin)  <-- 大文件被分流走了
+
+      fake_media/models_seed/           <-- 模拟挂载的 ISO 光驱
+        embedding/big-model.bin (42 bytes)
+
+    bundled_seed 应该:
+      1. 读 manifest 发现 big-model.bin 缺
+      2. 扫候选挂载点,找到匹配介质
+      3. 拷到 <CHAYUAN_ROOT>/models/bundled/embedding/big-model.bin
+      4. report.external_source 指向找到的根, external_pending 为空
+    """
+    import json
+    from chayuan.server.model_registry import bundled_seed as bs
+
+    # 1) 在 bundled_source 里塞 manifest(模拟 build.py 写好的清单)
+    big_content = b"X" * 42
+    manifest = {
+        "version": 1,
+        "iso_volume_hint": "CHAYUAN_FULL",
+        "files": [
+            {"path": "embedding/big-model.bin", "size": len(big_content)},
+        ],
+    }
+    (bundled_source / bs.EXTERNAL_SEED_MANIFEST_NAME).write_text(
+        json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+    )
+
+    # 2) 模拟挂载的 ISO:tmp/fake_media/models_seed/embedding/big-model.bin
+    fake_media = tmp_path / "fake_media"
+    seed_root = fake_media / "models_seed"
+    (seed_root / "embedding").mkdir(parents=True)
+    (seed_root / "embedding" / "big-model.bin").write_bytes(big_content)
+
+    # 3) monkey 候选介质枚举:只产出 fake_media 的 models_seed/
+    def fake_candidates():
+        yield seed_root
+
+    monkeypatch.setattr(bs, "_candidate_external_roots", fake_candidates)
+
+    # 4) 跑 seed
+    report = bs.seed_bundled_models()
+
+    # 5) 验:
+    target_big = chayuan_root_tmp / "models" / "bundled" / "embedding" / "big-model.bin"
+    assert target_big.is_file(), "外部介质里的大文件应该被拷到 target"
+    assert target_big.read_bytes() == big_content
+    assert report.external_source == str(seed_root)
+    assert report.external_pending == []
+    assert any("external/embedding/big-model.bin" in s for s in report.copied)
+
+
+def test_external_seed_pending_when_media_absent(chayuan_root_tmp, bundled_source, monkeypatch):
+    """没找到匹配介质时:external_pending 非空 + errors 写明显提示,不抛异常。"""
+    import json
+    from chayuan.server.model_registry import bundled_seed as bs
+
+    (bundled_source / bs.EXTERNAL_SEED_MANIFEST_NAME).write_text(
+        json.dumps({
+            "version": 1,
+            "iso_volume_hint": "CHAYUAN_FULL",
+            "files": [{"path": "chat/huge.gguf", "size": 99999}],
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    # 候选枚举返回空 — 没插光驱的场景
+    monkeypatch.setattr(bs, "_candidate_external_roots", lambda: iter([]))
+
+    report = bs.seed_bundled_models()
+
+    assert "chat/huge.gguf" in report.external_pending
+    assert report.external_source is None
+    assert any("未找到匹配的外部介质" in e for e in report.errors)
+
+
+def test_external_seed_idempotent_when_target_already_present(chayuan_root_tmp, bundled_source, monkeypatch):
+    """target 已经有大文件 + size 匹配时,不应再扫介质 — _candidate_external_roots 不该被调用。"""
+    import json
+    from chayuan.server.model_registry import bundled_seed as bs
+
+    big = b"Y" * 17
+    target = chayuan_root_tmp / "models" / "bundled" / "embedding" / "big.bin"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(big)
+
+    (bundled_source / bs.EXTERNAL_SEED_MANIFEST_NAME).write_text(
+        json.dumps({
+            "version": 1,
+            "files": [{"path": "embedding/big.bin", "size": len(big)}],
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    called = {"n": 0}
+    def spy():
+        called["n"] += 1
+        yield from ()
+
+    monkeypatch.setattr(bs, "_candidate_external_roots", spy)
+    report = bs.seed_bundled_models()
+
+    assert called["n"] == 0, "target 已齐时不该扫介质"
+    assert report.external_pending == []
+    assert report.external_source is None

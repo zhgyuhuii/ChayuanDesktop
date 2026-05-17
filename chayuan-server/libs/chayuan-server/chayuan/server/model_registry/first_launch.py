@@ -38,6 +38,10 @@ class FirstLaunchReport:
     seeded_target: Optional[str] = None
     seeded_copied: List[str] = field(default_factory=list)
     seeded_skipped: List[str] = field(default_factory=list)
+    # 外部介质种子(ISO 旁挂的 ≥ 2 GB 大文件)— 装机后仍缺的文件清单
+    # + 这次找到的介质路径。UI 可用 external_pending 判断要不要提示用户重挂 ISO。
+    seeded_external_pending: List[str] = field(default_factory=list)
+    seeded_external_source: Optional[str] = None
     scanned: bool = False
     scan_added: int = 0
     scan_updated: int = 0
@@ -54,6 +58,8 @@ class FirstLaunchReport:
             "seeded_target": self.seeded_target,
             "seeded_copied": list(self.seeded_copied),
             "seeded_skipped": list(self.seeded_skipped),
+            "seeded_external_pending": list(self.seeded_external_pending),
+            "seeded_external_source": self.seeded_external_source,
             "scanned": self.scanned,
             "scan_added": self.scan_added,
             "scan_updated": self.scan_updated,
@@ -80,6 +86,8 @@ def run_first_launch_hooks() -> FirstLaunchReport:
         report.seeded_target = seed.target
         report.seeded_copied = list(seed.copied)
         report.seeded_skipped = list(seed.skipped)
+        report.seeded_external_pending = list(seed.external_pending)
+        report.seeded_external_source = seed.external_source
         for err in seed.errors:
             report.errors.append(f"seed_bundled: {err}")
     except Exception as e:  # noqa: BLE001

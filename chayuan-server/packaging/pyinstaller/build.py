@@ -66,6 +66,13 @@ DESKTOP_BUNDLED_MODELS_DIR = DESKTOP_SRC_TAURI / "bundled_models"
 # (典型用法:开发者用 install-bundled-models.ps1 -ChayuanRoot 把模型装到 chayuan_root,
 #  打包时指向 <chayuan_root>/models/bundled/,免去 dev/打包两份磁盘占用)。
 BUNDLED_SRC = ROOT / "vendor" / "bundled_models"
+# 单文件 ≥ 2 GB 的"超大权重"会被分流到这里 — 不进 MSI(WiX/NSIS 卡 2 GB),
+# build-desktop.ps1 会把这个目录拷到 dist-{flavor}/models_seed/,ISO 自动带上。
+# 装机后 chayuan-server first_launch 钩子从挂载的光驱扫到这堆文件再种到
+# <CHAYUAN_ROOT>/models/bundled/。
+EXTERNAL_SEED_DIR = ROOT / "dist" / "models_seed"
+EXTERNAL_SEED_MANIFEST_NAME = ".external_seed_manifest.json"
+EXTERNAL_SEED_VOLUME_HINT = "CHAYUAN_FULL"   # 跟 make-iso.ps1 的卷标对齐
 
 
 def _resolve_bundled_src(cli_arg: Optional[str]) -> Path:
@@ -189,12 +196,32 @@ def copy_to_tauri_binaries() -> Path:
 _WIN_INSTALLER_FILE_LIMIT = 2 * 1024 * 1024 * 1024  # 2 GiB
 
 
+# 已知"非必需冗余权重"扩展名:同目录有 .gguf / .safetensors 替代时,这些文件
+# 都是历史遗留(老版 install 或手动 HF snapshot),删了不影响 runtime。
+# .onnx_data 是 ONNX external data(单文件 > 2GB 必走的旁路);.bin 是 PyTorch
+# 老格式,新模型基本都给 .safetensors / .gguf。
+_REDUNDANT_WEIGHT_SUFFIXES = (".bin", ".onnx_data", ".pt", ".pth")
+
+
+def _has_alt_weight(dir_path: Path) -> bool:
+    """目录树里递归找 .gguf / .safetensors — 有就说明同目录的 .bin/.onnx_data 是冗余。"""
+    if not dir_path.is_dir():
+        return False
+    for p in dir_path.rglob("*"):
+        if p.is_file() and p.suffix.lower() in (".gguf", ".safetensors"):
+            return True
+    return False
+
+
 def _guard_oversized_files(bundled_src: Path) -> None:
     """扫 bundled 源整树,任何 ≥ 2 GB 单文件立即报错。
 
     这是 Windows installer 的硬限制 — 一旦走到 makensis / light.exe 才发现,
     用户得等十几分钟的 PyInstaller + cargo + vite 跑完才看到错误。提前到
     sync 这一步报错,几秒内告诉用户哪个文件超标。
+
+    错误消息会针对每个 offender 检查"父目录有没有 .gguf / .safetensors 替代",
+    有则提示直接 rm(常见冗余),没有则建议跑 install-bundled-models.py --clean-cap。
     """
     if not bundled_src.is_dir():
         return
@@ -204,6 +231,29 @@ def _guard_oversized_files(bundled_src: Path) -> None:
             offenders.append((sub, sub.stat().st_size))
     if not offenders:
         return
+
+    # 按 cap 目录(bundled_src/<cap>/...)分组,方便给针对性命令
+    # cap 目录就是 bundled_src 的直接子目录
+    redundant: list[tuple[Path, int, Path]] = []   # (file, size, model_subdir)
+    irreplaceable: list[tuple[Path, int]] = []
+    caps_to_reinstall: set[str] = set()
+    for path, size in offenders:
+        suffix = path.suffix.lower()
+        # 找模型子目录(bundled_src/<cap>/<model_subdir>/...)
+        rel = path.relative_to(bundled_src)
+        parts = rel.parts
+        if len(parts) >= 2:
+            model_dir = bundled_src / parts[0] / parts[1]
+            cap = parts[0]
+        else:
+            model_dir = path.parent
+            cap = parts[0] if parts else "?"
+        if suffix in _REDUNDANT_WEIGHT_SUFFIXES and _has_alt_weight(model_dir):
+            redundant.append((path, size, model_dir))
+        else:
+            irreplaceable.append((path, size))
+            caps_to_reinstall.add(cap)
+
     lines = ["[build] FATAL: 以下单文件 ≥ 2 GB,无法打进 Windows installer:"]
     for path, size in offenders:
         gb = size / 1024 / 1024 / 1024
@@ -213,9 +263,42 @@ def _guard_oversized_files(bundled_src: Path) -> None:
     lines.append("原因:NSIS makensis 32-bit mmap 单文件 < 2 GB;WiX 3 light.exe")
     lines.append("     LGHT0263 硬编码 INT32_MAX。两条 Windows installer 路都卡。")
     lines.append("")
-    lines.append("修法:换更小的量化 / 模型版本,参考")
-    lines.append("     chayuan-server/vendor/bundled_models/README.md 推荐瘦身清单,")
-    lines.append("     或跑 scripts/install-bundled-models.ps1 / .sh 一键替换。")
+
+    if redundant:
+        lines.append("修法 A:这些是冗余权重(同目录已有 .gguf / .safetensors),"
+                     "直接删即可:")
+        # 按 model_dir 合并 — 同模型多个冗余文件一起删
+        by_dir: dict[Path, list[Path]] = {}
+        for path, _size, model_dir in redundant:
+            by_dir.setdefault(model_dir, []).append(path)
+        for model_dir, paths in by_dir.items():
+            for p in paths:
+                lines.append(f'  Remove-Item -Force "{p}"')
+                # .onnx_data 通常跟同名 .onnx 一对,孤立 .onnx 也没用 — 提示一起删
+                if p.suffix.lower() == ".onnx_data":
+                    onnx = p.with_suffix("")
+                    if onnx.is_file():
+                        lines.append(f'  Remove-Item -Force "{onnx}"')
+                    onnx_dir = p.parent
+                    # 若 onnx/ 子目录里全是 onnx 系列,整个目录可清
+                    if onnx_dir != model_dir and onnx_dir.name.lower() == "onnx":
+                        lines.append(f'  # 或整层删:Remove-Item -Recurse -Force "{onnx_dir}"')
+        lines.append("")
+
+    if irreplaceable:
+        lines.append("修法 B:这些是无替代权重(目录里没找到 .gguf / .safetensors),"
+                     "需要换更小量化重下:")
+        for path, size in irreplaceable:
+            gb = size / 1024 / 1024 / 1024
+            lines.append(f"  - {path.relative_to(bundled_src)}  ({gb:.2f} GB)")
+        cap_args = " ".join(f"--only {c}" for c in sorted(caps_to_reinstall)) \
+                   if caps_to_reinstall else ""
+        lines.append("")
+        lines.append("  # 一键清掉旧的并按瘦身清单重下(GGUF 量化,~605 MB 单文件):")
+        lines.append(f"  poetry run python scripts\\install-bundled-models.py --clean-cap {cap_args}")
+        lines.append("")
+        lines.append("  瘦身清单见 chayuan-server/vendor/bundled_models/README.md。")
+
     msg = "\n".join(lines)
     print(msg, file=sys.stderr, flush=True)
     raise SystemExit(2)
@@ -237,7 +320,25 @@ def _load_bundle_caps(flavor: str) -> tuple[str, ...]:
     return tuple(manifest.caps_for(flavor))
 
 
-def sync_bundled_models(*, lite: bool, bundled_src: Optional[Path] = None) -> None:
+def _target_has_installer_size_limit(target_triple: str) -> bool:
+    """目标平台的 installer 是否撞 2 GB 单文件限制 — 即:要不要走 external seed 分流。
+
+    - **Windows**:WiX 3 `light.exe` LGHT0263 硬编码 INT32_MAX(2 GB),NSIS makensis
+      32-bit mmap 也是 2 GB。要分流。
+    - **macOS**:DMG(APFS/HFS+ 8 EB)/ PKG(XAR)无实际单文件限制。**不要分流** —
+      大文件直接嵌 .dmg/.pkg 即可,装机后 Tauri resources 解到 app bundle 里。
+    - **Linux**:DEB(ar+tar)/ RPM(cpio)/ AppImage(squashfs)无 2 GB 限制。
+      **不要分流**。
+    """
+    return "-windows-" in target_triple.lower()
+
+
+def sync_bundled_models(
+    *,
+    lite: bool,
+    bundled_src: Optional[Path] = None,
+    target_triple: Optional[str] = None,
+) -> None:
     """同步 bundled 源 → src-tauri/bundled_models/(给 Tauri resources)。
 
     Args:
@@ -263,16 +364,42 @@ def sync_bundled_models(*, lite: bool, bundled_src: Optional[Path] = None) -> No
         (DESKTOP_BUNDLED_MODELS_DIR / ".gitkeep").touch()
         return
 
-    # full 模式打包前 size guard:撞 2 GB 就拒(详见上方 _guard_oversized_files 注释)
-    if not lite:
-        _guard_oversized_files(src)
+    # full 模式按 2 GB 单文件阈值分流 — 仅 Windows 目标平台需要:
+    #   - 小文件:DESKTOP_BUNDLED_MODELS_DIR(嵌进 MSI 资源)
+    #   - 大文件:EXTERNAL_SEED_DIR(ISO 旁挂,装机后从光驱拷)
+    # lite 不走分流(本来就 < 2 GB 单文件,且没 ISO 配套)。
+    # macOS / Linux 目标平台的 installer 无单文件 2 GB 限制(DMG/APFS、DEB、RPM、
+    # AppImage 都支持 TB 级单文件),不分流 — 大文件直接嵌进 .dmg/.deb/...。
+    # 旧的 _guard_oversized_files FATAL 调用已撤 — Windows 上现在自动分流。
+    do_external_split = (
+        not lite
+        and target_triple is not None
+        and _target_has_installer_size_limit(target_triple)
+    )
 
     print(f"[build] flavor={flavor}, caps = {' / '.join(caps)}, src = {src}", flush=True)
+    if do_external_split:
+        print(f"[build] target={target_triple} 撞 2 GB installer 限制 → 大文件分流到 external seed", flush=True)
+    elif not lite and target_triple is not None:
+        print(f"[build] target={target_triple} 无 2 GB 限制 → 大文件直接嵌 installer(不分流)", flush=True)
+
+    # 准备 external seed 目录(每次清空,避免上次残留)。即使本次不分流也清一次 —
+    # 上次可能跑了 Windows target,这次切到 Linux/Mac,不清会留 stale 大文件混淆。
+    if EXTERNAL_SEED_DIR.exists():
+        shutil.rmtree(EXTERNAL_SEED_DIR)
+    if do_external_split:
+        EXTERNAL_SEED_DIR.mkdir(parents=True, exist_ok=True)
 
     caps_set = set(caps)
     n_files = 0
     n_bytes = 0
+    n_external = 0
+    n_external_bytes = 0
+    n_redundant_skipped = 0
     skipped: list[str] = []
+    external_files: list[dict[str, object]] = []
+    redundant_examples: list[str] = []
+
     for entry in sorted(src.iterdir()):
         if entry.name.startswith(".") or entry.name in ("README.md",):
             continue
@@ -281,19 +408,63 @@ def sync_bundled_models(*, lite: bool, bundled_src: Optional[Path] = None) -> No
         if entry.name not in caps_set:
             skipped.append(entry.name)
             continue
-        # 该 cap 在清单内 → 整子目录拷过去(跳过 .gitkeep)
+        # 该 cap 在清单内 → 整子目录拷过去(跳过 .gitkeep + 冗余权重 + 分流大文件)
         for sub in entry.rglob("*"):
-            if sub.is_file() and sub.name != ".gitkeep":
-                rel = sub.relative_to(src)
+            if not sub.is_file() or sub.name == ".gitkeep":
+                continue
+            rel = sub.relative_to(src)
+            size = sub.stat().st_size
+
+            # 冗余权重剪枝:同 model 目录有 .gguf/.safetensors 时,.bin/.onnx_data/.pt/.pth
+            # 都是历史遗留(老版 install 或手动 HF snapshot),装机不需要,直接跳。
+            # 这一步把 ISO 体积省下来,避免把 ~4 GB 冗余拷到光驱介质上。
+            suffix = sub.suffix.lower()
+            if suffix in _REDUNDANT_WEIGHT_SUFFIXES:
+                parts = rel.parts
+                model_dir = (src / parts[0] / parts[1]) if len(parts) >= 2 else sub.parent
+                if _has_alt_weight(model_dir):
+                    n_redundant_skipped += 1
+                    if len(redundant_examples) < 5:
+                        redundant_examples.append(str(rel))
+                    continue
+
+            # 单文件 ≥ 2 GB 的:Windows full 模式分流到 external seed;
+            # 非 Windows 或 lite 直接嵌进 bundled_models(这些平台没有 ISO 链路 + 没 2 GB 限制)
+            if size >= _WIN_INSTALLER_FILE_LIMIT and do_external_split:
+                dst = EXTERNAL_SEED_DIR / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(sub, dst)
+                n_external += 1
+                n_external_bytes += size
+                external_files.append({
+                    "path": str(rel).replace("\\", "/"),
+                    "size": size,
+                })
+            else:
                 dst = DESKTOP_BUNDLED_MODELS_DIR / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(sub, dst)
                 n_files += 1
-                n_bytes += dst.stat().st_size
+                n_bytes += size
+
+    # 写 external seed manifest(MSI 资源里,runtime first_launch 用它指导扫挂载介质)。
+    # 没大文件就不写 — 装机后 bundled_seed 直接走 happy path,跟以前一样。
+    if external_files:
+        import json
+        manifest = {
+            "version": 1,
+            "iso_volume_hint": EXTERNAL_SEED_VOLUME_HINT,
+            "files": sorted(external_files, key=lambda x: x["path"]),  # type: ignore[arg-type,return-value]
+        }
+        manifest_path = DESKTOP_BUNDLED_MODELS_DIR / EXTERNAL_SEED_MANIFEST_NAME
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     # 留一个 .gitkeep 防 Tauri glob 命中空目录时的 edge case(lite 时如果连
     # bundled_models 都未装填,目录还要存在让 cargo:rerun-if-changed 有 anchor)
-    if n_files == 0:
+    if n_files == 0 and not (DESKTOP_BUNDLED_MODELS_DIR / EXTERNAL_SEED_MANIFEST_NAME).exists():
         (DESKTOP_BUNDLED_MODELS_DIR / ".gitkeep").touch()
 
     mb = n_bytes / 1024 / 1024
@@ -302,6 +473,23 @@ def sync_bundled_models(*, lite: bool, bundled_src: Optional[Path] = None) -> No
         f"→ {DESKTOP_BUNDLED_MODELS_DIR}",
         flush=True,
     )
+    if external_files:
+        ext_mb = n_external_bytes / 1024 / 1024
+        print(
+            f"[build] {flavor}: external seed {n_external} 个大文件 ({ext_mb:.1f} MB) "
+            f"→ {EXTERNAL_SEED_DIR}  (build-desktop.ps1 会拷到 dist-{flavor}/models_seed/ 进 ISO)",
+            flush=True,
+        )
+    if n_redundant_skipped:
+        print(
+            f"[build] {flavor}: 跳过 {n_redundant_skipped} 个冗余权重 "
+            f"(同 model 目录已有 .gguf/.safetensors,装机不需要):",
+            flush=True,
+        )
+        for r in redundant_examples:
+            print(f"  - {r}", flush=True)
+        if n_redundant_skipped > len(redundant_examples):
+            print(f"  ... 共 {n_redundant_skipped} 个", flush=True)
     if skipped:
         print(f"[build] {flavor}: 跳过非 {flavor} 清单内 cap: {', '.join(skipped)}", flush=True)
 
@@ -691,7 +879,7 @@ def main() -> None:
     if args.sync_bundled_only:
         # 跳过 PyInstaller,只同步 bundled_models。给 build-desktop 双 flavor
         # 模式用:sidecar 跑一次,两个 flavor 切换时只重做 sync + tauri bundle。
-        sync_bundled_models(lite=lite, bundled_src=bundled_src)
+        sync_bundled_models(lite=lite, bundled_src=bundled_src, target_triple=target)
         _do_sync_and_verify()
         return
 
@@ -718,7 +906,7 @@ def main() -> None:
     run_pyinstaller(extra)
     if not args.no_copy:
         copy_to_tauri_binaries()
-        sync_bundled_models(lite=lite, bundled_src=bundled_src)
+        sync_bundled_models(lite=lite, bundled_src=bundled_src, target_triple=target)
         _do_sync_and_verify()
 
 
