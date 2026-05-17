@@ -27,36 +27,33 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
   React.useEffect(() => setDraft(message.content), [message.content]);
 
   // 检查这条用户消息是不是 ChatComposer 录音发送过来的 — 用 content 匹配
-  // voiceAttachments 队列;命中拿 Blob 给 <audio> 播。Blob → Object URL 后
-  // 必须在卸载时 revoke 防内存泄漏。
+  // voiceAttachments 队列;命中拿 Blob 给 <audio> 播。
   //
-  // ⚠ React StrictMode 坑:dev 模式下 useEffect 会执行 mount → cleanup → mount,
-  //   原写法把 createObjectURL + revokeObjectURL 都放 effect 里,导致第一次 mount 后
-  //   立刻被 cleanup revoke,audio src 失效 → 用户报"录音发了但播不出"。
-  //   修法:用 ref 跨 strict-mode 双跑去重 + 真正 unmount 时再 revoke。
-  const consumedRef = React.useRef<string | null>(null);  // message.id we've already consumed
-  const audioUrlRef = React.useRef<string | null>(null);
+  // ⚠ React StrictMode 坑(上轮修复未完全):dev 模式 useEffect mount → cleanup
+  //   → mount 双跑;**任何**绑在 effect cleanup 里的 revoke 都会在第二次 mount
+  //   前把 URL 销毁。上轮把 revoke 拆到第二个空-deps effect 仍逃不掉 — 那个
+  //   effect 同样会 mount→cleanup→mount,cleanup 时 revoke audioUrlRef → 失效。
+  //
+  // 正解:用 blobRef 持有 Blob;**每次 mount 都 createObjectURL 一次**,
+  //   cleanup 时 revoke 这次创建的 URL。strict-mode 第二次 mount 拿到新 URL
+  //   替换 state 里被 revoke 的旧值,audio 元素 src 始终有效。consumedRef
+  //   保证 Blob 只从队列 consume 一次。
+  const consumedRef = React.useRef<string | null>(null);
+  const blobRef = React.useRef<Blob | null>(null);
   const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!isUser) return;
-    if (consumedRef.current === message.id) return;  // strict-mode 第二次 mount,跳过
-    const blob = consumeVoiceAttachment(message.content);
-    if (!blob) {
-      consumedRef.current = message.id;  // 标记已 consume(即使没拿到,避免重复 query)
-      return;
+    if (consumedRef.current !== message.id) {
+      blobRef.current = consumeVoiceAttachment(message.content);
+      consumedRef.current = message.id;
     }
-    const url = URL.createObjectURL(blob);
-    consumedRef.current = message.id;
-    audioUrlRef.current = url;
+    if (!blobRef.current) return;
+    const url = URL.createObjectURL(blobRef.current);
     setAudioUrl(url);
-    // 真正 unmount 时 revoke — 不绑 message.content / id 变化(strict-mode 不会误 revoke)
+    return () => {
+      URL.revokeObjectURL(url);
+    };
   }, [message.id, isUser, message.content]);
-  React.useEffect(() => () => {
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
-    }
-  }, []);
 
   const onCopy = async () => {
     await getPlatform().clipboard.writeText(message.content);

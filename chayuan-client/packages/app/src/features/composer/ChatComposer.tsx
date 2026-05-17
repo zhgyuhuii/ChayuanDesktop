@@ -38,6 +38,7 @@ import { useMicSimpleRecorder } from './useMicSimpleRecorder';
 import { ChatRecorderPanel } from './ChatRecorderPanel';
 import { pushVoiceAttachment } from './voiceAttachments';
 import { reportError } from '../../store/errorDialog';
+import { convertText, detectChineseScript } from '../notes/chineseScript';
 import type { ComposerModelPillProps } from './ComposerModelPill';
 
 export interface ChatComposerProps {
@@ -126,11 +127,15 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         const ext = _mimeType.includes('webm') ? 'webm' : 'wav';
         const file = new File([blob], `chat-recording-${Date.now()}.${ext}`, { type: _mimeType });
         const r = await modality.transcribeFile(file, { language: 'zh' });
-        const text = (r.text ?? '').trim();
-        if (!text) {
+        const rawText = (r.text ?? '').trim();
+        if (!rawText) {
           reportError(new Error(r.diagnostics || '未识别到任何语音'), '录音转写失败');
           return;
         }
+        // **强转中文形态跟随系统语言** — 后端 zhconv 没装时 whisper 输出繁体直
+        // 接落到对话框,跟 NoteEditor 一致用 opencc-js 兜底。detectChineseScript
+        // 优先读 localStorage(用户在笔记里点过简/繁),否则读 navigator.language。
+        const text = convertText(rawText, detectChineseScript());
         // 文字先填进 draft 让用户看见;然后压队,最后触发 submit
         composerStore.getState().setDraft(text);
         pushVoiceAttachment(text, blob);  // 在 submit 之前 push,MessageBubble 挂载时能 consume 到
