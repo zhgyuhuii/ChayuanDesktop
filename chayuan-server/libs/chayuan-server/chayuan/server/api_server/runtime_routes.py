@@ -635,6 +635,60 @@ async def llama_capability_restart(
     return _ok(status.to_dict())
 
 
+# ─────────────────────── PyTorch 检测与安装 ───────────────────────
+
+
+@runtime_router.get(
+    "/pytorch/status",
+    summary="PyTorch 安装状态 + GPU 检测",
+)
+def pytorch_status() -> Dict[str, Any]:
+    """返回当前 env 的 torch / torchvision 版本、import 链是否健康、是否有
+    NVIDIA GPU、推荐安装 variant(auto 用)。前端「设置 → 本地模型服务」的
+    PyTorch 行据此渲染按钮(已就绪/CPU 安装/CUDA 安装)。"""
+    from chayuan.server.runtime.pytorch_installer import detect_status
+    return _ok(detect_status().to_dict())
+
+
+@runtime_router.post(
+    "/pytorch/install",
+    summary="启动 PyTorch 安装(异步),返 task_id 供轮询进度",
+)
+def pytorch_install(
+    body: Dict[str, Any] = Body(default={}),
+) -> Dict[str, Any]:
+    """body: ``{"variant": "cpu" | "cu118" | "cu121" | "cu124" | "cu126" | "auto"}``。
+
+    异步跑 ``pip install --upgrade torch torchvision --index-url <wheel-url>``;
+    日志通过 ``GET /runtime/pytorch/install/{task_id}`` 拉。
+    复用 install_task_manager 的现有 task 基础设施。
+    """
+    from chayuan.server.runtime.pytorch_installer import start_install
+    variant = (body or {}).get("variant", "auto")
+    if not isinstance(variant, str):
+        raise HTTPException(status_code=400, detail="`variant` must be a string")
+    # prefer_offline=true(默认)— 有内置 wheel 优先用,无网也能装上
+    # 用户显式要"强制在线"(更新 wheel 版本)时传 prefer_offline=false
+    prefer_offline = bool((body or {}).get("prefer_offline", True))
+    try:
+        task = start_install(variant, prefer_offline=prefer_offline)  # type: ignore[arg-type]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _ok(task.to_dict())
+
+
+@runtime_router.get(
+    "/pytorch/install/{task_id}",
+    summary="查 PyTorch 安装进度 / 日志",
+)
+def pytorch_install_status(task_id: str) -> Dict[str, Any]:
+    from chayuan.server.config_panel.install_task_manager import get_install_manager
+    task = get_install_manager().get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
+    return _ok(task.to_dict())
+
+
 # ─────────────────────── auto-start 开关 ───────────────────────
 
 

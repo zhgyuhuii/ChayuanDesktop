@@ -25,6 +25,9 @@ import {
   type LocalRuntimeCapability,
   modality,
   type OcrSidecarStatus,
+  type PytorchInstallTask,
+  type PytorchStatus,
+  type PytorchVariant,
   runtimeModels,
 } from '@chayuan/api';
 import { Button, Switch } from '@chayuan/ui';
@@ -331,6 +334,10 @@ export const LocalRuntimeServicesSection: React.FC = () => {
             RapidOCR 是独立的 python -m daemon,端口 18380,跟其它行视觉一致但走
             独立 API(modality.ocrSidecar.*)。后端 startup 已自动拉起一次。*/}
         <OcrSidecarRow />
+        {/* PyTorch + torchvision — transformers image 链的硬依赖,wheel 体积
+            ~250 MB(CPU)/ 2-3 GB(CUDA)不打包进 installer;启动后按需检测+安装。
+            优先内置 wheel(无网兜底),没有 fallback 在线官方源。*/}
+        <PytorchRow />
       </div>
 
       <DiagnoseModal open={diagnoseOpen} onOpenChange={setDiagnoseOpen} />
@@ -655,6 +662,203 @@ const OcrSidecarRow: React.FC = () => {
         )}
         {status?.error && !error && (
           <div className="text-rose-600 dark:text-rose-400">{status.error}</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * 「PyTorch」行 — 显示 torch/torchvision 版本 + GPU 检测 + 一键安装。
+ *
+ * 设计:transformers image 链的硬依赖,wheel 体积大不打包进 installer。
+ *   - import_ok=true:显示已就绪(绿)+ 版本号
+ *   - import_ok=false:显示需安装(灰/红)+ 提供安装按钮
+ *   - 安装时:disable 按钮 + 显示最近几行 log + 提示装完需重启 chayuan-server
+ *   - 优先内置 wheel(offline_wheels_available=true,无网也能装);否则在线
+ */
+const PytorchRow: React.FC = () => {
+  const [status, setStatus] = React.useState<PytorchStatus | null>(null);
+  const [task, setTask] = React.useState<PytorchInstallTask | null>(null);
+  const [installing, setInstalling] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const refreshStatus = React.useCallback(async () => {
+    try {
+      setStatus(await localRuntime.pytorchStatus());
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void refreshStatus();
+    const t = window.setInterval(() => void refreshStatus(), 5_000);
+    return () => window.clearInterval(t);
+  }, [refreshStatus]);
+
+  // 安装中:轮询 task,直到 terminal state
+  React.useEffect(() => {
+    if (!task || !installing) return;
+    let cancelled = false;
+    const poll = async () => {
+      while (!cancelled) {
+        try {
+          const t = await localRuntime.pytorchInstallTask(task.task_id);
+          setTask(t);
+          if (['done', 'failed', 'cancelled'].includes(t.state)) {
+            setInstalling(false);
+            await refreshStatus();
+            return;
+          }
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+          setInstalling(false);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    };
+    void poll();
+    return () => { cancelled = true; };
+  }, [task, installing, refreshStatus]);
+
+  const startInstall = async (variant: PytorchVariant) => {
+    setError(null);
+    setInstalling(true);
+    setTask(null);
+    try {
+      const t = await localRuntime.pytorchInstall(variant);
+      setTask(t);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setInstalling(false);
+    }
+  };
+
+  const isReady = status?.import_ok === true;
+  const stateLabel = isReady ? '就绪' : status ? '未就绪' : '检测中…';
+  const stateColor =
+    isReady
+      ? 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30'
+      : status
+        ? 'bg-rose-500/15 text-rose-700 border-rose-500/30'
+        : 'bg-zinc-500/15 text-zinc-600 border-zinc-500/30';
+  const dotColor = isReady ? 'bg-emerald-500' : status ? 'bg-rose-500' : 'bg-zinc-400';
+
+  const variantLabel: Record<PytorchVariant, string> = {
+    cpu: 'CPU',
+    cu118: 'CUDA 11.8',
+    cu121: 'CUDA 12.1',
+    cu124: 'CUDA 12.4',
+    cu126: 'CUDA 12.6',
+    auto: '自动',
+  };
+
+  return (
+    <div
+      id="local-runtime-pytorch"
+      className="rounded-md border border-[var(--cy-border-subtle)] p-3 space-y-1.5 scroll-mt-4"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          title={status?.import_error || stateLabel}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${stateColor}`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
+          {stateLabel}
+        </span>
+        <span className="text-sm font-medium text-[var(--cy-text-primary)]">
+          PyTorch
+        </span>
+        {status?.has_nvidia_gpu && (
+          <span
+            className="rounded-sm border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200"
+            title={`检测到 NVIDIA GPU,驱动 ${status.nvidia_driver ?? '未知'}`}
+          >
+            GPU
+          </span>
+        )}
+        {status?.offline_wheels_available && (
+          <span
+            className="rounded-sm border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:bg-sky-900/30 dark:text-sky-200"
+            title={`内置 wheel 可用 ${status.offline_wheels_dir ?? ''}`}
+          >
+            离线 wheel 就绪
+          </span>
+        )}
+
+        <div className="ml-auto flex items-center gap-1">
+          {!isReady && status?.can_install !== false && (
+            <>
+              <Button
+                size="sm"
+                onClick={() => void startInstall(status?.suggested_variant ?? 'auto')}
+                disabled={installing}
+              >
+                {installing
+                  ? '安装中…'
+                  : `安装 ${variantLabel[status?.suggested_variant ?? 'auto']}`}
+              </Button>
+              {status?.has_nvidia_gpu && status?.suggested_variant !== 'cpu' && !installing && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void startInstall('cpu')}
+                  title="跳过 CUDA,只装 CPU 版(小,无 GPU 加速)"
+                >
+                  装 CPU 版
+                </Button>
+              )}
+            </>
+          )}
+          {isReady && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void startInstall(status?.suggested_variant ?? 'auto')}
+              disabled={installing}
+              title="重装(本机版本异常 / 升级 wheel 时用)"
+            >
+              重装
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="text-[11px] text-[var(--cy-text-tertiary)] space-y-0.5">
+        {status && (
+          <div>
+            torch: {status.torch_version ?? '未安装'}
+            {status.torch_cuda_build && ` (${status.torch_cuda_build})`}
+            {' · '}
+            torchvision: {status.torchvision_version ?? '未安装'}
+          </div>
+        )}
+        {!isReady && status?.import_error && (
+          <div className="text-rose-600 dark:text-rose-400 break-all">
+            {status.import_error}
+          </div>
+        )}
+        {status?.notes?.map((n, i) => (
+          <div key={i} className="text-amber-700 dark:text-amber-300">{n}</div>
+        ))}
+        {error && (
+          <div className="text-rose-600 dark:text-rose-400">{error}</div>
+        )}
+        {task && (
+          <details className="mt-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-1.5"
+                   open={installing}>
+            <summary className="cursor-pointer text-xs text-[var(--cy-text-secondary)]">
+              安装日志 · {task.recipe_label} · {task.state}
+              {task.state === 'done' && ' ✓ 装完请重启 chayuan-server 才能生效'}
+            </summary>
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-[10px]
+                            font-mono text-[var(--cy-text-tertiary)]">
+              {task.log.slice(-30).join('\n') || '(等待日志…)'}
+            </pre>
+          </details>
         )}
       </div>
     </div>

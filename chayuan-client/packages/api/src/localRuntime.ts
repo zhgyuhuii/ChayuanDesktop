@@ -189,6 +189,69 @@ async function setAutoStart(capability: AutoStartKey, enabled: boolean): Promise
   ).data;
 }
 
+// ─── PyTorch 检测 + 安装 ───
+// transformers image 链的硬依赖,wheel 体积巨大不打包进 installer,装机时按需下载。
+// 走「设置 → 本地模型服务 → PyTorch」一键检测 + 安装,跟 OCR 体验一致。
+
+export type PytorchVariant = 'cpu' | 'cu118' | 'cu121' | 'cu124' | 'cu126' | 'auto';
+
+export interface PytorchStatus {
+  torch_version: string | null;
+  torch_cuda_build: string | null;        // "cu124" / "cpu" / null
+  torchvision_version: string | null;
+  /** 整个 import 链是否健康(transformers image 路径能否走通)*/
+  import_ok: boolean;
+  import_error: string | null;
+  has_nvidia_gpu: boolean;
+  nvidia_driver: string | null;
+  /** 一键自动安装时该用哪个 variant(CPU 或 cuXXX)*/
+  suggested_variant: PytorchVariant;
+  can_install: boolean;
+  /** 内置 wheel 是否可用 — true 时即使无网也能装上(走 vendor/torch_wheels) */
+  offline_wheels_available: boolean;
+  offline_wheels_dir: string | null;
+  /** 给前端的额外提示(驱动太老 / 版本不配等)*/
+  notes: string[];
+}
+
+/** install_task_manager.InstallTask 子集(只暴露 UI 用得到的字段)*/
+export interface PytorchInstallTask {
+  task_id: string;
+  framework: string;
+  recipe_label: string;
+  state: 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
+  log: string[];
+  return_code: number | null;
+  error: string;
+  started_at: number;
+  finished_at: number | null;
+}
+
+async function pytorchStatus(): Promise<PytorchStatus> {
+  return (await request<PytorchStatus>('/runtime/pytorch/status')).data;
+}
+
+async function pytorchInstall(
+  variant: PytorchVariant = 'auto',
+  opts: { preferOffline?: boolean } = {},
+): Promise<PytorchInstallTask> {
+  return (
+    await request<PytorchInstallTask>('/runtime/pytorch/install', {
+      method: 'POST',
+      body: { variant, prefer_offline: opts.preferOffline ?? true },
+      timeoutMs: 30_000,  // start 本身只是入队,几百 ms;真实安装异步跑
+    })
+  ).data;
+}
+
+async function pytorchInstallTask(taskId: string): Promise<PytorchInstallTask> {
+  return (
+    await request<PytorchInstallTask>(
+      `/runtime/pytorch/install/${encodeURIComponent(taskId)}`,
+    )
+  ).data;
+}
+
 // ─── OCR (RapidOCR 进程内 onnxruntime,没有独立 sidecar) ───
 
 export interface RuntimeOcrHealth {
@@ -226,4 +289,8 @@ export const localRuntime = {
   // auto-start 开关(5 cap + rapidocr 共用一份字典)
   listAutoStart,
   setAutoStart,
+  // PyTorch 检测 + 安装(transformers image 链硬依赖)
+  pytorchStatus,
+  pytorchInstall,
+  pytorchInstallTask,
 };
