@@ -11,6 +11,7 @@
  */
 
 import type {
+  CaptureApi,
   ClipboardApi,
   DbValue,
   FsApi,
@@ -465,6 +466,66 @@ const webPreview: PreviewWindowApi = {
 };
 
 // ──────────────────────────────────────────────────────────────
+// Capture(屏幕截图)— Web 端兜底:getDisplayMedia 选屏 → canvas → toBlob
+// ──────────────────────────────────────────────────────────────
+//
+// Tauri 端是直接调 Rust xcap 一次成图,毫无 UX 摩擦;Web 浏览器没有"静默截
+// 屏"能力,只能借 getDisplayMedia 走标准的"屏幕共享"链路:
+//   1. 用户点截图按钮 → 浏览器弹原生选屏对话框(整屏 / 单窗口 / 单 tab)
+//   2. 拿到 MediaStream → 抽 video track → 设到隐藏 <video> 上 → 取一帧
+//   3. drawImage 进 canvas → canvas.toBlob 拿 PNG
+//   4. 立刻 stop track,不留权限痕迹
+//
+// 限制:用户每次都要在弹框里手选屏 / 窗口,无法记忆;并且 https 才有 API。
+// 桌面版用户走 Tauri 路径无感,这里仅作 web 兜底。
+
+const webCapture: CaptureApi = {
+  async screenshot(): Promise<Blob> {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getDisplayMedia) {
+      throw new Error('当前浏览器不支持 getDisplayMedia;请用桌面版或升级浏览器');
+    }
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      // preferCurrentTab=false:让用户自选,默认提示"整屏 / 应用窗口 / 当前 Tab"
+      video: { displaySurface: 'monitor' } as MediaTrackConstraints,
+      audio: false,
+    });
+    try {
+      const track = stream.getVideoTracks()[0];
+      if (!track) throw new Error('未拿到视频轨');
+      // 用 <video> 串接 stream 取一帧 —— 比 ImageCapture 兼容性更好
+      // (Safari + Firefox 没全量支持 ImageCapture)
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.muted = true;
+      await video.play();
+      // 等 metadata + 真正有帧 —— 直接 drawImage 可能拿到空帧
+      if (video.readyState < 2) {
+        await new Promise<void>((resolve) => {
+          video.onloadeddata = () => resolve();
+        });
+      }
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('canvas 2d 上下文初始化失败');
+      ctx.drawImage(video, 0, 0, w, h);
+      video.srcObject = null;
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), 'image/png'),
+      );
+      if (!blob) throw new Error('canvas.toBlob 返回空');
+      return blob;
+    } finally {
+      // 必须立刻 stop,否则 Chrome / Edge 顶部会一直显示"正在共享屏幕"
+      for (const t of stream.getTracks()) t.stop();
+    }
+  },
+};
+
+// ──────────────────────────────────────────────────────────────
 // Bootstrap
 // ──────────────────────────────────────────────────────────────
 
@@ -493,6 +554,7 @@ export function createWebPlatform(env: {
     shell: webShell,
     dialog: webDialog,
     preview: webPreview,
-    // 不提供 shortcut / tray / capture / updater；UI 必须 capability check
+    capture: webCapture,
+    // 不提供 shortcut / tray / updater；UI 必须 capability check
   };
 }

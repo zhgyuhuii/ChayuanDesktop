@@ -34,6 +34,7 @@ import { CHAYUAN_LOGO_URL } from '../../lib/brandAssets';
 import { useComposerS, useComposerScopedStore } from '../../store/composer';
 import { useArtifactSync } from '../artifact/useArtifactSync';
 import { ChatComposer } from '../composer/ChatComposer';
+import { useChatScreenshot } from '../composer/useChatScreenshot';
 import {
   appendMessage,
   getConversation,
@@ -111,6 +112,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   const selectedToolsLen = useComposerS((s) => s.selectedTools.length);
   const qc = useQueryClient();
   const attachments = useAttachments();
+  const screenshot = useChatScreenshot(attachments.addImages);
 
   const chat = useChayuanChat({
     conversationId: activeId ?? undefined,
@@ -324,6 +326,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
             ? {
                 onPickFile: () => void attachments.pickFiles(),
                 onPickImage: () => void attachments.pickImages(),
+                onScreenshot: screenshot.available ? screenshot.onScreenshot : undefined,
                 topSlot: attachments.attachments.length ? (
                   <AttachmentBar items={attachments.attachments} onRemove={attachments.remove} />
                 ) : null,

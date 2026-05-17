@@ -28,6 +28,10 @@ export function useAttachments(): {
   attachments: AttachmentDraft[];
   pickFiles(opts?: { accept?: string | string[]; multiple?: boolean }): Promise<void>;
   pickImages(): Promise<void>;
+  /** 编程入口:外部已经拿到 File[] 时(截图 / 粘贴 / 跨组件传递),
+   *  直接走 useAttachments 内部 upload 管线 — 无需 picker。 */
+  addImages(items: File[]): Promise<void>;
+  addFiles(items: File[]): Promise<void>;
   acceptDrop(event: React.DragEvent): Promise<void>;
   remove(id: string): void;
   reset(): void;
@@ -159,6 +163,17 @@ export function useAttachments(): {
     if (files.length) await upload('image', files);
   }, [upload]);
 
+  const addImages = React.useCallback(async (items: File[]) => {
+    const imgs = items.filter((f) => f.type.startsWith('image/'));
+    if (!imgs.length) return;
+    await upload('image', imgs);
+  }, [upload]);
+
+  const addFiles = React.useCallback(async (items: File[]) => {
+    if (!items.length) return;
+    await upload('file', items);
+  }, [upload]);
+
   const acceptDrop = React.useCallback(
     async (event: React.DragEvent) => {
       event.preventDefault();
@@ -228,5 +243,5 @@ export function useAttachments(): {
     return intro + '\n' + blocks.join('\n\n');
   }, []);
 
-  return { attachments, pickFiles, pickImages, acceptDrop, remove, reset, getOcrPromptAppendix };
+  return { attachments, pickFiles, pickImages, addImages, addFiles, acceptDrop, remove, reset, getOcrPromptAppendix };
 }

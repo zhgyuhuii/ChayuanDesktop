@@ -300,9 +300,14 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-1">
-          <IconBtn aria-label={t('chat.scissors')} title={t('chat.scissors')} onClick={onScreenshot}>
-            <Scissors className="h-4 w-4" />
-          </IconBtn>
+          {/* 截图按钮只在 onScreenshot 真接入时才显示 —— 其它 composer 站(KbBoard
+              ask / SkillTemplate / KbDetail)没有附件管线,不该出现一个点了没反应
+              的幽灵按钮(2026-05-17 用户反馈 fix) */}
+          {onScreenshot && (
+            <IconBtn aria-label={t('chat.scissors')} title={t('chat.scissors')} onClick={onScreenshot}>
+              <Scissors className="h-4 w-4" />
+            </IconBtn>
+          )}
           <IconBtn aria-label={t('chat.uploadFile')} title={t('chat.uploadFile')} onClick={onPickFile}>
             <Paperclip className="h-4 w-4" />
           </IconBtn>
