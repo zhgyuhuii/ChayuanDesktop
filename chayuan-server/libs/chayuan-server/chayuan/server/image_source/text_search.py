@@ -1,4 +1,15 @@
-"""文字搜图 service:两路并行(用户默认文本向量模型 + CLIP 跨模态) + RRF 融合。"""
+"""文字搜图 service:三路并行 + RRF 融合。
+
+  1. **关键词路径**(``_run_keyword_path``):字面 substring 匹配 OCR 文本 / 文件名
+     — 用户报"输入'冠军'返回了不含'冠军'的图",这条路保证字面命中**永远前置**。
+  2. **文本向量路径**(``_run_text_vec_path``):用户默认文本嵌入(bge-m3 等)
+     query → OCR text 向量,召回语义相近的 OCR 文本。
+  3. **CLIP 跨模态路径**(``_run_clip_text_path``):CLIP 把 query 直接映到图像
+     空间,召回视觉上相似的图(即使 OCR 没文字)。
+
+  RRF 融合时关键词路径放第一,让字面命中绝对优先;后两路按近邻分数排。
+  diagnostics 字段告诉前端每路命中多少,可分组展示。
+"""
 from __future__ import annotations
 
 import asyncio
@@ -56,9 +67,17 @@ async def text_search(
     store_name: str, query: str, *, top_k: int = 20, k_rrf: int = 60,
     source_id: int = 0, model_name: str = "",
 ) -> Dict[str, Any]:
-    """两路文字搜图。返 {"hits": [..], "diagnostics": {..}}。"""
+    """三路文字搜图。返 {"hits": [..], "diagnostics": {..}}。
+
+    用户报"搜'冠军'返回了不含'冠军'的图" — 加 keyword 路径让字面命中绝对优先;
+    向量路在它之后做语义补充。
+    """
     store = get_store(store_name)
-    diagnostics = {"text_path": "ok", "image_path": "ok"}
+    diagnostics = {"keyword_path": "ok", "text_path": "ok", "image_path": "ok"}
+
+    # 关键词路是 in-memory substring 扫描,~ O(N) 不耗时间;同步跑就行
+    keyword_hits = _run_keyword_path(store, query, top_k, source_id)
+    diagnostics["keyword_path"] = f"matched {len(keyword_hits)}"
 
     text_task = asyncio.create_task(
         _run_text_vec_path(store, query, top_k, source_id)
@@ -68,7 +87,11 @@ async def text_search(
     )
     text_res, image_res = await asyncio.gather(text_task, clip_task)
 
+    # **rankings 顺序决定 RRF 融合时各路的隐含权重** — 关键词路第一,
+    # 字面命中永远抢在向量召回前面。后两路按 (text_vec, clip) 自然顺序。
     rankings: List[List[ImageHit]] = []
+    if keyword_hits:
+        rankings.append(keyword_hits)
     if text_res.error:
         diagnostics["text_path"] = f"unavailable: {text_res.error}"
     elif text_res.hits:
@@ -81,10 +104,46 @@ async def text_search(
     if not rankings:
         return {"hits": [], "diagnostics": diagnostics}
     fused = rrf_fuse(rankings, k=k_rrf)[:top_k]
+    # 关键词命中的 id 集合 — 融合后 source_path 都会被改成 "fused",前端没法
+    # 凭 ImageHit 区分哪些是字面命中。这里把这一信息单独传给前端,UI 可加
+    # "字面" 角标 / 分组。
+    keyword_ids = {h.id for h in keyword_hits}
     return {
-        "hits": [_hit_to_wire(h) for h in fused],
+        "hits": [
+            {**_hit_to_wire(h), "keyword_match": h.id in keyword_ids}
+            for h in fused
+        ],
         "diagnostics": diagnostics,
     }
+
+
+def _run_keyword_path(store, query: str, top_k: int, source_id: int) -> List[ImageHit]:
+    """OCR 文本 / 文件名 substring 匹配。
+
+    设计:
+      - 仅在 query.strip() >= 2 字符时跑(单字误命中太多;空白 query 不跑)
+      - 大小写不敏感;命中位置不影响排序(只按"是否命中"二值化进 RRF)
+      - 同时匹配 OCR 文本和 filename(用户报"图名带'冠军'"也算命中)
+      - **不**做切词 / 模糊;字面就是字面 — 用户想要"含这俩字"的图
+
+    出 ImageHit.source_path="keyword",前端 UI 可分组显示"字面命中"。
+    """
+    q = (query or "").strip()
+    if len(q) < 2:
+        return []
+    q_lower = q.lower()
+    # list_items 拿全量 meta;ImageStore 顺序 = 入库顺序,够稳定
+    items = store.list_items(limit=10_000)
+    hits: List[ImageHit] = []
+    for rec in items:
+        ocr = (rec.get("ocr_text") or "").lower()
+        fname = (rec.get("filename") or "").lower()
+        if q_lower in ocr or q_lower in fname:
+            hits.append(_rec_to_hit(rec, score=1.0, source_path="keyword",
+                                      source_id=source_id))
+            if len(hits) >= top_k * 3:  # 关键词命中给 3 倍 top_k 空间,够 RRF 用
+                break
+    return hits
 
 
 async def _run_text_vec_path(store, query, top_k, source_id) -> _PathResult:
