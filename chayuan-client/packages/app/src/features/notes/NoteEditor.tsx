@@ -66,25 +66,42 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
     },
   });
 
-  // ASR volatile 占位的位置记录 — 每次 chunk 来时定位删旧 volatile,插新 volatile。
-  // 同步靠 editor mark scan(任何时候 volatile 在编辑器里都带 asrVolatile mark)。
-  const removeVolatileRange = React.useCallback(() => {
-    if (!editor) return;
-    const doc = editor.state.doc;
+  // 找编辑器里所有 asrVolatile mark 覆盖的连续文本 range(可能多段,取
+  // [最左, 最右])。volatile 永远是末尾的灰色斜体那段。
+  const findVolatileRange = React.useCallback((): { from: number; to: number } | null => {
+    if (!editor) return null;
     const markType = editor.schema.marks.asrVolatile;
-    if (!markType) return;
+    if (!markType) return null;
     let from: number | null = null;
     let to: number | null = null;
-    doc.descendants((node, pos) => {
+    editor.state.doc.descendants((node, pos) => {
       if (node.isText && node.marks.some((m) => m.type === markType)) {
         if (from === null) from = pos;
         to = pos + node.nodeSize;
       }
     });
-    if (from !== null && to !== null) {
-      editor.chain().deleteRange({ from, to }).run();
-    }
+    if (from === null || to === null) return null;
+    return { from, to };
   }, [editor]);
+
+  // 删除 volatile 占位(chunk 间 replace 用)
+  const removeVolatileRange = React.useCallback(() => {
+    const range = findVolatileRange();
+    if (range && editor) editor.chain().deleteRange(range).run();
+  }, [editor, findVolatileRange]);
+
+  // stop 时不要直接删 volatile — 用户说的话都识别出来了,即便没二次确认也应该
+  // 留在笔记里。把 asrVolatile mark 移除(灰色斜体变正常黑字),保留文字。
+  const commitVolatileAsStable = React.useCallback(() => {
+    const range = findVolatileRange();
+    if (!range || !editor) return;
+    editor
+      .chain()
+      .setTextSelection(range)
+      .unsetMark('asrVolatile')
+      .setTextSelection(range.to)
+      .run();
+  }, [editor, findVolatileRange]);
 
   // 标题变化也写草稿
   React.useEffect(() => {
@@ -103,30 +120,33 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
     onPartial: (text) => {
       if (!text || !editor) return;
       partialCountRef.current += 1;
-      // commit stable_increment(LocalAgreement-2 二次确认的字符) — 黑色固化
+      // commit stable_increment(LocalAgreement-2 二次确认的字符)— 黑色固化
       // 先删 volatile 占位避免新文字插到 volatile 后面;commit 后 volatile 由
-      // onVolatile 重新插入
+      // onVolatile 重新插入(顺序:onPartial 先 → onVolatile 后,在 useMicRecorder
+      // flushBuffered 里保证)
       removeVolatileRange();
-      editor.chain().focus().insertContent(text).run();
+      // 防换行:whisper 偶尔输出 \n,Tiptap insertContent 会解析成 hardBreak
+      editor.chain().focus().insertContent(text.replace(/\r?\n+/g, ' ')).run();
     },
     onVolatile: (volatileText) => {
       if (!editor) return;
-      // 删旧 volatile,无论新 volatile 是否为空都先清理
       removeVolatileRange();
       if (!volatileText) return;
-      // 在当前光标(末尾)插入新 volatile,带 asrVolatile mark(灰色斜体)。
-      // 文档结构上 volatile 是普通 text,只是有 mark;下次 chunk 来时根据 mark
-      // 找到这段范围 delete + 重插。
+      // 末尾插新 volatile 带 asrVolatile mark(灰色斜体)。
+      // 防换行同 onPartial。
       editor.chain()
         .focus()
         .insertContent({
           type: 'text',
-          text: volatileText,
+          text: volatileText.replace(/\r?\n+/g, ' '),
           marks: [{ type: 'asrVolatile' }],
         })
         .run();
     },
     onFinal: (full) => {
+      // ⭐ stop 时残留的 volatile(灰色斜体)直接转黑色保留 — 用户说的话已经识别
+      // 出来,即便没二次 LocalAgreement 确认也不该被吞掉
+      commitVolatileAsStable();
       if (partialCountRef.current === 0 && !full) {
         // 实时调诊断端点 — 4 层后端逐个 probe,展示具体哪一层不通
         void (async () => {

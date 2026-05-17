@@ -387,27 +387,16 @@ class AudioPipeline:
                 with httpx.Client(timeout=20.0) as client:
                     resp = client.post(url, data=data, files=files)
         except httpx.ReadTimeout as e:
-            # sidecar 卡住(whisper.cpp 处理某段音频死循环 / 内存炸 / 进程已挂)。
-            # 主动把 registry 的 sidecar status mark 为 failed,这样下次 diag 端点
-            # 能反映真实状态,UI 也能看到红色 banner。后续 chunk 会 fallback 到 Python
-            # whisper / OpenAI API(如配置了),或干净失败而不是连续 timeout。
-            try:
-                mgr_to_mark = mgr
-                # 通过 dataclass replace 而非戳私有 _status
-                from dataclasses import replace as _dc_replace
-                mgr_to_mark._status = _dc_replace(
-                    mgr_to_mark.status, state="failed",
-                    last_error=f"sidecar ReadTimeout ({e});可能进程已挂或卡死",
-                )
-                # registry 持久化(尽力)
-                if hasattr(mgr_to_mark, "_persist_status"):
-                    mgr_to_mark._persist_status()
-            except Exception:  # noqa: BLE001
-                pass
+            # sidecar 单次推理超 20s 没回。**不**主动 mark registry failed —
+            # 那会触发下个 chunk 进入 transcribe 时看 state!=ready → 主动调
+            # mgr.start() restart sidecar,30s 内启动不完就 raise RuntimeError
+            # (用户已经遇到过)。改为:只记录到 diag,sidecar 状态保持 ready,
+            # 下次 chunk 还能尝试调用 — 如果是偶发慢则自愈,如果是真挂了用户
+            # 会持续看到 ReadTimeout,需手动重启 sidecar。
             diag.append(
-                f"[sidecar] POST {url} ReadTimeout {e} — sidecar 进程可能已挂死,"
-                f"已把 registry status mark 为 failed。请到「设置 → AI 平台 → 本地服务」"
-                f"重启 ASR sidecar。"
+                f"[sidecar] POST {url} ReadTimeout({e}) — sidecar 单次推理 >20s,"
+                f"通常是 whisper.cpp 内部某段音频卡死;若持续出现请到「设置 → AI 平台 "
+                f"→ 本地服务」手动重启 ASR sidecar。"
             )
             raise
         finally:

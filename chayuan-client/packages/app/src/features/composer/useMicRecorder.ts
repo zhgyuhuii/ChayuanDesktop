@@ -71,6 +71,11 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
   const chunkIndexRef = React.useRef(0);
   const expectedRef = React.useRef(0);
   const pendingRef = React.useRef<Map<number, string>>(new Map());
+  // chunk idx → 该 chunk 返回时的 volatile_suffix。在 flushBuffered 推进 expected
+  // 之后取最后已 flush idx 对应的 volatile 触发 onVolatile,确保顺序是
+  // **onPartial 先(stable 文字 commit)→ onVolatile 后(灰色显示)**,避免
+  // 之前"onVolatile 插完灰色,onPartial 把它删了"的 bug。
+  const volatilesRef = React.useRef<Map<number, string>>(new Map());
   const fullTextRef = React.useRef<string[]>([]);
   const abortersRef = React.useRef<AbortController[]>([]);
   const startTsRef = React.useRef(0);
@@ -101,9 +106,23 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
       pendingRef.current.delete(idx);
       if (txt) {
         fullTextRef.current.push(txt);
-        optsRef.current.onPartial?.(txt, idx);
+        // strip 换行 — Tiptap insertContent 会把 \n 解析成 hardBreak,导致
+        // 用户看到"换行太多";语音转写本身不应有换行
+        optsRef.current.onPartial?.(txt.replace(/\r?\n+/g, ' '), idx);
       }
       expectedRef.current++;
+    }
+    // 所有 in-order onPartial 都触发完后,**最后**用最新已 flush idx 的 volatile
+    // 触发 onVolatile。这个顺序保证 stable 先 commit、volatile 后插,避免
+    // "onVolatile 先插灰色 → onPartial 调 removeVolatileRange 删掉刚插的"bug。
+    const lastFlushedIdx = expectedRef.current - 1;
+    if (lastFlushedIdx >= 0) {
+      const v = (volatilesRef.current.get(lastFlushedIdx) ?? '').replace(/\r?\n+/g, ' ');
+      // 清掉已用的 volatile(只保留最新一个的索引上限以下的不再有用)
+      for (const k of [...volatilesRef.current.keys()]) {
+        if (k <= lastFlushedIdx) volatilesRef.current.delete(k);
+      }
+      optsRef.current.onVolatile?.(v, lastFlushedIdx);
     }
   }, []);
 
@@ -131,8 +150,9 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
   const finalizeAndCleanup = React.useCallback(() => {
     if (finalizedRef.current) return;
     finalizedRef.current = true;
-    // 收尾立刻清 volatile 占位 — 不等 in-flight,UI 立刻干净
-    try { optsRef.current.onVolatile?.('', -1); } catch { /* ignore */ }
+    // ⚠ 不在这里主动 onVolatile('',-1) — 让 onFinal 让 NoteEditor 决定怎么处理
+    // 残留 volatile。当前 NoteEditor 策略是"把灰色 volatile 转黑色保留",
+    // 而不是直接删掉(用户已经说出来了,不该被吞掉)
     const checkDone = () => {
       if (chunkIndexRef.current === expectedRef.current) {
         const full = fullTextRef.current.join(' ').trim();
@@ -240,9 +260,10 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
             sessionIdRef.current = uuid();
             console.debug('[mic] session full,rotated to', sessionIdRef.current.slice(0, 6));
           }
-          // volatile 路径:**先**触发(无序也无所谓,volatile 只反映"当前最新猜测")
-          // 这样用户看到末尾持续闪烁修正
-          optsRef.current.onVolatile?.(volatileText, idx);
+          // 把 volatile 暂存到 volatilesRef,flushBuffered 推进 expected 后才用
+          // 最新已 flush idx 对应的 volatile 触发 onVolatile — 这样**onPartial
+          // 先 commit 黑字,onVolatile 后插灰色尾部**,顺序对了
+          volatilesRef.current.set(idx, volatileText);
           pendingRef.current.set(idx, text);
           flushBuffered();
         })
@@ -302,6 +323,7 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     chunkIndexRef.current = 0;
     expectedRef.current = 0;
     pendingRef.current.clear();
+    volatilesRef.current.clear();
     fullTextRef.current = [];
     abortersRef.current = [];
     stopRequestedRef.current = false;
