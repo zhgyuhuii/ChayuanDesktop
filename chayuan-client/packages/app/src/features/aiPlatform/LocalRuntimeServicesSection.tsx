@@ -20,6 +20,8 @@ import { ClipboardList, FileBarChart2, Play, RefreshCw, RotateCw, Square } from 
 import {
   type LocalModelEntry,
   type LocalRuntimeCapability,
+  modality,
+  type OcrSidecarStatus,
   runtimeModels,
 } from '@chayuan/api';
 import { Button } from '@chayuan/ui';
@@ -295,6 +297,11 @@ export const LocalRuntimeServicesSection: React.FC = () => {
             />
           );
         })}
+        {/* OCR sidecar — 不在 useLocalRuntimeStore 管的 5 个 capability 内
+            (那个管 llama/whisper/Infinity 三类 sidecar 的 SidecarRuntimeManager);
+            RapidOCR 是独立的 python -m daemon,端口 18380,跟其它行视觉一致但走
+            独立 API(modality.ocrSidecar.*)。后端 startup 已自动拉起一次。*/}
+        <OcrSidecarRow />
       </div>
 
       <DiagnoseModal open={diagnoseOpen} onOpenChange={setDiagnoseOpen} />
@@ -427,6 +434,140 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
           </button>
         </div>
       )}
+    </div>
+  );
+};
+
+/**
+ * 「OCR 文字识别 (RapidOCR)」行 — UI 风格跟前 5 个 CapabilityRow 一致,但走
+ * 独立 API(modality.ocrSidecar.*)。不进 useLocalRuntimeStore 是因为 OCR
+ * sidecar 是独立的 python -m daemon,SidecarRuntimeManager 不管它。
+ *
+ * 状态色复用 LocalRuntimeStatusBadge 的配色规则,但用 inline JSX 实现以避免
+ * 跟 LocalRuntimeStatus 类型耦合。
+ */
+const OcrSidecarRow: React.FC = () => {
+  const [status, setStatus] = React.useState<OcrSidecarStatus | null>(null);
+  const [pending, setPending] = React.useState<'start' | 'stop' | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const refresh = React.useCallback(async () => {
+    try {
+      const s = await modality.ocrSidecar.status();
+      setStatus(s);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void refresh();
+    // 5s 轮询 — 跟 LocalRuntimePanel 的 statuses 轮询节奏对齐
+    const t = window.setInterval(() => void refresh(), 5_000);
+    return () => window.clearInterval(t);
+  }, [refresh]);
+
+  const onStart = async () => {
+    setPending('start');
+    try {
+      const s = await modality.ocrSidecar.start();
+      setStatus(s);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPending(null);
+    }
+  };
+  const onStop = async () => {
+    setPending('stop');
+    try {
+      const s = await modality.ocrSidecar.stop();
+      setStatus(s);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const state = status?.state ?? 'stopped';
+  const isReady = state === 'ready';
+  const isStarting = state === 'starting';
+  const isFailed = state === 'failed';
+  const isPending = pending !== null;
+  const stateLabel = isReady ? '运行中' : isStarting ? '启动中' : isFailed ? '失败' : '已停止';
+  const stateColor =
+    isReady
+      ? 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30'
+      : isStarting
+        ? 'bg-sky-500/15 text-sky-700 border-sky-500/30 animate-pulse'
+        : isFailed
+          ? 'bg-rose-500/15 text-rose-700 border-rose-500/30'
+          : 'bg-zinc-500/15 text-zinc-600 border-zinc-500/30';
+  const dotColor =
+    isReady ? 'bg-emerald-500'
+      : isStarting ? 'bg-sky-500'
+        : isFailed ? 'bg-rose-500' : 'bg-zinc-400';
+
+  return (
+    <div
+      id="local-runtime-ocr"
+      className="rounded-md border border-[var(--cy-border-subtle)] p-3 space-y-1.5 scroll-mt-4"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          title={status?.error || stateLabel}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${stateColor}`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
+          {stateLabel}
+        </span>
+        <span className="text-sm font-medium text-[var(--cy-text-primary)]">
+          OCR 文字识别
+        </span>
+        <span
+          className="rounded-sm border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+          title="独立 Python daemon,端口 18380;chayuan-server 启动时自动拉起"
+        >
+          RapidOCR · 18380
+        </span>
+
+        <div className="ml-auto flex items-center gap-1">
+          {isReady ? (
+            <Button size="sm" variant="outline" onClick={onStop} disabled={isPending}>
+              <Square className="mr-1 h-3.5 w-3.5" />
+              {pending === 'stop' ? '停止中…' : '停止'}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={onStart} disabled={isPending}>
+              <Play className="mr-1 h-3.5 w-3.5" />
+              {pending === 'start' ? '启动中…' : '启动'}
+            </Button>
+          )}
+          {isReady && (
+            <Button size="sm" variant="outline" onClick={onStart} disabled={isPending}>
+              <RotateCw className="mr-1 h-3.5 w-3.5" />
+              重启
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="text-[11px] text-[var(--cy-text-tertiary)] space-y-0.5">
+        {status?.pid && <div>pid={status.pid} · 端口 {status.port}</div>}
+        {status?.log_path && (
+          <div className="font-mono break-all">日志:{status.log_path}</div>
+        )}
+        {error && (
+          <div className="text-rose-600 dark:text-rose-400">{error}</div>
+        )}
+        {status?.error && !error && (
+          <div className="text-rose-600 dark:text-rose-400">{status.error}</div>
+        )}
+      </div>
     </div>
   );
 };

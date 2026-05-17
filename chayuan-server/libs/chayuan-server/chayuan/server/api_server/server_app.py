@@ -303,6 +303,32 @@ def create_app(run_mode: str = None):
         except Exception:  # noqa: BLE001
             pass
 
+    # RapidOCR sidecar 自动拉起 — 此前 OCR 必须用户手动在 UI 点启动,导致首次
+    # 上传图就拿 503 "OCR sidecar not ready"。chayuan-server 起来时一并拉起,
+    # 用户感知一致 — 装了就能用,跟 chat/embedding 等 5 个 capability 一样。
+    # spawn 是 daemon 模式 + 日志重定向到 _bg_log_path,主进程不阻塞。
+    @app.on_event("startup")
+    async def _auto_start_rapidocr() -> None:
+        try:
+            import asyncio as _asyncio
+            from chayuan.server.modality.rapidocr_lifecycle import start_ocr_sidecar
+            # 放到线程池跑,避免 spawn + TCP probe 阻塞 startup event loop
+            await _asyncio.to_thread(start_ocr_sidecar)
+        except Exception:  # noqa: BLE001
+            import logging as _logging
+            _logging.getLogger("chayuan.startup").exception(
+                "auto-start RapidOCR sidecar failed (OCR 功能将不可用,看 chayuan_rapidocr.log)"
+            )
+
+    @app.on_event("shutdown")
+    async def _auto_stop_rapidocr() -> None:
+        try:
+            import asyncio as _asyncio
+            from chayuan.server.modality.rapidocr_lifecycle import stop_ocr_sidecar
+            await _asyncio.to_thread(stop_ocr_sidecar)
+        except Exception:  # noqa: BLE001
+            pass
+
     # 其它接口
     app.post(
         "/other/completion",

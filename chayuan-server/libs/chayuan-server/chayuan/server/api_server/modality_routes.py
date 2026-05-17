@@ -152,6 +152,31 @@ async def ocr_endpoint(
     }
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# RapidOCR sidecar 生命周期 — 给前端「设置 → 本地模型服务」用
+# 后端 startup hook 已经自动拉起一次;这里的 start/stop 让用户手动启停 / 重试。
+# ──────────────────────────────────────────────────────────────────────────────
+
+@modality_router.get("/sidecar/ocr/status", summary="RapidOCR sidecar 状态")
+async def ocr_sidecar_status_endpoint(user=Depends(require_auth_enabled())):
+    from chayuan.server.modality.rapidocr_lifecycle import ocr_sidecar_status
+    return {"code": 0, "data": ocr_sidecar_status()}
+
+
+@modality_router.post("/sidecar/ocr/start", summary="启动 RapidOCR sidecar")
+async def ocr_sidecar_start_endpoint(user=Depends(require_auth_enabled())):
+    from chayuan.server.modality.rapidocr_lifecycle import start_ocr_sidecar
+    data = await asyncio.to_thread(start_ocr_sidecar)
+    return {"code": 0, "data": data}
+
+
+@modality_router.post("/sidecar/ocr/stop", summary="停止 RapidOCR sidecar")
+async def ocr_sidecar_stop_endpoint(user=Depends(require_auth_enabled())):
+    from chayuan.server.modality.rapidocr_lifecycle import stop_ocr_sidecar
+    data = await asyncio.to_thread(stop_ocr_sidecar)
+    return {"code": 0, "data": data}
+
+
 def _guess_audio_ext(content_type: str, filename: str) -> str:
     """根据 mime 或 filename 推断音频文件后缀。
 

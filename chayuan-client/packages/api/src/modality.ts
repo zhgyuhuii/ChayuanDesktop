@@ -94,6 +94,19 @@ export interface TranscribeFileResult {
   diagnostics?: string;
 }
 
+/** RapidOCR sidecar 生命周期状态 — chayuan-server 启动时自动拉起;
+ *  UI 给一个手动启停 / 重启的入口,跟其它 5 个本地 capability 视觉一致。 */
+export interface OcrSidecarStatus {
+  /** ready=端口在监听并可用 / starting=进程在跑但端口还没起 / stopped=未启动 / failed=spawn 直接挂 */
+  state: 'ready' | 'starting' | 'stopped' | 'failed';
+  pid: number | null;
+  port: number;
+  /** 后台 stdout/stderr 落盘位置;UI 显示出来给用户复制粘贴排查 */
+  log_path: string;
+  listening: boolean;
+  error?: string;
+}
+
 export const modality = {
   /**
    * 对一张图做 OCR。
@@ -187,5 +200,29 @@ export const modality = {
       { method: 'GET', raw: true },
     );
     return r.data?.data ?? { key, limit, entries: [] };
+  },
+
+  /** RapidOCR daemon 启停查 — 给「设置 → 本地模型服务」用。
+   *  chayuan-server 启动时已经自动调过一次 start;UI 只负责显示状态 + 让用户
+   *  手动重启 / 停;status 5s 轮询。 */
+  ocrSidecar: {
+    async status(): Promise<OcrSidecarStatus> {
+      const r = await request<{ data: OcrSidecarStatus }>(
+        `/modality/sidecar/ocr/status`, { method: 'GET', raw: true },
+      );
+      return r.data!.data;
+    },
+    async start(): Promise<OcrSidecarStatus> {
+      const r = await request<{ data: OcrSidecarStatus }>(
+        `/modality/sidecar/ocr/start`, { method: 'POST', raw: true },
+      );
+      return r.data!.data;
+    },
+    async stop(): Promise<OcrSidecarStatus> {
+      const r = await request<{ data: OcrSidecarStatus }>(
+        `/modality/sidecar/ocr/stop`, { method: 'POST', raw: true },
+      );
+      return r.data!.data;
+    },
   },
 };

@@ -23,6 +23,7 @@ export * from './diagnose';
 export {
   modality,
   type OcrResult,
+  type OcrSidecarStatus,
   type TranscribeResult,
   type AsrDiagBackend,
   type AsrDiagResult,
