@@ -86,10 +86,17 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
     });
   }, [detail.items, statusOverrides]);
 
-  // 收集 pending 的 image id (state queued / ocr_and_embedding)
+  // pipeline 终态:任意一个 → 不再轮询,且 UI 隐藏进度卡片
+  // ready  = 至少一路向量化成功
+  // failed = 早期硬失败(老版本可能写过)
+  // partial= CLIP/OCR 全失败,图保留但无索引(pipeline 走完了,UI 别再转圈)
+  const isTerminalState = (s?: string | null) =>
+    s === 'ready' || s === 'failed' || s === 'partial';
+
+  // 收集 pending 的 image id (state queued / ocr_and_embedding 等非终态)
   const pendingIds = React.useMemo(() => {
     return items
-      .filter((it) => it.state && it.state !== 'ready' && it.state !== 'failed')
+      .filter((it) => it.state && !isTerminalState(it.state))
       .map((it) => it.id);
   }, [items]);
 
@@ -113,19 +120,26 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
             const r = results[i];
             const pid = pendingIds[i];
             if (!r || pid == null) continue;
-            next.set(pid, {
-              state: r.state,
-              progress: r.progress,
-              error: r.error ?? null,
-              has_text_vector: r.has_text_vector,
-              ocr_text: r.ocr_text ?? null,
-            });
+            // 终态直接清掉 override —— 避免 100% 进度残留(此前 onMutate 刷父组件
+            // 还没落地时,本地 override 用老的 ocr_and_embedding/进度=100,触发
+            // "永远停在 100%"的视觉 bug)
+            if (isTerminalState(r.state)) {
+              next.delete(pid);
+            } else {
+              next.set(pid, {
+                state: r.state,
+                progress: r.progress,
+                error: r.error ?? null,
+                has_text_vector: r.has_text_vector,
+                ocr_text: r.ocr_text ?? null,
+              });
+            }
           }
           return next;
         });
         // 还有 pending 就继续轮询
         const stillPending = results.some(
-          (r) => r && r.state !== 'ready' && r.state !== 'failed',
+          (r) => r && !isTerminalState(r.state),
         );
         if (!cancelled && stillPending) {
           timer = setTimeout(poll, 2500);
@@ -572,8 +586,9 @@ const ImageCard: React.FC<{
           />
         </label>
       )}
-      {/* 处理状态 badge */}
-      {img.state && img.state !== 'ready' && img.state !== 'failed' && (
+      {/* 处理状态 badge —— 只在真正"还在跑"时显示。pipeline 终态(ready/failed/partial)
+          都不再转圈,避免 100% 视觉残留 */}
+      {img.state && img.state !== 'ready' && img.state !== 'failed' && img.state !== 'partial' && (img.progress ?? 0) < 100 && (
         <div className="absolute inset-x-1.5 bottom-1.5 rounded-md bg-black/65 px-2 py-1 backdrop-blur">
           <div className="flex items-center gap-1 text-[10px] text-white">
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -600,6 +615,14 @@ const ImageCard: React.FC<{
           title={img.error ?? '失败'}
         >
           <AlertCircle className="h-3 w-3" /> 失败
+        </span>
+      )}
+      {img.state === 'partial' && (
+        <span
+          className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-amber-600/90 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm"
+          title={img.error ?? '两路向量化均失败,图保留但暂不可检索'}
+        >
+          <AlertCircle className="h-3 w-3" /> 未索引
         </span>
       )}
       {img.state === 'ready' && img.ocr_text && (

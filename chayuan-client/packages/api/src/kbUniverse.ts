@@ -72,14 +72,19 @@ export interface KuDocumentDetail extends KuDetailBase<'document'> {
 
 /**
  * upload / status / pipeline 各阶段的状态机:
- *   queued → ocr_and_embedding → ready  (或 failed)
+ *   queued → ocr_and_embedding → ready  (或 failed / partial)
  * 老数据迁移时 state 默认为 "ready"。
+ *
+ * `partial`:CLIP / OCR 两条向量化路径都失败,但图本身已落盘并可见 ——
+ * pipeline 已走完,UI 不再转圈;用户修完依赖(transformers/RapidOCR)后
+ * 可点"重新索引"重跑。
  */
 export type ImageItemState =
   | 'queued'
   | 'ocr_and_embedding'
   | 'ready'
-  | 'failed';
+  | 'failed'
+  | 'partial';
 
 export interface ImageItem {
   id: string;

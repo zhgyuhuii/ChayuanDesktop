@@ -118,6 +118,15 @@ interface ChatCitationLike {
     retrieval_path?: string;
     title?: string;
   }>;
+  /** image / structured / vector 类来源的扩展信息(后端 _block_to_*_sources 透传)。 */
+  meta?: {
+    source?: string;
+    kind?: string;
+    image_id?: string;
+    preview_url?: string;
+    download_url?: string;
+    [k: string]: unknown;
+  };
 }
 
 /**
@@ -133,6 +142,48 @@ export function chatCitationsToSources(citations: ChatCitationLike[]): Retrieval
   for (const c of citations || []) {
     const kbName = (c.kb_name || '').trim();
     const fileName = (c.file_name || '').trim();
+    const sourceKind = (c.source_kind || '').trim();
+    // 图像类来源:与文档同形地聚合到一个"图库"Source,每张图作为 Group(自带
+    // imageUrl + downloadUrl,供顶部附件折叠条渲染缩略图 + 下载按钮)。
+    if (sourceKind === 'image' && kbName) {
+      const sourceId = `img:${kbName}`;
+      let src = byKb.get(sourceId);
+      if (!src) {
+        src = { id: sourceId, label: kbName, kind: 'image', ok: true, groups: [] };
+        byKb.set(sourceId, src);
+      }
+      const meta = c.meta || {};
+      const imageId = (meta.image_id as string) || fileName || c.title || `image-${src.groups.length}`;
+      const previewUrl = (meta.preview_url as string) || c.url || '';
+      const downloadUrl = (meta.download_url as string) || previewUrl;
+      const groupKey = `${kbName}/${imageId}`;
+      let group = src.groups.find((g) => g.key === groupKey);
+      if (!group) {
+        group = {
+          key: groupKey,
+          label: c.title || imageId,
+          kind: 'image',
+          count: 1,
+          snippets: [{
+            text: (c.snippet || c.title || '').trim() || imageId,
+            score: c.score,
+            imageUrl: previewUrl,
+            metadata: { download_url: downloadUrl, image_id: imageId },
+          }],
+          url: downloadUrl,  // 顶部 chip 点击 → 下载原图
+          citeIndex: c.cite_index,
+          bestScore: c.score,
+        };
+        src.groups.push(group);
+      } else {
+        const score = c.score ?? 0;
+        if (score > (group.bestScore || 0)) group.bestScore = score;
+        if (c.cite_index && (!group.citeIndex || c.cite_index < group.citeIndex)) {
+          group.citeIndex = c.cite_index;
+        }
+      }
+      continue;
+    }
     if (kbName) {
       const sourceId = `doc:${kbName}`;
       let src = byKb.get(sourceId);
