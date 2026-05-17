@@ -372,16 +372,21 @@ class AudioPipeline:
         except Exception as e:  # noqa: BLE001
             raise RuntimeError(f"asr registry 取 manager 失败:{e}") from e
 
-        # 确保 ready
+        # 确保 ready — 走 manager.ensure_ready,兼容 ready / stopped / failed / starting:
+        #   - ready: no-op
+        #   - failed (上次 mark_unhealthy 触发): 自动 stop + start 重启
+        #   - stopped: 自动 start
+        #   - starting/restarting: 等到 ready 或 30s
         if mgr.status.state != "ready":
             loop = asyncio.new_event_loop()
             try:
-                status = loop.run_until_complete(asyncio.wait_for(mgr.start(), timeout=30))
+                status = loop.run_until_complete(asyncio.wait_for(mgr.ensure_ready(), timeout=60))
             finally:
                 loop.close()
             if status.state != "ready":
                 raise RuntimeError(
-                    f"asr sidecar start 失败 state={status.state} last_error={status.last_error}"
+                    f"asr sidecar ensure_ready 失败 state={status.state} "
+                    f"last_error={status.last_error}"
                 )
 
         endpoint = mgr.status.endpoint or ""
@@ -423,16 +428,21 @@ class AudioPipeline:
                 with httpx.Client(timeout=45.0) as client:
                     resp = client.post(url, data=data, files=files)
         except httpx.ReadTimeout as e:
-            # sidecar 单次推理超 45s 没回 — 这才真的是模型/CPU 配不上录音节奏。
-            # **不**主动 mark registry failed:那会触发下个 chunk 进入 transcribe 时
-            # 看 state!=ready → 主动调 mgr.start() restart sidecar,30s 内启动不完
-            # 就 raise RuntimeError(用户曾遇到过)。改为:只记录到 diag,sidecar
-            # 状态保持 ready,下次 chunk 还能尝试调用 — 偶发慢自愈,真挂了用户会
-            # 持续看到 ReadTimeout 提示换更小模型 / 启用 GPU。
+            # 单次推理超 45s 没回。**调 mark_unhealthy 累计** — 累计到阈值会把
+            # sidecar 状态置 failed,下次 ensure_ready 自动 restart,无需用户手动操作。
+            # 经定位:whisper-server 长跑被 stderr 写满 kernel pipe buffer 卡死是常见
+            # 根因(local_runtime._start_pipe_drainers 已修),次根因是 GGML 内部死锁。
+            # 自动 restart 是最稳的兜底。
+            tail = mgr.recent_log_tail(20) if hasattr(mgr, "recent_log_tail") else ""
+            triggered = (
+                mgr.mark_unhealthy(reason=f"ReadTimeout: {e}")
+                if hasattr(mgr, "mark_unhealthy") else False
+            )
             diag.append(
-                f"[sidecar] POST {url} ReadTimeout({e}) — sidecar 单次推理 >45s,"
-                f"通常是当前 ASR 模型对 CPU 太重(medium/large)。建议:① 设置 → AI 平台 "
-                f"→ 本地服务 切到 'small' 或 'tiny' 模型;② 若有独显,启用 faster-whisper GPU。"
+                f"[sidecar] POST {url} ReadTimeout({e}) — sidecar 单次推理 >45s。"
+                + (f"\n--- 最近日志(后 20 行) ---\n{tail}" if tail else "")
+                + ("\n→ 累计达阈值,sidecar 已标记 failed,下次请求自动重启" if triggered
+                   else "\n→ 累计未到阈值,本次只记录;持续出现会自动触发重启")
             )
             raise
         finally:

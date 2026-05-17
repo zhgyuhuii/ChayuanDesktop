@@ -394,6 +394,8 @@ async def test_manager_start_llama_early_exit_captured(tmp_path, monkeypatch):
     fake_proc = mock.MagicMock()
     fake_proc.pid = 12345
     fake_proc.poll = mock.MagicMock(return_value=1)  # 进程已退出
+    fake_proc.stdout = mock.MagicMock()
+    fake_proc.stdout.read = mock.MagicMock(return_value=b"")  # AVX2 报错通过 stderr,stdout 空
     fake_proc.stderr = mock.MagicMock()
     fake_proc.stderr.read = mock.MagicMock(return_value=b"AVX2 instruction not supported by CPU\n")
     monkeypatch.setattr(local_runtime.subprocess, "Popen", mock.MagicMock(return_value=fake_proc))
@@ -908,3 +910,201 @@ def test_local_runtime_settings_old_yaml_no_image_embedding_field(tmp_path):
     s = LocalRuntimeSettings.load(yaml_path)
     assert s.preload_image_embedding is False
     assert s.default_image_embedding_model == ""
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 自愈机制:PIPE drain + mark_unhealthy + ensure_ready 自动重启
+# ════════════════════════════════════════════════════════════════════════
+
+import time as _time
+import threading as _threading
+
+
+def test_mark_unhealthy_under_threshold_keeps_ready(tmp_path):
+    """单次 mark_unhealthy 不触发 failed — 阈值是 2 次/30s 窗口。"""
+    from chayuan.server.model_registry import local_runtime
+    m = local_runtime.SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="whisper", capability="asr",
+    )
+    # 模拟当前 ready
+    m._status = local_runtime.RuntimeStatus(state="ready", endpoint="http://127.0.0.1:1")
+    triggered = m.mark_unhealthy(reason="test1")
+    assert triggered is False, "1 次未到阈值,不应触发"
+    assert m.status.state == "ready"
+
+
+def test_mark_unhealthy_above_threshold_flips_to_failed(tmp_path):
+    """2 次 mark_unhealthy(在窗口内)→ state=failed + last_error 含日志尾。"""
+    from chayuan.server.model_registry import local_runtime
+    m = local_runtime.SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="whisper", capability="asr",
+    )
+    m._status = local_runtime.RuntimeStatus(state="ready", endpoint="http://127.0.0.1:1")
+    # 模拟一些日志已被 drainer 累积
+    m._stderr_buf.append("[whisper] decoding...")
+    m._stderr_buf.append("[whisper] segment 0 -> 你好")
+    assert m.mark_unhealthy("first") is False
+    triggered = m.mark_unhealthy("second")
+    assert triggered is True, "2 次累计应触发"
+    assert m.status.state == "failed"
+    assert "PIPE 阻塞" in (m.status.last_error or "")
+    assert "你好" in (m.status.last_error or ""), "应把 ring buffer 日志尾追加到 last_error"
+
+
+def test_mark_unhealthy_events_outside_window_dont_count(tmp_path, monkeypatch):
+    """窗口外(>30s)的老 event 不算 — 第二次 mark 时只看到自己,不触发。"""
+    from chayuan.server.model_registry import local_runtime
+    m = local_runtime.SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="whisper", capability="asr",
+    )
+    m._status = local_runtime.RuntimeStatus(state="ready")
+    # 注入一个 60s 前的旧 event
+    m._unhealthy_events.append(_time.time() - 60)
+    triggered = m.mark_unhealthy("recent")
+    # 老 event 在 mark_unhealthy 内会被过滤,新 event=1 → 不触发
+    assert triggered is False
+    assert m.status.state == "ready"
+
+
+def test_recent_log_tail_aggregates_stdout_stderr(tmp_path):
+    """recent_log_tail 应合并 stdout/stderr ring buffer 后 N 行。"""
+    from chayuan.server.model_registry import local_runtime
+    m = local_runtime.SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="whisper", capability="asr",
+    )
+    m._stdout_buf.extend(["o1", "o2", "o3"])
+    m._stderr_buf.extend(["e1", "e2"])
+    tail = m.recent_log_tail(n=10)
+    assert "o3" in tail and "e2" in tail
+    # 空 buffer:tail 也应空字符串,不抛
+    m2 = local_runtime.SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="whisper", capability="asr",
+    )
+    assert m2.recent_log_tail() == ""
+
+
+def test_pipe_drainer_does_not_block_on_full_pipe(tmp_path):
+    """**根因回归测试**:模拟一个长输出的"子进程"(用 os.pipe 当假 stdout),
+    确认 drainer 线程持续读 → 写端不会因 kernel buffer 满阻塞。
+
+    如果不开 drainer,Linux 64KB / Win 4KB pipe buffer 写满后 write 阻塞,
+    sidecar 主线程 fprintf 卡死 → "用一会就识别不了"经典坑。
+    """
+    import os
+    from chayuan.server.model_registry import local_runtime
+
+    m = local_runtime.SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="whisper", capability="asr",
+    )
+    # 起两对 pipe 模拟 sub.stdout / sub.stderr
+    out_r, out_w = os.pipe()
+    err_r, err_w = os.pipe()
+
+    class _FakeProc:
+        def __init__(self, stdout_fd, stderr_fd):
+            self.stdout = os.fdopen(stdout_fd, "rb", buffering=0)
+            self.stderr = os.fdopen(stderr_fd, "rb", buffering=0)
+
+    fake = _FakeProc(out_r, err_r)
+    m._start_pipe_drainers(fake)
+
+    # 往 pipe 灌远超 64KB 的内容 — 没 drainer 的话第 ~64KB 字节就 block
+    out_writer = os.fdopen(out_w, "wb")
+    payload = (b"[whisper] inference line\n") * 5000  # ~125 KB
+    # 不要无限等:用单独线程写,主线程 join 1s 看是否完成
+    written = {"ok": False}
+    def _writer():
+        try:
+            out_writer.write(payload)
+            out_writer.flush()
+            out_writer.close()
+            written["ok"] = True
+        except Exception:
+            pass
+    t = _threading.Thread(target=_writer, daemon=True)
+    t.start()
+    t.join(timeout=2.0)
+    assert written["ok"], "drainer 应持续读 pipe,写端不应被阻塞"
+
+    # ring buffer 应该有捕到内容
+    _time.sleep(0.1)  # 给 drainer 线程 schedule 一下
+    assert len(m._stdout_buf) > 0, "drainer 应把读到的行追加到 ring buffer"
+
+    # cleanup:关闭 err 写端让那个 drainer 自然退出
+    os.close(err_w)
+
+
+def test_drainer_buffer_caps_at_200_lines(tmp_path):
+    """ring buffer maxlen=200 — 灌 1000 行只留最后 200。防内存膨胀。"""
+    from chayuan.server.model_registry import local_runtime
+    m = local_runtime.SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="whisper", capability="asr",
+    )
+    for i in range(1000):
+        m._stderr_buf.append(f"line {i}")
+    assert len(m._stderr_buf) == 200
+    assert m._stderr_buf[-1] == "line 999"
+    assert m._stderr_buf[0] == "line 800"
+
+
+def test_ensure_ready_noop_when_already_ready(tmp_path):
+    """state=ready 时 ensure_ready 不重启 — 直接返回当前 status。"""
+    import asyncio
+    from chayuan.server.model_registry import local_runtime
+    m = local_runtime.SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="whisper", capability="asr",
+    )
+    m._status = local_runtime.RuntimeStatus(state="ready", endpoint="http://127.0.0.1:1")
+    # 若 ensure_ready 误触 start,这里没 mock binary 会失败 — 我们靠"没 raise"判断
+    start_called = []
+    async def _no_start(**kw):
+        start_called.append(kw)
+        return m._status
+    m.start = _no_start  # type: ignore
+    result = asyncio.run(m.ensure_ready())
+    assert start_called == [], "ready 时 ensure_ready 不应触发 start"
+    assert result.state == "ready"
+
+
+def test_ensure_ready_calls_start_when_failed(tmp_path):
+    """state=failed(mark_unhealthy 触发) → ensure_ready 调 start 重启。"""
+    import asyncio
+    from chayuan.server.model_registry import local_runtime
+    m = local_runtime.SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="whisper", capability="asr",
+    )
+    m._status = local_runtime.RuntimeStatus(state="failed", last_error="ReadTimeout 累计")
+    started = []
+    stopped = []
+    async def _fake_start(*, model_id=None):
+        started.append(model_id)
+        m._status = local_runtime.RuntimeStatus(state="ready", endpoint="http://127.0.0.1:2")
+        return m._status
+    async def _fake_stop(**kw):
+        stopped.append(True)
+        m._process = None
+    m.start = _fake_start  # type: ignore
+    m.stop = _fake_stop    # type: ignore
+
+    result = asyncio.run(m.ensure_ready(model_id="m"))
+    assert result.state == "ready"
+    assert started == ["m"], "应触发 start 一次"
+
+
+def test_ensure_ready_calls_start_when_stopped(tmp_path):
+    """state=stopped → ensure_ready 调 start 拉起。"""
+    import asyncio
+    from chayuan.server.model_registry import local_runtime
+    m = local_runtime.SidecarRuntimeManager(
+        chayuan_root=tmp_path, engine="whisper", capability="asr",
+    )
+    m._status = local_runtime.RuntimeStatus(state="stopped")
+    started = []
+    async def _fake_start(*, model_id=None):
+        started.append(model_id)
+        m._status = local_runtime.RuntimeStatus(state="ready", endpoint="http://127.0.0.1:3")
+        return m._status
+    m.start = _fake_start  # type: ignore
+    result = asyncio.run(m.ensure_ready())
+    assert started == [None]
+    assert result.state == "ready"

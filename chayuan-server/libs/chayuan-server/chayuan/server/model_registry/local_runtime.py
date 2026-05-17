@@ -18,6 +18,8 @@ import logging
 import os
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional
@@ -343,6 +345,19 @@ class SidecarRuntimeManager:
         self._settings = LocalRuntimeSettings.load(self.settings_path)
         self._status = RuntimeStatus(state="stopped")
         self._process = None  # subprocess.Popen 持有处
+        # ── PIPE drain ring buffers + daemon threads(详见 _start_pipe_drainers)──
+        # 必修:Popen(stdout=PIPE, stderr=PIPE) 后若不持续读,whisper-server 长
+        # 跑会把内核 pipe buffer(Linux 64KB / Win 4KB)写满,子进程 fprintf 阻塞
+        # → "用着用着卡死,重启就好"经典 Python subprocess 坑。
+        import collections
+        self._stdout_buf: collections.deque[str] = collections.deque(maxlen=200)
+        self._stderr_buf: collections.deque[str] = collections.deque(maxlen=200)
+        self._drainer_threads: list = []
+        # ── 健康累计:audio.py 在 ReadTimeout 时调 mark_unhealthy()──
+        # 累计 ≥ _UNHEALTHY_THRESHOLD 次或 _UNHEALTHY_WINDOW_SEC 秒内,下次请求
+        # 进入 ensure_ready 走 restart()。
+        self._unhealthy_events: list[float] = []
+        self._unhealthy_lock = threading.Lock()
 
     @property
     def settings(self) -> LocalRuntimeSettings:
@@ -569,6 +584,12 @@ class SidecarRuntimeManager:
             last_health_at=datetime.now(),
         )
         self._persist_status()
+        # ready 后立即把 PIPE 交给 daemon 线程持续 drain — 不然 whisper-server 跑一会
+        # 就会被自己的 stderr 日志写满 kernel pipe buffer 卡死(本次定位到的根因)。
+        self._start_pipe_drainers(proc)
+        # 新 sidecar 起来,清掉旧的 unhealthy 计数 — 给个干净的窗口
+        with self._unhealthy_lock:
+            self._unhealthy_events.clear()
         # sidecar ready → 注册 MODEL_PLATFORMS,让 chat / embedding 调用路径能找到它
         try:
             _register_local_platform(
@@ -622,6 +643,137 @@ class SidecarRuntimeManager:
         self._persist_status()
         await self.stop()
         return await self.start(model_id=model_id)
+
+    # ────────────────────────────────────────────────────────────────────
+    # 健康自愈:PIPE drain + ReadTimeout 自动重启
+    # ────────────────────────────────────────────────────────────────────
+
+    # 在 _UNHEALTHY_WINDOW_SEC 秒内累计 ≥ _UNHEALTHY_THRESHOLD 次 ReadTimeout/异常 → 触发自动重启。
+    # 用户报"识别用一会就卡死,重启 sidecar 又能用"的对应自愈门槛 — 2 次内即重启,
+    # 不再让用户去设置面板手动点。
+    _UNHEALTHY_THRESHOLD = 2
+    _UNHEALTHY_WINDOW_SEC = 30.0
+
+    def _start_pipe_drainers(self, proc: "subprocess.Popen") -> None:
+        """ready 后用 daemon 线程持续 drain stdout/stderr 到 ring buffer。
+
+        **根因修复**:`subprocess.Popen(stdout=PIPE, stderr=PIPE)` 启动后若不
+        持续读 pipe,whisper-server / llama-server 的 inference 日志会把内核
+        pipe buffer(Linux 64 KB / Win 4 KB)写满 → 子进程下次 fprintf 阻塞 →
+        主线程在打 log 时卡死 → 用户报"录一会就识别不了,kill 重启又能用"。
+
+        ring buffer 保留最后 200 行,任何观察点可以读 ``_stdout_buf / _stderr_buf``
+        把日志贴进 last_error / diag — 既消除阻塞,又不丢诊断。
+        """
+        def _drain(pipe, buf: "collections.deque[str]", tag: str) -> None:
+            try:
+                for raw in iter(pipe.readline, b""):
+                    if not raw:
+                        break
+                    line = raw.decode("utf-8", errors="replace").rstrip()
+                    if line:
+                        buf.append(line)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[sidecar:%s] %s drain 退出: %r", self.capability, tag, e)
+
+        # 之前 ready 后又重新调用 start → restart 路径会触发,先 join 旧线程避免泄漏
+        for t in self._drainer_threads:
+            if t.is_alive():
+                # daemon=True 进程退出会被回收,这里不强 join 避免卡 ready 路径
+                pass
+        self._drainer_threads = []
+        if proc.stdout is not None:
+            t = threading.Thread(
+                target=_drain, args=(proc.stdout, self._stdout_buf, "stdout"),
+                name=f"sidecar-{self.capability}-stdout-drain", daemon=True,
+            )
+            t.start()
+            self._drainer_threads.append(t)
+        if proc.stderr is not None:
+            t = threading.Thread(
+                target=_drain, args=(proc.stderr, self._stderr_buf, "stderr"),
+                name=f"sidecar-{self.capability}-stderr-drain", daemon=True,
+            )
+            t.start()
+            self._drainer_threads.append(t)
+
+    def recent_log_tail(self, n: int = 30) -> str:
+        """拿最后 N 行 stdout+stderr — 给诊断 / call_log error 字段用。"""
+        lines = list(self._stdout_buf)[-n:] + list(self._stderr_buf)[-n:]
+        return "\n".join(lines)
+
+    def mark_unhealthy(self, reason: str = "") -> bool:
+        """audio.py / 调用方在 ReadTimeout / 持续 5xx 时调一次。
+
+        累计到 _UNHEALTHY_THRESHOLD 次(_UNHEALTHY_WINDOW_SEC 秒窗口内)→
+        把 status.state 改为 ``failed`` + 留 last_error,下次 ensure_ready 进 restart。
+        返回:True 表示已触发 unhealthy 状态(caller 可选 trigger 异步 restart)。
+        """
+        now = time.time()
+        with self._unhealthy_lock:
+            self._unhealthy_events = [
+                t for t in self._unhealthy_events if now - t < self._UNHEALTHY_WINDOW_SEC
+            ]
+            self._unhealthy_events.append(now)
+            count = len(self._unhealthy_events)
+        logger.warning(
+            "[sidecar:%s] mark_unhealthy #%d/%d in %ds (reason=%s)",
+            self.capability, count, self._UNHEALTHY_THRESHOLD,
+            int(self._UNHEALTHY_WINDOW_SEC), reason or "n/a",
+        )
+        if count >= self._UNHEALTHY_THRESHOLD:
+            log_tail = self.recent_log_tail(30)
+            self._status = RuntimeStatus(
+                state="failed",
+                last_error=(
+                    f"sidecar 在 {int(self._UNHEALTHY_WINDOW_SEC)}s 内累计 "
+                    f"{count} 次失败(可能 PIPE 阻塞 / GGML 死锁)。"
+                    f"\n--- 最近日志 ---\n{log_tail}"
+                ),
+            )
+            self._persist_status()
+            with self._unhealthy_lock:
+                self._unhealthy_events.clear()
+            return True
+        return False
+
+    async def ensure_ready(self, *, model_id: str | None = None) -> RuntimeStatus:
+        """调用方进 transcribe 路径前调一次,确保 sidecar 处于 ready。
+
+        语义:
+          - state == 'ready'  → 直接返回,no-op
+          - state in {'stopped','failed'} → 调 start()(failed 时等价于 restart)
+          - state in {'starting','restarting'} → 等到 ready 或 30s 超时
+
+        把"老 audio.py 里手撸的 ``if state != 'ready': loop.run_until_complete(start())``"
+        路径搬上来,顺便兼容 ``failed`` 状态自动重启 — mark_unhealthy 之后下次请求即恢复。
+        """
+        st = self._status
+        if st.state == "ready":
+            return st
+        # failed / stopped → 直接 start(start 内部不区分;若进程还在会先被覆写)
+        if st.state in ("failed", "stopped"):
+            logger.info(
+                "[sidecar:%s] ensure_ready: state=%s → 触发 start (model_id=%s)",
+                self.capability, st.state, model_id,
+            )
+            # failed 时多走一步 stop 把残留进程清掉 — 否则 _process 可能还活着
+            if st.state == "failed" and self._process is not None:
+                try:
+                    await self.stop()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[sidecar:%s] ensure_ready stop 失败: %r", self.capability, e)
+            return await self.start(model_id=model_id)
+        # starting / restarting → 短暂等待(最多 30s)
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if self._status.state == "ready":
+                return self._status
+            if self._status.state in ("failed", "stopped"):
+                return await self.start(model_id=model_id)
+            await asyncio.sleep(0.5)
+        # 超时仍未 ready
+        return self._status
 
     def set_config(self, update: dict) -> LocalRuntimeSettings:
         """部分更新设置 + 持久化 yaml。返回更新后的 settings。

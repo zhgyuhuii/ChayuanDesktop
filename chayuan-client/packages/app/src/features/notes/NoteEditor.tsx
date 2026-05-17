@@ -129,17 +129,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
       // onVolatile 重新插入(顺序:onPartial 先 → onVolatile 后,在 useMicRecorder
       // flushBuffered 里保证)
       removeVolatileRange();
-      // 防换行:whisper 偶尔输出 \n,Tiptap insertContent 会解析成 hardBreak
-      editor.chain().focus().insertContent(text.replace(/\r?\n+/g, ' ')).run();
+      // 防换行:whisper 偶尔输出 \n,Tiptap insertContent 会解析成 hardBreak。
+      // **focus('end')**:无论用户光标在哪,识别文字始终钉在文档末尾(用户要求)。
+      editor.chain().focus('end').insertContent(text.replace(/\r?\n+/g, ' ')).run();
     },
     onVolatile: (volatileText) => {
       if (!editor) return;
       removeVolatileRange();
       if (!volatileText) return;
       // 末尾插新 volatile 带 asrVolatile mark(灰色斜体)。
-      // 防换行同 onPartial。
+      // 防换行 + focus('end') 把灰色尾部也钉在最下方,跟 stable 文字连贯。
       editor.chain()
-        .focus()
+        .focus('end')
         .insertContent({
           type: 'text',
           text: volatileText.replace(/\r?\n+/g, ' '),
