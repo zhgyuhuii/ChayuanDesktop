@@ -308,38 +308,70 @@ def create_app(run_mode: str = None):
     # 用户感知一致 — 装了就能用,跟 chat/embedding 等 5 个 capability 一样。
     # 用户可在「设置 → 本地模型服务」关闭 auto_start 开关,关闭后跳过此 hook;
     # spawn 是 daemon 模式 + 日志重定向到 _bg_log_path,主进程不阻塞。
+    #
+    # 用户反馈:`服务启动后 OCR 没有自动启动`。可见性是首要问题 —— 默认 True、
+    # 代码链路无 bug,但用户根本看不到 hook 跑没跑。这里改成 `print` 直接到
+    # stdout,Tauri sidecar / 直接 uvicorn run 都可见;同时把 settings 文件路径 +
+    # 当前值 + 启动结果 + log_path 一起打,任何状态都好排查。
     @app.on_event("startup")
     async def _auto_start_rapidocr() -> None:
         import logging as _logging
+        import sys as _sys
         log = _logging.getLogger("chayuan.startup")
+
+        def _say(msg: str) -> None:
+            """同时走 logger 和 stdout —— 避免依赖 logging handler 配置。"""
+            log.info("[auto-start-rapidocr] %s", msg)
+            try:
+                print(f"[auto-start-rapidocr] {msg}", flush=True, file=_sys.stdout)
+            except Exception:  # noqa: BLE001
+                pass
+
         try:
             import asyncio as _asyncio
             from chayuan.server.modality.rapidocr_lifecycle import (
-                get_auto_start, start_ocr_sidecar, ocr_sidecar_status,
+                get_auto_start, start_ocr_sidecar,
             )
+            from chayuan.server.runtime.auto_start_store import _settings_path
+
+            try:
+                cfg_p = _settings_path()
+                cfg_exists = cfg_p.is_file()
+                _say(f"settings={cfg_p} exists={cfg_exists}")
+            except Exception as _e:  # noqa: BLE001
+                _say(f"settings 路径解析失败:{_e!r}")
+
             flag = get_auto_start()
-            log.info("[auto-start-rapidocr] hook 触发 auto_start=%s", flag)
+            _say(f"hook 触发 auto_start=rapidocr → {flag}")
             if not flag:
-                log.info(
-                    "[auto-start-rapidocr] 已关闭,跳过 — 在「设置 → 本地"
-                    "模型服务」可手动启停"
+                _say(
+                    "已被用户显式关闭,跳过 — 在「设置 → 本地模型服务」可手动"
+                    "重新打开,或删除 sidecar_settings.json 让默认 True 生效"
                 )
                 return
             # 放到线程池跑,避免 spawn + TCP probe 阻塞 startup event loop
             status = await _asyncio.to_thread(start_ocr_sidecar)
-            log.info(
-                "[auto-start-rapidocr] 完成 state=%s pid=%s log=%s",
-                status.get("state"), status.get("pid"), status.get("log_path"),
+            _say(
+                f"完成 state={status.get('state')} pid={status.get('pid')} "
+                f"port={status.get('port')} listening={status.get('listening')} "
+                f"log={status.get('log_path')}"
             )
             if status.get("state") != "ready":
-                log.warning(
-                    "[auto-start-rapidocr] 启动后状态非 ready — 看 %s 排查",
-                    status.get("log_path"),
+                _say(
+                    f"启动后状态非 ready — 看 {status.get('log_path')} 排查;"
+                    f"也可在「设置 → 本地模型服务」点 OCR『重新启动』"
                 )
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             log.exception(
-                "[auto-start-rapidocr] failed (OCR 功能将不可用,看 chayuan_rapidocr.log)"
+                "[auto-start-rapidocr] failed (OCR 功能将不可用)"
             )
+            try:
+                print(
+                    f"[auto-start-rapidocr] FAILED: {type(e).__name__}: {e}",
+                    flush=True, file=_sys.stderr,
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
     @app.on_event("shutdown")
     async def _auto_stop_rapidocr() -> None:

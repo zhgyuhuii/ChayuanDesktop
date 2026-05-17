@@ -364,6 +364,17 @@ async def search_by_image_endpoint(
     top_k: int = Form(5),
     user=Depends(require_auth_enabled()),
 ):
+    """以图搜图。
+
+    Concurrency: CLIP encode_image 是同步 torch 推理(耗时 1-3s),直接在 async
+    route 里跑会阻塞 event loop —— 用户上传时若已有 background process_item 在
+    跑 CLIP 编码,搜索请求 30s 内拿不到响应,前端 AbortController 触发
+    "BizError: 请求已中止"。
+
+    解法:把 search_by_image 整个调用塞进 asyncio.to_thread,让 event loop 在
+    CLIP 期间可以继续接其它请求。process_item 已经走 to_thread,两边互不阻塞。
+    """
+    import asyncio
     if not can_read(user, int(source_id)):
         raise HTTPException(403, "no read permission")
     _get_source_or_404(int(source_id))
@@ -375,7 +386,9 @@ async def search_by_image_endpoint(
             tf.write(data)
             tmp_path = tf.name
         try:
-            chunks = conn.search_by_image(tmp_path, top_k=int(top_k))
+            chunks = await asyncio.to_thread(
+                conn.search_by_image, tmp_path, int(top_k),
+            )
         finally:
             try:
                 os.unlink(tmp_path)

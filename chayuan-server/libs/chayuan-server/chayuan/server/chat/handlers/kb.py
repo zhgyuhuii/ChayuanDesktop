@@ -143,34 +143,103 @@ def _structured_block_to_chunks(block: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _image_block_to_chunks(block: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """image kind 的 results → 单条 chunk(文本是 caption 的拼接 + 提示)。
+    """image kind 的 results → 每张图一条 chunk。
 
-    多模态模型才能"看图回答";本期文本对话只把命中的 caption 喂进去,
-    让 LLM 知道"用户的库里有这些图,描述如下"。前端会单独显示缩略图。
+    用户反馈:对话里选了图像 KB 检索,顶部来源附件折叠条没有把命中的图当成附件
+    展示。根因是早期实现把所有 caption 拼成单条 umbrella chunk,丢掉了
+    per-image 的 image_id / preview_url / download_url。
+
+    新实现:每张命中图 1 个 chunk + 1 条引用,citation 带 kb_name + file_name,
+    上层 ``_image_block_to_file_sources`` 会按 file_name 配对回 chunks,前端
+    ``chatCitationsToSources`` 据 source_kind=image 渲缩略图 + 下载按钮。
     """
     src_id = (block.get("ku_id") or "").removeprefix("src:")
+    kb_label = block.get("title") or f"图库 #{src_id}"
     items = block.get("results") or []
     if not items:
         return []
-    lines: List[str] = []
+    out: List[Dict[str, Any]] = []
     for it in items[:20]:
         cap = (it.get("caption") or "").strip()
         score = it.get("score")
-        if cap:
-            lines.append(f"- {cap}" + (f"(相似度 {score:.2f})" if isinstance(score, (int, float)) else ""))
-    if not lines:
-        return []
-    text = "【图像知识库 caption 命中】\n" + "\n".join(lines)
-    return [{
-        "content": text,
-        "score": 1.0,
-        "source_kind": "image",
-        "citation": {
-            "title": f"图库 #{src_id}",
+        img_id = str(it.get("id") or it.get("path") or "").strip()
+        # file_name 用 image_id —— 稳定 + 与下文 _image_block_to_file_sources 配对
+        file_name = img_id or (it.get("title") or "未命名图像")
+        title = it.get("title") or cap[:60] or file_name
+        preview_url = it.get("preview_url") or ""
+        download_url = it.get("download_url") or ""
+        # LLM 上下文文本:用户希望"被检索出来"的图标识 + caption
+        content_lines = [f"【图像】{title}"]
+        if cap and cap != title:
+            content_lines.append(cap[:300])
+        if isinstance(score, (int, float)):
+            content_lines.append(f"相似度 {score:.2f}")
+        out.append({
+            "content": "\n".join(content_lines),
+            "score": float(score or 0.0),
             "source_kind": "image",
-            "meta": {"source": f"src:{src_id}", "kind": "image"},
-        },
-    }]
+            # source 用 file_name —— sse-parser 按 file_name/title 把 chunks 配对到 sources
+            "source": file_name,
+            "file_name": file_name,
+            "citation": {
+                "title": title,
+                "source_kind": "image",
+                "kb_name": kb_label,
+                "file_name": file_name,
+                "meta": {
+                    # sse-parser 用 meta.file_name 把 chunks 配对回 sources(优先级
+                    # meta.file_name → meta.source → citation.title);两边都用
+                    # img_id,才能让前端附件折叠条对得上
+                    "file_name": file_name,
+                    "source": f"src:{src_id}",
+                    "kind": "image",
+                    "image_id": img_id,
+                    "preview_url": preview_url,
+                    "download_url": download_url,
+                    "caption": cap,
+                },
+            },
+        })
+    return out
+
+
+def _image_block_to_file_sources(block: Dict[str, Any], start_index: int) -> List[Dict[str, Any]]:
+    """image block.results → 每张命中图一条 source(对应顶部"来源附件折叠条"一条)。
+
+    设计跟 ``_document_block_to_file_sources`` 同形:每个 source 带 kb_name
+    +file_name+source_kind=image+url(preview_url),前端 chat SSE 解析后,
+    `chatCitationsToSources` 按 (kb_name, file_name) 聚合 → Source/Group,
+    一张图就是一个可下载/可预览的附件 chip。
+    """
+    src_id = (block.get("ku_id") or "").removeprefix("src:")
+    kb_label = block.get("title") or f"图库 #{src_id}"
+    items = block.get("results") or []
+    out: List[Dict[str, Any]] = []
+    for idx, it in enumerate(items[:20]):
+        img_id = str(it.get("id") or it.get("path") or "").strip()
+        if not img_id:
+            continue
+        cap = (it.get("caption") or "").strip()
+        title = it.get("title") or cap[:60] or img_id
+        out.append({
+            "kb_name": kb_label,
+            "file_name": img_id,
+            "title": title,
+            "url": it.get("preview_url") or "",
+            "snippet": cap[:200],
+            "score": float(it.get("score") or 0.0),
+            "chunk_count": 1,
+            "source_kind": "image",
+            "cite_index": start_index + idx,
+            "meta": {
+                "source": f"src:{src_id}",
+                "kind": "image",
+                "image_id": img_id,
+                "preview_url": it.get("preview_url") or "",
+                "download_url": it.get("download_url") or "",
+            },
+        })
+    return out
 
 
 def _block_to_sources(block: Dict[str, Any], cite_index: int) -> Optional[Dict[str, Any]]:
@@ -320,10 +389,25 @@ class MultiSourceRetriever:
                 cite += max(1, len(doc_sources))
                 chunks.extend(ck)
                 continue
+            elif kind == "image":
+                # image 与 document 同形:per-image 展开成多条 source(每张图一条
+                # 可下载/可预览的附件 chip),不再压成 umbrella 单条
+                ck = _image_block_to_chunks(block)
+                img_sources = _image_block_to_file_sources(block, cite + 1)
+                if img_sources:
+                    sources.extend(img_sources)
+                    cite += len(img_sources)
+                    chunks.extend(ck)
+                    continue
+                # 命中为空时退回 umbrella source(让用户看到"这库查了但没结果")
+                chunks.extend(ck)
+                cite += 1
+                src = _block_to_sources(block, cite)
+                if src is not None:
+                    sources.append(src)
+                continue
             elif kind == "structured":
                 ck = _structured_block_to_chunks(block)
-            elif kind == "image":
-                ck = _image_block_to_chunks(block)
             else:
                 ck = []  # vector / 未知 / error
             chunks.extend(ck)
