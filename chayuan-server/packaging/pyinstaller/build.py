@@ -626,6 +626,37 @@ def main() -> None:
               "典型用法:dev 时 install-bundled-models.ps1 -ChayuanRoot $env:CHAYUAN_ROOT 装到运行时目录,"
               "打包时 --bundled-source $env:CHAYUAN_ROOT/models/bundled,一份模型给 dev + 打包共用。"),
     )
+    parser.add_argument(
+        "--torch-variants",
+        default="cpu",
+        help=("逗号分隔的 PyTorch wheel variant 列表,默认 ``cpu``(~250 MB)。"
+              "可加 ``cpu,cu124`` 或 ``cu124``(GPU 用户,~2-3 GB/variant)。"
+              "构建机在 PyInstaller 之前会 ensure 这些 wheel 已下载到 "
+              "vendor/torch_wheels/<platform_pyver_variant>/,缺则 pip download。"
+              "走 ``--skip-torch-preflight`` 跳过本步骤(开发回归用)。"),
+    )
+    parser.add_argument(
+        "--torch-platforms",
+        default="",
+        help=("逗号分隔的 pip --platform tag,默认按 ``--target`` triple 自动映射"
+              "(如 x86_64-pc-windows-msvc → win_amd64)。CI 跨平台需显式覆盖。"),
+    )
+    parser.add_argument(
+        "--torch-py-versions",
+        default="312",
+        help=("目标 Python 版本(无点,如 312),默认 312。"),
+    )
+    parser.add_argument(
+        "--skip-torch-preflight",
+        action="store_true",
+        help="跳过 PyTorch wheel preflight(不再下载 / 不再校验 vendor/torch_wheels)。",
+    )
+    parser.add_argument(
+        "--allow-missing-torch",
+        action="store_true",
+        help=("torch wheel 下载失败时只 warning,不阻塞打包(用于无网构建机调试)。"
+              "成品包将不带离线 torch wheel,装机用户只能走在线安装。"),
+    )
     # 用 parse_known_args:任何 build.py 不认识的参数(--clean / --log-level=DEBUG /
     # --noupx / 等)都直接转发给 PyInstaller。免得用户记错 ``--`` 分隔符位置 ──
     # poetry / argparse REMAINDER 组合下 ``--`` 经常被吃掉,导致 ``--clean`` 报
@@ -670,11 +701,63 @@ def main() -> None:
 
     if args.release:
         run_chayuan_pack(args.release, offline=args.offline)
+
+    # PyTorch wheel preflight — 把目标 platform 的 torch + torchvision wheel
+    # 预下载到 vendor/torch_wheels/<sub>/,PyInstaller 会按 spec 把它们打进
+    # sys._MEIPASS/vendor/torch_wheels/,装机用户 chayuan-server 启动时能离线
+    # 装上(无网兜底);走 --skip-torch-preflight 跳过(开发回归用)。
+    if not args.skip_torch_preflight:
+        _run_torch_preflight(
+            variants=args.torch_variants,
+            platforms_override=args.torch_platforms,
+            py_versions=args.torch_py_versions,
+            target_triple=target,
+            allow_missing=args.allow_missing_torch,
+        )
+
     run_pyinstaller(extra)
     if not args.no_copy:
         copy_to_tauri_binaries()
         sync_bundled_models(lite=lite, bundled_src=bundled_src)
         _do_sync_and_verify()
+
+
+def _run_torch_preflight(
+    *,
+    variants: str,
+    platforms_override: str,
+    py_versions: str,
+    target_triple: str,
+    allow_missing: bool,
+) -> None:
+    """调 packaging/preflight_torch.preflight,缺则下,失败则按 allow_missing 决定抛 or warn。"""
+    from packaging.preflight_torch import (
+        DEFAULT_OUT_ROOT, _PLATFORM_TAG, build_targets, parse_variants, preflight,
+    )
+
+    # platform tag:CLI 显式覆盖优先;否则按 target triple 自动映射
+    if platforms_override:
+        platforms = [p.strip() for p in platforms_override.split(",") if p.strip()]
+    else:
+        tag = _PLATFORM_TAG.get(target_triple)
+        if not tag:
+            print(f"[build] WARN target triple {target_triple!r} 没有 PyTorch wheel platform 映射;"
+                  f"跳过 torch preflight(用 --torch-platforms 显式指定可绕过)", flush=True)
+            return
+        platforms = [tag]
+
+    py_vers = [v.strip() for v in py_versions.split(",") if v.strip()]
+    var_list = parse_variants(variants)
+    targets = build_targets(platforms, py_vers, var_list)
+    if not targets:
+        return
+    print(
+        f"[build] torch preflight: {len(targets)} target(s): "
+        + ", ".join(t.subdir for t in targets),
+        flush=True,
+    )
+    preflight(targets, out_root=DEFAULT_OUT_ROOT, allow_missing=allow_missing)
+    print("[build] ✓ torch wheel preflight ok", flush=True)
 
 
 if __name__ == "__main__":

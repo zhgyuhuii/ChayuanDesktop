@@ -185,6 +185,28 @@ if sqlite_vec_dir.is_dir():
 
 
 # ──────────────────────────────────────────────────────────────
+# PyTorch + torchvision **离线 wheel**(无网装机兜底)
+#
+# 用户报"内网部署没网装不上 torchvision",我们用 packaging/preflight_torch.py
+# 预下 wheel 到 ROOT/vendor/torch_wheels/<platform_pyver_variant>/。运行时
+# chayuan.server.runtime.pytorch_installer 优先用这里的 wheel,
+# 失败 fallback 在线 pytorch.org。
+#
+# 这里把所有 *.whl 文件原样打进 sys._MEIPASS/vendor/torch_wheels/<sub>/,
+# 跟 dev 仓库的 vendor 目录结构一致 — 运行时 _offline_wheels_dir() 第二个
+# 探测分支(``sys._MEIPASS / "vendor" / "torch_wheels"``)能命中。
+# 体积:CPU ~250MB / CUDA ~2-3GB,默认只装 CPU(--variants cu124 拓展)。
+# ──────────────────────────────────────────────────────────────
+torch_wheels_root = ROOT / "vendor" / "torch_wheels"
+if torch_wheels_root.is_dir():
+    for sub in torch_wheels_root.iterdir():
+        if not sub.is_dir():
+            continue
+        for whl in sub.glob("*.whl"):
+            datas.append((str(whl), f"vendor/torch_wheels/{sub.name}"))
+
+
+# ──────────────────────────────────────────────────────────────
 # macOS:把构建机 Python 实际链接的 OpenSSL(libssl/libcrypto)注入 bundle 根
 #
 # 必须在 Analysis() **之前**塞 binaries 列表(走 PyInstaller 标准依赖收集 +
