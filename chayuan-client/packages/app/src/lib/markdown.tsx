@@ -20,9 +20,13 @@ const PURIFY_CONFIG: DOMPurifyConfig = {
     'p', 'br', 'strong', 'em', 'del', 'mark', 'code', 'pre',
     'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'a', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'span', 'input',
+    // <details>/<summary> 折叠 — chat 气泡里 OCR 附件文字默认折叠,点 summary 展开。
+    // (浏览器原生支持,无需 JS;参考 DeepSeek 对长附件的处理方式)
+    'details', 'summary',
   ],
   ALLOWED_ATTR: [
     'href', 'title', 'target', 'rel', 'class', 'data-lang', 'type', 'checked', 'disabled',
+    'open',  // <details open> 让 caller 控制初始展开状态(目前 OCR 用默认折叠)
   ],
   ALLOW_DATA_ATTR: false,
   ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:|#|\/)/,

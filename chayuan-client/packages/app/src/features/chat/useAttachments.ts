@@ -191,15 +191,41 @@ export function useAttachments(): {
 
   /**
    * 发送前拼接 OCR 文本到 prompt 末尾。
-   * 只取 ocrStatus='ok' 的 image attachment 的 ocrText。
+   *
+   * 产品决策(参考 DeepSeek / ChatGPT):用户消息气泡里**不要直接把整段 OCR
+   * 文字铺开** — 几百字 OCR 把用户原话淹没,视觉极差,也让用户搞不清自己
+   * 到底发了什么。改用 ``<details>`` 折叠 — summary 显示一行紧凑摘要(图标
+   * + 文件名 + 字数);展开后看完整 OCR 内容(用 ``<pre>`` 等宽块包).
+   *
+   * 引导 LLM:summary 之后单独一行 "以下为附件 OCR 识别内容,作为对话补充
+   * 资料;若用户没明确提问可暂忽略" — 避免模型把 OCR 全部当成用户的问题
+   * 重复念出来。
+   *
+   * 只取 ``ocrStatus='ok'`` 的 image attachment 的 ocrText。
    * 返回空字符串表示"没有 OCR 内容,无需拼接"。
    */
   const getOcrPromptAppendix = React.useCallback((): string => {
-    const list = composer.getState().attachments
-      .filter((a) => a.type === 'image' && a.ocrStatus === 'ok' && a.ocrText)
-      .map((a) => `### 附件「${a.name}」的图像文字识别结果\n${a.ocrText}`);
-    if (!list.length) return '';
-    return '\n\n---\n\n' + list.join('\n\n');
+    const items = composer.getState().attachments
+      .filter((a) => a.type === 'image' && a.ocrStatus === 'ok' && a.ocrText);
+    if (!items.length) return '';
+    // 引导段在所有 details 之前,只出现一次;LLM 看到这段会理解 OCR 是参考资料
+    const intro =
+      '\n\n---\n_以下为附件 OCR 识别内容(参考资料,非用户问题正文)_\n';
+    const blocks = items.map((a) => {
+      const len = (a.ocrText || '').length;
+      // <details> + <summary> 折叠;<pre> 包 OCR 文本(避免被 markdown 误解析)
+      // marked + DOMPurify 链路允许这三个标签(见 lib/markdown.tsx)
+      return [
+        `<details>`,
+        `<summary>📎 ${a.name} · OCR 识别(${len} 字)</summary>`,
+        '',
+        '<pre>',
+        a.ocrText,
+        '</pre>',
+        `</details>`,
+      ].join('\n');
+    });
+    return intro + '\n' + blocks.join('\n\n');
   }, []);
 
   return { attachments, pickFiles, pickImages, acceptDrop, remove, reset, getOcrPromptAppendix };

@@ -310,24 +310,35 @@ def create_app(run_mode: str = None):
     # spawn 是 daemon 模式 + 日志重定向到 _bg_log_path,主进程不阻塞。
     @app.on_event("startup")
     async def _auto_start_rapidocr() -> None:
+        import logging as _logging
+        log = _logging.getLogger("chayuan.startup")
         try:
             import asyncio as _asyncio
             from chayuan.server.modality.rapidocr_lifecycle import (
-                get_auto_start, start_ocr_sidecar,
+                get_auto_start, start_ocr_sidecar, ocr_sidecar_status,
             )
-            if not get_auto_start():
-                import logging as _logging
-                _logging.getLogger("chayuan.startup").info(
-                    "RapidOCR auto-start 已关闭,跳过自动拉起 — 在「设置 → 本地"
+            flag = get_auto_start()
+            log.info("[auto-start-rapidocr] hook 触发 auto_start=%s", flag)
+            if not flag:
+                log.info(
+                    "[auto-start-rapidocr] 已关闭,跳过 — 在「设置 → 本地"
                     "模型服务」可手动启停"
                 )
                 return
             # 放到线程池跑,避免 spawn + TCP probe 阻塞 startup event loop
-            await _asyncio.to_thread(start_ocr_sidecar)
+            status = await _asyncio.to_thread(start_ocr_sidecar)
+            log.info(
+                "[auto-start-rapidocr] 完成 state=%s pid=%s log=%s",
+                status.get("state"), status.get("pid"), status.get("log_path"),
+            )
+            if status.get("state") != "ready":
+                log.warning(
+                    "[auto-start-rapidocr] 启动后状态非 ready — 看 %s 排查",
+                    status.get("log_path"),
+                )
         except Exception:  # noqa: BLE001
-            import logging as _logging
-            _logging.getLogger("chayuan.startup").exception(
-                "auto-start RapidOCR sidecar failed (OCR 功能将不可用,看 chayuan_rapidocr.log)"
+            log.exception(
+                "[auto-start-rapidocr] failed (OCR 功能将不可用,看 chayuan_rapidocr.log)"
             )
 
     @app.on_event("shutdown")
