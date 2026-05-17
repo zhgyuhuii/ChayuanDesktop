@@ -64,6 +64,24 @@ class AudioPipeline:
     # ==================================================================
 
     @staticmethod
+    def _resolve_ffmpeg() -> Optional[str]:
+        """返回 ffmpeg exe 绝对路径(优先 imageio_ffmpeg 自带 binary,fallback 系统 PATH)。
+
+        imageio-ffmpeg 是 chayuan-server 的依赖,pip 装时下载对应平台的 ffmpeg
+        二进制(~30 MB),用户不必自己装系统 ffmpeg。极端情况下(wheel 下载失败
+        / 离线安装) fallback 走系统 PATH 的 ffmpeg。两者都没,返 None。
+        """
+        try:
+            import imageio_ffmpeg  # type: ignore
+            exe = imageio_ffmpeg.get_ffmpeg_exe()
+            if exe and os.path.exists(exe):
+                return exe
+        except Exception:  # noqa: BLE001
+            pass
+        import shutil
+        return shutil.which("ffmpeg")
+
+    @staticmethod
     def _transcode_to_wav(src_path: str) -> Tuple[Optional[str], Optional["tempfile.TemporaryDirectory"], Optional[str]]:
         """用 ffmpeg 转任意音频 → 16kHz mono WAV(whisper.cpp / whisper 通吃)。
 
@@ -75,19 +93,22 @@ class AudioPipeline:
             - wav_path None → 转码失败,err_msg 写明原因(ffmpeg 不在 / 转码出错)
         cleanup_dir 用于 caller 在用完后 .cleanup()。
         """
-        import shutil
         import subprocess
 
         # 已经是 wav 就直接返回原路径,免一次落盘
         if src_path.lower().endswith(".wav"):
             return src_path, None, None
-        if not shutil.which("ffmpeg"):
-            return None, None, "ffmpeg 不在 PATH(装一个就能解码 webm/opus → wav)"
+        ffmpeg_exe = AudioPipeline._resolve_ffmpeg()
+        if not ffmpeg_exe:
+            return None, None, (
+                "ffmpeg 不可用(imageio-ffmpeg 也没装):pip install imageio-ffmpeg "
+                "或装系统 ffmpeg"
+            )
         td = tempfile.TemporaryDirectory(prefix="chayuan_asr_wav_")
         out_path = str(Path(td.name) / "audio.wav")
         try:
             r = subprocess.run(
-                ["ffmpeg", "-loglevel", "error", "-y", "-i", src_path,
+                [ffmpeg_exe, "-loglevel", "error", "-y", "-i", src_path,
                  "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", out_path],
                 check=False, capture_output=True, timeout=30,
             )
