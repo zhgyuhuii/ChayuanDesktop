@@ -51,6 +51,9 @@ export interface UseMicRecorderOptions {
 export interface UseMicRecorderResult {
   recording: boolean;
   elapsed: number;
+  /** 当前 MediaStream(refresh 会换;视觉化组件用它做 AnalyserNode)。
+   *  非 recording / 还没 getUserMedia 时为 null。 */
+  stream: MediaStream | null;
   /** 开始录音 */
   start: () => Promise<void>;
   /** 正常停止(等 in-flight 完成 + flush) */
@@ -64,6 +67,9 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
   const sliceMs = opts.sliceMs ?? 2500;
   const [recording, setRecording] = React.useState(false);
   const [elapsed, setElapsed] = React.useState(0);
+  // VoiceVisualizer 需要拿到 MediaStream 跑 AnalyserNode;refresh 时换 stream
+  // 会触发 state 更新 → 可视化组件 useEffect 重新挂 AudioContext。开销很低。
+  const [stream, setStream] = React.useState<MediaStream | null>(null);
 
   const recorderRef = React.useRef<MediaRecorder | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
@@ -144,6 +150,7 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     }
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    setStream(null);
     recorderRef.current = null;
     mimeTypeRef.current = '';
     abortersRef.current = [];
@@ -179,6 +186,7 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
       const next = await navigator.mediaDevices.getUserMedia({ audio: true });
       const old = streamRef.current;
       streamRef.current = next;
+      setStream(next);
       slicesOnStreamRef.current = 0;
       // 老 stream 释放放后面,避免某些浏览器 close 时连带 disrupt 新 stream
       try { old?.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
@@ -389,6 +397,7 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
       return;
     }
     streamRef.current = stream;
+    setStream(stream);
     mimeTypeRef.current = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
       : MediaRecorder.isTypeSupported('audio/webm')
@@ -470,5 +479,5 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
     if (sliceTimerRef.current) clearTimeout(sliceTimerRef.current);
   }, []);
 
-  return { recording, elapsed, start, stop, cancel };
+  return { recording, elapsed, stream, start, stop, cancel };
 }

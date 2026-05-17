@@ -21,6 +21,7 @@ import { Button, cn } from '@chayuan/ui';
 import { modality } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
 import { useMicRecorder } from '../composer/useMicRecorder';
+import { VoiceVisualizer } from '../composer/VoiceVisualizer';
 import { useNoteDraft } from './useNoteDraft';
 import { SaveNoteDialog } from './SaveNoteDialog';
 import { AsrVolatileMark } from './AsrVolatileMark';
@@ -380,6 +381,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
           <Save className="h-3.5 w-3.5" /> 保存到知识中心
         </Button>
       </header>
+
+      {mic.recording && (
+        <div className="flex items-center justify-center border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]/30 px-4 py-2">
+          <VoiceVisualizer stream={mic.stream} active={mic.recording} />
+        </div>
+      )}
 
       {lastUploadedAudio && (
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]/50 px-4 py-1.5 text-xs">
