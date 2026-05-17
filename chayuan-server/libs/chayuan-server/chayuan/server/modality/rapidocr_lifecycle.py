@@ -181,8 +181,19 @@ def _wait_until_ready(timeout: float = _READY_TIMEOUT_SEC) -> bool:
 def start_ocr_sidecar() -> Dict[str, Any]:
     """spawn RapidOCR daemon(若未在跑),返 ocr_sidecar_status()。
 
-    幂等:已 ready 直接返;有 stale 注册但端口没听 → unregister 再起;
-    spawn 时把 stdout/stderr 重定向到 ``_log_path()`` 方便事后排查。
+    幂等:已 ready 直接返;有 stale 注册但端口没听 → 清掉再起。
+
+    实现方式:**复用** install_task_manager.start_service("rapidocr") —
+    跟「设置 → 运行时框架」上的手动「启动」按钮走同一条路径。
+
+    为什么不自己直接 Popen:
+      * PyInstaller 打包后 sys.executable = chayuan.exe,**不**支持 `-m module`,
+        所以直接 ``subprocess.Popen([sys.executable, "-m", ...], ...)`` 会让
+        chayuan.exe 立刻退出 — 用户报"手动行,自动不行"就是这个根因。
+      * install_task_manager 在 Windows 用 outer Python helper 内联 spawn
+        (``[sys.executable, "-c", "import subprocess; subprocess.Popen(...)"]``)
+        + DETACHED_PROCESS flag,绕过 cmd shell + PyInstaller entry 限制,
+        手动启动验证过能跑。
     """
     # 已经在跑 → 直接返
     if _port_listening():
@@ -194,82 +205,55 @@ def start_ocr_sidecar() -> Dict[str, Any]:
     if stale:
         stale_pid = int(stale.get("pid") or 0)
         if stale_pid and _is_pid_alive(stale_pid):
-            # 进程还在但端口不通 — 可能正在启动中,等一会
             logger.info(
                 "[ocr-sidecar] 已注册 pid=%d 但 %d 未监听,等待 ready",
                 stale_pid, RAPIDOCR_PORT,
             )
             if _wait_until_ready(timeout=3.0):
                 return ocr_sidecar_status()
-        # 真的不行了 — 清理注册
         try:
             from chayuan.server.config_panel.restart import unregister_child
             unregister_child("ocr")
         except Exception:  # noqa: BLE001
             pass
 
-    # spawn rapidocr_server.py 完全 detach,日志重定向到 _log_path
-    log_path = _log_path()
+    # 走 install_task_manager 的 start_service 路径(跟 UI 手动按钮一致)
     try:
-        # 确保 log 文件能写(目录存在)
-        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-    except OSError:  # noqa: BLE001
-        pass
-
-    from chayuan.server.shared.process_utils import detached_popen_kwargs
-    cmd = [
-        sys.executable, "-m", "chayuan.server.modality.rapidocr_server",
-        "--host", RAPIDOCR_HOST, "--port", str(RAPIDOCR_PORT),
-    ]
-    try:
-        log_fp = open(log_path, "ab")  # noqa: SIM115 — 故意保留,Popen 持有 fd
-    except OSError as e:
-        logger.warning("[ocr-sidecar] 无法打开日志 %s: %r;改用 DEVNULL", log_path, e)
-        log_fp = subprocess.DEVNULL  # type: ignore[assignment]
-
-    try:
-        kwargs: Dict[str, Any] = {
-            "stdin": subprocess.DEVNULL,
-            "stdout": log_fp,
-            "stderr": subprocess.STDOUT,
-            **detached_popen_kwargs(),
-        }
-        proc = subprocess.Popen(cmd, **kwargs)
+        from chayuan.server.config_panel.install_task_manager import (
+            get_install_manager,
+        )
+        task = get_install_manager().start_service(framework="rapidocr")
     except Exception as e:  # noqa: BLE001
-        logger.exception("[ocr-sidecar] spawn 失败: %r", e)
+        logger.exception("[ocr-sidecar] start_service 调用失败: %r", e)
         return {
             "state": "failed",
             "pid": None,
             "port": RAPIDOCR_PORT,
-            "log_path": log_path,
+            "log_path": _log_path(),
             "listening": False,
+            "auto_start": get_auto_start(),
             "error": f"{type(e).__name__}: {e}",
         }
-    finally:
-        # log_fp 已交给子进程持有,父进程的 fd 可以关
-        if hasattr(log_fp, "close") and log_fp is not subprocess.DEVNULL:
-            try:
-                log_fp.close()
-            except OSError:
-                pass
-
+    if task is None:
+        logger.warning(
+            "[ocr-sidecar] start_service 返回 None — _START_RECIPES 缺 rapidocr "
+            "条目,或 _derive_start_recipe 派生失败"
+        )
+        return {
+            **ocr_sidecar_status(),
+            "error": "no start recipe for rapidocr",
+        }
     logger.info(
-        "[ocr-sidecar] 已 spawn rapidocr_server pid=%d port=%d log=%s",
-        proc.pid, RAPIDOCR_PORT, log_path,
+        "[ocr-sidecar] 已调 install_task_manager.start_service(rapidocr) "
+        "task_id=%s, 等 TCP %d ready",
+        task.task_id, RAPIDOCR_PORT,
     )
-
-    # 登记到 runtime meta,供 stop / 重启用
-    try:
-        from chayuan.server.config_panel.restart import register_child
-        register_child("ocr", int(proc.pid), port=RAPIDOCR_PORT, name="rapidocr")
-    except Exception as e:  # noqa: BLE001
-        logger.warning("[ocr-sidecar] register_child 失败(可忽略): %r", e)
 
     # 等 ready;超时也不报错,前端会看到 starting 状态
     if not _wait_until_ready():
         logger.warning(
             "[ocr-sidecar] %ds 内未 ready;子进程仍在跑,看 %s 排查",
-            int(_READY_TIMEOUT_SEC), log_path,
+            int(_READY_TIMEOUT_SEC), _log_path(),
         )
 
     return ocr_sidecar_status()
