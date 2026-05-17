@@ -19,12 +19,14 @@
         "height": 420,
         "resizable": false,
         "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": false,
+        "transparent": false,
+        "backgroundColor": "#0f172a",
+        "alwaysOnTop": true,
         "center": true,
-        "skipTaskbar": false,
+        "skipTaskbar": true,
         "shadow": true,
-        "focus": true
+        "focus": true,
+        "visible": true
       },
       {
         "label": "main",

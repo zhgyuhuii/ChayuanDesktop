@@ -70,8 +70,29 @@ fn chayuan_screenshot() -> Result<Vec<u8>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // window_state plugin:默认 save 全部 state flags(SIZE / POSITION / MAXIMIZED /
+    // FULLSCREEN / DECORATIONS / VISIBLE),启动时按窗口 label 自动 restore。
+    //
+    // ⚠ 这里**必须排除 VISIBLE**,否则:之前 session main 窗口 visible=true 被存了,
+    // 下次启动 plugin 在 setup 之前 restore → main 被强制 show,即使 conf.json
+    // 写了 visible: false。用户看到的就是 main 的 backgroundColor(#0f172a 深蓝)
+    // 即"蓝屏",splash 窗口被遮挡 / 还没起来就被夺焦。
+    // 同时排除 DECORATIONS,避免 plugin 覆盖 splash 窗口的 decorations:false。
+    //
+    // splashscreen 窗口完全不持久化(每次启动都是固定 420×420 center 状态)。
+    // 关键:排除 VISIBLE / DECORATIONS;splashscreen 窗口靠 setup 阶段 force show
+    // 兜底,plugin 即便存了它的 state 也无害。
+    let window_state_plugin = tauri_plugin_window_state::Builder::default()
+        .with_state_flags(
+            tauri_plugin_window_state::StateFlags::SIZE
+                | tauri_plugin_window_state::StateFlags::POSITION
+                | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                | tauri_plugin_window_state::StateFlags::FULLSCREEN,
+        )
+        .build();
+
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(window_state_plugin)
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -125,6 +146,18 @@ pub fn run() {
             sidecar::chayuan_sidecar_kill
         ])
         .setup(|app| {
+            // ── splash 强制顺序(double safety net)─────────────────
+            // 即便 window_state plugin / WebView2 startup quirks 抢先 show 了 main,
+            // 这里把 main 强行 hide、把 splash 强行 show 一次,确保 splash 是首先
+            // 出现的那一个。两个 best-effort,失败不阻塞 setup。
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.hide();
+            }
+            if let Some(splash) = app.get_webview_window("splashscreen") {
+                let _ = splash.show();
+                let _ = splash.set_focus();
+            }
+
             // ── 系统托盘 ────────────────────────────────────────────
             // 三项菜单：打开主窗口 / 切换显示 / 退出
             let show = MenuItem::with_id(app, "show", "打开察元 AI", true, None::<&str>)?;

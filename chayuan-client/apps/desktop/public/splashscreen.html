@@ -32,13 +32,14 @@
         padding: 0;
         height: 100%;
         overflow: hidden;
-        background: transparent;
+        /* opaque 深色背景 — Tauri splash 窗口 transparent:false,稳定支持 Windows */
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
           "Microsoft YaHei", "Helvetica Neue", sans-serif;
         user-select: none;
         -webkit-user-select: none;
       }
-      /* 整窗背景渐变 + 圆角(transparent 窗口可见性) */
+      /* 内容层,带光晕 */
       .stage {
         position: fixed;
         inset: 0;
@@ -46,12 +47,9 @@
         align-items: center;
         justify-content: center;
         overflow: hidden;
-        border-radius: 14px;
         background:
           radial-gradient(ellipse at center,
-            rgba(99,102,241,0.28), rgba(14,165,233,0.12) 45%, transparent 75%),
-          linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
-        box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+            rgba(99,102,241,0.32), rgba(14,165,233,0.14) 45%, transparent 75%);
       }
       * { box-sizing: border-box; }
 
