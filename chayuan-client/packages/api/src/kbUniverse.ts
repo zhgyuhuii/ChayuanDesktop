@@ -478,9 +478,13 @@ export const imageSource = {
     form.append('file', file as Blob, (file as File).name || 'query.bin');
     form.append('top_k', String(topK));
     if (opts.tags) form.append('tags', opts.tags);
+    // ⚠ 客户端默认 timeout 30s,首次 CLIP 模型冷启动(从磁盘 mmap 400MB-1GB 权
+    // 重 + 首次推理)在低端 CPU 上可能 10-30s,30s 必撞;实际推理 1-3s,但首次
+    // 走一趟得给充足余量。bump 到 120s — 用户报"请求已中止"的根因就是默认太
+    // 短。AbortSignal 仍然可用(用户主动取消 / 切窗口)。
     const r = await request<{ data: ImageSearchHit[] }>(
       `/knowledge_source/${sourceId}/image/search_by_image`,
-      { method: 'POST', body: form, signal: opts.signal, raw: true },
+      { method: 'POST', body: form, signal: opts.signal, raw: true, timeoutMs: 120_000 },
     );
     return r.data?.data ?? [];
   },
