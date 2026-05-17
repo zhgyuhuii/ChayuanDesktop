@@ -88,9 +88,11 @@ export interface TranscribeFileResult {
   language: string;
   audio_seconds: number;
   segments: TranscribeFileSegment[];
-  /** 后端是否接入了真实的 speaker diarization(pyannote / 类似)。
-   *  当前 false — 所有 segment 都标 speaker_0;前端据此决定不显示 "Speaker N:" 前缀。 */
+  /** 后端接入了真实说话人分离时为 true(FunASR sidecar + CAM++ 模型)。
+   *  false 时所有 segment 都是 speaker_0,前端不应渲染"Speaker N:" 前缀。 */
   speaker_diarization_available: boolean;
+  /** 实际分到的说话人数(diarize=true 时由后端填) */
+  speaker_count?: number;
   diagnostics?: string;
 }
 
@@ -174,15 +176,21 @@ export const modality = {
    * 读取某 capability 最近的调用日志。
    * 当前后端支持 key: 'asr' / 'ocr'(后续若加 chat/embedding record,key 同名)。
    */
-  /** 整段音频文件转写(非流式),后端 ffmpeg → wav → whisper.cpp /inference。
-   *  对大文件 latency 较高(>1 min 可能 10s+),caller 应给 loading 反馈。 */
+  /** 整段音频文件转写(非流式)。
+   *
+   *  - diarize=false(默认):后端 ffmpeg → wav → whisper.cpp /inference,单 speaker。
+   *  - diarize=true:后端先试 FunASR sidecar(CAM++ 说话人分离),失败回退 whisper。
+   *
+   *  对大文件 latency 较高(>1 min 可能 10s+,FunASR 首次模型懒加载 30s+),
+   *  caller 应给 loading 反馈。 */
   async transcribeFile(
     file: File | Blob,
-    opts: { language?: string; signal?: AbortSignal } = {},
+    opts: { language?: string; signal?: AbortSignal; diarize?: boolean } = {},
   ): Promise<TranscribeFileResult> {
     const form = new FormData();
     form.append('file', file, (file as File).name || 'upload.audio');
     if (opts.language) form.append('language', opts.language);
+    if (opts.diarize) form.append('diarize', 'true');
     const r = await request<{ data: TranscribeFileResult }>(`/modality/transcribe-file`, {
       method: 'POST',
       body: form,

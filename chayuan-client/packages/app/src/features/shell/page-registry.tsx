@@ -74,6 +74,9 @@ const NoteEditorPage = React.lazy(() =>
 const ImageToTextPage = React.lazy(() =>
   import('../imageToText/ImageToTextPage').then((m) => ({ default: m.ImageToTextPage })),
 );
+const AudioToTextPage = React.lazy(() =>
+  import('../audioToText/AudioToTextPage').then((m) => ({ default: m.AudioToTextPage })),
+);
 
 export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
   {
@@ -195,6 +198,12 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     render: () => <ImageToTextPage />,
     defaultTitle: '图转文',
     defaultIcon: 'scan-text',
+  },
+  {
+    pattern: /^\/audio-to-text$/,
+    render: () => <AudioToTextPage />,
+    defaultTitle: '音转文',
+    defaultIcon: 'mic',
   },
   {
     pattern: /^\/admin\/(?<tab>traces|outbox|prompts|platforms)$/,
