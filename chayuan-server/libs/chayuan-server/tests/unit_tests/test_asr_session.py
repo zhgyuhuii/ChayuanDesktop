@@ -101,50 +101,60 @@ def test_asr_session_third_chunk_incremental_commit():
     assert r3["volatile_suffix"] == "真不错"
 
 
-def test_asr_session_sliding_window_segment_break():
-    """累积超过 WINDOW_BYTES(12s)→ 切段:last_hyp 段尾 hard-commit + audio 清空。"""
+def test_asr_session_audio_trim_keeps_overlap():
+    """audio 超 WINDOW_SECONDS 后 trim:基于 commit 比例砍前缀,留 OVERLAP_SECONDS 上下文。"""
     from chayuan.server.modality.asr_session import (
-        AsrSession, PCM_BYTES_PER_SECOND, WINDOW_BYTES,
+        AsrSession, PCM_BYTES_PER_SECOND, WINDOW_SECONDS, OVERLAP_SECONDS,
     )
-    sess = AsrSession(session_id="t-slide")
-    # 准备:10s + 5s 两个 chunk,第二个会触发段切(累积 15s > 12s)
-    pcm_10s = b"\x00" * (10 * PCM_BYTES_PER_SECOND)
+    sess = AsrSession(session_id="t-trim")
     pcm_5s = b"\x00" * (5 * PCM_BYTES_PER_SECOND)
 
+    # 模拟跨多个 chunk 不断累积 + 各次 hyp 增长
+    # 第一次 5s → hyp="ABCD"(4 chars 对应 5s)
+    # 第二次 10s → hyp="ABCDEFGH"(commit 前缀 "ABCD")
+    # 第三次 15s → hyp="ABCDEFGHIJKL"(commit "ABCDEFGH")→ 触发 trim
     hyps = iter([
-        "你好今天",            # 第一个 chunk(10s)的 hyp
-        "你好今天天气",        # 第二个 chunk 段切后从空开始,但本测试简化只测段切机制
+        "ABCD",                # chunk 1: 5s audio
+        "ABCDEFGH",            # chunk 2: 10s audio
+        "ABCDEFGHIJKL",        # chunk 3: 15s audio
+        # chunk 3 后 audio_secs=15 > WINDOW_SECONDS=12,且有 commit;trim
     ])
     def fake(wav): return next(hyps), []
 
-    r1 = sess.append_chunk(pcm_10s, fake)
-    # 第一次:无 prev,全 volatile
+    r1 = sess.append_chunk(pcm_5s, fake)
     assert r1["stable_increment"] == ""
-    assert r1["volatile_suffix"] == "你好今天"
-    assert sess.last_hyp == "你好今天"
-    assert sess.committed_text == ""
+    assert sess.last_hyp == "ABCD"
 
-    # 第二个 chunk 5s → 累积 15s > 12s 触发段切:
-    # 切段时 last_hyp="你好今天" 减去 segment_committed_prefix=""(无 commit)
-    # 全部 hard-commit → committed_text = "你好今天"
-    # 然后清空 buffer,append 新 5s chunk,跑 whisper("你好今天天气")
-    # 第二段无 last_hyp → 全 volatile
     r2 = sess.append_chunk(pcm_5s, fake)
-    assert r2["stable_increment"] == "你好今天"  # 段切 hard-commit 的部分
-    assert r2["volatile_suffix"] == "你好今天天气"
-    assert r2["committed_text"] == "你好今天"
-    assert r2["is_full"] is False  # 滑窗后永远不 full
-    # buffer 应该只剩 5s
-    assert len(sess.audio_pcm) == len(pcm_5s)
-    assert r2["audio_seconds"] == 5.0
+    # LocalAgreement("ABCD", "ABCDEFGH") 共同前缀 = "ABCD" → commit
+    assert r2["stable_increment"] == "ABCD"
+    assert sess.committed_text == "ABCD"
+    assert sess.segment_committed_prefix == "ABCD"
+
+    r3 = sess.append_chunk(pcm_5s, fake)
+    # LocalAgreement("ABCDEFGH", "ABCDEFGHIJKL") 共同前缀 = "ABCDEFGH" → 增 commit "EFGH"
+    assert r3["stable_increment"] == "EFGH"
+    assert r3["committed_text"] == "ABCDEFGH"
+    # 此时 audio 15s,commit_ratio = 8/12,commit_secs = 15 * 8/12 = 10
+    # trim_secs = 10 - 4 = 6 → 砍 6 秒 audio + 比例砍 last_hyp / segment_committed_prefix
+    assert len(sess.audio_pcm) < 15 * PCM_BYTES_PER_SECOND, "trim 应该砍掉前段 audio"
+    assert sess.audio_pcm == b"\x00" * len(sess.audio_pcm)
+    # 仍保留 ≥ OVERLAP_SECONDS audio
+    audio_remaining_secs = len(sess.audio_pcm) / PCM_BYTES_PER_SECOND
+    assert audio_remaining_secs >= OVERLAP_SECONDS - 0.1
+    assert r3["is_full"] is False  # 永远不 full
+    # last_hyp 应被砍前缀
+    assert len(sess.last_hyp) < len("ABCDEFGHIJKL")
+    # committed_text 不变(commit 文本是全局累积,不动)
+    assert sess.committed_text == "ABCDEFGH"
 
 
-def test_asr_session_no_segment_break_when_within_window():
-    """累积未超 WINDOW_BYTES 不切段,正常 LocalAgreement 增量 commit。"""
+def test_asr_session_no_trim_when_within_window():
+    """累积未超 WINDOW_SECONDS 不 trim,正常 LocalAgreement 增量 commit。"""
     from chayuan.server.modality.asr_session import (
         AsrSession, PCM_BYTES_PER_SECOND,
     )
-    sess = AsrSession(session_id="t-no-slide")
+    sess = AsrSession(session_id="t-no-trim")
     pcm_3s = b"\x00" * (3 * PCM_BYTES_PER_SECOND)
 
     hyps = iter(["你好今天", "你好今天天气", "你好今天天气真不错"])
@@ -153,8 +163,8 @@ def test_asr_session_no_segment_break_when_within_window():
     sess.append_chunk(pcm_3s, fake)           # 3s,commit ""
     r2 = sess.append_chunk(pcm_3s, fake)      # 6s,commit "你好今天"
     r3 = sess.append_chunk(pcm_3s, fake)      # 9s,commit 增 "天气"
-    # 累积 9s < 12s,不切段
-    assert sess.audio_pcm == b"\x00" * (9 * PCM_BYTES_PER_SECOND)
+    # 累积 9s < 12s,不 trim
+    assert len(sess.audio_pcm) == 9 * PCM_BYTES_PER_SECOND
     assert r2["stable_increment"] == "你好今天"
     assert r3["stable_increment"] == "天气"
     assert r3["committed_text"] == "你好今天天气"

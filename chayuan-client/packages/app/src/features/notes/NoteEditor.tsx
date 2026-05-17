@@ -22,6 +22,7 @@ import { modality } from '@chayuan/api';
 import { useMicRecorder } from '../composer/useMicRecorder';
 import { useNoteDraft } from './useNoteDraft';
 import { SaveNoteDialog } from './SaveNoteDialog';
+import { AsrVolatileMark } from './AsrVolatileMark';
 import { notifyInfo, reportError } from '../../store/errorDialog';
 
 const defaultTitle = () => {
@@ -55,12 +56,35 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
       Placeholder.configure({
         placeholder: '开始写笔记…(支持 Markdown 快捷键;点麦克风可实时语音录入)',
       }),
+      // ASR 实时校准:volatile 文字带这个 mark,灰色斜体显示,下次 chunk 来时
+      // delete + 重新 insert 当前 hypothesis 的新 volatile
+      AsrVolatileMark,
     ],
     content: initial?.content ?? '',
     onUpdate({ editor }) {
       draft.save(title, editor.getJSON());
     },
   });
+
+  // ASR volatile 占位的位置记录 — 每次 chunk 来时定位删旧 volatile,插新 volatile。
+  // 同步靠 editor mark scan(任何时候 volatile 在编辑器里都带 asrVolatile mark)。
+  const removeVolatileRange = React.useCallback(() => {
+    if (!editor) return;
+    const doc = editor.state.doc;
+    const markType = editor.schema.marks.asrVolatile;
+    if (!markType) return;
+    let from: number | null = null;
+    let to: number | null = null;
+    doc.descendants((node, pos) => {
+      if (node.isText && node.marks.some((m) => m.type === markType)) {
+        if (from === null) from = pos;
+        to = pos + node.nodeSize;
+      }
+    });
+    if (from !== null && to !== null) {
+      editor.chain().deleteRange({ from, to }).run();
+    }
+  }, [editor]);
 
   // 标题变化也写草稿
   React.useEffect(() => {
@@ -79,8 +103,28 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
     onPartial: (text) => {
       if (!text || !editor) return;
       partialCountRef.current += 1;
-      // 在当前光标位置插入 text + 一个空格(focus 保证插到当前光标处)
-      editor.chain().focus().insertContent(text + ' ').run();
+      // commit stable_increment(LocalAgreement-2 二次确认的字符) — 黑色固化
+      // 先删 volatile 占位避免新文字插到 volatile 后面;commit 后 volatile 由
+      // onVolatile 重新插入
+      removeVolatileRange();
+      editor.chain().focus().insertContent(text).run();
+    },
+    onVolatile: (volatileText) => {
+      if (!editor) return;
+      // 删旧 volatile,无论新 volatile 是否为空都先清理
+      removeVolatileRange();
+      if (!volatileText) return;
+      // 在当前光标(末尾)插入新 volatile,带 asrVolatile mark(灰色斜体)。
+      // 文档结构上 volatile 是普通 text,只是有 mark;下次 chunk 来时根据 mark
+      // 找到这段范围 delete + 重插。
+      editor.chain()
+        .focus()
+        .insertContent({
+          type: 'text',
+          text: volatileText,
+          marks: [{ type: 'asrVolatile' }],
+        })
+        .run();
     },
     onFinal: (full) => {
       if (partialCountRef.current === 0 && !full) {

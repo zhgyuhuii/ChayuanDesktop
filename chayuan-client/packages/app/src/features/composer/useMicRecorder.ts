@@ -31,8 +31,17 @@ export interface UseMicRecorderOptions {
   sliceMs?: number;
   /** 语言提示("zh"/"en"/""为自动) */
   language?: string;
-  /** 每片转写完成后回调(按 chunkIndex 顺序;乱序到达会 buffer 等齐) */
+  /** 每片转写完成后回调(按 chunkIndex 顺序;乱序到达会 buffer 等齐)
+   *  session 模式下 text = stable_increment(LocalAgreement-2 二次确认后新 commit
+   *  的字符);非 session 模式下 text = 整 chunk 的转写。 */
   onPartial?: (text: string, chunkIndex: number) => void;
+  /** 流式 ASR 实时校准回调:每个 chunk 返时调,带"当前 hypothesis 的未确认尾部"。
+   *  caller 应该:
+   *    - delete 上次 volatile 占位
+   *    - 在尾部 insert 新 volatile(灰色斜体)
+   *    - onPartial 触发时再 commit 新 stable 文字
+   *  没传时只走 onPartial 路径,不显示实时 volatile(老行为)。 */
+  onVolatile?: (volatile: string, chunkIndex: number) => void;
   /** 所有 chunk 转写完成 + stop 后整段文本回调 */
   onFinal?: (fullText: string) => void;
   /** 错误回调(getUserMedia 拒绝 / MediaRecorder unsupported) */
@@ -122,6 +131,8 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
   const finalizeAndCleanup = React.useCallback(() => {
     if (finalizedRef.current) return;
     finalizedRef.current = true;
+    // 收尾立刻清 volatile 占位 — 不等 in-flight,UI 立刻干净
+    try { optsRef.current.onVolatile?.('', -1); } catch { /* ignore */ }
     const checkDone = () => {
       if (chunkIndexRef.current === expectedRef.current) {
         const full = fullTextRef.current.join(' ').trim();
@@ -216,18 +227,22 @@ export function useMicRecorder(opts: UseMicRecorderOptions = {}): UseMicRecorder
         })
         .then((r) => {
           // session 模式:r.text 是 stable_increment(LocalAgreement-2 二次校验后
-          // 新 commit 的字符),而不是整 chunk 转写
+          // 新 commit 的字符),r.volatile_suffix 是当前未确认尾部
           const text = (r.text || '').trim();
+          const volatileText = (r.volatile_suffix || '').trim();
           const isFull = !!r.is_full;
           console.debug(
             `[mic] chunk #${idx} sid=${sessionIdRef.current.slice(0, 6)} ` +
-              `+"${text}" (${text.length}c) hyp="${(r.hypothesis ?? '').slice(0, 40)}..." full=${isFull}`,
+              `+"${text}" vola="${volatileText.slice(0, 30)}" full=${isFull}`,
           );
           if (isFull) {
-            // 后端 session 积累已 30s,自动换新 sid 让下一个 chunk 续录
+            // 后端旧版若返 is_full,自动换新 sid;新版滑窗后 is_full 永远 false
             sessionIdRef.current = uuid();
             console.debug('[mic] session full,rotated to', sessionIdRef.current.slice(0, 6));
           }
+          // volatile 路径:**先**触发(无序也无所谓,volatile 只反映"当前最新猜测")
+          // 这样用户看到末尾持续闪烁修正
+          optsRef.current.onVolatile?.(volatileText, idx);
           pendingRef.current.set(idx, text);
           flushBuffered();
         })

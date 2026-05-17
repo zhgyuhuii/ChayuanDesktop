@@ -83,4 +83,18 @@
   [data-theme='dark'] .cy-kb-highlight--faded {
     background: rgba(250, 204, 21, 0.18);
   }
+
+  /* ASR 流式 ── volatile(未确认尾部)文字样式
+     Tiptap 自定义 mark `asrVolatile`(features/notes/AsrVolatileMark.ts)渲染为
+     <span class="cy-asr-volatile">,灰色斜体提示"这部分还在校准,可能改"。
+     用户感知:已 commit(黑) + 末尾 volatile(灰斜),下次 chunk 来 replace。 */
+  .cy-asr-volatile {
+    color: rgba(148, 163, 184, 0.95);  /* slate-400 */
+    font-style: italic;
+    transition: color 200ms ease;
+  }
+  .dark .cy-asr-volatile,
+  [data-theme='dark'] .cy-asr-volatile {
+    color: rgba(148, 163, 184, 0.85);
+  }
 }

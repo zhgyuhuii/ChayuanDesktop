@@ -194,6 +194,9 @@ importers:
       '@tanstack/react-router':
         specifier: ^1.85.0
         version: 1.168.24(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@tiptap/core':
+        specifier: ^3.23.4
+        version: 3.23.4(@tiptap/pm@3.23.4)
       '@tiptap/extension-image':
         specifier: ^3.23.4
         version: 3.23.4(@tiptap/core@3.23.4(@tiptap/pm@3.23.4))

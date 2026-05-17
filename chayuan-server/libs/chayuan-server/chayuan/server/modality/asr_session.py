@@ -39,13 +39,16 @@ PCM_BYTES_PER_SECOND = PCM_SAMPLE_RATE * 2  # mono, 16-bit
 #
 # 窗口设计:
 #   WINDOW_SECONDS=12  → whisper 每次跑 ≤ 12s 音频,latency 恒定 ~2-3s,稳。
-#   超过窗口:把当前 last_hyp 整段 hard-commit,清空 buffer 开新段。
-#   trade-off:段切换那一刻没有跨次 LocalAgreement 确认,可能漏掉 hallucination,
-#   但比线性增长爆炸好太多。
+#   超过窗口触发段切,但 **保留最后 OVERLAP_SECONDS=4 秒音频**作为新段开头 —
+#   whisper 拿到 4s 上下文能给出连贯的 hyp 开头,跟旧段尾自然衔接;不再"上句
+#   不接下句"。重叠区文字也作为新段的 prev_hyp,LocalAgreement 第一次比对就
+#   能 commit 重叠区(无段切空窗期)。
 #
 # 单 session 不再有"is_full / 客户端必须 rotate"概念 — 滑窗内置兜底了。
 WINDOW_SECONDS = 12
 WINDOW_BYTES = WINDOW_SECONDS * PCM_BYTES_PER_SECOND
+OVERLAP_SECONDS = 4
+OVERLAP_BYTES = OVERLAP_SECONDS * PCM_BYTES_PER_SECOND
 
 SESSION_TTL_SEC = 300  # 5 分钟 idle 自动 evict
 
@@ -108,29 +111,16 @@ class AsrSession:
         self, pcm_chunk: bytes, transcribe_fn: TranscribeFn,
     ) -> Dict:
         """滑窗 + LocalAgreement-2 → 返 commit 决策。latency 恒定。"""
-        # ── 滑窗:超出窗口前先切段 ──
-        # 注意是 "前缀" 检查,即如果 append 后会超出 → 先 hard-commit 段尾再开新段。
-        # hard_commit_increment 这一刻"段切 hard-commit 的字符",会和后面段内
-        # LocalAgreement 的 increment 合并返回给客户端,确保客户端不漏 commit。
-        hard_commit_increment = ""
-        will_exceed = len(self.audio_pcm) + len(pcm_chunk) > WINDOW_BYTES
-        if will_exceed and self.last_hyp:
-            hard_commit_increment = self.last_hyp[len(self.segment_committed_prefix):]
-            self.committed_text += hard_commit_increment
-            self.audio_pcm = bytearray()
-            self.last_hyp = ""
-            self.segment_committed_prefix = ""
-
         # ── 累积当前 chunk ──
         self.audio_pcm.extend(pcm_chunk)
         self.chunk_count += 1
         self.last_active_at = time.time()
 
-        # ── 跑 whisper(整段 ≤ WINDOW_BYTES,latency 恒定)──
+        # ── 跑 whisper ──
         wav_bytes = make_wav_bytes(bytes(self.audio_pcm))
         new_hyp, diag = transcribe_fn(wav_bytes)
 
-        # ── LocalAgreement-2 在当前段内 ──
+        # ── LocalAgreement-2 ──
         stable_prefix, volatile = local_agreement_2(self.last_hyp, new_hyp)
         stable_increment, retroactive = compute_increment(
             self.segment_committed_prefix, stable_prefix,
@@ -141,11 +131,36 @@ class AsrSession:
             self.segment_committed_prefix = stable_prefix or self.segment_committed_prefix
         self.last_hyp = new_hyp
 
-        # 合并段切 hard-commit + 段内 LocalAgreement increment,客户端一次性 commit
-        total_increment = hard_commit_increment + stable_increment
+        # ── audio trim(对齐 UFAL whisper-streaming):基于"已 commit / hyp"比例
+        # 估算"已 commit 文字对应多少秒 audio",砍掉但保留 OVERLAP_SECONDS 末尾给
+        # 上下文。trim 后 last_hyp / segment_committed_prefix 同步砍前缀,坐标系
+        # 一致,LocalAgreement 全程工作,**不**做段切清空 — 不再"上一句不接下一句"。
+        audio_secs_now = len(self.audio_pcm) / PCM_BYTES_PER_SECOND
+        if (
+            audio_secs_now > WINDOW_SECONDS
+            and self.segment_committed_prefix
+            and self.last_hyp
+        ):
+            hyp_len = len(self.last_hyp)
+            commit_chars = len(self.segment_committed_prefix)
+            commit_ratio = commit_chars / hyp_len
+            commit_secs = commit_ratio * audio_secs_now
+            trim_secs = max(0.0, commit_secs - OVERLAP_SECONDS)
+            if trim_secs >= 1.0:  # 至少够砍 1 秒才值得做
+                trim_bytes = int(trim_secs * PCM_BYTES_PER_SECOND)
+                # audio_pcm 砍前缀
+                self.audio_pcm = bytearray(self.audio_pcm[trim_bytes:])
+                # 文字按 commit_chars × (trim_secs/commit_secs) 比例砍前缀
+                trim_chars = min(
+                    commit_chars,
+                    max(1, int(commit_chars * (trim_secs / commit_secs))),
+                )
+                self.last_hyp = self.last_hyp[trim_chars:]
+                # segment_committed_prefix 也对应砍,这样 compute_increment 还能算
+                self.segment_committed_prefix = self.segment_committed_prefix[trim_chars:]
 
         return {
-            "stable_increment": total_increment,
+            "stable_increment": stable_increment,
             "volatile_suffix": volatile,
             "hypothesis": new_hyp,
             "committed_text": self.committed_text,
