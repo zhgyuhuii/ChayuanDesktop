@@ -414,21 +414,27 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <label className="text-xs text-[var(--cy-text-tertiary)]">模型</label>
         <select
           value={selectedId}
           onChange={(e) => onChoose(e.target.value)}
           disabled={noModels || isPending}
-          className="rounded-md border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs"
+          // ⚠ max-w + truncate:原生 <select> 在 Chromium / WebView2 上的下拉
+          // 宽度由"最长 option 文本"撑;像 jinaai/jina-clip-v2(420.5 MB)
+          // 这种字符串会让 select 整体撑爆,在窄面板里直接超出页面。这里
+          // 限定 select 自身最大 14rem,option 文本走 _shortModelLabel 去掉
+          // org/ 前缀只显模型短名 — 完整 id 还是作为 value
+          className="max-w-[14rem] truncate rounded-md border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs"
+          title={selectedId || ''}
         >
           {noModels ? (
             <option value="">未安装,前往「模型广场」下载</option>
           ) : (
             models.map((m) => (
-              <option key={m.model_id} value={m.model_id}>
-                {m.model_id}
-                {m.size_bytes ? ` (${prettyMB(m.size_bytes)})` : ''}
+              <option key={m.model_id} value={m.model_id} title={m.model_id}>
+                {_shortModelLabel(m.model_id)}
+                {m.size_bytes ? ` · ${prettyMB(m.size_bytes)}` : ''}
               </option>
             ))
           )}
@@ -869,4 +875,16 @@ function prettyMB(bytes: number): string {
   const mb = bytes / 1024 / 1024;
   if (mb < 1024) return `${mb.toFixed(0)} MB`;
   return `${(mb / 1024).toFixed(1)} GB`;
+}
+
+/** 模型短名:去掉 ``org/`` 前缀只保留 repo 名,过长再截。
+ *  HF 模型 id 经常 30+ 字符(jinaai/jina-embeddings-v3 / google/siglip2-base-
+ *  patch16-224),原生 <select> 在 Chromium / WebView2 上会按最长 option 撑出宽度,
+ *  窄面板里超出视口。完整 id 还是 option value / title,只显示截短。 */
+function _shortModelLabel(id: string): string {
+  if (!id) return '';
+  const tail = id.includes('/') ? (id.split('/').pop() ?? id) : id;
+  // GGUF 量化后缀往往最长,优先去掉
+  const stripped = tail.replace(/-(GGUF|gguf|Q\d_[A-Z0-9_]+)$/, '');
+  return stripped.length > 32 ? stripped.slice(0, 30) + '…' : stripped;
 }
