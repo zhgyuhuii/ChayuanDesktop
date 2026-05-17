@@ -66,17 +66,49 @@ class HFClipEmbedder(BaseImageEmbedder):
         with self._lock:
             if self._model is not None:
                 return
+            import os as _os
             import torch
             from transformers import AutoModel, AutoProcessor  # type: ignore
+
+            # ⚠ 关键防御:默认 local_files_only=True —— 模型不在 cache 时直接报
+            # 清晰错误,引导用户去 模型广场 显式下载。
+            #
+            # 历史:from_pretrained 默认行为是缓存没命中就**静默拉 HuggingFace**,
+            # CLIP/SigLIP 单个 ~400MB,Jina-CLIP-v2 接近 1GB;用户上传第一张图就触
+            # 发后台下载,经常出现"图像向量服务不可达 + 后台自动下载某个模型 + 还
+            # 是失败"的诡异组合(下载没完 → 网络阻塞 → 用户看到 timeout)。
+            #
+            # 用户可通过 ``CHAYUAN_AUTO_DOWNLOAD_MODELS=1`` 显式打开旧行为。
+            allow_auto_dl = (
+                _os.environ.get("CHAYUAN_AUTO_DOWNLOAD_MODELS", "").strip().lower()
+                in ("1", "true", "yes")
+            )
+            local_only = not allow_auto_dl
+
             self._device = "cuda" if torch.cuda.is_available() else "cpu"
             dtype = torch.bfloat16 if self._device == "cuda" else torch.float32
-            self._processor = AutoProcessor.from_pretrained(
-                self.name, cache_dir=_cache_dir(), trust_remote_code=True,
-            )
-            self._model = AutoModel.from_pretrained(
-                self.name, cache_dir=_cache_dir(), trust_remote_code=True,
-                torch_dtype=dtype,
-            ).to(self._device).eval()
+            try:
+                self._processor = AutoProcessor.from_pretrained(
+                    self.name, cache_dir=_cache_dir(), trust_remote_code=True,
+                    local_files_only=local_only,
+                )
+                self._model = AutoModel.from_pretrained(
+                    self.name, cache_dir=_cache_dir(), trust_remote_code=True,
+                    torch_dtype=dtype,
+                    local_files_only=local_only,
+                ).to(self._device).eval()
+            except (OSError, ValueError) as e:
+                # HF 在 local_files_only=True 且 cache miss 时会抛 OSError;给出
+                # 一条用户能立刻执行的指南
+                if local_only:
+                    raise RuntimeError(
+                        f"图像向量模型 {self.name!r} 没在本地缓存。请到「设置 → "
+                        "AI 平台 → 图像嵌入」点击模型旁的「下载」,完成后重试;或在"
+                        " chayuan-server 环境设 ``CHAYUAN_AUTO_DOWNLOAD_MODELS=1``"
+                        " 打开静默自动下载(不建议,首次会拉 400MB-1GB 模型,"
+                        f"无进度反馈)。底层错误:{type(e).__name__}: {e}"
+                    ) from e
+                raise
             # 某些模型（JinaCLIP）projection_dim 才是真实输出维度
             if self.dim <= 0:
                 try:

@@ -72,6 +72,10 @@ def _resolve_text_embed_endpoint() -> Tuple[Optional[str], Optional[str], Option
 # ---- 主流程 ----
 
 _CLIP_ERR_HINTS: tuple[tuple[str, str], ...] = (
+    # 模型未缓存 — hf_clip.py 默认 local_files_only=True 时抛的友好错误
+    ("没在本地缓存",
+     "图像向量模型尚未下载。到「设置 → AI 平台 → 图像嵌入」点击模型旁"
+     "的「下载」按钮,完成后再次上传图片即可。"),
     # transformers 旧版没 AutoProcessor — 用户必装 transformers>=4.21 才有
     ("AutoProcessor",
      "图像向量化失败:当前 transformers 包没有 AutoProcessor。"
@@ -83,7 +87,7 @@ _CLIP_ERR_HINTS: tuple[tuple[str, str], ...] = (
      "本地模型服务 → 图像嵌入」配 device=cpu。"),
     # 网络下载模型
     ("HTTPSConnectionPool", "图像向量化失败:首次加载 CLIP 模型需要下载,网络不通。"
-     "先在 HF 上手动下载模型,或挂代理。"),
+     "先在「设置 → AI 平台 → 图像嵌入」预下载模型,或挂代理。"),
 )
 
 
