@@ -42,6 +42,21 @@ _WHISPER_STATE_MARKERS = (
     "UNINTELLIGIBLE", "silence",
     "空白音频", "无声", "噪声",
 )
+# whisper 在静音 / 低信噪比上还会 hallucinate **圆括号 sound effect token**
+# (跟方括号 marker 是独立的两类输出形态):
+#   中:  (笑)  (笑声)  (掌声)  (咳嗽)  (音乐)  (噪声)  (叹气)  (哭)  (哭声)
+#   日:  (笑い)  (笑い声)  (拍手)
+#   英:  (laughter)  (applause)  (coughing)  (music)  (noise)
+#         (silence)  (sigh)  (sneeze)  (crying)
+# 用户报"全是 (笑)" — 中文 base 模型在背景噪声 / 麦克风音量低时高频 hallucinate
+# 出 (笑);跟 [BLANK_AUDIO] 一样应判 artifact_only,空串返给前端,提示重录。
+# 同时覆盖**全角圆括号**`(笑)` — 部分 ffmpeg/whisper.cpp build 输出全角。
+_WHISPER_SOUND_EFFECTS = (
+    "笑", "笑声", "笑い", "笑い声", "拍手", "掌声", "咳嗽", "咳", "音乐",
+    "噪声", "叹气", "哭", "哭声", "喷嚏",
+    "laughter", "laugh", "applause", "coughing", "cough", "music", "noise",
+    "silence", "sigh", "sneeze", "crying",
+)
 # whisper.cpp src/whisper.cpp g_lang 表(主流 70+ 语言英文名,首字母大写形式)
 _WHISPER_LANGUAGE_NAMES = (
     "English", "Chinese", "Spanish", "French", "German", "Japanese", "Korean",
@@ -61,9 +76,19 @@ _WHISPER_LANGUAGE_NAMES = (
     "Faroese", "Luxembourgish", "Occitan", "Sanskrit", "Somali", "Amharic",
 )
 _WHISPER_ARTIFACT_PATTERN = _re.compile(
+    # 方括号 marker:[INAUDIBLE] / [BLANK_AUDIO] / [Spanish] 等
     r"\[\s*(?:"
     + "|".join(_WHISPER_STATE_MARKERS + _WHISPER_LANGUAGE_NAMES)
-    + r")\s*\]",
+    + r")\s*\]"
+    # 半角圆括号 sound effect:(笑) (laughter) (掌声) 等
+    + r"|\(\s*(?:"
+    + "|".join(_WHISPER_SOUND_EFFECTS)
+    + r")\s*\)"
+    # 全角圆括号 sound effect:（笑）（笑い）— whisper.cpp 偶尔输出全角
+    # 注意:**必须**括号包裹,裸"笑"字会误吞正常句子里的字
+    + r"|（\s*(?:"
+    + "|".join(_WHISPER_SOUND_EFFECTS)
+    + r")\s*）",
     flags=_re.IGNORECASE,
 )
 

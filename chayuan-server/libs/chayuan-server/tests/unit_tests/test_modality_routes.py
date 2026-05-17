@@ -162,6 +162,39 @@ def test_strip_whisper_artifacts():
     assert out == "" and only is False
 
 
+def test_strip_whisper_sound_effects():
+    """whisper 在静音/低信噪比上 hallucinate 出的圆括号 sound effect token —
+    (笑) / (笑声) / (laughter) / 全角（笑）等都要 strip,且不能误伤正常含'笑'字的句子。"""
+    from chayuan.server.modality.audio import _strip_whisper_artifacts as f
+    # 中文 sound effect:半角圆括号
+    for raw in ("(笑)", "(笑声)", "(掌声)", "(咳嗽)", "(音乐)", "(噪声)"):
+        text, only = f(raw)
+        assert (text, only) == ("", True), f"中文半角 {raw!r} 应判 artifact_only"
+    # 全角圆括号
+    for raw in ("（笑）", "（笑声）", "（笑い）"):
+        text, only = f(raw)
+        assert (text, only) == ("", True), f"全角 {raw!r} 应判 artifact_only"
+    # 英文 sound effect
+    for raw in ("(laughter)", "(applause)", "(music)", "(coughing)"):
+        text, only = f(raw)
+        assert (text, only) == ("", True), f"英文 {raw!r} 应判 artifact_only"
+    # 大小写 + 空格
+    text, only = f("( Laughter )")
+    assert (text, only) == ("", True)
+    # 连续多个 sound effect
+    text, only = f("(笑) (笑) (笑)")
+    assert (text, only) == ("", True)
+    # **关键**:不能误吞正常文本里的"笑"字 — 必须括号包裹才剥
+    text, only = f("他在大笑")
+    assert (text, only) == ("他在大笑", False)
+    text, only = f("我笑了好久")
+    assert (text, only) == ("我笑了好久", False)
+    # 嵌入式 sound effect:strip 完留正文,非 artifact_only
+    text, only = f("你好 (笑) 世界")
+    assert "你好" in text and "世界" in text
+    assert only is False
+
+
 def test_strip_whisper_hallucination_repetition():
     """whisper 静音 hallucination:同一子串重复 ≥3 次 → artifact_only=True 返空。"""
     from chayuan.server.modality.audio import _strip_whisper_artifacts, _is_whisper_hallucination_repetition

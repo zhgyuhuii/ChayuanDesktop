@@ -29,17 +29,34 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
   // 检查这条用户消息是不是 ChatComposer 录音发送过来的 — 用 content 匹配
   // voiceAttachments 队列;命中拿 Blob 给 <audio> 播。Blob → Object URL 后
   // 必须在卸载时 revoke 防内存泄漏。
+  //
+  // ⚠ React StrictMode 坑:dev 模式下 useEffect 会执行 mount → cleanup → mount,
+  //   原写法把 createObjectURL + revokeObjectURL 都放 effect 里,导致第一次 mount 后
+  //   立刻被 cleanup revoke,audio src 失效 → 用户报"录音发了但播不出"。
+  //   修法:用 ref 跨 strict-mode 双跑去重 + 真正 unmount 时再 revoke。
+  const consumedRef = React.useRef<string | null>(null);  // message.id we've already consumed
+  const audioUrlRef = React.useRef<string | null>(null);
   const [audioUrl, setAudioUrl] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!isUser) return;
+    if (consumedRef.current === message.id) return;  // strict-mode 第二次 mount,跳过
     const blob = consumeVoiceAttachment(message.content);
-    if (!blob) return;
+    if (!blob) {
+      consumedRef.current = message.id;  // 标记已 consume(即使没拿到,避免重复 query)
+      return;
+    }
     const url = URL.createObjectURL(blob);
+    consumedRef.current = message.id;
+    audioUrlRef.current = url;
     setAudioUrl(url);
-    return () => {
-      URL.revokeObjectURL(url);
-    };
+    // 真正 unmount 时 revoke — 不绑 message.content / id 变化(strict-mode 不会误 revoke)
   }, [message.id, isUser, message.content]);
+  React.useEffect(() => () => {
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+  }, []);
 
   const onCopy = async () => {
     await getPlatform().clipboard.writeText(message.content);
