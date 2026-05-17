@@ -466,6 +466,34 @@ export const KbBoard: React.FC = () => {
     askCtrlRef.current?.abort();
   }, []);
 
+  /**
+   * 顶部搜索框 Enter / 点"搜内容"按钮 → 用关键词在所有可见 KB 里跑内容检索。
+   *
+   * 之前 keyword 只做"按 KB 名/描述本地过滤",用户反馈"无法命中库内容";
+   * 这里把 keyword 同时当成跨 KB 检索 query —— 用 `items`(已应用 kind / 归属 /
+   * 关键词过滤后的可见列表)的 ku_ids 作为检索范围,空时退回全量 list.data。
+   * 检索结果走现成的 KbAskResultPanel,跟"选 KB → composer 提问"路径一致,UI 不
+   * 再多一套。返回首页:KbAskResultPanel 自带返回按钮(setChatStarted(false))。
+   */
+  const onSubmitContentSearch = React.useCallback(() => {
+    const q = keyword.trim();
+    if (!q) return;
+    if (askStreaming) return;  // 上次检索还在跑,避免重复触发
+    const visibleIds = items.map((k) => k.ku_id);
+    const fallbackIds = (list.data ?? []).map((k) => k.ku_id);
+    const ids = visibleIds.length > 0 ? visibleIds : fallbackIds;
+    if (ids.length === 0) {
+      notifyInfo('还没有可检索的知识库');
+      return;
+    }
+    setAskQuery(q);
+    setAskResult(null);
+    setAskKuIds(ids);
+    setChatStarted(true);
+    setPickerOpen(false);
+    void startAskStream(q, ids);
+  }, [keyword, askStreaming, items, list.data, startAskStream]);
+
   /** 用 selectedKuIds 的 kind 决定走哪条发送链:
    *  - 全是 document → 走原 chat(/chat/v2/chat 已有 KB 模式)
    *  - 含任何非 document → 走 universe.ask 跨类型聚合 */
@@ -565,6 +593,8 @@ export const KbBoard: React.FC = () => {
               onSort={setSort}
               keyword={keyword}
               onKeyword={setKeyword}
+              onSubmitKeyword={onSubmitContentSearch}
+              contentSearchBusy={askStreaming}
               onSearchByImage={onSearchByImageAcrossKbs}
               imageSearchBusy={kbImgSearch.state.busy}
               imageSearchActive={kbImgSearch.state.active}
@@ -919,13 +949,17 @@ const FilterBar: React.FC<{
   onSort(s: KbSort): void;
   keyword: string;
   onKeyword(s: string): void;
+  /** 提交搜索(Enter / 点搜索按钮)→ 跨所有可见 KB 走内容检索 */
+  onSubmitKeyword?(): void;
+  /** 内容检索进行中(askStream 流式)— 控制搜索按钮的 spinner */
+  contentSearchBusy?: boolean;
   /** 触发以图搜库 */
   onSearchByImage?(): void;
   /** 以图搜库进行中(显示 spinner 替代 icon) */
   imageSearchBusy?: boolean;
   /** 以图搜库激活态(高亮按钮) */
   imageSearchActive?: boolean;
-}> = ({ filter, onFilter, sort, onSort, keyword, onKeyword, onSearchByImage, imageSearchBusy, imageSearchActive }) => {
+}> = ({ filter, onFilter, sort, onSort, keyword, onKeyword, onSubmitKeyword, contentSearchBusy, onSearchByImage, imageSearchBusy, imageSearchActive }) => {
   const { t } = useTranslation();
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -950,14 +984,33 @@ const FilterBar: React.FC<{
         })}
       </div>
       <div className="flex items-center gap-2">
-        <div className="relative w-48">
+        <div className="relative w-64">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--cy-text-tertiary)]" />
           <input
             value={keyword}
-            placeholder={t('common.search')}
+            placeholder="搜知识库名 / 回车搜库内容"
             onChange={(e) => onKeyword(e.target.value)}
-            className="h-8 w-full rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] pl-8 pr-3 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && onSubmitKeyword) {
+                e.preventDefault();
+                onSubmitKeyword();
+              }
+            }}
+            title="输入关键词:边输边过滤知识库卡片;按 Enter 在所有可见知识库中检索内容"
+            className="h-8 w-full rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] pl-8 pr-12 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none"
           />
+          {onSubmitKeyword && (
+            <button
+              type="button"
+              onClick={() => onSubmitKeyword()}
+              disabled={!keyword.trim() || contentSearchBusy}
+              title="在所有可见知识库中检索内容(等同 Enter)"
+              className="absolute right-1 top-1/2 inline-flex h-6 -translate-y-1/2 items-center gap-1 rounded-full bg-[var(--cy-brand-500)] px-2 text-[10px] font-medium text-white shadow-sm transition-opacity hover:bg-[var(--cy-brand-600)] disabled:opacity-40"
+            >
+              {contentSearchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+              <span>搜内容</span>
+            </button>
+          )}
         </div>
         {onSearchByImage && (
           <button
