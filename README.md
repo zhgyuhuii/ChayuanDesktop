@@ -45,7 +45,9 @@
 - [二、品牌标识保留要求](#二品牌标识保留要求)
 - [三、与 chayuan-wps WPS 加载项的关系](#三与-chayuan-wps-wps-加载项的关系)
 - [四、产品概述与系统架构](#四产品概述与系统架构)
+  - [4.4 用户画像与典型场景](#44-用户画像与典型场景) ⭐ 多视角导读
 - [五、核心特性](#五核心特性)
+  - [5.7 图转文](#57-图转文image-to-text) · [5.8 音转文](#58-音转文audio-to-text) · [5.9 安装与首启动行为](#59-安装与首启动行为)
 - [六、支持的操作系统](#六支持的操作系统)
 - [七、与豆包 / Cherry Studio 等的 60+ 项细致对比](#七与豆包--cherry-studio-等的-60-项细致对比)
 - [八、详细功能清单](#八详细功能清单)
@@ -237,6 +239,76 @@
    注入数据路径
 4. 前端 SidecarGate 轮询 `/healthz`,后端就绪后渲染主界面
 5. 首次启动用户自选 "数据目录"(默认平台标准目录),后续启动直接复用
+6. **卸载重装会重新弹首启向导** —— 通过 exe 路径 + 修改时间 hash 出 install_id,
+   绑定到 `desktop.json`;MSI 卸载会清掉 install dir,重装后 mtime 变 → install_id 变 →
+   跳不过向导,确保新装实例不会"幽灵复用"老数据目录
+
+### 4.4 用户画像与典型场景
+
+> README 这一节专为不同身份的读者提供 "**这东西能给我做什么**" 的视角索引。
+> 同样一个功能,从安全官 / 法务 / 开发者 / 工科学生 / 政企文员 视角看到的重点完全不同。
+
+#### 4.4.1 政企单位文员 / 涉密单位作者
+
+**痛点**:文档涉敏感数据,密钥与原文**不允许出域**;Windows 上还要面对火绒 / 360 / 腾讯管家的拦截。
+
+| 关注点 | 察元 AI 的对应能力 |
+|---|---|
+| 全程本地 | 嵌入式 Python sidecar、嵌入式 ONNX 嵌入模型、嵌入式 OCR、嵌入式 sqlite-vec,**装机即用、无网络出口** |
+| 杀软兼容 | Windows 安装包 MSI + 外置 CAB(`EmbedCab="no"`)+ ISO 单文件分发,绕开杀软对 `C:\Windows\Installer\` 的拦截 |
+| 中文文档 | RapidOCR-ONNX 默认带 PaddleOCR 转 ONNX 的 PP-OCRv4 中文权重 |
+| 国产 OS | 麒麟 V10 / UOS / openKylin / deepin,x86_64 + aarch64 + 龙芯三种架构发版 |
+| 与 WPS 协作 | 同机装 chayuan-wps 加载项,WPS 内编辑公文/合同/标书时**同一份知识库一键复用** |
+
+**典型场景**:把单位过去三年的合同 / 标书 / 公文整成一个本地 KB,
+WPS 内写新文件时让察元 AI 引用最相关的几段历史措辞,**所有数据在本机硬盘,从未离开**。
+
+#### 4.4.2 个人知识库爱好者 / 研究生 / 自由职业
+
+**痛点**:Notion / Obsidian 各家工具的搜索能力局限,跨格式跨语言效果一般;想自己跑 Llama / Qwen 但工具链门槛高。
+
+| 关注点 | 察元 AI 的对应能力 |
+|---|---|
+| 文档格式覆盖广 | PDF / Word / Excel / PPT / MD / HTML / 图像 / 邮件 / 电子书一齐通吃 |
+| 跨工具知识联邦 | 同一个查询同时打文档库 + Mongo 笔记 + Notion + GitHub Issues + arXiv |
+| 本地 LLM 一键对接 | 你装好 Ollama / LM Studio,模型广场添加后**自动拉模型清单** |
+| 模型对抗 | 同时跑 Qwen / DeepSeek / Llama 看哪家答得最准,横向对比 |
+| 多语种嵌入 | bge-m3 默认 1024 维,中英德法日韩多语单 KB 检索效果都稳 |
+
+**典型场景**:把 Anki 整年读过的论文 + 个人 Obsidian 笔记 + 关注的 arXiv RSS 全做成 KB,
+模型对抗 "qwen2.5:14b vs deepseek-r1 vs llama3.3" 三家同时回答 "这个领域 2025 年最重要的三篇论文是什么?"。
+
+#### 4.4.3 开发者 / 二开商 / OEM 合作伙伴
+
+**痛点**:想做一个"自己的 AI 产品",但从 0 到 1 搭后端、做 RAG、对接十几家模型平台、过国产化适配,投入太大。
+
+| 关注点 | 察元 AI 的对应能力 |
+|---|---|
+| OpenAI 兼容 | `/openai/v1/chat/completions`,任何 OpenAI SDK 把 base_url 改一下就连本机 |
+| OpenAPI 鉴权 | HMAC 签名 + 应用 ID + 权限策略,给二开应用做"自带后端" |
+| MCP 双角色 | 既是 MCP 客户端(接外部工具),也是 MCP 服务端(把自己当工具暴露给 Cursor / Claude Desktop) |
+| 30+ 内置工具 | 文档/SQL/图像生成/搜索/钉钉飞书/Office,可以直接复用 |
+| 全栈源码 | AGPL-3.0,审计无死角;商业授权可通过商务渠道获取 OEM 白标 |
+| 三平台 CI | GitHub Actions 5-runner 矩阵开箱即用 |
+
+**典型场景**:基于察元做一个"金融行业问答机器人"。直接复用模型网关、KB 检索、SQL 查询、HMAC 鉴权;
+你的代码只关心"行业知识"(prompt 模板 + 行业数据源 + 行业工具)。**从 0 到 1 砍掉 80% 工作量**。
+
+#### 4.4.4 法务 / 合规 / 安全官
+
+**痛点**:AI 工具引入企业后,数据流向、审计、PII 风险、模型行为合规性都得有解释。
+
+| 关注点 | 察元 AI 的对应能力 |
+|---|---|
+| 数据驻留 | 用户首启动选定的目录(本机 / 内网共享盘),**0 出网默认**;遥测显式 opt-in |
+| 凭据加密 | Tauri Stronghold,**ChaCha20-Poly1305 + Argon2id**,模型 Key 永不进日志 |
+| 审计 | `governance/` 模块的 audit / quota / PII redact / lineage 四件套 |
+| 只读 SQL | text2sql 强制只读 AST 校验,白名单表/列,LLM 不可能"误删数据" |
+| 开源许可 | AGPL-3.0 全栈源码可审计,二次开发的修改在 SaaS 场景下也得开源 |
+| 离线运行 | 本地 LLM(Ollama 等)+ 本地嵌入(bge-m3)+ 本地 OCR(RapidOCR)= 完全无外部依赖 |
+
+**典型场景**:为单位上线 AI 助手前,法务要求"列出本软件所有外部网络出口"。
+答:本地全装时**为 0**;配云端 LLM 时**仅模型 API 域名**;审计日志默认本地文件,可对接 SIEM。
 
 ---
 
@@ -297,6 +369,58 @@
 ### 5.6 本地 OS 适配 + 国产化
 
 详见 [六、支持的操作系统](#六支持的操作系统)。
+
+### 5.7 图转文(Image-to-Text)
+
+> 一键 OCR 提取文字 → TipTap 富文本编辑器 → 多格式导出。专为需要"扫描件转可编辑文档"
+> 的政企作者、学生、研究者设计。
+
+- **支持格式**:`.jpg / .png / .webp / .bmp / .tiff` 多图批量
+- **OCR 引擎**:RapidOCR-ONNX(默认,纯 CPU,~70 MB,中文 PaddleOCR 转 ONNX),
+  独立 Python daemon 起在 18380 端口
+- **富文本编辑**:TipTap 框架(StarterKit + Image + Link + Placeholder),
+  保留 OCR 段落结构,可校对编辑
+- **多格式导出**:Word(`.docx`) / Markdown / 纯文本三选一
+- **批量串行**:多张图按上传顺序串行 OCR,避免并发冲击 sidecar
+- **进度透明**:每张图独立状态条 + OCR 命中字符数实时回写
+- **入口**:主页 → 图转文
+
+**典型场景**:把会议白板拍照、扫描合同、PDF 截图等"非可选中文本"的图像,
+一键 OCR + 直接在编辑器里改正错字 + 导成 Word 交付。
+
+### 5.8 音转文(Audio-to-Text)
+
+> 上传录音 → ASR 识别 → 自动分人(A/B/C 三色标签)→ 富文本编辑 → 导出。
+
+- **支持格式**:`.mp3 / .wav / .m4a / .flac / .ogg / .opus` 主流音频格式
+- **ASR 引擎**:**FunASR**(默认,阿里 paraformer-zh,中文识别强)+ **CAM++ 说话人分离**;
+  若 FunASR 不可用自动回退到 **whisper.cpp**(sidecar 18380)/ **faster-whisper**
+- **说话人分离**:CAM++ 嵌入 + 聚类,自动识别多人对话,标 "A / B / C" 三色
+- **语言跟随系统**:从 `useSettingsStore.locale` 拉,zh-CN 自动走简体中文 + zhconv 繁→简
+- **段落级编辑**:每个说话人段落独立可编辑,改完导出
+- **多格式导出**:Word / Markdown / TXT
+- **入口**:主页 → 音转文
+
+**典型场景**:会议录音 / 课程录音 / 访谈录音转写,**完全离线**,涉敏感话题也不出域。
+
+### 5.9 安装与首启动行为
+
+针对 "装一次后想换数据目录" / "卸载重装" / "迁移到新机" 三类场景的明确行为契约:
+
+| 场景 | 数据目录 | 用户配置 (`desktop.json`) | 数据本身 | 行为 |
+|---|---|---|---|---|
+| **第一次安装** | 不存在 | 不存在 | 不存在 | 首启动弹向导,用户选目录,默认建议 `%APPDATA%\chayuan`(Win)/ `~/Library/Application Support/chayuan`(macOS)/ `~/.local/share/chayuan`(Linux) |
+| **同一份安装再次启动** | 已选 | 已写入 + `linked_install_id` 匹配当前 exe | 完整 | **直接进主界面**,不再弹向导 |
+| **在 Settings 切换数据目录** | 用户在 Settings → 数据目录 → 切换 | 重写并绑定当前 install_id | 旧目录数据**保留不删**,新目录从空开始 / 沿用预存 | 仅重启 sidecar 切到新 `CHAYUAN_ROOT` |
+| **卸载后再装(同电脑)** | 数据**保留**在用户目录 | desktop.json 也保留(MSI 不清用户目录) | 完整 | **新装 exe 的 mtime 变 → install_id 变 → 跟旧 desktop.json 对不上 → 重新弹向导**,用户可选"沿用现有数据"或换新目录 |
+| **从老机迁移到新机** | 用户手动拷数据目录到新机 | 不存在(新机干净) | 完整 | 首启弹向导,选"指向"那个迁过来的目录,向导自动识别 `data_dir_marker` 显示"沿用现有数据" |
+
+**关键不变式**:数据本身**永远不被卸载 / 重装动作影响**;只有"指向哪个目录"这件事会在重装时要求用户重新确认。
+这是有意设计的:防止用户因为某次重装就"丢"了过去的对话历史和 KB,但又确保新装时不静默地"幽灵复用"老路径。
+
+---
+
+
 
 ---
 
@@ -878,23 +1002,26 @@ python -m chayuan_packaging stage  --target linux --arch x86_64 --release standa
 >
 > **Windows installer 两道独立的 2 GB 限制**:
 > 1. **单文件 < 2 GB** — NSIS makensis 32-bit mmap;WiX 3 light.exe LGHT0263
->    硬编码 INT32_MAX。`build.py --sync-bundled-only` 已加 size-guard 在 sync
->    阶段就 abort。
-> 2. **NSIS 总 payload 压缩后 < 2 GB** — 仅 NSIS 限制,32-bit makensis 的 LZMA
->    solid 累积 offset 寻址溢出会报 *"Internal compiler error #12345 error
->    mmapping file ... out of range"*。集成版 vendor 嵌 emb+rerank+chat+asr
->    总 ~3.2 GB 就会撞这道墙。
+>    硬编码 INT32_MAX。
+> 2. **NSIS 总 payload 压缩后 < 2 GB** — 仅 NSIS 限制,LZMA solid 32-bit 寻址。
+>    LITE_CAPS (~990 MB) + sidecar (~500 MB) + services 总 raw ~1.5 GB 就会撞。
 >
-> 解法:**集成版改走 WiX MSI**(总大小可到 4 GB+,通过 CAB 分卷处理),轻量版
-> vendor 为空总尺寸远低于 2 GB 维持 NSIS 保住 `installer.nsh` 的"察元AI"中文
-> 图标 rename。Windows 集成版用户拿到 `.msi`,装机后桌面图标是英文 "Chayuan"
-> (NSIS 的中文 rename 不会对 MSI 触发);需要时用 WiX 自定义动作另写一遍。
+> **2026-05-18 起 Windows 一律走 WiX MSI**(lite 也切了,不再用 NSIS),
+> 单文件 ≥ 2 GB 的大模型(如 bge-m3 的 .bin / .onnx_data ~2 GB+)
+> 由 `sync_bundled_models` 按 2 GB 阈值分流:小文件嵌 MSI,大文件落
+> `chayuan-server/dist/models_seed/`,通过 ISO **旁挂**(不进 MSI)给用户。
 >
-> **集成版 MSI 用"外置 CAB"** (`EmbedCab="no"`):CAB 不嵌进 .msi,作为独立
-> `app1.cab/app2.cab/...` 落在 .msi 旁边。.msi 本体 ~50 MB,绕开国产杀软
-> (火绒 / 360 / 腾讯管家) 对 `C:\Windows\Installer\` 的拦截 (Error 1310 /
-> 110 / 2755 / 1603 系列)。**分发必须把 dist-integrated/ 下 .msi + 所有
-> .cab 一起打 zip**,只给 .msi 装到一半 Error 1311/1335 找 cab。
+> **ISO 单文件分发**:
+> - `.msi + .cab + models_seed/` 打成 `chayuan-desktop_{lite,full}_setup.iso`
+>   (Windows 10+ 双击 ISO 自动挂载成 `CHAYUAN_{LITE,FULL}` 虚拟光驱)
+> - 用户进光驱目录双击 MSI 即装,MSI 在光驱根能找到外置 CAB(`EmbedCab="no"` 绕国产杀软)
+> - 装包后**保持光驱挂载** —— chayuan-server 首次启动会扫挂载光驱的 `models_seed/`,
+>   把 ≥ 2 GB 大文件种到 `<CHAYUAN_ROOT>/models/bundled/`;复制完成才能正常对话
+> - 若用户提前弹了光驱,UI 显示 "external_pending,请重挂 ISO 后重启",用户重挂 + 重启即可
+>
+> **冗余权重剪枝**:同 model 目录已有 `.gguf` / `.safetensors` 时,
+> `.bin` / `.onnx_data` / `.pt` / `.pth` 自动跳过(老版 install 或手动 HF snapshot 残留,装机不需要),
+> 省 ISO 体积。
 >
 > 一键换装瘦身默认集:`.\scripts\install-bundled-models.ps1 -Source modelscope -Clean`
 > 或 `python scripts/install-bundled-models.py --source modelscope --clean` — chat /
@@ -1079,6 +1206,13 @@ pnpm typecheck
 | Phase 5.x | ✅ | SqliteVecKBService 适配器 |
 | Phase 6 | ✅ | 三平台 CI YAML(5-runner 矩阵) |
 | Phase 7 | ✅ | 单机 UX 收尾(隐藏登录 / 切换数据目录向导) |
+| Phase 7.5 | ✅ | **图转文 / 音转文** 一键 OCR / ASR → 富文本编辑 → 多格式导出 |
+| Phase 7.6 | ✅ | **图像 KB** + CLIP 跨模态搜索(以文字 / 以图搜图) |
+| Phase 7.7 | ✅ | **统一 KB 查询路径** `kb_query/orchestrator/adapters/results` 分层 |
+| Phase 7.8 | ✅ | **Windows ISO 单文件分发** + 大模型旁挂 + 首启自动种子 |
+| Phase 7.9 | ✅ | **install_id 检测**:卸载重装自动弹首启向导,不再幽灵复用老路径 |
+| Phase 7.10 | ✅ | bare `confirm()` 全仓 sweep → `platform.dialog.confirm` wrapper,修 Tauri 2 ACL 不稳 |
+| Phase 7.11 | ✅ | offline torch wheel rglob 修 — 装机后 PyTorch 离线安装链路真正可用 |
 | **Phase 8** | ⏳ | **服务端即真源 + SSE 多播架构**(让 chayuan-wps 与桌面客户端共享同一份对话流) |
 | Phase 5.y | ⏳ | Redis → cachetools 缓存层 |
 | Phase 5.z | ⏳ | Celery → asyncio.Queue 队列层 |
@@ -1178,8 +1312,36 @@ A: 可以。桌面单机版的 Linux 产物提供 `.deb` / `.rpm` / `.AppImage`,
 A: 可以,首启动向导支持自选路径。注意硬盘掉线时后端 sidecar 会报数据库读写错误,需要手动停应用重选路径。
 
 **Q10: 升级时数据会丢吗?**
-A: 卸载安装包**不会动 `CHAYUAN_ROOT` 真实数据目录**;NSIS 卸载脚本只清掉 `%APPDATA%\chayuan\` 下的
-"指针文件"(记录上次选的数据目录路径),让您下次装可以重选。真实数据(对话 / KB 索引)永远保留。
+A: **绝不丢真实数据**(对话 SQLite / KB 向量索引 / 上传文件)。MSI 卸载只清 `Program Files\Chayuan\` 装机目录,
+您的 `CHAYUAN_ROOT`(用户家目录里的真实数据)永远保留。重装后通过 install_id 检测会
+弹一次向导让您"重新确认数据目录指向",向导识别旧目录的 `data_dir_marker` 显示"沿用现有数据"。
+确认后所有历史数据立即可用。
+
+**Q11: 为什么我重装后还是要选数据目录?**
+A: **有意设计**。重装时 exe 修改时间变了 → install_id 变 → 跟旧 `desktop.json` 里的 `linked_install_id`
+对不上 → 重新走向导。这是为了:(1) 避免"幽灵复用"老路径让用户以为是新装;(2) 让用户有机会决定
+"用回老数据" vs "全新开始"。**不会丢数据**,向导识别老目录会提示沿用。
+
+**Q12: 安装包 ISO 是干啥的?为什么不直接给 MSI?**
+A: WiX 模板写死 `EmbedCab="no"`(绕国产杀软对 `C:\Windows\Installer\` 的拦截),所以 MSI 必须跟外置 CAB
+(`app1.cab/app2.cab/...`)一起分发,只发 MSI 装到一半会报 Error 1311/1335 找不到文件。
+ISO 把 `.msi + .cab + models_seed/`(集成版的大模型)打成单文件,Win10+ 双击自动挂载,体验干净。
+
+**Q13: 集成版装包后第一次启动很慢,是不是卡了?**
+A: **不是卡**。集成版 first_launch 钩子会从挂载光驱的 `models_seed/` 把 ≥ 2 GB 大模型
+(如 bge-m3 PyTorch 权重)拷到您的 `<CHAYUAN_ROOT>/models/bundled/`,~2-5 分钟正常,SSD 更快。
+**请保持光驱挂载到这一步完成**。如果不小心提前弹了光驱,UI 会显示
+"external_pending,请重挂 ISO 后重启 chayuan-server",重挂 + 重启即可恢复。
+
+**Q14: 我的电脑装了火绒 / 360 / 腾讯管家,装得上吗?**
+A: 装得上。Windows 安装包用 MSI + 外置 CAB(`EmbedCab="no"`),CAB 不被拷到 `C:\Windows\Installer\`,
+避开杀软的拦截高发区。装机后 chayuan-server.exe 用 EV 代码签名(规划中);
+sidecar 首次启动可能被杀软"主动防御"沙箱跑一遍,延迟十几秒,verify 链路给到 30s 容忍,不会误报。
+
+**Q15: 删除知识库 / 历史会话报 "Command plugin:dialog|confirm not allowed by ACL" 怎么办?**
+A: 这是 Tauri 2 webview 把 `window.confirm()` 重定向到 plugin-dialog 的 ACL 边界问题。
+v0.x.x 起所有破坏性 confirm 都改走 `platform.dialog.confirm` 包装层(内部用 `plugin-dialog.ask`,
+ACL 稳定授权)。如果您还撞到这条,说明装的是旧版,升级最新即可。
 
 ---
 
