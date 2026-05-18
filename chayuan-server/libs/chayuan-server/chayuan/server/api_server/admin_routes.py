@@ -1163,6 +1163,133 @@ def admin_models_install_release_cancel(job_id: str) -> Dict[str, Any]:
     return {"code": 0, "msg": "ok", "data": job.to_dict()}
 
 
+# ── 按 model_id 单个模型下载(本地模型服务行内"下载模型"入口) ────────
+# 跟 install_release(下整包)对应,这里是给用户的"我在 modelscope 看到一个
+# 模型想装到本地"的入口。详见 install_model.py 模块 docstring。
+
+
+@admin_router.post(
+    "/models/install_model",
+    summary="[gate] 按 model_id 下载单个模型到 bundled/<cap>/",
+    tags=["Admin / Models"],
+)
+def admin_models_install_model(
+    payload: Dict[str, Any] = Body(
+        ...,
+        description=(
+            '{"source": "modelscope|huggingface", "model_id": "owner/name", '
+            '"capability": "chat|embedding|rerank|asr|image-embedding|...", '
+            '"specific_file": "Qwen3-4B-Q4_K_M.gguf"(可选,GGUF 多 quant 仓挑一个)}'
+        ),
+    ),
+) -> Dict[str, Any]:
+    """启动后台线程跑 modelscope/huggingface SDK 下载到 ``<CHAYUAN_ROOT>/models/bundled/<cap>/``。
+
+    完成后:
+      1. ``scan_once`` 自动识别新模型
+      2. 对应 cap 的本地 runtime 如果还没起,自动 ``start_capability`` 触发
+      3. 前端轮询 ``GET /admin/models/install_model/{job_id}`` 看进度
+    """
+    from chayuan.server.model_registry.install_model import get_install_model_manager
+
+    source = str(payload.get("source") or "modelscope").strip()
+    model_id = str(payload.get("model_id") or "").strip()
+    capability = str(payload.get("capability") or "").strip()
+    specific_file = payload.get("specific_file")
+    specific_file = str(specific_file).strip() if specific_file else None
+
+    try:
+        job = get_install_model_manager().start(
+            source=source,
+            model_id=model_id,
+            capability=capability,
+            specific_file=specific_file,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"code": 0, "msg": "ok", "data": job.to_dict()}
+
+
+@admin_router.get(
+    "/models/install_model/{job_id}",
+    summary="[gate] 查询 install_model 任务状态",
+    tags=["Admin / Models"],
+)
+def admin_models_install_model_status(job_id: str) -> Dict[str, Any]:
+    from chayuan.server.model_registry.install_model import get_install_model_manager
+
+    job = get_install_model_manager().get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"unknown job_id {job_id!r}")
+    return {"code": 0, "msg": "ok", "data": job.to_dict()}
+
+
+@admin_router.post(
+    "/models/install_model/{job_id}/cancel",
+    summary="[gate] 取消 install_model 任务",
+    tags=["Admin / Models"],
+)
+def admin_models_install_model_cancel(job_id: str) -> Dict[str, Any]:
+    from chayuan.server.model_registry.install_model import get_install_model_manager
+
+    try:
+        job = get_install_model_manager().cancel(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown job_id {job_id!r}")
+    return {"code": 0, "msg": "ok", "data": job.to_dict()}
+
+
+@admin_router.post(
+    "/models/scan_and_mount",
+    summary="手动放好模型文件后:扫描 + 自动启动新发现的 cap",
+    tags=["Admin / Models"],
+)
+def admin_models_scan_and_mount() -> Dict[str, Any]:
+    """给"我已经把模型文件放到 bundled/<cap>/ 了"这条手动路径用。
+
+    步骤:
+      1. ``scan_once`` 扫整个 models/ 目录,新文件入 local_index
+      2. 找出"现在有 local candidate 但 runtime 未 ready"的 cap,逐个 trigger
+         ``trigger_auto_start_for_cap`` 起 sidecar
+
+    返回 ``{"scan_delta": {...}, "auto_started": [cap, ...]}`` — 让前端知道
+    哪些新模型被发现 + 哪些 cap 被启动了,UI 可以据此刷新状态徽章。
+    """
+    from chayuan.server.model_registry.local_index import scan_once, get_local_index
+    from chayuan.server.model_registry.install_model import trigger_auto_start_for_cap
+
+    delta = scan_once()
+
+    # 统计扫到了哪些 cap 的本地候选 — 这些 cap 都尝试自动启动
+    # (trigger_auto_start_for_cap 内部会判断 cap 是否已 ready/不在支持范围)
+    idx = get_local_index()
+    caps_with_local = {e.capability for e in idx.list_entries()}
+    auto_started: list[str] = []
+    for cap in caps_with_local:
+        if trigger_auto_start_for_cap(cap):
+            auto_started.append(cap)
+
+    # bundled 路径提示 — 让前端 Dialog 能直接展示给用户"模型放到这里"
+    from chayuan.settings import CHAYUAN_ROOT
+    bundled_root = str((__import__("pathlib").Path(CHAYUAN_ROOT) / "models" / "bundled"))
+
+    return {
+        "code": 0,
+        "msg": "ok",
+        "data": {
+            "scan_delta": {
+                "added":   len(delta.added),
+                "updated": len(delta.updated),
+                "removed": len(delta.removed),
+            },
+            "auto_started": auto_started,
+            "bundled_root": bundled_root,
+        },
+    }
+
+
 # ── 用户手册下载 ──────────────────────────────────────────────────
 
 

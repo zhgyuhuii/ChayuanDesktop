@@ -16,7 +16,15 @@
  * 此分组只暴露"启停 + 选模型 + 诊断"三个高频动作。
  */
 import * as React from 'react';
-import { ClipboardList, FileBarChart2, Play, RefreshCw, RotateCw, Square } from 'lucide-react';
+import {
+  ClipboardList,
+  CloudDownload,
+  FileBarChart2,
+  Play,
+  RefreshCw,
+  RotateCw,
+  Square,
+} from 'lucide-react';
 import {
   type AutoStartDict,
   type AutoStartKey,
@@ -34,6 +42,7 @@ import { Button, Switch } from '@chayuan/ui';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
 import { CallLogDialog } from './CallLogDialog';
 import { DiagnoseModal } from './DiagnoseModal';
+import { InstallModelDialog } from './InstallModelDialog';
 import { LocalRuntimeStatusBadge } from './LocalRuntimeStatusBadge';
 
 const CAPABILITIES: LocalRuntimeCapability[] = [
@@ -121,6 +130,8 @@ export const LocalRuntimeServicesSection: React.FC = () => {
   const [chosen, setChosen] = React.useState<Partial<Record<LocalRuntimeCapability, string>>>({});
   const [diagnoseOpen, setDiagnoseOpen] = React.useState(false);
   const [callLogOpen, setCallLogOpen] = React.useState(false);
+  // 「下载模型」入口 — null 表示关闭;非 null 表示当前哪个 cap 在弹 Dialog
+  const [installFor, setInstallFor] = React.useState<LocalRuntimeCapability | null>(null);
 
   // 5 个 capability + rapidocr 的 auto-start 开关字典 — 拉一次,Switch 切换写回。
   // 后端默认 5 cap 全 false / rapidocr true(见 auto_start_store._DEFAULTS),
@@ -326,6 +337,7 @@ export const LocalRuntimeServicesSection: React.FC = () => {
               }}
               onToggleAutoStart={(enabled) => void toggleAutoStart(cap, enabled)}
               onOpenDiagnose={() => setDiagnoseOpen(true)}
+              onOpenInstall={() => setInstallFor(cap)}
             />
           );
         })}
@@ -340,6 +352,17 @@ export const LocalRuntimeServicesSection: React.FC = () => {
         <PytorchRow />
       </div>
 
+      {installFor && (
+        <InstallModelDialog
+          open
+          onOpenChange={(o) => { if (!o) setInstallFor(null); }}
+          capability={installFor}
+          onSuccess={() => {
+            // 下载完成 / 扫描挂载完成 → 重拉模型下拉,让用户立刻看到新模型
+            void reloadModels();
+          }}
+        />
+      )}
       <DiagnoseModal open={diagnoseOpen} onOpenChange={setDiagnoseOpen} />
       <CallLogDialog open={callLogOpen} onOpenChange={setCallLogOpen} />
     </section>
@@ -363,6 +386,8 @@ interface CapabilityRowProps {
   onRestart(): void;
   onToggleAutoStart(enabled: boolean): void;
   onOpenDiagnose(): void;
+  /** 点行内「下载模型」按钮 → 父组件打开 InstallModelDialog,预选当前 cap。 */
+  onOpenInstall(): void;
 }
 
 const CapabilityRow: React.FC<CapabilityRowProps> = ({
@@ -381,6 +406,7 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
   onRestart,
   onToggleAutoStart,
   onOpenDiagnose,
+  onOpenInstall,
 }) => {
   const state = status?.state ?? 'stopped';
   const isPending = pending !== null;
@@ -441,6 +467,17 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
         </select>
 
         <div className="ml-auto flex items-center gap-1.5">
+          {/* 「下载模型」入口 — 任何状态下都可点;noModels 时是主要 CTA。
+             跟启动/停止按钮并列,放在最左侧让缺模型用户第一眼看到。 */}
+          <Button
+            size="sm"
+            variant={noModels && !isReady ? 'default' : 'outline'}
+            onClick={onOpenInstall}
+            title="去 ModelScope / Hugging Face 找一个模型下到本地"
+          >
+            <CloudDownload className="mr-1 h-3.5 w-3.5" />
+            下载模型
+          </Button>
           {!isReady && (
             <Button
               size="sm"

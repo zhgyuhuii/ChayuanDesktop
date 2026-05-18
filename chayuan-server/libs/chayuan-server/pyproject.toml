@@ -202,6 +202,10 @@ transformers = { version = ">=4.45,<5.0", optional = true }
 # huggingface_hub:install_job 在线下载 bundled_models(lite/standard/pro)必需,
 # 桌面端 sidecar 也要靠它,因此必装,不再 optional。
 huggingface_hub = ">=0.24,<1.0"
+# modelscope:本地模型服务 UI 行内"下载模型"入口的真实下载源(国内稳定),
+# install_model.py 用它的 snapshot_download / file_download 拉指定 model_id。
+# 跟 hf 一样必装,前端 source dropdown 默认就是 modelscope。
+modelscope = ">=1.18,<2.0"
 
 [tool.poetry.extras]
 xinference = ["xinference_client"]

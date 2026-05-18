@@ -594,3 +594,123 @@ export const serverModelsInstall = {
     return r.data?.data ?? ({} as InstallJob);
   },
 };
+
+
+// ---------------------------------------------------------------------------
+// 按 model_id 单模型下载 — "本地模型服务" UI 行内的"下载模型"入口
+//
+// 跟 serverModelsInstall (release 整包)对应:这里是用户自由从 modelscope.cn
+// 搜模型,粘贴 model_id 让 sidecar 下载到 <CHAYUAN_ROOT>/models/bundled/<cap>/。
+//
+// 后端契约:
+//   POST /admin/models/install_model             → InstallModelJob
+//   GET  /admin/models/install_model/{id}        → InstallModelJob
+//   POST /admin/models/install_model/{id}/cancel → InstallModelJob
+//   POST /admin/models/scan_and_mount            → ScanAndMountResult
+// ---------------------------------------------------------------------------
+
+export type InstallModelSource = 'modelscope' | 'huggingface';
+
+/** 后端 catalog cap 标准名 + 几个常用别名。前端按 cap 行预填,统一传 catalog 名。 */
+export type InstallModelCapability =
+  | 'chat'
+  | 'text-embedding'
+  | 'rerank'
+  | 'speech-to-text'
+  | 'image-embedding'
+  | 'image-to-text'
+  | 'text-to-image'
+  | 'text-to-video'
+  | 'text-to-audio'
+  | 'other';
+
+export interface InstallModelJob {
+  id: string;
+  source: InstallModelSource;
+  model_id: string;
+  capability: InstallModelCapability;
+  requested_file: string | null;
+  status: InstallJobStatus;          // 复用 release job 的状态枚举(同 5 态)
+  step: string;                       // preparing / downloading / finalizing / done
+  started_at: number;
+  ended_at: number | null;
+  exit_code: number | null;
+  progress_pct: number;
+  progress_message: string;
+  target_dir: string | null;          // 完成后落地的实际目录
+  log_tail: string[];
+}
+
+const MODELS_INSTALL_MODEL = '/admin/models/install_model';
+
+export const serverModelsInstallModel = {
+  /**
+   * 启动按 model_id 单模型下载。
+   *
+   * 错误码:
+   * - 400: source / capability / model_id 非法
+   * - 409: 同 model_id+cap 已有运行中任务
+   */
+  async start(payload: {
+    source: InstallModelSource;
+    model_id: string;
+    capability: InstallModelCapability | string;
+    specific_file?: string | null;
+  }): Promise<InstallModelJob> {
+    const r = await request<{ data: InstallModelJob }>(MODELS_INSTALL_MODEL, {
+      method: 'POST',
+      body: payload,
+      raw: true,
+    });
+    return r.data?.data ?? ({} as InstallModelJob);
+  },
+
+  async get(jobId: string): Promise<InstallModelJob> {
+    const r = await request<{ data: InstallModelJob }>(
+      `${MODELS_INSTALL_MODEL}/${jobId}`,
+      { raw: true },
+    );
+    return r.data?.data ?? ({} as InstallModelJob);
+  },
+
+  async cancel(jobId: string): Promise<InstallModelJob> {
+    const r = await request<{ data: InstallModelJob }>(
+      `${MODELS_INSTALL_MODEL}/${jobId}/cancel`,
+      { method: 'POST', raw: true },
+    );
+    return r.data?.data ?? ({} as InstallModelJob);
+  },
+};
+
+
+export interface ScanAndMountResult {
+  /** scan_once 差异计数。 */
+  scan_delta: { added: number; updated: number; removed: number };
+  /** 本次扫描后被自动启动的 cap 短名(LocalRuntimeRegistry 短名,如 ``embedding``)。 */
+  auto_started: string[];
+  /** ``<CHAYUAN_ROOT>/models/bundled`` 实际绝对路径,UI 给用户看"模型放这里"。 */
+  bundled_root: string;
+}
+
+const MODELS_SCAN_MOUNT = '/admin/models/scan_and_mount';
+
+export const serverModelsScanAndMount = {
+  /**
+   * 用户在 Dialog 里选"我已经手动把模型放好了" → 调这个接口。
+   * 后端 ``scan_once`` 找到新模型 → 对未 ready 的 cap 自动 start。
+   * 返回的 ``bundled_root`` 用作提示用户"模型放到这里"。
+   */
+  async invoke(): Promise<ScanAndMountResult> {
+    const r = await request<{ data: ScanAndMountResult }>(MODELS_SCAN_MOUNT, {
+      method: 'POST',
+      raw: true,
+    });
+    return (
+      r.data?.data ?? {
+        scan_delta: { added: 0, updated: 0, removed: 0 },
+        auto_started: [],
+        bundled_root: '',
+      }
+    );
+  },
+};

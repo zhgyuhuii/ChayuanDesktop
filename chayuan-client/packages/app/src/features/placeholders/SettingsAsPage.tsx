@@ -27,19 +27,15 @@
  */
 
 import {
-  type BootstrapResponse,
   type CapabilityDefaultsCandidate,
   type CapabilityDefaultsResponse,
-  type InstallJob,
   serverCapabilityDefaults,
-  serverModelsBootstrap,
-  serverModelsInstall,
 } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
 import { Button, Input, Pill, Slider, Switch, cn } from '@chayuan/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { Cpu, Loader2, Monitor, Moon, Plus, RotateCcw, Sun } from 'lucide-react';
+import { Cpu, Monitor, Moon, RotateCcw, Sun } from 'lucide-react';
 import * as React from 'react';
 import { SUPPORTED_LOCALES, useTranslation } from '../../i18n';
 import { notifySuccess, reportError } from '../../store/errorDialog';
@@ -329,189 +325,6 @@ const VISIBLE_CAPS: Array<{ cap: string; label: string; hint: string }> = [
   { cap: 'rerank', label: '结果重排模型', hint: '检索后再排一次,让最相关的结果排到前面' },
 ];
 
-// 模型库自检 Banner — 缺模型时引导用户走三条配置路径:
-//   1. 一键下载推荐 release(serverModelsInstall.start + 轮询)
-//   2. 去模型广场配厂商(/marketplace)
-//   3. 已经手动放进 <CHAYUAN_ROOT>/models/ → 刷新扫盘(do_scan=true 重拉)
-const BootstrapBanner: React.FC = () => {
-  const navigate = useNavigate();
-  const qc = useQueryClient();
-  const { data } = useQuery<BootstrapResponse>({
-    queryKey: ['serverModelsBootstrap'],
-    queryFn: () => serverModelsBootstrap.get({ doScan: false }),
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
-  });
-
-  // 下载任务状态(运行中时锁住按钮 + 显示进度)
-  const [runningJob, setRunningJob] = React.useState<InstallJob | null>(null);
-  // 轮询 effect:有运行中任务时每 2s 查一次
-  React.useEffect(() => {
-    if (!runningJob) return;
-    if (runningJob.status === 'succeeded' || runningJob.status === 'failed') {
-      // 终态:刷新 bootstrap + capability_defaults 让 UI 重新拉
-      void qc.invalidateQueries({ queryKey: ['serverModelsBootstrap'] });
-      void qc.invalidateQueries({ queryKey: ['serverCapabilityDefaults'] });
-      return;
-    }
-    const timer = window.setTimeout(async () => {
-      try {
-        const fresh = await serverModelsInstall.get(runningJob.id);
-        setRunningJob(fresh);
-      } catch {
-        // 网络抖动忽略,下一轮再试
-      }
-    }, 2000);
-    return () => window.clearTimeout(timer);
-  }, [runningJob, qc]);
-
-  if (!data || data.ready) return null;
-
-  const hint = data.install_hints[0];
-  const capLabel = (cap: string) =>
-    ({
-      chat: '对话',
-      'text-embedding': '文本向量',
-      rerank: '重排',
-      'speech-to-text': '语音识别',
-      'image-to-text': '图像识别',
-    })[cap] ?? cap;
-
-  const onDownload = async () => {
-    if (!hint) return;
-    try {
-      const job = await serverModelsInstall.start({
-        release: hint.release as 'lite' | 'standard' | 'pro',
-        mirror: 'hf-mirror',
-      });
-      setRunningJob(job);
-      notifySuccess('已开始下载', `release ${job.release}(后台运行,可继续使用)`);
-    } catch (e) {
-      reportError(e, '启动下载失败');
-    }
-  };
-
-  const onRescan = async () => {
-    try {
-      await serverModelsBootstrap.get({ doScan: true });
-      await qc.invalidateQueries({ queryKey: ['serverModelsBootstrap'] });
-      await qc.invalidateQueries({ queryKey: ['serverCapabilityDefaults'] });
-      notifySuccess('已重新扫盘', '本地模型索引已刷新');
-    } catch (e) {
-      reportError(e, '扫盘失败');
-    }
-  };
-
-  const downloading =
-    runningJob &&
-    (runningJob.status === 'queued' || runningJob.status === 'running');
-
-  return (
-    <div className="mb-3 rounded-md border border-[var(--cy-border-warning)] bg-[var(--cy-surface-warning-subtle)] px-4 py-3 text-sm">
-      <p className="font-medium text-[var(--cy-text-primary)]">
-        模型库不完整 — 缺失 {data.missing.map(capLabel).join(' / ')}
-      </p>
-      {hint && (
-        <p className="mt-1 text-xs text-[var(--cy-text-tertiary)]">
-          建议下载 <span className="font-medium">{hint.release}</span> 包(约
-          {Math.round(hint.approx_size_mb / 100) / 10}GB) — {hint.description}
-        </p>
-      )}
-      {runningJob && (
-        <div className="mt-2 space-y-1">
-          {/* 进度文案 + X/Y 文件计数 */}
-          <p className="text-xs text-[var(--cy-text-primary)]">
-            {runningJob.progress_message ||
-              `step=${runningJob.step || 'queued'} · status=${runningJob.status}`}
-            {typeof runningJob.files_total === 'number' &&
-              runningJob.files_total > 0 && (
-                <span className="ml-1 text-[var(--cy-text-tertiary)]">
-                  ({runningJob.files_done ?? 0}/{runningJob.files_total} 文件)
-                </span>
-              )}
-          </p>
-          {/* 进度条:有 progress_pct 才画;终态显示 100% */}
-          {(typeof runningJob.progress_pct === 'number' ||
-            runningJob.status === 'succeeded' ||
-            runningJob.status === 'failed') && (
-            <div
-              className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--cy-surface-1)]"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(runningJob.progress_pct ?? 0)}
-            >
-              <div
-                className={cn(
-                  'h-full transition-all',
-                  runningJob.status === 'failed'
-                    ? 'bg-[var(--cy-text-danger,#dc2626)]'
-                    : 'bg-[var(--cy-brand-500)]',
-                )}
-                style={{
-                  width: `${Math.min(100, Math.max(0, runningJob.status === 'succeeded' ? 100 : runningJob.progress_pct ?? 0))}%`,
-                }}
-              />
-            </div>
-          )}
-          {runningJob.status === 'failed' &&
-            runningJob.exit_code !== null && (
-              <p className="text-xs text-[var(--cy-text-danger,#dc2626)]">
-                失败 · exit={runningJob.exit_code}
-                {runningJob.log_tail?.length
-                  ? ` · 最后一行:${runningJob.log_tail.slice(-1)[0]}`
-                  : ''}
-              </p>
-            )}
-        </div>
-      )}
-      <div className="mt-3 flex flex-wrap gap-2">
-        {hint && !downloading && (
-          <Button size="sm" onClick={() => void onDownload()}>
-            <Plus className="h-3.5 w-3.5" />
-            下载 {hint.release} 包
-          </Button>
-        )}
-        {downloading && runningJob && (
-          <>
-            <Button size="sm" disabled>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              下载中…
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={async () => {
-                try {
-                  const j = await serverModelsInstall.cancel(runningJob.id);
-                  setRunningJob(j);
-                  notifySuccess('已请求取消', '后台正在收尾,稍后会进入 cancelled 终态');
-                } catch (e) {
-                  reportError(e, '取消失败');
-                }
-              }}
-            >
-              取消下载
-            </Button>
-          </>
-        )}
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void navigate({ to: '/marketplace' })}
-        >
-          <Cpu className="h-3.5 w-3.5" />
-          去模型广场配厂商
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => void onRescan()}>
-          <RotateCcw className="h-3.5 w-3.5" />
-          我已有模型,刷新扫盘
-        </Button>
-      </div>
-    </div>
-  );
-};
-
 /** 候选 model id 短显:本地 scanner 路径(models/bundled/chat/Qwen3-...-GGUF)
  *  只取最后一段 + 去 -GGUF 后缀;云厂商裸 id (deepseek-v4-flash) 原样。 */
 function shortModelLabel(id: string): string {
@@ -596,7 +409,6 @@ const DefaultModelsSection: React.FC = () => {
 
   return (
     <Section>
-      <BootstrapBanner />
       {error ? (
         <Row
           title="无法读取默认模型"
