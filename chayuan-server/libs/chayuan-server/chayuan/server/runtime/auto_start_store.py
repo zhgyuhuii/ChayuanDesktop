@@ -121,3 +121,46 @@ def list_all(keys: Iterable[str] | None = None) -> Dict[str, bool]:
     with _LOCK:
         stored = _read_auto_start_dict()
     return {k: bool(stored.get(k, _DEFAULTS.get(k, False))) for k in target}
+
+
+# ───────────────────── bootstrap 标记(first_launch 用) ─────────────────────
+#
+# first_launch 在 seed_bundled_models 之后,会针对 bundled 有内容的 capability
+# 把 preload_*/auto_start.* 翻成 True,实现"装机即用"。该翻转必须幂等 ——
+# 用户后续在 UI 显式关掉某个 cap 之后,下次启动不能再被翻回 True。
+#
+# 这里用一个独立的 ``bootstrapped_caps`` 数组,记录"我已经替这个 cap 翻过初始
+# 默认值"。是否需要翻 → 看这个 list 里有没有 cap;翻过之后用 mark_bootstrapped
+# 标。即使用户清掉 sidecar_settings.json,首次启动会重新跑一次 bootstrap,
+# 也算"开箱即用"的合理重置。
+#
+# 与 auto_start dict 共存于同一份 sidecar_settings.json,不引入新文件。
+
+_BOOTSTRAPPED_FIELD = "bootstrapped_caps"
+
+
+def _read_bootstrapped_set() -> set:
+    raw = _read_raw()
+    arr = raw.get(_BOOTSTRAPPED_FIELD) or []
+    if not isinstance(arr, list):
+        return set()
+    return {str(x) for x in arr if isinstance(x, (str, int))}
+
+
+def is_bootstrapped(cap: str) -> bool:
+    """该 cap 是否已经被 first_launch 翻过初始 preload/auto_start 默认。"""
+    with _LOCK:
+        return cap in _read_bootstrapped_set()
+
+
+def mark_bootstrapped(cap: str) -> None:
+    """记录 cap 已被翻过初始默认。幂等。"""
+    with _LOCK:
+        raw = _read_raw()
+        cur = _read_bootstrapped_set()
+        if cap in cur:
+            return
+        cur.add(cap)
+        raw[_BOOTSTRAPPED_FIELD] = sorted(cur)
+        _write_raw(raw)
+        logger.info("[auto-start-store] mark_bootstrapped %s", cap)

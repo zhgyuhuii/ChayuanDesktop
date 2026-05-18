@@ -25,9 +25,25 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional
 
 logger = logging.getLogger("chayuan.first_launch")
+
+
+# bundled 子目录 → (LocalRuntimeSettings 字段名, auto_start_store key)
+# 字段名为 None 表示该 cap 没 preload yaml 字段,只翻 auto_start_store(OCR
+# sidecar 走 server_app 单独的 _auto_start_rapidocr hook 起)。
+# tts 没有 preload/auto_start 机制 — 按需调用,不在这里翻。
+_BUNDLED_PRELOAD_MAP: tuple = (
+    # cap_dir,    settings_attr,             store_key
+    ("chat",      "preload_on_startup",      "chat"),
+    ("embedding", "preload_embedding",       "embedding"),
+    ("rerank",    "preload_rerank",          "rerank"),
+    ("asr",       "preload_asr",             "asr"),
+    ("image",     "preload_image_embedding", "image-embedding"),
+    ("ocr",       None,                       "rapidocr"),
+)
 
 
 @dataclass
@@ -42,6 +58,10 @@ class FirstLaunchReport:
     # + 这次找到的介质路径。UI 可用 external_pending 判断要不要提示用户重挂 ISO。
     seeded_external_pending: List[str] = field(default_factory=list)
     seeded_external_source: Optional[str] = None
+    # 本次"装机即用"翻过的 cap → 字段名/store key。空 dict = 都已在历史中翻过
+    # 或所有 bundled cap 子目录都没内容。前端可拿这个列表做"已为你开启 X/Y/Z"
+    # 提示。
+    preload_bootstrapped: Dict[str, str] = field(default_factory=dict)
     scanned: bool = False
     scan_added: int = 0
     scan_updated: int = 0
@@ -60,6 +80,7 @@ class FirstLaunchReport:
             "seeded_skipped": list(self.seeded_skipped),
             "seeded_external_pending": list(self.seeded_external_pending),
             "seeded_external_source": self.seeded_external_source,
+            "preload_bootstrapped": dict(self.preload_bootstrapped),
             "scanned": self.scanned,
             "scan_added": self.scan_added,
             "scan_updated": self.scan_updated,
@@ -70,6 +91,133 @@ class FirstLaunchReport:
             "manuals_skipped": list(self.manuals_skipped),
             "errors": list(self.errors),
         }
+
+
+def _dir_has_real_file(root: Path) -> bool:
+    """目录树下是否至少有一个非隐藏文件;空 / 只有 .gitkeep → False。"""
+    if not root.is_dir():
+        return False
+    try:
+        for p in root.rglob("*"):
+            if p.is_file() and not p.name.startswith("."):
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def _cap_has_bundled_content(cap_dir: str) -> bool:
+    """该 capability 是否打进了安装包。
+
+    检查顺序:先看 source(``vendor/bundled_models/<cap_dir>/`` 或 PyInstaller
+    ``_MEIPASS/bundled_models/<cap_dir>/``),再看 destination(``<CHAYUAN_ROOT>
+    /models/bundled/<cap_dir>/``)。任一处有非隐藏文件即认为已交付。
+
+    source 兜底 destination 是为了应对 seed_bundled_models 在某步失败(权限、
+    路径、被杀软挡)的情况 —— 即便目标尚未落地,只要 source 里我们打包了这个
+    cap,就应该把 preload/auto_start 翻好,等下次 seed 重试时即可用。
+    """
+    try:
+        from chayuan.server.model_registry.local_index import (
+            bundled_models_dir, models_dir,
+        )
+    except Exception:  # noqa: BLE001
+        return False
+
+    src_root = bundled_models_dir()
+    if src_root is not None and _dir_has_real_file(src_root / cap_dir):
+        return True
+
+    dst_root = models_dir() / "bundled"
+    return _dir_has_real_file(dst_root / cap_dir)
+
+
+def _bootstrap_preload_from_bundled(report: FirstLaunchReport) -> None:
+    """检测 bundled cap 已交付时,把对应的 preload_*/auto_start.* 翻成 True。
+
+    幂等保障由 :mod:`auto_start_store` 的 ``bootstrapped_caps`` 标记提供 ——
+    每个 cap 只在一次"装机即用"过程中翻一次,用户后续在 UI 关掉之后不会被翻回。
+
+    LocalRuntimeSettings 共享同一份 ``local_runtime.yaml``,通过 chat manager
+    的 ``set_config`` 写一次即可完成所有字段持久化;同时直接 setattr 同步给其它
+    4 个 manager 的 _settings,避免它们读到陈旧值。
+
+    可见性:同 ``_auto_start_rapidocr`` 模式,关键事件 print 到 stdout,Tauri
+    sidecar 日志能直接看到 hook 跑没跑、翻了哪几个 cap。
+    """
+    import sys as _sys
+
+    def _say(msg: str) -> None:
+        logger.info("[bootstrap-preload] %s", msg)
+        try:
+            print(f"[bootstrap-preload] {msg}", flush=True, file=_sys.stdout)
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        from chayuan.server.runtime import auto_start_store
+    except Exception as e:  # noqa: BLE001
+        report.errors.append(f"bootstrap_preload import: {type(e).__name__}: {e}")
+        _say(f"import 失败:{e!r}")
+        return
+
+    settings_updates: Dict[str, bool] = {}
+    bootstrapped: Dict[str, str] = {}
+    checked: List[str] = []
+
+    for cap_dir, settings_attr, store_key in _BUNDLED_PRELOAD_MAP:
+        checked.append(cap_dir)
+        if auto_start_store.is_bootstrapped(cap_dir):
+            continue
+        if not _cap_has_bundled_content(cap_dir):
+            continue
+        if settings_attr:
+            settings_updates[settings_attr] = True
+        try:
+            auto_start_store.set_(store_key, True)
+        except Exception as e:  # noqa: BLE001
+            report.errors.append(
+                f"bootstrap_preload set_ {store_key}: {type(e).__name__}: {e}"
+            )
+            _say(f"set_({store_key}, True) 异常:{e!r}")
+            continue
+        auto_start_store.mark_bootstrapped(cap_dir)
+        bootstrapped[cap_dir] = settings_attr or f"auto_start.{store_key}"
+
+    if settings_updates:
+        try:
+            from chayuan.server.model_registry.local_runtime_registry import (
+                LocalRuntimeRegistry, get_registry,
+            )
+            reg = get_registry()
+            # 写 yaml + 更新 chat manager 的 _settings(set_config 内部做了)
+            reg.get("chat").set_config(settings_updates)
+            # 其它 manager 也是同一份 yaml 上各自加载的副本,registry 构造时
+            # 已经 load 过,内存里那份是旧的。直接 setattr 同步过去,避免步骤 5
+            # 之外的代码路径读到陈旧值。
+            for cap in LocalRuntimeRegistry.CAPABILITIES:
+                if cap == "chat":
+                    continue
+                try:
+                    m_settings = reg.get(cap).settings
+                    for attr, val in settings_updates.items():
+                        if hasattr(m_settings, attr):
+                            setattr(m_settings, attr, val)
+                except Exception as e:  # noqa: BLE001
+                    _say(f"同步 {cap}.settings 异常:{e!r}")
+        except Exception as e:  # noqa: BLE001
+            report.errors.append(
+                f"bootstrap_preload save settings: {type(e).__name__}: {e}"
+            )
+            _say(f"save settings 异常:{e!r}")
+
+    _say(
+        f"checked={checked} bootstrapped={list(bootstrapped.keys())} "
+        f"updates={list(settings_updates.keys())}"
+    )
+
+    if bootstrapped:
+        report.preload_bootstrapped = bootstrapped
 
 
 def run_first_launch_hooks() -> FirstLaunchReport:
@@ -93,6 +241,14 @@ def run_first_launch_hooks() -> FirstLaunchReport:
     except Exception as e:  # noqa: BLE001
         logger.warning("[first_launch] seed_bundled_models 失败: %r", e)
         report.errors.append(f"seed_bundled_models: {type(e).__name__}: {e}")
+
+    # 1.5) bundled cap 有内容 → 自动开 preload/auto_start(装机即用)
+    # 必须放在 step 5 preload_map 之前,这样翻完的 preload_* 能立刻被拉起。
+    try:
+        _bootstrap_preload_from_bundled(report)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[first_launch] bootstrap_preload 失败: %r", e)
+        report.errors.append(f"bootstrap_preload: {type(e).__name__}: {e}")
 
     # 2) scan local_index
     try:
