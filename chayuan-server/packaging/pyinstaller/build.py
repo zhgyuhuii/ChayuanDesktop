@@ -1076,18 +1076,22 @@ def main() -> None:
     )
     parser.add_argument(
         "--torch-platforms",
-        # 2026-05-18:默认拉 4 个平台 cpu wheel(Win x64 + macOS arm64+x64 + Linux x64),
-        # 让 ISO 装机后 first_launch.auto_install_on_startup 在任意目标 OS 都有 wheel 可用。
-        # 历史默认 ""(自动按 --target triple 映射,只下当前平台一个)— 现在用户希望
-        # vendor/torch_wheels/ 里"各个平台都放好",改成 4 个一次性下完。
-        # 体积:~250 MB / 平台 × 4 = ~1 GB。覆盖请用 --torch-platforms win_amd64。
-        default="win_amd64,manylinux2014_x86_64,macosx_11_0_arm64,macosx_10_9_x86_64",
-        help=("逗号分隔的 pip --platform tag。默认 4 个 cpu 目标:"
-              "Windows x64 / Linux x64 / macOS arm64 / macOS Intel。"
-              "ISO 装机后 auto_install_on_startup 按 host OS 自动挑对应 wheel。"
-              "缩小范围:--torch-platforms win_amd64(只 Windows)。"
-              "扩 GPU:配合 --torch-variants cpu,cu124(仅 win_amd64 / "
-              "manylinux2014_x86_64 有 CUDA wheel)。"),
+        # 默认 ""(自动按 --target triple 映射,只下当前平台一个)。
+        #
+        # 历史折腾:e986e6d 把 default 改成 4 平台一次性下,但 desktop installer
+        # 是 OS-specific(Windows MSI/ISO 只装 Windows 用户,Mac/Linux 各自打 dmg/
+        # AppImage),其它 OS 的 wheel 进 Windows ISO 实际无用 — 没人在 Windows
+        # ISO 上装 Mac。而且 strict_vendor=True + 非 host 平台 vendor 空 →
+        # preflight 直接 RuntimeError(见 preflight_torch.py:157-168)。
+        #
+        # 撤回到 ""(自动 host 检测),跨平台需要时显式传 --torch-platforms。
+        default="",
+        help=("逗号分隔的 pip --platform tag。默认 ``\"\"`` = 按 ``--target`` triple "
+              "自动映射(如 x86_64-pc-windows-msvc → win_amd64),只下当前 host "
+              "平台一个 wheel。跨平台 release 时显式传:"
+              "``--torch-platforms win_amd64,manylinux2014_x86_64,macosx_11_0_arm64,"
+              "macosx_10_9_x86_64``(注:需保证每个平台 vendor 都有 wheel,否则"
+              "strict_vendor 模式 raise)。GPU:--torch-variants cpu,cu124。"),
     )
     parser.add_argument(
         "--torch-py-versions",
