@@ -259,17 +259,42 @@ def _warn_stale_chayuan_root() -> None:
 
 
 def _set_app_event(app: FastAPI, started_event: mp.Event = None):
+    # 注意:FastAPI/Starlette 在设置 `router.lifespan_context` 后会**完全跳过**
+    # `app.router.on_startup` / `on_shutdown` 里已注册的 handler。
+    # 历史 bug:server_app.py 用 `@app.on_event("startup")` 注册了 7+ 个关键钩子
+    # (DB 迁移、模型首启 seed、auto-start capabilities、WS hub、生命周期、config_center、
+    # auto-start rapidocr),如果这里直接 `lifespan_context = lifespan` 而不调用它们,
+    # 它们会被静默丢弃 → bundled_models 没 seed、本地服务不自启。
+    # 修复:在 yield 前依次 await 所有 on_startup,yield 后依次 await on_shutdown。
+    on_startup_handlers = list(app.router.on_startup)
+    on_shutdown_handlers = list(app.router.on_shutdown)
+
+    async def _run_handler(handler, phase: str) -> None:
+        try:
+            result = handler()
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as e:  # noqa: BLE001
+            # 单个 hook 失败不阻塞其它 hook;但要打 ERROR 让运维能在日志里看到
+            logger.error("[lifespan] %s hook %r failed: %r", phase, getattr(handler, "__qualname__", handler), e)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        for handler in on_startup_handlers:
+            await _run_handler(handler, "startup")
         if started_event is not None:
             started_event.set()
-        yield
-        # 关停本地 LLM runtime (级联 kill 3 个 llama-server.exe;Plan 3B 多 capability)
         try:
-            from chayuan.server.model_registry.local_runtime_registry import get_registry
-            await get_registry().stop_all()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("[shutdown] stop local runtime failed: %r", e)
+            yield
+        finally:
+            for handler in on_shutdown_handlers:
+                await _run_handler(handler, "shutdown")
+            # 关停本地 LLM runtime (级联 kill 3 个 llama-server.exe;Plan 3B 多 capability)
+            try:
+                from chayuan.server.model_registry.local_runtime_registry import get_registry
+                await get_registry().stop_all()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[shutdown] stop local runtime failed: %r", e)
 
     app.router.lifespan_context = lifespan
 
