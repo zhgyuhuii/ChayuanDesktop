@@ -556,6 +556,10 @@ function Invoke-FlavorBuild {
     } else {
         $script:BuildPyBundledSourceFlag = @()
     }
+    # --strict-vendor:打 desktop installer 必须从 chayuan-server/vendor/ 来,
+    # 禁止 preflight_torch 静默走 download.pytorch.org;有 --bundled-source 覆盖时
+    # 显式 WARN。这是 desktop 打包的默认期望(离线 / 内网 OK)。
+    $script:BuildPyStrictVendorFlag = @('--strict-vendor')
     Write-Host ''
     Write-Step "═══ [$flavorLabel] 开始 ═══"
 
@@ -617,7 +621,7 @@ if ($SkipServer) {
     # 显式传 --target,确保 sync_services 按对的平台选 vendor 子目录(host 一致就走 host)
     Invoke-Step -Name 'pyinstaller-build' `
         -WorkDir $ServerPkgDir `
-        -Command 'poetry' -Arguments (@('run', 'python', '..\..\packaging\pyinstaller\build.py', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag)
+        -Command 'poetry' -Arguments (@('run', 'python', '..\..\packaging\pyinstaller\build.py', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag + $BuildPyStrictVendorFlag)
 
     if (-not (Test-Path $sidecarPath)) {
         Write-Fail "PyInstaller 跑完了但 sidecar 没出现在预期位置:$sidecarPath"
@@ -640,11 +644,11 @@ $poetryExe = Get-Command poetry -ErrorAction SilentlyContinue
 if ($poetryExe) {
     Invoke-Step -Name 'sync bundled (poetry)' `
         -WorkDir $ServerDir `
-        -Command 'poetry' -Arguments (@('run', 'python', 'packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag)
+        -Command 'poetry' -Arguments (@('run', 'python', 'packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag + $BuildPyStrictVendorFlag)
 } else {
     Invoke-Step -Name 'sync bundled (python)' `
         -WorkDir $ServerDir `
-        -Command 'python' -Arguments (@('packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag)
+        -Command 'python' -Arguments (@('packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag + $BuildPyStrictVendorFlag)
 }
 
 # ====================================================================

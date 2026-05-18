@@ -988,6 +988,15 @@ def main() -> None:
         help=("torch wheel 下载失败时只 warning,不阻塞打包(用于无网构建机调试)。"
               "成品包将不带离线 torch wheel,装机用户只能走在线安装。"),
     )
+    parser.add_argument(
+        "--strict-vendor",
+        action="store_true",
+        help=("严格 vendor 模式:所有打包资源(bundled_models / services / torch_wheels)"
+              "必须从 chayuan-server/vendor/ 来,缺则报错抛。禁用 preflight_torch 的 "
+              "pip download fallback;-bundled-source / $CHAYUAN_BUILD_BUNDLED_SOURCE "
+              "覆盖时打 WARN(不禁止,但提示走偏)。"
+              "build-desktop.ps1 默认会传这个;CI 内网无 pytorch.org 时也建议加。"),
+    )
     # 用 parse_known_args:任何 build.py 不认识的参数(--clean / --log-level=DEBUG /
     # --noupx / 等)都直接转发给 PyInstaller。免得用户记错 ``--`` 分隔符位置 ──
     # poetry / argparse REMAINDER 组合下 ``--`` 经常被吃掉,导致 ``--clean`` 报
@@ -1007,7 +1016,38 @@ def main() -> None:
     # bundled 源路径解析(CLI > env > vendor 默认),解析完后所有 sync 调用都用它。
     bundled_src = _resolve_bundled_src(args.bundled_source or None)
     if bundled_src != BUNDLED_SRC:
-        print(f"[build] bundled_models 源被覆盖:{bundled_src}", flush=True)
+        # strict_vendor 下不静默,把覆盖来源 + 期望路径都打出来,让用户知道是哪个入口绕了 vendor
+        override_via = "--bundled-source" if args.bundled_source else "$CHAYUAN_BUILD_BUNDLED_SOURCE"
+        msg = (
+            f"[build] WARN bundled_models 源被 {override_via} 覆盖:{bundled_src}\n"
+            f"        vendor 默认源:{BUNDLED_SRC}\n"
+            f"        想严格走 vendor → unset {override_via} 后重跑(并加 --strict-vendor)"
+        )
+        print(msg, flush=True)
+
+    # 打 build 源 map — 让用户清楚每个资源从哪儿来,strict_vendor 下不许有"非 vendor"项
+    print(
+        "[build] 打包资源源映射(strict_vendor={s}):\n"
+        "  bundled_models  ← {bm}  (存在: {bm_ok}, 子目录数: {bm_n})\n"
+        "  services        ← {svc} (存在: {svc_ok}, 引擎数: {svc_n})\n"
+        "  torch_wheels    ← {tw}  (存在: {tw_ok}, 子目录数: {tw_n})\n"
+        "  runtimes        ← {rt}  (存在: {rt_ok})  [chayuan_packaging 用,desktop build 不打]\n"
+        "  Python 三方包    ← 当前 venv site-packages(tiktoken / fastapi / onnxruntime 等;必走 venv,不入 vendor)".format(
+            s=args.strict_vendor,
+            bm=bundled_src,
+            bm_ok=bundled_src.is_dir(),
+            bm_n=len([p for p in bundled_src.iterdir() if p.is_dir()]) if bundled_src.is_dir() else 0,
+            svc=SERVICES_SRC,
+            svc_ok=SERVICES_SRC.is_dir(),
+            svc_n=len([p for p in SERVICES_SRC.iterdir() if p.is_dir()]) if SERVICES_SRC.is_dir() else 0,
+            tw=ROOT / "vendor" / "torch_wheels",
+            tw_ok=(ROOT / "vendor" / "torch_wheels").is_dir(),
+            tw_n=len([p for p in (ROOT / "vendor" / "torch_wheels").iterdir() if p.is_dir()]) if (ROOT / "vendor" / "torch_wheels").is_dir() else 0,
+            rt=ROOT / "vendor" / "runtimes",
+            rt_ok=(ROOT / "vendor" / "runtimes").is_dir(),
+        ),
+        flush=True,
+    )
 
     target = args.target or rust_target_triple()
     host = rust_target_triple()
@@ -1046,6 +1086,7 @@ def main() -> None:
             py_versions=args.torch_py_versions,
             target_triple=target,
             allow_missing=args.allow_missing_torch,
+            strict_vendor=args.strict_vendor,
         )
 
     run_pyinstaller(extra)
@@ -1062,8 +1103,13 @@ def _run_torch_preflight(
     py_versions: str,
     target_triple: str,
     allow_missing: bool,
+    strict_vendor: bool = False,
 ) -> None:
-    """调 packaging/preflight_torch.preflight,缺则下,失败则按 allow_missing 决定抛 or warn。"""
+    """调 packaging/preflight_torch.preflight,缺则下,失败则按 allow_missing 决定抛 or warn。
+
+    strict_vendor=True 时传递给 preflight,vendor/torch_wheels/ 没找到配对 wheel
+    直接报错抛(不再静默走 pip download from pytorch.org)。
+    """
     # ⚠ 不要写 `from packaging.preflight_torch import ...`:PyPI 上的 packaging
     # 是个真包(pip/setuptools 的依赖,几乎所有 Python 都装),会撞到它而不是
     # 本仓的 chayuan-server/packaging/(后者没 __init__.py,只是普通目录)。按
@@ -1108,7 +1154,7 @@ def _run_torch_preflight(
         + ", ".join(t.subdir for t in targets),
         flush=True,
     )
-    preflight(targets, out_root=DEFAULT_OUT_ROOT, allow_missing=allow_missing)
+    preflight(targets, out_root=DEFAULT_OUT_ROOT, allow_missing=allow_missing, strict_vendor=strict_vendor)
     print("[build] ✓ torch wheel preflight ok", flush=True)
 
 

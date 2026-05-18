@@ -133,12 +133,17 @@ def preflight(
     *, out_root: Path = DEFAULT_OUT_ROOT,
     allow_missing: bool = False,
     force: bool = False,
+    strict_vendor: bool = False,
 ) -> List[Path]:
     """按 targets 列表逐个 ensure wheel 在 ``out_root/<target.subdir>/``。
 
     返回 wheel 文件路径 list(已就绪 + 新下载的)。
     allow_missing=True 时下载失败只 warning,不抛。
     force=True 时已有也重下。
+    strict_vendor=True 时**禁止任何网络下载** — vendor 没找到配对 wheel
+      直接报错抛 RuntimeError。给"installer 必须完全离线、源只能是 vendor/"
+      的桌面打包场景用,避免静默走 download.pytorch.org 后用户内网环境根
+      本下不到 wheel。
     """
     out_root.mkdir(parents=True, exist_ok=True)
     all_wheels: List[Path] = []
@@ -146,9 +151,21 @@ def preflight(
         sub = out_root / t.subdir
         torch_w, tv_w = _list_existing_wheels(sub)
         if torch_w and tv_w and not force:
-            print(f"[preflight-torch] {t.subdir}: 已就绪 ({torch_w.name} + {tv_w.name})")
+            print(f"[preflight-torch] {t.subdir}: vendor 已就绪 ({torch_w.name} + {tv_w.name})")
             all_wheels.extend([torch_w, tv_w])
             continue
+        if strict_vendor:
+            msg = (
+                f"strict-vendor 模式下 vendor/torch_wheels/{t.subdir}/ 缺 torch + torchvision wheel,"
+                f"且禁止 pip download fallback。请手动把 *.whl 放到:\n"
+                f"  {sub}\n"
+                f"  期望文件名:torch-*-{t.platform}.whl + torchvision-*-{t.platform}.whl\n"
+                f"  下载源(其它有网机器):{t.index_url}"
+            )
+            if allow_missing:
+                print(f"[preflight-torch] WARN {msg}", file=sys.stderr)
+                continue
+            raise RuntimeError(msg)
         try:
             _download(t, sub)
         except Exception as e:  # noqa: BLE001
