@@ -420,6 +420,23 @@ def identify_path(path: os.PathLike, *, default_id: Optional[str] = None) -> Mod
 
     if candidates:
         ident = max(candidates, key=lambda c: c.confidence)
+        # capability=="other" 说明这个候选**只识别了格式/家族,没识别能力**(例如
+        # HF config 看到 model_type=new 但 _CAPABILITY_BY_MODELTYPE 不认识"new"
+        # → cap=other, confidence=0.7)。这种情况下,如果有其它候选给出**具体**
+        # capability(不是 other),用它的 capability 覆盖,但保留赢家的 format /
+        # family / meta / evidence(那些信息是赢家更可信的)。
+        # 这条规则修了 gte-multilingual-base 这类 model_type=new 的 GTE 系列被
+        # 错归到 'other' 的 bug:path 里有 embedding/ → path_hint 正确给了
+        # text-embedding,但因 confidence 0.3 < 0.7 被丢弃。
+        if ident.capability == "other":
+            concrete = [c for c in candidates if c.capability != "other"]
+            if concrete:
+                # 选 confidence 最高的具体 capability 来覆盖
+                best_concrete = max(concrete, key=lambda c: c.confidence)
+                ident.capability = best_concrete.capability
+                ident.evidence = list(ident.evidence) + [
+                    f"capability overridden from 'other' by {best_concrete.evidence[0] if best_concrete.evidence else 'lower-confidence candidate'}"
+                ]
     else:
         ident = ModelIdentity(
             family="",

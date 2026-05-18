@@ -182,6 +182,37 @@ $envBundled  = if ($env:CHAYUAN_BUNDLED_MODELS_DIR)   { $env:CHAYUAN_BUNDLED_MOD
 Out-KV 'CHAYUAN_ROOT env'                $envRoot
 Out-KV 'CHAYUAN_BUNDLED_MODELS_DIR env'  $envBundled
 
+# ───────── 2b. API 端口自动校正(避免探针打错门) ─────────
+# 用户不带 -Port 时,从 $DataDir/runtime.json `services.api.port` 取真实端口。
+# 历史 bug:默认 62581,但如果服务跑在别的端口(例如运维改过 chayuan.yaml),
+# 探针全部 404,被误判成"服务挂了"。用 runtime.json 作真源比 hardcode 准。
+$portExplicit = $PSBoundParameters.ContainsKey('Port')
+$runtimeJson  = Join-Path $DataDir 'runtime.json'
+if (Test-Path $runtimeJson) {
+    try {
+        $rt = Get-Content $runtimeJson -Raw -Encoding UTF8 | ConvertFrom-Json
+        $apiPort = [int]$rt.services.api.port
+        if ($apiPort -gt 0) {
+            if ($portExplicit) {
+                if ($Port -ne $apiPort) {
+                    Out-Line ('**warn**:用户传 -Port {0},但 runtime.json 实际 API 端口是 {1};仍用用户值,如要校正请去掉 -Port' -f $Port, $apiPort)
+                }
+            } else {
+                if ($Port -ne $apiPort) {
+                    Out-Line ('runtime.json 中 API 端口 = {0}(默认值 {1} 被自动校正)' -f $apiPort, $Port)
+                    $Port = $apiPort
+                } else {
+                    Out-Line ('runtime.json 中 API 端口 = {0} ✓' -f $apiPort)
+                }
+            }
+        }
+    } catch {
+        Out-Line ('读 runtime.json 失败,沿用 -Port={0}:{1}' -f $Port, $_)
+    }
+} else {
+    Out-Line ('runtime.json 不存在,沿用 -Port={0}' -f $Port)
+}
+
 # ───────── 3. bundled_models 源 / 目标布局 ─────────
 Out-Section '3. bundled_models 布局'
 
@@ -426,7 +457,13 @@ if ($CaptureStdout) {
         $tmpStderr = New-TemporaryFile
         $sidecarBundled = Join-Path $InstallDir 'bundled_models'
 
-        Out-Line ('spawn: `{0}` --host 127.0.0.1 --port {1}' -f $serverExe, $Port)
+        # chayuan-server.exe 是 click group,真正启动子命令是 ``start``。
+        # 历史 bug:旧诊断脚本用 ``--host/--port`` 直接传顶层,但 group 顶层不接,
+        # 报 "No such option: --host"。host/port 由 env 或 yaml 配,不走 CLI flag。
+        # 对齐 Tauri sidecar.rs 里的真实调用:``chayuan-server.exe start -a --single-machine``
+        $sidecarArgs = @('start', '-a', '--single-machine')
+        Out-Line ('spawn: `{0}` {1}' -f $serverExe, ($sidecarArgs -join ' '))
+        Out-Line ('期望 API 端口:{0}(由 runtime.json / chayuan.yaml 配,本步不再 CLI 覆盖)' -f $Port)
         Out-Line "CHAYUAN_ROOT=$DataDir"
         Out-Line "CHAYUAN_BUNDLED_MODELS_DIR=$sidecarBundled"
         Out-Line ""
@@ -434,7 +471,7 @@ if ($CaptureStdout) {
         $env:CHAYUAN_ROOT = $DataDir
         $env:CHAYUAN_BUNDLED_MODELS_DIR = $sidecarBundled
         $p = Start-Process -FilePath $serverExe `
-            -ArgumentList @('--host','127.0.0.1','--port',$Port) `
+            -ArgumentList $sidecarArgs `
             -RedirectStandardOutput $tmpStdout.FullName `
             -RedirectStandardError  $tmpStderr.FullName `
             -PassThru -NoNewWindow

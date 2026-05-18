@@ -112,3 +112,48 @@ def test_default_id_used(tmp_path: Path):
     _write(p / "config.json", {"model_type": "qwen3"})
     ident = identify_path(p, default_id="huggingface/Qwen3-A")
     assert ident.model_id == "huggingface/Qwen3-A"
+
+
+def test_unknown_model_type_in_embedding_path_falls_back_to_path_hint(tmp_path: Path):
+    """回归:HF config 看到 ``model_type=new``(GTE 系列)时 capability=other,
+    confidence=0.7,会"赢"过 path_hint(confidence=0.3),错归到 other。
+
+    修复:max 选出来的 winner 如果 capability=='other',且别的候选有具体
+    capability,用具体的覆盖。
+
+    场景对应用户机上的 ``D:\\chayuan_data\\models\\bundled\\embedding\\gte-multilingual-base``,
+    那里 sidecar startup 时找不到 text-embedding 候选导致 cap 起不来。
+    """
+    # 模拟 bundled/embedding/<model> 路径
+    repo = tmp_path / "bundled" / "embedding" / "gte-multilingual-base"
+    _write(repo / "config.json", {
+        "model_type": "new",   # GTE 自定义 model_type
+        "hidden_size": 768,
+        "vocab_size": 250048,
+    })
+    ident = identify_path(repo)
+    assert ident.capability == "text-embedding", (
+        f"path 含 embedding/ 且 model_type=new 时,应回落到 path_hint 的 text-embedding;"
+        f"实际 cap={ident.capability!r}, evidence={ident.evidence!r}"
+    )
+    # format / family 仍应从 HF config 拿到(它的 confidence 仍是最高)
+    assert ident.format == "hf_transformers"
+    assert ident.family == "new"
+    # evidence 要保留 HF config 的痕迹 + 标注 capability 被覆盖
+    assert any("model_type=new" in e for e in ident.evidence), (
+        f"应保留 HF config evidence;实际 {ident.evidence}"
+    )
+    assert any("overridden from 'other'" in e for e in ident.evidence), (
+        f"应标注 capability 被覆盖,方便排查;实际 {ident.evidence}"
+    )
+
+
+def test_other_winner_no_concrete_candidate_stays_other(tmp_path: Path):
+    """补充:winner=other 但没有别的候选给出具体 capability 时,保持 other。"""
+    # 既无 path hint 也无 model_type 命中的目录
+    p = tmp_path / "mystery_repo"
+    _write(p / "config.json", {"model_type": "unknownarch"})  # 不在表里
+    ident = identify_path(p)
+    assert ident.capability == "other"
+    # 不应该添加 overridden evidence
+    assert not any("overridden" in e for e in ident.evidence)
