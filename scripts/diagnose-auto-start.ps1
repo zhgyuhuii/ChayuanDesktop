@@ -88,11 +88,19 @@ Out-Section '1. 探测安装目录'
 if ($InstallDir -and (Test-Path "$InstallDir\chayuan-server.exe")) {
     Out-Line ('用户显式指定:`{0}`' -f $InstallDir)
 } else {
+    # Tauri 2 WiX MSI / NSIS 装机后,Windows 安装目录的命名变体太多 ——
+    # tauri.conf.json productName / publisher / wix.* 改动都影响最终目录名。
+    # 这里穷举常见组合 + 用 Get-CimInstance 通过监听 62581 端口的进程反推
+    # 真实 exe 路径(最稳的兜底)。
     $candidates = @(
         "$env:LOCALAPPDATA\Programs\chayuan-desktop",
+        "$env:LOCALAPPDATA\Programs\Chayuan",
+        "$env:LOCALAPPDATA\Programs\Chayuan Desktop",
         "$env:ProgramFiles\chayuan-desktop",
+        "$env:ProgramFiles\Chayuan",
         "$env:ProgramFiles\Chayuan Desktop",
         "${env:ProgramFiles(x86)}\chayuan-desktop",
+        "${env:ProgramFiles(x86)}\Chayuan",
         "${env:ProgramFiles(x86)}\Chayuan Desktop"
     )
     $InstallDir = $null
@@ -102,8 +110,25 @@ if ($InstallDir -and (Test-Path "$InstallDir\chayuan-server.exe")) {
             break
         }
     }
+    # 兜底:从监听 62581 端口的进程拿真实 exe 路径
     if (-not $InstallDir) {
-        Out-Line "**自动探测失败** — 没在以下路径找到 chayuan-server.exe:"
+        try {
+            $owner = (Get-NetTCPConnection -LocalPort 62581 -State Listen -ErrorAction Stop |
+                      Select-Object -First 1).OwningProcess
+            if ($owner) {
+                $p = Get-CimInstance Win32_Process -Filter "ProcessId=$owner" -ErrorAction Stop
+                if ($p -and $p.ExecutablePath) {
+                    $exeDir = Split-Path -Parent $p.ExecutablePath
+                    if (Test-Path "$exeDir\chayuan-server.exe") {
+                        $InstallDir = $exeDir
+                        Out-Line ('从监听 62581 的进程反推到:`{0}`' -f $InstallDir)
+                    }
+                }
+            }
+        } catch {}
+    }
+    if (-not $InstallDir) {
+        Out-Line "**自动探测失败** — 没在以下路径找到 chayuan-server.exe,62581 端口也没探到进程:"
         $candidates | ForEach-Object { Out-Line "  - $_" }
         Out-Line ""
         Out-Line '请重跑:`.\diagnose-auto-start.ps1 -InstallDir ''C:\path\to\chayuan-desktop''`'
@@ -324,12 +349,23 @@ foreach ($e in $endpoints) {
 # ───────── 7. 日志 tail ─────────
 Out-Section '7. chayuan-server 日志 tail'
 
-$logDir = Join-Path $DataDir 'logs'
-if (Test-Path $logDir) {
+# chayuan-server 实际把日志写到 <CHAYUAN_ROOT>/data/logs/(因为 LOG_PATH = DATA_PATH/logs
+# 而 DATA_PATH = CHAYUAN_ROOT/data,不是 CHAYUAN_ROOT/logs 直接)。两条都扫,
+# 谁有用谁。
+$logDirCandidates = @(
+    (Join-Path $DataDir 'data\logs'),
+    (Join-Path $DataDir 'logs')
+)
+$logDir = $null
+foreach ($c in $logDirCandidates) {
+    if (Test-Path $c) { $logDir = $c; break }
+}
+if ($logDir) {
+    Out-KV '日志目录' $logDir
     $latest = Get-ChildItem -Path $logDir -Filter '*.log' -ErrorAction SilentlyContinue |
               Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($latest) {
-        Out-KV '最新日志' "$($latest.FullName) (mtime=$($latest.LastWriteTime))"
+        Out-KV '最新日志' ('{0} (mtime={1})' -f $latest.FullName, $latest.LastWriteTime)
         $tail = Get-Content $latest.FullName -Tail 200 -ErrorAction SilentlyContinue
         if ($tail) {
             # 简单脱敏:Bearer / api_key / secret 后跟 16+ 字符全部 *** 掉
@@ -340,7 +376,8 @@ if (Test-Path $logDir) {
         Out-Line '日志目录为空'
     }
 } else {
-    Out-Line ('**日志目录不存在**:`{0}`' -f $logDir)
+    Out-Line '**日志目录都不存在**,扫了以下路径:'
+    $logDirCandidates | ForEach-Object { Out-Line ('  - `{0}`' -f $_) }
 }
 
 # ───────── 8. 可选:抓 sidecar 完整 stdout ─────────
