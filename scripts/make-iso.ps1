@@ -40,6 +40,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# 中文 Windows 默认控制台编码 GBK,但 build-desktop.ps1 / Tauri 上层按 UTF-8 收日志,
+# 不显式置 UTF-8 会出现 婧愮洰褰? 之类乱码。
+try {
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $OutputEncoding = [Console]::OutputEncoding
+} catch {}
+
 if (-not (Test-Path $SourceDir -PathType Container)) {
     throw "SourceDir 不存在或不是目录:$SourceDir"
 }
@@ -126,12 +133,46 @@ if ($outDir -and -not (Test-Path $outDir)) {
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 }
 
-Write-Host "[iso] 落盘:$OutputIso ..."
-[IsoStreamWriter]::Save($result.ImageStream, $OutputIso)
+# 落盘策略:写 .iso.part → ReleaseComObject → rename。
+# 直接 FileMode.Create 写到最终路径会被以下场景挡:
+#   - 资源管理器缩略图工厂 / Defender 实时扫描在读旧 iso
+#   - 上一次失败留下的 iso 仍被某 PS/Tauri 进程持有句柄
+# 先写到 .part 再原子 rename,旧 iso 即使被占用也能等 rename 阶段重试。
+$tmpIso = "$OutputIso.part"
+if (Test-Path $tmpIso) {
+    try { Remove-Item -LiteralPath $tmpIso -Force -ErrorAction Stop } catch {
+        throw "[iso] 临时文件 $tmpIso 删不掉,可能上一轮 PS 残留进程在占用:$($_.Exception.Message)"
+    }
+}
+
+Write-Host "[iso] 落盘:$tmpIso ..."
+[IsoStreamWriter]::Save($result.ImageStream, $tmpIso)
 
 # COM 对象引用立刻释放,避免 PowerShell 退出时 GC 拖延导致句柄占用。
 [System.Runtime.InteropServices.Marshal]::ReleaseComObject($result) | Out-Null
 [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fsi) | Out-Null
+[System.GC]::Collect()
+[System.GC]::WaitForPendingFinalizers()
+
+# 旧 iso 若存在且被资源管理器/Defender 锁:最多重试 5 次,每次间隔 1s。
+if (Test-Path $OutputIso) {
+    $removed = $false
+    for ($i = 1; $i -le 5; $i++) {
+        try {
+            Remove-Item -LiteralPath $OutputIso -Force -ErrorAction Stop
+            $removed = $true
+            break
+        } catch {
+            Write-Host "[iso] 旧 iso 被占用,等 1s 重试($i/5):$($_.Exception.Message)"
+            Start-Sleep -Seconds 1
+        }
+    }
+    if (-not $removed) {
+        throw "[iso] 旧 iso $OutputIso 5 次都删不掉,请手动关掉资源管理器/挂载/杀软扫描后重跑。.part 文件保留在 $tmpIso"
+    }
+}
+
+Move-Item -LiteralPath $tmpIso -Destination $OutputIso -Force
 
 $isoSize = (Get-Item $OutputIso).Length
 $isoSizeMb = [math]::Round($isoSize / 1MB, 1)
