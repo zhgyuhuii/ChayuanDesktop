@@ -350,8 +350,13 @@ foreach ($e in $endpoints) {
 Out-Section '7. chayuan-server 日志 tail'
 
 # chayuan-server 实际把日志写到 <CHAYUAN_ROOT>/data/logs/(因为 LOG_PATH = DATA_PATH/logs
-# 而 DATA_PATH = CHAYUAN_ROOT/data,不是 CHAYUAN_ROOT/logs 直接)。两条都扫,
-# 谁有用谁。
+# 而 DATA_PATH = CHAYUAN_ROOT/data,不是 CHAYUAN_ROOT/logs 直接)。
+#
+# 关键陷阱:chayuan/startup.py 在启动 uvicorn 前 dictConfig 把日志 redirect 到
+#   <logs>/run_api_server_<ts>/...
+# 子目录,所以所有 FastAPI startup hook 的日志(包括 [bootstrap-preload] /
+# [auto-start-rapidocr] / [auto-start])都在子目录里。顶层 chayuan.log 只有
+# uvicorn 之前的 bootstrap 输出。两层都扫,优先取子目录最新一份。
 $logDirCandidates = @(
     (Join-Path $DataDir 'data\logs'),
     (Join-Path $DataDir 'logs')
@@ -362,8 +367,17 @@ foreach ($c in $logDirCandidates) {
 }
 if ($logDir) {
     Out-KV '日志目录' $logDir
-    $latest = Get-ChildItem -Path $logDir -Filter '*.log' -ErrorAction SilentlyContinue |
+    # 优先找 run_api_server_* 子目录里最新的 .log(FastAPI 启动后的日志)
+    $apiSub = Get-ChildItem -Path $logDir -Directory -Filter 'run_api_server_*' -ErrorAction SilentlyContinue |
               Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $allLogs = @()
+    if ($apiSub) {
+        $allLogs += Get-ChildItem -Path $apiSub.FullName -Filter '*.log' -File -Recurse -ErrorAction SilentlyContinue
+        Out-KV '最新 run_api_server 子目录' $apiSub.FullName
+    }
+    # 再扫顶层 .log(uvicorn 之前的 bootstrap 输出)
+    $allLogs += Get-ChildItem -Path $logDir -Filter '*.log' -File -ErrorAction SilentlyContinue
+    $latest = $allLogs | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($latest) {
         Out-KV '最新日志' ('{0} (mtime={1})' -f $latest.FullName, $latest.LastWriteTime)
         $tail = Get-Content $latest.FullName -Tail 200 -ErrorAction SilentlyContinue
@@ -374,6 +388,22 @@ if ($logDir) {
         }
     } else {
         Out-Line '日志目录为空'
+    }
+    # 同时把 [auto-start] / [bootstrap-preload] 关键字 grep 出来一并展示
+    Out-Line ''
+    Out-Line '### grep 关键字:[bootstrap-preload] / [auto-start] / [auto-start-rapidocr]'
+    $matches2 = @()
+    foreach ($lf in $allLogs) {
+        try {
+            $matches2 += Select-String -Path $lf.FullName -Pattern '\[bootstrap-preload\]|\[auto-start\]|\[auto-start-rapidocr\]' -ErrorAction SilentlyContinue |
+                         Select-Object -Last 50 |
+                         ForEach-Object { '{0}:{1}: {2}' -f (Split-Path -Leaf $_.Path), $_.LineNumber, $_.Line }
+        } catch {}
+    }
+    if ($matches2.Count -gt 0) {
+        Out-Code -Lang '' -Text (Limit-Text ($matches2 -join "`n") 80)
+    } else {
+        Out-Line '**没有任何 [bootstrap-preload] / [auto-start] 行** — 说明这两个 startup hook 根本没 emit log,跟 _audit_prompt_templates 一对比应该是异常。'
     }
 } else {
     Out-Line '**日志目录都不存在**,扫了以下路径:'
