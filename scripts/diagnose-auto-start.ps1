@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
     察元桌面端"装机即用本地模型服务自启"链路诊断。
@@ -218,7 +218,7 @@ $procs = Get-Process -ErrorAction SilentlyContinue |
 if ($procs) {
     $rows = $procs | ForEach-Object {
         $startTime = try { $_.StartTime.ToString('HH:mm:ss') } catch { '?' }
-        "  - {0,-22} pid={1,-6} RSS={2,7:N1} MB  started={3}" -f $_.ProcessName, $_.Id, ($_.WorkingSet64 / 1MB), $startTime
+        '  - {0,-22} pid={1,-6} RSS={2,7:N1} MB  started={3}' -f $_.ProcessName, $_.Id, ($_.WorkingSet64 / 1MB), $startTime
     }
     Out-Line '相关进程:'
     Out-Line ($rows -join "`n")
