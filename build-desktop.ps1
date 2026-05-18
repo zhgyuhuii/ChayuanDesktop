@@ -515,10 +515,10 @@ if ($SkipModelCheck) {
 } else {
     Write-Step 'bundled_models 体检 (本次打包会嵌入哪些模型)'
     $checkScript = Join-Path $WorkspaceRoot 'scripts\check-bundled-models.py'
+    # PS 5.1 没有 ?? 空值合并运算符,用显式 if 替代
+    $pyExe = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $pyExe) { $pyExe = Get-Command python3 -ErrorAction SilentlyContinue }
     if (Test-Path $checkScript) {
-        # PS 5.1 没有 ?? 空值合并运算符,用显式 if 替代
-        $pyExe = Get-Command python -ErrorAction SilentlyContinue
-        if (-not $pyExe) { $pyExe = Get-Command python3 -ErrorAction SilentlyContinue }
         if ($pyExe) {
             & $pyExe.Source $checkScript
             if ($LASTEXITCODE -eq 0) { $ModelCheckOk = $true }
@@ -528,6 +528,28 @@ if ($SkipModelCheck) {
         }
     } else {
         Write-Note "$checkScript 不存在,跳过"
+    }
+
+    # services 体检 — 跟 bundled_models 配套,看 launcher binary 在不在
+    # (历史 bug:lite 漏打 services/ 导致模型有但 sidecar 起不来,见 commit f3c51d9)
+    Write-Step 'services 体检 (本次打包会装哪些 launcher binary)'
+    $svcCheck = Join-Path $WorkspaceRoot 'scripts\check-services.py'
+    if (Test-Path $svcCheck) {
+        if ($pyExe) {
+            # 推 host triple → vendor platform 子目录名(同 build.py triple_to_vendor_subdir)
+            $arch = $env:PROCESSOR_ARCHITECTURE
+            if ($arch -eq 'ARM64') { $hostVendorPlat = 'win-arm64' }
+            else                   { $hostVendorPlat = 'win-x64' }
+            & $pyExe.Source $svcCheck --target $hostVendorPlat --require llama-server --require whisper-server
+            if ($LASTEXITCODE -ne 0) {
+                Write-Note "services binary 在 vendor/services/<engine>/$hostVendorPlat/ 下缺失。"
+                Write-Note "  跑 .\scripts\install-llama-server.ps1 / install-whisper-server.ps1 预下,再重打。"
+            }
+        } else {
+            Write-Note '未找到 python,跳过 services 体检'
+        }
+    } else {
+        Write-Note "$svcCheck 不存在,跳过"
     }
 }
 
