@@ -188,7 +188,12 @@ if (-not $pyExe -and ($doModels -or $doTorch)) {
 $stageSpecs = New-Object System.Collections.Generic.List[hashtable]
 
 if ($doModels) {
-    $modelArgs = @((Join-Path $here 'install-bundled-models.py'), '--source', $Source)
+    # 默认带 --clean-stale:打包前清掉 cap_dir 里非 canonical 的旧子目录
+    # (例:embedding/gte-multilingual-base 是 HF transformers,canonical 已换成
+    # bge-m3 GGUF,留着会被 build.py 误打进 installer + 运行时被 llama-server 拒绝)。
+    # canonical 名单真源:chayuan-server/packaging/bundle_manifest.py CANONICAL_MODEL_SUBDIRS。
+    $modelArgs = @((Join-Path $here 'install-bundled-models.py'),
+                   '--source', $Source, '--clean-stale')
     if ($Flavor -eq 'lite') { $modelArgs += '--lite' }
     $stageSpecs.Add(@{
         Stage = 'models'

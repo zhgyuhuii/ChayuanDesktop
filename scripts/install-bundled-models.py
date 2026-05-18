@@ -569,6 +569,66 @@ def _is_already_complete(dest_dir: Path, *, approx_mb: int,
     return True, f"已有 {sample},总 {total_mb:.1f} MiB,跳过下载"
 
 
+def _load_canonical_subdirs(cap: str) -> tuple[str, ...]:
+    """从 chayuan-server/packaging/bundle_manifest.py 读 cap 当前 canonical 子目录白名单。
+
+    返回空 tuple 表示该 cap 没有显式 canonical 表 → 调用方应保留所有子目录(open-by-default)。
+    bundle_manifest 不可读时(本地仓库残破)也返回空 tuple 不阻塞下载流程。
+    """
+    here = Path(__file__).resolve().parent  # scripts/
+    pkg_root = here.parent / "chayuan-server" / "packaging"
+    if not (pkg_root / "bundle_manifest.py").is_file():
+        return ()
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("bundle_manifest", pkg_root / "bundle_manifest.py")
+    if spec is None or spec.loader is None:
+        return ()
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except Exception:
+        return ()
+    if not hasattr(mod, "canonical_subdirs_for"):
+        return ()
+    return tuple(mod.canonical_subdirs_for(cap))
+
+
+def _prune_stale_subdirs(cap: str, cap_dir: Path, canonical: tuple[str, ...]) -> int:
+    """删除 cap_dir 下不在 canonical 列表里的子目录(--clean-stale 用)。
+
+    保留:.开头隐藏目录、canonical 列表里的子目录、顶层文件(扁平 layout 兼容)。
+    删除:同一 cap_dir 里其它"看起来像模型仓库"的子目录(有任意权重文件)。
+
+    Returns:
+        删除的子目录数量(0 = 啥都没删,纯检查)。
+    """
+    if not canonical or not cap_dir.is_dir():
+        return 0
+    n = 0
+    for entry in sorted(cap_dir.iterdir()):
+        if not entry.is_dir() or entry.name.startswith(".") or entry.name in canonical:
+            continue
+        # 看起来像模型仓库的标志:任意权重文件 / config.json / model_index.json
+        looks_like_model = False
+        try:
+            for ext in (".gguf", ".safetensors", ".bin", ".onnx", ".pt", ".pth"):
+                if any(entry.glob(f"*{ext}")):
+                    looks_like_model = True
+                    break
+            if not looks_like_model and (entry / "config.json").is_file():
+                looks_like_model = True
+        except OSError:
+            continue
+        if not looks_like_model:
+            continue
+        size_mb = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file()) / 1024 / 1024
+        _print(f"[{cap}] --clean-stale:删除非 canonical 子目录 {entry.name}/ "
+               f"(~{size_mb:.1f} MiB;canonical={canonical!r})")
+        shutil.rmtree(entry)
+        n += 1
+    return n
+
+
 def _download_one(
     cap: str,
     cap_spec: dict,
@@ -701,6 +761,17 @@ def main() -> int:
         help="下载前清空整个 cap 目录(embedding/、chat/ 等),把误下的旧模型 / 废候选一并清掉;比 --clean 更彻底",
     )
     parser.add_argument(
+        "--clean-stale",
+        action="store_true",
+        help=("下载前清掉 cap 目录里**非 canonical** 的子目录(历史遗留)。"
+              "canonical 名单从 chayuan-server/packaging/bundle_manifest.py "
+              "CANONICAL_MODEL_SUBDIRS 读。"
+              "例:embedding canonical=bge-m3,本 flag 开启时旧的 "
+              "embedding/gte-multilingual-base/ 会被删 — 跟 --clean-cap 区别是"
+              "保留 canonical 子目录(如 bge-m3 已下完不重下),只清陈年旧账。"
+              "install-vendor.ps1 默认传这个,确保打包前 vendor 是干净状态。"),
+    )
+    parser.add_argument(
         "--lite",
         action="store_true",
         help=("只下载轻量版子集(embedding / rerank / asr / ocr,~990 MB);"
@@ -784,8 +855,15 @@ def main() -> int:
     else:
         plan = list(MANIFEST.keys())
     failures: list[tuple[str, str]] = []
+    pruned_total = 0
     for cap in plan:
         spec = MANIFEST[cap]
+        # --clean-stale:在尝试下载前,清掉 cap_dir 里非 canonical 的旧子目录
+        # (比如 embedding/gte-multilingual-base → 当前 canonical 已换成 bge-m3 GGUF)。
+        if args.clean_stale:
+            canonical = _load_canonical_subdirs(cap)
+            if canonical:
+                pruned_total += _prune_stale_subdirs(cap, vendor_root / cap, canonical)
         try:
             _download_one(
                 cap, spec,
@@ -800,6 +878,9 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             failures.append((cap, str(e)))
         _print("")
+
+    if args.clean_stale and pruned_total > 0:
+        _print(f"[install] --clean-stale 共清理 {pruned_total} 个非 canonical 子目录")
 
     if failures:
         _print("[install] 部分下载失败:")

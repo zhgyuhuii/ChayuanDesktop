@@ -383,6 +383,22 @@ def _load_bundle_caps(flavor: str) -> tuple[str, ...]:
     return tuple(manifest.caps_for(flavor))
 
 
+def canonical_subdirs_for(cap: str) -> tuple[str, ...]:
+    """从 packaging/bundle_manifest.py 拿当前规范的模型子目录白名单(cap → tuple)。
+
+    跟 :func:`_load_bundle_caps` 同样的 sys.path 注入路径,运行期幂等。
+    返回空 tuple 时调用方应按"全收"语义处理(open-by-default)。
+    """
+    import importlib
+    pkg_root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(pkg_root))
+    try:
+        manifest = importlib.import_module("bundle_manifest")
+    finally:
+        sys.path.pop(0)
+    return tuple(manifest.canonical_subdirs_for(cap))
+
+
 def _target_has_installer_size_limit(target_triple: str) -> bool:
     """目标平台的 installer 是否撞 2 GB 单文件限制 — 即:要不要走 external seed 分流。
 
@@ -483,11 +499,31 @@ def sync_bundled_models(
                     skipped.append(entry.name)
             continue
         # 该 cap 在清单内 → 整子目录拷过去(跳过 .gitkeep + 冗余权重 + 分流大文件)
+        # 2026-05-18:新增 CANONICAL_MODEL_SUBDIRS 白名单过滤 —
+        # 历史遗留子目录(例:embedding/gte-multilingual-base 是 HF transformers,
+        # 但当前 canonical 是 bge-m3 GGUF)不打进 installer。
+        canon = canonical_subdirs_for(entry.name)
         for sub in entry.rglob("*"):
             if not sub.is_file() or sub.name == ".gitkeep":
                 continue
             rel = sub.relative_to(src)
             size = sub.stat().st_size
+
+            # 规范子目录过滤:相对 cap_dir 的首段必须在 canon 列表里(canon 为空
+            # = open-by-default,不过滤 — 兼容未来还没列入清单的 cap)。
+            # 注意:rel.parts[0] 是 cap 名(等同 entry.name);rel.parts[1] 才是
+            # 模型子目录名。如果模型直接落在 cap 根(单文件,如 asr/ggml-tiny.bin
+            # 旧布局),len(parts)==2,跳过子目录检查仍合法 — 顶层文件总是放行。
+            if canon and len(rel.parts) >= 3:
+                model_subdir_name = rel.parts[1]
+                if model_subdir_name not in canon:
+                    # 不在白名单 → 视为 stale legacy 模型,跳过(不打 installer)
+                    n_redundant_skipped += 1
+                    if len(redundant_examples) < 5:
+                        redundant_examples.append(
+                            f"stale subdir: {rel} (canonical={canon!r})"
+                        )
+                    continue
 
             # 冗余权重剪枝:同 model 目录有 .gguf/.safetensors 时,.bin/.onnx_data/.pt/.pth
             # 都是历史遗留(老版 install 或手动 HF snapshot),装机不需要,直接跳。

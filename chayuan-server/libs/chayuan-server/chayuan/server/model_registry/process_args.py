@@ -288,10 +288,14 @@ def resolve_llamacpp_args(
 # ───────────────────────── infinity ─────────────────────────
 
 _INFINITY_CAPABILITIES = ("image-embedding",)
-# scanner identifier 把 CLIP / image-text 多模态都标 'image-to-text'(_CAPABILITY_BY_MODELTYPE
-# 见 identifier.py:_PATH_HINTS);用这个去 local_index 查才能命中。原来写 'image' 永远找不到。
+# scanner identifier 现在(identifier.py:_CAPABILITY_BY_MODELTYPE)把 CLIP / ViT 标
+# 'image-embedding',把 BLIP / LLaVA / qwen2_vl 标 'image-to-text'。两者**不同 cap**。
+# 历史 bug:这里曾经写 'image-to-text',导致 OCR(PP-OCRv3/PP-OCRv4 也是 image-to-text
+# +onnx)被当成 image-embedding 候选,然后 _resolve 返回 OCR → 走到 format='onnx'
+# 拒绝分支报"是 OCR ONNX,不是 CLIP-like 模型"。
+# 修复:直接查 'image-embedding',让 CLIP 命中、OCR 自然排除。
 _INFINITY_LOCAL_CAP_MAP = {
-    "image-embedding": "image-to-text",
+    "image-embedding": "image-embedding",
 }
 
 
