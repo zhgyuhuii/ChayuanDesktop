@@ -648,6 +648,26 @@ if ($poetryExe) {
 }
 
 # ====================================================================
+# Step 1c: 同步诊断脚本到 src-tauri/tools/(给已装用户排查用)
+# ====================================================================
+# 把 scripts/diagnose-auto-start.ps1 复制到 src-tauri/tools/,Tauri 把它
+# 打进 installer 的 resources 区。装机后落到:
+#   Windows: <install>/resources/_up_/scripts/diagnose-auto-start.ps1  (NSIS/MSI)
+#            或 <install>/diagnose-auto-start.ps1 (实际取决于 Tauri 2 resources 落点)
+# 已装的 lite 用户直接在 install dir 里能 powershell -File 跑,
+# 不需要 git clone 整个仓库。
+Write-Step 'Step 1c: 同步诊断脚本到 src-tauri/tools/'
+$diagSrc = Join-Path $WorkspaceRoot 'scripts\diagnose-auto-start.ps1'
+$diagDstDir = Join-Path $ClientDir 'apps\desktop\src-tauri\tools'
+if (Test-Path $diagSrc) {
+    New-Item -ItemType Directory -Force -Path $diagDstDir | Out-Null
+    Copy-Item -Path $diagSrc -Destination (Join-Path $diagDstDir 'diagnose-auto-start.ps1') -Force
+    Write-Host "  copied $diagSrc -> $diagDstDir\diagnose-auto-start.ps1"
+} else {
+    Write-Warning "  scripts\diagnose-auto-start.ps1 不存在,跳过(installer 里不会有诊断脚本)"
+}
+
+# ====================================================================
 # Step 2: 健康探测
 # ====================================================================
 if ($SkipHealthcheck) {

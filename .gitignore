@@ -92,3 +92,6 @@ chayuan-server/vendor/bundled_models/**/*.bin
 # 复制到这里供 tauri 把模型打进 NSIS installer。运行时构件,不入库。
 chayuan-client/apps/desktop/src-tauri/bundled_models/
 chayuan-client/apps/desktop/src-tauri/services/
+# tools/:build-desktop.ps1 把 scripts/diagnose-auto-start.ps1 同步进来,
+# Tauri 把它打成 resources/_up_/scripts/diagnose-auto-start.ps1。同样运行时构件。
+chayuan-client/apps/desktop/src-tauri/tools/
