@@ -656,6 +656,30 @@ def _check_magic(path: Path, subdir: str) -> tuple[bool, str]:
     return False, f"magic {head!r} 不匹配 {subdir} 期望 {expected}"
 
 
+def _kill_lingering(exe_name: str) -> None:
+    """杀掉本机所有同名 exe 进程(不论是不是本次 spawn 的子进程)。
+
+    场景:verify --help hang 30s 后 subprocess.run 强杀子句柄,但 Windows 上
+    某些情况下 sidecar 已经 fork 出孙进程,父句柄被回收孙还活着 → 占着
+    .gguf / .dll → 下一轮 sync rmtree 报 WinError 32。这里用 taskkill /T 兜底
+    把整棵进程树清掉。Linux/Mac 走 pkill。
+    """
+    name_no_ext = exe_name[:-4] if exe_name.lower().endswith(".exe") else exe_name
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/IM", exe_name],
+                capture_output=True, timeout=10, check=False,
+            )
+        else:
+            subprocess.run(
+                ["pkill", "-9", "-f", name_no_ext],
+                capture_output=True, timeout=10, check=False,
+            )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def verify_service_binaries(target_subdir: str, host_subdir: str) -> None:
     """打集成包后验证 src-tauri/services/ 里的运行程序可用、可运行。
 
@@ -714,9 +738,13 @@ def verify_service_binaries(target_subdir: str, host_subdir: str) -> None:
                 # 给可执行位(macOS / Linux 从 git checkout 可能 666)
                 if not win:
                     os.chmod(bin_path, 0o755)
+                # 给 30s 余量 — llama-server 启动会做 CPU 特性探测 / 部分
+                # 系统上还会被国产杀软的"主动防御"沙箱拉去跑一遍才放行(实测
+                # 火绒 / 360 给十几秒延迟);5s 太紧,误报 hang。--help 本身
+                # 不加载模型,正常路径还是 < 1s 退。
                 r = subprocess.run(
                     [str(bin_path), "--help"],
-                    capture_output=True, timeout=5,
+                    capture_output=True, timeout=30,
                 )
                 stderr_bytes = r.stderr or b""
                 stdout_bytes = r.stdout or b""
@@ -758,7 +786,11 @@ def verify_service_binaries(target_subdir: str, host_subdir: str) -> None:
                         flush=True,
                     )
             except subprocess.TimeoutExpired:
-                failures.append(f"{engine}:--help 5s 超时,binary hang 住")
+                # 30s 还没退 = 真 hang 住 / 杀软沙箱卡死。强杀 + 报 fail。
+                # 不 cleanup 进程的话,它会占着 .gguf / .dll,下一轮 sync 删
+                # bundled_models 时 PermissionError(WinError 32)。
+                _kill_lingering(bin_path.name)
+                failures.append(f"{engine}:--help 30s 超时,binary hang 住(已强杀进程)")
             except OSError as e:
                 # Exec format error / Permission denied 等 —— binary 文件本身坏了
                 failures.append(f"{engine}:--help 起不来:{type(e).__name__}: {e}")

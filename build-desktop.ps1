@@ -215,11 +215,21 @@ function Stop-ProcessTree {
 }
 
 function Stop-LingeringSidecars {
-    # 杀任何残留的 chayuan-server* 进程(上次 Step 2 没收尾干净时常见)。
+    # 杀任何残留的 chayuan-server / llama-server / whisper-server 进程,
+    # 防止它们占着 src-tauri/bundled_models/ 或 src-tauri/services/ 下的
+    # 文件 → 下一轮 sync rmtree 报 WinError 32。
+    # - chayuan-server*:Step 2 healthcheck 残留
+    # - llama-server / whisper-server:verify --help 那一步 hang 30s 后
+    #   build.py 已经 taskkill 过,这里再扫一次兜底(WMI 慢同步)
     $killed = 0
     Get-Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.ProcessName -like 'chayuan-server*' } |
+        Where-Object {
+            $_.ProcessName -like 'chayuan-server*' -or
+            $_.ProcessName -like 'llama-server*' -or
+            $_.ProcessName -like 'whisper-server*'
+        } |
         ForEach-Object {
+            Write-Note "  kill: $($_.ProcessName) PID=$($_.Id)"
             Stop-ProcessTree -ProcessId $_.Id
             $killed++
         }
