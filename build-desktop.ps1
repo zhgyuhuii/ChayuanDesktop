@@ -87,6 +87,12 @@ param(
     # 兼容旧名(`-IntegratedOnly` 仍可用,等价 `-FullOnly`,触发时打 deprecation hint)
     [switch]$IntegratedOnly,
     [switch]$SkipModelCheck,
+    # 在体检之前自动跑 install-vendor.ps1 把缺的模型 / services binary / torch wheels
+    # 一锅装。默认开;-SkipInstallVendor 跳过(CI 已挂 vendor 缓存目录用)。
+    [switch]$SkipInstallVendor,
+    # 透传给 install-vendor.ps1:auto / hf / modelscope
+    [ValidateSet('auto','hf','modelscope')]
+    [string]$InstallSource = 'auto',
     # 显式指定 bundled_models 源目录,透传到 build.py --bundled-source。
     # 典型:开发者用 install-bundled-models.ps1 -ChayuanRoot 装到 chayuan_root,打包时
     # 通过 -BundledSource $env:CHAYUAN_ROOT\models\bundled 复用同一份模型。
@@ -509,6 +515,69 @@ function Invoke-Step {
 # ====================================================================
 # bundled_models 体检 (本次打包会嵌入哪些模型)
 # ====================================================================
+# ────────────────────────────────────────────────────────────────────
+# 0a. vendor 自动安装(模型 + services binary + torch wheels)
+#     用 check-* 脚本判断是否完整,缺则触发 install-vendor.ps1 一锅装。
+#     默认开;-SkipInstallVendor 跳过。
+# ────────────────────────────────────────────────────────────────────
+if ($SkipInstallVendor) {
+    Write-Step 'vendor 自动安装 [skipped: -SkipInstallVendor]'
+} elseif ($SkipModelCheck) {
+    Write-Step 'vendor 自动安装 [skipped: -SkipModelCheck 等价跳过整段]'
+} else {
+    Write-Step 'vendor 自动安装预检(缺则装齐)'
+    $pyExeForCheck = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $pyExeForCheck) { $pyExeForCheck = Get-Command python3 -ErrorAction SilentlyContinue }
+    $vendorComplete = $true
+
+    # 解析当前 host platform → vendor 子目录名
+    $arch0 = $env:PROCESSOR_ARCHITECTURE
+    if ($arch0 -eq 'ARM64') { $hostVendorPlat0 = 'win-arm64' } else { $hostVendorPlat0 = 'win-x64' }
+
+    # 模型完整性:exit 1 = 全空 / 缺 require;exit 2 = 目录不存在
+    $checkM0 = Join-Path $WorkspaceRoot 'scripts\check-bundled-models.py'
+    if ($pyExeForCheck -and (Test-Path $checkM0)) {
+        & $pyExeForCheck.Source $checkM0 --json 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            $vendorComplete = $false
+            Write-Note "bundled_models 不完整 (check exit=$LASTEXITCODE),将触发 install-vendor"
+        }
+    }
+    # services 完整性:llama-server / whisper-server 当前平台必须有 binary
+    $checkS0 = Join-Path $WorkspaceRoot 'scripts\check-services.py'
+    if ($pyExeForCheck -and (Test-Path $checkS0)) {
+        & $pyExeForCheck.Source $checkS0 --target $hostVendorPlat0 --require llama-server --require whisper-server --json 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            $vendorComplete = $false
+            Write-Note "services binary 不完整 (check exit=$LASTEXITCODE),将触发 install-vendor"
+        }
+    }
+    # torch wheels:strict-vendor 模式必须有 — 当前平台没装则触发
+    $twDir = Join-Path $ServerDir "vendor\torch_wheels\win_amd64_py312_cpu"
+    if ($hostVendorPlat0 -eq 'win-arm64') { $twDir = Join-Path $ServerDir "vendor\torch_wheels\win_arm64_py312_cpu" }
+    $hasTorchWheels = (Test-Path $twDir) -and ((Get-ChildItem $twDir -Filter '*.whl' -ErrorAction SilentlyContinue).Count -ge 2)
+    if (-not $hasTorchWheels) {
+        $vendorComplete = $false
+        Write-Note "vendor/torch_wheels/ 不完整(strict-vendor 模式必须),将触发 install-vendor"
+    }
+
+    if ($vendorComplete) {
+        Write-Note 'vendor/ 已完整,跳过自动安装。强制重装请用 .\scripts\install-vendor.ps1 -Flavor lite/full'
+    } else {
+        # 按要打的 flavor 决定装哪个子集。两个都打(默认双产物)→ full(超集)。
+        $vendorFlavor = if ($Flavors -contains 'full') { 'full' } else { 'lite' }
+        Write-Note ('触发 install-vendor.ps1 -Flavor ' + $vendorFlavor + ' -Source ' + $InstallSource)
+        $installScript = Join-Path $WorkspaceRoot 'scripts\install-vendor.ps1'
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installScript -Flavor $vendorFlavor -Source $InstallSource
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[FAIL] install-vendor 失败 (exit=$LASTEXITCODE)。" -ForegroundColor Red
+            Write-Host '  手动跑 .\scripts\install-vendor.ps1 -Flavor lite (或 -Source modelscope) 看具体哪步挂' -ForegroundColor DarkYellow
+            Write-Host '  或加 -SkipInstallVendor 绕过(代价:体检会提示缺,可能 build 失败)' -ForegroundColor DarkYellow
+            exit 4
+        }
+    }
+}
+
 $ModelCheckOk = $false
 if ($SkipModelCheck) {
     Write-Step '模型体检 [skipped]'
