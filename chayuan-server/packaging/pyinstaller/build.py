@@ -86,6 +86,11 @@ BUNDLED_SRC = ROOT / "vendor" / "bundled_models"
 EXTERNAL_SEED_DIR = ROOT / "dist" / "models_seed"
 EXTERNAL_SEED_MANIFEST_NAME = ".external_seed_manifest.json"
 EXTERNAL_SEED_VOLUME_HINT = "CHAYUAN_FULL"   # 跟 make-iso.ps1 的卷标对齐
+# PyTorch wheels 走类似 models_seed 的 ISO 旁挂链路 — 不嵌进 sidecar exe,装机后
+# first_launch.seed_torch_wheels() 从介质拷到 <CHAYUAN_ROOT>/torch_wheels/<variant>/。
+# 注:CPU wheel ~250MB 嵌进 MSI 也不会撞 2GB 限制,但跟 models_seed 用同样的
+# ISO 链路保持设计一致,且未来加 CUDA wheel(~2.5GB)直接撞 2GB 必须走 ISO。
+TORCH_WHEELS_SEED_DIR = ROOT / "dist" / "torch_wheels_seed"
 
 
 def _resolve_bundled_src(cli_arg: Optional[str]) -> Path:
@@ -841,6 +846,65 @@ def verify_service_binaries(target_subdir: str, host_subdir: str) -> None:
     print(f"[verify] 所有 service binary 通过验证 ({len(engines)} 个 engine)", flush=True)
 
 
+def sync_torch_wheels() -> None:
+    """同步 vendor/torch_wheels/<sub>/*.whl → 两个目标:
+
+    1. **Tauri 资源**(``src-tauri/torch_wheels/<sub>/``)— Tauri 把这里打进 MSI,
+       装机后落在 ``<install>/torch_wheels/<sub>/``。CPU wheel ~250MB 装这里没问题
+       (远低于 2GB MSI 单文件限制),装机即用,免 ISO 挂载。
+    2. **ISO external seed**(``dist/torch_wheels_seed/<sub>/``)— 同 models_seed 的
+       ISO 旁挂链路,留给未来 CUDA wheel(~2.5GB)用,撞 2GB MSI 限制时改走这里。
+
+    幂等:每次先清两个目标再拷,避免 lite/full 切换或换 variant 时旧 wheel 残留。
+
+    输出布局示例:
+      src-tauri/torch_wheels/win_amd64_py312_cpu/torch-2.5.1+cpu-...whl
+                            win_amd64_py312_cpu/torchvision-...whl
+    """
+    src = ROOT / "vendor" / "torch_wheels"
+    desktop_dst = DESKTOP_SRC_TAURI / "torch_wheels"
+
+    # 1. 清旧
+    if desktop_dst.exists():
+        shutil.rmtree(desktop_dst)
+    if TORCH_WHEELS_SEED_DIR.exists():
+        shutil.rmtree(TORCH_WHEELS_SEED_DIR)
+
+    if not src.is_dir():
+        print(f"[build] torch_wheels 源不存在 {src},跳过 torch wheel 同步",
+              flush=True)
+        # 留 .gitkeep 让 Tauri glob 不空
+        desktop_dst.mkdir(parents=True, exist_ok=True)
+        (desktop_dst / ".gitkeep").touch()
+        return
+
+    desktop_dst.mkdir(parents=True, exist_ok=True)
+
+    # 2. 拷到 Tauri 资源 + 同时为大文件预备 ISO seed(目前 CPU wheel < 250MB,
+    #    都走 Tauri 路径;未来 CUDA wheel ≥ 2GB 单文件可在这里扩展分流逻辑)。
+    n_tauri = 0
+    bytes_tauri = 0
+    for sub in sorted(src.iterdir()):
+        if not sub.is_dir() or sub.name.startswith("."):
+            continue
+        for whl in sub.glob("*.whl"):
+            dst = desktop_dst / sub.name / whl.name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(whl, dst)
+            n_tauri += 1
+            bytes_tauri += whl.stat().st_size
+
+    print(
+        f"[build] torch_wheels → {desktop_dst} "
+        f"({n_tauri} 个 wheel,~{bytes_tauri / 1024 / 1024:.1f} MiB,进 MSI 资源)",
+        flush=True,
+    )
+
+    if n_tauri == 0:
+        # Tauri glob 防空 — 留 .gitkeep
+        (desktop_dst / ".gitkeep").touch()
+
+
 def sync_services(*, lite: bool, target_triple: str | None = None) -> None:
     """同步 vendor/services/<engine>-server/<platform>/* → src-tauri/services/<engine>-server/*。
 
@@ -1012,9 +1076,18 @@ def main() -> None:
     )
     parser.add_argument(
         "--torch-platforms",
-        default="",
-        help=("逗号分隔的 pip --platform tag,默认按 ``--target`` triple 自动映射"
-              "(如 x86_64-pc-windows-msvc → win_amd64)。CI 跨平台需显式覆盖。"),
+        # 2026-05-18:默认拉 4 个平台 cpu wheel(Win x64 + macOS arm64+x64 + Linux x64),
+        # 让 ISO 装机后 first_launch.auto_install_on_startup 在任意目标 OS 都有 wheel 可用。
+        # 历史默认 ""(自动按 --target triple 映射,只下当前平台一个)— 现在用户希望
+        # vendor/torch_wheels/ 里"各个平台都放好",改成 4 个一次性下完。
+        # 体积:~250 MB / 平台 × 4 = ~1 GB。覆盖请用 --torch-platforms win_amd64。
+        default="win_amd64,manylinux2014_x86_64,macosx_11_0_arm64,macosx_10_9_x86_64",
+        help=("逗号分隔的 pip --platform tag。默认 4 个 cpu 目标:"
+              "Windows x64 / Linux x64 / macOS arm64 / macOS Intel。"
+              "ISO 装机后 auto_install_on_startup 按 host OS 自动挑对应 wheel。"
+              "缩小范围:--torch-platforms win_amd64(只 Windows)。"
+              "扩 GPU:配合 --torch-variants cpu,cu124(仅 win_amd64 / "
+              "manylinux2014_x86_64 有 CUDA wheel)。"),
     )
     parser.add_argument(
         "--torch-py-versions",
@@ -1104,11 +1177,14 @@ def main() -> None:
         # whisper-server,verify 失败 = vendor binary 坏,无关 flavor)
         if not args.skip_verify:
             verify_service_binaries(target_subdir=target_sub, host_subdir=host_sub)
+        # torch wheels 也走 ISO 旁挂(2026-05-18 起从 sidecar exe 嵌入改成
+        # ISO external seed),sync_torch_wheels 把 vendor/torch_wheels/ 整套
+        # 拷到 dist/torch_wheels_seed/,后续 build-desktop.ps1 ISO 阶段嵌进 .iso。
+        sync_torch_wheels()
 
     if args.sync_bundled_only or args.sync_only:
-        # 跳过 PyInstaller,只同步 bundled_models + services。给 build-desktop 双 flavor
-        # 模式用:sidecar 跑一次,两个 flavor 切换时只重做 sync + tauri bundle。
-        # build-desktop.ps1 在 sidecar 缓存命中时也走这条路径(--sync-only)。
+        # 跳过 PyInstaller,只同步 bundled_models + services + torch wheels。
+        # build-desktop 双 flavor 模式 / sidecar 缓存命中走这条路径。
         sync_bundled_models(lite=lite, bundled_src=bundled_src, target_triple=target)
         _do_sync_and_verify()
         return

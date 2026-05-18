@@ -185,25 +185,27 @@ if sqlite_vec_dir.is_dir():
 
 
 # ──────────────────────────────────────────────────────────────
-# PyTorch + torchvision **离线 wheel**(无网装机兜底)
+# PyTorch + torchvision **离线 wheel** — 2026-05-18 起改走 ISO external seed,
+# 不再嵌进 sidecar exe(spec 这一段刻意留空 + 文档说明)。
 #
-# 用户报"内网部署没网装不上 torchvision",我们用 packaging/preflight_torch.py
-# 预下 wheel 到 ROOT/vendor/torch_wheels/<platform_pyver_variant>/。运行时
-# chayuan.server.runtime.pytorch_installer 优先用这里的 wheel,
-# 失败 fallback 在线 pytorch.org。
+# 历史:这里曾把 vendor/torch_wheels/<sub>/*.whl 一份份 append 到 datas →
+# PyInstaller `--onefile` 嵌进 sidecar exe → 装机后 sys._MEIPASS 解压。
+# 单 CPU wheel ~250MB 没问题,但 cu124 wheel ~2.5GB 撞 MSI 2GB 单文件限制
+# (LGHT0263),sidecar exe 自身已 ~840MB,再嵌任何 CUDA wheel 必爆。
 #
-# 这里把所有 *.whl 文件原样打进 sys._MEIPASS/vendor/torch_wheels/<sub>/,
-# 跟 dev 仓库的 vendor 目录结构一致 — 运行时 _offline_wheels_dir() 第二个
-# 探测分支(``sys._MEIPASS / "vendor" / "torch_wheels"``)能命中。
-# 体积:CPU ~250MB / CUDA ~2-3GB,默认只装 CPU(--variants cu124 拓展)。
+# 新链路(对齐 bundled_models 的 external_seed 设计):
+#   1. build.py sync_torch_wheels()  把 vendor/torch_wheels/ 拷到
+#      dist-<flavor>/torch_wheels_seed/  (跟 models_seed/ 一样进 ISO 不进 MSI)
+#   2. ISO 打包阶段把 torch_wheels_seed/ 嵌进 .iso 介质根
+#   3. 装机后 first_launch.seed_torch_wheels() 从 ISO 介质拷到
+#      <CHAYUAN_ROOT>/torch_wheels/<variant>/
+#   4. pytorch_installer 装 wheel 时优先扫 CHAYUAN_ROOT/torch_wheels/
+#
+# 这样:
+#   - sidecar exe 缩小 ~250MB(CPU 版),启动期 _MEIPASS 解压更快
+#   - 未来加 CUDA wheel 不再受 MSI 限制(走 ISO 几 GB 都行)
+#   - 用户可以手动加 cu* wheel 到 CHAYUAN_ROOT/torch_wheels/,不重新打包
 # ──────────────────────────────────────────────────────────────
-torch_wheels_root = ROOT / "vendor" / "torch_wheels"
-if torch_wheels_root.is_dir():
-    for sub in torch_wheels_root.iterdir():
-        if not sub.is_dir():
-            continue
-        for whl in sub.glob("*.whl"):
-            datas.append((str(whl), f"vendor/torch_wheels/{sub.name}"))
 
 
 # ──────────────────────────────────────────────────────────────

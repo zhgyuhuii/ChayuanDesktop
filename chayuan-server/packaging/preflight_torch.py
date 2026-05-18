@@ -216,13 +216,47 @@ def build_targets(
     return out
 
 
+def _detect_host_platform_tag() -> str:
+    """根据当前 Python 进程的 OS / arch 选 pip platform tag。
+
+    - Windows + x86_64 → win_amd64
+    - Linux + x86_64 → manylinux2014_x86_64
+    - Linux + aarch64 → manylinux2014_aarch64
+    - macOS + arm64(M1+) → macosx_11_0_arm64
+    - macOS + x86_64(Intel) → macosx_10_9_x86_64
+
+    返回 ``""`` 表示当前组合不在已知映射里(后续 caller fallback 到 --platforms 默认)。
+    """
+    import platform as _plat
+    sys_name = _plat.system().lower()       # linux / windows / darwin
+    machine = _plat.machine().lower()       # x86_64 / amd64 / arm64 / aarch64
+    is_x64 = machine in ("x86_64", "amd64")
+    is_arm64 = machine in ("arm64", "aarch64")
+
+    if sys_name == "windows" and is_x64:
+        return "win_amd64"
+    if sys_name == "linux" and is_x64:
+        return "manylinux2014_x86_64"
+    if sys_name == "linux" and is_arm64:
+        return "manylinux2014_aarch64"
+    if sys_name == "darwin" and is_arm64:
+        return "macosx_11_0_arm64"
+    if sys_name == "darwin" and is_x64:
+        return "macosx_10_9_x86_64"
+    return ""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="预下载 PyTorch + torchvision wheel 到 vendor/torch_wheels/,"
                     "供 PyInstaller 打包 + 离线 chayuan-server 装机用。"
     )
     parser.add_argument("--platforms", default="win_amd64",
-                          help="逗号分隔的 pip --platform tag 列表,默认 win_amd64")
+                          help="逗号分隔的 pip --platform tag 列表,默认 win_amd64;"
+                               "传 --host 时会被覆盖成当前主机平台")
+    parser.add_argument("--host", action="store_true",
+                          help="自动检测本机 OS+arch,只下当前平台的 wheel"
+                               "(开发本机迭代用,~250 MB 比全 4 平台快)。优先级高于 --platforms。")
     parser.add_argument("--py-versions", default="312",
                           help="逗号分隔的 Python 版本(无点,如 312),默认 312")
     parser.add_argument("--variants", default="cpu",
@@ -234,6 +268,15 @@ def main() -> int:
     parser.add_argument("--force", action="store_true",
                           help="已有 wheel 也重下")
     args = parser.parse_args()
+
+    if args.host:
+        host_tag = _detect_host_platform_tag()
+        if not host_tag:
+            print("[preflight-torch] --host 检测不到当前平台映射,fallback 到 --platforms 默认",
+                  file=sys.stderr)
+        else:
+            print(f"[preflight-torch] --host 启用:检测到本机 {host_tag},覆盖 --platforms")
+            args.platforms = host_tag
 
     platforms = [p.strip() for p in args.platforms.split(",") if p.strip()]
     py_versions = [v.strip() for v in args.py_versions.split(",") if v.strip()]

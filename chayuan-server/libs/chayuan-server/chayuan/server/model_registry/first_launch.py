@@ -272,6 +272,42 @@ def run_first_launch_hooks() -> FirstLaunchReport:
         logger.warning("[first_launch] promote_defaults 失败: %r", e)
         report.errors.append(f"promote_defaults: {type(e).__name__}: {e}")
 
+    # 3.5) PyTorch wheels seed + 自动安装
+    # ------------------------------------
+    # 把 <install>/torch_wheels/<sub>/ 的 wheel(Tauri 资源)拷到
+    # <CHAYUAN_ROOT>/torch_wheels/<sub>/(运行时目录),然后按 GPU 检测结果挑
+    # variant(默认 cpu,有 GPU 且驱动 OK 又有对应 wheel 时 cu*)启动后台 pip install。
+    # 安装本身走 InstallTask 异步跑,本 hook 只触发,不等待 — 启动链路不阻塞。
+    try:
+        from chayuan.server.runtime.pytorch_installer import (
+            seed_torch_wheels,
+            auto_install_on_startup,
+        )
+        seed_rep = seed_torch_wheels()
+        if seed_rep.get("copied"):
+            logger.info(
+                "[first_launch] torch_wheels seeded: %d files src=%s dst=%s",
+                len(seed_rep.get("copied", [])),
+                seed_rep.get("source"),
+                seed_rep.get("target"),
+            )
+        auto = auto_install_on_startup()
+        action = auto.get("action")
+        if action == "installing":
+            logger.info(
+                "[first_launch] auto-installing PyTorch %s (task=%s)",
+                auto.get("variant"), auto.get("task_id"),
+            )
+        elif action == "skipped":
+            logger.info("[first_launch] PyTorch 已就绪,跳过自动安装")
+        elif action == "deferred":
+            logger.info("[first_launch] PyTorch 自动安装延迟:%s", auto.get("reason"))
+        elif action == "failed":
+            logger.warning("[first_launch] PyTorch 自动安装链路异常:%s", auto.get("error"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[first_launch] torch seed/auto-install 失败: %r", e)
+        report.errors.append(f"torch_seed_auto_install: {type(e).__name__}: {e}")
+
     # 4) deploy user manuals
     try:
         from chayuan.server.manuals.deploy import deploy_user_manuals

@@ -725,13 +725,16 @@ if ($SkipInstallVendor) {
             Write-Note "services binary 不完整 (check exit=$LASTEXITCODE),将触发 install-vendor"
         }
     }
-    # torch wheels:strict-vendor 模式必须有 — 当前平台没装则触发
-    $twDir = Join-Path $ServerDir "vendor\torch_wheels\win_amd64_py312_cpu"
-    if ($hostVendorPlat0 -eq 'win-arm64') { $twDir = Join-Path $ServerDir "vendor\torch_wheels\win_arm64_py312_cpu" }
-    $hasTorchWheels = (Test-Path $twDir) -and ((Get-ChildItem $twDir -Filter '*.whl' -ErrorAction SilentlyContinue).Count -ge 2)
-    if (-not $hasTorchWheels) {
-        $vendorComplete = $false
-        Write-Note "vendor/torch_wheels/ 不完整(strict-vendor 模式必须),将触发 install-vendor"
+    # torch wheels:host 平台必须齐(strict-vendor 模式 + 装机后 auto_install 兜底)
+    # check-torch-wheels.py --require-host: 返 0 = host subdir 有完整 torch+torchvision,
+    # 1 = host 缺(需要 install-vendor 装), 2 = vendor/torch_wheels/ 不存在。
+    $checkT0 = Join-Path $WorkspaceRoot 'scripts\check-torch-wheels.py'
+    if ($pyExeForCheck -and (Test-Path $checkT0)) {
+        & $pyExeForCheck.Source $checkT0 --require-host --json 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            $vendorComplete = $false
+            Write-Note "torch wheels 不完整 (check exit=$LASTEXITCODE),将触发 install-vendor"
+        }
     }
 
     if ($vendorComplete) {
@@ -792,6 +795,28 @@ if ($SkipModelCheck) {
         }
     } else {
         Write-Note "$svcCheck 不存在,跳过"
+    }
+
+    # torch wheels 体检 — 跟 bundled_models / services 配套。
+    # build.py 默认 4 个平台 cpu wheel,Tauri 把它们打进 <install>/torch_wheels/,
+    # 装机后 first_launch.seed_torch_wheels 拷到 CHAYUAN_ROOT。
+    # host 平台缺 wheel → 装机后 auto_install_on_startup 找不到 wheel
+    # → image-embedding / rerank 无法离线装(只能走在线 download.pytorch.org)。
+    Write-Step 'torch_wheels 体检 (本次打包会带哪些平台 wheel)'
+    $torchCheck = Join-Path $WorkspaceRoot 'scripts\check-torch-wheels.py'
+    if (Test-Path $torchCheck) {
+        if ($pyExe) {
+            & $pyExe.Source $torchCheck --require-host
+            if ($LASTEXITCODE -ne 0) {
+                Write-Note "vendor/torch_wheels/<host>/ 下 wheel 不完整。"
+                Write-Note "  跑 .\scripts\install-vendor.ps1 -Components torch (或单独跑 preflight_torch.py --host) 拉齐再重打。"
+                Write-Note "  装机用户首启自动按 host OS 挑对应 wheel 装,缺 host wheel 则走在线 download.pytorch.org。"
+            }
+        } else {
+            Write-Note '未找到 python,跳过 torch_wheels 体检'
+        }
+    } else {
+        Write-Note "$torchCheck 不存在,跳过"
     }
 }
 
@@ -1209,6 +1234,36 @@ if ($SkipFrontend) {
             }
         } else {
             Write-Note "$extSeedSrc 存在但是空的 — 本次没有大文件分流,跳过"
+        }
+    }
+
+    # ----------------------------------------------------------------
+    # Torch wheels seed:把 chayuan-server/dist/torch_wheels_seed/ 拷到 dist-{flavor}/
+    # ----------------------------------------------------------------
+    # 跟 models_seed 同样的"ISO 旁挂"链路。build.py sync_torch_wheels 把
+    # vendor/torch_wheels/<sub>/ 拷到 dist/torch_wheels_seed/<sub>/(不嵌 sidecar exe),
+    # 这里继续拷到 dist-{flavor}/,后面 make-iso.ps1 整目录打 ISO 时自动带上。
+    # 装机后 first_launch.seed_torch_wheels() 从光驱介质把 wheel 拷到
+    # <CHAYUAN_ROOT>/torch_wheels/,pytorch_installer 离线 pip install。
+    $torchSeedSrc = Join-Path $ServerDir 'dist\torch_wheels_seed'
+    if (Test-Path $torchSeedSrc) {
+        $whlFiles = Get-ChildItem -Path $torchSeedSrc -Recurse -File -Filter '*.whl' -ErrorAction SilentlyContinue
+        if ($whlFiles -and $whlFiles.Count -gt 0) {
+            $whlTotalMb = [math]::Round(($whlFiles | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
+            $torchSeedDest = Join-Path $flavorOut 'torch_wheels_seed'
+            New-Item -ItemType Directory -Force -Path $torchSeedDest | Out-Null
+            Write-Step "torch wheels seed ($Flavor): $($whlFiles.Count) 个 wheel ($whlTotalMb MB)"
+            $robocopyArgs = @($torchSeedSrc, $torchSeedDest, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/NP')
+            $null = & robocopy @robocopyArgs
+            $rc = $LASTEXITCODE
+            $global:LASTEXITCODE = 0
+            if ($rc -ge 8) {
+                Write-Fail "robocopy torch_wheels seed 失败 (exit $rc),dist-$Flavor/torch_wheels_seed/ 可能不完整"
+            } else {
+                Write-Ok "torch_wheels_seed 已就位 → $torchSeedDest"
+            }
+        } else {
+            Write-Note "$torchSeedSrc 存在但是空的 — preflight 没下 wheel(可能加了 --skip-torch-preflight)"
         }
     }
 

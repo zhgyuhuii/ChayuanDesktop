@@ -132,14 +132,17 @@ def _offline_wheels_dir() -> Optional[Path]:
 
     探测顺序(跟 model_registry.local_index.bundled_models_dir 风格一致):
       1. ``$CHAYUAN_TORCH_WHEELS_DIR`` 环境变量(运维 / CI 自定义)
-      2. PyInstaller frozen:``sys._MEIPASS / vendor / torch_wheels``
-      3. dev 仓库:``<repo>/vendor/torch_wheels``
-      4. 可执行文件同级:``<argv0_dir>/vendor/torch_wheels``
+      2. ``<CHAYUAN_ROOT>/torch_wheels/`` — 首启 :func:`seed_torch_wheels` 拷过来的
+         运行时目录,跨进程重启稳定可用
+      3. PyInstaller frozen:``sys._MEIPASS / vendor / torch_wheels``(老路径,
+         2026-05-18 起新 build 不再嵌进 sidecar exe,但旧版本兼容保留)
+      4. Tauri 安装目录:``<install>/torch_wheels/``(新路径,Tauri resources
+         打包到这里,装机后 first_launch 从这里拷到 CHAYUAN_ROOT)
+      5. dev 仓库:``<repo>/vendor/torch_wheels``
+      6. 可执行文件同级:``<argv0_dir>/torch_wheels``(扁平 fallback)
 
-    目录约定:wheel 文件直接平铺在目录下,文件名形如
-      ``torch-2.6.0+cpu-cp312-cp312-win_amd64.whl``
-      ``torchvision-0.21.0+cpu-cp312-cp312-win_amd64.whl``
-    脚本不再细分子目录 — pip 装 wheel 时会自己按 platform tag 拒绝不兼容的。
+    目录约定:子目录布局如 ``win_amd64_py312_cpu/torch-2.6.0+cpu-...whl``;
+    早期版本曾扁平放,_find_offline_wheels 用 rglob 同时兼容两种。
     """
     env = os.environ.get("CHAYUAN_TORCH_WHEELS_DIR")
     if env:
@@ -147,11 +150,36 @@ def _offline_wheels_dir() -> Optional[Path]:
         if p.is_dir():
             return p
 
+    # CHAYUAN_ROOT/torch_wheels:首启 seed_torch_wheels 拷过来的运行时目录。
+    # 优先级最高(用户已经把对应 variant 装到这里 / 手动补了 CUDA wheel)。
+    try:
+        from chayuan.settings import CHAYUAN_ROOT
+        p = Path(CHAYUAN_ROOT) / "torch_wheels"
+        if p.is_dir() and any(p.rglob("*.whl")):
+            return p
+    except Exception:  # noqa: BLE001
+        pass
+
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         p = Path(meipass) / "vendor" / "torch_wheels"
         if p.is_dir():
             return p
+
+    # Tauri 安装目录 — chayuan-server.exe 落在 <install>/ 下,
+    # Tauri resources 落到 <install>/torch_wheels/(对齐 bundled_models 风格)。
+    try:
+        argv0 = Path(sys.argv[0]).resolve()
+        if argv0.is_file():
+            p = argv0.parent / "torch_wheels"
+            if p.is_dir() and any(p.rglob("*.whl")):
+                return p
+            # 老布局兼容:argv0_dir/vendor/torch_wheels
+            p = argv0.parent / "vendor" / "torch_wheels"
+            if p.is_dir():
+                return p
+    except (IndexError, OSError):
+        pass
 
     # dev: <repo>/libs/chayuan-server/chayuan/server/runtime/pytorch_installer.py
     #       parents[5] = <repo>(chayuan-server 仓库根)
@@ -163,16 +191,104 @@ def _offline_wheels_dir() -> Optional[Path]:
     except (IndexError, OSError):
         pass
 
+    return None
+
+
+def _find_install_torch_wheels_dir() -> Optional[Path]:
+    """专找 Tauri 安装目录 ``<install>/torch_wheels/`` — 给 seed_torch_wheels 用。
+
+    跟 :func:`_offline_wheels_dir` 区别:这个**只**返回安装目录的源头,
+    不返回 CHAYUAN_ROOT(因为 CHAYUAN_ROOT 是种植目标,不能自己拷自己)。
+    """
+    # PyInstaller frozen:argv0 是 chayuan-server.exe,parent 是 <install>/
     try:
         argv0 = Path(sys.argv[0]).resolve()
         if argv0.is_file():
-            p = argv0.parent / "vendor" / "torch_wheels"
-            if p.is_dir():
+            p = argv0.parent / "torch_wheels"
+            if p.is_dir() and any(p.rglob("*.whl")):
                 return p
     except (IndexError, OSError):
         pass
-
+    # dev / 测试:dev 仓库的 vendor 兜底,让首启在 dev 环境也能 seed
+    try:
+        repo_root = Path(__file__).resolve().parents[5]
+        p = repo_root / "vendor" / "torch_wheels"
+        if p.is_dir() and any(p.rglob("*.whl")):
+            return p
+    except (IndexError, OSError):
+        pass
     return None
+
+
+def seed_torch_wheels(*, target_dir: Optional[Path] = None) -> dict:
+    """首启把 ``<install>/torch_wheels/<sub>/`` 拷到 ``<CHAYUAN_ROOT>/torch_wheels/<sub>/``。
+
+    跟 :func:`chayuan.server.model_registry.bundled_seed.seed_bundled_models` 同样
+    的思路 — 装机时 Tauri 把 wheel 放在 install 目录,这里把它"种"到用户数据目录,
+    让 ``_offline_wheels_dir`` 优先命中(免每次启动都看 install 那份)。
+
+    幂等:目标目录已存在同名 + 同大小的 wheel 时跳过,只补缺。
+
+    Args:
+        target_dir: 显式指定目标根(测试用)。默认 ``<CHAYUAN_ROOT>/torch_wheels/``。
+
+    Returns:
+        简单 dict:``{"source": ..., "target": ..., "copied": [...], "skipped": [...],
+        "errors": [...]}``。跟 bundled_seed 风格保持一致,但不弄成 dataclass(本模块
+        只这一处用 report,过度抽象不值)。
+    """
+    report = {"source": None, "target": None, "copied": [], "skipped": [], "errors": []}
+    src = _find_install_torch_wheels_dir()
+    if src is None:
+        logger.debug("[torch-seed] install 目录没找到 torch_wheels/,跳过")
+        return report
+    report["source"] = str(src)
+
+    if target_dir is not None:
+        dst_root = Path(target_dir)
+    else:
+        try:
+            from chayuan.settings import CHAYUAN_ROOT
+            dst_root = Path(CHAYUAN_ROOT) / "torch_wheels"
+        except Exception as e:  # noqa: BLE001
+            report["errors"].append(f"resolve CHAYUAN_ROOT failed: {e!r}")
+            return report
+    report["target"] = str(dst_root)
+
+    try:
+        dst_root.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        report["errors"].append(f"mkdir {dst_root}: {e!r}")
+        return report
+
+    for whl in src.rglob("*.whl"):
+        try:
+            rel = whl.relative_to(src)
+        except ValueError:
+            continue
+        dst = dst_root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        # 幂等:目标存在且大小一致 → 跳过
+        try:
+            if dst.is_file() and dst.stat().st_size == whl.stat().st_size:
+                report["skipped"].append(str(rel))
+                continue
+        except OSError:
+            pass
+        try:
+            import shutil
+            shutil.copy2(whl, dst)
+            report["copied"].append(str(rel))
+        except OSError as e:
+            report["errors"].append(f"copy {rel}: {e!r}")
+
+    if report["copied"] or report["errors"]:
+        logger.info(
+            "[torch-seed] src=%s -> dst=%s copied=%d skipped=%d errors=%d",
+            report["source"], report["target"],
+            len(report["copied"]), len(report["skipped"]), len(report["errors"]),
+        )
+    return report
 
 
 def _find_offline_wheels(variant: str) -> List[Path]:
@@ -379,3 +495,65 @@ def start_install(variant: Variant = "auto", *,
     recipe = build_install_recipe(variant, prefer_offline=prefer_offline)
     framework = f"pytorch-{variant if variant != 'auto' else detect_status().suggested_variant}"
     return get_install_manager().start(framework=framework, recipe=recipe)
+
+
+def auto_install_on_startup() -> dict:
+    """首启动自动决定要不要装 PyTorch + 装哪个 variant。
+
+    决策(对齐用户在 install 阶段的"自动判断 GPU"诉求):
+      * torch 已经 import 成功 → 啥都不做,return ``{"action": "skipped"}``
+      * 检测到 NVIDIA GPU + 驱动 >= 525 → 推荐 cu124(但需要对应 wheel 存在,
+        否则降级到 cpu)
+      * 没 NVIDIA GPU / 驱动太老 → 装 cpu
+      * 离线 wheel 不可用(没 seed 完 / 用户机型缺 variant) → 只 log warn,
+        不阻塞 startup;UI 上 PytorchRow 会显示供用户手动操作
+
+    本函数**不**阻塞 startup 链路 — 任何异常吞掉返回 ``{"action":"failed","error":...}``。
+    实际安装通过 :func:`start_install` 走 InstallTask 后台 task(非阻塞)。
+    """
+    try:
+        torch_ver, _ = _probe_torch_install()
+        import_ok, _ = _probe_import_chain()
+        if torch_ver and import_ok:
+            logger.info("[torch-auto] torch %s 已就绪,跳过自动安装", torch_ver)
+            return {"action": "skipped", "reason": f"torch {torch_ver} already importable"}
+
+        status = detect_status()
+        chosen: Variant = status.suggested_variant  # type: ignore[assignment]
+
+        # 检查所选 variant 是否有离线 wheel 可用;没有就降级 cpu(用户当前只打 cpu wheel)
+        offline = _find_offline_wheels(chosen)
+        if not offline and chosen != "cpu":
+            logger.info(
+                "[torch-auto] suggested=%s 但 vendor 无对应 wheel,降级到 cpu", chosen,
+            )
+            chosen = "cpu"
+            offline = _find_offline_wheels(chosen)
+
+        if not offline:
+            logger.warning(
+                "[torch-auto] 没找到任何 offline wheel(variant=%s),不自动装 — "
+                "用户需在 UI PytorchRow 手动触发(可能走在线下载)",
+                chosen,
+            )
+            return {
+                "action": "deferred",
+                "reason": "no offline wheels found for any variant",
+                "suggested_variant": chosen,
+            }
+
+        # 后台 task 跑 pip install,不阻塞 startup
+        task = start_install(chosen, prefer_offline=True)
+        logger.info(
+            "[torch-auto] 启动 PyTorch %s 自动安装(task=%s,prefer_offline=True)",
+            chosen, getattr(task, "task_id", "?"),
+        )
+        return {
+            "action": "installing",
+            "variant": chosen,
+            "task_id": getattr(task, "task_id", None),
+            "offline_wheels_dir": status.offline_wheels_dir,
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[torch-auto] 自动安装失败,降级到手动:%r", e)
+        return {"action": "failed", "error": f"{type(e).__name__}: {e}"}
