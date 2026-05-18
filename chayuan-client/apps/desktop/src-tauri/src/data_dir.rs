@@ -30,11 +30,6 @@ use serde::{Deserialize, Serialize};
 
 const APP_DIR_NAME: &str = "chayuan";
 const CONFIG_FILE_NAME: &str = "desktop.json";
-/// install dir 下的 install 标识文件,首次启动写一次,后续启动用来对比 desktop.json
-/// 里 ``linked_install_id`` 看是不是同一份安装。MSI 卸载会清整个 install dir,
-/// 所以重装后这个文件消失 → 我们生成新 ID → 跟旧 desktop.json 对不上 → 弹首启
-/// 向导让用户重新确认数据目录(不删用户数据,只是重新 link)。
-const INSTALL_ID_FILE: &str = ".chayuan_install_id";
 
 /// 当前持久化 schema 版本。v2 开始带 linked_install_id;读到 v1 旧文件 +
 /// 没字段 → 视为不匹配,fresh wizard。
@@ -133,39 +128,34 @@ fn write_persisted(cfg: &PersistedConfig) -> Result<(), String> {
     Ok(())
 }
 
-/// 拿到当前安装的 install ID(install dir 里 ``.chayuan_install_id`` 文件内容)。
+/// 拿到当前安装的 install ID — 用 exe 路径 + exe 修改时间 hash 出来。
 ///
-/// 行为:
-/// - 文件存在 → 读出 trim 后返回(同一份安装多次启动得同一个 ID)
-/// - 文件不存在 → 用 nanos 时间戳 + PID 拼一个 ID 写进去,返回新 ID
-///   (重装后 install dir 是全新的,这个文件没了,会触发这条路径生成新 ID)
-/// - 拿不到 install dir 或写文件失败 → 返 None(检测降级为"始终视作 fresh")
+/// 为什么不写文件:MSI 默认装在 ``C:\Program Files\Chayuan\``,用户态进程对
+/// install dir 没写权限,fs::write 永远失败 → 每次启动生成不同 ID → 跟
+/// desktop.json 对不上 → 每次都弹向导(用户实测撞这条)。
+///
+/// 改纯**确定性 hash**,无 I/O:
+/// - 同一份安装 → 同一个 exe 路径 + 同一个 mtime → 同一个 ID
+/// - 卸载重装 → MSI 重新写入 exe → mtime 变 → 新 ID,跟旧 desktop.json 对不上
+///   → 弹向导(用户预期行为)
+/// - 升级(in-place patch)→ exe 被覆盖 → mtime 变 → 弹向导;这是合理的,
+///   升级是个重新确认数据目录的好时机
 fn current_install_id() -> Option<String> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
     let exe = std::env::current_exe().ok()?;
-    let install_dir = exe.parent()?;
-    let id_file = install_dir.join(INSTALL_ID_FILE);
-    if let Ok(s) = fs::read_to_string(&id_file) {
-        let trimmed = s.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-    }
-    // 没文件 / 空 → 生成新 ID 写下去。不引入 uuid crate(避免 deps 膨胀),
-    // nanos 时戳 + PID 已经够防撞:同一台机器同一秒同一 PID 的概率 ~ 0。
-    let now_nanos = std::time::SystemTime::now()
+    let meta = fs::metadata(&exe).ok()?;
+    let mtime_secs = meta
+        .modified()
+        .ok()?
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let pid = std::process::id();
-    let id = format!("ins-{now_nanos:x}-{pid:x}");
-    if fs::write(&id_file, &id).is_ok() {
-        Some(id)
-    } else {
-        // 写失败(install dir 只读 / 权限 / 磁盘满) — 这种情况返回 ID 但不会持久化,
-        // 下次启动还是会生成新 ID,desktop.json 永远对不上,每次都弹向导。
-        // 比"静默用错路径"更安全。
-        Some(id)
-    }
+        .ok()?
+        .as_secs();
+    let mut h = DefaultHasher::new();
+    exe.hash(&mut h);
+    mtime_secs.hash(&mut h);
+    Some(format!("exe-{:x}", h.finish()))
 }
 
 /// 检查路径下是否已有察元历史数据。命中任一即认为存在(顺序大致按可信度):
