@@ -78,7 +78,11 @@ param(
     [string]$WhisperVersion = '',
 
     [switch]$SkipNetTest,
-    [switch]$DryRun
+    [switch]$DryRun,
+    # 默认并行启动 models / llama-server / whisper-server / torch 4 个阶段
+    # (各自独立网络 + 写不同 vendor 子目录,无共享状态);加这个 switch 走老
+    # 串行模式,便于 debug 卡哪一步。
+    [switch]$Sequential
 )
 
 $ErrorActionPreference = 'Stop'
@@ -178,91 +182,216 @@ if (-not $pyExe -and ($doModels -or $doTorch)) {
     exit 3
 }
 
-function Invoke-Sub {
-    param([string]$Title, [string]$Cmd, [string[]]$Args)
-    Write-Host ''
-    Write-Host ('  $ ' + $Cmd + ' ' + ($Args -join ' ')) -ForegroundColor DarkGray
-    if ($DryRun) {
-        Write-Warn ('[DRY-RUN] 跳过 ' + $Title)
-        return $true
-    }
-    & $Cmd @Args
-    $rc = $LASTEXITCODE
-    if ($rc -eq 0) {
-        Write-Ok ($Title + ' 完成')
-        return $true
-    } else {
-        Write-Fail ($Title + " 失败 (exit=$rc)")
-        return $false
-    }
-}
-
-# ───────── 2. 装模型 ─────────
-$results = New-Object System.Collections.Generic.List[hashtable]
+# ───────── 2. 收集要跑的 stage spec ─────────
+# 每条 spec = @{ Stage='...'; Cmd='...'; Args=@(...); Cwd='...' }
+# 4 个阶段写不同的 vendor 子目录,无共享状态 → 默认并行;-Sequential 走老串行。
+$stageSpecs = New-Object System.Collections.Generic.List[hashtable]
 
 if ($doModels) {
-    Write-Step ('1. 装模型 (Flavor=' + $Flavor + ', Source=' + $Source + ')')
     $modelArgs = @((Join-Path $here 'install-bundled-models.py'), '--source', $Source)
     if ($Flavor -eq 'lite') { $modelArgs += '--lite' }
-    $ok = Invoke-Sub -Title 'install-bundled-models' -Cmd $pyExe.Source -Args $modelArgs
-    $results.Add(@{ Stage='models'; Ok=$ok })
+    $stageSpecs.Add(@{
+        Stage = 'models'
+        Cmd   = $pyExe.Source
+        Args  = $modelArgs
+        Cwd   = $WorkspaceRoot
+    })
 }
 
-# ───────── 3. 装 services binary ─────────
 if ($doServices) {
-    Write-Step '2. 装 services binary (llama-server + whisper-server)'
-
     $llamaPs1   = Join-Path $here 'install-llama-server.ps1'
     $whisperPs1 = Join-Path $here 'install-whisper-server.ps1'
 
     if (Test-Path $llamaPs1) {
-        $llArgs = @('-File', $llamaPs1)
+        $llArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $llamaPs1)
         if ($LlamaVersion) { $llArgs += @('-Version', $LlamaVersion) }
-        $ok = Invoke-Sub -Title 'install-llama-server' -Cmd 'powershell.exe' -Args $llArgs
-        $results.Add(@{ Stage='llama-server'; Ok=$ok })
+        $stageSpecs.Add(@{
+            Stage = 'llama-server'
+            Cmd   = 'powershell.exe'
+            Args  = $llArgs
+            Cwd   = $WorkspaceRoot
+        })
     } else {
         Write-Fail "install-llama-server.ps1 不存在: $llamaPs1"
-        $results.Add(@{ Stage='llama-server'; Ok=$false })
     }
 
     if (Test-Path $whisperPs1) {
-        $wsArgs = @('-File', $whisperPs1)
+        $wsArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $whisperPs1)
         if ($WhisperVersion) { $wsArgs += @('-Version', $WhisperVersion) }
-        $ok = Invoke-Sub -Title 'install-whisper-server' -Cmd 'powershell.exe' -Args $wsArgs
-        $results.Add(@{ Stage='whisper-server'; Ok=$ok })
+        $stageSpecs.Add(@{
+            Stage = 'whisper-server'
+            Cmd   = 'powershell.exe'
+            Args  = $wsArgs
+            Cwd   = $WorkspaceRoot
+        })
     } else {
         Write-Fail "install-whisper-server.ps1 不存在: $whisperPs1"
-        $results.Add(@{ Stage='whisper-server'; Ok=$false })
     }
 }
 
-# ───────── 4. 装 torch wheels ─────────
 if ($doTorch) {
-    Write-Step '3. 装 torch wheels (CPU,~250 MB)'
     $preflight = Join-Path $ServerDir 'packaging\preflight_torch.py'
     if (-not (Test-Path $preflight)) {
         Write-Fail "preflight_torch.py 不存在: $preflight"
-        $results.Add(@{ Stage='torch'; Ok=$false })
     } else {
-        # 用 poetry run 优先(确保跟 PyInstaller spec 用同一个 Python ABI)
+        # poetry run 优先(确保跟 PyInstaller spec 用同一个 Python ABI)。
+        # 并行模式下 poetry 起动多了 ~3s,跟模型下载比可忽略。
         $poetryExe = Get-Command poetry -ErrorAction SilentlyContinue
         if ($poetryExe) {
-            $cwd = Get-Location
-            Set-Location $ServerDir
-            try {
-                $ok = Invoke-Sub -Title 'preflight-torch (poetry)' `
-                                 -Cmd 'poetry' `
-                                 -Args @('run','python','packaging\preflight_torch.py','--variants','cpu','--py-versions','312')
-            } finally {
-                Set-Location $cwd
-            }
+            $stageSpecs.Add(@{
+                Stage = 'torch'
+                Cmd   = 'poetry'
+                Args  = @('run', 'python', 'packaging\preflight_torch.py', '--variants', 'cpu', '--py-versions', '312')
+                Cwd   = $ServerDir
+            })
         } else {
-            $ok = Invoke-Sub -Title 'preflight-torch (python)' `
-                             -Cmd $pyExe.Source `
-                             -Args @($preflight, '--variants','cpu','--py-versions','312')
+            $stageSpecs.Add(@{
+                Stage = 'torch'
+                Cmd   = $pyExe.Source
+                Args  = @($preflight, '--variants', 'cpu', '--py-versions', '312')
+                Cwd   = $WorkspaceRoot
+            })
         }
-        $results.Add(@{ Stage='torch'; Ok=$ok })
     }
+}
+
+# ───────── 3. 执行 stage(串行 / 并行) ─────────
+$results = New-Object System.Collections.Generic.List[hashtable]
+
+function Invoke-Stage-Sequential {
+    param([hashtable]$Spec)
+    Write-Step ('运行 ' + $Spec.Stage)
+    Write-Host ('  $ ' + $Spec.Cmd + ' ' + ($Spec.Args -join ' ')) -ForegroundColor DarkGray
+    if ($DryRun) {
+        Write-Warn ('[DRY-RUN] 跳过 ' + $Spec.Stage)
+        return $true
+    }
+    $cwd0 = Get-Location
+    Set-Location $Spec.Cwd
+    try {
+        & $Spec.Cmd @($Spec.Args)
+        $rc = $LASTEXITCODE
+    } finally {
+        Set-Location $cwd0
+    }
+    return ($rc -eq 0)
+}
+
+function Invoke-Stages-Parallel {
+    param([hashtable[]]$Specs)
+
+    # 各 stage 独立 log file,Start-Process 写入,主循环 tail 出进度面板。
+    $logRoot = Join-Path $env:TEMP ('chayuan-install-vendor-' + (Get-Date -Format 'HHmmss') + '-' + ([guid]::NewGuid().ToString('N').Substring(0,6)))
+    New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
+    Write-Note ('并行 log 目录: ' + $logRoot + ' (出错时 tail 这里看完整 stdout)')
+
+    $running = @()
+    foreach ($s in $Specs) {
+        $log = Join-Path $logRoot ($s.Stage + '.log')
+        $err = Join-Path $logRoot ($s.Stage + '.err')
+        # 先 touch 空文件,后面 tail 才不会报"路径不存在"
+        '' | Out-File -FilePath $log -Encoding UTF8
+        '' | Out-File -FilePath $err -Encoding UTF8
+        if ($DryRun) {
+            Write-Warn ('[DRY-RUN] 跳过 spawn ' + $s.Stage + ' ($' + $s.Cmd + ' ' + ($s.Args -join ' ') + ')')
+            $running += @{ Stage=$s.Stage; Proc=$null; Log=$log; Err=$err; Start=Get-Date; DryRun=$true }
+            continue
+        }
+        $proc = Start-Process -FilePath $s.Cmd `
+                              -ArgumentList $s.Args `
+                              -WorkingDirectory $s.Cwd `
+                              -RedirectStandardOutput $log `
+                              -RedirectStandardError  $err `
+                              -PassThru `
+                              -NoNewWindow
+        $running += @{ Stage=$s.Stage; Proc=$proc; Log=$log; Err=$err; Start=Get-Date; DryRun=$false }
+        Write-Host ('  [spawn] {0,-16} pid={1,-6}  log={2}' -f $s.Stage, $proc.Id, $log) -ForegroundColor Cyan
+    }
+
+    if ($DryRun) {
+        foreach ($r in $running) { $results.Add(@{ Stage=$r.Stage; Ok=$true; DurationSec=0 }) }
+        return
+    }
+
+    # 进度面板:每 5 秒 poll 一次,打一行紧凑 status
+    $startAll = Get-Date
+    $finished = @{}
+    while ($finished.Count -lt $running.Count) {
+        Start-Sleep -Seconds 5
+        $elapsed = [int]((Get-Date) - $startAll).TotalSeconds
+        $parts = @()
+        foreach ($r in $running) {
+            if ($finished.ContainsKey($r.Stage)) {
+                $mark = if ($finished[$r.Stage].Ok) { 'OK' } else { 'FAIL' }
+                $parts += ('{0}:{1}({2}s)' -f $r.Stage, $mark, $finished[$r.Stage].DurationSec)
+                continue
+            }
+            if ($r.Proc.HasExited) {
+                $dur = [int]((Get-Date) - $r.Start).TotalSeconds
+                $ok = ($r.Proc.ExitCode -eq 0)
+                $finished[$r.Stage] = @{ Ok=$ok; DurationSec=$dur; ExitCode=$r.Proc.ExitCode }
+                $mark = if ($ok) { 'OK' } else { 'FAIL' }
+                $color = if ($ok) { 'Green' } else { 'Red' }
+                Write-Host ('  [done] {0,-16} exit={1} in {2}s' -f $r.Stage, $r.Proc.ExitCode, $dur) -ForegroundColor $color
+                $parts += ('{0}:{1}({2}s)' -f $r.Stage, $mark, $dur)
+            } else {
+                # 跑着呢 — 读 log 最后一行做进度提示(截 ≤ 24 字符)
+                $tail = ''
+                try {
+                    $last = Get-Content -LiteralPath $r.Log -Tail 1 -ErrorAction SilentlyContinue
+                    if ($last) {
+                        $tail = ($last -replace '\s+', ' ').Trim()
+                        if ($tail.Length -gt 24) { $tail = $tail.Substring(0, 21) + '...' }
+                    }
+                } catch {}
+                if ($tail) {
+                    $parts += ('{0}:[{1}]' -f $r.Stage, $tail)
+                } else {
+                    $parts += ('{0}:running' -f $r.Stage)
+                }
+            }
+        }
+        Write-Host (('  [T+{0,4}s] ' -f $elapsed) + ($parts -join '   '))
+    }
+
+    # 把每条 stage 的 log 摘要(末 30 行)dump 出来,失败的全文 dump
+    Write-Host ''
+    foreach ($r in $running) {
+        $info = $finished[$r.Stage]
+        $headerColor = if ($info.Ok) { 'Cyan' } else { 'Red' }
+        Write-Host ('━━━ ' + $r.Stage + ' log (exit=' + $info.ExitCode + ', ' + $info.DurationSec + 's) ━━━') -ForegroundColor $headerColor
+        $tailN = if ($info.Ok) { 30 } else { 200 }
+        try {
+            $out = Get-Content -LiteralPath $r.Log -Tail $tailN -ErrorAction SilentlyContinue
+            if ($out) { $out | ForEach-Object { Write-Host ('  ' + $_) } }
+        } catch {}
+        try {
+            $errs = Get-Content -LiteralPath $r.Err -Tail $tailN -ErrorAction SilentlyContinue
+            if ($errs) {
+                Write-Host '  --- stderr ---' -ForegroundColor Yellow
+                $errs | ForEach-Object { Write-Host ('  ' + $_) -ForegroundColor Yellow }
+            }
+        } catch {}
+        $results.Add(@{ Stage=$r.Stage; Ok=$info.Ok; DurationSec=$info.DurationSec })
+    }
+}
+
+if ($stageSpecs.Count -eq 0) {
+    Write-Warn '没有 stage 要跑'
+} elseif ($Sequential) {
+    Write-Step ('串行模式:运行 ' + $stageSpecs.Count + ' 个 stage')
+    $idx = 0
+    foreach ($s in $stageSpecs) {
+        $idx++
+        Write-Host ('--- [' + $idx + '/' + $stageSpecs.Count + '] ' + $s.Stage + ' ---') -ForegroundColor Cyan
+        $t0 = Get-Date
+        $ok = Invoke-Stage-Sequential -Spec $s
+        $dur = [int]((Get-Date) - $t0).TotalSeconds
+        $results.Add(@{ Stage=$s.Stage; Ok=$ok; DurationSec=$dur })
+    }
+} else {
+    Write-Step ('并行启动 ' + $stageSpecs.Count + ' 个 stage(每 5 秒打印一次状态;失败时 dump 末 200 行 log)')
+    Invoke-Stages-Parallel -Specs $stageSpecs
 }
 
 # ───────── 5. 最终体检 ─────────
@@ -282,13 +411,21 @@ if ($pyExe -and (Test-Path $checkS)) {
 # ───────── 6. 总结 ─────────
 Write-Step '总结'
 $anyFail = $false
+$totalSec = 0
 foreach ($r in $results) {
+    $dur = if ($r.ContainsKey('DurationSec')) { $r.DurationSec } else { 0 }
     if ($r.Ok) {
-        Write-Ok ('{0,-16} OK' -f $r.Stage)
+        Write-Ok ('{0,-16} OK     {1,5}s' -f $r.Stage, $dur)
     } else {
-        Write-Fail ('{0,-16} FAILED' -f $r.Stage)
+        Write-Fail ('{0,-16} FAILED {1,5}s' -f $r.Stage, $dur)
         $anyFail = $true
     }
+    if (-not $Sequential -and $dur -gt $totalSec) { $totalSec = $dur }   # 并行:取最长
+    elseif ($Sequential) { $totalSec += $dur }                            # 串行:累加
+}
+if ($results.Count -gt 0) {
+    $mode = if ($Sequential) { '串行' } else { '并行' }
+    Write-Host ('  墙钟耗时(' + $mode + '): ' + $totalSec + 's') -ForegroundColor DarkCyan
 }
 
 if ($anyFail) {
