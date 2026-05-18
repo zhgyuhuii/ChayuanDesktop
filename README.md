@@ -65,6 +65,8 @@
   - [8.12 引用展示与原文回链](#812-引用展示与原文回链)
 - [九、HTTP API 接口总览](#九http-api-接口总览)
 - [十、开发者搭建指南](#十开发者搭建指南)
+  - [10.4 本地打包(Windows / macOS / Linux 命令)](#104-本地打包默认双产物轻量版--集成版)
+  - [10.8 装完后诊断与故障排查](#108-装完后诊断与故障排查) ⭐ services 目录空 / 服务起不来必读
 - [十一、使用教程入口](#十一使用教程入口)
 - [十二、安全 · 隐私 · 离线](#十二安全--隐私--离线)
 - [十三、路线图](#十三路线图)
@@ -1037,19 +1039,30 @@ dist-integrated/    ← 集成版 .dmg / .deb / .AppImage / .msi / .exe
 #### Windows
 
 ```powershell
-# 默认 = 双产物
-.\build-desktop.cmd
+# 默认 = 双产物(lite + full,约 30 分钟)
+.\build-desktop.ps1
 
-# 只打一种
-.\build-desktop.cmd -LiteOnly
-.\build-desktop.cmd -IntegratedOnly
+# 只打一种(推荐本地试用,约 5-10 分钟)
+.\build-desktop.ps1 -LiteOnly
+.\build-desktop.ps1 -FullOnly         # 旧名 -IntegratedOnly 仍可用
 
-# 跳过部分阶段(后续小改重打)
-.\build-desktop.cmd -BundleOnly        # 仅重打 Tauri bundle
-.\build-desktop.cmd -SkipServer        # sidecar 不变,只重打前端
-.\build-desktop.cmd -SkipTypecheck     # 跳类型检查
-.\build-desktop.cmd -SkipModelCheck    # 跳模型体检
+# 跳过部分阶段(改了小地方,不想重跑整链)
+.\build-desktop.ps1 -LiteOnly -BundleOnly      # 仅重打 Tauri bundle(改了前端 / Rust)
+.\build-desktop.ps1 -LiteOnly -SkipServer      # sidecar 不变,跳 PyInstaller(改了前端)
+.\build-desktop.ps1 -LiteOnly -SkipServer -SkipHealthcheck
+                                                # 改了 build.py / sync_services / sync_bundled_models
+                                                # 但 sidecar 代码没动 — 重跑 Step 1b/1c 同步 + 重打 bundle
+.\build-desktop.ps1 -LiteOnly -SkipTypecheck   # 跳类型检查
+.\build-desktop.ps1 -LiteOnly -SkipModelCheck  # 跳模型体检
+.\build-desktop.ps1 -LiteOnly -NoIso           # 跳 ISO 生成(只要 MSI)
 ```
+
+`-BundleOnly` 是组合开关 = `-SkipServer -SkipHealthcheck -SkipInstall -SkipTypecheck`。
+注意它**也跳过 Step 1b**(services 同步)— 改了 `chayuan-server/packaging/pyinstaller/build.py`
+的 `sync_services` / `sync_bundled_models` 时不要用 `-BundleOnly`,要用
+`-SkipServer -SkipHealthcheck` 这种**只跳 sidecar 重打**的组合,让 Step 1b/1c 仍跑。
+
+也可用 `.cmd` 包装:`.\build-desktop.cmd -LiteOnly`(内部转发到 ps1)。
 
 #### macOS / Linux
 
@@ -1077,7 +1090,13 @@ dist-integrated/    ← 集成版 .dmg / .deb / .AppImage / .msi / .exe
 2. **双 flavor 循环**(默认):每个 flavor 各跑一次以下 4 步 —
    - **Step 1** PyInstaller 出 sidecar(两个 flavor 共用,**模型不嵌 sidecar**)
    - **Step 1b** `build.py --sync-bundled-only` 按 flavor 同步
-     `src-tauri/bundled_models/`:集成版拷整树,轻量版清空
+     `src-tauri/bundled_models/`(LITE_CAPS = embedding/rerank/asr/ocr/tts;
+     FULL_CAPS 再加 chat/image)+ `src-tauri/services/`(`llama-server` +
+     `whisper-server` binary,lite/full 都打 — 老版本 lite 清空 services
+     导致服务起不来,2026-05-18 修)
+   - **Step 1c** 同步 `scripts/diagnose-auto-start.ps1` → `src-tauri/tools/`,
+     installer 装机后落到 `<install>/resources/tools/diagnose-auto-start.ps1`,
+     用户原地可跑做故障排查(见 §10.8)
    - **Step 2** `/healthz` 探测确认 sidecar 能起来
    - **Step 3** Tauri bundle 出 `.dmg / .deb / .AppImage / .msi / .exe`
      并按 flavor 后缀拷到 `dist-<flavor>/`
@@ -1145,6 +1164,97 @@ pnpm typecheck
 ```
 
 详见 [PACKAGING.md §8](PACKAGING.md)。
+
+### 10.8 装完后诊断与故障排查
+
+> **典型问题**:装完启动 app,本地模型服务(chat/embedding/rerank/asr/image-embedding)
+> 全部 `state=stopped` 或 `state=failed`,知识库检索 / 对话拿不到本地推理。
+
+#### 一键诊断脚本
+
+`scripts/diagnose-auto-start.ps1` 自动收齐 8 个 section 的关键信息:安装包版本、
+bundled_models 布局、`sidecar_settings.json` / `local_runtime.yaml` 内容、5 个
+capability HTTP 状态、最新日志 tail、(可选)直接命令行重启 sidecar 抓完整
+`[bootstrap-preload]` / `[auto-start]` stdout 链路。
+
+**两种用法**:
+
+**(A) 开发机有 git checkout** — 直接从仓库跑:
+
+```powershell
+cd D:\code\chayuan\chayuan-desktop
+.\scripts\diagnose-auto-start.ps1 -OutFile diag.md                  # 基础诊断
+.\scripts\diagnose-auto-start.ps1 -CaptureStdout -OutFile diag.md   # 加抓 30 秒 sidecar stdout
+```
+
+**(B) 已装用户没 git** — 脚本随 installer 一起装到了
+`<install>\resources\tools\diagnose-auto-start.ps1`:
+
+```powershell
+cd "$env:LOCALAPPDATA\Programs\chayuan-desktop"
+$diag = Get-ChildItem -Path . -Recurse -Filter 'diagnose-auto-start.ps1' | Select-Object -First 1
+powershell -ExecutionPolicy Bypass -File $diag.FullName -OutFile $HOME\Desktop\diag.md
+# 完整链路(会临时杀掉 sidecar 重启 30 秒,看 [auto-start] state=ready / failed)
+powershell -ExecutionPolicy Bypass -File $diag.FullName -CaptureStdout -OutFile $HOME\Desktop\diag.md
+```
+
+#### 自启链路概览(出问题时按这条链路对照)
+
+```text
+chayuan-server.exe 启动
+  ↓
+[startup] _model_first_launch
+  ├── seed_bundled_models()       — <install>/bundled_models/ → <data>/models/bundled/
+  ├── bootstrap_preload_from_bundled()
+  │   ├── 检测每个 cap 是否有 bundled 内容(src OR dst,二者任一即 True)
+  │   └── 翻 LocalRuntimeSettings.preload_*=True + auto_start.<key>=True + mark_bootstrapped
+  ├── scan_once()                 — 索引 <data>/models/bundled/ 内的模型
+  ├── promote_defaults_from_local() — 把 candidate 写进 panel yaml 作 default
+  └── (step5 preload_map 异步 create_task,作为 redundant 路径)
+  ↓
+[startup] _auto_start_rapidocr    — 拉起 RapidOCR sidecar (auto_start.rapidocr=True)
+  ↓
+[startup] _auto_start_capabilities
+  ├── 兜底再跑一次 bootstrap_preload_from_bundled(防 _model_first_launch 失败)
+  └── for cap in (chat/embedding/rerank/asr/image-embedding):
+        if auto_start_store.get(cap) == True:
+            await reg.get(cap).start()
+              ↓
+              find_server_exe()    — 找 <install>/services/llama-server/llama-server.exe
+                                     (或 whisper-server.exe / Python infinity sidecar)
+              _resolve_args_for()  — 读 panel default_<cap>_model
+              spawn subprocess + /health 探测 → state=ready
+```
+
+#### 常见症状 → 修复路径
+
+| 症状 | 根因 | 修复 |
+|---|---|---|
+| `services/` 目录空 | lite 老版本(2026-05-18 前)build.py 把 lite services 清空 | `git pull` 拿 `f3c51d9`,重 build lite installer |
+| `state=stopped` 持续不动 | `_auto_start_capabilities` 没跑 / 没翻 auto_start | 跑诊断 `-CaptureStdout`,看有没有 `[auto-start]` stdout 行 |
+| `state=failed` + `last_error="llama-server.exe 不在..."` | services 漏打了 launcher binary | 同上,重 build |
+| `state=failed` + `last_error="模型未就绪"` | bundled 模型在但 `promote_defaults` 没指派 default | 进 UI 设置 → AI 平台 → 本地运行时,手动选模型;或重 build 让 scan + promote 重跑 |
+| UI 看不到 sidecar stdout | Tauri 只 emit `cy:sidecar-log` 事件给前端 banner,不落盘 | 用 `-CaptureStdout` 直跑 sidecar,或看 `<data>/logs/*.log` |
+
+#### `_auto_start_capabilities` 自启 hook 输出范例
+
+服务正常起来时 sidecar stdout 会有类似输出(2026-05-18 后版本):
+
+```text
+[bootstrap-preload] checked=['chat','embedding','rerank','asr','image','ocr'] bootstrapped=['embedding','rerank','asr','ocr'] updates=['preload_embedding','preload_rerank','preload_asr']
+[auto-start-rapidocr] settings=...sidecar_settings.json exists=True
+[auto-start-rapidocr] hook 触发 auto_start=rapidocr → True
+[auto-start-rapidocr] 完成 state=ready ...
+[auto-start] 兜底 bootstrap 翻好:[]    (上面已经翻过了,这次 no-op)
+[auto-start] embedding: auto_start=True,拉起中...
+[auto-start] embedding: state=ready pid=22168 endpoint=http://127.0.0.1:62583 last_error=None
+[auto-start] rerank: state=ready pid=22192 endpoint=http://127.0.0.1:62584 ...
+[auto-start] asr: state=ready pid=22216 endpoint=http://127.0.0.1:62585 ...
+[auto-start] image-embedding: auto_start=False,跳过   (lite 没打,正常)
+[auto-start] chat: auto_start=False,跳过              (lite 没打,正常)
+```
+
+任何一行缺失或卡在 `state=failed` 就把 `last_error` 字段拿出来对照上面"常见症状"表。
 
 ---
 
