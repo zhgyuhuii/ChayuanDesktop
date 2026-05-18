@@ -808,7 +808,11 @@ def verify_service_binaries(target_subdir: str, host_subdir: str) -> None:
 def sync_services(*, lite: bool, target_triple: str | None = None) -> None:
     """同步 vendor/services/<engine>-server/<platform>/* → src-tauri/services/<engine>-server/*。
 
-    集成版需要把 llama-server.exe 这类外部 runtime 二进制带进安装包,轻量版不需要。
+    lite/full 都需要 llama-server / whisper-server 这类外部 runtime 二进制。
+    (老版本曾把 lite 的 services 清空,以为 lite = 瘦客户端不跑本地推理;
+    但 LITE_CAPS 加进 embedding/rerank/asr 模型权重后,光打模型不打 launcher
+    binary,start() 永远 state=failed "llama-server.exe 不在",装机即用语义破。
+    现在 lite/full 同样同步,差额 ~50 MB 相对模型权重可忽略。)
 
     选 platform 子目录的优先级:
       1. ``target_triple`` 参数(显式传入,通常来自 CARGO_BUILD_TARGET / --target arg)
@@ -827,10 +831,7 @@ def sync_services(*, lite: bool, target_triple: str | None = None) -> None:
         shutil.rmtree(DESKTOP_SERVICES_DIR)
     DESKTOP_SERVICES_DIR.mkdir(parents=True, exist_ok=True)
 
-    if lite:
-        (DESKTOP_SERVICES_DIR / ".gitkeep").touch()
-        print(f"[build] 轻量版:清空 {DESKTOP_SERVICES_DIR}", flush=True)
-        return
+    # 注:lite 早返回逻辑已删除 — 见上方 docstring。
 
     if not SERVICES_SRC.is_dir():
         print(f"[build] 警告:services 源不存在 {SERVICES_SRC},集成版退化为空目录", flush=True)
@@ -883,8 +884,9 @@ def sync_services(*, lite: bool, target_triple: str | None = None) -> None:
             n_bytes += dst.stat().st_size
 
     mb = n_bytes / 1024 / 1024
+    flavor_tag = "lite" if lite else "full"
     print(
-        f"[build] 集成版:services 已同步 {n_files} 个文件 ({mb:.1f} MB) "
+        f"[build] {flavor_tag}:services 已同步 {n_files} 个文件 ({mb:.1f} MB) "
         f"→ {DESKTOP_SERVICES_DIR}",
         flush=True,
     )
@@ -1014,7 +1016,9 @@ def main() -> None:
 
     def _do_sync_and_verify() -> None:
         sync_services(lite=lite, target_triple=target)
-        if not lite and not args.skip_verify:
+        # lite/full 都同步 services,verify 跟着也都跑(lite 也跑 llama-server /
+        # whisper-server,verify 失败 = vendor binary 坏,无关 flavor)
+        if not args.skip_verify:
             verify_service_binaries(target_subdir=target_sub, host_subdir=host_sub)
 
     if args.sync_bundled_only:

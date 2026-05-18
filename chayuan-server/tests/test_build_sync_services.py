@@ -99,23 +99,33 @@ def test_sync_services_skips_empty_gitkeep_placeholder(build_module, tmp_path, c
     assert "空占位" in captured.out
 
 
-def test_sync_services_lite_clears_dir(build_module, tmp_path):
-    """轻量版应清空 src-tauri/services/,只留 .gitkeep"""
+def test_sync_services_lite_also_syncs_binaries(build_module, tmp_path):
+    """lite 也应把 llama-server / whisper-server 二进制同步进去 —— 否则
+    bundle 了 embedding/rerank/asr 模型权重但 launcher binary 缺,
+    start() 直接 state=failed "llama-server.exe 不在 vendor/services/..."。
+
+    历史 lite 早返回逻辑已删,见 build.py sync_services 注释。
+    """
     base = tmp_path / "vendor" / "services" / "llama-server"
     (base / "linux-x64").mkdir(parents=True)
     (base / "linux-x64" / "llama-server").write_bytes(b"\x7fELF" + b"x" * 1024)
 
-    # 模拟上次集成版残留
-    dst_dir = tmp_path / "desktop_src_tauri" / "services" / "llama-server"
-    dst_dir.mkdir(parents=True)
-    (dst_dir / "stale.exe").write_bytes(b"old")
+    whisper_base = tmp_path / "vendor" / "services" / "whisper-server"
+    (whisper_base / "linux-x64").mkdir(parents=True)
+    (whisper_base / "linux-x64" / "whisper-server").write_bytes(b"\x7fELF" + b"y" * 1024)
 
-    build_module.sync_services(lite=True)
+    build_module.sync_services(lite=True, target_triple="x86_64-unknown-linux-gnu")
 
     dst = tmp_path / "desktop_src_tauri" / "services"
     assert dst.is_dir()
-    assert (dst / ".gitkeep").is_file()
-    assert not (dst / "llama-server").exists()
+    # lite 必须打 llama-server(给 embedding/rerank 用)
+    assert (dst / "llama-server" / "llama-server").is_file(), \
+        "lite 必须同步 llama-server,否则 embedding/rerank sidecar 起不来"
+    # lite 必须打 whisper-server(给 asr 用)
+    assert (dst / "whisper-server" / "whisper-server").is_file(), \
+        "lite 必须同步 whisper-server,否则 asr sidecar 起不来"
+    # 不应被 .gitkeep 占空(老行为)
+    assert not (dst / ".gitkeep").exists()
 
 
 def test_sync_services_missing_src_does_not_crash(build_module, tmp_path):
