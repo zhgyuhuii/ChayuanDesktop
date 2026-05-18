@@ -213,17 +213,45 @@ foreach ($f in $cfgFiles) {
 # ───────── 5. 进程 / 端口 ─────────
 Out-Section '5. 进程 / 端口'
 
-$procs = Get-Process -ErrorAction SilentlyContinue |
-         Where-Object { $_.ProcessName -in @('chayuan-server','chayuan-desktop','llama-server','whisper-server','rapidocr_server','piper') }
-if ($procs) {
-    $rows = $procs | ForEach-Object {
-        $startTime = try { $_.StartTime.ToString('HH:mm:ss') } catch { '?' }
-        '  - {0,-22} pid={1,-6} RSS={2,7:N1} MB  started={3}' -f $_.ProcessName, $_.Id, ($_.WorkingSet64 / 1MB), $startTime
-    }
-    Out-Line '相关进程:'
+# 1) 按进程名找(installer 装机后的常态);dev 模式跑的是 python.exe,这种命名匹配不到
+$nameProcs = Get-Process -ErrorAction SilentlyContinue |
+             Where-Object { $_.ProcessName -in @('chayuan-server','chayuan-desktop','llama-server','whisper-server','rapidocr_server','piper') }
+
+# 2) 按命令行找(dev 模式 python.exe 跑 -m chayuan / poetry run chayuan-server)
+#    Win32_Process.CommandLine 含 chayuan / chayuan-server / chayuan_runtime 字样的进程
+$cmdProcs = @()
+try {
+    $cmdProcs = Get-CimInstance -ClassName Win32_Process -ErrorAction Stop |
+                Where-Object {
+                    $_.CommandLine -and
+                    $_.CommandLine -match '(chayuan-server|chayuan_runtime|\bchayuan\b|llama-server|whisper-server|rapidocr|piper)' -and
+                    $_.CommandLine -notmatch 'diagnose-auto-start'
+                }
+} catch {
+    # PS / WMI 取不到 cmdline 时(用户权限/旧 Win)就忍着,nameProcs 兜底
+}
+
+$seen = @{}
+$rows = @()
+foreach ($p in $nameProcs) {
+    if ($seen.ContainsKey([int]$p.Id)) { continue }
+    $seen[[int]$p.Id] = $true
+    $startTime = try { $p.StartTime.ToString('HH:mm:ss') } catch { '?' }
+    $rows += ('  - {0,-22} pid={1,-6} RSS={2,7:N1} MB  started={3}' -f $p.ProcessName, $p.Id, ($p.WorkingSet64 / 1MB), $startTime)
+}
+foreach ($p in $cmdProcs) {
+    if ($seen.ContainsKey([int]$p.ProcessId)) { continue }
+    $seen[[int]$p.ProcessId] = $true
+    $cmd = $p.CommandLine
+    if ($cmd.Length -gt 110) { $cmd = $cmd.Substring(0, 107) + '...' }
+    $rows += ('  - {0,-22} pid={1,-6} cmd={2}' -f $p.Name, $p.ProcessId, $cmd)
+}
+
+if ($rows.Count -gt 0) {
+    Out-Line '相关进程(进程名 + 命令行匹配):'
     Out-Line ($rows -join "`n")
 } else {
-    Out-Line '**没有任何察元相关进程在跑**'
+    Out-Line '**没有任何察元相关进程在跑(进程名 / 命令行都没匹配到)**'
 }
 
 Out-Line ""
@@ -231,6 +259,22 @@ $listen = & netstat -ano 2>$null | Where-Object { $_ -match ':(62581|62582|62583
 if ($listen) {
     Out-Line '监听端口(自启相关):'
     Out-Code -Lang '' -Text ($listen -join "`n")
+    # 再 resolve 每个端口的进程名(对照 Section 5 的 pid)
+    $listenRows = @()
+    foreach ($line in $listen) {
+        if ($line -match ':(\d+)\s.*LISTENING\s+(\d+)') {
+            $port  = $matches[1]
+            $owner = [int]$matches[2]
+            $proc  = Get-Process -Id $owner -ErrorAction SilentlyContinue
+            $pname = if ($proc) { $proc.ProcessName } else { '(进程已退)' }
+            $listenRows += ('  - :{0,-5} pid={1,-6} name={2}' -f $port, $owner, $pname)
+        }
+    }
+    if ($listenRows.Count -gt 0) {
+        Out-Line ''
+        Out-Line '端口 → 进程映射:'
+        Out-Line ($listenRows -join "`n")
+    }
 } else {
     Out-Line '**没有 62581-62586 / 18380 任一端口在 LISTENING** — server 没起或自启失败'
 }
