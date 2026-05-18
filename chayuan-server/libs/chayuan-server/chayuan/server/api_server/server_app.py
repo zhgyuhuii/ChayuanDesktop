@@ -349,18 +349,33 @@ def create_app(run_mode: str = None):
                     "重新打开,或删除 sidecar_settings.json 让默认 True 生效"
                 )
                 return
-            # 放到线程池跑,避免 spawn + TCP probe 阻塞 startup event loop
-            status = await _asyncio.to_thread(start_ocr_sidecar)
-            _say(
-                f"完成 state={status.get('state')} pid={status.get('pid')} "
-                f"port={status.get('port')} listening={status.get('listening')} "
-                f"log={status.get('log_path')}"
-            )
-            if status.get("state") != "ready":
+            # fire-and-forget:不 await,避免 spawn + TCP probe 阻塞 lifespan startup,
+            # 串行 await 会让 started_event 推后,父进程等不到信号报"API 启动事件
+            # %ds 内未收到信号"。改成 create_task + done_callback 把结果写日志。
+            def _ocr_done(t: "_asyncio.Task") -> None:
+                if t.cancelled():
+                    _say("rapidocr start 被取消")
+                    return
+                exc = t.exception()
+                if exc is not None:
+                    log.exception("[auto-start-rapidocr] start_ocr_sidecar failed", exc_info=exc)
+                    _say(f"start 抛异常:{type(exc).__name__}: {exc}")
+                    return
+                status = t.result() or {}
                 _say(
-                    f"启动后状态非 ready — 看 {status.get('log_path')} 排查;"
-                    f"也可在「设置 → 本地模型服务」点 OCR『重新启动』"
+                    f"完成 state={status.get('state')} pid={status.get('pid')} "
+                    f"port={status.get('port')} listening={status.get('listening')} "
+                    f"log={status.get('log_path')}"
                 )
+                if status.get("state") != "ready":
+                    _say(
+                        f"启动后状态非 ready — 看 {status.get('log_path')} 排查;"
+                        f"也可在「设置 → 本地模型服务」点 OCR『重新启动』"
+                    )
+
+            task = _asyncio.create_task(_asyncio.to_thread(start_ocr_sidecar))
+            task.add_done_callback(_ocr_done)
+            _say("rapidocr 后台拉起中(不阻塞 lifespan)...")
         except Exception as e:  # noqa: BLE001
             log.exception(
                 "[auto-start-rapidocr] failed (OCR 功能将不可用)"
@@ -431,26 +446,56 @@ def create_app(run_mode: str = None):
             log.exception("[auto-start] 兜底 bootstrap 异常")
             _say(f"兜底 bootstrap 异常:{type(e).__name__}: {e}")
 
+        # 注意:**不能** await reg.get(cap).start() — 每个 cap 加载模型几秒到几十秒,
+        # 串行 await 会阻塞 lifespan startup,导致 started_event 被推后到几十秒后
+        # 才 set,父进程的 API 启动等待(默认 ~28s)报"未收到信号",甚至
+        # multiprocessing 视角下整个 Python 进程被 watchdog 拉下来 exitcode=1
+        # (2026-05-18 首启 crash 案例)。
+        #
+        # 改 fire-and-forget:asyncio.create_task 起任务,lifespan 立即继续,
+        # sidecar runtime 在后台慢慢起。状态由 RuntimeStatus 自己写,UI 走
+        # /runtime/llama/<cap>/status 轮询,跟 _model_first_launch 的
+        # preload_map 走同一异步模式。
+        import asyncio as _asyncio
+
         reg = get_registry()
+
+        def _make_done_cb(_cap: str):
+            def _cb(t: "_asyncio.Task") -> None:
+                if t.cancelled():
+                    _say(f"{_cap}: start 被取消")
+                    return
+                exc = t.exception()
+                if exc is not None:
+                    log.exception(
+                        "[auto-start] %s start failed",
+                        _cap, exc_info=exc,
+                    )
+                    _say(f"{_cap}: start 抛异常:{type(exc).__name__}: {exc}")
+                    return
+                status = t.result()
+                _say(
+                    f"{_cap}: state={getattr(status, 'state', '?')} "
+                    f"pid={getattr(status, 'pid', None)} "
+                    f"endpoint={getattr(status, 'endpoint', None)} "
+                    f"last_error={getattr(status, 'last_error', None)}"
+                )
+            return _cb
+
         for cap in LocalRuntimeRegistry.CAPABILITIES:
             flag = get_auto(cap)
             if not flag:
                 _say(f"{cap}: auto_start=False,跳过")
                 continue
-            _say(f"{cap}: auto_start=True,拉起中...")
+            _say(f"{cap}: auto_start=True,后台拉起中(不阻塞 lifespan)...")
             try:
-                status = await reg.get(cap).start()
-                _say(
-                    f"{cap}: state={getattr(status, 'state', '?')} "
-                    f"pid={getattr(status, 'pid', None)} "
-                    f"endpoint={getattr(status, 'endpoint', None)} "
-                    f"last_error={getattr(status, 'last_error', None)}"
-                )
+                task = _asyncio.create_task(reg.get(cap).start())
+                task.add_done_callback(_make_done_cb(cap))
             except Exception as e:  # noqa: BLE001
                 log.exception(
-                    "[auto-start] %s start failed (其它 capability 继续)", cap
+                    "[auto-start] %s create_task 失败 (其它 capability 继续)", cap
                 )
-                _say(f"{cap}: start 抛异常:{type(e).__name__}: {e}")
+                _say(f"{cap}: create_task 抛异常:{type(e).__name__}: {e}")
 
     # 其它接口
     app.post(
