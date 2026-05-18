@@ -340,6 +340,46 @@ def test_bootstrap_source_fallback_when_dst_empty(bootstrap_env, monkeypatch):
     }
 
 
+def test_bootstrap_public_alias_callable(bootstrap_env):
+    """``bootstrap_preload_from_bundled`` 是供 server_app 兜底用的公开 API,
+    必须能从 first_launch 模块导出,行为跟私版一致。"""
+    from chayuan.server.model_registry.first_launch import (
+        FirstLaunchReport, bootstrap_preload_from_bundled,
+    )
+    _make_bundled_models(bootstrap_env["root"], "embedding")
+    report = FirstLaunchReport()
+    bootstrap_preload_from_bundled(report)
+    assert bootstrap_env["saved_updates"] == {"preload_embedding": True}
+    assert report.preload_bootstrapped == {"embedding": "preload_embedding"}
+
+
+def test_bootstrap_is_idempotent_on_repeated_call(bootstrap_env):
+    """server_app._auto_start_capabilities 会作为兜底再调一次 bootstrap;
+    第二次调用必须是 no-op,不能把已被用户改过的 auto_start 翻回去。"""
+    from chayuan.server.model_registry.first_launch import (
+        FirstLaunchReport, bootstrap_preload_from_bundled,
+    )
+    _make_bundled_models(bootstrap_env["root"], "embedding", "rerank")
+
+    # 第一次:翻 embedding/rerank
+    bootstrap_preload_from_bundled(FirstLaunchReport())
+    store = bootstrap_env["auto_start_store"]
+    assert store.is_bootstrapped("embedding")
+    assert store.is_bootstrapped("rerank")
+    # 用户手动关掉 embedding(模拟 UI 操作)
+    store.set_("embedding", False)
+    bootstrap_env["saved_updates"].clear()
+
+    # 第二次(兜底路径):不该再翻
+    r2 = FirstLaunchReport()
+    bootstrap_preload_from_bundled(r2)
+    assert bootstrap_env["saved_updates"] == {}, (
+        "兜底调用不该再写 yaml,用户已经表态过的不能被翻回"
+    )
+    assert store.get("embedding") is False
+    assert r2.preload_bootstrapped == {}
+
+
 def test_bootstrap_syncs_settings_to_all_managers(bootstrap_env):
     """翻完字段后,5 个 manager 各自的 _settings 都该看到新值,而不仅 chat 那份。
 

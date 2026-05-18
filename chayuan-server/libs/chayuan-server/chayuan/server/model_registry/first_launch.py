@@ -323,4 +323,15 @@ def run_first_launch_hooks() -> FirstLaunchReport:
     return report
 
 
-__all__ = ["FirstLaunchReport", "run_first_launch_hooks"]
+# 公开别名:server_app._auto_start_capabilities 兜底用,语义跟 _前缀私版一致,
+# 留私版是因为 first_launch 内部其它地方还在用,且单元测试用 _ 前缀的引用更多。
+bootstrap_preload_from_bundled = _bootstrap_preload_from_bundled
+cap_has_bundled_content = _cap_has_bundled_content
+
+
+__all__ = [
+    "FirstLaunchReport",
+    "run_first_launch_hooks",
+    "bootstrap_preload_from_bundled",
+    "cap_has_bundled_content",
+]

@@ -385,30 +385,72 @@ def create_app(run_mode: str = None):
     # 5 个 capability sidecar 自动拉起 — 默认 False(老用户原本就手动起),
     # 用户在「设置 → 本地模型服务」打开 Switch 才在下次 startup 自动起。
     # 失败仅 log,不阻塞其它 capability(单 capability 装不全是常态)。
+    #
+    # 装机即用兜底:正常情况下 _model_first_launch 已经把 bundled cap 的
+    # auto_start 翻成 True;但若那个 hook 因任何原因失败(import / 路径 / 异常),
+    # 这里再跑一次 bootstrap_preload_from_bundled 作为最后一道防线 ——
+    # 保证 lite/full 装完都能"开机即跑"。
+    #
+    # 可见性:同 _auto_start_rapidocr 模式,关键事件 print 到 stdout,
+    # Tauri sidecar 日志直接看 cap=...auto_start=...started=...,排查不抓瞎。
     @app.on_event("startup")
     async def _auto_start_capabilities() -> None:
+        import sys as _sys
+        import logging as _logging
+        log = _logging.getLogger("chayuan.startup")
+
+        def _say(msg: str) -> None:
+            log.info("[auto-start] %s", msg)
+            try:
+                print(f"[auto-start] {msg}", flush=True, file=_sys.stdout)
+            except Exception:  # noqa: BLE001
+                pass
+
         try:
             from chayuan.server.runtime.auto_start_store import get as get_auto
             from chayuan.server.model_registry.local_runtime_registry import (
                 LocalRuntimeRegistry, get_registry,
             )
-        except Exception:  # noqa: BLE001
-            import logging as _logging
-            _logging.getLogger("chayuan.startup").exception(
-                "[auto-start] import 失败,跳过 5 capability 自动拉起"
-            )
+        except Exception as e:  # noqa: BLE001
+            log.exception("[auto-start] import 失败,跳过 5 capability 自动拉起")
+            _say(f"import 失败:{type(e).__name__}: {e}")
             return
-        import logging as _logging
-        log = _logging.getLogger("chayuan.startup")
+
+        # 兜底 bootstrap:即便 _model_first_launch 没跑成,这里仍能让装机即用生效
+        try:
+            from chayuan.server.model_registry.first_launch import (
+                FirstLaunchReport, bootstrap_preload_from_bundled,
+            )
+            _r = FirstLaunchReport()
+            bootstrap_preload_from_bundled(_r)
+            if _r.preload_bootstrapped:
+                _say(f"兜底 bootstrap 翻好:{list(_r.preload_bootstrapped.keys())}")
+            for err in _r.errors:
+                _say(f"兜底 bootstrap 错误:{err}")
+        except Exception as e:  # noqa: BLE001
+            log.exception("[auto-start] 兜底 bootstrap 异常")
+            _say(f"兜底 bootstrap 异常:{type(e).__name__}: {e}")
+
         reg = get_registry()
         for cap in LocalRuntimeRegistry.CAPABILITIES:
-            if not get_auto(cap):
+            flag = get_auto(cap)
+            if not flag:
+                _say(f"{cap}: auto_start=False,跳过")
                 continue
+            _say(f"{cap}: auto_start=True,拉起中...")
             try:
-                log.info("[auto-start] %s auto_start=true,拉起", cap)
-                await reg.get(cap).start()
-            except Exception:  # noqa: BLE001
-                log.exception("[auto-start] %s start failed (其它 capability 继续)", cap)
+                status = await reg.get(cap).start()
+                _say(
+                    f"{cap}: state={getattr(status, 'state', '?')} "
+                    f"pid={getattr(status, 'pid', None)} "
+                    f"endpoint={getattr(status, 'endpoint', None)} "
+                    f"last_error={getattr(status, 'last_error', None)}"
+                )
+            except Exception as e:  # noqa: BLE001
+                log.exception(
+                    "[auto-start] %s start failed (其它 capability 继续)", cap
+                )
+                _say(f"{cap}: start 抛异常:{type(e).__name__}: {e}")
 
     # 其它接口
     app.post(
