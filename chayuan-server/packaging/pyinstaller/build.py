@@ -921,13 +921,21 @@ def main() -> None:
         "--sync-bundled-only",
         action="store_true",
         help=("跳过 PyInstaller,只把 vendor/bundled_models 同步到 src-tauri/bundled_models/。"
-              "build-desktop 双 flavor 模式下,sidecar 跑一次就够,flavor 切换只需重跑这一步。"),
+              "build-desktop 双 flavor 模式下,sidecar 跑一次就够,flavor 切换只需重跑这一步。"
+              "注:本 flag 同时也跑 services sync(等价于 --sync-only,保留旧名兼容)。"),
+    )
+    parser.add_argument(
+        "--sync-only",
+        action="store_true",
+        help=("跳过 PyInstaller,只跑 vendor sync(bundled_models + services + verify)。"
+              "等价于 --sync-bundled-only,但名字更准 — 它实际同时同步两个目录。"
+              "build-desktop.ps1 在 sidecar 缓存命中时走这个,纯增量打包 < 2 min。"),
     )
     parser.add_argument(
         "--sync-services-only",
         action="store_true",
         help="只同步 vendor/services/ 到 src-tauri/services/(快速 vendor 二进制改动迭代),"
-             "跟 --sync-bundled-only 互斥",
+             "跟 --sync-bundled-only / --sync-only 互斥",
     )
     parser.add_argument(
         "--target",
@@ -1061,9 +1069,10 @@ def main() -> None:
         if not args.skip_verify:
             verify_service_binaries(target_subdir=target_sub, host_subdir=host_sub)
 
-    if args.sync_bundled_only:
-        # 跳过 PyInstaller,只同步 bundled_models。给 build-desktop 双 flavor
+    if args.sync_bundled_only or args.sync_only:
+        # 跳过 PyInstaller,只同步 bundled_models + services。给 build-desktop 双 flavor
         # 模式用:sidecar 跑一次,两个 flavor 切换时只重做 sync + tauri bundle。
+        # build-desktop.ps1 在 sidecar 缓存命中时也走这条路径(--sync-only)。
         sync_bundled_models(lite=lite, bundled_src=bundled_src, target_triple=target)
         _do_sync_and_verify()
         return

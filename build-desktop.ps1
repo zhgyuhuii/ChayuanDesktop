@@ -41,6 +41,13 @@
 
 .PARAMETER Clean
   动手前先删 chayuan-server\dist 与 apps\desktop\src-tauri\target\release\bundle。
+  附带效果:PyInstaller skip-cache 指纹文件随之删掉,下次构建必走完整 PyInstaller。
+
+.PARAMETER ForceRebuildServer
+  强制重跑 Step 1(PyInstaller)。默认下,Python 源 / pyproject.toml / poetry.lock /
+  packaging/ 内容没变时会跳过 PyInstaller(节省 3-7 min)。改了**非 .py 文件但需要
+  重编**的极端情况(比如手动改了 venv 里的包)用这个 flag 强制重编。
+  常规场景不需要 — 改了 .py 文件指纹自动失效。
 
 .PARAMETER NoColor
   禁用 ANSI 颜色码。老 Windows 10 / cmd.exe 转发场景显示乱码时用。
@@ -101,7 +108,12 @@ param(
     # ISO 打包开关。2026-05-18 起 Windows 一律走 MSI(NSIS 撞 32-bit 限制),
     # MSI + 外置 CAB 必须 ISO 打包分发,所以 lite/full 都默认出 ISO。
     [switch]$NoIso,    # 跳过 ISO 生成(开发本机迭代不需要 ISO)
-    [switch]$IsoBoth   # 历史兼容参数,新逻辑下已无意义(lite/full 都出 ISO)
+    [switch]$IsoBoth,  # 历史兼容参数,新逻辑下已无意义(lite/full 都出 ISO)
+    # PyInstaller 缓存:默认开。同一份 Python 源 + pyproject.toml + poetry.lock + build.py
+    # 没改动时,跳过 Step 1(PyInstaller 编译),只跑 Step 1b(vendor sync)。
+    # 改了 Python 代码会自动 cache miss,无需手动清理。-ForceRebuildServer 强制重编。
+    # -Clean 也会触发(因为它会删 dist/,指纹随之失效)。
+    [switch]$ForceRebuildServer
 )
 
 # 旧名兼容 + 提示
@@ -513,6 +525,167 @@ function Invoke-Step {
 }
 
 # ====================================================================
+# PyInstaller 缓存:源指纹 + 输出存在性判定
+# ====================================================================
+# 思路:把所有"会影响 sidecar.exe 字节"的输入算成一个 SHA256 指纹。下次重打,
+# 指纹一致 + dist/chayuan-server/chayuan-server.exe 还在 + size 合理 → 跳过
+# PyInstaller(典型 3-8 min)。vendor sync / Tauri bundle 照常跑。
+#
+# 入指纹的输入:
+#   1. chayuan-server/libs/chayuan-server/chayuan/**/*.py            (业务源)
+#   2. chayuan-server/pyproject.toml + poetry.lock                    (依赖锁)
+#   3. chayuan-server/libs/chayuan-server/pyproject.toml              (子包元数据)
+#   4. chayuan-server/packaging/pyinstaller/**                        (打包逻辑)
+#   5. chayuan-server/packaging/preflight_torch.py                    (torch 预拉)
+#   6. build args(host triple、strict_vendor)
+#   7. python --version                                                (跨版本字节码)
+#
+# 不入指纹的:
+#   - vendor/bundled_models/** / vendor/services/**:这俩不进 .exe,只走 vendor sync
+#   - tests/**:不进 .exe
+#   - --lite 标志:对 PyInstaller 输出无影响(只影响 sync_bundled_models 的 cap 范围)
+function Get-ServerSourceFingerprint {
+    param(
+        [Parameter(Mandatory=$true)][string]$ServerRoot,
+        [Parameter(Mandatory=$true)][string]$HostTriple,
+        [Parameter(Mandatory=$true)][bool]$StrictVendor
+    )
+
+    $sb = New-Object System.Text.StringBuilder
+    $files = New-Object System.Collections.Generic.List[string]
+
+    # 1. 业务源
+    $chayuanPkg = Join-Path $ServerRoot 'libs\chayuan-server\chayuan'
+    if (Test-Path $chayuanPkg) {
+        Get-ChildItem -Path $chayuanPkg -Recurse -File -Filter *.py -ErrorAction SilentlyContinue |
+            ForEach-Object { $files.Add($_.FullName) }
+    }
+
+    # 2-3. 依赖锁 / 子包元数据
+    @(
+        (Join-Path $ServerRoot 'pyproject.toml'),
+        (Join-Path $ServerRoot 'poetry.lock'),
+        (Join-Path $ServerRoot 'libs\chayuan-server\pyproject.toml')
+    ) | ForEach-Object {
+        if (Test-Path $_) { $files.Add($_) }
+    }
+
+    # 4-5. 打包逻辑
+    $pkgDir = Join-Path $ServerRoot 'packaging'
+    if (Test-Path $pkgDir) {
+        Get-ChildItem -Path $pkgDir -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in @('.py', '.spec', '.toml', '.in', '.cfg') } |
+            ForEach-Object { $files.Add($_.FullName) }
+    }
+
+    # 排序 → 稳定指纹(文件系统遍历顺序不保证)
+    $sorted = $files | Sort-Object
+    foreach ($f in $sorted) {
+        try {
+            $h = (Get-FileHash -Path $f -Algorithm SHA256 -ErrorAction Stop).Hash
+            [void]$sb.AppendLine(('{0}|{1}' -f $f, $h))
+        } catch {
+            # 个别文件可能被占用,忽略不阻塞指纹生成
+        }
+    }
+
+    # 6. build args
+    [void]$sb.AppendLine(('target:{0}' -f $HostTriple))
+    [void]$sb.AppendLine(('strict_vendor:{0}' -f $StrictVendor))
+
+    # 7. Python 版本(取 poetry 选的 venv 里的 python,如果有的话;否则系统 python)
+    $pyv = ''
+    try {
+        $poetryCmd = Get-Command poetry -ErrorAction SilentlyContinue
+        if ($poetryCmd) {
+            Push-Location (Join-Path $ServerRoot 'libs\chayuan-server') -ErrorAction SilentlyContinue
+            $pyv = (& poetry run python --version 2>&1 | Out-String).Trim()
+            Pop-Location -ErrorAction SilentlyContinue
+        }
+        if ([string]::IsNullOrWhiteSpace($pyv)) {
+            $pyv = (& python --version 2>&1 | Out-String).Trim()
+        }
+    } catch { $pyv = 'unknown' }
+    [void]$sb.AppendLine(('python:{0}' -f $pyv))
+
+    # SHA256 整体
+    $hasher = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($sb.ToString())
+        $digest = $hasher.ComputeHash($bytes)
+        return (([BitConverter]::ToString($digest)) -replace '-', '').ToLowerInvariant()
+    } finally {
+        $hasher.Dispose()
+    }
+}
+
+# 用法:Test-ServerBuildCache -ServerRoot ... -HostTriple ... -SidecarPath ... -StrictVendor $true
+# 返回:@{ Hit = $bool; Fingerprint = "<sha256>"; Reason = "<why hit/miss>" }
+function Test-ServerBuildCache {
+    param(
+        [Parameter(Mandatory=$true)][string]$ServerRoot,
+        [Parameter(Mandatory=$true)][string]$HostTriple,
+        [Parameter(Mandatory=$true)][string]$SidecarPath,
+        [Parameter(Mandatory=$true)][bool]$StrictVendor,
+        [Parameter(Mandatory=$true)][string]$FingerprintFile
+    )
+
+    $current = Get-ServerSourceFingerprint -ServerRoot $ServerRoot -HostTriple $HostTriple -StrictVendor $StrictVendor
+
+    # dist 内的 PyInstaller 直接产物
+    $distExe = Join-Path $ServerRoot 'dist\chayuan-server\chayuan-server.exe'
+
+    if (-not (Test-Path $FingerprintFile)) {
+        return @{ Hit = $false; Fingerprint = $current; Reason = 'no fingerprint file (first build)' }
+    }
+    if (-not (Test-Path $distExe)) {
+        return @{ Hit = $false; Fingerprint = $current; Reason = ('dist exe missing: {0}' -f $distExe) }
+    }
+    if (-not (Test-Path $SidecarPath)) {
+        return @{ Hit = $false; Fingerprint = $current; Reason = ('sidecar copy missing: {0}' -f $SidecarPath) }
+    }
+    $distSize = (Get-Item $distExe).Length
+    if ($distSize -lt 10MB) {
+        return @{ Hit = $false; Fingerprint = $current; Reason = ('dist exe too small ({0} bytes) — last build aborted?' -f $distSize) }
+    }
+
+    try {
+        $saved = Get-Content -Path $FingerprintFile -Raw -ErrorAction Stop | ConvertFrom-Json
+    } catch {
+        return @{ Hit = $false; Fingerprint = $current; Reason = ('fingerprint file unreadable: {0}' -f $_.Exception.Message) }
+    }
+
+    if ($saved.fingerprint -ne $current) {
+        return @{ Hit = $false; Fingerprint = $current; Reason = 'source fingerprint changed' }
+    }
+    if ($saved.host_triple -ne $HostTriple) {
+        return @{ Hit = $false; Fingerprint = $current; Reason = ('host triple changed: {0} → {1}' -f $saved.host_triple, $HostTriple) }
+    }
+
+    return @{ Hit = $true; Fingerprint = $current; Reason = ('source unchanged since {0}' -f $saved.built_at) }
+}
+
+function Save-ServerBuildCache {
+    param(
+        [Parameter(Mandatory=$true)][string]$FingerprintFile,
+        [Parameter(Mandatory=$true)][string]$Fingerprint,
+        [Parameter(Mandatory=$true)][string]$HostTriple,
+        [Parameter(Mandatory=$true)][string]$SidecarPath
+    )
+    $cacheDir = Split-Path $FingerprintFile -Parent
+    if (-not (Test-Path $cacheDir)) {
+        New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+    }
+    @{
+        fingerprint = $Fingerprint
+        host_triple = $HostTriple
+        sidecar     = $SidecarPath
+        built_at    = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss')
+        note        = 'PyInstaller skip-cache fingerprint;删此文件强制重编(或 -ForceRebuildServer / -Clean)'
+    } | ConvertTo-Json -Depth 3 | Set-Content -Path $FingerprintFile -Encoding UTF8
+}
+
+# ====================================================================
 # bundled_models 体检 (本次打包会嵌入哪些模型)
 # ====================================================================
 # ────────────────────────────────────────────────────────────────────
@@ -668,8 +841,18 @@ if ($cpuArch -eq 'ARM64') {
 $sidecarName = "chayuan-server-${hostTriple}.exe"
 $sidecarPath = Join-Path $BinariesDir $sidecarName
 
+# PyInstaller skip-cache 指纹文件(per-host triple,放 dist/ 下,跟产物一起进 .gitignore)
+$fingerprintFile = Join-Path $ServerDir ('dist\.build-fingerprint-{0}.json' -f $hostTriple)
+
+# 决策三态:
+#   $serverNeedsBuild = $true   → 完整跑 Step 1(poetry lock/install + PyInstaller)
+#   $serverNeedsBuild = $false  → 跳过 Step 1,假设 sidecar 已存在(SkipServer 或缓存命中)
+#   $cacheFingerprint = "<sha>" → 跑完 Step 1 后要写回的指纹(只有缓存路径才有值)
+$serverNeedsBuild = $true
+$cacheFingerprint = $null
+
 if ($SkipServer) {
-    Write-Step 'Step 1 [skipped]'
+    Write-Step 'Step 1 [skipped: -SkipServer]'
     if (-not (Test-Path $sidecarPath)) {
         Write-Fail "传了 -SkipServer 但 sidecar 不存在:$sidecarPath"
         Write-Note '去掉 -SkipServer 重跑'
@@ -677,9 +860,35 @@ if ($SkipServer) {
     }
     $size = (Get-Item $sidecarPath).Length / 1MB
     Write-Ok "复用现有 sidecar:$sidecarPath ($([math]::Round($size, 1)) MB)"
+    $serverNeedsBuild = $false
+} elseif ($ForceRebuildServer) {
+    Write-Step 'Step 1: chayuan-server PyInstaller [-ForceRebuildServer:跳过缓存]'
+} elseif ($Clean) {
+    Write-Step 'Step 1: chayuan-server PyInstaller [-Clean:跳过缓存]'
 } else {
-    Write-Step 'Step 1: chayuan-server PyInstaller'
+    # 默认路径:算指纹,看能不能跳过 PyInstaller
+    Write-Step 'Step 1: 检查 PyInstaller 缓存'
+    $cacheResult = Test-ServerBuildCache `
+        -ServerRoot $ServerDir `
+        -HostTriple $hostTriple `
+        -SidecarPath $sidecarPath `
+        -StrictVendor $true `
+        -FingerprintFile $fingerprintFile
 
+    if ($cacheResult.Hit) {
+        Write-Ok ('Step 1 [cache hit] {0}' -f $cacheResult.Reason)
+        $size = (Get-Item $sidecarPath).Length / 1MB
+        Write-Ok ('复用现有 sidecar:{0} ({1} MB) — 跳过 PyInstaller,节省 3-7 min' -f $sidecarPath, [math]::Round($size, 1))
+        Write-Note '强制重编:加 -ForceRebuildServer 或 -Clean'
+        $serverNeedsBuild = $false
+    } else {
+        Write-Note ('cache miss: {0}' -f $cacheResult.Reason)
+        Write-Step 'Step 1: chayuan-server PyInstaller'
+        $cacheFingerprint = $cacheResult.Fingerprint
+    }
+}
+
+if ($serverNeedsBuild) {
     # 拷文件前先杀残留 sidecar(上次 Step 2 异常退出 / 用户中断时,
     # PyInstaller 派生的 Python 子进程会锁住 binaries 目录里的 exe)。
     Stop-LingeringSidecars
@@ -721,6 +930,19 @@ if ($SkipServer) {
     }
     $size = (Get-Item $sidecarPath).Length / 1MB
     Write-Ok "sidecar 已就位:$sidecarPath ($([math]::Round($size, 1)) MB)"
+
+    # 写回指纹 — 即使本次是 -ForceRebuildServer / -Clean / 首次构建,也要写,
+    # 下次默认路径才能命中。$cacheFingerprint 在缓存路径已经算好;否则现算。
+    if (-not $cacheFingerprint) {
+        $cacheFingerprint = Get-ServerSourceFingerprint `
+            -ServerRoot $ServerDir -HostTriple $hostTriple -StrictVendor $true
+    }
+    Save-ServerBuildCache `
+        -FingerprintFile $fingerprintFile `
+        -Fingerprint $cacheFingerprint `
+        -HostTriple $hostTriple `
+        -SidecarPath $sidecarPath
+    Write-Note ('指纹已记录:{0}' -f $fingerprintFile)
 }
 
 # ====================================================================
