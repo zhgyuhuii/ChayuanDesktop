@@ -205,6 +205,25 @@ def create_app(run_mode: str = None):
         from chayuan.server.shared.ws_hub import get_hub
         get_hub().attach_loop()
 
+    # PR-9 E:把上次进程中断的模态任务恢复 — 持有上游 task_id 的 wanx t2v 接着轮询,
+    # 没法续传的标 orphaned 让前端看得到清晰错误,不再"流式永远转圈"。
+    @app.on_event("startup")
+    async def _modality_task_recovery() -> None:
+        import logging
+        log = logging.getLogger("chayuan.startup")
+        try:
+            # 触发 Connector 注册落表 — 否则 resume 时 pick_connector 找不到类
+            from chayuan.server.modality.router import connectors as _connectors  # noqa: F401
+            from chayuan.server.modality.router.tasks import manager as task_mgr
+            summary = await task_mgr.resume_unfinished_tasks()
+            if summary["resumed"] or summary["orphaned"]:
+                log.info(
+                    "[modality.recovery] resumed=%d orphaned=%d skipped=%d",
+                    summary["resumed"], summary["orphaned"], summary["skipped"],
+                )
+        except Exception:  # noqa: BLE001
+            log.exception("modality task recovery failed")
+
     # 模型生命周期: framework_wiring 注入到 modelmgr.lifecycle 的 WIRE 阶段
     # 这样 "下载完一个模型 → Ollama / vLLM / ComfyUI 等运行时立刻可见" 成为默认行为
     @app.on_event("startup")

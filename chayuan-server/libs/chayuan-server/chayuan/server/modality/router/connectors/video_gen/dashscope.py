@@ -234,12 +234,81 @@ class DashScopeT2VConnector(Connector):
                 {"percent": 5, "message": "任务已排队", "task_id": task_id},
             )
 
-            # 2. 轮询
+            # 2. 轮询 + 下载 — 抽到 _poll_and_download,resume 路径复用
+            async for ev in self._poll_and_download(
+                client=client,
+                req=req,
+                upstream_task_id=task_id,
+                tasks_url_prefix=tasks_url_prefix,
+                headers_poll=headers_poll,
+                size=size,
+                duration=duration,
+                prompt=prompt,
+            ):
+                yield ev
+
+    # ──────────────────────────────────────────────────────────────
+    # PR-9 E:服务重启后接现有 upstream_task_id,跳过 submit。
+    # ──────────────────────────────────────────────────────────────
+    async def resume(self, req: GenerateReq, upstream_task_id: str) -> AsyncIterator[Dict]:
+        size = _normalize_size(req.params.get("size"), req.model)
+        try:
+            duration = max(2, min(10, int(req.params.get("duration") or _DEFAULT_DURATION_S)))
+        except (TypeError, ValueError):
+            duration = _DEFAULT_DURATION_S
+        prompt = (req.prompt or "").strip()
+
+        _submit_url, tasks_url_prefix = _build_endpoints(req.api_base)
+        headers_poll = {"Authorization": f"Bearer {req.api_key}"}
+
+        text_id = "t0"
+        yield text_start(text_id)
+        yield text_delta(
+            text_id,
+            f"接回中断的视频任务({upstream_task_id})…",
+        )
+        yield text_end(text_id)
+        yield data_part(
+            "task-progress",
+            {"percent": 5, "message": "继续轮询", "task_id": upstream_task_id},
+        )
+
+        timeout = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async for ev in self._poll_and_download(
+                client=client,
+                req=req,
+                upstream_task_id=upstream_task_id,
+                tasks_url_prefix=tasks_url_prefix,
+                headers_poll=headers_poll,
+                size=size,
+                duration=duration,
+                prompt=prompt,
+            ):
+                yield ev
+
+    # ──────────────────────────────────────────────────────────────
+    # 轮询 + 下载产物的共享实现 — generate / resume 都走这里
+    # ──────────────────────────────────────────────────────────────
+    async def _poll_and_download(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        req: GenerateReq,
+        upstream_task_id: str,
+        tasks_url_prefix: str,
+        headers_poll: Dict[str, str],
+        size: str,
+        duration: int,
+        prompt: str,
+    ) -> AsyncIterator[Dict]:
+            task_id = upstream_task_id
             poll_url = f"{tasks_url_prefix}/{task_id}"
             started = time.monotonic()
             last_status = ""
             video_url: Optional[str] = None
             usage_info: Dict = {}
+            pdata: Dict = {}
 
             while True:
                 if req.cancelled is not None and req.cancelled.is_set():

@@ -154,8 +154,13 @@ async def run_task(task_id: str, req: GenerateReq) -> None:
 
     loop = asyncio.get_running_loop()
     connector = cls()
+    # PR-9 E:resume_upstream_task_id 非空 → 走 connector.resume(),跳过 submit
+    if req.resume_upstream_task_id:
+        gen = connector.resume(req, req.resume_upstream_task_id)
+    else:
+        gen = connector.generate(req)
     try:
-        async for ev in connector.generate(req):
+        async for ev in gen:
             ch.publish(ev)
             await _persist_event(
                 task_id, ev,
@@ -360,3 +365,96 @@ def _schedule_grace_cleanup(task_id: str) -> None:
         event_bus.drop_channel(task_id)
 
     asyncio.create_task(_later(), name=f"modality-grace-{task_id}")
+
+
+# ──────────────────────────────────────────────────────────────
+# PR-9 E:进程重启恢复
+# ──────────────────────────────────────────────────────────────
+
+
+async def resume_unfinished_tasks() -> Dict[str, int]:
+    """启动钩子调用 — 扫 DB 里 status IN ('pending','running') 的任务。
+
+    分类处理:
+      - 有 ``upstream_task_id`` 的(典型:wanx t2v):重建 GenerateReq + 启动
+        后台 Task,走 ``connector.resume(req, upstream)``;Connector 自然轮询
+        到终态。前端只要再次访问该 task 的 ``/events`` 就能看见 buffer 重新
+        建立的事件流。
+      - 没有 ``upstream_task_id`` 的(典型:t2i / tts / asr 这些 sync 类型在
+        请求中途被进程杀掉):没法接续,标 ``failed`` + error_code=orphaned_by_restart,
+        前端会话重开时看到该消息显示错误,可点重试。
+      - 找不到 platform 元信息的(model_platform 被删 / 改):同上标 orphaned。
+
+    返回 ``{"resumed": N, "orphaned": M, "skipped": K}`` 用于日志。
+    """
+    summary = {"resumed": 0, "orphaned": 0, "skipped": 0}
+    rows = await store.list_unfinished(limit=200)
+    if not rows:
+        return summary
+
+    # 延迟 import — 启动期间可能 model_platform 表还没初始化好
+    from chayuan.server.utils import get_model_info
+
+    for row in rows:
+        task_id = row["id"]
+        upstream = row.get("upstream_task_id")
+        cap_str = row.get("capability") or ""
+
+        # 没 upstream → 直接标 orphaned;sync 类型走这条 + 即使是 t2v 但 submit
+        # 还没拿到 task_id 就被杀的也走这条
+        if not upstream:
+            await store.patch_task(
+                task_id,
+                status="failed",
+                error_text="服务进程重启,任务被中断(未提交到上游,无法续传)。请重新提交。",
+                error_code="orphaned_by_restart",
+            )
+            summary["orphaned"] += 1
+            continue
+
+        # 重建 GenerateReq 需要 api_base / api_key — 从 model_platform 重新拉
+        info = get_model_info(model_name=row["model"], platform_name=row.get("platform_name"))
+        if not info:
+            await store.patch_task(
+                task_id,
+                status="failed",
+                error_text=(
+                    f"任务关联的模型「{row['model']}」在 model_platform 中已不可达。"
+                    "上游任务可能仍在跑,但本端无法接续轮询。"
+                ),
+                error_code="orphaned_platform_missing",
+            )
+            summary["orphaned"] += 1
+            continue
+
+        # 用 DB 里**已经记录**的 capability,而不是再从 model 名字推一次。
+        # 名字 prefix 表跟实际任务类型 1:1 准确才不出错;直接读记录避免歧义。
+        try:
+            cap = Capability(cap_str)
+        except ValueError:
+            summary["skipped"] += 1
+            continue
+
+        req = GenerateReq(
+            capability=cap,
+            model=row["model"],
+            platform_name=info.get("platform_name") or "",
+            platform_type=info.get("platform_type") or "",
+            api_base=info.get("api_base_url") or "",
+            api_key=info.get("api_key") or "",
+            prompt=row.get("prompt") or "",
+            params=dict(row.get("params") or {}),
+            cancelled=Cancelled(),
+            conversation_id=row.get("conversation_id"),
+            message_id=row.get("message_id"),
+            resume_upstream_task_id=upstream,
+        )
+        # 启动后台 Task — 不会 await 它
+        ensure_running(task_id, req)
+        summary["resumed"] += 1
+        logger.info(
+            "[task=%s] resumed cap=%s model=%s upstream=%s",
+            task_id, cap_str, row["model"], upstream,
+        )
+
+    return summary

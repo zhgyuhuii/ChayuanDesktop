@@ -216,6 +216,10 @@ class GenerateReq:
     message_id: Optional[str] = None
     # 取消信号:router 持有,Connector 在轮询/长循环里 check
     cancelled: Optional["Cancelled"] = None
+    # PR-9 E:服务进程重启后,把以前已经提交给上游的异步任务接着轮询。
+    # 这里填的是上游真实 task id(wanx t2v / paraformer-async 等);TaskManager
+    # 检测到 != None 时,调 connector.resume(req, upstream_task_id) 跳过 submit。
+    resume_upstream_task_id: Optional[str] = None
 
 
 class Cancelled:

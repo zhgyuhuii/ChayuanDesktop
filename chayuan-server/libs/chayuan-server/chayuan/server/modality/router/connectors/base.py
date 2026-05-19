@@ -67,6 +67,19 @@ class Connector(ABC):
         """可选:估算单次调用成本(同步返回)。返 ``None`` 表示不支持估算。"""
         return None
 
+    async def resume(self, req: GenerateReq, upstream_task_id: str) -> AsyncIterator[Dict]:
+        """可选:服务进程重启后,按现有 ``upstream_task_id`` 接着轮询,**不**重新提交。
+
+        默认行为 = 不支持续传 → yield 一条 error 让 TaskManager 标 failed。
+        wanx t2v / paraformer-async 等真正持有上游 task id 的连接器应该 override
+        这个方法,把 generate() 里 submit 之后那段 polling 循环抽出来调用。
+        """
+        from chayuan.server.modality.router.sse_v5 import error_event
+        yield error_event(
+            f"{type(self).__name__} 不支持任务重启续传(进程重启时已标 failed),请重新提交。",
+            code="resume_not_supported",
+        )
+
 
 # ──────────────────────────────────────────────────────────────
 # 注册表(模块加载时被 @register 装饰器写入)
