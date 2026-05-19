@@ -22,7 +22,7 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { cn } from '@chayuan/ui';
-import type { LocalRuntimeCapability, LocalRuntimeStatus, RuntimeOcrHealth } from '@chayuan/api';
+import type { LocalRuntimeCapability, RuntimeOcrHealth } from '@chayuan/api';
 import { runtimeModels, runtimeOcr, serverCapabilityDefaults } from '@chayuan/api';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
 
@@ -98,17 +98,6 @@ const BACKEND_CAP_KEY: Record<LocalRuntimeCapability | 'ocr', string> = {
   ocr: 'ocr',
 };
 
-// 把 sidecar 实际 state 转成 Tone — stopped/未知交给上层 fallback(本函数返 null)。
-// 调用方在 null 时再根据 hasInstalled / hasCloudDefault 决定 configured / unavailable。
-function runtimeTone(state: LocalRuntimeStatus['state'] | null | undefined): Tone | null {
-  switch (state) {
-    case 'ready':      return 'ready';
-    case 'starting':
-    case 'restarting': return 'pending';
-    case 'failed':     return 'failed';
-    default:           return null;
-  }
-}
 
 export const AppFooter: React.FC = () => {
   const statuses = useLocalRuntimeStore((s) => s.statuses);
@@ -241,37 +230,42 @@ export const AppFooter: React.FC = () => {
       {/* 右:6 个 capability 状态点 */}
       <div className="flex shrink-0 items-center gap-3">
         {INDICATORS.map((ind) => {
-          // 三态优先级(从高到低):
-          //   1. 实际进程状态 starting/restarting → pending (启停中)
-          //   2. 实际 failed → failed (异常,带错误原因)
-          //   3. 实际 ready → 绿 (运行中)
-          //   4. 否则 stopped/null:
-          //        本地有装模型文件 OR 设置面板配了云端默认 → configured (黄 — 可用,本地未启动)
-          //        lite 包且未随包 + 没装 + 没默认 → missing (灰斜线)
-          //        其它(完全没配置) → unavailable (红 — 提示去模型广场)
+          // 三态优先级(按用户口径 "完全不可用=既没启动模型服务又没配默认模型"):
+          //   1. 实际 ready → 绿 (运行中)
+          //   2. 实际 starting/restarting → pending (启停中,amber pulse)
+          //   3. 已配置(本地装了 / 设置面板/模型广场配了 default) → 黄
+          //      — 即使本地 sidecar failed,只要有云端 default 就视为系统可用
+          //   4. failed 且毫无 fallback → 红 (异常,sidecar 报错且没配默认)
+          //   5. lite 包未随包 + 啥都没 → missing (灰斜线)
+          //   6. 完全没配置 → unavailable (红 — 提示去模型广场)
           const backendCap = BACKEND_CAP_KEY[ind.key];
           const hasInstalled =
             ind.key !== 'ocr' && installedCaps.has(ind.key as LocalRuntimeCapability);
           const defaultCapKey = DEFAULT_CAP_KEY[ind.key];
           const hasCloudDefault =
             !!defaultCapKey && !!(defaultsMap[defaultCapKey] || '').toString().trim();
+          const hasAnyConfig = hasInstalled || hasCloudDefault;
           const isBundleMissing =
             bundledCaps != null &&
             !bundledCaps.has(backendCap) &&
             ind.key !== 'ocr' &&
-            !hasInstalled &&
-            !hasCloudDefault; // 任一手段可用就不再标 "未随包"
+            !hasAnyConfig; // 任一手段可用就不再标 "未随包"
 
           let tone: Tone;
           if (ind.key === 'ocr') {
             tone = ocrTone;
           } else {
             const state = statuses[ind.key]?.state;
-            const rt = runtimeTone(state);
-            if (rt) {
-              tone = rt;
-            } else if (hasInstalled || hasCloudDefault) {
+            // ready / starting / restarting 直接反映实时进程状态;
+            // failed 让步给"有配置"判定 — 上游云端可走通时本地 sidecar 挂了不算系统不可用。
+            if (state === 'ready') {
+              tone = 'ready';
+            } else if (state === 'starting' || state === 'restarting') {
+              tone = 'pending';
+            } else if (hasAnyConfig) {
               tone = 'configured';
+            } else if (state === 'failed') {
+              tone = 'failed';
             } else if (isBundleMissing) {
               tone = 'missing';
             } else {
@@ -287,6 +281,17 @@ export const AppFooter: React.FC = () => {
 
           // 鼠标悬停 title:状态 + endpoint/model_id + 「点击跳设置」提示
           const titleParts: string[] = [`${ind.label}: ${hintOverride ?? TONE_HINT[tone]}`];
+          // configured (黄) 时若本地 sidecar 实际 failed,提示用户本地还有问题但云端可走
+          if (
+            ind.key !== 'ocr' &&
+            tone === 'configured' &&
+            statuses[ind.key]?.state === 'failed'
+          ) {
+            titleParts.push('(本地 sidecar 启动失败,正走云端默认 — 不影响使用)');
+            if (statuses[ind.key]?.last_error) {
+              titleParts.push(`本地错误: ${statuses[ind.key]?.last_error}`);
+            }
+          }
           if (isBundleMissing) {
             titleParts.push('当前是轻量版安装包,该能力未随包嵌入。');
             titleParts.push('点击进设置 → 本地模型服务 → 下载模型后再启动。');
