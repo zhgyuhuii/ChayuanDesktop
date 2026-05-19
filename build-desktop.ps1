@@ -32,12 +32,20 @@
   仅在调试 build 流程 / installer.nsh / 后端时用,业务代码改动**不要**跳。
 
 .PARAMETER BundleOnly
-  最快重打:只跑 Tauri bundle 这一步(cargo + vite 走增量缓存,
-  makensis 重做)。等价于
-  ``-SkipServer -SkipHealthcheck -SkipInstall -SkipTypecheck`` +
-  直接到 apps/desktop 跑 ``pnpm exec tauri build``。
-  适合「sidecar 已经存在 + 改了 installer.nsh / 上次 makensis 报错」
-  的场景,通常 1-3 分钟出包。
+  最快重打:只跑 Tauri bundle 这一步(cargo + vite 走增量缓存,WiX/NSIS 重做)。
+  等价于 ``-SkipServer -SkipHealthcheck -SkipInstall -SkipTypecheck
+  -SkipInstallVendor -SkipModelCheck`` + 直接到 apps/desktop 跑
+  ``pnpm exec tauri build --bundles msi``。
+  通常 1-3 分钟出包。
+
+  典型用法:
+    上一轮 build 跑到 WiX light.exe / NSIS makensis 失败,server PyInstaller
+    + Vite + cargo 已经全过、产物完好,只需重跑 bundle 段验证修复:
+        .\build-desktop.ps1 -LiteOnly -BundleOnly
+
+  ⚠ 用 ``-BundleOnly`` 时**不要切 flavor**(lite ↔ full):
+    Step 1b(同步 src-tauri/bundled_models)被跳过,用的是上次 flavor 的 bundled_models。
+    如果改 flavor,先用一次不带 -BundleOnly 的完整流让 Step 1b 重做。
 
 .PARAMETER Clean
   动手前先删 chayuan-server\dist 与 apps\desktop\src-tauri\target\release\bundle。
@@ -143,14 +151,28 @@ if (-not $LiteOnly -and -not $FullOnly -and -not $BundleOnly) {
         -ForegroundColor DarkCyan
 }
 
-# ``-BundleOnly`` 是个组合开关:展开后等价于把 sidecar / health / install /
-# typecheck 全跳过,只重做 Tauri bundle 那步(cargo + vite 走增量缓存)。
-# 在所有日常逻辑判断之前就把它展开,后面就没有 BundleOnly 这个名词的味道。
+# ``-BundleOnly`` 是个组合开关 — 用法场景:
+#   "我刚才打到 Tauri bundle 那步挂了(WiX light / NSIS makensis 失败),
+#    服务端 PyInstaller 产物完好,Vite/cargo 增量缓存也都在,只想重跑
+#    Tauri bundle 这一段验证"
+# 等同 `pnpm tauri build --bundles msi` 但走完本脚本的产物收集 + ISO 打包后处理。
+#
+# 展开:
+#   - SkipServer        Step 1 PyInstaller 不跑(用上次产物)
+#   - SkipHealthcheck   Step 2 健康探测不跑
+#   - SkipInstall       pnpm install 不跑
+#   - SkipTypecheck     pnpm typecheck 不跑
+#   - SkipInstallVendor vendor 自动安装不跑(模型/services 已在上次装好)
+#   - SkipModelCheck    模型体检不跑
+# 注意:Step 1b(sync src-tauri/bundled_models)单独在 BundleOnly 内联跳过,
+# 它依赖 $Flavor 不变。如果用户切了 flavor,**别**用 -BundleOnly。
 if ($BundleOnly) {
     $SkipServer = $true
     $SkipHealthcheck = $true
     $SkipInstall = $true
     $SkipTypecheck = $true
+    $SkipInstallVendor = $true
+    $SkipModelCheck = $true
 }
 
 # ====================================================================
@@ -972,16 +994,25 @@ if ($serverNeedsBuild) {
 # (LITE_CAPS = embedding/rerank/asr/ocr 给 lite;FULL_CAPS = 全部给 full)。
 # 清单真源 chayuan-server/packaging/bundle_manifest.py;sidecar 不嵌模型,Step 1
 # 不必 rebuild,只这步随 flavor 切。
-Write-Step "Step 1b: 同步 src-tauri/bundled_models/ ($Flavor)"
-$poetryExe = Get-Command poetry -ErrorAction SilentlyContinue
-if ($poetryExe) {
-    Invoke-Step -Name 'sync bundled (poetry)' `
-        -WorkDir $ServerDir `
-        -Command 'poetry' -Arguments (@('run', 'python', 'packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag + $BuildPyStrictVendorFlag)
+#
+# -BundleOnly 跳过这步:用户场景是"上次 Tauri bundle 失败,bundled_models 在
+# src-tauri/ 里已经是正确状态,只想重跑 cargo + bundler"。如果切了 flavor 用
+# -BundleOnly 是错的(会用上次 flavor 的 bundled_models),所以前面 param 解析
+# 那里已经写"如果用户切了 flavor,**别**用 -BundleOnly"。
+if ($BundleOnly) {
+    Write-Step "Step 1b [skipped: -BundleOnly] src-tauri/bundled_models/ 用上次 sync 的状态"
 } else {
-    Invoke-Step -Name 'sync bundled (python)' `
-        -WorkDir $ServerDir `
-        -Command 'python' -Arguments (@('packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag + $BuildPyStrictVendorFlag)
+    Write-Step "Step 1b: 同步 src-tauri/bundled_models/ ($Flavor)"
+    $poetryExe = Get-Command poetry -ErrorAction SilentlyContinue
+    if ($poetryExe) {
+        Invoke-Step -Name 'sync bundled (poetry)' `
+            -WorkDir $ServerDir `
+            -Command 'poetry' -Arguments (@('run', 'python', 'packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag + $BuildPyStrictVendorFlag)
+    } else {
+        Invoke-Step -Name 'sync bundled (python)' `
+            -WorkDir $ServerDir `
+            -Command 'python' -Arguments (@('packaging\pyinstaller\build.py', '--sync-bundled-only', '--target', $hostTriple) + $BuildPyLiteFlag + $BuildPyBundledSourceFlag + $BuildPyStrictVendorFlag)
+    }
 }
 
 # ====================================================================
