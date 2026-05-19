@@ -214,6 +214,49 @@ export interface ModalityStreamReq {
  *   }
  * ```
  */
+/**
+ * PR-9 D:对接后端 ``GET /v1/modality/tasks/<id>/events`` SSE 续流端点。
+ *
+ * 行为:
+ *   - 返回的事件流形态与 ``streamModality`` 完全一致(``start`` / ``text-*`` /
+ *     ``file`` / ``data-*`` / ``error`` / ``finish``)
+ *   - 任务已完成时,后端从 buffer / DB 一次性 replay 完整流然后关闭
+ *   - 任务还在跑时,先 replay 历史 buffer,再挂 live 流跟着新事件吐
+ *
+ * 用法跟 ``streamModality`` 一样,前端不区分"首次发起"和"重连"。
+ */
+export async function* streamModalityTaskEvents(
+  opts: { taskId: string; baseUrl: string; authHeader?: string },
+  signal?: AbortSignal,
+): AsyncGenerator<V5Event> {
+  const url =
+    opts.baseUrl.replace(/\/+$/, '') +
+    `/v1/modality/tasks/${encodeURIComponent(opts.taskId)}/events`;
+  const headers: Record<string, string> = { Accept: 'text/event-stream' };
+  if (opts.authHeader) headers.Authorization = opts.authHeader;
+  const resp = await fetch(url, { method: 'GET', headers, signal });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    yield {
+      type: 'error',
+      errorText:
+        resp.status === 404
+          ? `任务 ${opts.taskId} 不存在(可能已被清理)`
+          : `HTTP ${resp.status}: ${text}`,
+      code: `http_${resp.status}`,
+    };
+    return;
+  }
+  if (!resp.body) {
+    yield { type: 'error', errorText: '响应没有 body,无法续流' };
+    return;
+  }
+  for await (const ev of parseV5Stream(resp.body, signal)) {
+    yield ev;
+  }
+}
+
+
 export async function* streamModality(
   req: ModalityStreamReq,
   signal?: AbortSignal,

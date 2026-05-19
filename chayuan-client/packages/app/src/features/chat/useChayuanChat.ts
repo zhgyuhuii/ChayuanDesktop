@@ -109,6 +109,14 @@ export interface ChatMessage {
     eta_s?: number;
     task_id?: string;
   };
+  /**
+   * PR-9 D:模态路由任务 id —— 后端 TaskManager 在 ``data-modality-meta``
+   * 事件里下发。落库后,会话重开时若 ``streaming === true``,前端按这个
+   * id 续 ``/v1/modality/tasks/<id>/events`` SSE 流。
+   */
+  taskId?: string;
+  /** 与 taskId 同时下发的 capability(t2i / image_edit / t2v / tts / asr / ...)。 */
+  taskCapability?: string;
 }
 
 export interface UseChayuanChatOptions {

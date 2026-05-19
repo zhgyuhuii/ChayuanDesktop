@@ -157,14 +157,46 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
 
   // 模态路由(t2i/t2v/tts/image_edit)旁路 — 共用 chat.setMessages,
   // chat 模式下完全不动:`shouldHandle` 返 false,handleSend 走老路径。
+  //
+  // PR-9 D:任务 id 第一次出现时立刻把 user + assistant 消息对落库。
+  // 之前只在流式结束时刷一次 → 用户在流式中关页面就丢消息;现在 task 一注册
+  // 就有 DB 行,重开会话能看到气泡,再按 taskId 续 SSE 接回流。
+  //
+  // useEffect 里同步设置 ref —— useModalitySubmit 拿不到 hooks 闭包,但能从
+  // ref 读到最新的 activeId / messages,避免 stale closure。
+  const taskPersistedRef = React.useRef<Set<string>>(new Set());
+  const activeIdRef = React.useRef<string | null>(activeId);
+  activeIdRef.current = activeId;
+  const messagesRef = React.useRef(chat.messages);
+  messagesRef.current = chat.messages;
   const modalitySubmit = useModalitySubmit({
     setMessages: chat.setMessages,
     baseUrl: getClientConfig().baseURL,
     onError: (msg) => reportError(new Error(msg), '生成失败'),
+    onTaskRegistered: (asstMsgId, taskId, _cap) => {
+      // 同 task_id 只入库一次(MetaEvent 偶尔在重连 replay 时复现)
+      if (taskPersistedRef.current.has(taskId)) return;
+      taskPersistedRef.current.add(taskId);
+      const cid = activeIdRef.current;
+      if (!cid) return; // 草稿未 lazy-create 时跳过;handleSend 也会 reset
+      const msgs = messagesRef.current;
+      const asst = msgs.find((m) => m.id === asstMsgId);
+      const idx = msgs.findIndex((m) => m.id === asstMsgId);
+      const user = idx > 0 ? msgs[idx - 1] : undefined;
+      void (async () => {
+        if (user) await appendMessage(cid, user);
+        if (asst) await appendMessage(cid, asst);
+      })();
+    },
   });
 
   // 切换 activeId → 加载本地消息
   const setChatMessages = chat.setMessages;
+  // reconnect 通过 ref 暴露 — useModalitySubmit 的 onTaskRegistered 是 inline
+  // 函数,每次 render 重建,reconnect 识别会一起变;直接进 effect deps 会让
+  // effect 误重跑。effect 只在 activeId 切换时进,reconnectRef 在那一刻取最新值。
+  const reconnectRef = React.useRef(modalitySubmit.reconnect);
+  reconnectRef.current = modalitySubmit.reconnect;
   const lastLoadedRef = React.useRef<string | null>(null);
   const [convMissing, setConvMissing] = React.useState(false);
   // 已存在会话首次加载期间(listMessages 异步未返回前)显示骨架动画 — 用户进窗口
@@ -198,6 +230,17 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         setChatMessages(msgs);
       }
       setInitialLoading(false);
+      // PR-9 D:扫加载出的消息,对 streaming=true && taskId 的 assistant
+      // 自动续上 /v1/modality/tasks/<id>/events,接回后台任务继续渲染。
+      // 后端 TaskManager 不绑客户端生命周期,所以即便页面关了再开,任务还在跑
+      // → 续流仍能拿到完整事件流(后端 buffer / DB 合成回放)。
+      for (const m of msgs) {
+        if (m.role !== 'assistant' || !m.streaming || !m.taskId) continue;
+        // taskPersistedRef 防重 — reconnect 内部也有 reconnectCtrls map 兜底,
+        // 双保险避免开多份 SSE。
+        taskPersistedRef.current.add(m.taskId);
+        void reconnectRef.current({ taskId: m.taskId, asstMsgId: m.id });
+      }
       if (msgs.length !== 0 || !/^[0-9a-f-]{20,}$/i.test(activeId)) return;
       const conv = await getConversation(activeId);
       if (cancelled) return;
@@ -212,6 +255,26 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       cancelled = true;
     };
   }, [activeId, setChatMessages]);
+
+  // PR-9 D:模态任务完成时按消息粒度落库 — 旧的"刷最后 2 条"逻辑只对**当前
+  // 会话只有一个 streaming 任务**的常态成立;reconnect 路径下,被恢复的 assistant
+  // 可能不在末尾(后续也许有别的对话或多个任务),按 id 精确落库更稳。
+  const finishPersistedRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    const cid = activeIdRef.current;
+    if (!cid) return;
+    for (const m of chat.messages) {
+      if (m.role !== 'assistant') continue;
+      if (!m.taskId) continue;          // 只对模态消息 — chat 消息走原 flush 路径
+      if (m.streaming) continue;        // 还在跑,等
+      const sig = `${m.id}::done`;
+      if (finishPersistedRef.current.has(sig)) continue;
+      finishPersistedRef.current.add(sig);
+      // 把这条 assistant 终态落库 — 同 id INSERT OR REPLACE,刷新 files /
+      // text_out / streaming=false。前面的 user 消息已在 onTaskRegistered 时入过。
+      void appendMessage(cid, m);
+    }
+  }, [chat.messages]);
 
   // 流式结束(true→false)→ 落库
   const wasStreamingRef = React.useRef(false);
@@ -236,8 +299,10 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         created_at: now,
         updated_at: now,
       });
-      if (second) await appendMessage(cid, second);
-      if (last) await appendMessage(cid, last);
+      // 模态消息(带 taskId)已经在 onTaskRegistered + finishPersistedRef 双
+      // 钩子里精确落库,跳过避免 INSERT OR REPLACE 反复刷盘
+      if (second && !second.taskId) await appendMessage(cid, second);
+      if (last && !last.taskId) await appendMessage(cid, last);
       void qc.invalidateQueries({ queryKey: CONVERSATION_KEYS.list });
     })();
   }, [
