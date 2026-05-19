@@ -50,7 +50,35 @@ def create_kb(
     try:
         kb.create_kb()
     except Exception as e:
-        msg = f"创建知识库出错： {e}"
+        emsg = str(e)
+        # 区分"embedding 未配置(用户操作可解决)"和"真错误":
+        # - get_Embeddings 在 embedding 不可用时抛带"embedding 模型... 不可用"的 RuntimeError
+        #   (见 chayuan/server/utils.py 翻译块);也可能是底层 langchain 直接抛
+        #   "openai_api_key" 错(向后兼容,极少出现)
+        # 这类错不应该红色 BizError — 改 code=422 + 短引导文案,前端识别后弹
+        # info-级提示让用户去配置,不是错误。
+        needs_embedding_config = (
+            ("embedding" in emsg and "不可用" in emsg)
+            or "openai_api_key" in emsg.lower()
+            or "OPENAI_API_KEY" in emsg
+        )
+        if needs_embedding_config:
+            logger.warning(
+                "[create_kb] embedding 未配置 → 422 引导用户配置(KB=%s): %s",
+                knowledge_base_name, emsg.splitlines()[0] if emsg else "",
+            )
+            return BaseResponse(
+                code=422,
+                msg=(
+                    f"还没配置向量模型,无法创建知识库「{knowledge_base_name}」。\n"
+                    "请先去「设置 → 本地模型服务」配一个向量模型:\n"
+                    "  • 推荐:拷整仓 ONNX 模型(如 BAAI/bge-m3)到 "
+                    "<data>/models/bundled/embedding/<repo>/,系统会自动 in-process 跑\n"
+                    "  • 或拷 GGUF 量化版给 llama-server\n"
+                    "  • 或在 MODEL_PLATFORMS 配云端 embedding(OpenAI/阿里百炼/智谱)"
+                ),
+            )
+        msg = f"创建知识库出错: {e}"
         logger.error(f"{e.__class__.__name__}: {msg}")
         return BaseResponse(code=500, msg=msg)
 

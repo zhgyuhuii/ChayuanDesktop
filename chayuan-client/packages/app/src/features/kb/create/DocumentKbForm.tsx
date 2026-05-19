@@ -20,7 +20,8 @@ import { AlertTriangle, Cpu, Loader2, ShieldCheck } from 'lucide-react';
 import { Button, Input, Switch, Textarea } from '@chayuan/ui';
 import { serverCapabilityDefaults } from '@chayuan/api';
 import { useCreateDocumentKb } from './useCreateKb';
-import { reportError, notifySuccess } from '../../../store/errorDialog';
+import { reportError, notifySuccess, notifyInfo } from '../../../store/errorDialog';
+import { BizError } from '@chayuan/api';
 
 export const DocumentKbForm: React.FC<{ onSubmitted(kbName: string): void }> = ({ onSubmitted }) => {
   const navigate = useNavigate();
@@ -70,6 +71,12 @@ export const DocumentKbForm: React.FC<{ onSubmitted(kbName: string): void }> = (
       notifySuccess(`已创建文档库:${name}`);
       onSubmitted(name.trim());
     } catch (e) {
+      // 后端 422 = "embedding 未配置,用户操作可解决"。不当作错误显示,改 notifyInfo
+      // 给清晰引导(去哪里配置 embedding 模型)。其他错误仍走 reportError 红框。
+      if (e instanceof BizError && e.code === 422) {
+        notifyInfo('请先配置向量模型', e.message, 10000);
+        return;
+      }
       reportError(e, '创建文档库失败');
     }
   };
