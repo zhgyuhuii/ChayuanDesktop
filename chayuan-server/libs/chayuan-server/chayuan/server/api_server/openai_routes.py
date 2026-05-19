@@ -521,7 +521,7 @@ async def create_modality_completion(
         cancelled=Cancelled(),
     )
     task_id, stream = await dispatch_via_manager(req)
-    logger.info("[modality.route] task_id=%s model=%s cap=%s", task_id, actual_model, cap.value)
+    logger.info(f"[modality.route] task_id={task_id} model={actual_model} cap={cap.value}")
 
     async def event_stream():
         try:

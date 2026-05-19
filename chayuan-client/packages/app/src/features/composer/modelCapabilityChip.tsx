@@ -131,6 +131,24 @@ export function getCapabilityMeta(cap: ModalityCapability): CapabilityChipMeta {
 }
 
 /**
+ * 在 ChatComposer / ConversationView 这种"用户直接对话"的入口里,什么 capability
+ * 是可以让用户在输入框里发起一次调用的。
+ *
+ * 排除原则:embedding / rerank 是后台索引能力,不能接受文本输入直接出结果;
+ * 它们的配置入口在「设置 → AI 平台 → 文本嵌入 / 重排」,不该出现在对话框
+ * 的模型下拉里(出现也只能被禁用,徒增噪音)。
+ *
+ * vl / chat 都允许 — vl 走 chat 链路的多模态 content,chat 是默认。
+ */
+export const INTERACTIVE_CAPABILITIES: ReadonlySet<ModalityCapability> = new Set([
+  'chat', 'vl', 't2i', 'image_edit', 't2v', 'tts', 'asr', 'ocr',
+]);
+
+export function isInteractiveCapability(cap: ModalityCapability): boolean {
+  return INTERACTIVE_CAPABILITIES.has(cap);
+}
+
+/**
  * 推断模型的 capability — 先用 ``classifyModalityCapability``(模型名前缀),
  * 命中不到再回退看后端 ``model_type``(老版本字段)。
  *

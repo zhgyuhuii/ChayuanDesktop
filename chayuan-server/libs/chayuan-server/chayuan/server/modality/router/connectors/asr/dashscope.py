@@ -219,30 +219,80 @@ class DashScopeASRConnector(Connector):
 
         data = resp.json()
         output = data.get("output") or {}
-        # qwen3-asr-flash 标准 chat-shape:output.choices[0].message.content[0].text
+        # DashScope ASR 响应形态在不同模型间有差异,按优先级试:
+        #   1. qwen3-asr-flash / qwen-asr 走 chat-shape:
+        #        output.choices[0].message.content[].text
+        #   2. paraformer / 老式平铺:output.text
+        #   3. paraformer 按句返回:output.sentences[].text
+        #   4. cosyvoice 等少数变种:output.transcript / output.recognition
+        # 都拿不到才视为真空响应。
         text_out = ""
         detected_lang: Optional[str] = None
-        choices = output.get("choices") or []
-        if choices:
-            msg = (choices[0] or {}).get("message") or {}
-            content = msg.get("content")
-            if isinstance(content, list):
-                for blk in content:
-                    if isinstance(blk, dict) and isinstance(blk.get("text"), str):
-                        text_out += blk["text"]
-            elif isinstance(content, str):
-                text_out = content
-        # 老 ASR 兜底:有些模型平铺在 output.text
+
+        def _collect_text_from_content(c) -> str:
+            """递归在 content list / dict / str 里捞 'text' 字段(忽略 audio block)。"""
+            buf = ""
+            if isinstance(c, str):
+                return c
+            if isinstance(c, list):
+                for blk in c:
+                    buf += _collect_text_from_content(blk)
+                return buf
+            if isinstance(c, dict):
+                # 优先 text 字段;某些 block 是 {"type":"text","text":"..."},仍然命中
+                if isinstance(c.get("text"), str):
+                    return c["text"]
+                # 嵌套 content(极少数响应包了一层)
+                if "content" in c:
+                    return _collect_text_from_content(c["content"])
+            return ""
+
+        # 1. chat-shape choices
+        for ch in output.get("choices") or []:
+            msg = (ch or {}).get("message") or {}
+            text_out += _collect_text_from_content(msg.get("content"))
+        # 2. 平铺 output.text
         if not text_out and isinstance(output.get("text"), str):
             text_out = output["text"]
-        # 部分模型回 language id
+        # 3. paraformer 按句:output.sentences = [{"text":"...","begin_time":..,"end_time":..}]
+        if not text_out and isinstance(output.get("sentences"), list):
+            parts: list[str] = []
+            for s in output["sentences"]:
+                if isinstance(s, dict) and isinstance(s.get("text"), str):
+                    parts.append(s["text"])
+            text_out = "".join(parts)
+        # 4. 兜底 — transcript / recognition 字段
+        for key in ("transcript", "recognition"):
+            if not text_out and isinstance(output.get(key), str):
+                text_out = output[key]
+                break
+
+        # detected language(qwen3-asr-flash 在 lid_result block;paraformer 在 output.language)
         if isinstance(output.get("language"), str):
             detected_lang = output["language"]
+        else:
+            for ch in output.get("choices") or []:
+                msg = (ch or {}).get("message") or {}
+                content = msg.get("content")
+                if isinstance(content, list):
+                    for blk in content:
+                        if isinstance(blk, dict) and isinstance(blk.get("lid_result"), str):
+                            detected_lang = blk["lid_result"]
+                            break
 
         text_out = text_out.strip()
         if not text_out:
+            # 把上游响应(裁短)塞进诊断,免得用户一脸懵 — 看 raw 能定位是
+            # 真空音频 / 上游变结构 / 鉴权但 hidden 错误
+            import json as _json
+            raw_dump = _json.dumps(data, ensure_ascii=False)[:600]
+            logger.warning(
+                "[asr.dashscope] empty transcript task=%s model=%s output_keys=%s raw=%s",
+                req.message_id, req.model, list(output.keys()), raw_dump,
+            )
             yield error_event(
-                "ASR 返回空文本(音频可能太短 / 全静音 / 无语音)",
+                "ASR 返回空文本 — 可能是上游音频识别为空 / 响应结构与连接器不匹配。"
+                f"上游 output 字段: {list(output.keys())};原始(截断): {raw_dump}",
                 code="empty_transcript",
             )
             return

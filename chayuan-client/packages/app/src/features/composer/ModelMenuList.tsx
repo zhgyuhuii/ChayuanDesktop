@@ -24,8 +24,10 @@ import * as React from 'react';
 import {
   CapabilityChip,
   inferCapability,
+  isInteractiveCapability,
   listExistingCapabilities,
 } from './modelCapabilityChip';
+import { ModelSupportHelpButton } from './ModelSupportHelpDialog';
 
 const STORAGE_KEY = 'cy.modelPicker.override.v2';
 
@@ -219,14 +221,24 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
     return () => clearTimeout(t);
   }, []);
 
+  /** 先把 embedding / rerank 这种"后台索引"模型从用户面前藏起来 — 它们在
+   *  对话框里点也没用,留着只是凑数 + 误导(参考 ``isInteractiveCapability``)。 */
+  const interactiveModels = React.useMemo(
+    () => models.filter((m) => isInteractiveCapability(inferCapability(m))),
+    [models],
+  );
+
   /** capability chip 行:只列出在当前 models 里**实际存在**的分类。 */
-  const presentCaps = React.useMemo(() => listExistingCapabilities(models), [models]);
+  const presentCaps = React.useMemo(
+    () => listExistingCapabilities(interactiveModels),
+    [interactiveModels],
+  );
 
   /** 按 capability 过滤后的全集(分组前) */
   const modelsForGrouping = React.useMemo(() => {
-    if (!capFilter) return models;
-    return models.filter((m) => inferCapability(m) === capFilter);
-  }, [models, capFilter]);
+    if (!capFilter) return interactiveModels;
+    return interactiveModels.filter((m) => inferCapability(m) === capFilter);
+  }, [interactiveModels, capFilter]);
 
   const allGroups = React.useMemo(
     () => groupByPlatform(modelsForGrouping),
@@ -292,17 +304,22 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
     <div className="flex flex-col" style={{ maxHeight }}>
       {/* 搜索栏 + capability 筛选 */}
       <div className="sticky top-0 z-[1] flex-shrink-0 space-y-1.5 border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-2">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--cy-text-tertiary)]" />
-          <input
-            ref={inputRef}
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            placeholder="搜索模型 / 厂商"
-            className="h-7 w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] pl-7 pr-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none"
-            // 让 Radix 不要把方向键吞掉(否则方向键不能在输入框里左右)
-            onKeyDown={(e) => e.stopPropagation()}
-          />
+        <div className="flex items-center gap-1.5">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--cy-text-tertiary)]" />
+            <input
+              ref={inputRef}
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="搜索模型 / 厂商"
+              className="h-7 w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] pl-7 pr-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none"
+              // 让 Radix 不要把方向键吞掉(否则方向键不能在输入框里左右)
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </div>
+          {/* "?" 帮助按钮 — 弹支持的厂商目录 + API key 申请地址,不必离开
+              对话窗口就能查"我能选什么、怎么搞 key" */}
+          <ModelSupportHelpButton />
         </div>
         {/* capability 筛选 chip — 只显示当前 model 列表里**实际存在**的分类;
             ≥ 2 个分类才有筛选意义,只有 1 个分类不渲染避免噪音。 */}
