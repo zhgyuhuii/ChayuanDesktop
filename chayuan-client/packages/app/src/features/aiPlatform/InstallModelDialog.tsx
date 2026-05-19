@@ -85,39 +85,54 @@ const CAP_LABEL: Record<LocalRuntimeCapability, string> = {
 // 按 cap 给出 ModelScope 上比较合适的搜索关键字 + 1-2 个示例 model_id。
 // 例:chat → "Qwen GGUF" 比单 "chat" 命中更准(都是 LLM 标"对话")。
 // 这里的 example 是为了让用户对"该填什么"有第一印象,不是强推。
+//
+// example 上必须带 source — 用户点示例直接 set source,避免出现"推荐 ggerganov/
+// whisper.cpp(HF only)但默认 source=modelscope → repo_exists 404"那种坑。
+// 取舍:Qwen/* 双源都有,标 modelscope(国内快);BAAI/* 双源都有,标 huggingface
+// (走 hf-mirror)。iic/* 是阿里 ModelScope 专属 owner,必须 modelscope。
+type CapExample = { id: string; source: InstallModelSource };
 const CAP_HINTS: Record<
   LocalRuntimeCapability,
-  { search: string; examples: string[]; note: string }
+  { search: string; examples: CapExample[]; note: string }
 > = {
   chat: {
     search: 'Qwen GGUF',
     examples: [
-      'Qwen/Qwen3-4B-Instruct-2507-GGUF',
-      'unsloth/Qwen3-4B-Instruct-2507-GGUF',
+      { id: 'Qwen/Qwen3-4B-Instruct-2507-GGUF', source: 'modelscope' },
+      { id: 'unsloth/Qwen3-4B-Instruct-2507-GGUF', source: 'huggingface' },
     ],
     note: '推荐 GGUF 量化格式,体积小,llama.cpp 直接加载',
   },
   embedding: {
     search: 'bge gte',
-    examples: ['BAAI/bge-m3', 'iic/nlp_gte_sentence-embedding_chinese-base'],
+    examples: [
+      { id: 'BAAI/bge-m3', source: 'huggingface' },
+      { id: 'iic/nlp_gte_sentence-embedding_chinese-base', source: 'modelscope' },
+    ],
     note: '推荐 BGE / GTE 系列;multi-lingual 选 bge-m3 或 gte-multilingual',
   },
   rerank: {
     search: 'bge reranker GGUF',
     examples: [
-      'BAAI/bge-reranker-v2-m3',
-      'gpustack/bge-reranker-v2-m3-GGUF',
+      { id: 'BAAI/bge-reranker-v2-m3', source: 'huggingface' },
+      { id: 'gpustack/bge-reranker-v2-m3-GGUF', source: 'huggingface' },
     ],
     note: '推荐 GGUF 格式;HF transformer 仓需要 PyTorch 占内存',
   },
   asr: {
     search: 'whisper',
-    examples: ['ggerganov/whisper.cpp', 'Systran/faster-whisper-base'],
+    examples: [
+      { id: 'ggerganov/whisper.cpp', source: 'huggingface' },
+      { id: 'Systran/faster-whisper-base', source: 'huggingface' },
+    ],
     note: '推荐 whisper.cpp ggml 格式(单文件),如 ``ggml-tiny.bin``',
   },
   'image-embedding': {
     search: 'CLIP jina-clip',
-    examples: ['jinaai/jina-clip-v2', 'OFA-Sys/chinese-clip-vit-base-patch16'],
+    examples: [
+      { id: 'jinaai/jina-clip-v2', source: 'huggingface' },
+      { id: 'OFA-Sys/chinese-clip-vit-base-patch16', source: 'huggingface' },
+    ],
     note: 'CLIP 系列,做图文检索;transformers 库加载',
   },
 };
@@ -176,7 +191,7 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
   const onStartInstall = async () => {
     const id = modelId.trim();
     if (!id) {
-      reportError('请输入 model_id', '形如 owner/name,例如 ' + (hint.examples[0] ?? ''));
+      reportError('请输入 model_id', '形如 owner/name,例如 ' + (hint.examples[0]?.id ?? ''));
       return;
     }
     setPending('install');
@@ -246,7 +261,9 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      {/* max-h + flex 列布局:Header 固定 / 中间内容滚动 / Footer 固定;防小屏(笔记本 768)
+          + 长 example model_id 把上下 Header/Footer 顶出可视区。 */}
+      <DialogContent className="flex max-h-[calc(100vh-4rem)] max-w-2xl flex-col">
         <DialogHeader>
           <DialogTitle>下载{CAP_LABEL[capability]}</DialogTitle>
           <DialogDescription>
@@ -255,7 +272,7 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
+        <div className="flex-1 space-y-5 overflow-y-auto py-2 pr-1">
           {/* ─────── 路径 A:在线下载 ─────── */}
           <section className="space-y-2 rounded-md border border-[var(--cy-border-subtle)] p-3">
             <div className="text-sm font-medium">方式 1:在线下载</div>
@@ -266,7 +283,7 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
               {hint.note}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div>
               <Button
                 size="sm"
                 variant="outline"
@@ -277,21 +294,29 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
                 <ExternalLink className="mr-1 h-3.5 w-3.5" />
                 打开 ModelScope 搜索
               </Button>
+            </div>
+            {/* 示例 button 单独成行;长 model_id(如 Qwen/Qwen3-4B-Instruct-2507-GGUF)
+                需要 break-all 才能在窄宽 Dialog 里换行而不顶破。 */}
+            <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs text-[var(--cy-text-tertiary)]">示例:</span>
               {hint.examples.map((eg) => (
                 <button
-                  key={eg}
+                  key={eg.id}
                   type="button"
-                  className="rounded border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-1.5 py-0.5 text-[11px] hover:bg-[var(--cy-surface-elev1)]"
-                  onClick={() => setModelId(eg)}
-                  title="点击填到下方"
+                  className="max-w-full break-all rounded border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-1.5 py-0.5 text-left text-[11px] hover:bg-[var(--cy-surface-elev1)]"
+                  onClick={() => {
+                    setModelId(eg.id);
+                    setSource(eg.source);
+                  }}
+                  title={`点击填到下方 (来源:${eg.source})`}
                 >
-                  {eg}
+                  {eg.id}
                 </button>
               ))}
             </div>
 
-            <div className="grid grid-cols-[5rem_1fr] items-center gap-2">
+            {/* minmax(0,1fr) 等价于把 1fr 列 min-width 强制成 0,长 placeholder 不会撑宽 Input */}
+            <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2">
               <label className="text-xs text-[var(--cy-text-tertiary)]">来源</label>
               <select
                 value={source}
@@ -307,7 +332,7 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
               <Input
                 value={modelId}
                 onChange={(e) => setModelId(e.target.value)}
-                placeholder={hint.examples[0] ?? 'owner/name'}
+                placeholder={hint.examples[0]?.id ?? 'owner/name'}
                 disabled={isBusy}
               />
 
