@@ -280,6 +280,148 @@ function Stop-LingeringSidecars {
 }
 
 # ====================================================================
+# MSI <-> cab 一致性校验工具
+# ====================================================================
+# WiX EmbedCab="no" + MaximumUncompressedMediaSize 切多卷的组合,极端情况下
+# 会让 File 表的 Sequence 跟 cab 实际流内容错位(尤其是上一轮失败留下的残卷
+# 跟本轮 cab 串味)。装机到 InstallFiles 时 Windows Installer 按 File 表去对应
+# cab 找 stream,找不到就报 1334。这里在产物收齐后,主动用 WindowsInstaller
+# COM 读 File/Media 表 + expand -D 列 cab stream,交叉对一遍。错位直接 fail
+# 不让坏包流出。
+# --------------------------------------------------------------------
+function Get-MsiFileToCabMap {
+    param([string]$MsiPath)
+    # 返回 hashtable: <File ID> -> <Cabinet 文件名>
+    # 算法:File 按 Sequence 升序,Media 按 LastSequence 升序;每个 File 找到
+    # 第一个 LastSequence >= File.Sequence 的 Media,那个 Media.Cabinet 就是
+    # 这个文件应该被压进哪个 cab。
+    $installer = New-Object -ComObject WindowsInstaller.Installer
+    $db = $null
+    try {
+        $db = $installer.OpenDatabase($MsiPath, 0)   # 0 = MSIDBOPEN_READONLY
+
+        # Media 表
+        $mediaView = $db.OpenView("SELECT ``DiskId``, ``LastSequence``, ``Cabinet`` FROM ``Media`` ORDER BY ``LastSequence``")
+        $mediaView.Execute($null)
+        $media = @()
+        while ($true) {
+            $rec = $mediaView.Fetch()
+            if ($null -eq $rec) { break }
+            $media += [pscustomobject]@{
+                DiskId       = $rec.IntegerData(1)
+                LastSequence = $rec.IntegerData(2)
+                Cabinet      = $rec.StringData(3)
+            }
+        }
+        $mediaView.Close()
+
+        # File 表
+        $fileView = $db.OpenView("SELECT ``File``, ``Sequence`` FROM ``File`` ORDER BY ``Sequence``")
+        $fileView.Execute($null)
+        $map = @{}
+        while ($true) {
+            $rec = $fileView.Fetch()
+            if ($null -eq $rec) { break }
+            $fileId = $rec.StringData(1)
+            $seq    = $rec.IntegerData(2)
+            $hit = $null
+            foreach ($m in $media) {
+                if ($m.LastSequence -ge $seq) { $hit = $m; break }
+            }
+            $map[$fileId] = if ($hit) { $hit.Cabinet } else { $null }
+        }
+        $fileView.Close()
+        return $map
+    } finally {
+        if ($db) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($db) }
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($installer)
+    }
+}
+
+function Get-CabStreamList {
+    param([string]$CabPath)
+    # expand -D 列 cab 内 stream 名。跨 Windows 版本输出格式略不同,两种常见:
+    #   形式 A: "  File <name>"           (Win10+)
+    #   形式 B: "<name>: <size>"          (老版本)
+    # 都兼容,union 进同一 HashSet。
+    $raw = & expand.exe -D $CabPath 2>&1
+    $streams = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($line in $raw) {
+        $s = "$line".Trim()
+        if (-not $s) { continue }
+        # 形式 A (Win10+): "File <name>"
+        # 形式 A' (老版): "File <序号>: <name>"
+        if ($s -match '^File\s+(?:\d+\s*:\s*)?(\S+?)\s*$') {
+            [void]$streams.Add($matches[1].Trim())
+            continue
+        }
+        # 形式 B (老版本另一种): "<name>: <size>"
+        if ($s -match '^([^:\s]+):\s*\d+\s*$') {
+            [void]$streams.Add($matches[1].Trim())
+        }
+    }
+    return @($streams)
+}
+
+function Test-MsiCabIntegrity {
+    param(
+        [string]$MsiPath,
+        [string[]]$CabPaths
+    )
+    $msiName = [System.IO.Path]::GetFileName($MsiPath)
+    Write-Step "MSI/cab 一致性校验:$msiName ↔ $($CabPaths.Count) 个 cab"
+
+    try {
+        $fileToCab = Get-MsiFileToCabMap -MsiPath $MsiPath
+    } catch {
+        Write-Fail "读 MSI File/Media 表失败:$($_.Exception.Message)"
+        return $false
+    }
+    Write-Note "  MSI File 表:$($fileToCab.Count) 项"
+
+    # cab 物理文件 -> stream 集合;按文件名做 key,跟 Media.Cabinet 对得上
+    $cabStreams = @{}
+    foreach ($cab in $CabPaths) {
+        $name = [System.IO.Path]::GetFileName($cab)
+        try {
+            $cabStreams[$name] = Get-CabStreamList -CabPath $cab
+        } catch {
+            Write-Fail "列 $name 内容失败:$($_.Exception.Message)"
+            return $false
+        }
+        Write-Note "  $name:$($cabStreams[$name].Count) 个 stream"
+    }
+
+    $missing = @()
+    foreach ($entry in $fileToCab.GetEnumerator()) {
+        $fileId      = $entry.Key
+        $expectedCab = $entry.Value
+        if (-not $expectedCab) {
+            $missing += "$fileId → (MSI 没给出 cab 归属)"
+            continue
+        }
+        # "#" 开头是嵌入 cab,EmbedCab=no 下不应出现,出现也无法用 expand 验
+        if ($expectedCab.StartsWith('#')) { continue }
+        if (-not $cabStreams.ContainsKey($expectedCab)) {
+            $missing += "$fileId 应在 $expectedCab,但该 cab 物理文件不在 dist 目录"
+            continue
+        }
+        if ($cabStreams[$expectedCab] -notcontains $fileId) {
+            $missing += "$fileId 应在 $expectedCab,但 cab 内不含此 stream"
+        }
+    }
+
+    if ($missing.Count -gt 0) {
+        Write-Fail "MSI/cab 错位 — 装机时必报 1334。前 10 条:"
+        $missing | Select-Object -First 10 | ForEach-Object { Write-Host "    $_" }
+        if ($missing.Count -gt 10) { Write-Host "    ... 还有 $($missing.Count - 10) 条" }
+        return $false
+    }
+    Write-Ok "MSI/cab 一致 — $($fileToCab.Count) 项 File 全部能在对应 cab 找到"
+    return $true
+}
+
+# ====================================================================
 # 还原编码(脚本结束时跑;trap 也跑)
 # ====================================================================
 function Restore-Console {
@@ -1250,6 +1392,26 @@ if ($SkipFrontend) {
             SizeMB = $sz
         }
         Write-Host "    $($a.FullName) -> $dest ($sz MB)"
+    }
+
+    # ----------------------------------------------------------------
+    # MSI/cab 一致性校验 — 防止装机 1334
+    # ----------------------------------------------------------------
+    # 收齐到 dist-{flavor}\ 之后立刻验:File 表里每个 File ID 都能在 .msi 指定
+    # 的 cab 里找到对应 stream。错位就 fail,别让坏包出 ISO。
+    $verifyMsiList = Get-ChildItem -Path $flavorOut -Filter '*.msi' -File -ErrorAction SilentlyContinue
+    $verifyCabList = Get-ChildItem -Path $flavorOut -Filter '*.cab' -File -ErrorAction SilentlyContinue
+    if ($verifyMsiList -and $verifyCabList) {
+        $cabPaths = @($verifyCabList | Select-Object -ExpandProperty FullName)
+        foreach ($m in $verifyMsiList) {
+            $ok = Test-MsiCabIntegrity -MsiPath $m.FullName -CabPaths $cabPaths
+            if (-not $ok) {
+                Write-Fail "$($m.Name) 装机必失败 (Error 1334) — 已 fail,不会继续打 ISO"
+                Restore-Console; exit 1
+            }
+        }
+    } else {
+        Write-Note "dist-$Flavor 没收到 msi/cab 组合,跳过一致性校验"
     }
 
     # ----------------------------------------------------------------
