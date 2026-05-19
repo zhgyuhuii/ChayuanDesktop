@@ -41,30 +41,104 @@ from chayuan.server.utils import (
 logger = build_logger()
 
 
+# ─── 模型类型识别 ────────────────────────────────────────────────────────────
+# 按模型名前缀判定其真实用途(chat / t2i / vl / asr / tts / embedding / rerank)。
+# 阿里百炼把所有模型混在同一个 API key 下,前端模型广场如果没把 qwen-image-*
+# 这种 t2i 模型放进 text2image_models 字段而是误塞进 llm_models,用户选完发起
+# chat 就会撞 OpenAI 兼容路径的 4xx。这里在 chat 入口和错误翻译两处都用上
+# 这个识别,做"防御+解释"双层保险。
+#
+# 命名规则参考阿里官方:https://www.alibabacloud.com/help/en/model-studio/qwen-image-api
+# 以及 model_studio_zh 文档(qwen-vl-* / qwen-omni-* / qwen-asr-* / qvq-* /
+# qwen-image-* / qwen-image-edit-* / qwen-tts-* / wanx-* / text-embedding-v*)。
+_NON_CHAT_PATTERNS: list[tuple[str, str]] = [
+    # (substring,           category 用户看的标签)
+    ("qwen-image-edit",     "图像编辑(image-edit)"),
+    ("qwen-image",          "文生图(text-to-image)"),
+    ("wanx",                "文生图/视频(Wanxiang)"),
+    ("qvq-",                "视觉推理(多模态,需 content 列表)"),
+    ("qwen-vl",             "视觉语言(多模态,需 content 列表)"),
+    ("qwen-omni",           "全模态(多模态,需 content 列表)"),
+    ("qwen-audio",          "音频多模态(需 content 列表)"),
+    ("qwen-asr",            "语音识别(ASR,需走 /audio/transcriptions)"),
+    ("qwen3-asr",           "语音识别(ASR,需走 /audio/transcriptions)"),
+    ("qwen-tts",            "语音合成(TTS,需走 /audio/speech)"),
+    ("text-embedding-v",    "文本向量(embedding,不是对话模型)"),
+    ("gte-rerank",          "重排(rerank,不是对话模型)"),
+    ("gte-",                "可能是 GTE 向量/重排模型,不是对话模型"),
+]
+
+
+def classify_non_chat_model(model_name: str) -> tuple[str, str] | None:
+    """模型名匹配到已知非聊天模型时返回 (pattern, 类别中文)。匹配不到返 None。
+
+    保守策略:只对前缀显著就是 t2i/vl/asr/tts/embedding/rerank 的模型返非 None;
+    其它(包括 qwen-turbo / qwen-max / qwen-plus / qwen-long / qwq / qwen2.x /
+    qwen3.x 文本系列)一律视为对话兼容,留给 LLM 自己回话。
+    """
+    if not model_name:
+        return None
+    low = model_name.lower().strip()
+    for pat, label in _NON_CHAT_PATTERNS:
+        if low.startswith(pat) or f"/{pat}" in low:  # 兼容 'provider/qwen-image-max' 这种带前缀的写法
+            return pat, label
+    return None
+
+
 def _translate_chat_error(raw: str, model_name: str = "") -> str:
     """把上游模型/SDK 抛出的原始报错翻译成给最终用户看的中文提示。
 
-    主要兜底两类常见误用,避免前端直接把 `BadRequestError(...)` 当错误红框甩出:
-      1. 把图像/多模态模型(qwen-vl / qwen-image-* / qwen-omni / qvq 等)当普通对话用 —
-         DashScope/OpenAI 兼容模式会返回 400 + "Input should be a valid list:
-         input.messages.0.content" / "invalid_parameter_error"。
-      2. 上游 key/quota 缺失,提示用户去配 API key。
+    兜底三类常见误用,避免前端直接把 `BadRequestError(...)` 当错误红框甩出:
+      1. 多模态模型 当纯文本对话 — DashScope 报 "Input should be a valid list:
+         input.messages.0.content" 或 "invalid_parameter_error"。
+      2. t2i / image-edit / asr / tts / embedding / rerank 走 chat — 报
+         "content parameter's length invalid" 或 endpoint 拒绝。
+      3. 上游 key/quota 缺失,引导去配 API key。
 
     其它情况原样回传,保留排查信息。
     """
     low = raw.lower()
+    m = model_name or "所选模型"
+
+    # —— 先按模型名识别(最精准,不依赖上游具体错误文案) ——
+    classified = classify_non_chat_model(model_name)
+    if classified is not None:
+        _pat, label = classified
+        return (
+            f"模型「{m}」是 {label},不能走纯文本对话接口。\n"
+            f"  • 改用对话模型 — 阿里百炼建议 qwen-turbo / qwen-plus / qwen-max,"
+            f"或本地 chayuan-chat / qwen2.5\n"
+            f"  • 若想用此模型的专属能力(画图 / 语音 / 视觉等),请走对应工具入口,"
+            f"不要在普通对话里直接选\n"
+            f"  • 也可在「设置 → 模型广场」把它从聊天模型清单里移除\n"
+            f"原始错误:{raw[:200]}"
+        )
+
+    # —— 模型名没匹配上,再按错误文案兜底 ——
     looks_multimodal = (
         ("should be a valid list" in low and "messages" in low and "content" in low)
         or ("invalid_parameter_error" in low and "messages" in low)
     )
     if looks_multimodal:
-        m = model_name or "所选模型"
         return (
-            f"模型「{m}」是图像/多模态专用模型,不能直接用纯文本对话。\n"
+            f"模型「{m}」要求多模态 content(list),不能直接用纯文本对话。\n"
             f"  • 改用对话模型(如 qwen-turbo / qwen-max / 智谱 GLM / 内置 chayuan-chat)\n"
-            f"  • 或在「设置 → 模型广场」隐藏此模型,避免误选"
+            f"  • 或在「设置 → 模型广场」把它移出聊天模型清单"
         )
-    if "no api key" in low or "invalid api key" in low or "401" in low and "unauthorized" in low:
+    # 阿里百炼 t2i / 错位 endpoint 常见错:"content parameter's length invalid"
+    looks_wrong_endpoint = (
+        "content parameter" in low and "length invalid" in low
+    ) or (
+        "parameter" in low and "length invalid" in low
+    )
+    if looks_wrong_endpoint:
+        return (
+            f"模型「{m}」不支持 OpenAI 兼容的对话接口,大概率是文生图/语音/嵌入类\n"
+            f"专用模型被误当聊天模型用。请到「设置 → 模型广场」把它从聊天清单移除,\n"
+            f"换回 qwen-turbo / qwen-plus / qwen-max 等对话模型。\n"
+            f"原始错误:{raw[:200]}"
+        )
+    if "no api key" in low or "invalid api key" in low or ("401" in low and "unauthorized" in low):
         return (
             "上游模型 API key 缺失或无效。请到「设置 → 模型广场」对应厂商填一个有效 key,"
             "或切到「本地模型服务 / chayuan-chat」。"
@@ -325,6 +399,33 @@ async def chat(
             models, prompts = create_models_from_config(
                 callbacks=callbacks, configs=safe_chat_model_config, stream=stream, max_tokens=max_tokens
             )
+            # 预检:选了 t2i / VL / ASR / TTS / embedding / rerank 等非聊天模型时
+            # 直接返友好提示,不浪费一次上游 4xx。上游错误固然有 _translate_chat_error
+            # 兜底,但预检能省一次网络往返 + 不让上游 quota 因误用而扣费。
+            try:
+                pre_model = models["llm_model"].model_name
+            except Exception:  # noqa: BLE001
+                pre_model = ""
+            classified = classify_non_chat_model(pre_model)
+            if classified is not None:
+                _pat, label = classified
+                msg = (
+                    f"模型「{pre_model}」是 {label},不能走纯文本对话接口。\n"
+                    f"  • 改用对话模型 — 阿里百炼建议 qwen-turbo / qwen-plus / qwen-max,"
+                    f"或本地 chayuan-chat / qwen2.5\n"
+                    f"  • 若想用此模型的专属能力(画图 / 语音 / 视觉等),请走对应工具入口,"
+                    f"不要在普通对话里直接选\n"
+                    f"  • 也可在「设置 → 模型广场」把它从聊天模型清单里移除"
+                )
+                logger.warning("[chat] 拒绝非聊天模型走 chat 路径: model=%s label=%s", pre_model, label)
+                yield {
+                    "event": "error",
+                    "data": json.dumps(
+                        {"error": {"type": "ModelNotChatCompatible", "message": msg}},
+                        ensure_ascii=False,
+                    ),
+                }
+                return
             all_tools = get_tool().values()
             tools = [tool for tool in all_tools if tool.name in safe_tool_config]
             tools = [t.copy(update={"callbacks": callbacks}) for t in tools]
