@@ -387,6 +387,13 @@ if sys.platform == "darwin":
 # 排除项(单机版用不到)
 # ──────────────────────────────────────────────────────────────
 
+# 2026-05-19 起 build.py 在 lite flavor 跑 PyInstaller 时设 CHAYUAN_LITE_BUILD=1。
+# 此前注释说"对 spec 已是 no-op",2026-05-19 起重新生效:
+# lite 没有 image-embedding cap (LITE_CAPS = embedding/rerank/asr/ocr/tts),
+# torch+torchvision+transformers (~480 MB) 在 lite bundle 里是死重量 — 这里
+# 据 LITE_BUILD 把它们从 _collect_required 拿掉 + 加进 excludes。
+LITE_BUILD = os.environ.get("CHAYUAN_LITE_BUILD", "0") == "1"
+
 excludes = [
     # Celery / Redis 链路:单机模式走 asyncio.Queue + threadpool
     "celery",
@@ -578,18 +585,28 @@ for big in (
     hidden_modules.extend(_hid)
 
 
-# torch / torchvision / transformers — 必装,缺则 fail-fast(见 _collect_required 注释)。
+# torch / torchvision / transformers — full 版必装,缺则 fail-fast(见 _collect_required 注释)。
 # torch CPU 250MB + torchvision 30MB + transformers ~200MB,加进 bundle 后 image-embedding
 # 的 hf_clip / hf_dinov2 / timm_vision loader 可以直接 in-process import,不再走外部
 # pip install + torch_wheels seed 那套(从未真正工作过的)弯路。
 #
-# ⚠ 构建环境要求:torch 必须是 ``+cpu`` 变体(``pip install torch --index-url
+# lite 版没有 image-embedding cap(LITE_CAPS = embedding/rerank/asr/ocr/tts),这 480 MB
+# 就是死重量 → 直接跳过 _collect_required 让 PyInstaller 不打它们,bundle 体积 1.6 GB → 1.1 GB
+# 左右。业务代码全是 try/except 里的 lazy import torch / transformers,bundle 里没有
+# 不会触发 ImportError 在静态分析阶段;运行时如果业务真碰到 image-embedding 链路,
+# 会优雅 fail 并落到 fallback。
+#
+# ⚠ full 构建环境要求:torch 必须是 ``+cpu`` 变体(``pip install torch --index-url
 #   https://download.pytorch.org/whl/cpu``),否则会拉 CUDA stub DLL(+500MB)。
-for required in ("torch", "torchvision", "transformers"):
-    _dat, _bin, _hid = _collect_required(required)
-    datas.extend(_dat)
-    binaries.extend(_bin)
-    hidden_modules.extend(_hid)
+if LITE_BUILD:
+    print("[chayuan-spec] CHAYUAN_LITE_BUILD=1 → 跳过 torch/torchvision/transformers,把它们加进 excludes")
+    excludes.extend(["torch", "torchvision", "transformers"])
+else:
+    for required in ("torch", "torchvision", "transformers"):
+        _dat, _bin, _hid = _collect_required(required)
+        datas.extend(_dat)
+        binaries.extend(_bin)
+        hidden_modules.extend(_hid)
 
 
 a = Analysis(
