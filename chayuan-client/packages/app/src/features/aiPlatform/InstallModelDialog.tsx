@@ -467,6 +467,10 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
               const root = bundledRoot
                 ? bundledRoot.replace(/[/\\]+$/, '')
                 : '<bundled>';
+              // 路径分隔符跟 bundledRoot 保持一致:Windows 上后端 pathlib 输出 '\',
+              // 不能跟 JSX 拼的 '/' 混用 (会显示 C:\...\bundled/embedding/foo 丑且
+              // 复制粘贴可能解析失败)。bundledRoot 含 '\' = Windows,否则 POSIX。
+              const sep = bundledRoot && bundledRoot.includes('\\') ? '\\' : '/';
               const exampleOwner =
                 capability === 'chat'
                   ? 'Qwen--Qwen3-4B-Instruct-2507-GGUF'
@@ -487,7 +491,7 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
                     {CAP_LABEL[capability]} 的正确目录结构:
                   </div>
                   <pre className="overflow-x-auto rounded bg-[var(--cy-surface-base)] p-1.5 font-mono text-[10px] leading-relaxed">{[
-                    `${root}/${subdir}/${exampleOwner}/`,
+                    `${root}${sep}${subdir}${sep}${exampleOwner}${sep}`,
                     `├── config.json`,
                     `├── ${needsGguf ? '*.gguf            ← GGUF 量化权重' : '*.safetensors / *.onnx / *.bin'}`,
                     `└── tokenizer.json  (有就放,没有跳过)`,

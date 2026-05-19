@@ -323,6 +323,16 @@ def seed_bundled_models(*, target_dir: Optional[Path] = None) -> SeedReport:
         logger.warning("[bundled-seed] %s", msg)
         return report
 
+    # 显式建好所有 cap 子目录(即便 src 没内容):
+    # UI"扫描挂载"提示的路径 (.../bundled/embedding/、.../bundled/image/ 等)
+    # 物理存在,用户能直接打开资源管理器丢模型进去,不用先手建一层。
+    # mkdir 是 idempotent,已有的不动;失败只 log 不中断 seed 流程。
+    for cap in BUNDLED_CAPABILITY_DIRS:
+        try:
+            (dst_root / cap).mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logger.debug("[bundled-seed] mkdir %s/%s 失败(忽略): %r", dst_root, cap, e)
+
     for cap in BUNDLED_CAPABILITY_DIRS:
         sub_src = src / cap
         if not sub_src.is_dir():
