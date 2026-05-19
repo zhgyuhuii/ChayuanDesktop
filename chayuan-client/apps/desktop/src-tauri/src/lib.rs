@@ -3,10 +3,11 @@ use std::sync::{Arc, Mutex};
 
 use sha2::{Digest, Sha256};
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, RunEvent,
+    Emitter, Manager, RunEvent, WindowEvent,
 };
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 /// 截图选区流程的跨窗口共享状态。
 ///
@@ -271,11 +272,25 @@ pub fn run() {
             }
 
             // ── 系统托盘 ────────────────────────────────────────────
-            // 三项菜单：打开主窗口 / 切换显示 / 退出
-            let show = MenuItem::with_id(app, "show", "打开察元 AI", true, None::<&str>)?;
-            let new_chat = MenuItem::with_id(app, "new_chat", "新对话", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &new_chat, &quit])?;
+            // 菜单(从上到下):
+            //   打开察元 AI
+            //   新对话
+            //   ─── 分隔 ───
+            //   重启
+            //   关于
+            //   ─── 分隔 ───
+            //   退出
+            let show     = MenuItem::with_id(app, "show",     "打开察元 AI", true, None::<&str>)?;
+            let new_chat = MenuItem::with_id(app, "new_chat", "新对话",       true, None::<&str>)?;
+            let sep1     = PredefinedMenuItem::separator(app)?;
+            let restart  = MenuItem::with_id(app, "restart",  "重启",         true, None::<&str>)?;
+            let about    = MenuItem::with_id(app, "about",    "关于",         true, None::<&str>)?;
+            let sep2     = PredefinedMenuItem::separator(app)?;
+            let quit     = MenuItem::with_id(app, "quit",     "退出",         true, None::<&str>)?;
+            let menu = Menu::with_items(
+                app,
+                &[&show, &new_chat, &sep1, &restart, &about, &sep2, &quit],
+            )?;
 
             let _tray = TrayIconBuilder::with_id("main")
                 .tooltip("察元 AI")
@@ -283,16 +298,41 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.unminimize();
                             let _ = w.show();
                             let _ = w.set_focus();
                         }
                     }
                     "new_chat" => {
                         if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.unminimize();
                             let _ = w.show();
                             let _ = w.set_focus();
                             let _ = w.emit("cy:new-chat", ());
                         }
+                    }
+                    "restart" => {
+                        // AppHandle::restart 是 divergent(返 !),tauri 内部把
+                        // 当前进程替换成新 instance,后面代码不会跑。
+                        app.restart();
+                    }
+                    "about" => {
+                        // 非阻塞 message dialog;callback 忽略点击结果。
+                        let pkg_ver = app.package_info().version.to_string();
+                        app.dialog()
+                            .message(format!(
+                                "察元 AI · Chayuan AI 桌面单机版\n\
+                                 版本:{pkg_ver}\n\
+                                 \n\
+                                 面向办公场景的离线 AI 助手 — 把 WPS/Office 文档\n\
+                                 处理、个人/企业知识库、结构化数据、外部向量库、\n\
+                                 多模态资料和本地/服务端模型能力统一起来。\n\
+                                 \n\
+                                 © Chayuan AI · AGPL-3.0"
+                            ))
+                            .title("关于 察元 AI")
+                            .kind(MessageDialogKind::Info)
+                            .show(|_| {});
                     }
                     "quit" => {
                         app.exit(0);
@@ -300,19 +340,32 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { .. } = event {
+                    // 用户要求:双击图标 → 打开主窗。
+                    // 单击不做切换显示/隐藏 — 避免和双击竞争误触(Windows 系统会先派发
+                    // Click,250ms 内再派发 DoubleClick);右键菜单 Tauri 内置支持,
+                    // 右键即出 menu 不需要 hook。
+                    if let TrayIconEvent::DoubleClick { .. } = event {
                         if let Some(w) = tray.app_handle().get_webview_window("main") {
-                            let visible = w.is_visible().unwrap_or(false);
-                            if visible {
-                                let _ = w.hide();
-                            } else {
-                                let _ = w.show();
-                                let _ = w.set_focus();
-                            }
+                            let _ = w.unminimize();
+                            let _ = w.show();
+                            let _ = w.set_focus();
                         }
                     }
                 })
                 .build(app)?;
+
+            // ── 拦截 main 关闭:右上角 X → 隐藏到托盘,不退程序 ─────
+            // 真退出由托盘菜单"退出"触发(app.exit(0)),或者外部信号 / 任务管理器
+            // 强杀。RunEvent::ExitRequested 仍会被走到回收 sidecar。
+            if let Some(main) = app.get_webview_window("main") {
+                let main_for_close = main.clone();
+                main.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = main_for_close.hide();
+                    }
+                });
+            }
 
             #[cfg(debug_assertions)]
             {
