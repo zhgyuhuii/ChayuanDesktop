@@ -232,7 +232,8 @@ export const HomePage: React.FC = () => {
         <img
           src={CHAYUAN_LOGO_URL}
           alt="察元 AI"
-          className="h-12 w-12 bg-transparent object-contain"
+          className="h-12 w-12 bg-transparent object-contain rounded-full"
+          style={{ animation: 'cy-badge-halo 3.6s ease-in-out infinite' }}
         />
         <div>
           <h1 className="text-2xl font-semibold text-[var(--cy-text-primary)]">
@@ -251,7 +252,10 @@ export const HomePage: React.FC = () => {
           固定 min-h-[5rem] 让气泡高度不随文字增长抖动,下方卡片不会被反复推开。
           光标用 opacity 1s 步进切换,比 animate-pulse 柔和。 */}
       <div className="relative z-10 flex max-w-3xl items-start gap-3 -mt-3">
-        <div className="h-7 w-7 shrink-0 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] flex items-center justify-center text-[11px] font-semibold text-white shadow-sm">
+        <div
+          className="h-7 w-7 shrink-0 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] flex items-center justify-center text-[11px] font-semibold text-white shadow-sm"
+          style={{ animation: 'cy-badge-halo 3.6s 1.2s ease-in-out infinite' }}
+        >
           AI
         </div>
         <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm bg-[var(--cy-surface-base)] px-4 py-3 ring-1 ring-[var(--cy-border-subtle)] shadow-sm">

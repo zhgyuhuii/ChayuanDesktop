@@ -159,4 +159,9 @@ const AURA_KEYFRAMES = `
   35%      { transform: translateY(-3px) rotate(-3deg); filter: drop-shadow(0 0 6px rgba(255, 215, 90, 0.55)); }
   65%      { transform: translateY(-2px) rotate(3deg); filter: drop-shadow(0 0 6px rgba(255, 215, 90, 0.45)); }
 }
+/* AI/logo 徽章光晕 — 圆形脉冲 box-shadow,3.6s 一拍,跟 icon-float 错相 */
+@keyframes cy-badge-halo {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 215, 90, 0), 0 0 0 0 rgba(255, 215, 90, 0); }
+  50%      { box-shadow: 0 0 18px 4px rgba(255, 215, 90, 0.55), 0 0 4px 1px rgba(255, 245, 194, 0.7); }
+}
 `;

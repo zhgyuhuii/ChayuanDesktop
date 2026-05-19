@@ -23,6 +23,7 @@ import * as React from 'react';
 import { GoldDragon } from './GoldDragon';
 import { MagpieFlock } from './MagpieFlock';
 import { Phoenix } from './Phoenix';
+import { AuspiciousClouds } from './AuspiciousClouds';
 
 export const HomeFxLayer: React.FC = () => {
   const ref = React.useRef<HTMLDivElement>(null);
@@ -79,6 +80,7 @@ export const HomeFxLayer: React.FC = () => {
         zIndex: 1,
       }}
     >
+      <AuspiciousClouds />
       <AmbientParticles />
       <LightSweep />
       <MagpieFlock />
