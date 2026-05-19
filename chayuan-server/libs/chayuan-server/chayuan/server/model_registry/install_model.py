@@ -333,7 +333,9 @@ class InstallModelJobManager:
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            self._fail(job, f"创建目标目录失败 {target_dir}: {e!r}")
+            self._fail_with_traceback(
+                job, f"创建目标目录失败 {target_dir}", e, target_dir,
+            )
             return
         with self._lock:
             job.target_dir = str(target_dir)
@@ -356,7 +358,7 @@ class InstallModelJobManager:
             return
         except Exception as e:  # noqa: BLE001
             logger.exception("install_model %s 下载失败", job.model_id)
-            self._fail(job, f"下载失败: {type(e).__name__}: {e}")
+            self._fail_with_traceback(job, "下载失败", e, target_dir)
             return
 
         # 3. 扫盘 + 完成
@@ -485,6 +487,90 @@ class InstallModelJobManager:
     def _fail(self, job: InstallModelJob, msg: str) -> None:
         with self._lock:
             job.log_tail.append(f"[install_model] {msg}")
+            job.status = ModelJobStatus.FAILED
+            job.exit_code = 1
+            job.ended_at = time.time()
+
+    def _fail_with_traceback(
+        self,
+        job: InstallModelJob,
+        prefix: str,
+        exc: BaseException,
+        target_dir: Path,
+    ) -> None:
+        """失败时把 traceback / OSError 细节 / 路径诊断都写进 log_tail。
+
+        老逻辑只记一行 ``type(e).__name__: e``,排查 Windows 上 Errno 22 / 长路径
+        / 文件名非法字符这类问题完全没线索。这里把:
+          - 完整 traceback(最多 60 行 — 长 stack 没用,核心 frame 就够)
+          - OSError.errno / .filename / .winerror(Windows pywin32 的 attr)
+          - target_dir 字符串长度 + 是否含非 ASCII / `:` / 长路径风险
+          - 显著的 SDK 内部 cache 路径(HF / modelscope 各自的 cache_dir)
+        全写进去,后续可以一次性贴出来对症修。
+        """
+        import traceback as _tb
+
+        with self._lock:
+            job.log_tail.append(f"[install_model] {prefix}: {type(exc).__name__}: {exc}")
+
+            # OSError 细节(Errno 22 / 32 / 145 / -2 等都靠这个分流)
+            if isinstance(exc, OSError):
+                detail_parts = []
+                if exc.errno is not None:
+                    detail_parts.append(f"errno={exc.errno}")
+                # filename / filename2 可能指向真正出错的路径(比 message 准)
+                if getattr(exc, "filename", None):
+                    detail_parts.append(f"filename={exc.filename!r}")
+                if getattr(exc, "filename2", None):
+                    detail_parts.append(f"filename2={exc.filename2!r}")
+                # Windows pywin32 风格的 winerror
+                if getattr(exc, "winerror", None) is not None:
+                    detail_parts.append(f"winerror={exc.winerror}")
+                if detail_parts:
+                    job.log_tail.append(
+                        f"[install_model]   OSError detail: {' '.join(detail_parts)}"
+                    )
+                # Errno 22 / WinError 87 = Invalid argument。Windows 上最常见原因:
+                # 文件名含 `:` / `*` / `?` / `|` 等保留字符,或路径 > 260 且没开
+                # LongPathsEnabled。这两条都给一行 hint,用户对照自己看。
+                if exc.errno == 22 or getattr(exc, "winerror", None) == 87:
+                    job.log_tail.append(
+                        "[install_model]   Errno 22 / WinError 87 常见根因:\n"
+                        "      - Windows 文件名禁用字符 (`:` `*` `?` `|` `\"` `<` `>`) — "
+                        "HF/modelscope cache 内部可能写 .lock-blob:<sha> 这类带冒号的文件,"
+                        "Windows 不接受;\n"
+                        "      - 路径长度 > 260 且没开 LongPathsEnabled;\n"
+                        "      - 临时文件被杀软扫描时锁住。"
+                    )
+
+            # 路径诊断(只针对 Windows 高风险情况,Linux/macOS 也无害)
+            target_str = str(target_dir)
+            extra_colons = target_str.count(":") > 1  # Windows 盘符占用 1 个,>1 才异常
+            has_non_ascii = any(ord(c) > 127 for c in target_str)
+            job.log_tail.append(
+                f"[install_model]   target_dir 长度={len(target_str)} 字符;"
+                f"含非 ASCII={has_non_ascii};"
+                f"含冒号(非盘符)={extra_colons};"
+                f"path={target_str!r}"
+            )
+            if len(target_str) > 200:
+                job.log_tail.append(
+                    "[install_model]   ⚠ target_dir 已 > 200 字符,下载的子文件再嵌一层"
+                    "极易超 Windows MAX_PATH 260。建议把 CHAYUAN_ROOT 换成短路径"
+                    "(如 C:\\chayuan)或开 LongPathsEnabled。"
+                )
+
+            # 完整 traceback,截到 60 行避免刷屏(实际 frame 通常 < 20)
+            tb_lines = _tb.format_exception(type(exc), exc, exc.__traceback__)
+            tb_flat: list[str] = []
+            for chunk in tb_lines:
+                tb_flat.extend(chunk.rstrip().split("\n"))
+            if len(tb_flat) > 60:
+                tb_flat = tb_flat[:30] + [f"  ... (中间 {len(tb_flat) - 60} 行省略) ..."] + tb_flat[-30:]
+            job.log_tail.append("[install_model]   traceback:")
+            for line in tb_flat:
+                job.log_tail.append(f"[install_model]     {line}")
+
             job.status = ModelJobStatus.FAILED
             job.exit_code = 1
             job.ended_at = time.time()
