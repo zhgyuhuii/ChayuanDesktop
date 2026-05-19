@@ -22,11 +22,13 @@
 import * as React from 'react';
 import { GoldDragon } from './GoldDragon';
 import { MagpieFlock } from './MagpieFlock';
+import { Phoenix } from './Phoenix';
 
 export const HomeFxLayer: React.FC = () => {
   const ref = React.useRef<HTMLDivElement>(null);
   const [size, setSize] = React.useState({ w: 0, h: 0 });
-  const [flightKey, setFlightKey] = React.useState(0);
+  const [dragonKey, setDragonKey] = React.useState(0);
+  const [phoenixKey, setPhoenixKey] = React.useState(0);
 
   // —— 尺寸监听
   React.useEffect(() => {
@@ -40,25 +42,29 @@ export const HomeFxLayer: React.FC = () => {
     return () => ro.disconnect();
   }, []);
 
-  // —— 龙的调度:首次延迟 4s,之后 60~110s 随机
+  // —— 龙首飞 4s + 凤凰首飞 28s(错峰,避免开场两个主秀同时入场)
   React.useEffect(() => {
     if (size.w <= 0 || size.h <= 0) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const schedule = (delayMs: number) => {
-      timer = setTimeout(() => setFlightKey((n) => n + 1), delayMs);
-    };
-    schedule(4000); // 首飞
+    const t1 = setTimeout(() => setDragonKey((n) => n + 1), 4000);
+    const t2 = setTimeout(() => setPhoenixKey((n) => n + 1), 28000);
     return () => {
-      if (timer) clearTimeout(timer);
+      clearTimeout(t1);
+      clearTimeout(t2);
     };
-    // 仅在 mount + 尺寸首次确定后触发 — 之后由 onFlightDone 自己排
+    // 尺寸刚有时触发,后续重排由 onFlightDone 自驱
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [size.w > 0 && size.h > 0]);
 
-  const onFlightDone = React.useCallback(() => {
-    // 60~110s 后再来一次
+  const onDragonDone = React.useCallback(() => {
+    // 龙:60~110s 后再来
     const next = 60_000 + Math.random() * 50_000;
-    setTimeout(() => setFlightKey((n) => n + 1), next);
+    setTimeout(() => setDragonKey((n) => n + 1), next);
+  }, []);
+
+  const onPhoenixDone = React.useCallback(() => {
+    // 凤凰:90~150s 后再来,跟龙错相位
+    const next = 90_000 + Math.random() * 60_000;
+    setTimeout(() => setPhoenixKey((n) => n + 1), next);
   }, []);
 
   return (
@@ -77,12 +83,20 @@ export const HomeFxLayer: React.FC = () => {
       <LightSweep />
       <MagpieFlock />
       {size.w > 0 && size.h > 0 && (
-        <GoldDragon
-          flightKey={flightKey}
-          width={size.w}
-          height={size.h}
-          onFlightDone={onFlightDone}
-        />
+        <>
+          <GoldDragon
+            flightKey={dragonKey}
+            width={size.w}
+            height={size.h}
+            onFlightDone={onDragonDone}
+          />
+          <Phoenix
+            flightKey={phoenixKey}
+            width={size.w}
+            height={size.h}
+            onFlightDone={onPhoenixDone}
+          />
+        </>
       )}
     </div>
   );

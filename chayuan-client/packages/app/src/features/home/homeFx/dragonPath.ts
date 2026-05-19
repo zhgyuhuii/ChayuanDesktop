@@ -86,19 +86,39 @@ function arcToT(table: number[], totalLength: number, s: number): number {
   return (lo - 1 + u) / (table.length - 1);
 }
 
+export interface FlightOpts {
+  /** 是否允许中段盘旋 — 龙=true,凤凰=false(凤凰滑翔不盘) */
+  allowCoil?: boolean;
+  /** 入场 y 偏置(0~1):0=屏顶,1=屏底。凤凰用 0.15 高位滑翔 */
+  yBias?: number;
+  /** 速度乘子,默认 1.0;凤凰用 1.15 略快 */
+  speedScale?: number;
+}
+
 /**
- * 生成一条"穿越式 + 中段盘旋"的飞行路径。
+ * 生成一条飞行路径。默认为龙的"穿越 + 中段盘旋"。
  *
  * @param vw 视口宽
  * @param vh 视口高
+ * @param opts FlightOpts;不传走默认龙参数。
  */
-export function makeFlightPath(vw: number, vh: number): FlightPath {
+export function makeFlightPath(
+  vw: number,
+  vh: number,
+  opts: FlightOpts = {},
+): FlightPath {
+  const allowCoil = opts.allowCoil ?? true;
+  const yBias = opts.yBias ?? 0.5;
+  const speedScale = opts.speedScale ?? 1.0;
   // —— 1. 主航点(屏幕坐标系,原点左上)
-  const enterFromTop = Math.random() < 0.4;
-  const start: Pt = enterFromTop
-    ? { x: -200, y: rand(60, vh * 0.35) }
-    : { x: -200, y: rand(vh * 0.5, vh * 0.85) };
-  const end: Pt = { x: vw + 200, y: rand(60, vh * 0.45) };
+  // yBias 控制入/出 y 的分布中心 — 凤凰高位(0.15)、龙居中(0.5)
+  const yLow = Math.max(40, vh * (yBias - 0.18));
+  const yHigh = Math.max(60, vh * (yBias + 0.18));
+  const start: Pt = {
+    x: -200,
+    y: rand(yLow, yHigh),
+  };
+  const end: Pt = { x: vw + 200, y: rand(yLow, yHigh) };
 
   // 中段 3~4 个航点,y 沿正弦叠加
   const midCount = Math.floor(rand(3, 5));
@@ -112,8 +132,8 @@ export function makeFlightPath(vw: number, vh: number): FlightPath {
     mids.push({ x, y: baseY + wave + wave2 });
   }
 
-  // 盘旋(50% 概率)— 在第二个航点附近插入一个螺旋段
-  const coil = Math.random() < 0.55;
+  // 盘旋(只在 allowCoil 且 55% 概率)— 在第二个航点附近插入一个螺旋段
+  const coil = allowCoil && Math.random() < 0.55;
   const midIdx = Math.floor(midCount / 2);
   const midPt = mids[midIdx] ?? mids[0] ?? { x: vw / 2, y: vh / 2 };
   const coilCenter: Pt | null = coil ? { x: midPt.x, y: midPt.y } : null;
@@ -169,7 +189,7 @@ export function makeFlightPath(vw: number, vh: number): FlightPath {
   // —— 4. 等速重参数化
   const { table, totalLength } = buildArcLengthTable(sampler, 200);
   // 把弧长除速度算出时长 — 屏幕越大、路径越绕,飞越久
-  const speed = rand(380, 520); // px/sec
+  const speed = rand(380, 520) * speedScale; // px/sec
   const durationSec = Math.max(7, Math.min(14, totalLength / speed));
 
   // —— 5. 暴露 at()
