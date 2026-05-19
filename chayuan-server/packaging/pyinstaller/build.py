@@ -1,10 +1,20 @@
-"""一键打包 chayuan-server,并拷贝到桌面端 ``binaries/`` 供 Tauri sidecar 嵌入。
+"""一键打包 chayuan-server (--onedir),并把整个目录拷到桌面端 ``chayuan-server/``
+供 Tauri ``resources`` 嵌入。
 
-约定的 Tauri ``externalBin`` 命名:::
+约定路径(2026-05-19 起):
 
-    apps/desktop/src-tauri/binaries/chayuan-server-<rust-target-triple>(.exe)
+    apps/desktop/src-tauri/chayuan-server/
+        chayuan-server(.exe)          ← PyInstaller bootloader
+        _internal/                    ← Python + 全部依赖(含 torch CPU)
 
-triple 表见:https://doc.rust-lang.org/cargo/appendix/glossary.html#target
+历史:本脚本曾走 ``--onefile`` + Tauri ``externalBin``,产物是
+``apps/desktop/src-tauri/binaries/chayuan-server-<rust-target-triple>(.exe)``
+单文件。问题:
+  - 装机后冷启动解压 726 MB 到 %TEMP%\\_MEIxxxxx 要 100-150s,/healthz 60s 超时,
+    主界面进不去。
+  - torch CPU 装进 onefile bundle 触发 c10.dll WinError 1114(DLL 加载顺序)。
+切到 ``--onedir`` 后 DLL 路径稳定、启动秒级,代价是产物变成目录(走 Tauri
+``resources`` 而不是 ``externalBin``)。
 
 用法
 ----
@@ -70,7 +80,12 @@ WORKSPACE = ROOT.parent                                      # chayuan-desktop/
 DESKTOP_SRC_TAURI = (
     WORKSPACE / "chayuan-client" / "apps" / "desktop" / "src-tauri"
 )
-DESKTOP_BIN_DIR = DESKTOP_SRC_TAURI / "binaries"
+# 2026-05-19:--onedir 模式下整个 dist/chayuan-server/ 树拷到这里,跟
+# bundled_models / services 一样走 Tauri ``resources`` 而不是 ``externalBin``。
+# 老 DESKTOP_BIN_DIR(src-tauri/binaries/)保留兼容(installer 老脚本可能还在引),
+# 但本脚本只往新路径写。
+DESKTOP_CHAYUAN_SERVER_DIR = DESKTOP_SRC_TAURI / "chayuan-server"
+DESKTOP_BIN_DIR = DESKTOP_SRC_TAURI / "binaries"  # 保留:兼容旧调用方读取
 # 2026-05-15:bundled_models 不再嵌进 PyInstaller sidecar(避免 NSIS makensis
 # mmap 单文件 ≥2GB 失败),改由 Tauri 的 ``bundle.resources`` 字段承载。
 # build.py 把 vendor/bundled_models/ 拷到这里,tauri.conf.json 把它打进 installer。
@@ -173,39 +188,55 @@ def run_chayuan_pack(release: str, *, offline: bool = False) -> None:
         subprocess.check_call(cmd, cwd=str(ROOT))
 
 
-def _executable_path() -> Path:
-    """定位 PyInstaller 产物。两种模式都覆盖,免得切回 onedir 时再改一次。"""
+def _onedir_root() -> Path:
+    """定位 ``--onedir`` 产物目录 ``dist/chayuan-server/``。"""
     suffix = ".exe" if platform.system() == "Windows" else ""
-    candidates = [
-        # onefile:dist/chayuan-server(.exe)
-        DIST_ROOT / f"chayuan-server{suffix}",
-        # onedir(COLLECT name='chayuan-server'):dist/chayuan-server/chayuan-server(.exe)
-        DIST_ROOT / "chayuan-server" / f"chayuan-server{suffix}",
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
+    candidate = DIST_ROOT / "chayuan-server"
+    if (candidate / f"chayuan-server{suffix}").is_file():
+        return candidate
+    # 兜底:历史 onefile 产物也认一下,给"用户没切 spec 就跑 build.py"的场景留诊断。
+    legacy = DIST_ROOT / f"chayuan-server{suffix}"
+    if legacy.is_file():
+        raise SystemExit(
+            f"[build] 检测到老 onefile 产物 {legacy};本脚本已切 --onedir,"
+            f"请检查 spec 是否已用 EXE(exclude_binaries=True) + COLLECT 结构。"
+        )
     raise SystemExit(
-        f"[build] PyInstaller output not found. tried:\n  "
-        + "\n  ".join(str(c) for c in candidates)
-        + "\n请确认 spec 中 EXE/COLLECT 的 name 与目录结构。"
+        f"[build] PyInstaller --onedir 产物未找到:{candidate}\n"
+        "请确认 spec 中 EXE/COLLECT 的 name='chayuan-server' 与目录结构。"
     )
 
 
-def copy_to_tauri_binaries() -> Path:
-    DESKTOP_BIN_DIR.mkdir(parents=True, exist_ok=True)
-    triple = rust_target_triple()
-    suffix = ".exe" if platform.system() == "Windows" else ""
+def copy_to_tauri_resources() -> Path:
+    """把 ``dist/chayuan-server/`` 整树拷到 Tauri ``resources/chayuan-server/``。
 
-    src = _executable_path()
-    dst = DESKTOP_BIN_DIR / f"chayuan-server-{triple}{suffix}"
-    shutil.copy2(src, dst)
-    # 保留可执行位(macOS / Linux)
-    if not platform.system() == "Windows":
-        os.chmod(dst, 0o755)
+    Tauri ``bundle.resources`` 把这里的整个目录打进 NSIS / MSI / dmg,装机后
+    在 ``<install>/resources/chayuan-server/`` 落地。sidecar.rs 用
+    ``app.path().resolve("chayuan-server/chayuan-server.exe", BaseDirectory::Resource)``
+    取路径 spawn。
 
-    print(f"[build] copied {src} -> {dst}", flush=True)
+    幂等:目标存在就先 rmtree,避免残留旧 _internal/。
+    """
+    src = _onedir_root()
+    dst = DESKTOP_CHAYUAN_SERVER_DIR
+    if dst.exists():
+        shutil.rmtree(dst)
+    # copytree 保留权限位(macOS / Linux 上 chayuan-server bootloader 需要 +x)。
+    shutil.copytree(src, dst, symlinks=False)
+    # Windows 不需要 chmod;macOS/Linux 上 bootloader exe 必须可执行。
+    if platform.system() != "Windows":
+        exe = dst / "chayuan-server"
+        if exe.is_file():
+            os.chmod(exe, 0o755)
+    n_files = sum(1 for _ in dst.rglob("*") if _.is_file())
+    print(f"[build] copied {src} -> {dst} ({n_files} files)", flush=True)
     return dst
+
+
+# 老 onefile + externalBin 路径的拷贝函数,保留 alias 给 build-desktop.ps1 / CI
+# 脚本兼容引用;内部转向 resources 路径。后续清理可以删除。
+def copy_to_tauri_binaries() -> Path:
+    return copy_to_tauri_resources()
 
 
 # Windows installer 单文件硬上限(NSIS makensis 32-bit mmap;WiX 3 light.exe

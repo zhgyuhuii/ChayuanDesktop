@@ -6,8 +6,10 @@
 //!    必须先选定数据目录,我们才知道往子进程注入什么 ``CHAYUAN_ROOT``。
 //!    所以 spawn 入口是前端命令 ``chayuan_sidecar_start`` ── FirstRunSetup
 //!    确认后由 Shell 调用一次。
-//! 2. spawn 时通过 ``tauri-plugin-shell::ShellExt::shell().sidecar()`` 启起
-//!    ``chayuan-server-<rust-target-triple>``;参数:``start -a --single-machine``;
+//! 2. spawn 时用 ``app.path().resolve("chayuan-server/chayuan-server.exe",
+//!    BaseDirectory::Resource)`` 拿可执行路径,``Command::new(path)`` 起子进程
+//!    (2026-05-19 切 PyInstaller --onedir 起换走 resources 而不是 externalBin);
+//!    参数:``start -a --single-machine``;
 //!    env 注入:``CHAYUAN_ROOT`` + 单机 profile 系列(详见 ``chayuan/startup.py``)。
 //! 3. 后台线程监听 ``CommandEvent::{Stdout, Stderr, Terminated}`` ──
 //!    日志逐行追加到 last_log_line(诊断用);Terminated 时把 state 切到
@@ -25,9 +27,9 @@ use std::thread;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Runtime};
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
-use tauri_plugin_shell::ShellExt;
+use tauri::path::BaseDirectory;
+use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
 
 /// 子进程状态机。前端据此渲染 banner / 错误覆盖层。
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -143,11 +145,23 @@ impl SidecarManager {
 #[allow(dead_code)]
 const DEFAULT_PORT: u16 = 62581;
 
-/// 健康探测超时与轮询间隔。``healthz`` 已经包含 DB ping,2s 超时够用。
+/// 健康探测超时与轮询间隔。``healthz`` 是无依赖端点(只 return ok),2s 够用。
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(800);
-/// 启动总等待:60s(冷启动 PyInstaller 解压 + alembic upgrade,留富裕)。
-const HEALTH_TOTAL_DEADLINE: Duration = Duration::from_secs(60);
+/// 启动总等待:300s。
+///
+/// 历史值 60s 在以下场景必超时,导致主界面进不去:
+///   - PyInstaller --onefile 首次解压 726 MB bundle 到 ``%TEMP%\_MEIxxxxx``
+///     ≈100-150s(冷盘 / 装机后第一次启动 / 杀软扫描时更长)
+///   - 父进程 ``startup.py`` bootstrap(create_tables / run_migrations /
+///     config_center seed / default admin)≈10s
+///   - API 子进程 lifespan startup(fire-and-forget 后 <2s)
+///   合计 worst-case ~180s,留富裕到 300s。
+///
+/// 副作用:首次启动用户最长会看 5 分钟的"启动中"。但 60s 误判 Failed 后
+/// 整个主界面就进不去,体验更差。后续可以改成 Failed 后继续后台 poll,
+/// 一旦 /healthz 返 200 就 self-heal 到 Ready;先用大 deadline 兜住。
+const HEALTH_TOTAL_DEADLINE: Duration = Duration::from_secs(300);
 
 fn poll_healthz_once(port: u16) -> bool {
     let url = format!("http://127.0.0.1:{port}/healthz");
@@ -205,11 +219,31 @@ pub fn chayuan_sidecar_start<R: Runtime>(
 
     let port = state.snapshot().port;
 
-    // ── 1. 通过 plugin-shell 拼 sidecar 命令 ─────────────────────────
-    let shell = app.shell();
-    let mut cmd = shell
-        .sidecar("chayuan-server")
-        .map_err(|e| format!("locate sidecar binary: {e}"))?
+    // ── 1. 解析 chayuan-server bootloader 路径 ────────────────────
+    // 2026-05-19 起 chayuan-server 不再用 Tauri ``externalBin``(externalBin 只
+    // 能嵌单 exe,无法跟着 PyInstaller --onedir 的 _internal/ 一起进包)。
+    // 改走 ``bundle.resources``,build.py 把 dist/chayuan-server/ 整树拷到
+    // src-tauri/chayuan-server/,装机后落在 <install>/resources/chayuan-server/。
+    // 用 BaseDirectory::Resource 解析:dev 模式落 src-tauri/chayuan-server/,
+    // 生产模式落 <install>/resources/chayuan-server/。两端命名一致。
+    #[cfg(target_os = "windows")]
+    let exe_rel = "chayuan-server/chayuan-server.exe";
+    #[cfg(not(target_os = "windows"))]
+    let exe_rel = "chayuan-server/chayuan-server";
+
+    let exe_path = app
+        .path()
+        .resolve(exe_rel, BaseDirectory::Resource)
+        .map_err(|e| format!("resolve {exe_rel}: {e}"))?;
+    if !exe_path.is_file() {
+        return Err(format!(
+            "chayuan-server bootloader 不存在:{} \
+             (build.py 是否漏拷 dist/chayuan-server/ 到 resources?)",
+            exe_path.display()
+        ));
+    }
+
+    let mut cmd = Command::new(exe_path.to_string_lossy().to_string())
         .args(["start", "-a", "--single-machine"])
         // ⚠ CHAYUAN_ROOT_IGNORE_STATE=1 必须设。
         // chayuan/paths.py::resolve_chayuan_root 默认优先读 ~/.chayuan/state.json

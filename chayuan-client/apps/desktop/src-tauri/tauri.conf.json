@@ -50,8 +50,13 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "deb", "appimage", "rpm", "dmg", "app"],
-    "externalBin": ["binaries/chayuan-server"],
-    "resources": ["bundled_models/**/*", "services/**/*", "tools/**/*", "torch_wheels/**/*"],
+    "externalBin": [],
+    "resources": [
+      "chayuan-server/**/*",
+      "bundled_models/**/*",
+      "services/**/*",
+      "tools/**/*"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

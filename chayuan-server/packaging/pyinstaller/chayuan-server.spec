@@ -1,15 +1,29 @@
 # -*- mode: python ; coding: utf-8 -*-
-# 单机版 chayuan-server PyInstaller 配置(Phase 2)。
+# 单机版 chayuan-server PyInstaller 配置。
 #
-# 目标:把 chayuan-server 打成单可执行 ── 后续 Phase 3 由 Tauri 桌面客户端通过
-# ``externalBin`` 做 sidecar 嵌入,启动时以 ``CHAYUAN_ROOT=<dataDir>`` env 注入
-# 用户首启动向导选定的数据目录。
+# 目标:把 chayuan-server 打成 ``--onedir`` 产物,Tauri 桌面客户端通过
+# ``resources`` 把整个目录 bundle 进安装包,运行时 sidecar.rs 用
+# ``resource_dir()/chayuan-server/chayuan-server.exe`` 起子进程。启动时以
+# ``CHAYUAN_ROOT=<dataDir>`` env 注入用户首启动向导选定的数据目录。
 #
-# 模式:onefile。Tauri ``externalBin`` 只能嵌单个 exe,onedir 同级 ``_internal/``
-# 不会被 bundle 进安装包,导致 sidecar 启动时报 ``Failed to load python312.dll``。
-# 代价:冷启动比 onedir 慢 3-5 秒(自解压到 ``%TEMP%\_MEI******``)。
-# 后续优化:Phase 5 后端瘦身完(< 600 MB)再考虑切回 onedir + Tauri ``resources``
-# 字段把整个目录当资源文件 bundle。
+# 模式:**onedir**(2026-05-19 从 onefile 切过来)。
+#
+# 切换动机:
+#   1. onefile 解压 726 MB bundle 到 %TEMP%\_MEIxxxxx 要 100-150s,Tauri /healthz
+#      60s 探针必超时,主界面进不去。
+#   2. 把 torch CPU + torchvision + transformers 打进 bundle 需要 c10.dll /
+#      torch_cpu.dll 等 ~30 个 native DLL 按固定布局摆好。onefile 解压时
+#      DLL 加载顺序不可控,触发经典 ``c10.dll WinError 1114``。
+#   3. onedir 把 _internal/ 跟 exe 放一起,DLL 路径稳定,torch import 链全通。
+#
+# Tauri 集成:
+#   - 不再用 ``externalBin``(只能嵌单 exe,_internal/ 不会跟着进安装包)。
+#   - 改用 ``resources: ["chayuan-server/**/*"]``,build.py 把 dist/chayuan-server/
+#     整个拷到 ``apps/desktop/src-tauri/resources/chayuan-server/``,Tauri bundle
+#     时一并打进 NSIS / MSI / dmg。
+#   - sidecar.rs 用 ``app.path().resolve("chayuan-server/chayuan-server.exe",
+#     BaseDirectory::Resource)`` 拿可执行文件路径,直接 spawn(不走 plugin-shell
+#     的 sidecar() helper)。
 #
 # 用法:
 #     poetry run pyinstaller packaging/pyinstaller/chayuan-server.spec --noconfirm
@@ -391,12 +405,13 @@ excludes = [
     "pytest",
     "mypy",
     "black",
-    # 单机版 v0:深度学习运行时全部砍掉,推理走 onnxruntime。
-    # 留 torch 在 onefile 里会触发 c10.dll WinError 1114,且 ~1.5 GB 净占用。
-    "torch",
-    "torchvision",
+    # 2026-05-19 切 --onedir:torch CPU + torchvision + transformers 进 bundle,
+    # image-embedding(HF CLIP)直接 in-process import,不再依赖外部 wheel + pip。
+    # ▸ torchaudio:语音走 whisper.cpp / piper,torch 系不依赖 audio backend → 排除
+    # ▸ sentence_transformers:embedding/rerank 走 llama-server GGUF,跟 ST 不直接
+    #   依赖 → 排除节省 ~200MB
+    # ▸ rerankers:同上,rerank 走 llama-server cross-encoder GGUF → 排除
     "torchaudio",
-    "transformers",
     "sentence_transformers",
     "rerankers",
     # PaddleOCR 系:Phase 5 已从 pyproject 砍掉;此处兜底防 transitive 引入
@@ -526,6 +541,24 @@ def _collect_safe(pkg: str):
         return [], [], []
 
 
+def _collect_required(pkg: str):
+    """``collect_all`` 但包不在就 fail-fast。
+
+    给 torch / torchvision / transformers 等"必须打进 bundle"的依赖用 ──
+    poetry 环境漏装这些,_collect_safe 会静默返空 → 装机后 ``import torch``
+    报 ModuleNotFoundError,用户/QA 才发现 bundle 漏了大件,反复重打浪费时间。
+    fail-fast 让构建在 spec 阶段就炸,把"依赖没装"的问题怼到第一时间。
+    """
+    try:
+        return collect_all(pkg)
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(
+            f"[chayuan-spec] FATAL: collect_all({pkg!r}) 失败 — 构建环境缺 "
+            f"{pkg!r}。先 ``poetry add {pkg}``(注意 torch 选 +cpu 变体)再重打。"
+            f"\n  原始错误:{type(e).__name__}: {e}"
+        )
+
+
 for big in (
     "faiss",
     "PyMuPDF",
@@ -538,12 +571,22 @@ for big in (
     # - ``sqlite_vec`` 不是真正意义上的 Python 包(__init__ 是 stub),
     #   collect_data_files / collect_dynamic_libs 会报 warning,实际二进制
     #   走前面的 ``packaging/vendor/sqlite-vec/`` 兜底。
-    # 单机版 v0:不带 torch / transformers / sentence_transformers / rerankers。
-    # 推理一律走 ONNX(rapidocr_onnxruntime + bge-m3-onnx 之类的量化模型)。
-    # 业务代码里 transformers / sentence_transformers 的引用应当是惰性的;若有
-    # 早期 import 触发崩溃,在被影响的模块里 try/except ImportError 兜住。
 ):
     _dat, _bin, _hid = _collect_safe(big)
+    datas.extend(_dat)
+    binaries.extend(_bin)
+    hidden_modules.extend(_hid)
+
+
+# torch / torchvision / transformers — 必装,缺则 fail-fast(见 _collect_required 注释)。
+# torch CPU 250MB + torchvision 30MB + transformers ~200MB,加进 bundle 后 image-embedding
+# 的 hf_clip / hf_dinov2 / timm_vision loader 可以直接 in-process import,不再走外部
+# pip install + torch_wheels seed 那套(从未真正工作过的)弯路。
+#
+# ⚠ 构建环境要求:torch 必须是 ``+cpu`` 变体(``pip install torch --index-url
+#   https://download.pytorch.org/whl/cpu``),否则会拉 CUDA stub DLL(+500MB)。
+for required in ("torch", "torchvision", "transformers"):
+    _dat, _bin, _hid = _collect_required(required)
     datas.extend(_dat)
     binaries.extend(_bin)
     hidden_modules.extend(_hid)
@@ -645,25 +688,44 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 # EXE / COLLECT
 # ──────────────────────────────────────────────────────────────
 
-# Onefile 模式:把 a.binaries / a.zipfiles / a.datas 直接喂给 EXE,
-# 不再走 COLLECT。产物在 ``dist/chayuan-server(.exe)``(注意:没有同名子目录)。
+# Onedir 模式(2026-05-19 起):
+#   EXE 只装 bootloader + Python 内嵌 zip(a.scripts + a.zipfiles),
+#   ``exclude_binaries=True`` 让 a.binaries / a.datas 走 COLLECT 落到
+#   ``dist/chayuan-server/_internal/`` 里,跟 .exe 同级。
+# 产物:
+#   dist/chayuan-server/
+#       chayuan-server.exe          ← bootloader,几 MB
+#       _internal/
+#           python312.dll
+#           torch/ torchvision/ transformers/  ← 这次新加的大件
+#           ...其它依赖...
+# 这一目录会被 build.py 整个拷到 chayuan-client 的 Tauri resources。
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="chayuan-server",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,            # paddle 与 strip 偶发不兼容
     upx=False,              # paddle / onnxruntime 与 UPX 不兼容,默认关
-    runtime_tmpdir=None,    # 默认用 %TEMP%\_MEI******
     console=True,           # sidecar 需要读 stdout(日志 / READY 行)
     disable_windowed_traceback=False,
     argv_emulation=False,   # CLI 行为依赖 argv,关闭 macOS 的 emu
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="chayuan-server",   # 产物根目录名(对齐前面注释里的 dist/chayuan-server/)
 )

@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   按顺序执行:
-    Step 1  服务端 PyInstaller            (chayuan-server -> onedir + 拷到 desktop/binaries)
+    Step 1  服务端 PyInstaller            (chayuan-server -> onedir + 拷到 src-tauri/chayuan-server/)
     Step 2  Sidecar 二进制健康检查         (启 .exe + GET /healthz)
     Step 3  客户端 Tauri bundle           (chayuan-client -> .msi / .exe)
 
@@ -288,7 +288,10 @@ $ServerDir     = Join-Path $WorkspaceRoot 'chayuan-server'
 # 在那里跑 ``poetry install`` 等于啥都没装,PyInstaller Analysis 会找不到 click / langchain。
 $ServerPkgDir  = Join-Path $ServerDir 'libs\chayuan-server'
 $ClientDir     = Join-Path $WorkspaceRoot 'chayuan-client'
-$BinariesDir   = Join-Path $ClientDir 'apps\desktop\src-tauri\binaries'
+# 2026-05-19 chayuan-server 切 PyInstaller --onedir:不再单文件外挂 binaries/,
+# 整个 dist/chayuan-server/ 拷到 src-tauri/chayuan-server/ 走 Tauri ``resources``。
+$ChayuanServerClientDir = Join-Path $ClientDir 'apps\desktop\src-tauri\chayuan-server'
+$BinariesDir   = Join-Path $ClientDir 'apps\desktop\src-tauri\binaries'  # 保留:历史路径,新链路不写
 # build.py 在 subprocess 里强制 cwd=chayuan-server/,产物固定落 chayuan-server\dist\。
 $DistDir       = Join-Path $ServerDir 'dist'
 $TauriBundle   = Join-Path $ClientDir 'apps\desktop\src-tauri\target\release\bundle'
@@ -632,8 +635,12 @@ function Test-ServerBuildCache {
 
     $current = Get-ServerSourceFingerprint -ServerRoot $ServerRoot -HostTriple $HostTriple -StrictVendor $StrictVendor
 
-    # dist 内的 PyInstaller 直接产物
-    $distExe = Join-Path $ServerRoot 'dist\chayuan-server\chayuan-server.exe'
+    # --onedir 产物:dist/chayuan-server/ (含 chayuan-server.exe bootloader + _internal/)。
+    # 老 onefile 时 $distSize > 10MB 是"PyInstaller 是否真跑完"的硬证据;现在
+    # bootloader 只有几 MB,_internal/ 才是大头。改成"_internal/ 存在且非空"。
+    $distDir      = Join-Path $ServerRoot 'dist\chayuan-server'
+    $distExe      = Join-Path $distDir 'chayuan-server.exe'
+    $distInternal = Join-Path $distDir '_internal'
 
     if (-not (Test-Path $FingerprintFile)) {
         return @{ Hit = $false; Fingerprint = $current; Reason = 'no fingerprint file (first build)' }
@@ -641,12 +648,18 @@ function Test-ServerBuildCache {
     if (-not (Test-Path $distExe)) {
         return @{ Hit = $false; Fingerprint = $current; Reason = ('dist exe missing: {0}' -f $distExe) }
     }
+    if (-not (Test-Path $distInternal -PathType Container)) {
+        return @{ Hit = $false; Fingerprint = $current; Reason = ('dist _internal/ missing: {0} (last build aborted before COLLECT?)' -f $distInternal) }
+    }
     if (-not (Test-Path $SidecarPath)) {
         return @{ Hit = $false; Fingerprint = $current; Reason = ('sidecar copy missing: {0}' -f $SidecarPath) }
     }
-    $distSize = (Get-Item $distExe).Length
-    if ($distSize -lt 10MB) {
-        return @{ Hit = $false; Fingerprint = $current; Reason = ('dist exe too small ({0} bytes) — last build aborted?' -f $distSize) }
+    # _internal/ 至少应有几百 MB(torch + transformers + python312.dll 等);小于
+    # 50 MB 通常是中断重打的半成品。
+    $internalSize = (Get-ChildItem -Path $distInternal -Recurse -File -ErrorAction SilentlyContinue |
+                     Measure-Object -Property Length -Sum).Sum
+    if (-not $internalSize -or $internalSize -lt 50MB) {
+        return @{ Hit = $false; Fingerprint = $current; Reason = ('_internal/ too small ({0:N1} MB) — last build aborted?' -f ($internalSize / 1MB)) }
     }
 
     try {
@@ -725,17 +738,10 @@ if ($SkipInstallVendor) {
             Write-Note "services binary 不完整 (check exit=$LASTEXITCODE),将触发 install-vendor"
         }
     }
-    # torch wheels:host 平台必须齐(strict-vendor 模式 + 装机后 auto_install 兜底)
-    # check-torch-wheels.py --require-host: 返 0 = host subdir 有完整 torch+torchvision,
-    # 1 = host 缺(需要 install-vendor 装), 2 = vendor/torch_wheels/ 不存在。
-    $checkT0 = Join-Path $WorkspaceRoot 'scripts\check-torch-wheels.py'
-    if ($pyExeForCheck -and (Test-Path $checkT0)) {
-        & $pyExeForCheck.Source $checkT0 --require-host --json 2>$null | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            $vendorComplete = $false
-            Write-Note "torch wheels 不完整 (check exit=$LASTEXITCODE),将触发 install-vendor"
-        }
-    }
+    # 2026-05-19 torch wheels 体检已废弃。
+    # 切 PyInstaller --onedir 后,torch CPU + torchvision 直接进 chayuan-server/_internal/,
+    # 不再走 vendor/torch_wheels/ → first_launch seed → pip install 那条链(那条链
+    # 在 PyInstaller --onefile 下从未真正工作过)。本块保留注释作为历史锚点。
 
     if ($vendorComplete) {
         Write-Note 'vendor/ 已完整,跳过自动安装。强制重装请用 .\scripts\install-vendor.ps1 -Flavor lite/full'
@@ -797,27 +803,10 @@ if ($SkipModelCheck) {
         Write-Note "$svcCheck 不存在,跳过"
     }
 
-    # torch wheels 体检 — 跟 bundled_models / services 配套。
-    # build.py 默认 4 个平台 cpu wheel,Tauri 把它们打进 <install>/torch_wheels/,
-    # 装机后 first_launch.seed_torch_wheels 拷到 CHAYUAN_ROOT。
-    # host 平台缺 wheel → 装机后 auto_install_on_startup 找不到 wheel
-    # → image-embedding / rerank 无法离线装(只能走在线 download.pytorch.org)。
-    Write-Step 'torch_wheels 体检 (本次打包会带哪些平台 wheel)'
-    $torchCheck = Join-Path $WorkspaceRoot 'scripts\check-torch-wheels.py'
-    if (Test-Path $torchCheck) {
-        if ($pyExe) {
-            & $pyExe.Source $torchCheck --require-host
-            if ($LASTEXITCODE -ne 0) {
-                Write-Note "vendor/torch_wheels/<host>/ 下 wheel 不完整。"
-                Write-Note "  跑 .\scripts\install-vendor.ps1 -Components torch (或单独跑 preflight_torch.py --host) 拉齐再重打。"
-                Write-Note "  装机用户首启自动按 host OS 挑对应 wheel 装,缺 host wheel 则走在线 download.pytorch.org。"
-            }
-        } else {
-            Write-Note '未找到 python,跳过 torch_wheels 体检'
-        }
-    } else {
-        Write-Note "$torchCheck 不存在,跳过"
-    }
+    # torch_wheels 体检已废弃(2026-05-19 切 --onedir 后 torch 直接进 _internal/);
+    # 这里仅记一条提示行,告诉运维 torch 装载策略已变 — 实际安装由 spec
+    # _collect_required("torch") 保证(漏 torch 时 spec 阶段就 fail-fast)。
+    Write-Note 'torch 已通过 PyInstaller --onedir 进 _internal/ — 不再走 vendor/torch_wheels/'
 }
 
 # 2026-05-15:sidecar 不再嵌 bundled_models(它们改走 Tauri resources),
@@ -863,8 +852,14 @@ if ($cpuArch -eq 'ARM64') {
     # AMD64 / EM64T / 默认都按 x86_64
     $hostTriple = 'x86_64-pc-windows-msvc'
 }
-$sidecarName = "chayuan-server-${hostTriple}.exe"
-$sidecarPath = Join-Path $BinariesDir $sidecarName
+# 2026-05-19 --onedir 切换后:
+#   * 产物不再是 binaries/chayuan-server-<triple>.exe 单文件;
+#   * build.py 把整个 dist/chayuan-server/ 拷到 src-tauri/chayuan-server/。
+#   * $sidecarPath 现在指 chayuan-server/chayuan-server.exe(bootloader,几 MB);
+#     用作"产物是否就位"的 Test-Path 探针。size 不再代表 bundle 大小
+#     (整 bundle 在 _internal/ 子目录下)。
+$sidecarName = 'chayuan-server.exe'
+$sidecarPath = Join-Path $ChayuanServerClientDir $sidecarName
 
 # PyInstaller skip-cache 指纹文件(per-host triple,放 dist/ 下,跟产物一起进 .gitignore)
 $fingerprintFile = Join-Path $ServerDir ('dist\.build-fingerprint-{0}.json' -f $hostTriple)
@@ -1036,7 +1031,7 @@ if ($SkipHealthcheck) {
         -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput $stdoutLog `
         -RedirectStandardError  $stderrLog
-    Write-Note "PID=$($proc.Id);最长等 180s 直到 /healthz 200(onefile 解压 + bootstrap 慢)"
+    Write-Note "PID=$($proc.Id);最长等 180s 直到 /healthz 200(--onedir 起秒级,真冷启动一般 ≤ 30s)"
 
     $deadline = (Get-Date).AddSeconds(180)
     $ready = $false
@@ -1238,34 +1233,11 @@ if ($SkipFrontend) {
     }
 
     # ----------------------------------------------------------------
-    # Torch wheels seed:把 chayuan-server/dist/torch_wheels_seed/ 拷到 dist-{flavor}/
+    # 2026-05-19 torch wheels seed 链路已废弃。
     # ----------------------------------------------------------------
-    # 跟 models_seed 同样的"ISO 旁挂"链路。build.py sync_torch_wheels 把
-    # vendor/torch_wheels/<sub>/ 拷到 dist/torch_wheels_seed/<sub>/(不嵌 sidecar exe),
-    # 这里继续拷到 dist-{flavor}/,后面 make-iso.ps1 整目录打 ISO 时自动带上。
-    # 装机后 first_launch.seed_torch_wheels() 从光驱介质把 wheel 拷到
-    # <CHAYUAN_ROOT>/torch_wheels/,pytorch_installer 离线 pip install。
-    $torchSeedSrc = Join-Path $ServerDir 'dist\torch_wheels_seed'
-    if (Test-Path $torchSeedSrc) {
-        $whlFiles = Get-ChildItem -Path $torchSeedSrc -Recurse -File -Filter '*.whl' -ErrorAction SilentlyContinue
-        if ($whlFiles -and $whlFiles.Count -gt 0) {
-            $whlTotalMb = [math]::Round(($whlFiles | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
-            $torchSeedDest = Join-Path $flavorOut 'torch_wheels_seed'
-            New-Item -ItemType Directory -Force -Path $torchSeedDest | Out-Null
-            Write-Step "torch wheels seed ($Flavor): $($whlFiles.Count) 个 wheel ($whlTotalMb MB)"
-            $robocopyArgs = @($torchSeedSrc, $torchSeedDest, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/NP')
-            $null = & robocopy @robocopyArgs
-            $rc = $LASTEXITCODE
-            $global:LASTEXITCODE = 0
-            if ($rc -ge 8) {
-                Write-Fail "robocopy torch_wheels seed 失败 (exit $rc),dist-$Flavor/torch_wheels_seed/ 可能不完整"
-            } else {
-                Write-Ok "torch_wheels_seed 已就位 → $torchSeedDest"
-            }
-        } else {
-            Write-Note "$torchSeedSrc 存在但是空的 — preflight 没下 wheel(可能加了 --skip-torch-preflight)"
-        }
-    }
+    # 切 PyInstaller --onedir 后 torch CPU + torchvision 直接进 chayuan-server/_internal/,
+    # 不再需要 vendor/torch_wheels/ → dist/torch_wheels_seed/ → ISO 旁挂 → first_launch
+    # seed → pip install 那一长串。本块保留为锚点,后续清理时可一并删除。
 
     # ----------------------------------------------------------------
     # ISO 打包:把 dist-{flavor}\ 整目录打成 .iso,Win10+ 双击挂载即可。
