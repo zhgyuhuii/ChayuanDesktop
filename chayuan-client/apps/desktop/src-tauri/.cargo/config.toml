@@ -1,0 +1,17 @@
+# cargo 配置 — 只影响 chayuan-client/apps/desktop/src-tauri/ 这个 crate
+# (Tauri 主 crate;workspace 内其它包不受影响)。
+#
+# 目的:把 link 阶段从 MSVC link.exe(慢)换到 rust-lld(LLVM linker,Rust toolchain
+# 自带),省 20-30% 编译时间;首次冷启动 + 后续增量编译都受益。
+#
+# rust-lld 由 rustup 1.74+ 默认安装(rust-version=1.77 已超过);需要单独装
+# 的话:`rustup component add llvm-tools-preview`。
+#
+# Linux/macOS 用 mold/ld64 收益类似,这里只配 Windows MSVC 目标(本项目主战场)。
+# tauri dev / tauri build 都会用到这套配置。
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
+
+[target.x86_64-pc-windows-gnu]
+linker = "rust-lld.exe"
