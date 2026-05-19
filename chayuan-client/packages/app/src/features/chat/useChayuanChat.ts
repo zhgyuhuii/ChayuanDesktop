@@ -67,6 +67,22 @@ export interface ChatCitation {
   chunk_count?: number;
 }
 
+/**
+ * 模态路由生成的产物附件(图/音/视)— v5 ``file`` part 落到消息上的载体。
+ *
+ * 字段贴近 v5 file part:``mediaType`` + ``url`` + ``metadata``。
+ * 与 ``content``(文本)正交,可同时存在;``files`` 兜底为 ``undefined``,
+ * 老消息不需要迁移。
+ */
+export interface ModalityFileAttachment {
+  /** 通常 image/png / audio/wav / video/mp4 */
+  mediaType: string;
+  /** 后端 artifacts URL,形如 ``/v1/artifacts/<sha>.<ext>`` */
+  url: string;
+  /** width / height / prompt / seed / sha256 / model — Connector 自定义 */
+  metadata?: Record<string, unknown>;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -84,6 +100,8 @@ export interface ChatMessage {
   error?: string;
   /** 编辑过的消息会带上 editedFrom（旧 traceId），便于 trace 内追溯 */
   editedFrom?: string;
+  /** 模态路由产物附件(t2i/t2v/tts 生成的图/音/视);chat 模式不填,渲染层兼容 undefined */
+  files?: ModalityFileAttachment[];
 }
 
 export interface UseChayuanChatOptions {

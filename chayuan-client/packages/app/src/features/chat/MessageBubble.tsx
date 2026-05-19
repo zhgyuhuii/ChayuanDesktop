@@ -10,6 +10,7 @@ import { chatCitationsToSources } from '@chayuan/api';
 import { KbResultsView } from '../kb/components/KbResultsView';
 import { consumeVoiceAttachment } from '../composer/voiceAttachments';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
+import { ImageCard } from './parts/ImageCard';
 
 export interface MessageBubbleProps {
   message: ChatMessage;
@@ -143,12 +144,62 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
               isUser ? 'bg-primary text-primary-foreground' : 'bg-card shadow-sm',
             )}
           >
-            {!message.content && message.streaming ? (
+            {!message.content && !message.files?.length && message.streaming ? (
               <TypingIndicator />
             ) : (
               <StreamMarkdown content={message.content || ''} streaming={message.streaming} />
             )}
             {audioUrl && <VoiceMessagePlayer audioUrl={audioUrl} />}
+            {/* 模态路由生成产物(t2i/t2v/tts 等)— 按 mediaType 分发渲染。
+                老消息 files 字段为 undefined,什么都不渲染,完全向后兼容。 */}
+            {message.files && message.files.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {message.files.map((f, i) => {
+                  if (f.mediaType.startsWith('image/')) {
+                    return (
+                      <ImageCard
+                        key={f.url + i}
+                        url={f.url}
+                        mediaType={f.mediaType}
+                        metadata={f.metadata}
+                      />
+                    );
+                  }
+                  if (f.mediaType.startsWith('audio/')) {
+                    return (
+                      <audio
+                        key={f.url + i}
+                        src={f.url}
+                        controls
+                        className="max-w-full rounded-md"
+                      />
+                    );
+                  }
+                  if (f.mediaType.startsWith('video/')) {
+                    return (
+                      <video
+                        key={f.url + i}
+                        src={f.url}
+                        controls
+                        className="max-w-[480px] rounded-md"
+                      />
+                    );
+                  }
+                  // 其它类型(PDF 等):简单下载链接兜底
+                  return (
+                    <a
+                      key={f.url + i}
+                      href={f.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-blue-600 underline"
+                    >
+                      下载附件 ({f.mediaType})
+                    </a>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

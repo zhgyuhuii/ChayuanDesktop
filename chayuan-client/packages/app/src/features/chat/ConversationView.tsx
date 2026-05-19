@@ -47,6 +47,9 @@ import { Thread } from './Thread';
 import { buildChatRequest } from './buildRequest';
 import { useAttachments } from './useAttachments';
 import { useChayuanChat } from './useChayuanChat';
+import { useModalitySubmit } from './useModalitySubmit';
+import { getClientConfig } from '@chayuan/api';
+import { reportError } from '../../store/errorDialog';
 
 export interface ConversationViewProps {
   /** 当前激活会话 id;null/undefined = 草稿模式(首条消息时 lazy 创建) */
@@ -137,6 +140,14 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   });
 
   useArtifactSync(chat.messages);
+
+  // 模态路由(t2i/t2v/tts/image_edit)旁路 — 共用 chat.setMessages,
+  // chat 模式下完全不动:`shouldHandle` 返 false,handleSend 走老路径。
+  const modalitySubmit = useModalitySubmit({
+    setMessages: chat.setMessages,
+    baseUrl: getClientConfig().baseURL,
+    onError: (msg) => reportError(new Error(msg), '生成失败'),
+  });
 
   // 切换 activeId → 加载本地消息
   const setChatMessages = chat.setMessages;
@@ -245,6 +256,26 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       const shouldSkip = await onBeforeSend(text);
       if (shouldSkip) return;
     }
+    // 非聊天 capability(t2i/t2v/tts/image_edit)分流到 modality.router 旁路。
+    // 这条路径不走 chat.sendMessage(也就不走 KB / agent tools / citation 拼接),
+    // 而是直接打 /v1/modality/completions + 接收 v5 file part。
+    // chat / vl 模型 shouldHandle=false 直接走老路径,功能 0 影响。
+    if (modalitySubmit.shouldHandle(modelId)) {
+      if (!activeId) {
+        const id = uuid();
+        const now = Date.now();
+        const title = text.slice(0, 40) || '新对话';
+        await upsertConversation({
+          id, remote_id: null, title, model: modelId, mode: 'plain',
+          created_at: now, updated_at: now,
+        });
+        setActive(id);
+        onConversationCreated?.(id, title);
+        void qc.invalidateQueries({ queryKey: CONVERSATION_KEYS.list });
+      }
+      await modalitySubmit.run({ text, modelId });
+      return;
+    }
     if (!activeId) {
       // 草稿模式 → 第一次发消息才落库
       const id = uuid();
@@ -317,9 +348,13 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
 
       <div className="mx-auto w-full max-w-3xl space-y-2 p-4">
         <ChatComposer
-          isStreaming={chat.isStreaming}
+          // 任一路径在跑都视为 streaming;stop 选择当前在跑的那条
+          isStreaming={chat.isStreaming || modalitySubmit.isStreaming}
           onSend={handleSend}
-          onStop={chat.stop}
+          onStop={() => {
+            if (modalitySubmit.isStreaming) modalitySubmit.stop();
+            else chat.stop();
+          }}
           placeholder={placeholder}
           showRetrievalControls={mode === 'kb'}
           {...(enableAttachments
