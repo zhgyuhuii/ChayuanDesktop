@@ -19,13 +19,13 @@
 import type { RawModelItem } from '@chayuan/api';
 import { cn } from '@chayuan/ui';
 import { Check, ChevronDown, ChevronRight, Search, TriangleAlert } from 'lucide-react';
+import type { ModalityCapability } from '@chayuan/transport';
 import * as React from 'react';
-
-/** 对话框模型选择只允许 LLM;未标注类型的旧数据兼容放行。 */
-function isChatModel(model: RawModelItem): boolean {
-  const modelType = (model.model_type ?? '').trim().toLowerCase();
-  return modelType === '' || modelType === 'llm';
-}
+import {
+  CapabilityChip,
+  inferCapability,
+  listExistingCapabilities,
+} from './modelCapabilityChip';
 
 const STORAGE_KEY = 'cy.modelPicker.override.v2';
 
@@ -209,6 +209,7 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
   maxHeight = 384,
 }) => {
   const [keyword, setKeyword] = React.useState('');
+  const [capFilter, setCapFilter] = React.useState<ModalityCapability | null>(null);
   const [override, setOverride] = React.useState<Map<string, boolean>>(() => readOverrideLS());
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -218,10 +219,19 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
     return () => clearTimeout(t);
   }, []);
 
-  const allGroups = React.useMemo(() => {
-    const filtered = models.filter(isChatModel);
-    return groupByPlatform(filtered);
-  }, [models]);
+  /** capability chip 行:只列出在当前 models 里**实际存在**的分类。 */
+  const presentCaps = React.useMemo(() => listExistingCapabilities(models), [models]);
+
+  /** 按 capability 过滤后的全集(分组前) */
+  const modelsForGrouping = React.useMemo(() => {
+    if (!capFilter) return models;
+    return models.filter((m) => inferCapability(m) === capFilter);
+  }, [models, capFilter]);
+
+  const allGroups = React.useMemo(
+    () => groupByPlatform(modelsForGrouping),
+    [modelsForGrouping],
+  );
 
   /** 当前选中模型所在的 platform — 默认展开它(81 题:优先用 props 传入的精确 platform) */
   const expandedPlatform = React.useMemo(() => {
@@ -280,8 +290,8 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
 
   return (
     <div className="flex flex-col" style={{ maxHeight }}>
-      {/* 搜索栏 */}
-      <div className="sticky top-0 z-[1] flex-shrink-0 border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-2">
+      {/* 搜索栏 + capability 筛选 */}
+      <div className="sticky top-0 z-[1] flex-shrink-0 space-y-1.5 border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-2">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--cy-text-tertiary)]" />
           <input
@@ -294,6 +304,35 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
             onKeyDown={(e) => e.stopPropagation()}
           />
         </div>
+        {/* capability 筛选 chip — 只显示当前 model 列表里**实际存在**的分类;
+            ≥ 2 个分类才有筛选意义,只有 1 个分类不渲染避免噪音。 */}
+        {presentCaps.length >= 2 && (
+          <div className="flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setCapFilter(null)}
+              aria-pressed={capFilter === null}
+              className={cn(
+                'inline-flex h-6 items-center rounded-full border px-2 text-[11px] font-medium transition-colors',
+                capFilter === null
+                  ? 'border-[var(--cy-ink-700)] bg-[var(--cy-ink-700)] text-white'
+                  : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]',
+              )}
+              title="显示所有类型"
+            >
+              全部
+            </button>
+            {presentCaps.map((meta) => (
+              <CapabilityChip
+                key={meta.cap}
+                cap={meta.cap}
+                active={capFilter === meta.cap}
+                title={meta.longLabel}
+                onClick={() => setCapFilter(capFilter === meta.cap ? null : meta.cap)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-1">
@@ -342,6 +381,7 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
                     // 避免跨平台同名 model 同时高亮
                     const active = isSelectedModel(m, currentId, currentPlatform);
                     const disabled = m.available === false;
+                    const itemCap = inferCapability(m);
                     return (
                       <li key={`${m.platform_name ?? ''}::${m.id}`}>
                         <button
@@ -361,6 +401,9 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
                               : 'text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-1)]',
                           )}
                         >
+                          {/* 模型 capability 色块 — 一眼能分辨"这是文生图 / 语音合成 / 对话",
+                              色板与 ChatComposer 顶部 mode badge 完全一致 */}
+                          <CapabilityChip cap={itemCap} compact />
                           <Logo src={logo} name={m.platform_name ?? m.id} />
                           <span
                             className="min-w-0 flex-1 truncate font-medium"

@@ -79,9 +79,13 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   // 单机/桌面版关闭 check_access:每个不可达厂商会触发 OpenAI client 4 次重试
   // (~5s),多厂商累加可让下拉打开几十秒看着像"没加载"。改用快速读+按需重试,
   // 真正不可达的模型会在调用时由 chat 路径报错(可定位的明确错误)。
+  //
+  // 不再限 model_type='llm' — 全模态选择器要让用户在同一个下拉里挑 t2i / tts /
+  // asr / t2v / image_edit 等模型。ModelMenuList 顶部有 capability chip 行筛选,
+  // 每条前面有色块,用户能一眼区分"这是对话 / 文生图 / 语音合成"。
   const { data = [] } = useQuery<RawModelItem[]>({
-    queryKey: ['v1.models', { type: 'llm' }],
-    queryFn: () => models.list({ type: 'llm' }),
+    queryKey: ['v1.models', { type: 'all' }],
+    queryFn: () => models.list(),
     staleTime: 60_000,
     retry: 0,
   });

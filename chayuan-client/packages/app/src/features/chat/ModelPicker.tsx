@@ -61,10 +61,11 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
   const setModel = onChange ?? storeSetModel;
   const [open, setOpen] = React.useState(false);
 
-  // 与 ComposerModelPill 同步:快速读,不带 check_access(避免探活拖慢下拉)。
+  // 与 ComposerModelPill 同步:快速读 + 不限 type — 让用户在顶栏也能选 t2i/tts 等
+  // 全模态模型;ModelMenuList 内部有 capability chip 行筛选 + 每行色块,不会乱。
   const { data = [] } = useQuery<RawModelItem[]>({
-    queryKey: ['v1.models', { type: 'llm' }],
-    queryFn: () => models.list({ type: 'llm' }),
+    queryKey: ['v1.models', { type: 'all' }],
+    queryFn: () => models.list(),
     staleTime: 60_000,
   });
   useLogosManifest();

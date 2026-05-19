@@ -13,12 +13,15 @@ import {
   aiPlatform,
   files as filesApi,
   kb,
+  knowledgeUniverse,
   modality,
+  type KuItem,
   type UploadTempDocsResult,
   getClientConfig,
 } from '@chayuan/api';
 import { uuid, getPlatform } from '@chayuan/platform-shared';
 import { Events, logEvent } from '@chayuan/observability';
+import { useQuery } from '@tanstack/react-query';
 import {
   useComposerScopedStore, useComposerS, type AttachmentDraft,
 } from '../../store/composer';
@@ -47,6 +50,16 @@ export function useAttachments(): {
   const upsert = useComposerS((s) => s.upsertAttachment);
   const removeRef = useComposerS((s) => s.removeAttachment);
   const resetRef = useComposerS((s) => s.resetAttachments);
+  const selectedKuIds = useComposerS((s) => s.selectedKuIds);
+  // KB catalog — 跟 KnowledgePickerPill 共享 react-query 缓存(同 queryKey),
+  // 不增加额外网络。上传图片时用来判"用户当前选的 KB 里有没有 image-kind",
+  // 没有就完全跳过 image-embedding preflight + notifyInfo,免得"我就要发图聊天
+  // 而已"也被弹一条"图像向量化未就绪"。
+  const { data: kuCatalog = [] } = useQuery<KuItem[]>({
+    queryKey: ['ku.list', 'composer-picker'],
+    queryFn: () => knowledgeUniverse.list(),
+    staleTime: 60 * 1000,
+  });
 
   const setFileChatId = (id?: string) =>
     composer.setState({ fileChatId: id });
@@ -67,27 +80,35 @@ export function useAttachments(): {
       logEvent(Events.ComposerAttachmentAdd, { metadata: { count: items.length, kind } });
 
       if (kind === 'image') {
-        // 预检 image-embedding 模型是否就绪 — 注意这只影响"image KB 持久化向量化",
-        // 跟 OCR(RapidOCR)和 Vision(multimodal LLM image_url)都**没关系**。
-        // 即使 image-embedding 未装,OCR 和 vision 都应该正常跑。
-        // 历史:之前在 preflight 失败时 `return` 提前结束,导致用户上传图后
-        // "什么都没发生" — OCR 文本也没出,vision 原图也没上传。修正:只 notify
-        // 不阻断主流程。
-        try {
-          const pre = await aiPlatform.embeddingsPreflight.check('image');
-          if (!pre.ok) {
-            const recName = pre.setup?.default?.id ?? 'jina-clip-v1';
-            notifyInfo(
-              '图像向量化能力未就绪(不影响本次对话)',
-              `本次对话仍会做 OCR + 原图 vision;但若要后续以图搜图 / image KB 检索,` +
-                `建议在「设置 → AI 平台 → 图像嵌入」安装 ${recName}。`,
-              5000,
-            );
-            // 不改 status,不 return — 继续走 OCR + vision
+        // image-embedding preflight 只在用户**确实选了 image-kind KB**时跑 —
+        // 因为这个能力只服务"持久化向量化 → 以图搜图 / image KB 检索",跟
+        // OCR(RapidOCR)和 Vision(multimodal LLM image_url)都**没关系**。
+        //
+        // 之前无条件 preflight 会弹"图像向量化能力未就绪"对所有用户狂刷,
+        // 即使用户根本没选 image KB、就只是想发张图聊天。统一约束:只有"打
+        // 算把这张图入库做以图搜图"的场景才提示安装。
+        const hasImageKb = (() => {
+          if (!selectedKuIds.length) return false;
+          const byId = new Map(kuCatalog.map((it) => [it.ku_id, it]));
+          return selectedKuIds.some((id) => byId.get(id)?.kind === 'image');
+        })();
+        if (hasImageKb) {
+          try {
+            const pre = await aiPlatform.embeddingsPreflight.check('image');
+            if (!pre.ok) {
+              const recName = pre.setup?.default?.id ?? 'jina-clip-v1';
+              notifyInfo(
+                '图像向量化能力未就绪(不影响本次对话)',
+                `本次对话仍会做 OCR + 原图 vision;但若要把图入选中的「图像知识库」` +
+                  `做以图搜图,建议在「设置 → AI 平台 → 图像嵌入」安装 ${recName}。`,
+                5000,
+              );
+              // 不改 status,不 return — 继续走 OCR + vision
+            }
+          } catch (err: unknown) {
+            // preflight 端点不可用 — 静默降级继续走;真实问题会在后续 OCR/vision 失败时再暴露
+            console.debug('[image attach] embeddingsPreflight unavailable, skipping:', err);
           }
-        } catch (err: unknown) {
-          // preflight 端点不可用 — 静默降级继续走;真实问题会在后续 OCR/vision 失败时再暴露
-          console.debug('[image attach] embeddingsPreflight unavailable, skipping:', err);
         }
         // 双轨 OCR:并行触发(不阻塞 vision 上传),识别结果异步回填 ocrText
         for (const d of drafts) {
