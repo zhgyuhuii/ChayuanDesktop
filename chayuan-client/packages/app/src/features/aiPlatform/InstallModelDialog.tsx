@@ -189,6 +189,10 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
   }, [job, pending, onSuccess]);
 
   const onStartInstall = async () => {
+    // 防重入兜底:button disabled 已挡常态点击,但 setPending → reconciliation →
+    // button disabled 生效之间有一帧 async 窗口,用户连点(或失败后多次重试)会
+    // 触发多次后端 job — 现象上就是"服务端下载了好几次"。这里 guard 兜底。
+    if (pending) return;
     const id = modelId.trim();
     if (!id) {
       reportError('请输入 model_id', '形如 owner/name,例如 ' + (hint.examples[0]?.id ?? ''));
@@ -210,14 +214,29 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
     }
   };
 
-  const onCancelInstall = async () => {
+  const onCancelInstall = () => {
     if (!job) return;
-    try {
-      const j = await serverModelsInstallModel.cancel(job.id);
-      setJob(j);
-    } catch (e) {
+    // 后端 cancel 只 set _cancel_requested flag,但 modelscope / huggingface 的
+    // snapshot_download 是同步阻塞、不可中断 — 线程要等 SDK 当前下载分片自然结束
+    // 才命中下一个 _check_cancel 退出。所以同步 await cancel API 拿回来的 job
+    // status 一般还是 running,UI 看上去"按了没反应"。
+    //
+    // 修法:前端立即收尾 UI(停轮询 + mock cancelled 状态)给用户即时反馈,后端
+    // cancel 改 fire-and-forget。线程实际何时退出对用户不可见,也无害(target_dir
+    // 用户随时可手动清理)。
+    const jobSnapshot = job;
+    setPending(null);
+    setJob({
+      ...jobSnapshot,
+      status: 'cancelled',
+      log_tail: [
+        ...jobSnapshot.log_tail,
+        '[install_model] 已请求取消;后台 SDK 阻塞调用会在当前下载片段完成后退出',
+      ],
+    });
+    void serverModelsInstallModel.cancel(jobSnapshot.id).catch((e) => {
       reportError('取消失败', e instanceof Error ? e.message : String(e));
-    }
+    });
   };
 
   const onScanAndMount = async () => {
@@ -358,7 +377,7 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
                 开始下载
               </Button>
               {installRunning && (
-                <Button size="sm" variant="outline" onClick={() => void onCancelInstall()}>
+                <Button size="sm" variant="outline" onClick={onCancelInstall}>
                   取消下载
                 </Button>
               )}
