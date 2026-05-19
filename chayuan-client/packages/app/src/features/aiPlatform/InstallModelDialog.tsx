@@ -82,6 +82,31 @@ const CAP_LABEL: Record<LocalRuntimeCapability, string> = {
   'image-embedding': '图像向量模型',
 };
 
+// 跟后端 chayuan-server/.../model_registry/install_job.py 的 _RELEASE_MANIFEST['lite']
+// 对齐 — 这些 repo + file 组合都已在 hf-mirror.com 实测 HEAD 200(line 80 注释)。
+// Dialog 一打开就把对应 cap 的 modelId + source + specificFile 预填好,用户点
+// "开始下载"即装,不需要看 examples 再手填。
+//
+// embedding / rerank / image-embedding **故意不列**:
+//   - embedding/rerank:manifest 给的是 BAAI/bge-m3 safetensors 整仓,但运行时
+//     是 llama-server(只吃 GGUF) → 装下来跑不动,**预填它等于给用户挖坑**。
+//     这些 cap 留空,用户用 examples buttons 主动挑(列表里有 GGUF 选项)。
+//   - image-embedding:HF transformers 整仓,走 infinity Python sidecar;
+//     project 还没把 image-embedding 进 verified 清单,先不预填。
+type VerifiedDefault = { id: string; source: InstallModelSource; file?: string };
+const VERIFIED_DEFAULTS: Partial<Record<LocalRuntimeCapability, VerifiedDefault>> = {
+  chat: {
+    id: 'unsloth/Qwen3-4B-Instruct-2507-GGUF',
+    source: 'huggingface',
+    file: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
+  },
+  asr: {
+    id: 'ggerganov/whisper.cpp',
+    source: 'huggingface',
+    file: 'ggml-tiny.bin',
+  },
+};
+
 // 按 cap 给出 ModelScope 上比较合适的搜索关键字 + 1-2 个示例 model_id。
 // 例:chat → "Qwen GGUF" 比单 "chat" 命中更准(都是 LLM 标"对话")。
 // 这里的 example 是为了让用户对"该填什么"有第一印象,不是强推。
@@ -164,6 +189,18 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
       setPending(null);
     }
   }, [open]);
+
+  // Dialog 打开 / 切 cap 时,对 verified cap 自动预填 model_id + source +
+  // specific_file(从项目 install_job._RELEASE_MANIFEST 同步过来,实测可下)。
+  // 非 verified cap 不动 — 用户从 examples buttons 主动挑,免得装下来跑不通。
+  React.useEffect(() => {
+    if (!open) return;
+    const verified = VERIFIED_DEFAULTS[capability];
+    if (!verified) return;
+    setModelId(verified.id);
+    setSource(verified.source);
+    setSpecificFile(verified.file ?? '');
+  }, [open, capability]);
 
   // 轮询 job 状态:running 时每 2s 拉一次
   React.useEffect(() => {
