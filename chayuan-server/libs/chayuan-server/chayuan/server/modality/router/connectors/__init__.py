@@ -1,0 +1,28 @@
+"""Connector 实现集合。
+
+PR-1 只放 base.py(ABC + registry);PR-2 起按 capability 子目录补充:
+  ``image_gen/dashscope.py`` / ``image_gen/openai.py`` / ``image_gen/volcengine.py``
+  ``tts/dashscope.py`` / ``tts/local.py``
+  ``asr/dashscope.py`` / ``asr/local.py``
+  ``video_gen/dashscope.py`` / ``video_gen/runway.py``
+  ``image_edit/dashscope.py``
+
+Connector 通过 ``@register(cap, platform_type)`` 装饰器自登记,import 时落入
+``_CONNECTORS`` 字典;router 在 dispatch 时按 ``(cap, platform_type)`` 查表。
+
+新增厂商只需新建文件 + import 即可,无需改 router。
+"""
+
+from chayuan.server.modality.router.connectors.base import (
+    Connector,
+    register,
+    get_connector,
+    list_registered,
+)
+
+__all__ = [
+    "Connector",
+    "register",
+    "get_connector",
+    "list_registered",
+]

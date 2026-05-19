@@ -25,6 +25,7 @@ from chayuan.server.api_server.knowledge_source_routes import ks_router
 from chayuan.server.api_server.knowledge_universe_routes import ku_router
 from chayuan.server.api_server.mcp_routes import mcp_router
 from chayuan.server.api_server.modality_routes import modality_router
+from chayuan.server.api_server.artifacts_routes import artifacts_router
 from chayuan.server.api_server.provider_routes import provider_router
 from chayuan.server.api_server.runtime_routes import runtime_router
 from chayuan.server.api_server.storage_routes import storage_router
@@ -121,6 +122,9 @@ def create_app(run_mode: str = None):
     app.include_router(server_router)
     app.include_router(mcp_router)
     app.include_router(modality_router)
+    # /v1/artifacts/<sha>.<ext> — 模态路由产物(图/音/视)内容寻址下载,Range 支持
+    # 详见 chayuan/server/modality/router/artifacts.py 模块 docstring
+    app.include_router(artifacts_router)
     # 模型厂商公开 API（/v1/providers/*）—— 单机版「模型广场」前端入口；
     # 鉴权放宽为 optional，全局共享配置，详见 provider_routes.py 模块 docstring。
     app.include_router(provider_router)
