@@ -17,6 +17,7 @@ from chayuan.server.modality.router.connectors.base import (
     Connector,
     register,
     get_connector,
+    pick_connector,
     list_registered,
 )
 
@@ -30,5 +31,6 @@ __all__ = [
     "Connector",
     "register",
     "get_connector",
+    "pick_connector",
     "list_registered",
 ]

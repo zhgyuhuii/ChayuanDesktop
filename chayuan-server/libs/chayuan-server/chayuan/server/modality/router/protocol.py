@@ -107,6 +107,75 @@ def classify_capability(model_name: str) -> Capability:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# 模型名 → Connector vendor 推断
+# ──────────────────────────────────────────────────────────────────────
+#
+# 为什么需要:用户 model_platform 表里 ``platform_type`` 可能是 ``openai``
+# (因为 bailian 配的是 OpenAI 兼容 ``/compatible-mode/v1`` 端点用来跑 chat)。
+# 但同一个 platform 上的 ``qwen-image-2.0`` / ``qwen3-tts-flash`` 这类 DashScope
+# 专属模型并不在 compat-mode 上发布,必须走 native ``/api/v1/services/aigc/...``。
+#
+# 单看 ``platform_type`` 选 Connector 会跑偏(把 qwen-image-2.0 路由到
+# OpenAIT2IConnector 然后撞 404)。**模型名前缀**才是上游协议的真源。
+#
+# 表填模型名族 → vendor;router pick_connector 时先看这个,再回退 platform_type。
+_PREFIX_TO_VENDOR: List[tuple[str, str]] = [
+    # DashScope 系
+    ("qwen-image-edit",  "dashscope"),
+    ("qwen-image",       "dashscope"),
+    ("qwen-tts",         "dashscope"),
+    ("qwen3-tts",        "dashscope"),
+    ("qwen-asr",         "dashscope"),
+    ("qwen3-asr",        "dashscope"),
+    ("qwen-vl",          "dashscope"),
+    ("qwen-omni",        "dashscope"),
+    ("qwen-audio",       "dashscope"),
+    ("qvq-",             "dashscope"),
+    ("wanxiang-t2v",     "dashscope"),
+    ("wanx-t2v",         "dashscope"),
+    ("wanx",             "dashscope"),
+    ("wanxiang",         "dashscope"),
+    ("wan-2",            "dashscope"),
+    ("paraformer",       "dashscope"),
+    ("cosyvoice",        "dashscope"),
+    ("sambert",          "dashscope"),
+    # OpenAI 系(及 OpenAI-兼容代理:OpenRouter / Together / Fireworks)
+    ("dall-e",           "openai"),
+    ("gpt-image",        "openai"),
+    ("gpt-4o-mini-tts",  "openai"),
+    ("tts-1",            "openai"),
+    ("whisper",          "openai"),
+    ("sora",             "openai"),
+    # 其它专有平台 — 后续接入时补
+    ("stable-video",     "stability"),
+    ("svd",              "stability"),
+    ("runway",           "runway"),
+    ("kling",            "kling"),
+]
+
+
+def classify_vendor(model_name: str) -> Optional[str]:
+    """按模型名前缀推断 Connector vendor;命中不到返 None,router 回退看 platform_type。
+
+    例:
+        qwen-image-2.0       → 'dashscope'
+        qwen3-tts-flash      → 'dashscope'
+        dall-e-3             → 'openai'
+        gpt-4o-mini-tts      → 'openai'
+        deepseek-chat        → None(让 router 看 platform_type)
+    """
+    if not model_name:
+        return None
+    low = model_name.lower().strip()
+    if "/" in low:
+        low = low.split("/", 1)[1]
+    for prefix, vendor in _PREFIX_TO_VENDOR:
+        if low.startswith(prefix):
+            return vendor
+    return None
+
+
+# ──────────────────────────────────────────────────────────────────────
 # GenerateReq:Connector.generate 的统一输入
 # ──────────────────────────────────────────────────────────────────────
 

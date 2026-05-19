@@ -14,6 +14,7 @@
 import * as React from 'react';
 import { ChevronDown, Gauge, Music } from 'lucide-react';
 import { cn } from '@chayuan/ui';
+import { classifyModalityVendor } from '@chayuan/transport';
 import { useComposerS } from '../../store/composer';
 
 interface VoiceOption {
@@ -23,7 +24,7 @@ interface VoiceOption {
 }
 
 // OpenAI 6 标准音色 — 用中性描述,不强调男女(部分音色实际偏向但官方不分类)
-const VOICE_OPTIONS: VoiceOption[] = [
+const OPENAI_VOICES: VoiceOption[] = [
   { value: 'alloy',   label: 'Alloy',   hint: '中性 · 默认' },
   { value: 'echo',    label: 'Echo',    hint: '清晰 · 中性' },
   { value: 'fable',   label: 'Fable',   hint: '柔和 · 叙事' },
@@ -32,14 +33,46 @@ const VOICE_OPTIONS: VoiceOption[] = [
   { value: 'shimmer', label: 'Shimmer', hint: '温暖 · 清亮' },
 ];
 
+// DashScope qwen-tts / qwen3-tts 中文优先音色集 — 含方言版,Cherry 是官方默认
+const DASHSCOPE_VOICES: VoiceOption[] = [
+  { value: 'Cherry',   label: 'Cherry',   hint: '默认 · 通用' },
+  { value: 'Serena',   label: 'Serena',   hint: '柔和 · 女声' },
+  { value: 'Ethan',    label: 'Ethan',    hint: '清晰 · 男声' },
+  { value: 'Chelsie',  label: 'Chelsie',  hint: '活泼 · 女声' },
+  { value: 'Dylan',    label: 'Dylan',    hint: '京片儿 · 男声' },
+  { value: 'Jada',     label: 'Jada',     hint: '上海话 · 女声' },
+  { value: 'Sunny',    label: 'Sunny',    hint: '四川话 · 女声' },
+  { value: 'Jennifer', label: 'Jennifer', hint: '叙事 · 女声' },
+  { value: 'Ryan',     label: 'Ryan',     hint: '深沉 · 男声' },
+  { value: 'Katerina', label: 'Katerina', hint: '亲切 · 女声' },
+  { value: 'Eric',     label: 'Eric',     hint: '稳健 · 男声' },
+  { value: 'Kiki',     label: 'Kiki',     hint: '甜美 · 女声' },
+];
+
 const SPEED_OPTIONS = [0.75, 1.0, 1.25, 1.5] as const;
 const FORMAT_OPTIONS = ['mp3', 'wav', 'opus'] as const;
 
 export const TtsVoiceParamBar: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
   const params = useComposerS((s) => s.modalityParams);
   const setParams = useComposerS((s) => s.setModalityParams);
+  const modelId = useComposerS((s) => s.modelId);
 
-  const voice = typeof params.voice === 'string' ? params.voice : VOICE_OPTIONS[0]!.value;
+  // 按模型 vendor 选音色列表 — DashScope 用 Cherry 系,OpenAI 用 alloy 系。
+  // 默认按 vendor 第一个;用户切了模型/未配置时也兜底有个能跑的值。
+  const vendor = classifyModalityVendor(modelId);
+  const voiceList = vendor === 'dashscope' ? DASHSCOPE_VOICES : OPENAI_VOICES;
+  const voice = (() => {
+    const stored = typeof params.voice === 'string' ? params.voice : '';
+    // 存的 voice 不在当前 vendor 列表里 → 回退到列表第一个(避免选 alloy 撞 DashScope)
+    if (stored && voiceList.some((v) => v.value === stored)) return stored;
+    return voiceList[0]!.value;
+  })();
+  // model 切换导致 voice 不匹配时,自动 patch 一次,让后端拿到正确默认
+  React.useEffect(() => {
+    if (typeof params.voice === 'string' && voiceList.some((v) => v.value === params.voice)) return;
+    setParams({ voice: voiceList[0]!.value });
+  }, [vendor]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   const speed = typeof params.speed === 'number' ? params.speed : 1.0;
   const fmt = typeof params.response_format === 'string' ? params.response_format : 'mp3';
 
@@ -65,7 +98,7 @@ export const TtsVoiceParamBar: React.FC<{ compact?: boolean }> = ({ compact = fa
           'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
         )}
       >
-        {VOICE_OPTIONS.map((v) => (
+        {voiceList.map((v) => (
           <option key={v.value} value={v.value} title={v.hint}>
             {v.label}
           </option>

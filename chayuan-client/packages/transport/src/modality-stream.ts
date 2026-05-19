@@ -100,6 +100,69 @@ export function classifyModalityCapability(
   return 'chat';
 }
 
+
+// ─────────────────────────────────────────────────────────────
+// Vendor classifier — 与后端 protocol.py classify_vendor 同一份真源
+// ─────────────────────────────────────────────────────────────
+//
+// 为什么前端也需要:UI 参数条要按厂商切音色 / 尺寸预设(DashScope TTS 用
+// Cherry/Serena…,OpenAI TTS 用 alloy/echo…)。如果只看 platform_type 会错
+// (bailian 配 platform_type=openai 用来跑 chat compat-mode,但 qwen-tts-*
+// 仍是 DashScope native 协议)。模型名前缀更接近上游协议的真源。
+
+export type ModalityVendor =
+  | 'dashscope'
+  | 'openai'
+  | 'stability'
+  | 'runway'
+  | 'kling'
+  | null;
+
+const PREFIX_TO_VENDOR: ReadonlyArray<readonly [string, ModalityVendor]> = [
+  // DashScope 系
+  ['qwen-image-edit',  'dashscope'],
+  ['qwen-image',       'dashscope'],
+  ['qwen-tts',         'dashscope'],
+  ['qwen3-tts',        'dashscope'],
+  ['qwen-asr',         'dashscope'],
+  ['qwen3-asr',        'dashscope'],
+  ['qwen-vl',          'dashscope'],
+  ['qwen-omni',        'dashscope'],
+  ['qwen-audio',       'dashscope'],
+  ['qvq-',             'dashscope'],
+  ['wanxiang-t2v',     'dashscope'],
+  ['wanx-t2v',         'dashscope'],
+  ['wanx',             'dashscope'],
+  ['wanxiang',         'dashscope'],
+  ['wan-2',            'dashscope'],
+  ['paraformer',       'dashscope'],
+  ['cosyvoice',        'dashscope'],
+  ['sambert',          'dashscope'],
+  // OpenAI 系
+  ['dall-e',           'openai'],
+  ['gpt-image',        'openai'],
+  ['gpt-4o-mini-tts',  'openai'],
+  ['tts-1',            'openai'],
+  ['whisper',          'openai'],
+  ['sora',             'openai'],
+  ['stable-video',     'stability'],
+  ['svd',              'stability'],
+  ['runway',           'runway'],
+  ['kling',            'kling'],
+];
+
+export function classifyModalityVendor(modelName: string | null | undefined): ModalityVendor {
+  if (!modelName) return null;
+  let low = modelName.toLowerCase().trim();
+  if (low.includes('::')) low = low.split('::', 2)[1] ?? low;
+  if (low.includes('/')) low = low.split('/', 2)[1] ?? low;
+  for (const [prefix, vendor] of PREFIX_TO_VENDOR) {
+    if (low.startsWith(prefix)) return vendor;
+  }
+  return null;
+}
+
+
 // ─────────────────────────────────────────────────────────────
 // streamModality — 打后端 /v1/modality/completions
 // ─────────────────────────────────────────────────────────────

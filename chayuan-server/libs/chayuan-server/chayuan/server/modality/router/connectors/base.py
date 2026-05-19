@@ -104,6 +104,33 @@ def get_connector(cap: Capability, platform_type: str) -> Optional[Type[Connecto
     return _CONNECTORS.get((cap, "*"))
 
 
+def pick_connector(
+    cap: Capability,
+    model: str,
+    platform_type: str,
+) -> Optional[Type[Connector]]:
+    """vendor-aware 选 Connector。优先级:
+
+      1. 按 ``model`` 前缀推 vendor(qwen-image-* → dashscope) → 找 ``(cap, vendor)``
+      2. 按 ``platform_type``(配置里写的) → 找 ``(cap, platform_type)``
+      3. 通配 ``(cap, "*")``
+      4. 都没有 → None
+
+    为什么这样:用户的 model_platform 表把"bailian"平台配成 ``platform_type='openai'``
+    用来跑 chat compat-mode,但同 platform 下的 qwen-image-2.0 / qwen3-tts-flash 是
+    DashScope 专属协议,不在 OpenAI 兼容路径上。如果只看 platform_type 会路由到
+    OpenAI Connector 然后撞 404。模型名前缀更接近上游协议的真源。
+    """
+    # 延迟 import 避免循环
+    from chayuan.server.modality.router.protocol import classify_vendor
+    vendor_hint = classify_vendor(model)
+    if vendor_hint:
+        cls = _CONNECTORS.get((cap, vendor_hint))
+        if cls is not None:
+            return cls
+    return get_connector(cap, platform_type)
+
+
 def list_registered() -> Dict[Tuple[Capability, str], Type[Connector]]:
     """给 admin / 诊断接口看当前都注册了什么。"""
     return dict(_CONNECTORS)

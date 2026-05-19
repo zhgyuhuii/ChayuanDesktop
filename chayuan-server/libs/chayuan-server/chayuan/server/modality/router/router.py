@@ -25,7 +25,7 @@ import os
 import uuid
 from typing import AsyncIterator, Dict
 
-from chayuan.server.modality.router.connectors.base import get_connector
+from chayuan.server.modality.router.connectors.base import pick_connector
 from chayuan.server.modality.router.protocol import Capability, GenerateReq
 from chayuan.server.modality.router.sse_v5 import (
     data_part,
@@ -80,7 +80,7 @@ async def dispatch(req: GenerateReq) -> AsyncIterator[Dict]:
         },
     )
 
-    cls = get_connector(req.capability, req.platform_type)
+    cls = pick_connector(req.capability, req.model, req.platform_type)
     if cls is None:
         logger.warning(
             "[modality.router] 未注册的 connector: cap=%s platform_type=%s model=%s",

@@ -7,5 +7,6 @@ PR-7+:DashScope native(cosyvoice / qwen-tts / sambert,有自己的协议)
 """
 
 from chayuan.server.modality.router.connectors.tts import openai_compat  # noqa: F401
+from chayuan.server.modality.router.connectors.tts import dashscope     # noqa: F401
 
 __all__: list[str] = []
