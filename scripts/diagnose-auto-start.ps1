@@ -319,11 +319,13 @@ if ($listen) {
     $listenRows = @()
     foreach ($line in $listen) {
         if ($line -match ':(\d+)\s.*LISTENING\s+(\d+)') {
-            $port  = $matches[1]
+            # 用 $listenPort 而不是 $port:PowerShell 变量名大小写不敏感,
+            # $port 会覆盖 script param $Port,导致 section 6 探针打到错端口。
+            $listenPort = $matches[1]
             $owner = [int]$matches[2]
             $proc  = Get-Process -Id $owner -ErrorAction SilentlyContinue
             $pname = if ($proc) { $proc.ProcessName } else { '(进程已退)' }
-            $listenRows += ('  - :{0,-5} pid={1,-6} name={2}' -f $port, $owner, $pname)
+            $listenRows += ('  - :{0,-5} pid={1,-6} name={2}' -f $listenPort, $owner, $pname)
         }
     }
     if ($listenRows.Count -gt 0) {
@@ -398,43 +400,86 @@ foreach ($c in $logDirCandidates) {
 }
 if ($logDir) {
     Out-KV '日志目录' $logDir
-    # 优先找 run_api_server_* 子目录里最新的 .log(FastAPI 启动后的日志)
-    $apiSub = Get-ChildItem -Path $logDir -Directory -Filter 'run_api_server_*' -ErrorAction SilentlyContinue |
-              Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    # tail 选择策略:
+    #   - lifespan startup hook 的日志(`[bootstrap-preload]` / `[auto-start]` /
+    #     `[auto-start-rapidocr]`)写在 `run_api_server_<ts>/run_api_server_<ts>.log`
+    #     子文件;顶层 chayuan.log 只有父进程 bootstrap 输出 + 部分子进程透传。
+    #   - 父进程在 lifespan 起来之后仍会继续写 chayuan.log(例如 "配置面板启动
+    #     事件 ..s 未收到信号"),导致按 mtime 排 chayuan.log 抢前,tail 拿不
+    #     到子进程的关键 hook 行。
+    #   → 只要存在 run_api_server_* 子目录,就**优先 tail 子目录的最新 .log**,
+    #     顶层 chayuan.log 作 fallback。
+    $apiSubs = Get-ChildItem -Path $logDir -Directory -Filter 'run_api_server_*' -ErrorAction SilentlyContinue |
+               Sort-Object LastWriteTime -Descending
+    $apiSub  = if ($apiSubs) { $apiSubs[0] } else { $null }
+    $topLogs = Get-ChildItem -Path $logDir -Filter '*.log' -File -ErrorAction SilentlyContinue
+
+    # 给 grep 用的全部日志:最新子目录所有 .log + 顶层 .log
     $allLogs = @()
     if ($apiSub) {
         $allLogs += Get-ChildItem -Path $apiSub.FullName -Filter '*.log' -File -Recurse -ErrorAction SilentlyContinue
         Out-KV '最新 run_api_server 子目录' $apiSub.FullName
     }
-    # 再扫顶层 .log(uvicorn 之前的 bootstrap 输出)
-    $allLogs += Get-ChildItem -Path $logDir -Filter '*.log' -File -ErrorAction SilentlyContinue
-    $latest = $allLogs | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if ($latest) {
-        Out-KV '最新日志' ('{0} (mtime={1})' -f $latest.FullName, $latest.LastWriteTime)
-        $tail = Get-Content $latest.FullName -Tail 200 -ErrorAction SilentlyContinue
+    $allLogs += $topLogs
+
+    # tail 目标:优先子目录最新 .log;再 fallback 顶层 chayuan.log。
+    $tailTarget = $null
+    if ($apiSub) {
+        $tailTarget = Get-ChildItem -Path $apiSub.FullName -Filter '*.log' -File -Recurse -ErrorAction SilentlyContinue |
+                      Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    }
+    if (-not $tailTarget -and $topLogs) {
+        $tailTarget = $topLogs | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    }
+
+    if ($tailTarget) {
+        Out-KV 'tail 目标' ('{0} (mtime={1})' -f $tailTarget.FullName, $tailTarget.LastWriteTime)
+        $tail = Get-Content $tailTarget.FullName -Tail 200 -ErrorAction SilentlyContinue
         if ($tail) {
             # 简单脱敏:Bearer / api_key / secret 后跟 16+ 字符全部 *** 掉
             $masked = ($tail -join "`n") -replace '(?i)(bearer|api[_-]?key|secret|token)["= :]+[A-Za-z0-9._\-]{12,}', '$1=***MASKED***'
             Out-Code -Lang '' -Text (Limit-Text $masked 200)
+        } else {
+            Out-Line '(tail 目标为空文件 — server 可能还在 import 阶段)'
         }
     } else {
         Out-Line '日志目录为空'
     }
-    # 同时把 [auto-start] / [bootstrap-preload] 关键字 grep 出来一并展示
+
+    # 同时把 [auto-start] / [bootstrap-preload] 关键字 grep 出来一并展示。
+    # 扫所有 run_api_server_* 子目录(不只是最新一个),覆盖"之前跑过但当前
+    # 又重启了"的场景;顶层 chayuan.log 也扫,父进程的 print 透传可能落在那。
     Out-Line ''
     Out-Line '### grep 关键字:[bootstrap-preload] / [auto-start] / [auto-start-rapidocr]'
+    $grepLogs = @()
+    if ($apiSubs) {
+        foreach ($sub in $apiSubs) {
+            $grepLogs += Get-ChildItem -Path $sub.FullName -Filter '*.log' -File -Recurse -ErrorAction SilentlyContinue
+        }
+    }
+    $grepLogs += $topLogs
     $matches2 = @()
-    foreach ($lf in $allLogs) {
+    foreach ($lf in $grepLogs) {
         try {
             $matches2 += Select-String -Path $lf.FullName -Pattern '\[bootstrap-preload\]|\[auto-start\]|\[auto-start-rapidocr\]' -ErrorAction SilentlyContinue |
                          Select-Object -Last 50 |
-                         ForEach-Object { '{0}:{1}: {2}' -f (Split-Path -Leaf $_.Path), $_.LineNumber, $_.Line }
+                         ForEach-Object {
+                             $rel = $_.Path.Replace($logDir, '').TrimStart('\','/')
+                             '{0}:{1}: {2}' -f $rel, $_.LineNumber, $_.Line
+                         }
         } catch {}
     }
     if ($matches2.Count -gt 0) {
         Out-Code -Lang '' -Text (Limit-Text ($matches2 -join "`n") 80)
     } else {
-        Out-Line '**没有任何 [bootstrap-preload] / [auto-start] 行** — 说明这两个 startup hook 根本没 emit log,跟 _audit_prompt_templates 一对比应该是异常。'
+        Out-Line '**未匹到任何 [bootstrap-preload] / [auto-start] / [auto-start-rapidocr] 行**。'
+        Out-Line ''
+        Out-Line '可能原因:'
+        Out-Line '  - lifespan startup hook 还没跑到这步(server 仍在 import,等 30-60s 再来一次)。'
+        Out-Line '  - hook 已跑完但 logger 路由把它写到了 stdout 被 Tauri sidecar 吞掉(看 runtime.json 的 `llama.<cap>.state` 验证 — 若是 `ready` 说明 hook 实际跑过)。'
+        Out-Line '  - 用户改了 dictConfig 把 chayuan.startup logger 屏蔽了。'
+        Out-Line ''
+        Out-Line ('已扫日志文件数: {0}(若为 0,说明 run_api_server 子目录连 .log 都还没创建)' -f $grepLogs.Count)
     }
 } else {
     Out-Line '**日志目录都不存在**,扫了以下路径:'
