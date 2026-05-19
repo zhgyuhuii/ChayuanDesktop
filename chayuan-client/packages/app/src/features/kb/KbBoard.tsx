@@ -305,7 +305,14 @@ export const KbBoard: React.FC = () => {
       reportError(new Error('只能删除自己创建的知识库'), '删除失败');
       return;
     }
-    if (!window.confirm(`确定删除知识库「${item.display_name}」? 该操作不可恢复。`)) return;
+    // 走 platform.dialog.confirm(ask),不要裸 window.confirm —
+    // Tauri 2 把 window.confirm 重定向到 plugin:dialog|confirm,某些版本下报
+    // "dialog.confirm not allowed. Command not found"(即使 caps 已 allow)。
+    const ok = await getPlatform().dialog.confirm(
+      `确定删除知识库「${item.display_name}」? 该操作不可恢复。`,
+      { title: '删除知识库' },
+    );
+    if (!ok) return;
     try {
       if (item.kind === 'document') {
         await kbApi.delete(item.name);
@@ -1277,6 +1284,16 @@ function itemsCountForGroup(groupByKuId: Record<string, string>, groupId: string
   return Object.values(groupByKuId).filter((id) => id === groupId).length;
 }
 
+// 组删除前确认 — 包成异步函数,内部走 platform.dialog.confirm(ask)。
+// 不要用 window.confirm:Tauri 2 把它走 plugin:dialog|confirm,部分版本下
+// 即使 caps 已 allow-confirm 也会抛 "Command not found" ACL 错。
+async function confirmDeleteGroup(name: string): Promise<boolean> {
+  return getPlatform().dialog.confirm(
+    `删除分组「${name}」? 知识库不会被删除。`,
+    { title: '删除分组' },
+  );
+}
+
 const KbGroupCard: React.FC<{
   group: KbLocalGroup;
   count: number;
@@ -1299,13 +1316,13 @@ const KbGroupCard: React.FC<{
       tabIndex={0}
       onClick={(e) => {
         e.stopPropagation();
-        if (window.confirm(`删除分组「${group.name}」? 知识库不会被删除。`)) onDelete();
+        void confirmDeleteGroup(group.name).then((ok) => { if (ok) onDelete(); });
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           e.stopPropagation();
-          if (window.confirm(`删除分组「${group.name}」? 知识库不会被删除。`)) onDelete();
+          void confirmDeleteGroup(group.name).then((ok) => { if (ok) onDelete(); });
         }
       }}
       className="absolute right-2 top-2 hidden h-6 w-6 items-center justify-center rounded-full text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-red-600 group-hover:flex"
@@ -1335,7 +1352,7 @@ const KbGroupRow: React.FC<{
     <button
       type="button"
       onClick={() => {
-        if (window.confirm(`删除分组「${group.name}」? 知识库不会被删除。`)) onDelete();
+        void confirmDeleteGroup(group.name).then((ok) => { if (ok) onDelete(); });
       }}
       className="rounded p-1 text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-red-600"
       aria-label="删除分组"

@@ -1,4 +1,12 @@
 import { kb as kbApi } from '@chayuan/api';
+import { getPlatform } from '@chayuan/platform-shared';
+
+// 走 platform.dialog.confirm(plugin-dialog ask),不要裸 window.confirm:
+// Tauri 2 把 window.confirm 重定向到 plugin:dialog|confirm,部分版本下报
+// "Command not found"。统一收敛到 platform 层一次。
+function confirmAsk(message: string, title = '上传确认'): Promise<boolean> {
+  return getPlatform().dialog.confirm(message, { title });
+}
 
 function uploadFileName(file: File): string {
   const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
@@ -36,7 +44,7 @@ export async function confirmDuplicateUpload(kbName: string, files: File[]): Pro
       sha256: await sha256File(file),
     })));
   } catch (e) {
-    return window.confirm(`${e instanceof Error ? e.message : String(e)}\n是否继续上传？`);
+    return confirmAsk(`${e instanceof Error ? e.message : String(e)}\n是否继续上传？`);
   }
 
   const sameBatch = new Map<string, Array<{ file_name: string; file_size: number }>>();
@@ -51,7 +59,7 @@ export async function confirmDuplicateUpload(kbName: string, files: File[]): Pro
       `- ${list.map((x) => x.file_name).join('、')} (${formatBytes(list[0]?.file_size ?? 0)})`,
     );
     const omitted = batchDuplicates.length > 8 ? `\n还有 ${batchDuplicates.length - 8} 组本次重复文件未展示。` : '';
-    if (!window.confirm(`本次选择的文件中存在重复内容，是否继续上传？\n\n${lines.join('\n')}${omitted}`)) {
+    if (!(await confirmAsk(`本次选择的文件中存在重复内容，是否继续上传？\n\n${lines.join('\n')}${omitted}`))) {
       return false;
     }
   }
@@ -64,7 +72,7 @@ export async function confirmDuplicateUpload(kbName: string, files: File[]): Pro
       items,
     });
   } catch (e) {
-    return window.confirm(`重复检测失败：${e instanceof Error ? e.message : String(e)}\n是否继续上传？`);
+    return confirmAsk(`重复检测失败：${e instanceof Error ? e.message : String(e)}\n是否继续上传？`);
   }
   const duplicated = resp.filter((x) => (x.duplicate_count || 0) > 0);
   if (!duplicated.length) return true;
@@ -78,7 +86,7 @@ export async function confirmDuplicateUpload(kbName: string, files: File[]): Pro
     return `- ${item.file_name}: 已有${more}; ${who}; ${when}; ${formatBytes(item.file_size)}; ${where}`;
   });
   const omitted = duplicated.length > 8 ? `\n还有 ${duplicated.length - 8} 个重复文件未展示。` : '';
-  return window.confirm(
+  return confirmAsk(
     `检测到 ${duplicated.length} 个文件与历史上传附件重复，是否继续上传？\n\n${lines.join('\n')}${omitted}`,
   );
 }
