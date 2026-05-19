@@ -181,13 +181,26 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
                     );
                   }
                   if (f.mediaType.startsWith('audio/')) {
+                    // TTS / 模态生成的音频:带说明小字(音色 / 模型 / 字数),
+                    // 便于用户区分"这是哪段合成"。
+                    const voice = typeof f.metadata?.voice === 'string' ? f.metadata.voice : null;
+                    const model = typeof f.metadata?.model === 'string' ? f.metadata.model : null;
+                    const speed = typeof f.metadata?.speed === 'number' ? f.metadata.speed : null;
+                    const chars = typeof f.metadata?.text_chars === 'number' ? f.metadata.text_chars : null;
                     return (
-                      <audio
-                        key={f.url + i}
-                        src={f.url}
-                        controls
-                        className="max-w-full rounded-md"
-                      />
+                      <div key={f.url + i} className="flex flex-col gap-0.5">
+                        <audio src={f.url} controls className="max-w-full rounded-md" />
+                        {(voice || model || chars) && (
+                          <div className="flex flex-wrap gap-x-2 text-[10px] leading-tight text-[var(--cy-text-tertiary)]">
+                            {model && <span>{model}</span>}
+                            {voice && <span>音色:{voice}</span>}
+                            {speed != null && Math.abs(speed - 1.0) > 1e-3 && (
+                              <span>语速:{speed.toFixed(2)}×</span>
+                            )}
+                            {chars && <span>{chars} 字</span>}
+                          </div>
+                        )}
+                      </div>
                     );
                   }
                   if (f.mediaType.startsWith('video/')) {

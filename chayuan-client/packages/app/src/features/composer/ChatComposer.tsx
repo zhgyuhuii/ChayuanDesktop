@@ -35,6 +35,7 @@ import { getComposerMode } from './composerMode';
 import { ComposerModeBadge } from './ComposerModeBadge';
 import { ImageGenParamBar } from './ImageGenParamBar';
 import { VideoGenParamBar } from './VideoGenParamBar';
+import { TtsVoiceParamBar } from './TtsVoiceParamBar';
 import { McpPickerPill, ToolsPickerPill } from './CapabilityPickers';
 import { ComposerModelPill } from './ComposerModelPill';
 import { KnowledgePickerPill, type KnowledgePickerPillProps } from './KnowledgePickerPill';
@@ -252,9 +253,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       {composerMode.capability !== 'chat' && (
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <ComposerModeBadge mode={composerMode} hideWhenChat={false} />
-          {/* 模式专属参数条 — paramKind 决定渲染哪一个;tts_voice / asr_lang 留 PR-6 */}
+          {/* 模式专属参数条 — paramKind 决定渲染哪一个;asr_lang 留 PR-7+ */}
           {composerMode.paramKind === 'image_size_n' && <ImageGenParamBar compact={compactControls} />}
           {composerMode.paramKind === 'video_size_dur' && <VideoGenParamBar compact={compactControls} />}
+          {composerMode.paramKind === 'tts_voice' && <TtsVoiceParamBar compact={compactControls} />}
         </div>
       )}
 
