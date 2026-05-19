@@ -148,16 +148,21 @@ export function useModalitySubmit(opts: UseModalitySubmitOptions): UseModalitySu
             continue;
           }
           if (isDataPart(ev) && ev.type === 'data-task-progress') {
-            // 简化:把"已配置 / 等待中"类提示拼到末尾,避免另搞渲染器。
-            // PR-4 视频生成时再换独立 progress part(进度条 + 取消)
-            const data = ev.data as { percent?: number; message?: string } | null;
-            const hint = data?.message
-              ? `[${data.percent ?? 0}%] ${data.message}`
-              : null;
-            if (hint) {
-              // 不覆盖现有 content,而是把 hint 追加,后续 text-delta 会接着写实际文本
-              // (但要避免重复,简单方案:只在 content 为空时显示 hint)
-              patchAsst((m) => (m.content ? m : { ...m, content: hint }));
+            // 写入独立的 taskProgress 字段,MessageBubble 渲染进度条;
+            // 不再污染 content(早期 PR-3 是用 content 当兜底)。
+            const data = ev.data as
+              | { percent?: number; message?: string; eta_s?: number; task_id?: string }
+              | null;
+            if (data) {
+              patchAsst((m) => ({
+                ...m,
+                taskProgress: {
+                  percent: Math.max(0, Math.min(100, data.percent ?? 0)),
+                  message: data.message,
+                  eta_s: data.eta_s,
+                  task_id: data.task_id,
+                },
+              }));
             }
             continue;
           }

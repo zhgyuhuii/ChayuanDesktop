@@ -11,6 +11,7 @@ import { KbResultsView } from '../kb/components/KbResultsView';
 import { consumeVoiceAttachment } from '../composer/voiceAttachments';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
 import { ImageCard } from './parts/ImageCard';
+import { TaskProgressPart } from './parts/TaskProgressPart';
 
 export interface MessageBubbleProps {
   message: ChatMessage;
@@ -144,11 +145,25 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
               isUser ? 'bg-primary text-primary-foreground' : 'bg-card shadow-sm',
             )}
           >
-            {!message.content && !message.files?.length && message.streaming ? (
+            {!message.content && !message.files?.length && !message.taskProgress && message.streaming ? (
               <TypingIndicator />
             ) : (
               <StreamMarkdown content={message.content || ''} streaming={message.streaming} />
             )}
+            {/* 模态路由异步任务进度条 — 仅在尚未完成 + 还在 streaming 时展示;
+                完成后(percent=100 且有 files 落地)或非 streaming 时收起 */}
+            {message.taskProgress
+              && message.streaming
+              && message.taskProgress.percent < 100 && (
+                <div className="mt-2">
+                  <TaskProgressPart
+                    percent={message.taskProgress.percent}
+                    message={message.taskProgress.message}
+                    eta_s={message.taskProgress.eta_s}
+                    task_id={message.taskProgress.task_id}
+                  />
+                </div>
+              )}
             {audioUrl && <VoiceMessagePlayer audioUrl={audioUrl} />}
             {/* 模态路由生成产物(t2i/t2v/tts 等)— 按 mediaType 分发渲染。
                 老消息 files 字段为 undefined,什么都不渲染,完全向后兼容。 */}

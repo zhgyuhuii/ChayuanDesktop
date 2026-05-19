@@ -102,6 +102,13 @@ export interface ChatMessage {
   editedFrom?: string;
   /** 模态路由产物附件(t2i/t2v/tts 生成的图/音/视);chat 模式不填,渲染层兼容 undefined */
   files?: ModalityFileAttachment[];
+  /** 模态路由异步任务进度(t2v 30-90s 不能纯靠 text 显示);chat 模式不填 */
+  taskProgress?: {
+    percent: number;
+    message?: string;
+    eta_s?: number;
+    task_id?: string;
+  };
 }
 
 export interface UseChayuanChatOptions {

@@ -46,11 +46,14 @@ logger = logging.getLogger("chayuan.modality.router")
 def is_enabled() -> bool:
     """新路径总开关。
 
-    默认 OFF — PR-1 落地不影响任何现有行为。设
-    ``CHAYUAN_MODALITY_NEW_PATH=1`` 后,``openai_routes`` 才会把非 chat
-    的请求转过来。后续可扩成 per-user feature flag。
+    PR-5 起默认 **ON** — PR-1~PR-4 已经端到端走通,旁路逻辑稳定,
+    继续 OFF 会让用户选了 qwen-image-max 直接撞 503,体验割裂。
+
+    只有显式 ``CHAYUAN_MODALITY_NEW_PATH=0`` / ``=false`` / ``=off`` /
+    ``=no`` 才关 — 留个紧急回滚旋钮。
     """
-    return os.environ.get("CHAYUAN_MODALITY_NEW_PATH", "0") == "1"
+    val = os.environ.get("CHAYUAN_MODALITY_NEW_PATH", "1").strip().lower()
+    return val not in ("0", "false", "off", "no", "")
 
 
 # ──────────────────────────────────────────────────────────────
