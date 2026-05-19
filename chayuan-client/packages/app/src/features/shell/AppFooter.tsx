@@ -19,10 +19,11 @@
  */
 
 import * as React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { cn } from '@chayuan/ui';
 import type { LocalRuntimeCapability, LocalRuntimeStatus, RuntimeOcrHealth } from '@chayuan/api';
-import { runtimeModels, runtimeOcr } from '@chayuan/api';
+import { runtimeModels, runtimeOcr, serverCapabilityDefaults } from '@chayuan/api';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
 
 interface CapabilityIndicator {
@@ -39,34 +40,52 @@ const INDICATORS: CapabilityIndicator[] = [
   { key: 'ocr',              label: 'OCR' },
 ];
 
-type Tone = 'ready' | 'pending' | 'failed' | 'idle' | 'missing';
+// 三态(用户口径):
+//   绿  ready       — 本地 sidecar 实测 ready 在跑
+//   黄  configured  — 已配默认模型(本地装了 / 设置面板配了云端 default),本地未启动,不影响使用
+//   红  unavailable — 既没本地服务跑着,又没配任何默认模型,完全不可用
+// 另外两个过渡态保留:
+//   pending  — starting/restarting,amber pulse
+//   failed   — sidecar 报错(state==failed),rose 红 + 单独 hint
+type Tone = 'ready' | 'pending' | 'failed' | 'configured' | 'unavailable' | 'missing';
 
 const TONE_DOT: Record<Tone, string> = {
-  ready:   'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.55)]',
-  pending: 'bg-amber-400  shadow-[0_0_4px_rgba(245,158,11,0.55)] animate-pulse',
-  failed:  'bg-rose-500   shadow-[0_0_4px_rgba(244,63,94,0.55)]',
-  idle:    'bg-zinc-400/60',
-  missing: 'bg-zinc-300 ring-1 ring-zinc-400/70 ring-dashed',
+  ready:       'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.55)]',
+  pending:     'bg-amber-400  shadow-[0_0_4px_rgba(245,158,11,0.55)] animate-pulse',
+  failed:      'bg-rose-500   shadow-[0_0_4px_rgba(244,63,94,0.55)]',
+  configured:  'bg-amber-400  shadow-[0_0_4px_rgba(245,158,11,0.55)]',
+  unavailable: 'bg-rose-500   shadow-[0_0_4px_rgba(244,63,94,0.55)]',
+  missing:     'bg-zinc-300 ring-1 ring-zinc-400/70 ring-dashed',
 };
 
 const TONE_LABEL: Record<Tone, string> = {
-  ready:   'text-emerald-700 dark:text-emerald-300',
-  pending: 'text-amber-700  dark:text-amber-300',
-  failed:  'text-rose-700   dark:text-rose-300',
-  idle:    'text-[var(--cy-text-tertiary)]',
-  missing: 'text-zinc-400 dark:text-zinc-500 line-through decoration-zinc-400/60',
+  ready:       'text-emerald-700 dark:text-emerald-300',
+  pending:     'text-amber-700  dark:text-amber-300',
+  failed:      'text-rose-700   dark:text-rose-300',
+  configured:  'text-amber-700  dark:text-amber-300',
+  unavailable: 'text-rose-700   dark:text-rose-300',
+  missing:     'text-zinc-400 dark:text-zinc-500 line-through decoration-zinc-400/60',
 };
 
 const TONE_HINT: Record<Tone, string> = {
-  ready:   '运行中',
-  pending: '启停中…',
-  failed:  '异常',
-  idle:    '未配置',
-  missing: '未随包(轻量版)',
+  ready:       '运行中',
+  pending:     '启停中…',
+  failed:      '异常',
+  configured:  '已配置可用,本地未启动',
+  unavailable: '完全不可用 — 请去模型广场配置',
+  missing:     '未随包(轻量版)',
 };
 
-/** "已配置但 sidecar 没跑" 时的提示文案,区别于 ready=运行中。 */
-const READY_CONFIGURED_HINT = '已配置(待启动)';
+/** indicator key → serverCapabilityDefaults 里对应的 cap 名。
+ *  注意 image-embedding 对应后端 'clip',不是 'image-embedding'。 */
+const DEFAULT_CAP_KEY: Partial<Record<LocalRuntimeCapability | 'ocr', string>> = {
+  chat: 'chat',
+  embedding: 'embedding',
+  rerank: 'rerank',
+  asr: 'asr',
+  'image-embedding': 'clip',
+  // ocr 没有云端默认概念,在 footer 走 ocrTone 单独算
+};
 
 /** 后端 install_info.bundled_caps 用的短名 ↔ footer indicator key 映射。
  *  后端用 'image' 表示图像嵌入,前端用 'image-embedding';其它一致。 */
@@ -79,14 +98,15 @@ const BACKEND_CAP_KEY: Record<LocalRuntimeCapability | 'ocr', string> = {
   ocr: 'ocr',
 };
 
-function toneOf(state: LocalRuntimeStatus['state'] | null | undefined): Tone {
+// 把 sidecar 实际 state 转成 Tone — stopped/未知交给上层 fallback(本函数返 null)。
+// 调用方在 null 时再根据 hasInstalled / hasCloudDefault 决定 configured / unavailable。
+function runtimeTone(state: LocalRuntimeStatus['state'] | null | undefined): Tone | null {
   switch (state) {
     case 'ready':      return 'ready';
     case 'starting':
     case 'restarting': return 'pending';
     case 'failed':     return 'failed';
-    case 'stopped':
-    default:           return 'idle';
+    default:           return null;
   }
 }
 
@@ -137,6 +157,21 @@ export const AppFooter: React.FC = () => {
     };
   }, [reachable]);
 
+  // 系统默认模型(设置面板 / 模型广场配置 → /admin/capability_defaults)。
+  // 用 React Query 共享 ['serverCapabilityDefaults'] key:模型广场保存厂商时
+  // (store/modelPlatform.ts applyPlatformWriteThrough)会 invalidate 这个 key,
+  // 设置页 DefaultModelsSection + 本 footer 同步立即拿到新默认,不用等 60s 轮询。
+  // 任何 cap 的 defaults[key] 非 null/空 → 视为"已配置可用",footer 显示黄色
+  // (即使本地 sidecar 没启动,云端 OpenAI/百炼/智谱也能跑请求)。
+  const { data: capDefaults } = useQuery({
+    queryKey: ['serverCapabilityDefaults'],
+    queryFn: () => serverCapabilityDefaults.list(),
+    enabled: reachable,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const defaultsMap = capDefaults?.defaults ?? {};
+
   // OCR 健康检查:走 /runtime/ocr/health 真实探测(rapidocr pkg + ONNX 模型齐全)。
   // 30s 拉一次,后端 reachable 翻 false 时不重试避免狂打 404。
   const [ocrHealth, setOcrHealth] = React.useState<RuntimeOcrHealth | null>(null);
@@ -162,11 +197,13 @@ export const AppFooter: React.FC = () => {
     };
   }, [reachable]);
 
+  // OCR 是进程内 onnxruntime,没有 sidecar/无云端 fallback —
+  // 未就绪一律按"配置不完整"红色处理(rapidocr 装了 + 模型齐才会 ready)。
   const ocrTone: Tone =
     !reachable ? 'failed'
     : ocrHealth?.state === 'ready' ? 'ready'
     : ocrHealth?.state === 'failed' ? 'failed'
-    : 'idle';
+    : 'unavailable';
 
   const onClickIndicator = (cap: LocalRuntimeCapability | 'ocr') => {
     // 跳到设置页的「本地模型服务」section,带 hash 锚到具体 capability row。
@@ -204,39 +241,44 @@ export const AppFooter: React.FC = () => {
       {/* 右:6 个 capability 状态点 */}
       <div className="flex shrink-0 items-center gap-3">
         {INDICATORS.map((ind) => {
-          // "配置即绿" 语义优先级(从高到低):
-          //   1. 实际进程状态 starting/restarting/failed → 反映真实运行情况
-          //   2. 实际 ready → 绿(运行中)
-          //   3. 本地有装该 cap 的模型文件 → 绿(已配置,待启动)— 这是 "配置即绿" 主路径
-          //   4. lite 包且后端 bundled_caps 没含此 cap、本地也没装 → missing(灰斜线)
-          //   5. 其它(reachable 但啥都没) → idle(未配置)
+          // 三态优先级(从高到低):
+          //   1. 实际进程状态 starting/restarting → pending (启停中)
+          //   2. 实际 failed → failed (异常,带错误原因)
+          //   3. 实际 ready → 绿 (运行中)
+          //   4. 否则 stopped/null:
+          //        本地有装模型文件 OR 设置面板配了云端默认 → configured (黄 — 可用,本地未启动)
+          //        lite 包且未随包 + 没装 + 没默认 → missing (灰斜线)
+          //        其它(完全没配置) → unavailable (红 — 提示去模型广场)
           const backendCap = BACKEND_CAP_KEY[ind.key];
           const hasInstalled =
             ind.key !== 'ocr' && installedCaps.has(ind.key as LocalRuntimeCapability);
+          const defaultCapKey = DEFAULT_CAP_KEY[ind.key];
+          const hasCloudDefault =
+            !!defaultCapKey && !!(defaultsMap[defaultCapKey] || '').toString().trim();
           const isBundleMissing =
             bundledCaps != null &&
             !bundledCaps.has(backendCap) &&
             ind.key !== 'ocr' &&
-            !hasInstalled; // 用户已手动下载就不再标 "未随包"
+            !hasInstalled &&
+            !hasCloudDefault; // 任一手段可用就不再标 "未随包"
 
           let tone: Tone;
-          let hintOverride: string | null = null;
           if (ind.key === 'ocr') {
             tone = ocrTone;
           } else {
             const state = statuses[ind.key]?.state;
-            const runtimeTone = toneOf(state);
-            if (runtimeTone === 'pending' || runtimeTone === 'failed' || runtimeTone === 'ready') {
-              tone = runtimeTone;
-            } else if (hasInstalled) {
-              tone = 'ready';
-              hintOverride = READY_CONFIGURED_HINT;
+            const rt = runtimeTone(state);
+            if (rt) {
+              tone = rt;
+            } else if (hasInstalled || hasCloudDefault) {
+              tone = 'configured';
             } else if (isBundleMissing) {
               tone = 'missing';
             } else {
-              tone = 'idle';
+              tone = 'unavailable';
             }
           }
+          const hintOverride: string | null = null;
 
           const status =
             ind.key === 'ocr'

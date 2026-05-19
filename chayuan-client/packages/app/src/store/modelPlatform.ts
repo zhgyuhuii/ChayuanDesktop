@@ -70,6 +70,10 @@ function applyPlatformWriteThrough(qc: QueryClient, next: PlatformConfig) {
   // ChatComposer / 顶部 ModelPicker 走的同源端点,key 不同 —— 一并失效,
   // 保证添加/启用平台后模型选择器立刻能看到新模型,无需刷新页面
   void qc.invalidateQueries({ queryKey: PLATFORM_KEYS.rawModels });
+  // 平台改动会让 /admin/capability_defaults 的 candidates 变化,且后端会自动
+  // 把"还没默认的 cap"提升第一个候选为默认(见 CapabilityDefaultsResponse
+  // 的 auto_assigned)。让设置页 DefaultModelsSection 和 AppFooter 都看到新默认。
+  void qc.invalidateQueries({ queryKey: ['serverCapabilityDefaults'] });
 }
 
 export function useCreatePlatform() {
@@ -100,6 +104,8 @@ export function useDeletePlatform() {
       void qc.invalidateQueries({ queryKey: PLATFORM_KEYS.catalog });
       void qc.invalidateQueries({ queryKey: PLATFORM_KEYS.models });
       void qc.invalidateQueries({ queryKey: PLATFORM_KEYS.rawModels });
+      // 删厂商后该厂商的模型会从 candidates 列表消失,默认可能落到别的厂商上
+      void qc.invalidateQueries({ queryKey: ['serverCapabilityDefaults'] });
     },
   });
 }
