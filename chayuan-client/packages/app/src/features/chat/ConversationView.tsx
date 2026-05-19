@@ -273,7 +273,10 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         onConversationCreated?.(id, title);
         void qc.invalidateQueries({ queryKey: CONVERSATION_KEYS.list });
       }
-      await modalitySubmit.run({ text, modelId });
+      // 拉当前 composer store 里的模态参数(size/n/seed 等)— ImageGenParamBar
+      // 之类的 UI 把用户选的存进去,这里读一次随请求带走。
+      const modalityParams = composer.getState().modalityParams;
+      await modalitySubmit.run({ text, modelId, params: modalityParams });
       return;
     }
     if (!activeId) {

@@ -85,6 +85,14 @@ interface ComposerState {
    */
   searchMode: 'precise' | 'balanced' | 'fast';
 
+  /**
+   * 模态路由参数(t2i 的 size/n/seed,t2v 的 size/duration/fps,tts 的
+   * voice/speed 等)— 仅在非 chat capability 下生效。聊天模型 ignore 此字段。
+   * 形态故意保持松散 ``Record<string, unknown>``,Connector 端自行 narrow,
+   * 加新参数不需要改 store 类型。
+   */
+  modalityParams: Record<string, unknown>;
+
   setDraft(s: string): void;
   setActive(id: string | null): void;
   /** 77 题:platformName 给定时,modelId 编码为 `${platformName}::${id}` 让 server 精确路由,避免跨平台同名覆盖 */
@@ -103,6 +111,9 @@ interface ComposerState {
   setStreaming(b: boolean): void;
   setAdvanced(patch: Partial<Pick<ComposerState, 'temperature' | 'maxTokens' | 'promptName' | 'topK' | 'scoreThreshold'>>): void;
   resetAdvanced(): void;
+  /** 模态参数局部 patch — 不动其它键 */
+  setModalityParams(patch: Record<string, unknown>): void;
+  resetModalityParams(): void;
 }
 
 /** 96 题:把 store 实现拆出来,允许工厂创建多个独立实例(每个聊天窗口一份)。
@@ -168,6 +179,7 @@ export function createComposerStore(
           scoreThreshold: s.scoreThreshold,
           searchMode: s.searchMode,
           draft: s.draft,
+          modalityParams: s.modalityParams,
         }),
       },
     ),
@@ -198,6 +210,7 @@ const _buildState = (set: SetFn): ComposerState => ({
       selectedKbs: [],
       selectedKuIds: [],
       isStreaming: false,
+      modalityParams: {},
 
       setDraft: (draft) => set({ draft }),
       setActive: (id) => set({ activeConversationId: id }),
@@ -256,6 +269,9 @@ const _buildState = (set: SetFn): ComposerState => ({
       setAdvanced: (patch) => set(patch),
       resetAdvanced: () =>
         set({ temperature: undefined, maxTokens: undefined, promptName: undefined, topK: undefined, scoreThreshold: undefined }),
+      setModalityParams: (patch) =>
+        set((s) => ({ modalityParams: { ...s.modalityParams, ...patch } })),
+      resetModalityParams: () => set({ modalityParams: {} }),
 });
 
 /** 默认全局 store 实例(老调用方继续用,零回归) */

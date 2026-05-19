@@ -33,6 +33,7 @@ import { modality } from '@chayuan/api';
 import { classifyModalityCapability } from '@chayuan/transport';
 import { getComposerMode } from './composerMode';
 import { ComposerModeBadge } from './ComposerModeBadge';
+import { ImageGenParamBar } from './ImageGenParamBar';
 import { McpPickerPill, ToolsPickerPill } from './CapabilityPickers';
 import { ComposerModelPill } from './ComposerModelPill';
 import { KnowledgePickerPill, type KnowledgePickerPillProps } from './KnowledgePickerPill';
@@ -247,7 +248,14 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
 
       {/* 当前模式标识 — chat 模式默认隐藏,非 chat(文生图/语音合成/...)显示
           一颗 pill,告诉用户输入框接下来要"画什么/说什么/转写什么"。 */}
-      <ComposerModeBadge mode={composerMode} className="mb-2 self-start" />
+      {composerMode.capability !== 'chat' && (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <ComposerModeBadge mode={composerMode} hideWhenChat={false} />
+          {/* 模式专属参数条 — image_size_n(t2i / image_edit)。
+              其它 paramKind(video_size_dur / tts_voice / asr_lang)留 PR-5/6 补 */}
+          {composerMode.paramKind === 'image_size_n' && <ImageGenParamBar compact={compactControls} />}
+        </div>
+      )}
 
       {(mic.recording || recorderTranscribing) && (
         <ChatRecorderPanel

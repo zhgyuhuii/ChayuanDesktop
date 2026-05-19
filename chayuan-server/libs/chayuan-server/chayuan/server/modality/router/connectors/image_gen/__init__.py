@@ -5,5 +5,6 @@
 """
 
 from chayuan.server.modality.router.connectors.image_gen import dashscope  # noqa: F401
+from chayuan.server.modality.router.connectors.image_gen import openai_compat  # noqa: F401
 
 __all__: list[str] = []
