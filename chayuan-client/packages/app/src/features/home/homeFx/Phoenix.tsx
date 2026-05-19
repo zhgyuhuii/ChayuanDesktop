@@ -53,6 +53,10 @@ export const Phoenix: React.FC<PhoenixProps> = ({
     const path = pathRef.current;
     // 凤凰速度比龙快一档,9~12s 飞完 → 路径时长按比例缩
     const dur = Math.max(8, path.durationSec * 0.85) * 1000;
+    // 离场延长 — 翎羽要拖出屏外,凤凰比龙短(身体本就短)所以 900ms 够
+    const exitState = path.at(1);
+    const EXIT_MS = 900;
+    const EXIT_VEL = 560;
 
     const loop = (now: number) => {
       if (document.hidden) {
@@ -61,20 +65,32 @@ export const Phoenix: React.FC<PhoenixProps> = ({
         return;
       }
       const elapsed = now - startRef.current;
-      const t = Math.min(1, elapsed / dur);
-      const head = path.at(t);
+      let head: { x: number; y: number; angle: number };
 
-      // 更新尾迹历史 — 保留最近 36 个采样点(0.6s @ 60fps)
+      if (elapsed < dur) {
+        const t = elapsed / dur;
+        head = path.at(t);
+      } else {
+        const extElapsed = elapsed - dur;
+        if (extElapsed >= EXIT_MS) {
+          // 凤凰飞出去 — 清掉残留 path + 鸟体挪屏外
+          clearPhoenixFromDom(svgRef.current);
+          rafRef.current = null;
+          onFlightDone?.();
+          return;
+        }
+        const extSec = extElapsed / 1000;
+        head = {
+          x: exitState.x + Math.cos(exitState.angle) * EXIT_VEL * extSec,
+          y: exitState.y + Math.sin(exitState.angle) * EXIT_VEL * extSec,
+          angle: exitState.angle,
+        };
+      }
+
       tailHistRef.current.push(head);
       if (tailHistRef.current.length > 36) tailHistRef.current.shift();
 
       commitPhoenixToDom(svgRef.current, head, tailHistRef.current);
-
-      if (t >= 1) {
-        rafRef.current = null;
-        onFlightDone?.();
-        return;
-      }
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
@@ -278,6 +294,16 @@ function commitPhoenixToDom(
     p.setAttribute('opacity', String(0.55 + i * 0.08));
     tails.appendChild(p);
   }
+}
+
+function clearPhoenixFromDom(svg: SVGSVGElement | null): void {
+  if (!svg) return;
+  // 翎羽尾迹 — 每帧重画,直接清掉
+  const tails = svg.querySelector<SVGGElement>('g[data-role="ph-tails"]');
+  if (tails) while (tails.firstChild) tails.removeChild(tails.firstChild);
+  // 鸟体挪到屏外,下次飞行第一帧 commit 会重设 transform
+  const body = svg.querySelector<SVGGElement>('g[data-role="ph-body"]');
+  body?.setAttribute('transform', 'translate(-9999 -9999)');
 }
 
 function useReducedMotion(): boolean {

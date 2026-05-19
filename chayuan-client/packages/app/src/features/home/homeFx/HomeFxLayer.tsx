@@ -1,49 +1,68 @@
 /**
  * 主页特效层 — 浮在内容之上、不挡点击的 overlay。
  *
- * 当前装载
- * --------
- * 1. **GoldDragon**:金龙穿屏盘旋,首次延迟 4s,之后每 60~110s 触发一次。
- * 2. **LightSweep**:斜向光带 30~50s 扫过 hero 区一次。
- * 3. **AmbientParticles**:背景常驻金色微粒缓缓上升(数量克制,12 颗)。
+ * 全屏定位 (2026-05-20)
+ * --------------------
+ * 关键改动:用 ``createPortal`` 把整层挂到 ``document.body``,自身
+ * ``position: fixed; inset: 0`` 全视口铺开。
  *
- * 为什么不直接挂全屏 fixed
- * ------------------------
- * 主页有 sidebar、tab 栏,fixed 会盖到这些区域显得很乱。改用 absolute inset:0
- * 嵌进父容器(HomePage section),父容器加 position:relative 即可。
+ * 为什么不再嵌进 HomePage section
+ * --------------------------------
+ * HomePage 容器 ``max-w-5xl mx-auto`` 居中,宽度被夹到 ~1024px;
+ * 嵌进去的 HomeFxLayer 只能在这个窄列里飞,龙跟凤凰看起来"困在罐子里"。
+ * 走 Portal + fixed 之后,坐标系直接是 viewport,龙能横穿整个屏幕 —
+ * 包括 sidebar 和 header 之上 (mix-blend-mode:screen 让金光跟下方
+ * 内容自然融合,没遮挡)。
+ *
+ * Portal 还顺手解决了 stacking context 的隐患 — HomePage 任何祖先
+ * 套上 ``transform`` / ``filter`` / ``will-change`` 都不会再把 fixed
+ * "拉回"到祖先空间。
+ *
+ * 装载内容
+ * -------
+ * 1. **AuspiciousClouds**:祥云 3 朵漂移
+ * 2. **AmbientParticles**:背景金粒缓升 12 颗
+ * 3. **LightSweep**:斜光带 38s 周期
+ * 4. **MagpieFlock**:喜鹊 V 字编队 30~50s 一次
+ * 5. **GoldDragon**:中国龙穿屏盘旋 60~110s 一次
+ * 6. **Phoenix**:智灵鸟高位滑翔 90~150s 一次
  *
  * 性能
  * ----
- * - 龙静默期(60~110s)无 rAF,无 setTimeout。
- * - prefers-reduced-motion 关全部动画。
- * - document.hidden 时已在 GoldDragon 内 pause。
+ * - 龙/凤凰的 rAF 只在 active 时启动;document.hidden 暂停
+ * - prefers-reduced-motion 关全部
  */
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { GoldDragon } from './GoldDragon';
 import { MagpieFlock } from './MagpieFlock';
 import { Phoenix } from './Phoenix';
 import { AuspiciousClouds } from './AuspiciousClouds';
 
 export const HomeFxLayer: React.FC = () => {
-  const ref = React.useRef<HTMLDivElement>(null);
-  const [size, setSize] = React.useState({ w: 0, h: 0 });
+  const [size, setSize] = React.useState(() => ({
+    w: typeof window !== 'undefined' ? window.innerWidth : 0,
+    h: typeof window !== 'undefined' ? window.innerHeight : 0,
+  }));
   const [dragonKey, setDragonKey] = React.useState(0);
   const [phoenixKey, setPhoenixKey] = React.useState(0);
+  const [mounted, setMounted] = React.useState(false);
 
-  // —— 尺寸监听
+  // —— 仅在浏览器侧 mount 后启用 Portal (SSR 安全)
   React.useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const r = entries[0]?.contentRect;
-      if (r) setSize({ w: Math.floor(r.width), h: Math.floor(r.height) });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
+    setMounted(true);
   }, []);
 
-  // —— 龙首飞 4s + 凤凰首飞 28s(错峰,避免开场两个主秀同时入场)
+  // —— 视口尺寸:用 window 而非 ResizeObserver,确保跟 fixed inset:0 一致
+  React.useEffect(() => {
+    const onResize = () =>
+      setSize({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // —— 龙首飞 4s + 凤凰首飞 28s
   React.useEffect(() => {
     if (size.w <= 0 || size.h <= 0) return;
     const t1 = setTimeout(() => setDragonKey((n) => n + 1), 4000);
@@ -52,32 +71,31 @@ export const HomeFxLayer: React.FC = () => {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-    // 尺寸刚有时触发,后续重排由 onFlightDone 自驱
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [size.w > 0 && size.h > 0]);
 
   const onDragonDone = React.useCallback(() => {
-    // 龙:60~110s 后再来
     const next = 60_000 + Math.random() * 50_000;
     setTimeout(() => setDragonKey((n) => n + 1), next);
   }, []);
 
   const onPhoenixDone = React.useCallback(() => {
-    // 凤凰:90~150s 后再来,跟龙错相位
     const next = 90_000 + Math.random() * 60_000;
     setTimeout(() => setPhoenixKey((n) => n + 1), next);
   }, []);
 
-  return (
+  if (!mounted) return null;
+
+  const overlay = (
     <div
-      ref={ref}
       aria-hidden
       style={{
-        position: 'absolute',
+        position: 'fixed',
         inset: 0,
         pointerEvents: 'none',
         overflow: 'hidden',
-        zIndex: 1,
+        // 在 sidebar(z 一般 30)/ 内容之上,modal/dialog(50+)之下
+        zIndex: 40,
       }}
     >
       <AuspiciousClouds />
@@ -102,6 +120,8 @@ export const HomeFxLayer: React.FC = () => {
       )}
     </div>
   );
+
+  return createPortal(overlay, document.body);
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -160,7 +180,6 @@ const LIGHT_SWEEP_KEYFRAMES = `
 // ──────────────────────────────────────────────────────────────
 
 const AmbientParticles: React.FC = React.memo(() => {
-  // 用 useMemo 固定每颗粒的属性,避免 re-render 重置动画
   const particles = React.useMemo(
     () =>
       Array.from({ length: 12 }, (_, i) => ({
