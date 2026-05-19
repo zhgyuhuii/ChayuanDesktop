@@ -167,6 +167,18 @@ async def run_chat_stream(req: ChatRequest) -> AsyncIterator[Dict[str, str]]:
                 runnable = None
 
         if runnable is None:
+            # 深度思考开关 → 按模型族注入 extra_body(qwen3 enable_thinking /
+            # claude thinking budget / o-series 自动);compute_deep_think_kwargs
+            # 不识别的模型 noop + 日志,UI 按钮按了也"不报错只无效"
+            from chayuan.server.chat.deep_think import compute_deep_think_kwargs
+            deep_extras = compute_deep_think_kwargs(model, bool(getattr(req, "deep_think", False)))
+            llm_kwargs: Dict[str, Any] = {}
+            if deep_extras:
+                # ChatOpenAI 接受 model_kwargs={"extra_body": ...},直接转发给底层 client
+                existing_mk = llm_kwargs.get("model_kwargs") or {}
+                merged = {**existing_mk, **deep_extras}
+                llm_kwargs["model_kwargs"] = merged
+
             # get_ChatOpenAI 现在 raise ModelNotConfigured / ModelLoadFailed
             # 不再 swallow → 上层 except 拿到原异常 + cause,直接转 token 事件
             runnable = get_ChatOpenAI(
@@ -175,6 +187,7 @@ async def run_chat_stream(req: ChatRequest) -> AsyncIterator[Dict[str, str]]:
                 max_tokens=int(req.max_tokens or 0) or None,
                 streaming=True,
                 callbacks=inject_into_callbacks([]) or None,
+                **llm_kwargs,
             )
 
         if astream_config:

@@ -69,6 +69,14 @@ class UnifiedChatRequest:
     metadata: Dict[str, Any] = field(default_factory=dict)
     governance_enabled: bool = True
 
+    # ---- 深度思考开关(对应 ChatComposer 顶部那个 ✨ 按钮) ----
+    deep_think: bool = False
+    """开启后,根据上游模型族注入对应的"思考"参数:
+       - 阿里 Qwen3 / Qwen-Plus / Qwen-Max:extra_body={"enable_thinking": True}
+       - Anthropic Claude(Sonnet 3.7+ / Opus 4+):extra_body={"thinking":{"type":"enabled","budget_tokens":N}}
+       - OpenAI o-series / DeepSeek-Reasoner:本身就是推理模型,本字段不影响
+       - 其它模型:noop(后端日志 INFO,UI 按钮仍可按但实际无效)"""
+
     # ---- 透传 / 调试 ----
     raw_messages: List[Dict[str, Any]] = field(default_factory=list)
     """OpenAI 风格的完整 messages 列表；vision 多模态 content 在此保留。"""
@@ -135,6 +143,14 @@ def from_openai_body(body: Any) -> UnifiedChatRequest:
         if role in {"user", "assistant", "system"} and isinstance(content, str) and content:
             history.append({"role": role, "content": content})
 
+    # OpenAI 兼容 body 里挑深度思考开关 — 我们既支持顶层 ``deep_think``,也支持
+    # ``extra_body.deep_think``(部分 SDK 把非标字段塞到 extra_body 里)
+    body_deep_think = bool(
+        getattr(body, "deep_think", None)
+        or extras.get("deep_think")
+        or False,
+    )
+
     # mode：tools 非空 → agent；vision 自动；其它 → llm（kb/file 由专属端点设置）
     tools = list(getattr(body, "tools", None) or [])
     tool_names: List[str] = []
@@ -162,6 +178,7 @@ def from_openai_body(body: Any) -> UnifiedChatRequest:
         metadata=dict(extras.get("metadata") or {}),
         raw_messages=raw_messages,
         extras=extras,
+        deep_think=body_deep_think,
     )
 
 

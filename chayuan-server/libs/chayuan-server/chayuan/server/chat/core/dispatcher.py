@@ -98,6 +98,7 @@ def _to_graph_request(req: UnifiedChatRequest, auth: AuthContext):
         conversation_id=req.conversation_id or "",
         request_id=auth.request_id or "",
         governance_enabled=bool(req.governance_enabled),
+        deep_think=bool(req.deep_think),
     )
 
 
@@ -170,15 +171,58 @@ async def _vision_passthrough(
 ) -> Union[Dict[str, Any], EventSourceResponse]:
     """Vision 多模态：messages 含 image_url；agent 会把 list content 字符串化成
     乱码，必须直接走 OpenAI 透传。复用 ``openai_routes.openai_request`` 实现。
+
+    本地 loopback 图片 URL(http://127.0.0.1:.../v1/files/... 或 /v1/artifacts/...)
+    在送出本机前内联成 ``data:`` URL —— 上游 vision 模型在云端连不到本机端口。
     """
     from chayuan.server.api_server.api_schemas import OpenAIChatInput
     from chayuan.server.api_server.openai_routes import (
         get_model_client, openai_request,
     )
+    from chayuan.server.chat.vision_inline import inline_local_image_url
+
+    # 深复制 + 改写每条 message 里的 image_url 部分
+    fixed_messages = []
+    for m in (req.raw_messages or []):
+        if not isinstance(m, dict):
+            fixed_messages.append(m)
+            continue
+        content = m.get("content")
+        if not isinstance(content, list):
+            fixed_messages.append(m)
+            continue
+        new_parts = []
+        for part in content:
+            if not isinstance(part, dict):
+                new_parts.append(part)
+                continue
+            ptype = part.get("type")
+            if ptype == "image_url":
+                # OpenAI 多模态:{"type":"image_url","image_url":{"url":"..."}}
+                iu = part.get("image_url") or {}
+                if isinstance(iu, dict) and isinstance(iu.get("url"), str):
+                    iu = {**iu, "url": inline_local_image_url(iu["url"])}
+                new_parts.append({**part, "image_url": iu})
+            elif ptype in ("input_image", "image"):
+                # Anthropic / DashScope native:{"type":"image","source":{"data":"..."}}
+                # 极少数前端会直接构造这种,留兜底:如果是 url 字段,转 data
+                if isinstance(part.get("url"), str):
+                    new_parts.append({**part, "url": inline_local_image_url(part["url"])})
+                elif isinstance(part.get("source"), dict) and isinstance(part["source"].get("url"), str):
+                    src = part["source"]
+                    new_parts.append({
+                        **part,
+                        "source": {**src, "url": inline_local_image_url(src["url"])},
+                    })
+                else:
+                    new_parts.append(part)
+            else:
+                new_parts.append(part)
+        fixed_messages.append({**m, "content": new_parts})
 
     body = OpenAIChatInput(
         model=req.model or "",
-        messages=req.raw_messages,
+        messages=fixed_messages,
         temperature=req.temperature,
         max_tokens=req.max_tokens,
         stream=req.stream,

@@ -167,6 +167,7 @@ async def chatgraph_endpoint(
     use_mcp: bool = Body(False),
     conversation_id: str = Body(""),
     governance_enabled: bool = Body(True),
+    deep_think: bool = Body(False, description="深度思考开关 — 按模型族注入 enable_thinking / thinking 等参数"),
     request: Request = None,
     user=Depends(require_auth_enabled()),
 ):
@@ -210,6 +211,7 @@ async def chatgraph_endpoint(
         conversation_id=conversation_id or "",
         request_id=str(getattr(request.state, "request_id", "")) if request else "",
         governance_enabled=bool(governance_enabled),
+        deep_think=bool(deep_think),
     )
 
     if stream:

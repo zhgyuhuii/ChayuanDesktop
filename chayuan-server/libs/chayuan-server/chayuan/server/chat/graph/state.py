@@ -67,6 +67,9 @@ class ChatRequest:
     request_id: str = ""
     # 治理开关（运行时可 override 策略）
     governance_enabled: bool = True
+    # ChatComposer 顶部的 ✨ 深度思考开关 — 启用时按模型族注入 enable_thinking / thinking
+    # 等上游推理参数(详见 chayuan.server.chat.deep_think.compute_deep_think_kwargs)
+    deep_think: bool = False
 
 
 class ChatState(TypedDict, total=False):

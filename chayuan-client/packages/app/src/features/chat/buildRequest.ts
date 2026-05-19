@@ -68,5 +68,8 @@ export function buildChatRequest(
     use_rerank: composer.searchMode === 'balanced' ? true
               : composer.searchMode === 'precise' || composer.searchMode === 'fast' ? false
               : undefined,
+    // 深度思考 ✨ — composer 里那颗按钮的状态;后端按模型族决定怎么注入(qwen3
+    // enable_thinking / claude thinking budget / o-series 自带)
+    deep_think: composer.deepThink,
   };
 }

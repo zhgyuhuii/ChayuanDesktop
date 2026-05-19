@@ -167,13 +167,17 @@ def node_prepare_messages(state: ChatState) -> Dict[str, Any]:
             continue
         msgs.append({"role": role, "content": str(h.get("content", ""))})
 
-    # 当前问题：Vision 特殊
+    # 当前问题:Vision 特殊
     if req.image_url:
+        # 本地 loopback URL(http://127.0.0.1:.../v1/files/...) 上游 vision
+        # 模型(qwen-vl / GPT-4o / Claude)在云端连不上,必须内联成 data: URL
+        from chayuan.server.chat.vision_inline import inline_local_image_url
+        inlined = inline_local_image_url(req.image_url)
         msgs.append({
             "role": "user",
             "content": [
                 {"type": "text", "text": req.query or ""},
-                {"type": "image_url", "image_url": {"url": req.image_url}},
+                {"type": "image_url", "image_url": {"url": inlined}},
             ],
         })
     else:

@@ -105,6 +105,15 @@ export interface ChatRequestV2 {
   use_mcp?: boolean;
   conversation_id?: string;
   governance_enabled?: boolean;
+  /**
+   * ChatComposer 顶部"深度思考"✨ 开关。
+   * 后端按模型族注入对应推理参数:
+   *   - 阿里 Qwen3 / Qwen-Plus / Qwen-Max:extra_body.enable_thinking = true
+   *   - Anthropic Claude(Sonnet 3.7+ / Opus 4+):extra_body.thinking = {type:enabled, budget_tokens}
+   *   - OpenAI o-series / DeepSeek-Reasoner:本身就是推理模型,本字段不影响
+   *   - 其它模型:noop,后端日志 INFO
+   */
+  deep_think?: boolean;
 }
 
 export interface SendOptions {
