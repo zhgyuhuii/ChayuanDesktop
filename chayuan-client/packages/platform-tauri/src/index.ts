@@ -879,6 +879,7 @@ interface RawDataDirState {
   default_path: string;
   config_file: string;
   has_existing_data: boolean;
+  portable_candidate: string | null;
 }
 
 function normalizeDataDirState(raw: RawDataDirState): DataDirState {
@@ -888,6 +889,7 @@ function normalizeDataDirState(raw: RawDataDirState): DataDirState {
     defaultPath: raw.default_path ?? '',
     configFile: raw.config_file ?? '',
     hasExistingData: !!raw.has_existing_data,
+    portableCandidate: raw.portable_candidate ?? null,
   };
 }
 

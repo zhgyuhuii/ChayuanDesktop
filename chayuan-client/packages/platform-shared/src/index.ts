@@ -226,6 +226,9 @@ export interface DataDirState {
   configFile: string;
   /** ``path`` 下是否已有察元历史数据(marker / sqlite / data 子目录命中) */
   hasExistingData: boolean;
+  /** 便携模式候选目录(``<exe_dir>/data/``),可写且不在 Program Files 时填,
+   *  否则 ``null``。前端首启向导可据此渲染"便携模式(整盘可拷贝)"按钮。 */
+  portableCandidate: string | null;
 }
 
 export interface PickDirectoryOptions {

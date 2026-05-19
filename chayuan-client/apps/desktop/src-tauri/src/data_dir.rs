@@ -67,6 +67,11 @@ pub struct DataDirState {
     pub config_file: String,
     /// ``path`` 路径下是否已经存在察元历史数据。``configured=false`` 时也会检测默认路径。
     pub has_existing_data: bool,
+    /// 便携模式候选目录:``<exe_dir>/data/`` 在可写 + 不在 Program Files 时返路径,
+    /// 否则 ``None``。前端 FirstRunSetup 可据此渲染"便携模式(整盘可拷贝,跨电脑用)"按钮。
+    /// Program Files 下用户态无写权限,装机版默认就没必要走 portable;用户解压
+    /// "便携版" zip 到 D:\Chayuan\ 才会满足条件。
+    pub portable_candidate: Option<String>,
 }
 
 /// 计算 OS 默认数据目录。优先级:
@@ -227,13 +232,48 @@ pub fn chayuan_data_dir_state() -> DataDirState {
         default.clone()
     };
     let has_existing = check_has_existing_data(&active);
+    let portable_candidate = portable_data_dir_candidate()
+        .map(|p| p.to_string_lossy().to_string());
     DataDirState {
         configured,
         path: active.to_string_lossy().to_string(),
         default_path: default.to_string_lossy().to_string(),
         config_file: config_file_path().to_string_lossy().to_string(),
         has_existing_data: has_existing,
+        portable_candidate,
     }
+}
+
+/// 便携模式候选:``<exe_dir>/data/``。返回 Some 的条件:
+///
+/// 1. exe 不在 Program Files / Program Files (x86) (用户态无写权限,装机版走这里没意义);
+/// 2. exe 父目录可写(用户解压"便携版"到 D:\Chayuan\ 这种位置)。
+///
+/// 任一条件不满足返 ``None`` — 前端不渲染便携按钮,用户走默认 ``%APPDATA%\chayuan``。
+fn portable_data_dir_candidate() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe_dir = exe.parent()?;
+
+    // Program Files 排除(Windows):路径含 "Program Files" / "Program Files (x86)" 直接 None。
+    // 用户态进程对 install dir 没写权限,fs::write 必失败。卸载也会被 MSI 清掉。
+    #[cfg(target_os = "windows")]
+    {
+        let lossy = exe_dir.to_string_lossy().to_lowercase();
+        if lossy.contains("program files") {
+            return None;
+        }
+    }
+
+    // 可写探测:用 tempfile 试写一个 marker。失败 → 父目录不可写 → 返 None。
+    // 不创建 data/ 目录本身(纯探测,用户没决定走 portable 之前不动磁盘)。
+    let probe = exe_dir.join(".chayuan_portable_probe");
+    let writable = fs::write(&probe, b"probe").is_ok();
+    let _ = fs::remove_file(&probe);
+    if !writable {
+        return None;
+    }
+
+    Some(exe_dir.join("data"))
 }
 
 /// 探测前端任意候选路径,用于"选择目录"对话框反馈"该目录已有旧数据"。

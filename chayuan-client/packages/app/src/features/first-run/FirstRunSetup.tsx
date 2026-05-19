@@ -44,6 +44,9 @@ export const FirstRunSetup: React.FC<FirstRunSetupProps> = ({ onConfigured }) =>
   const [path, setPath] = React.useState('');
   const [hasExisting, setHasExisting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // 便携模式候选目录(``<exe_dir>/data/``);后端探测可写 + 不在 Program Files 时填,
+  // 否则 null。null = 隐藏便携按钮(装机版默认行为)。
+  const [portableCandidate, setPortableCandidate] = React.useState<string | null>(null);
 
   // 1. 启动探测
   React.useEffect(() => {
@@ -55,6 +58,7 @@ export const FirstRunSetup: React.FC<FirstRunSetupProps> = ({ onConfigured }) =>
         defaultPath: '',
         configFile: '',
         hasExistingData: false,
+        portableCandidate: null,
       });
       return;
     }
@@ -71,6 +75,7 @@ export const FirstRunSetup: React.FC<FirstRunSetupProps> = ({ onConfigured }) =>
         setDefaultPath(s.defaultPath);
         setPath(s.defaultPath);
         setHasExisting(s.hasExistingData);
+        setPortableCandidate(s.portableCandidate);
         setPhase('choosing');
       } catch {
         if (cancelled) return;
@@ -81,6 +86,7 @@ export const FirstRunSetup: React.FC<FirstRunSetupProps> = ({ onConfigured }) =>
           defaultPath: '',
           configFile: '',
           hasExistingData: false,
+          portableCandidate: null,
         });
       }
     })();
@@ -189,7 +195,7 @@ export const FirstRunSetup: React.FC<FirstRunSetupProps> = ({ onConfigured }) =>
             </button>
           </div>
 
-          <div className="mt-2 flex items-center justify-between">
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
             <button
               type="button"
               onClick={useDefault}
@@ -198,6 +204,20 @@ export const FirstRunSetup: React.FC<FirstRunSetupProps> = ({ onConfigured }) =>
             >
               使用平台默认 ({truncatePath(defaultPath)})
             </button>
+            {/* 便携模式:Tauri 后端探测 exe 同级 data/ 可写 + 不在 Program Files 时才出现。
+                MSI 装到 Program Files 用户态写不了,不出现;解压版到 D:\Chayuan\ 才出现。
+                选这条 → 整目录拷到 U 盘/别的电脑就能直接用,不带用户名。 */}
+            {portableCandidate && (
+              <button
+                type="button"
+                onClick={() => setPath(portableCandidate)}
+                className="text-xs text-[var(--cy-brand-600,#4f46e5)] hover:underline"
+                disabled={phase === 'saving' || path === portableCandidate}
+                title="便携模式:数据存在安装目录旁,整目录拷到 U 盘 / 别的电脑可直接用"
+              >
+                使用便携模式 ({truncatePath(portableCandidate)})
+              </button>
+            )}
           </div>
 
           {/* 旧数据提示:绿色 = 检测到老数据,将沿用 */}
