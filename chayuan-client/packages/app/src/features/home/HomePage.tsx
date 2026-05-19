@@ -297,7 +297,7 @@ export const HomePage: React.FC = () => {
           gap 略增到 5,卡内 padding p-5,左上图标 + 左下文案的固定网格,
           上下左右留白对称 — 视觉平衡感比之前 5 列(残余空隙)好。 */}
       <div className="relative z-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
-        {CAPS.map((c) => {
+        {CAPS.map((c, i) => {
           const Icon = c.icon;
           return (
             <button
@@ -306,7 +306,11 @@ export const HomePage: React.FC = () => {
               onClick={() => onCapClick(c)}
               className={`group relative flex h-40 flex-col justify-between overflow-hidden rounded-2xl border border-[var(--cy-border-subtle)] bg-gradient-to-br ${c.gradient} p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[var(--cy-shadow-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cy-brand-500)]`}
             >
-              <div className={`flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-sm ${c.iconBg}`}>
+              {/* 图标"动起来" — 4s 周期轻浮 + 微旋 + 金光晕,5 张卡 0.55s 错相 */}
+              <div
+                className={`flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-sm ${c.iconBg}`}
+                style={{ animation: `cy-icon-float 4s ease-in-out ${i * 0.55}s infinite` }}
+              >
                 <Icon className="h-5 w-5" />
               </div>
               <div className="min-w-0">

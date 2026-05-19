@@ -153,4 +153,10 @@ const AURA_KEYFRAMES = `
   0%, 100% { transform: scale(1); opacity: 0.35; }
   50%      { transform: scale(1.6); opacity: 0.9; }
 }
+/* 卡片图标的待机动画 — 轻浮 + 微旋 + 光晕呼吸,各卡用 animation-delay 错相 */
+@keyframes cy-icon-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); filter: drop-shadow(0 0 0 transparent); }
+  35%      { transform: translateY(-3px) rotate(-3deg); filter: drop-shadow(0 0 6px rgba(255, 215, 90, 0.55)); }
+  65%      { transform: translateY(-2px) rotate(3deg); filter: drop-shadow(0 0 6px rgba(255, 215, 90, 0.45)); }
+}
 `;

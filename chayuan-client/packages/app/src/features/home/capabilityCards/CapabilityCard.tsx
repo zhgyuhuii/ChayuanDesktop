@@ -27,6 +27,7 @@ import {
   getCapabilityMeta,
 } from '../../composer/modelCapabilityChip';
 import type { CapabilityCardSpec } from './capabilityCardCatalog';
+import { CardAura } from '../homeFx/CardAura';
 
 export interface CapabilityCardProps {
   spec: CapabilityCardSpec;
@@ -109,6 +110,8 @@ const CapabilityCardBase: React.FC<CapabilityCardProps> = ({
           className="pointer-events-none absolute right-3 bottom-3 h-3.5 w-3.5 text-[var(--cy-text-tertiary)] opacity-0 transition-opacity group-hover:opacity-80"
         />
       )}
+      {/* 金线缠绕 — 只在已就绪态加,未配卡(灰、虚边)不打扰 */}
+      {ready && <CardAura hue="gold" intensity="subtle" radius={16} />}
     </button>
   );
 };
