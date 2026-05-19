@@ -203,20 +203,43 @@ async def kb_chat(query: str = Body(..., description="用户输入", examples=["
                         or Settings.kb_settings.RERANKER_MODEL  # 回退 settings
                     )
                     if rerank_model_id:
-                        from chayuan.server.reranker.reranker import LangchainReranker
-                        from chayuan.server.utils import (
-                            get_model_path, embedding_device,
-                        )
-                        # 本地模型路径解析;若是云端 API 类型,get_model_path 返原 id
-                        model_path = (
-                            get_model_path(rerank_model_id) or rerank_model_id
-                        )
-                        reranker = LangchainReranker(
-                            top_n=top_k,
-                            device=embedding_device(),
-                            max_length=Settings.kb_settings.RERANKER_MAX_LENGTH,
-                            model_name_or_path=model_path,
-                        )
+                        # ── Step 1: 优先 ONNX 本地 rerank (in-process,纯 onnxruntime
+                        # + tokenizers) — 跟 OnnxEmbeddings 同思路,绕开
+                        # sentence_transformers (lite spec excludes 它,~200 MB)。
+                        # 用户 <bundled>/rerank/<repo>/ 下若有 onnx + tokenizer.json
+                        # 就自动命中。命中 None 时再走 LangchainReranker (full/dev)。
+                        reranker = None
+                        try:
+                            from chayuan.server.reranker.onnx_local import (
+                                try_get_local_onnx_reranker,
+                            )
+                            reranker = try_get_local_onnx_reranker(
+                                top_n=top_k,
+                                max_length=Settings.kb_settings.RERANKER_MAX_LENGTH,
+                            )
+                        except Exception as _e:  # noqa: BLE001
+                            import logging as _logging
+                            _logging.getLogger("chayuan.kb_chat").debug(
+                                "[rerank] ONNX short-circuit 失败,继续 fallback: %r", _e,
+                            )
+
+                        # ── Step 2: ONNX 不可用 → sentence_transformers CrossEncoder
+                        # (lite 版会 ImportError 被外层 try/except 接住,用原 docs)
+                        if reranker is None:
+                            from chayuan.server.reranker.reranker import LangchainReranker
+                            from chayuan.server.utils import (
+                                get_model_path, embedding_device,
+                            )
+                            # 本地模型路径解析;若是云端 API 类型,get_model_path 返原 id
+                            model_path = (
+                                get_model_path(rerank_model_id) or rerank_model_id
+                            )
+                            reranker = LangchainReranker(
+                                top_n=top_k,
+                                device=embedding_device(),
+                                max_length=Settings.kb_settings.RERANKER_MAX_LENGTH,
+                                model_name_or_path=model_path,
+                            )
                         # docs 是 dict 列表(page_content/metadata),包成 Document
                         # 后再调 compress;rerank 完拆回 dict 形式
                         from langchain_core.documents import Document as _Doc
