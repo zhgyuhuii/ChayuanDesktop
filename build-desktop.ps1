@@ -1136,6 +1136,27 @@ if ($SkipFrontend) {
     # 不再尝试 NSIS。代价是 lite 也变成 .msi + 外置 CAB(WiX 模板写死 EmbedCab=no
     # 绕国产杀软),所以 lite 也必须靠 ISO 打包分发(同 full)。
     $useMsi = ($IsWindows -or $env:OS -eq 'Windows_NT')
+
+    # 跑 tauri build 前清掉 Tauri bundler 输出目录 — Tauri 自己不会清,上一轮
+    # 失败 / 切语言 / 改文件名后会有 stale .msi/.cab 残留。下面 Get-ChildItem
+    # 用 *.msi glob 收产物时,旧 .msi 会被一起带走,装机时会撞 Cabinet 表错乱
+    # 或被误认为本次产物(2026-05-19 实测:LGHT0311 失败后留下 0.4 MB 不完整
+    # en-US.msi,被下一轮 BundleOnly 收进 dist-lite,用户装它必然报"找不到
+    # cab1.cab")。
+    foreach ($staleDir in @(
+        (Join-Path $TauriBundle 'msi'),
+        (Join-Path $TauriBundle 'nsis'),
+        (Join-Path (Split-Path -Parent $TauriBundle) 'wix\x64')
+    )) {
+        if (Test-Path $staleDir) {
+            # 只删 .msi / .exe / .cab / .wixobj — 别整目录 rmtree,Tauri 内部
+            # 还有别的小文件(template.json 等)需要保留。
+            Get-ChildItem -Path $staleDir -Include '*.msi','*.exe','*.cab','*.wixobj','*.wixpdb' `
+                -File -Recurse -ErrorAction SilentlyContinue |
+                Remove-Item -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     if ($BundleOnly) {
         # cargo / vite 走增量缓存,只重做 Tauri bundle(makensis / WiX 等)。
         # 不能直接调 ``pnpm --filter @chayuan/desktop build``,因为那里面带
