@@ -29,6 +29,8 @@ import {
   ALIPAY_QR_URL, CHAYUAN_LOGO_URL, FOLLOW_QR_URL, WXPAY_QR_URL,
 } from '../../lib/brandAssets';
 import { CapabilityCardGrid } from './capabilityCards/CapabilityCardGrid';
+import { HomeFxLayer } from './homeFx/HomeFxLayer';
+import { CardAura } from './homeFx/CardAura';
 
 // ── 5 张功能入口卡定义 ──────────────────────────────────────────────
 interface CapItem {
@@ -220,9 +222,13 @@ export const HomePage: React.FC = () => {
   }, [flushPending, queueChunk]);
 
   return (
-    <div className="mx-auto flex h-full max-w-5xl flex-col gap-8 px-6 py-10 overflow-y-auto">
+    <div className="relative mx-auto flex h-full max-w-5xl flex-col gap-8 px-6 py-10 overflow-y-auto">
+      {/* 特效层 — 金龙穿屏盘旋 + 光影 sweep + 背景金粒。pointer-events:none,
+          不挡卡片点击。父容器加了 position:relative 才能正确定位。 */}
+      <HomeFxLayer />
+
       {/* ── 1. Greeting + 流式介绍气泡 ─────────────────────────── */}
-      <div className="flex items-center gap-3">
+      <div className="relative z-10 flex items-center gap-3">
         <img
           src={CHAYUAN_LOGO_URL}
           alt="察元 AI"
@@ -244,7 +250,7 @@ export const HomePage: React.FC = () => {
       {/* 流式介绍气泡 — 一次播放,流完即静止;不再循环换文案,避免视觉闪烁。
           固定 min-h-[5rem] 让气泡高度不随文字增长抖动,下方卡片不会被反复推开。
           光标用 opacity 1s 步进切换,比 animate-pulse 柔和。 */}
-      <div className="flex max-w-3xl items-start gap-3 -mt-3">
+      <div className="relative z-10 flex max-w-3xl items-start gap-3 -mt-3">
         <div className="h-7 w-7 shrink-0 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] flex items-center justify-center text-[11px] font-semibold text-white shadow-sm">
           AI
         </div>
@@ -266,7 +272,7 @@ export const HomePage: React.FC = () => {
 
       {/* ── 2. 未配模型时的引导 banner ────────────────────────── */}
       {!ready && catalogQ.isFetched && (
-        <div className="flex items-center gap-3 rounded-2xl border border-amber-200/60 bg-amber-50/80 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-900/20">
+        <div className="relative z-10 flex items-center gap-3 rounded-2xl border border-amber-200/60 bg-amber-50/80 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-900/20">
           <AlertCircle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
@@ -290,7 +296,7 @@ export const HomePage: React.FC = () => {
           设计:窄屏 2 列、桌面 4 列等宽并列,卡片高度统一 h-40,
           gap 略增到 5,卡内 padding p-5,左上图标 + 左下文案的固定网格,
           上下左右留白对称 — 视觉平衡感比之前 5 列(残余空隙)好。 */}
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="relative z-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
         {CAPS.map((c) => {
           const Icon = c.icon;
           return (
@@ -312,6 +318,8 @@ export const HomePage: React.FC = () => {
                 className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/30 blur-2xl transition-transform group-hover:translate-x-1"
                 aria-hidden
               />
+              {/* 金线缠绕 — 沿卡片矩形边流动 */}
+              <CardAura hue="gold" intensity="subtle" radius={16} />
             </button>
           );
         })}
@@ -323,10 +331,12 @@ export const HomePage: React.FC = () => {
        *  未配卡点击弹支持目录,锚跳到对应 cap 段帮用户找申请地址。
        *  数据源跟 ChatComposer 共享 ['v1.models',{type:'all'}] react-query 缓存,
        *  零额外网络。 */}
-      <CapabilityCardGrid />
+      <div className="relative z-10">
+        <CapabilityCardGrid />
+      </div>
 
       {/* ── 4. 关注我们 / 收款码 ───────────────────────────────── */}
-      <section className="rounded-3xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-6">
+      <section className="relative z-10 rounded-3xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-6">
         <div className="mb-4 flex items-baseline justify-between">
           <h2 className="text-sm font-semibold text-[var(--cy-text-primary)]">支持我们</h2>
           <p className="text-xs text-[var(--cy-text-tertiary)]">扫码关注 / 赞助开发者</p>

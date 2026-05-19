@@ -81,6 +81,12 @@ const PREFIX_TO_CAP: ReadonlyArray<readonly [string, ModalityCapability]> = [
   ['embedding-',        'embedding'],
   ['text-embedding',    'embedding'],
   ['bge-',              'embedding'],
+  // 纯视觉编码器 — 不能在对话框里"用",落到 embedding 让 INTERACTIVE_CAPABILITIES
+  // 自动过滤掉。后端 capability 标错(把 CLIP 标 image2text 等)时,这里兜底。
+  ['clip-vit',          'embedding'],
+  ['chinese-clip',      'embedding'],
+  ['siglip',            'embedding'],
+  ['dinov2',            'embedding'],
   ['rapidocr',          'ocr'],
   ['paddleocr',         'ocr'],
   ['pp-ocr',            'ocr'],
