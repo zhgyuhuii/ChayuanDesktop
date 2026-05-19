@@ -899,6 +899,26 @@ def get_Embeddings(
         return LocalAIEmbeddings(**params)
     except Exception as e:
         logger.exception(f"failed to create Embeddings for model: {embed_model}.")
+        # 错误翻译:LangChain/OpenAI SDK 在 api_key=None 时抛 "OPENAI_API_KEY not set"
+        # 这条信息严重误导用户去配 OpenAI 云端 key,但 90% 实际场景是:
+        #   - 本地 embedding sidecar 起不来(常见:装的是 *.safetensors,llama-server 只吃 GGUF)
+        #   - 或 MODEL_PLATFORMS.*.embed_models 没把这个 model 注册进来
+        # 翻译成可执行的指引,让用户看到真根因 + 三条排查路径。
+        msg = str(e)
+        if "OPENAI_API_KEY" in msg or "openai_api_key" in msg or "api_key" in msg.lower():
+            raise RuntimeError(
+                f"embedding 模型 '{embed_model}' 不可用:本地 embedding 服务未就绪,"
+                f"且 MODEL_PLATFORMS 也没配置可用云端 embedding。\n"
+                f"常见原因 + 排查:\n"
+                f"  1) 本地模型服务面板里 embedding 行状态是不是 ready?"
+                f"如果是 failed,看 last_error。\n"
+                f"  2) 模型格式是不是 GGUF 量化版?llama-server 只吃 *.gguf,"
+                f"装 *.safetensors 整仓 sidecar 起不来。"
+                f"推荐:gpustack/bge-m3-GGUF 里的 .gguf 单文件。\n"
+                f"  3) 不想本地跑,可以在设置里配一个云端 embedding"
+                f"(OpenAI / 阿里百炼 / 智谱),MODEL_PLATFORMS 里 embed_models 注册。\n"
+                f"(原始错误已 traceback 进 server log:{type(e).__name__}: {e})"
+            ) from e
         raise e
 
 
