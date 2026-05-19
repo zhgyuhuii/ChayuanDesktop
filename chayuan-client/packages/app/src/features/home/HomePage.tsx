@@ -29,6 +29,7 @@ import { usePlatformCatalogQuery } from '../../store/modelPlatform';
 import {
   ALIPAY_QR_URL, CHAYUAN_LOGO_URL, FOLLOW_QR_URL, WXPAY_QR_URL,
 } from '../../lib/brandAssets';
+import { CapabilityCardGrid } from './capabilityCards/CapabilityCardGrid';
 
 // ── 5 张功能入口卡定义 ──────────────────────────────────────────────
 interface CapItem {
@@ -335,6 +336,14 @@ export const HomePage: React.FC = () => {
           );
         })}
       </div>
+
+      {/* ── 3.5 按模型类型开始对话 ────────────────────────────
+       *  7 张 capability 卡(对话 / 视觉 / 文生图 / 图像编辑 / 文生视频
+       *  / 语音合成 / 语音识别)。已配模型的卡点击直接新对话并预选最优模型;
+       *  未配卡点击弹支持目录,锚跳到对应 cap 段帮用户找申请地址。
+       *  数据源跟 ChatComposer 共享 ['v1.models',{type:'all'}] react-query 缓存,
+       *  零额外网络。 */}
+      <CapabilityCardGrid />
 
       {/* ── 4. 关注我们 / 收款码 ───────────────────────────────── */}
       <section className="rounded-3xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-6">

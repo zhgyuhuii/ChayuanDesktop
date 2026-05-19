@@ -28,6 +28,7 @@ import {
 } from '@chayuan/ui';
 import { getPlatform } from '@chayuan/platform-shared';
 import { ExternalLink, HelpCircle } from 'lucide-react';
+import type { ModalityCapability } from '@chayuan/transport';
 import { CapabilityChip, getCapabilityMeta } from './modelCapabilityChip';
 import { listCapabilityHelp, type CapabilityHelp, type VendorEntry } from './modelHelpCatalog';
 
@@ -42,6 +43,92 @@ async function openExternal(url: string): Promise<void> {
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// 受控 Dialog 组件(给主页能力卡 / 设置面板等外部入口用)
+// ──────────────────────────────────────────────────────────────
+
+
+export interface ModelSupportHelpDialogProps {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  /** 打开时锚跳到指定 cap 段(给"未配置卡→自动滚到该 cap"用) */
+  initialCap?: ModalityCapability;
+}
+
+export const ModelSupportHelpDialog: React.FC<ModelSupportHelpDialogProps> = ({
+  open, onOpenChange, initialCap,
+}) => {
+  const help = React.useMemo(() => listCapabilityHelp(), []);
+  // open=true 切换瞬间执行锚跳;Dialog 没有 onAnimationEnd 但 setTimeout(0)
+  // 足够等内容 mount。锚 id 固定 ``help-cap-<cap>``。
+  React.useEffect(() => {
+    if (!open || !initialCap) return;
+    const id = setTimeout(() => {
+      document.getElementById(`help-cap-${initialCap}`)?.scrollIntoView({
+        behavior: 'smooth', block: 'start',
+      });
+    }, 30);
+    return () => clearTimeout(id);
+  }, [open, initialCap]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="z-[200] w-[min(900px,92vw)] max-w-[900px] max-h-[80vh] overflow-hidden p-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <DialogHeader className="border-b border-[var(--cy-border-subtle)] px-5 py-4">
+          <DialogTitle>模型支持说明</DialogTitle>
+          <DialogDescription>
+            察元支持下列各类模型;选好厂商在「设置 → AI 平台」里填 API key,模型就会出现在选择器里。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex max-h-[calc(80vh-72px)] overflow-hidden">
+          {/* 左侧目录:capability 锚跳 */}
+          <nav className="w-44 flex-shrink-0 overflow-y-auto border-r border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 py-3">
+            <ul className="space-y-0.5">
+              {help.map((h) => (
+                <li key={h.cap}>
+                  <a
+                    href={`#help-cap-${h.cap}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      document
+                        .getElementById(`help-cap-${h.cap}`)
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
+                  >
+                    <CapabilityChip cap={h.cap} compact />
+                    <span className="truncate">{getCapabilityMeta(h.cap).longLabel}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          {/* 右侧内容 */}
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            {help.map((section) => (
+              <CapabilitySection key={section.cap} section={section} onOpen={openExternal} />
+            ))}
+            <p className="mt-6 text-[10px] text-[var(--cy-text-tertiary)]">
+              链接以官方一手地址为准。海外厂商(OpenAI / Anthropic / Runway / Stability)国内需自行解决网络访问;阿里 / 字节 / 智谱 / 月之暗面 / 深度求索国内直连。
+            </p>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+
+// ──────────────────────────────────────────────────────────────
+// 非受控按钮 — ModelMenuList 里嵌套这个最方便,自己管 open state
+// ──────────────────────────────────────────────────────────────
+
+
 export interface ModelSupportHelpButtonProps {
   /** dialog 自定义对齐(主要用于嵌入 dropdown 内部时关掉 portal,避免被 menu 关闭) */
   className?: string;
@@ -49,8 +136,6 @@ export interface ModelSupportHelpButtonProps {
 
 export const ModelSupportHelpButton: React.FC<ModelSupportHelpButtonProps> = ({ className }) => {
   const [open, setOpen] = React.useState(false);
-  const help = React.useMemo(() => listCapabilityHelp(), []);
-
   return (
     <>
       <button
@@ -71,55 +156,7 @@ export const ModelSupportHelpButton: React.FC<ModelSupportHelpButtonProps> = ({ 
       >
         <HelpCircle className="h-4 w-4" />
       </button>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent
-          className="z-[200] w-[min(900px,92vw)] max-w-[900px] max-h-[80vh] overflow-hidden p-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <DialogHeader className="border-b border-[var(--cy-border-subtle)] px-5 py-4">
-            <DialogTitle>模型支持说明</DialogTitle>
-            <DialogDescription>
-              察元支持下列各类模型;选好厂商在「设置 → AI 平台」里填 API key,模型就会出现在选择器里。
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex max-h-[calc(80vh-72px)] overflow-hidden">
-            {/* 左侧目录:capability 锚跳 */}
-            <nav className="w-44 flex-shrink-0 overflow-y-auto border-r border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 py-3">
-              <ul className="space-y-0.5">
-                {help.map((h) => (
-                  <li key={h.cap}>
-                    <a
-                      href={`#help-cap-${h.cap}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        document
-                          .getElementById(`help-cap-${h.cap}`)
-                          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }}
-                      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
-                    >
-                      <CapabilityChip cap={h.cap} compact />
-                      <span className="truncate">{getCapabilityMeta(h.cap).longLabel}</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-
-            {/* 右侧内容 */}
-            <div className="flex-1 overflow-y-auto px-5 py-4">
-              {help.map((section) => (
-                <CapabilitySection key={section.cap} section={section} onOpen={openExternal} />
-              ))}
-              <p className="mt-6 text-[10px] text-[var(--cy-text-tertiary)]">
-                链接以官方一手地址为准。海外厂商(OpenAI / Anthropic / Runway / Stability)国内需自行解决网络访问;阿里 / 字节 / 智谱 / 月之暗面 / 深度求索国内直连。
-              </p>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ModelSupportHelpDialog open={open} onOpenChange={setOpen} />
     </>
   );
 };
