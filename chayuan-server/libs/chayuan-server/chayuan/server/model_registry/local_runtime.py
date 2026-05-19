@@ -328,6 +328,18 @@ class SidecarRuntimeManager:
     Plan 3B 已有的 ``capability`` / ``port_offset`` 等仍兼容。
     """
 
+    # ── process-wide port 分配状态 ─────────────────────────────────
+    # 原 _allocate_port 实现是 "bind 测试 → close → return port",bind 测试 close
+    # 后到 spawn 子进程之间有个 race window:另一个 mgr 并发 _allocate_port 也能
+    # bind 测试通过同一个 port → 两个 mgr 都把这个 port 当 endpoint 记下,但实际
+    # 只有先 spawn 的 sidecar 占住物理端口,后 spawn 的撞 EADDRINUSE 或更糟 —
+    # 调用方按 endpoint 拨号撞到错的 sidecar 拿到 FastAPI 404(asr 拨到 rerank
+    # 的 llama-server,/inference 没路由 → 404 "File Not Found")。
+    #
+    # 修法:lock + class-level reserved set,allocate 成功就占住,stop 时 release。
+    _PORT_LOCK: threading.Lock = threading.Lock()
+    _RESERVED_PORTS: t.Set[int] = set()
+
     def __init__(
         self,
         *,
@@ -340,6 +352,8 @@ class SidecarRuntimeManager:
         self.engine = engine
         self.capability = capability
         self.port_offset = port_offset
+        # 本 mgr 当前持有的 port reservation;stop 时 discard 让下个 cycle 能复用
+        self._allocated_port: Optional[int] = None
         self.settings_path = chayuan_root / "model_registry" / "local_runtime.yaml"
         self.status_path = chayuan_root / "runtime.json"
         self._settings = LocalRuntimeSettings.load(self.settings_path)
@@ -406,17 +420,42 @@ class SidecarRuntimeManager:
         """Deprecated: Plan 3C 起改用 find_server_exe();此 alias 留作向后兼容。"""
         return self.find_server_exe()
 
+    def _release_port_reservation(self) -> None:
+        """stop 时把本 mgr 占住的 port 从 _RESERVED_PORTS 移除,让下次 start
+        能复用。start 失败路径(spawn fail / health timeout)的清理走 _persist_status
+        前面那串 stop()-equivalent — 这里只管简单 case。
+        """
+        if self._allocated_port is None:
+            return
+        with SidecarRuntimeManager._PORT_LOCK:
+            SidecarRuntimeManager._RESERVED_PORTS.discard(self._allocated_port)
+        self._allocated_port = None
+
     def _allocate_port(self, *, preferred: int) -> int:
-        """从 preferred 开始往上找空闲端口 (上限 +20)"""
+        """从 preferred 开始往上找空闲端口 (上限 +20)。
+
+        process-wide:锁 _PORT_LOCK + 跳过 _RESERVED_PORTS,bind 测试通过
+        + 不在 reserved set 才 return,同时把 port 加进 reserved 集合 + 记到
+        self._allocated_port。stop() 时 discard 释放。
+
+        多 mgr 并发 start 时,即便两个 mgr 都从 62582 起 bump,先抢到 lock 的
+        把 62582 reserve 掉,另一个会直接跳到 62583 探测,不会得出"两个 mgr
+        都拿到 62586 当 endpoint"的错位。
+        """
         import socket
-        for offset in range(21):
-            port = preferred + offset
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                try:
-                    s.bind(("127.0.0.1", port))
-                    return port
-                except OSError:
+        with SidecarRuntimeManager._PORT_LOCK:
+            for offset in range(21):
+                port = preferred + offset
+                if port in SidecarRuntimeManager._RESERVED_PORTS:
                     continue
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    try:
+                        s.bind(("127.0.0.1", port))
+                    except OSError:
+                        continue
+                SidecarRuntimeManager._RESERVED_PORTS.add(port)
+                self._allocated_port = port
+                return port
         raise RuntimeError(f"没找到空闲端口 (从 {preferred} bump 了 20 次都被占)")
 
     async def start(self, *, model_id: str | None = None) -> RuntimeStatus:
@@ -502,6 +541,7 @@ class SidecarRuntimeManager:
         except Exception as e:
             self._status = RuntimeStatus(state="failed", last_error=f"spawn failed: {e}")
             self._persist_status()
+            self._release_port_reservation()
             return self._status
 
         proc = self._process  # snapshot:外部 stop() 会把 self._process 抢成 None,本地引用还能干净退出
@@ -533,6 +573,7 @@ class SidecarRuntimeManager:
                 )
                 self._process = None
                 self._persist_status()
+                self._release_port_reservation()
                 return self._status
             try:
                 resp = await _probe_health(f"{endpoint}{health_path}", timeout=2.0)
@@ -567,6 +608,7 @@ class SidecarRuntimeManager:
                 last_error=f"启动 {HEALTH_READY_TIMEOUT_SEC}s 内 {health_path} 没返 200",
             )
             self._persist_status()
+            self._release_port_reservation()
             return self._status
 
         if self._process is not proc:
@@ -609,6 +651,7 @@ class SidecarRuntimeManager:
         if self._process is None:
             self._status = RuntimeStatus(state="stopped")
             self._persist_status()
+            self._release_port_reservation()
             try:
                 _deregister_local_platform(capability=self.capability)
             except Exception as e:  # noqa: BLE001
@@ -629,6 +672,7 @@ class SidecarRuntimeManager:
             self._process = None
         self._status = RuntimeStatus(state="stopped")
         self._persist_status()
+        self._release_port_reservation()
         try:
             _deregister_local_platform(capability=self.capability)
         except Exception as e:  # noqa: BLE001
