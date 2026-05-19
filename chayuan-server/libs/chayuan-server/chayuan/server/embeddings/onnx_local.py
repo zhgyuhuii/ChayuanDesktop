@@ -59,9 +59,23 @@ class OnnxEmbeddings(Embeddings):
         self.model_dir = Path(model_dir)
         if not self.model_dir.is_dir():
             raise FileNotFoundError(f"ONNX embedding 目录不存在: {self.model_dir}")
-        if not (self.model_dir / "model.onnx").is_file():
+        # 找 onnx 文件:优先 <dir>/model.onnx (扁平结构),没有再扫 <dir>/onnx/ 子目录
+        # (HF BAAI/bge-m3 这种整仓结构会把 onnx 文件放在 onnx/ 子目录,根目录只有
+        #  tokenizer.json + config.json + safetensors)。按"量化版 → 默认 → fp16"
+        # 优先级选,量化版体积小推理快。
+        onnx_candidates = [
+            self.model_dir / "model.onnx",
+            self.model_dir / "onnx" / "model_quantized.onnx",
+            self.model_dir / "onnx" / "model_int8.onnx",
+            self.model_dir / "onnx" / "model.onnx",
+            self.model_dir / "onnx" / "model_fp16.onnx",
+        ]
+        self.onnx_path = next((p for p in onnx_candidates if p.is_file()), None)
+        if self.onnx_path is None:
             raise FileNotFoundError(
-                f"{self.model_dir}/model.onnx 缺失;参考 module docstring 准备权重。"
+                f"{self.model_dir} 下没找到 model.onnx (尝试过: "
+                f"{[str(p.relative_to(self.model_dir)) for p in onnx_candidates]});"
+                "参考 module docstring 准备权重。"
             )
         if not (self.model_dir / "tokenizer.json").is_file():
             raise FileNotFoundError(
@@ -95,7 +109,7 @@ class OnnxEmbeddings(Embeddings):
         sess_options.intra_op_num_threads = max(1, (os.cpu_count() or 4) // 2)
         sess_options.inter_op_num_threads = 1
         self._session = ort.InferenceSession(
-            str(self.model_dir / "model.onnx"),
+            str(self.onnx_path),
             sess_options=sess_options,
             providers=["CPUExecutionProvider"],
         )
@@ -103,8 +117,8 @@ class OnnxEmbeddings(Embeddings):
         # 不在 tokenizer 上设 padding/truncation:不同 transformer 模型需求不同,
         # 在 _encode 里按 max_seq_length 显式截断/补齐。
         logger.info(
-            "[OnnxEmbeddings] loaded model_dir=%s threads=%d",
-            self.model_dir, sess_options.intra_op_num_threads,
+            "[OnnxEmbeddings] loaded model_dir=%s onnx=%s threads=%d",
+            self.model_dir, self.onnx_path.name, sess_options.intra_op_num_threads,
         )
 
     # --------------------------------------------------------------------
@@ -177,32 +191,93 @@ _SINGLETON: Optional[OnnxEmbeddings] = None
 _SINGLETON_DIR: Optional[str] = None
 
 
+def _auto_discover_onnx_embed_dir() -> Optional[Path]:
+    """扫 ``<CHAYUAN_ROOT>/models/bundled/embedding/<repo>/`` 找可用 ONNX 仓库。
+
+    条件:
+      - ``<repo>/tokenizer.json`` 存在 (HF 整仓标准布局)
+      - 且 ``<repo>/model.onnx`` 或 ``<repo>/onnx/{model_quantized,model_int8,model,model_fp16}.onnx``
+        任一存在
+
+    第一个命中返目录路径 (指向 ``<repo>/``,具体 ONNX 文件由
+    ``OnnxEmbeddings.__init__`` 内部按优先级挑)。
+
+    扫不到返 None。
+    """
+    try:
+        from chayuan.server.model_registry.local_index import models_dir
+    except Exception:
+        return None
+    embed_root = models_dir() / "bundled" / "embedding"
+    if not embed_root.is_dir():
+        return None
+    for sub in sorted(embed_root.iterdir()):
+        if not sub.is_dir():
+            continue
+        if not (sub / "tokenizer.json").is_file():
+            continue
+        # 跟 OnnxEmbeddings.__init__ 的 onnx_candidates 保持同步
+        for rel in (
+            "model.onnx",
+            "onnx/model_quantized.onnx",
+            "onnx/model_int8.onnx",
+            "onnx/model.onnx",
+            "onnx/model_fp16.onnx",
+        ):
+            if (sub / rel).is_file():
+                return sub
+    return None
+
+
 def try_get_local_onnx_embeddings() -> Optional[OnnxEmbeddings]:
     """单机版默认 embedding 入口。
 
     探测顺序:
-    1. ``CHAYUAN_ONNX_EMBED_DIR`` 环境变量(优先;打包时由 launcher 注入)
-    2. (将来)``<sys._MEIPASS>/onnx_embed_default/`` PyInstaller 内置权重路径
-    3. (将来)``<CHAYUAN_ROOT>/models_cache/onnx_embed_default/`` 用户下载缓存
+    1. ``CHAYUAN_ONNX_EMBED_DIR`` 环境变量(显式,优先)
+    2. 自动扫 ``<CHAYUAN_ROOT>/models/bundled/embedding/<repo>/`` 找带 tokenizer.json
+       + model.onnx (含 onnx/ 子目录) 的目录
+    3. (将来)``<sys._MEIPASS>/onnx_embed_default/`` PyInstaller 内置权重路径
 
     任一命中且权重完整 → 返单例。全部不命中 → 返 ``None``,调用方走原路由
     (ollama / openai / localai 等 HTTP embedding)。
     """
     global _SINGLETON, _SINGLETON_DIR
-    env_dir = os.environ.get("CHAYUAN_ONNX_EMBED_DIR", "").strip()
-    if not env_dir:
-        return None
 
-    if _SINGLETON is not None and _SINGLETON_DIR == env_dir:
+    # 1. env 显式覆盖
+    env_dir = os.environ.get("CHAYUAN_ONNX_EMBED_DIR", "").strip()
+    if env_dir:
+        if _SINGLETON is not None and _SINGLETON_DIR == env_dir:
+            return _SINGLETON
+        try:
+            inst = OnnxEmbeddings(env_dir)
+            _SINGLETON = inst
+            _SINGLETON_DIR = env_dir
+            return inst
+        except FileNotFoundError as e:
+            logger.warning("[OnnxEmbeddings] CHAYUAN_ONNX_EMBED_DIR=%s 不可用: %s", env_dir, e)
+            # env 明确指了路径但不可用 → 不再 fallback 到 auto-discover,直接返 None
+            # (用户意图明确,不要悄悄换路径让人摸不着)
+            return None
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[OnnxEmbeddings] env-dir 实例化失败: %r", e)
+            return None
+
+    # 2. 自动扫描 bundled/embedding/<repo>/
+    auto_dir = _auto_discover_onnx_embed_dir()
+    if auto_dir is None:
+        return None
+    auto_key = str(auto_dir)
+    if _SINGLETON is not None and _SINGLETON_DIR == auto_key:
         return _SINGLETON
     try:
-        inst = OnnxEmbeddings(env_dir)
+        inst = OnnxEmbeddings(auto_dir)
         _SINGLETON = inst
-        _SINGLETON_DIR = env_dir
+        _SINGLETON_DIR = auto_key
+        logger.info("[OnnxEmbeddings] auto-discovered embedding dir: %s", auto_dir)
         return inst
     except FileNotFoundError as e:
-        logger.warning("[OnnxEmbeddings] CHAYUAN_ONNX_EMBED_DIR=%s 不可用: %s", env_dir, e)
+        logger.warning("[OnnxEmbeddings] auto-discover 命中 %s 但权重不完整: %s", auto_dir, e)
         return None
     except Exception as e:  # noqa: BLE001
-        logger.exception("[OnnxEmbeddings] 实例化失败: %r", e)
+        logger.exception("[OnnxEmbeddings] auto-discover 实例化失败: %r", e)
         return None
