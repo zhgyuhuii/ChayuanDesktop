@@ -17,6 +17,8 @@
  */
 import * as React from 'react';
 import {
+  ChevronDown,
+  ChevronRight,
   ClipboardList,
   CloudDownload,
   FileBarChart2,
@@ -130,6 +132,22 @@ export const LocalRuntimeServicesSection: React.FC = () => {
   const [chosen, setChosen] = React.useState<Partial<Record<LocalRuntimeCapability, string>>>({});
   const [diagnoseOpen, setDiagnoseOpen] = React.useState(false);
   const [callLogOpen, setCallLogOpen] = React.useState(false);
+  // 折叠状态:持久化在 localStorage,刷新后保留;默认展开。
+  // 已配云端模型可用的用户多半不需要看本地 sidecar 行,允许折叠减少干扰。
+  const [collapsed, setCollapsed] = React.useState<boolean>(() => {
+    try {
+      return localStorage.getItem('cy:local-runtime-section-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleCollapsed = React.useCallback(() => {
+    setCollapsed((v) => {
+      const next = !v;
+      try { localStorage.setItem('cy:local-runtime-section-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
   // 「下载模型」入口 — null 表示关闭;非 null 表示当前哪个 cap 在弹 Dialog
   const [installFor, setInstallFor] = React.useState<LocalRuntimeCapability | null>(null);
 
@@ -256,28 +274,46 @@ export const LocalRuntimeServicesSection: React.FC = () => {
       className="rounded-md border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] p-4 space-y-3"
     >
       <header className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-[var(--cy-text-primary)]">本地模型服务</h3>
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          className="-ml-1 flex items-center gap-1 rounded px-1 py-0.5 text-sm font-medium text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-1)]"
+          aria-expanded={!collapsed}
+          aria-controls="local-runtime-services-body"
+        >
+          {collapsed
+            ? <ChevronRight className="h-3.5 w-3.5 text-[var(--cy-text-tertiary)]" />
+            : <ChevronDown className="h-3.5 w-3.5 text-[var(--cy-text-tertiary)]" />}
+          本地模型服务
+        </button>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={onRefresh} disabled={modelsLoading}>
-            <RefreshCw className={'mr-1 h-3.5 w-3.5' + (modelsLoading ? ' animate-spin' : '')} />
-            刷新
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setCallLogOpen(true)}
-            title="查看语音识别 / OCR 最近调用日志"
-          >
-            <FileBarChart2 className="mr-1 h-3.5 w-3.5" />
-            调用日志
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setDiagnoseOpen(true)}>
-            <ClipboardList className="mr-1 h-3.5 w-3.5" />
-            诊断
-          </Button>
+          {/* 折叠后这些按钮没意义,隐藏避免误操作 */}
+          {!collapsed && (
+            <>
+              <Button size="sm" variant="outline" onClick={onRefresh} disabled={modelsLoading}>
+                <RefreshCw className={'mr-1 h-3.5 w-3.5' + (modelsLoading ? ' animate-spin' : '')} />
+                刷新
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setCallLogOpen(true)}
+                title="查看语音识别 / OCR 最近调用日志"
+              >
+                <FileBarChart2 className="mr-1 h-3.5 w-3.5" />
+                调用日志
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setDiagnoseOpen(true)}>
+                <ClipboardList className="mr-1 h-3.5 w-3.5" />
+                诊断
+              </Button>
+            </>
+          )}
         </div>
       </header>
 
+      {!collapsed && (
+      <div id="local-runtime-services-body" className="space-y-3">
       {modelsError && (
         <div className="rounded-sm border border-amber-400/40 bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
           模型清单加载失败:{modelsError} ·
@@ -365,6 +401,8 @@ export const LocalRuntimeServicesSection: React.FC = () => {
       )}
       <DiagnoseModal open={diagnoseOpen} onOpenChange={setDiagnoseOpen} />
       <CallLogDialog open={callLogOpen} onOpenChange={setCallLogOpen} />
+      </div>
+      )}
     </section>
   );
 };

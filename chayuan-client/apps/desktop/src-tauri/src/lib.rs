@@ -286,7 +286,9 @@ pub fn run() {
             let restart  = MenuItem::with_id(app, "restart",  "重启",         true, None::<&str>)?;
             let about    = MenuItem::with_id(app, "about",    "关于",         true, None::<&str>)?;
             let sep2     = PredefinedMenuItem::separator(app)?;
-            let quit     = MenuItem::with_id(app, "quit",     "退出",         true, None::<&str>)?;
+            // 标签明确告知用户后台服务也会一起停 — 避免误以为"退出"只是关窗口。
+            // (右上角 X 是关到托盘,不退程序;真退出由这条菜单触发。)
+            let quit     = MenuItem::with_id(app, "quit",     "退出并停止服务", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
                 &[&show, &new_chat, &sep1, &restart, &about, &sep2, &quit],
