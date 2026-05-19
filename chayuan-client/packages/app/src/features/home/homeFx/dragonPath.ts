@@ -49,6 +49,75 @@ function rand(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
+/**
+ * 盘旋上升路径 — 给凤凰用。
+ *
+ * 阶段分解:
+ *   1. 0~10%   入场:从屏底外缓缓上升到屏底中段(进入螺旋起点)
+ *   2. 10~88%  螺旋:绕屏幕中心 X 旋转 2.25 圈,半径从 vw*0.22 收紧到 vw*0.08,
+ *              y 从屏底 0.82 → 屏顶 0.14(整体盘升)
+ *   3. 88~100% 出场:从屏顶 0.14 直线飞出屏顶外
+ *
+ * 椭圆比 0.5:水平半径 vs 垂直半径,让螺旋看起来"前后透视"压扁,而不是
+ * 正圆 — 中国凤凰盘升通常画在卷轴里,卷轴是竖的,螺旋走的是椭圆。
+ */
+function makeSpiralUpPath(vw: number, vh: number, speedScale: number): FlightPath {
+  const cx = vw * 0.5;
+  // 随机给螺旋一个起始相位角,避免每次进入位置一样
+  const phase0 = rand(0, Math.PI * 2);
+  // 螺旋方向随机左右
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const turns = rand(2.0, 2.6);
+  const rMax = vw * rand(0.18, 0.24);
+  const rMin = vw * 0.07;
+  const ellipseY = 0.5; // y/x 比
+
+  const sampler = (t: number): Pt => {
+    if (t < 0.1) {
+      const u = t / 0.1;
+      const startX = cx + Math.cos(phase0) * rMax * dir;
+      return {
+        x: startX,
+        y: vh * 1.1 - u * (vh * 0.28),
+      };
+    }
+    if (t > 0.88) {
+      const u = (t - 0.88) / 0.12;
+      const endA = phase0 + Math.PI * 2 * turns * dir;
+      const endX = cx + Math.cos(endA) * rMin * dir;
+      return {
+        x: endX + (cx - endX) * u, // 收拢到中心
+        y: vh * 0.14 - u * (vh * 0.3),
+      };
+    }
+    const u = (t - 0.1) / 0.78;
+    const angle = phase0 + u * Math.PI * 2 * turns * dir;
+    const r = rMax - u * (rMax - rMin);
+    const yCenter = vh * 0.82 - u * (vh * 0.68);
+    return {
+      x: cx + Math.cos(angle) * r * dir,
+      y: yCenter + Math.sin(angle) * r * ellipseY,
+    };
+  };
+
+  const { table, totalLength } = buildArcLengthTable(sampler, 240);
+  const speed = rand(420, 540) * speedScale;
+  const durationSec = Math.max(9, Math.min(16, totalLength / speed));
+
+  return {
+    durationSec,
+    at(t: number) {
+      const tt = arcToT(table, totalLength, Math.max(0, Math.min(1, t)));
+      const p = sampler(tt);
+      const eps = 0.003;
+      const a = sampler(Math.max(0, tt - eps));
+      const b = sampler(Math.min(1, tt + eps));
+      const angle = Math.atan2(b.y - a.y, b.x - a.x);
+      return { x: p.x, y: p.y, angle };
+    },
+  };
+}
+
 /** 给路径采样并预算长度,便于 t 重映射成等速运动(避免速度忽快忽慢)。 */
 function buildArcLengthTable(
   sampler: (t: number) => Pt,
@@ -93,6 +162,12 @@ export interface FlightOpts {
   yBias?: number;
   /** 速度乘子,默认 1.0;凤凰用 1.15 略快 */
   speedScale?: number;
+  /**
+   * 路径模式:
+   *   - 'sweep'(默认):横向穿屏 + 可选中段盘旋
+   *   - 'spiral-up':从屏底中段切入,绕中心 2 圈半盘旋上升,屏顶离场
+   */
+  mode?: 'sweep' | 'spiral-up';
 }
 
 /**
@@ -110,6 +185,11 @@ export function makeFlightPath(
   const allowCoil = opts.allowCoil ?? true;
   const yBias = opts.yBias ?? 0.5;
   const speedScale = opts.speedScale ?? 1.0;
+  const mode = opts.mode ?? 'sweep';
+
+  if (mode === 'spiral-up') {
+    return makeSpiralUpPath(vw, vh, speedScale);
+  }
   // —— 1. 主航点(屏幕坐标系,原点左上)
   // yBias 控制入/出 y 的分布中心 — 凤凰高位(0.15)、龙居中(0.5)
   const yLow = Math.max(40, vh * (yBias - 0.18));

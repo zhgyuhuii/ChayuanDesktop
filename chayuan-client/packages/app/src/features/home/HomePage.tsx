@@ -222,9 +222,10 @@ export const HomePage: React.FC = () => {
   }, [flushPending, queueChunk]);
 
   return (
-    <div className="relative mx-auto flex h-full max-w-5xl flex-col gap-8 px-6 py-10 overflow-y-auto">
-      {/* 特效层 — 金龙穿屏盘旋 + 光影 sweep + 背景金粒。pointer-events:none,
-          不挡卡片点击。父容器加了 position:relative 才能正确定位。 */}
+    <div className="relative isolate mx-auto flex h-full max-w-5xl flex-col gap-8 px-6 py-10 overflow-y-auto">
+      {/* 特效层 — 金龙/凤凰/星空在背景层,内容卡片用 z-10 浮在上面不被遮。
+          isolate 强制 HomePage 创建 stacking context,让 fx 的 z:0 严格沉到
+          本页内容下方,不会跑到 sidebar/header 之上。 */}
       <HomeFxLayer />
 
       {/* ── 1. Greeting + 流式介绍气泡 ─────────────────────────── */}

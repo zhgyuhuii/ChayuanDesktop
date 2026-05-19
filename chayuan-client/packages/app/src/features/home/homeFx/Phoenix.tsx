@@ -1,19 +1,35 @@
 /**
- * 智灵鸟 — 一只金红凤凰滑翔而过。
+ * 智灵鸟 — 金色中国凤凰盘旋上升(写实级,2026-05-20)。
  *
- * 跟金龙的视觉差异
- * ----------------
- * 龙是"蛇形扭动 + 蜿蜒盘旋",凤凰走的是"展翅滑翔 + 拖尾翎羽飘动"。
- * 实现方式不一样:
- *   - 龙用 24 段铰链 follow-the-leader
- *   - 凤凰用 1 个核心鸟体 + 5 根独立 bezier 翎羽 + 2 翼 SMIL 拍翼
+ * 视觉升级
+ * --------
+ * 1. **9 条长尾羽**:替代旧版 5 根简单 bezier,改 9 根"燃烧飘带"风格,
+ *    每根末端有金色火星粒子粒子飘散,采样自 60 帧轨迹历史。
+ * 2. **多层羽翼**:每翼 5 根主翎 + 2 根副翎(覆翼),SMIL animateTransform
+ *    错相位拍翼,每根羽都是带羽轴(中线)+ 渐变的椭圆 path。
+ * 3. **火焰金冠**:头顶 5 缕火焰状羽,SMIL scale + opacity 闪烁,模拟金冠
+ *    跃动。
+ * 4. **金光眼**:radial gradient 内核 + Gaussian blur 光晕,瞳孔金黄,虹膜
+ *    呈金白色。
+ * 5. **嘶鸣张喙**:上下颚分离,喙内显发光声波弧。
  *
- * 出场频率:90~150s 一次,跟龙(60~110s)错开,避免两个主秀同框。
- * 飞行路径:大 S 弯,无盘旋,8~11s 一次。
+ * 飞行路径
+ * --------
+ * 走 ``dragonPath`` 的 ``spiral-up`` 模式:屏底入场 → 椭圆螺旋 2~2.5 圈
+ * 收紧上升 → 屏顶离场,9~16s 一程。每 90~150s 一次。
  */
 
 import * as React from 'react';
 import { makeFlightPath, type FlightPath } from './dragonPath';
+
+interface Spark {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  t: number;
+  r: number;
+}
 
 interface PhoenixProps {
   flightKey: number;
@@ -21,6 +37,11 @@ interface PhoenixProps {
   height: number;
   onFlightDone?: () => void;
 }
+
+// 尾羽扇角(9 根,弧度);中间 0,两侧 ±0.55
+const TAIL_FAN_RAD = [-0.55, -0.42, -0.28, -0.15, 0, 0.15, 0.28, 0.42, 0.55];
+// 主翼上下 5 根主翎的扇角(每翼)
+const WING_FAN_RAD = [-0.35, -0.18, 0, 0.18, 0.35];
 
 export const Phoenix: React.FC<PhoenixProps> = ({
   flightKey,
@@ -33,30 +54,30 @@ export const Phoenix: React.FC<PhoenixProps> = ({
   const pathRef = React.useRef<FlightPath | null>(null);
   const startRef = React.useRef(0);
   const rafRef = React.useRef<number | null>(null);
-  // 翎羽尾迹:5 根尾羽,每根记录最近 8 帧位置 → 平滑 bezier 拖尾
   const tailHistRef = React.useRef<Array<{ x: number; y: number; angle: number }>>([]);
+  const sparksRef = React.useRef<Spark[]>([]);
 
   React.useEffect(() => {
     if (reducedMotion) return;
     if (flightKey <= 0) return;
     if (width <= 0 || height <= 0) return;
 
-    // 凤凰用高位滑翔参数:不盘旋、yBias 0.15(贴近屏顶)、速度乘子 1.15
+    // 凤凰用盘旋上升路径
     pathRef.current = makeFlightPath(width, height, {
-      allowCoil: false,
-      yBias: 0.18,
-      speedScale: 1.15,
+      mode: 'spiral-up',
+      speedScale: 1.0,
     });
     startRef.current = performance.now();
     tailHistRef.current = [];
+    sparksRef.current = [];
 
     const path = pathRef.current;
-    // 凤凰速度比龙快一档,9~12s 飞完 → 路径时长按比例缩
-    const dur = Math.max(8, path.durationSec * 0.85) * 1000;
-    // 离场延长 — 翎羽要拖出屏外,凤凰比龙短(身体本就短)所以 900ms 够
+    const dur = path.durationSec * 1000;
     const exitState = path.at(1);
-    const EXIT_MS = 900;
-    const EXIT_VEL = 560;
+    const EXIT_MS = 1200;
+    const EXIT_VEL = 600;
+
+    let lastSpawnAt = 0;
 
     const loop = (now: number) => {
       if (document.hidden) {
@@ -73,7 +94,6 @@ export const Phoenix: React.FC<PhoenixProps> = ({
       } else {
         const extElapsed = elapsed - dur;
         if (extElapsed >= EXIT_MS) {
-          // 凤凰飞出去 — 清掉残留 path + 鸟体挪屏外
           clearPhoenixFromDom(svgRef.current);
           rafRef.current = null;
           onFlightDone?.();
@@ -88,9 +108,52 @@ export const Phoenix: React.FC<PhoenixProps> = ({
       }
 
       tailHistRef.current.push(head);
-      if (tailHistRef.current.length > 36) tailHistRef.current.shift();
+      if (tailHistRef.current.length > 60) tailHistRef.current.shift();
 
-      commitPhoenixToDom(svgRef.current, head, tailHistRef.current);
+      // —— 每 80ms 在 9 根尾羽末端随机一根产生 1~2 颗火星
+      if (now - lastSpawnAt > 80 && tailHistRef.current.length > 30) {
+        lastSpawnAt = now;
+        const sampleIdx = Math.max(0, tailHistRef.current.length - 1 - 28);
+        const tip = tailHistRef.current[sampleIdx];
+        if (tip) {
+          const sparkCount = 1 + Math.floor(Math.random() * 2);
+          for (let k = 0; k < sparkCount; k++) {
+            // 在 9 根尾羽末端随机选一根作为产生点
+            const fanIdx = Math.floor(Math.random() * TAIL_FAN_RAD.length);
+            const fan = TAIL_FAN_RAD[fanIdx]!;
+            // 相对头反方向 + fan 偏角的方向射出
+            const a = head.angle + Math.PI + fan;
+            const dist = 60 + Math.random() * 40;
+            const sx = head.x + Math.cos(a) * dist;
+            const sy = head.y + Math.sin(a) * dist;
+            sparksRef.current.push({
+              x: sx,
+              y: sy,
+              vx: Math.cos(a) * (20 + Math.random() * 40),
+              vy: Math.sin(a) * (20 + Math.random() * 40) + 30, // 略向下飘
+              t: now,
+              r: 1.5 + Math.random() * 2.5,
+            });
+          }
+        }
+      }
+
+      // 火星位置推进 + 过期清理(寿命 900ms)
+      const dt = 1 / 60; // 假设 60fps,粒子物理可容忍
+      sparksRef.current = sparksRef.current.filter((s) => now - s.t < 900);
+      for (const s of sparksRef.current) {
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.vy += 50 * dt; // 重力,模拟火星往下飘
+      }
+
+      commitPhoenixToDom(
+        svgRef.current,
+        head,
+        tailHistRef.current,
+        sparksRef.current,
+        now,
+      );
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
@@ -120,26 +183,51 @@ export const Phoenix: React.FC<PhoenixProps> = ({
       }}
     >
       <defs>
-        {/* 金红渐变 — 凤凰的"赤"调,头尾从亮金到深红 */}
+        {/* —— 主体金属金渐变,SMIL stop-offset 流转 */}
         <linearGradient id="ph-body" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#fff5c2">
-            <animate attributeName="offset" values="0%;30%;0%" dur="3.2s" repeatCount="indefinite" />
+          <stop offset="0%" stopColor="#fff8d0">
+            <animate attributeName="offset" values="0%;30%;0%" dur="2.8s" repeatCount="indefinite" />
           </stop>
-          <stop offset="40%" stopColor="#ffaa3a">
-            <animate attributeName="offset" values="40%;70%;40%" dur="3.2s" repeatCount="indefinite" />
+          <stop offset="35%" stopColor="#ffd75a">
+            <animate attributeName="offset" values="35%;65%;35%" dur="2.8s" repeatCount="indefinite" />
           </stop>
-          <stop offset="80%" stopColor="#d63b1a" />
-          <stop offset="100%" stopColor="#7a1208" />
+          <stop offset="65%" stopColor="#d4a72c" />
+          <stop offset="100%" stopColor="#5a3306" />
         </linearGradient>
+        {/* 翎羽渐变 — 根部深,中段亮金,尾端金白 */}
         <linearGradient id="ph-feather" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#ffd75a" stopOpacity="0.95" />
-          <stop offset="50%" stopColor="#ff7a1a" stopOpacity="0.7" />
-          <stop offset="100%" stopColor="#7a1208" stopOpacity="0" />
+          <stop offset="0%" stopColor="#5a3306" stopOpacity="0.95" />
+          <stop offset="30%" stopColor="#c08800" stopOpacity="0.92" />
+          <stop offset="60%" stopColor="#ffd75a" stopOpacity="0.95" />
+          <stop offset="100%" stopColor="#fff8d0" stopOpacity="0" />
         </linearGradient>
+        {/* 长尾飘带渐变 — 火焰感,头深尾淡 */}
+        <linearGradient id="ph-tail" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#ff9a1a" stopOpacity="0.95" />
+          <stop offset="40%" stopColor="#ffd75a" stopOpacity="0.85" />
+          <stop offset="80%" stopColor="#fff8d0" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="#fff8d0" stopOpacity="0" />
+        </linearGradient>
+        {/* 金眼 radial */}
+        <radialGradient id="ph-eye" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="30%" stopColor="#ffec80" />
+          <stop offset="60%" stopColor="#ff9a1a" />
+          <stop offset="100%" stopColor="#7a4a06" stopOpacity="0.6" />
+        </radialGradient>
+        {/* 火星粒子 */}
+        <radialGradient id="ph-spark" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="40%" stopColor="#ffd75a" stopOpacity="0.9" />
+          <stop offset="100%" stopColor="#ff6a1a" stopOpacity="0" />
+        </radialGradient>
+        {/* 三层辉光 */}
         <filter id="ph-glow" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="2.5" result="b1" />
-          <feGaussianBlur stdDeviation="7" result="b2" />
+          <feGaussianBlur stdDeviation="6" result="b2" />
+          <feGaussianBlur stdDeviation="12" result="b3" />
           <feMerge>
+            <feMergeNode in="b3" />
             <feMergeNode in="b2" />
             <feMergeNode in="b1" />
             <feMergeNode in="SourceGraphic" />
@@ -147,10 +235,13 @@ export const Phoenix: React.FC<PhoenixProps> = ({
         </filter>
       </defs>
 
-      {/* 拖尾翎羽 — 5 根 bezier,顺主翼后方流出 */}
+      {/* 9 条长尾飘带 — rAF 每帧重画 */}
       <g data-role="ph-tails" filter="url(#ph-glow)" />
 
-      {/* 主鸟体 */}
+      {/* 火星粒子层 */}
+      <g data-role="ph-sparks" filter="url(#ph-glow)" />
+
+      {/* 鸟体(头/身/翼/冠) */}
       <g data-role="ph-body" filter="url(#ph-glow)">
         <PhoenixBody />
       </g>
@@ -159,91 +250,213 @@ export const Phoenix: React.FC<PhoenixProps> = ({
 };
 
 // ──────────────────────────────────────────────────────────────
-// 凤凰躯干 — 头 + 身 + 双翼 + 颈冠
+// 凤凰躯干 — 多层羽翼 + 火焰金冠 + 金光眼 + 嘶鸣张喙
 // ──────────────────────────────────────────────────────────────
 
 const PhoenixBody: React.FC = () => (
   <>
-    {/* 双翼 — SMIL animateTransform 拍动 0.6s 一拍,起伏柔和 */}
+    {/* —— 上翼:5 根主翎 + 2 根副翎(覆翼) */}
     <g>
-      {/* 上翼(右翼) */}
-      <path
-        d="M 0,-2 Q -20,-30 -45,-22 Q -38,-12 -10,-6 Z"
-        fill="url(#ph-body)"
-        opacity="0.92"
-      >
-        <animateTransform
-          attributeName="transform"
-          type="rotate"
-          values="-8;-22;-8"
-          keyTimes="0;0.5;1"
-          dur="0.6s"
-          repeatCount="indefinite"
-          additive="sum"
-        />
-      </path>
-      {/* 下翼(左翼)— 比上翼略小,作错相位拍动 */}
-      <path
-        d="M 0,2 Q -20,30 -45,22 Q -38,12 -10,6 Z"
-        fill="url(#ph-body)"
-        opacity="0.92"
-      >
-        <animateTransform
-          attributeName="transform"
-          type="rotate"
-          values="8;22;8"
-          keyTimes="0;0.5;1"
-          dur="0.6s"
-          repeatCount="indefinite"
-          additive="sum"
-        />
-      </path>
+      <WingFeathers side={1} />
+    </g>
+    {/* —— 下翼:对称 */}
+    <g>
+      <WingFeathers side={-1} />
     </g>
 
-    {/* 身体椭圆 */}
-    <ellipse cx="0" cy="0" rx="18" ry="6" fill="url(#ph-body)" />
-    {/* 颈 */}
-    <path d="M 12,-3 Q 22,-8 26,-5" stroke="#d63b1a" strokeWidth="3" fill="none" strokeLinecap="round" />
-    {/* 头 */}
-    <circle cx="26" cy="-5" r="4.5" fill="url(#ph-body)" />
-    {/* 喙 */}
-    <path d="M 30,-5 L 35,-4 L 30,-2.5 Z" fill="#7a4a06" />
-    {/* 眼 */}
-    <circle cx="27" cy="-6" r="1.1" fill="#fff5c2" />
-    <circle cx="27.2" cy="-6" r="0.5" fill="#1a0d00" />
-    {/* 头顶冠羽 — 3 缕飘动 */}
+    {/* —— 身体椭圆 */}
+    <ellipse cx="0" cy="0" rx="14" ry="5.5" fill="url(#ph-body)" />
+    {/* 胸前金光高光 */}
+    <ellipse cx="-2" cy="2" rx="9" ry="2.5" fill="#fff8d0" opacity="0.55" />
+
+    {/* —— 颈 + 头 */}
+    <path d="M 11,-4 Q 22,-8 26,-4" stroke="#d4a72c" strokeWidth="3.5" fill="none" strokeLinecap="round" />
+    <circle cx="26" cy="-4" r="5" fill="url(#ph-body)" />
+    <circle cx="26" cy="-4" r="5" fill="none" stroke="#7a4a06" strokeWidth="0.6" opacity="0.7" />
+
+    {/* —— 火焰金冠 5 缕(头顶向上,SMIL 闪烁) */}
+    <FlameCrown />
+
+    {/* —— 嘶鸣张喙(上下颚分离) */}
     <path
-      d="M 22,-9 Q 22,-18 18,-22 Q 16,-20 19,-12"
-      fill="url(#ph-feather)"
-      opacity="0.9"
+      d="M 30,-5 L 36,-3.5 L 32,-2.5 Z"
+      fill="#d4a72c"
+      stroke="#5a3306"
+      strokeWidth="0.4"
     />
     <path
-      d="M 24,-9 Q 25,-20 22,-26"
-      stroke="#ffd75a"
-      strokeWidth="1.4"
+      d="M 30,-2 L 36,-0.5 L 32,0.5 Z"
+      fill="#d4a72c"
+      stroke="#5a3306"
+      strokeWidth="0.4"
+    >
+      <animateTransform
+        attributeName="transform"
+        type="rotate"
+        values="0 30 -2; 10 30 -2; 0 30 -2"
+        dur="1.8s"
+        repeatCount="indefinite"
+      />
+    </path>
+    {/* 嘴内发光声波弧 */}
+    <path
+      d="M 32,-1.5 Q 38,-1 36,2"
+      stroke="#fff8d0"
+      strokeWidth="0.8"
       fill="none"
-      strokeLinecap="round"
-      opacity="0.85"
-    />
-    <path
-      d="M 26,-9 Q 28,-18 26,-24"
-      stroke="#ff7a1a"
-      strokeWidth="1.2"
-      fill="none"
-      strokeLinecap="round"
-      opacity="0.85"
-    />
+      opacity="0.5"
+    >
+      <animate attributeName="opacity" values="0;0.7;0" dur="1.8s" repeatCount="indefinite" />
+    </path>
+
+    {/* —— 金光眼:radial 内核 + 黑瞳点 + 高光 */}
+    <circle cx="26.5" cy="-5.5" r="1.9" fill="url(#ph-eye)" />
+    <circle cx="26.5" cy="-5.5" r="2.4" fill="url(#ph-eye)" opacity="0.55">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="2s" repeatCount="indefinite" />
+    </circle>
+    <circle cx="26.5" cy="-5.5" r="0.8" fill="#1a0d00" />
+    <circle cx="27" cy="-5.9" r="0.4" fill="#fff" />
   </>
 );
 
+// 单翼:5 根主翎 + 2 根副翎(覆翼根部小羽)
+const WingFeathers: React.FC<{ side: 1 | -1 }> = ({ side }) => {
+  const flapBegin = side === 1 ? '0s' : '0.08s';
+  return (
+    <g>
+      {/* 拍翼整体动画 — 主翼根部为旋转中心,大幅扇动 */}
+      <animateTransform
+        attributeName="transform"
+        type="rotate"
+        values={side === 1 ? '-6;-30;-6' : '6;30;6'}
+        keyTimes="0;0.5;1"
+        dur="0.7s"
+        repeatCount="indefinite"
+        begin={flapBegin}
+      />
+      {/* 5 根主翎 — 长椭圆 + 中线羽轴 */}
+      {WING_FAN_RAD.map((fan, i) => {
+        // 翼根 (0, 0),朝身体上/下方按 side 散开
+        // 每根羽长度 32~38,根据 fan 调整,中间最长
+        const len = 38 - Math.abs(fan) * 14;
+        const aa = side * (Math.PI / 2 + fan); // 上翼朝 -y,下翼朝 +y
+        const tipX = Math.cos(aa) * len;
+        const tipY = Math.sin(aa) * len;
+        const midX = Math.cos(aa) * len * 0.55;
+        const midY = Math.sin(aa) * len * 0.55;
+        const ctrlOffset = side * 5;
+        const perpA = aa + Math.PI / 2;
+        const ctrlX = midX + Math.cos(perpA) * ctrlOffset;
+        const ctrlY = midY + Math.sin(perpA) * ctrlOffset;
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 数量固定
+          <g key={i}>
+            {/* 羽片(椭圆 path) */}
+            <path
+              d={`M 0,0 Q ${ctrlX.toFixed(1)},${ctrlY.toFixed(1)} ${tipX.toFixed(1)},${tipY.toFixed(1)}`}
+              stroke="url(#ph-feather)"
+              strokeWidth={6 - Math.abs(fan) * 2}
+              strokeLinecap="round"
+              fill="none"
+            />
+            {/* 羽轴中线 */}
+            <path
+              d={`M 0,0 L ${tipX.toFixed(1)},${tipY.toFixed(1)}`}
+              stroke="#7a4a06"
+              strokeWidth="0.4"
+              opacity="0.85"
+            />
+          </g>
+        );
+      })}
+      {/* 2 根副翎覆翼(根部短羽) */}
+      {[-0.25, 0.25].map((fan, i) => {
+        const len = 16;
+        const aa = side * (Math.PI / 2 + fan);
+        const tipX = Math.cos(aa) * len;
+        const tipY = Math.sin(aa) * len;
+        return (
+          <path
+            // biome-ignore lint/suspicious/noArrayIndexKey: 固定 2 根
+            key={`cov-${i}`}
+            d={`M ${(-Math.cos(aa) * 3).toFixed(1)},${(-Math.sin(aa) * 3).toFixed(1)} Q ${(tipX * 0.5).toFixed(1)},${(tipY * 0.5 + side * 3).toFixed(1)} ${tipX.toFixed(1)},${tipY.toFixed(1)}`}
+            stroke="url(#ph-feather)"
+            strokeWidth="3"
+            strokeLinecap="round"
+            fill="none"
+            opacity="0.85"
+          />
+        );
+      })}
+    </g>
+  );
+};
+
+// 头顶火焰金冠 — 5 缕火焰状羽,scale + opacity SMIL 跳动
+const FlameCrown: React.FC = () => {
+  const flames: Array<{ angle: number; len: number; w: number; delay: number }> = [
+    { angle: -Math.PI * 0.6, len: 12, w: 3, delay: 0 },
+    { angle: -Math.PI * 0.5, len: 16, w: 3.5, delay: 0.18 },
+    { angle: -Math.PI * 0.42, len: 14, w: 3, delay: 0.36 },
+    { angle: -Math.PI * 0.34, len: 10, w: 2.5, delay: 0.5 },
+    { angle: -Math.PI * 0.7, len: 9, w: 2.3, delay: 0.62 },
+  ];
+  return (
+    <g transform="translate(26 -4)">
+      {flames.map((f, i) => {
+        const tipX = Math.cos(f.angle) * f.len;
+        const tipY = Math.sin(f.angle) * f.len;
+        const midX = Math.cos(f.angle) * f.len * 0.55;
+        const midY = Math.sin(f.angle) * f.len * 0.55;
+        const perpA = f.angle + Math.PI / 2;
+        const ctrlOff = 2;
+        const cLX = midX + Math.cos(perpA) * ctrlOff;
+        const cLY = midY + Math.sin(perpA) * ctrlOff;
+        const cRX = midX - Math.cos(perpA) * ctrlOff;
+        const cRY = midY - Math.sin(perpA) * ctrlOff;
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 5 缕固定
+          <g key={i}>
+            <path
+              d={`M ${(-Math.cos(perpA) * f.w).toFixed(1)},${(-Math.sin(perpA) * f.w).toFixed(1)} Q ${cLX.toFixed(1)},${cLY.toFixed(1)} ${tipX.toFixed(1)},${tipY.toFixed(1)} Q ${cRX.toFixed(1)},${cRY.toFixed(1)} ${(Math.cos(perpA) * f.w).toFixed(1)},${(Math.sin(perpA) * f.w).toFixed(1)} Z`}
+              fill="url(#ph-tail)"
+              opacity="0.9"
+            >
+              <animateTransform
+                attributeName="transform"
+                type="scale"
+                values="1 0.85; 1 1.1; 1 0.92"
+                keyTimes="0;0.5;1"
+                dur="0.9s"
+                begin={`${f.delay}s`}
+                repeatCount="indefinite"
+                additive="sum"
+              />
+              <animate
+                attributeName="opacity"
+                values="0.7;1;0.7"
+                dur="0.9s"
+                begin={`${f.delay}s`}
+                repeatCount="indefinite"
+              />
+            </path>
+          </g>
+        );
+      })}
+    </g>
+  );
+};
+
 // ──────────────────────────────────────────────────────────────
-// DOM commit — 主鸟体定位 + 5 根尾羽 bezier 跟随历史轨迹
+// DOM commit — 主体定位 + 9 尾羽 + 火星粒子
 // ──────────────────────────────────────────────────────────────
 
 function commitPhoenixToDom(
   svg: SVGSVGElement | null,
   head: { x: number; y: number; angle: number },
   history: Array<{ x: number; y: number; angle: number }>,
+  sparks: Spark[],
+  now: number,
 ): void {
   if (!svg) return;
 
@@ -255,53 +468,76 @@ function commitPhoenixToDom(
     );
   }
 
+  // —— 9 条长尾飘带
   const tails = svg.querySelector<SVGGElement>('g[data-role="ph-tails"]');
-  if (!tails) return;
-  while (tails.firstChild) tails.removeChild(tails.firstChild);
-  if (history.length < 3) return;
+  if (tails) {
+    while (tails.firstChild) tails.removeChild(tails.firstChild);
+    if (history.length >= 5) {
+      const cos = Math.cos(head.angle);
+      const sin = Math.sin(head.angle);
+      // 尾根:身体尾部(-14 沿头方向,即 -tangent 14)
+      const tailRootOffset = -14;
+      const rootX = head.x + cos * tailRootOffset;
+      const rootY = head.y + sin * tailRootOffset;
 
-  // 5 根尾羽,从尾根向后散开 ±25° 一根
-  // 每根用 quadratic bezier:控制点 = 尾根 + 法向偏移,终点 = history 取样点
-  const fanAngles = [-0.4, -0.2, 0, 0.2, 0.4]; // radians
-  const tailRootOffset = -16; // 尾根在 body 正后方 16 px
-  for (let i = 0; i < fanAngles.length; i++) {
-    const fan = fanAngles[i]!;
-    // 取历史不同距离的点 — 短的尾羽用近期采样,长的用更早采样
-    const sampleIdx = Math.max(
-      0,
-      Math.floor(history.length - 1 - (5 - i) * (history.length / 9)),
-    );
-    const sample = history[sampleIdx];
-    if (!sample) continue;
-    const cos = Math.cos(head.angle);
-    const sin = Math.sin(head.angle);
-    const rootX = head.x + cos * tailRootOffset;
-    const rootY = head.y + sin * tailRootOffset;
-    // 中间控制点:从尾根沿法向偏,加一个垂直 fan 角度偏移
-    const ctrlOffset = 30;
-    const fa = head.angle + Math.PI + fan;
-    const ctrlX = rootX + Math.cos(fa) * ctrlOffset;
-    const ctrlY = rootY + Math.sin(fa) * ctrlOffset;
-    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    p.setAttribute(
-      'd',
-      `M ${rootX.toFixed(1)},${rootY.toFixed(1)} Q ${ctrlX.toFixed(1)},${ctrlY.toFixed(1)} ${sample.x.toFixed(1)},${sample.y.toFixed(1)}`,
-    );
-    p.setAttribute('stroke', 'url(#ph-feather)');
-    p.setAttribute('stroke-width', String(2.4 + i * 0.4));
-    p.setAttribute('stroke-linecap', 'round');
-    p.setAttribute('fill', 'none');
-    p.setAttribute('opacity', String(0.55 + i * 0.08));
-    tails.appendChild(p);
+      for (let i = 0; i < TAIL_FAN_RAD.length; i++) {
+        const fan = TAIL_FAN_RAD[i]!;
+        // 9 根尾羽长度不一,中间最长,两侧短
+        const lengthRatio = 1 - Math.abs(fan) / 0.7;
+        const histIdx = Math.max(
+          0,
+          Math.floor(history.length - 1 - 8 - lengthRatio * (history.length - 12)),
+        );
+        const sample = history[histIdx];
+        if (!sample) continue;
+
+        // 中段控制点:沿头反方向 + fan 横偏,模拟羽中弯
+        const ctrlOffset = 48 + lengthRatio * 30;
+        const fa = head.angle + Math.PI + fan;
+        const ctrlX = rootX + Math.cos(fa) * ctrlOffset;
+        const ctrlY = rootY + Math.sin(fa) * ctrlOffset;
+        // 第二段控制点:取历史更早的点,实现"尾飘带"二次弯
+        const histIdx2 = Math.max(0, histIdx - 8);
+        const sample2 = history[histIdx2] ?? sample;
+
+        const d = `M ${rootX.toFixed(1)},${rootY.toFixed(1)} Q ${ctrlX.toFixed(1)},${ctrlY.toFixed(1)} ${sample2.x.toFixed(1)},${sample2.y.toFixed(1)} T ${sample.x.toFixed(1)},${sample.y.toFixed(1)}`;
+        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('d', d);
+        p.setAttribute('stroke', 'url(#ph-tail)');
+        p.setAttribute('stroke-width', String(3.5 + lengthRatio * 2));
+        p.setAttribute('stroke-linecap', 'round');
+        p.setAttribute('fill', 'none');
+        p.setAttribute('opacity', String(0.6 + lengthRatio * 0.3));
+        tails.appendChild(p);
+      }
+    }
+  }
+
+  // —— 火星粒子
+  const sparksGroup = svg.querySelector<SVGGElement>('g[data-role="ph-sparks"]');
+  if (sparksGroup) {
+    while (sparksGroup.firstChild) sparksGroup.removeChild(sparksGroup.firstChild);
+    for (const s of sparks) {
+      const age = (now - s.t) / 900; // 0..1
+      const op = (1 - age) * 0.95;
+      const r = s.r * (1 - age * 0.3);
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('cx', s.x.toFixed(1));
+      c.setAttribute('cy', s.y.toFixed(1));
+      c.setAttribute('r', r.toFixed(2));
+      c.setAttribute('fill', 'url(#ph-spark)');
+      c.setAttribute('opacity', op.toFixed(2));
+      sparksGroup.appendChild(c);
+    }
   }
 }
 
 function clearPhoenixFromDom(svg: SVGSVGElement | null): void {
   if (!svg) return;
-  // 翎羽尾迹 — 每帧重画,直接清掉
   const tails = svg.querySelector<SVGGElement>('g[data-role="ph-tails"]');
   if (tails) while (tails.firstChild) tails.removeChild(tails.firstChild);
-  // 鸟体挪到屏外,下次飞行第一帧 commit 会重设 transform
+  const sparks = svg.querySelector<SVGGElement>('g[data-role="ph-sparks"]');
+  if (sparks) while (sparks.firstChild) sparks.removeChild(sparks.firstChild);
   const body = svg.querySelector<SVGGElement>('g[data-role="ph-body"]');
   body?.setAttribute('transform', 'translate(-9999 -9999)');
 }

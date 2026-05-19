@@ -1,31 +1,27 @@
 /**
- * 主页特效层 — 浮在内容之上、不挡点击的 overlay。
+ * 主页特效层 — 全屏游动,但**叠在内容之下**不遮按钮。
  *
- * 全屏定位 (2026-05-20)
- * --------------------
- * 关键改动:用 ``createPortal`` 把整层挂到 ``document.body``,自身
- * ``position: fixed; inset: 0`` 全视口铺开。
+ * z 分层 (2026-05-20)
+ * -------------------
+ * 用户要求:特效全屏可见 + 不能盖住可点击的卡片/按钮。
  *
- * 为什么不再嵌进 HomePage section
- * --------------------------------
- * HomePage 容器 ``max-w-5xl mx-auto`` 居中,宽度被夹到 ~1024px;
- * 嵌进去的 HomeFxLayer 只能在这个窄列里飞,龙跟凤凰看起来"困在罐子里"。
- * 走 Portal + fixed 之后,坐标系直接是 viewport,龙能横穿整个屏幕 —
- * 包括 sidebar 和 header 之上 (mix-blend-mode:screen 让金光跟下方
- * 内容自然融合,没遮挡)。
+ * 实现:特效层**内嵌**在 HomePage 容器里(不 Portal),自身 ``position: fixed
+ * inset:0`` 覆盖整个 viewport(摆脱 max-w-5xl 宽度夹持),但 ``z-index: 0``;
+ * HomePage 容器加 Tailwind ``isolate`` 强制创建 stacking context — 这样:
+ *   - 卡片/按钮 ``relative z-10`` 永远在 fx 上方 → 不被覆盖
+ *   - fx 自身仍能横穿整个屏幕(fixed 定位逃出 max-w-5xl)
  *
- * Portal 还顺手解决了 stacking context 的隐患 — HomePage 任何祖先
- * 套上 ``transform`` / ``filter`` / ``will-change`` 都不会再把 fixed
- * "拉回"到祖先空间。
+ * 卡片本身有不透明背景,所以龙游过卡片下方时被"挡住"是预期效果 —
+ * 用户在卡片间的空隙、页面边距、底部空白处看到龙金光闪过。
  *
  * 装载内容
  * -------
- * 1. **AuspiciousClouds**:祥云 3 朵漂移
- * 2. **AmbientParticles**:背景金粒缓升 12 颗
- * 3. **LightSweep**:斜光带 38s 周期
- * 4. **MagpieFlock**:喜鹊 V 字编队 30~50s 一次
- * 5. **GoldDragon**:中国龙穿屏盘旋 60~110s 一次
- * 6. **Phoenix**:智灵鸟高位滑翔 90~150s 一次
+ * 1. AuspiciousClouds:祥云漂移
+ * 2. AmbientParticles:背景金粒缓升
+ * 3. LightSweep:斜光带 38s 周期
+ * 4. MagpieFlock:喜鹊 V 字编队
+ * 5. GoldDragon:中国龙穿屏盘旋
+ * 6. Phoenix:凤凰螺旋上升
  *
  * 性能
  * ----
@@ -34,11 +30,11 @@
  */
 
 import * as React from 'react';
-import { createPortal } from 'react-dom';
 import { GoldDragon } from './GoldDragon';
 import { MagpieFlock } from './MagpieFlock';
 import { Phoenix } from './Phoenix';
 import { AuspiciousClouds } from './AuspiciousClouds';
+import { StarrySky } from './StarrySky';
 
 export const HomeFxLayer: React.FC = () => {
   const [size, setSize] = React.useState(() => ({
@@ -47,12 +43,6 @@ export const HomeFxLayer: React.FC = () => {
   }));
   const [dragonKey, setDragonKey] = React.useState(0);
   const [phoenixKey, setPhoenixKey] = React.useState(0);
-  const [mounted, setMounted] = React.useState(false);
-
-  // —— 仅在浏览器侧 mount 后启用 Portal (SSR 安全)
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // —— 视口尺寸:用 window 而非 ResizeObserver,确保跟 fixed inset:0 一致
   React.useEffect(() => {
@@ -84,9 +74,7 @@ export const HomeFxLayer: React.FC = () => {
     setTimeout(() => setPhoenixKey((n) => n + 1), next);
   }, []);
 
-  if (!mounted) return null;
-
-  const overlay = (
+  return (
     <div
       aria-hidden
       style={{
@@ -94,10 +82,14 @@ export const HomeFxLayer: React.FC = () => {
         inset: 0,
         pointerEvents: 'none',
         overflow: 'hidden',
-        // 在 sidebar(z 一般 30)/ 内容之上,modal/dialog(50+)之下
-        zIndex: 40,
+        // z:0 = HomePage 内嵌 isolate 上下文里的底层;卡片 relative z-10 永远
+        // 浮在上面。卡片自身的不透明背景会"挡住"经过下方的龙身/凤翼,只在
+        // 卡片之间的空隙和页面边距处看到金光闪过。
+        zIndex: 0,
       }}
     >
+      {/* 星空在最底层 — 满屏 4 角星 + 银河斜带,作"宇宙背景" */}
+      <StarrySky />
       <AuspiciousClouds />
       <AmbientParticles />
       <LightSweep />
@@ -120,8 +112,6 @@ export const HomeFxLayer: React.FC = () => {
       )}
     </div>
   );
-
-  return createPortal(overlay, document.body);
 };
 
 // ──────────────────────────────────────────────────────────────
