@@ -54,6 +54,8 @@ export interface ChatComposerProps {
   onStop?: () => void;
   onPickFile?: () => void;
   onPickImage?: () => void;
+  /** ASR 模式专用音频文件选择;不提供时 ASR 模式下 Paperclip 回退到 onPickFile */
+  onPickAudio?: () => void;
   onScreenshot?: () => void;
   onMicrophone?: () => void;
   /** 顶行附加内容(附件预览 / 已选工具数等) */
@@ -86,6 +88,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   onStop,
   onPickFile,
   onPickImage,
+  onPickAudio,
   onScreenshot,
   onMicrophone,
   topSlot,
@@ -110,6 +113,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const selectedKuCount = useComposerS((s) => s.selectedKuIds.length);
   // 检查当前附件中有几张图,给 image_edit 模式判"必填参考图"用
   const imageAttachmentCount = useComposerS((s) => s.attachments.filter((a) => a.type === 'image').length);
+  // ASR 模式判"必填音频"用
+  const audioAttachmentCount = useComposerS((s) => s.attachments.filter((a) => a.type === 'audio').length);
   const taRef = React.useRef<HTMLTextAreaElement>(null);
   const composingRef = React.useRef(false);
   // 用 store 实例引用,避免 onPartial 回调中的 stale closure
@@ -209,7 +214,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     // 从 store 实时读 draft,而不是闭包 — 录音发送链路里 setDraft(transcript)
     // 后立即调 submit,React 还没 rerender,闭包的 draft 还是旧空值会 early return。
     const text = composerStore.getState().draft.trim();
-    if (!text || isStreaming) return;
+    if (isStreaming) return;
+    // ASR 模式允许空 prompt(音频本身就是输入,prompt 只是可选热词);其它模式仍要求非空
+    const allowEmpty = composerMode.attachmentRule === 'required-audio';
+    if (!text && !allowEmpty) return;
     // 行业惯例(ChatGPT / Claude / Cursor):点发送立刻清空输入框 + 让消息进列表,
     // SSE 流式由 onSend 在后台跑。之前 await onSend 完才 setDraft 会让用户在
     // 整段流式期间看见输入框还有内容,体验割裂。
@@ -343,7 +351,24 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
               <Scissors className="h-4 w-4" />
             </IconBtn>
           )}
-          <IconBtn aria-label={t('chat.uploadFile')} title={t('chat.uploadFile')} onClick={onPickFile}>
+          <IconBtn
+            aria-label={
+              composerMode.attachmentRule === 'required-audio'
+                ? '选择音频文件'
+                : t('chat.uploadFile')
+            }
+            title={
+              composerMode.attachmentRule === 'required-audio'
+                ? '选择要转写的音频文件(mp3 / wav / m4a / ogg / opus)'
+                : t('chat.uploadFile')
+            }
+            onClick={
+              // ASR 模式优先走音频专属 picker(accept=audio/*);未提供时回退普通 file picker
+              composerMode.attachmentRule === 'required-audio' && onPickAudio
+                ? onPickAudio
+                : onPickFile
+            }
+          >
             <Paperclip className="h-4 w-4" />
           </IconBtn>
           <IconBtn aria-label={t('chat.uploadImage')} title={t('chat.uploadImage')} onClick={onPickImage}>
@@ -384,6 +409,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
               draft={draft}
               composerMode={composerMode}
               imageAttachmentCount={imageAttachmentCount}
+              audioAttachmentCount={audioAttachmentCount}
               onClick={() => void submit()}
               chatSendLabel={t('chat.send')}
             />
@@ -405,6 +431,7 @@ interface SendButtonProps {
   draft: string;
   composerMode: ReturnType<typeof getComposerMode>;
   imageAttachmentCount: number;
+  audioAttachmentCount: number;
   chatSendLabel: string;
   onClick: () => void;
 }
@@ -412,16 +439,27 @@ interface SendButtonProps {
 /**
  * 发送按钮 — 把"何时禁用 / 鼠标悬浮提示什么 / 哪种模式叫什么"全收敛进来,
  * 避免 ChatComposer 主体里再写一坨条件 JSX 引起 parse 歧义。
+ *
+ * ASR 模式特别处理:文本框可以为空(prompt 只是给上游可选的"专业术语提示",
+ * 没有它也能跑),所以不靠 draft 判禁用,只靠"是否已选音频"。
  */
 const SendButton: React.FC<SendButtonProps> = ({
-  draft, composerMode, imageAttachmentCount, chatSendLabel, onClick,
+  draft, composerMode, imageAttachmentCount, audioAttachmentCount, chatSendLabel, onClick,
 }) => {
   const needsImage =
     composerMode.attachmentRule === 'required-image' && imageAttachmentCount === 0;
-  const blocked = !draft.trim() || needsImage;
+  const needsAudio =
+    composerMode.attachmentRule === 'required-audio' && audioAttachmentCount === 0;
+  const draftEmpty = !draft.trim();
+  // ASR 模式不要求 prompt;其它模式要求 prompt 非空
+  const blocked = needsImage || needsAudio || (
+    composerMode.attachmentRule !== 'required-audio' && draftEmpty
+  );
   const title = needsImage
     ? '请先上传参考图,再点发送'
-    : (composerMode.capability === 'chat' ? chatSendLabel : composerMode.submitLabel);
+    : needsAudio
+      ? '请先选择要转写的音频文件,再点发送'
+      : (composerMode.capability === 'chat' ? chatSendLabel : composerMode.submitLabel);
   return (
     <button
       type="button"

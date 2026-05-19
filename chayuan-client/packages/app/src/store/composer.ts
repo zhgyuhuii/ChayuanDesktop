@@ -20,7 +20,7 @@ export interface AttachmentDraft {
   name: string;
   size: number;
   mime: string;
-  type: 'file' | 'image';
+  type: 'file' | 'image' | 'audio';
   previewUrl?: string;
   fileChatId?: string;
   remoteUrl?: string;

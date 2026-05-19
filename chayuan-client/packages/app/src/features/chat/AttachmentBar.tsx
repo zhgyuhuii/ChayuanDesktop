@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { X, FileText, ImageIcon, Loader2, AlertCircle } from 'lucide-react';
+import { X, FileText, ImageIcon, Loader2, AlertCircle, Music } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import type { AttachmentDraft } from '../../store/composer';
 
@@ -33,6 +33,8 @@ export const AttachmentBar: React.FC<AttachmentBarProps> = ({ items, onRemove })
             />
           ) : a.type === 'image' ? (
             <ImageIcon className="h-4 w-4 text-muted-foreground" />
+          ) : a.type === 'audio' ? (
+            <Music className="h-4 w-4 text-cyan-600" />
           ) : (
             <FileText className="h-4 w-4 text-muted-foreground" />
           )}

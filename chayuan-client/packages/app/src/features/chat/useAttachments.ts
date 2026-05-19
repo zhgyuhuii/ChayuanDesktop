@@ -28,10 +28,15 @@ export function useAttachments(): {
   attachments: AttachmentDraft[];
   pickFiles(opts?: { accept?: string | string[]; multiple?: boolean }): Promise<void>;
   pickImages(): Promise<void>;
+  /** ASR 模式专用 — 单个音频文件,本地暂存为 blob URL,送 modality 时 base64 出去。
+   *  不走 /v1/files 上传(后端 ASR 链路 _resolve_local_audio 期望 artifacts URL,
+   *  浏览器 blob URL 后端读不到 → 在 ConversationView 送之前 fetch 转 base64)。 */
+  pickAudio(): Promise<void>;
   /** 编程入口:外部已经拿到 File[] 时(截图 / 粘贴 / 跨组件传递),
    *  直接走 useAttachments 内部 upload 管线 — 无需 picker。 */
   addImages(items: File[]): Promise<void>;
   addFiles(items: File[]): Promise<void>;
+  addAudio(items: File[]): Promise<void>;
   acceptDrop(event: React.DragEvent): Promise<void>;
   remove(id: string): void;
   reset(): void;
@@ -47,14 +52,15 @@ export function useAttachments(): {
     composer.setState({ fileChatId: id });
 
   const upload = React.useCallback(
-    async (kind: 'file' | 'image', items: File[]) => {
+    async (kind: 'file' | 'image' | 'audio', items: File[]) => {
       const drafts: AttachmentDraft[] = items.map((f) => ({
         id: uuid(),
         name: f.name,
         size: f.size,
         mime: f.type,
         type: kind,
-        previewUrl: kind === 'image' ? URL.createObjectURL(f) : undefined,
+        previewUrl:
+          kind === 'image' || kind === 'audio' ? URL.createObjectURL(f) : undefined,
         status: 'uploading',
       }));
       for (const d of drafts) upsert(d);
@@ -132,6 +138,16 @@ export function useAttachments(): {
         return;
       }
 
+      if (kind === 'audio') {
+        // ASR 模式专用 — 不走 /v1/files(后端 ASR 链路 _resolve_local_audio
+        // 只识别 /v1/artifacts/<sha>;浏览器 blob URL 后端读不到)。这里只本地
+        // 暂存:UI 用 previewUrl(blob:) 渲染附件条;发送时 ConversationView
+        // fetch(blob URL) → arrayBuffer → base64 走 modality_attachments 通道,
+        // 后端解码落 artifacts 后再注入 GenerateReq.attachments。
+        for (const d of drafts) upsert({ ...d, status: 'ready', ocrStatus: 'skipped' });
+        return;
+      }
+
       // 文档走 temp_kb；顺序累积 prev_id
       let prevId = composer.getState().fileChatId;
       for (let i = 0; i < drafts.length; i++) {
@@ -163,6 +179,12 @@ export function useAttachments(): {
     if (files.length) await upload('image', files);
   }, [upload]);
 
+  const pickAudio = React.useCallback(async () => {
+    const files = await getPlatform().fs.pickFiles({ multiple: false, accept: 'audio/*' });
+    // ASR 同时只用一个 attachment;若用户多选(平台允许)只取第一个
+    if (files.length) await upload('audio', files.slice(0, 1));
+  }, [upload]);
+
   const addImages = React.useCallback(async (items: File[]) => {
     const imgs = items.filter((f) => f.type.startsWith('image/'));
     if (!imgs.length) return;
@@ -172,6 +194,12 @@ export function useAttachments(): {
   const addFiles = React.useCallback(async (items: File[]) => {
     if (!items.length) return;
     await upload('file', items);
+  }, [upload]);
+
+  const addAudio = React.useCallback(async (items: File[]) => {
+    const audios = items.filter((f) => f.type.startsWith('audio/'));
+    if (!audios.length) return;
+    await upload('audio', audios.slice(0, 1));
   }, [upload]);
 
   const acceptDrop = React.useCallback(
@@ -243,5 +271,9 @@ export function useAttachments(): {
     return intro + '\n' + blocks.join('\n\n');
   }, []);
 
-  return { attachments, pickFiles, pickImages, addImages, addFiles, acceptDrop, remove, reset, getOcrPromptAppendix };
+  return {
+    attachments, pickFiles, pickImages, pickAudio,
+    addImages, addFiles, addAudio,
+    acceptDrop, remove, reset, getOcrPromptAppendix,
+  };
 }

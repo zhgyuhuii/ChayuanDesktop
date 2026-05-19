@@ -88,14 +88,18 @@ export function useModalitySubmit(opts: UseModalitySubmitOptions): UseModalitySu
       attachments?: ModalityAttachment[];
     }) => {
       const text = input.text.trim();
-      if (!text) return;
+      // 大多数 modality 模式必须有 prompt;ASR / image_edit 等场景 prompt 可为空,
+      // 由附件承担"输入"角色 — 这种情况下只要有附件就允许提交。
+      const hasAttachments = (input.attachments?.length ?? 0) > 0;
+      if (!text && !hasAttachments) return;
       const now = Date.now();
 
-      // 1. 推 user + assistant 占位
+      // 1. 推 user + assistant 占位 — 空 prompt 的 ASR 场景下,user 气泡显示一句友好占位
+      const userBubble = text || (hasAttachments ? '【音频文件】请转写' : '');
       const userMsg: ChatMessage = {
         id: uuid(),
         role: 'user',
-        content: text,
+        content: userBubble,
         createdAt: now,
       };
       const asstId = uuid();
@@ -142,9 +146,16 @@ export function useModalitySubmit(opts: UseModalitySubmitOptions): UseModalitySu
             continue;
           }
           if (isFilePart(ev)) {
+            // 后端 file part 给的是 ``/v1/artifacts/<sha>.<ext>`` 相对路径(content-addressed)。
+            // Tauri 桌面文档源是 ``tauri://localhost``,相对 URL 会落到错的 host →
+            // <img>/<audio> 加载 404。这里统一拼成绝对 URL,Web/Desktop 都正常。
+            // 已经是绝对 URL(http://…)的直接透传 — 兼容上游直接给 CDN 链接。
+            const absUrl = ev.url.startsWith('/')
+              ? `${baseUrl.replace(/\/+$/, '')}${ev.url}`
+              : ev.url;
             const attachment: ModalityFileAttachment = {
               mediaType: ev.mediaType,
-              url: ev.url,
+              url: absUrl,
               metadata: ev.metadata,
             };
             patchAsst((m) => ({ ...m, files: [...(m.files ?? []), attachment] }));

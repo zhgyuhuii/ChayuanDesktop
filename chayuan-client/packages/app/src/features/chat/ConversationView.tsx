@@ -295,17 +295,22 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       // 走 fetch(previewUrl) → arrayBuffer → base64 — 老 useAttachments 没存
       // 原 File 对象,只有 blob URL,所以走 fetch 回读一次。
       const draftAttachments = enableAttachments ? composer.getState().attachments : [];
+      // image_edit 需要图;asr 需要音频。两类都走 modality_attachments 通道,
+      // 后端按附件 mime 分流到对应 connector(image_edit / asr)。
+      // 普通文档(type='file')不走模态附件 — 它们是 chat 路径的 temp_kb。
       const modalityAttachments = await Promise.all(
         draftAttachments
-          .filter((a) => a.type === 'image' && a.previewUrl)
+          .filter((a) => (a.type === 'image' || a.type === 'audio') && a.previewUrl)
           .map(async (a) => {
             const resp = await fetch(a.previewUrl!);
             const buf = await resp.arrayBuffer();
             const b64 = arrayBufferToBase64(buf);
-            return { mime: a.mime || 'image/png', dataB64: b64, name: a.name };
+            const fallbackMime = a.type === 'audio' ? 'audio/wav' : 'image/png';
+            return { mime: a.mime || fallbackMime, dataB64: b64, name: a.name };
           }),
       );
       await modalitySubmit.run({
+        // ASR 模式可以空文本;其它模式 text 一定非空(SendButton 已挡)
         text, modelId, params: modalityParams,
         attachments: modalityAttachments.length > 0 ? modalityAttachments : undefined,
       });
@@ -398,6 +403,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
             ? {
                 onPickFile: () => void attachments.pickFiles(),
                 onPickImage: () => void attachments.pickImages(),
+                onPickAudio: () => void attachments.pickAudio(),
                 onScreenshot: screenshot.available ? screenshot.onScreenshot : undefined,
                 topSlot: attachments.attachments.length ? (
                   <AttachmentBar items={attachments.attachments} onRemove={attachments.remove} />
