@@ -538,6 +538,79 @@ async def create_modality_completion(
     return EventSourceResponse(event_stream())
 
 
+# ──────────────────────────────────────────────────────────────
+# PR-9 C: TaskManager REST + SSE 续流端点
+# ──────────────────────────────────────────────────────────────
+
+
+@openai_router.get(
+    "/modality/tasks/{task_id}",
+    summary="模态任务状态快照 — REST 一次性返当前所有字段",
+)
+async def get_modality_task(task_id: str):
+    """前端轮询 / 调试用:不走 SSE,一次性拿任务的当前状态(status / progress /
+    files / text_out / error)。会话重开时若不想立刻续 SSE,先 GET 一次拿快照
+    渲染气泡,再选择性发 ``/events`` 续流。
+    """
+    from chayuan.server.modality.router.tasks import store
+
+    row = await store.get_task(task_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+    return row
+
+
+@openai_router.get(
+    "/modality/tasks/{task_id}/events",
+    summary="模态任务 SSE 续流 — replay buffer + live",
+    response_class=EventSourceResponse,
+)
+async def stream_modality_task(task_id: str):
+    """关键 UX 入口:浏览器刷新 / 重开会话时,流式重新挂上后台任务。
+
+    返回的事件流形态与 ``/v1/modality/completions`` 完全一致(``start``、
+    ``data-modality-meta``、``text-*``、``file``、``data-task-progress``、
+    ``error``、``finish``);前端复用同一个 ``parseV5Stream`` 即可。
+    """
+    from chayuan.server.modality.router.tasks import manager as task_mgr
+
+    stream = task_mgr.subscribe(task_id)
+
+    async def event_stream():
+        import json as _json
+        try:
+            async for ev in stream:
+                yield _json.dumps(ev, ensure_ascii=False)
+        except asyncio.CancelledError:
+            raise
+
+    return EventSourceResponse(event_stream())
+
+
+@openai_router.post(
+    "/modality/tasks/{task_id}/cancel",
+    summary="撤销模态任务 — 设 cancelled 标志,connector 下次 check 退出",
+)
+async def cancel_modality_task(task_id: str):
+    """显式撤销:把 cancelled 标志 set 上,connector 在循环 check 后自然退出,
+    任务最终状态变 cancelled。**注意**:已经发上游的请求(如 wanx t2v 已经
+    提交的 task_id)上游不一定能撤销,本端只是停止轮询。
+    """
+    from chayuan.server.modality.router.tasks import manager as task_mgr, store
+
+    row = await store.get_task(task_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+    if row["status"] in ("succeeded", "failed", "cancelled"):
+        return {"task_id": task_id, "status": row["status"], "ack": "already_terminal"}
+    ok = task_mgr.cancel(task_id)
+    return {
+        "task_id": task_id,
+        "status": "cancelling" if ok else row["status"],
+        "ack": "ok" if ok else "no_active_canceller",
+    }
+
+
 @openai_router.post("/completions")
 async def create_completions(
     request: Request,
