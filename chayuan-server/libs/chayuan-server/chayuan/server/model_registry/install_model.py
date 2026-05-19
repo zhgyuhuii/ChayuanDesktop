@@ -375,6 +375,15 @@ class InstallModelJobManager:
             with self._lock:
                 job.log_tail.append(f"[install_model] scan_once 失败(不阻塞): {e!r}")
 
+        # post-install 格式校验:scan 完了主动跑一次 _resolve(cap),看下载到的
+        # 格式跟 runtime 期待匹不匹配。不匹配的典型场景:
+        #   - 用户给 chat/embedding/rerank(llama-server 引擎)装 HF safetensors 整仓,
+        #     llama-server 只吃 GGUF → sidecar 起不来报 "format='hf_transformers' 不是 gguf"
+        # 立即把这条诊断写进 log_tail,用户在 Dialog 上能马上看到,不用等到下次
+        # 重启 server 才发现踩坑。job 仍报 success(文件确实下下来了),只是 log_tail
+        # 多一条 warn 提示需要换格式。
+        self._verify_runtime_match(job)
+
         # 自动挂载:扫到模型后,尝试启动对应 cap 的本地 runtime。
         # 失败不影响 job 成功状态 — 用户在 UI 上还能手动点启动。
         auto_started = trigger_auto_start_for_cap(job.capability)
@@ -471,6 +480,91 @@ class InstallModelJobManager:
 
         with self._lock:
             job.progress_pct = 90.0
+
+    def _verify_runtime_match(self, job: InstallModelJob) -> None:
+        """post-install:校验下载到的格式跟 runtime 引擎期待是否匹配。
+
+        不匹配不阻塞 job(文件确实下下来了),但把诊断 + 修法写进 log_tail
+        让用户立即看到,免得下次启动时 sidecar 报 "format=X 不是 gguf" 才回头排查。
+
+        引擎期待格式 (跟 local_runtime._CAP_ENGINE 一致):
+          - llama   (chat/embedding/rerank) → 必须 gguf
+          - whisper (asr)                    → ggml / gguf
+          - infinity (image-embedding)       → hf_transformers / safetensors / onnx
+
+        embedding / rerank 的特殊情况:有 ONNX local fallback (cbb136f, ba3419d),
+        即使 llama-server 不吃下载到的格式,也能走 onnx_local 兜底 — 这里给出
+        "不匹配但 ONNX 可救" / "不匹配且无救" 两种语义的诊断。
+        """
+        try:
+            runtime_cap = _CAP_TO_RUNTIME.get(job.capability)
+            if runtime_cap is None:
+                return
+            from chayuan.server.model_registry.local_runtime_registry import _CAP_ENGINE
+            engine = _CAP_ENGINE.get(runtime_cap)
+            if engine is None:
+                return
+            expected = {
+                "llama":    {"gguf"},
+                "whisper":  {"ggml", "gguf"},
+                "infinity": {"hf_transformers", "safetensors", "onnx"},
+            }.get(engine, set())
+            if not expected:
+                return
+
+            # 从 local_index 找本次下载的 entry
+            from chayuan.server.model_registry.local_index import get_local_index
+            idx = get_local_index()
+            target_path_str = str(Path(job.target_dir)) if job.target_dir else ""
+            matched = None
+            for e in idx.list_entries():
+                if target_path_str and target_path_str in str(e.path):
+                    matched = e
+                    break
+
+            if matched is None:
+                with self._lock:
+                    job.log_tail.append(
+                        f"[install_model] post-install verify:scan 未识别 {job.target_dir} "
+                        "(可能时序问题,sidecar 启动时会重扫)"
+                    )
+                return
+
+            if matched.format in expected:
+                with self._lock:
+                    job.log_tail.append(
+                        f"[install_model] post-install verify ✓ "
+                        f"cap={job.capability} engine={engine} format={matched.format}"
+                    )
+                return
+
+            # 格式不匹配 — 给具体修法
+            onnx_rescue = runtime_cap in ("embedding", "rerank")
+            with self._lock:
+                job.log_tail.append(
+                    f"[install_model] ⚠ post-install verify 不匹配:cap={job.capability} "
+                    f"用 {engine} 引擎,期待 {sorted(expected)} 之一,实际下载到 "
+                    f"format={matched.format!r}。sidecar 起不来时请检查:"
+                )
+                if engine == "llama":
+                    job.log_tail.append(
+                        "  - 换 GGUF 量化版仓库(如 gpustack/bge-m3-GGUF 里的 .gguf 单文件)"
+                    )
+                    if onnx_rescue:
+                        job.log_tail.append(
+                            "  - 或者拷一个 model.onnx + tokenizer.json 的 ONNX 整仓 "
+                            "→ chayuan-server 会自动 fallback 到 in-process ONNX(无需 sidecar)"
+                        )
+                elif engine == "whisper":
+                    job.log_tail.append(
+                        "  - 换 ggml 格式仓库(如 ggerganov/whisper.cpp 里的 ggml-*.bin)"
+                    )
+                else:
+                    job.log_tail.append(
+                        f"  - 期待格式之一: {sorted(expected)}"
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[install_model] _verify_runtime_match 异常(忽略): %r", e)
 
     def _check_cancel(self, job: InstallModelJob) -> None:
         with self._lock:
