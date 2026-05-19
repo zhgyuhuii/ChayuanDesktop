@@ -419,8 +419,9 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
           <section className="space-y-2 rounded-md border border-[var(--cy-border-subtle)] p-3">
             <div className="text-sm font-medium">方式 2:我已经下好了文件,扫描挂载</div>
             <div className="text-xs text-[var(--cy-text-tertiary)]">
-              如果你已经从其它来源拿到了模型文件(GGUF / safetensors / 整个 HF 仓库),
-              请把它们放到下面这个目录,然后点「扫描挂载」,后端会自动识别并启动对应服务。
+              已经从其它来源拿到了模型(GGUF / safetensors / 整个 HF 仓库)?
+              把它们放到下面这棵目录树的指定位置,然后点「扫描挂载」,后端按目录关键字
+              识别 capability + 自动启动对应服务。
             </div>
 
             <div className="flex items-center gap-2">
@@ -458,13 +459,61 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
               </Button>
             </div>
 
-            <div className="text-[11px] text-[var(--cy-text-tertiary)]">
-              提示:在 {CAP_LABEL[capability]} 行,把文件放到子目录{' '}
-              <code className="bg-[var(--cy-surface-elev1)] px-1">
-                {bundledRoot ? `${bundledRoot.replace(/[/\\]+$/, '')}/${capability === 'embedding' ? 'embedding' : capability === 'asr' ? 'asr' : capability === 'image-embedding' ? 'image' : capability}/` : `<bundled>/${capability}/`}
-              </code>
-              下,scanner 会按目录关键字识别 capability。
-            </div>
+            {/* cap → 物理子目录的映射跟后端 _CAP_TO_BUNDLED_DIR 对齐;
+                注意 image-embedding 走 image/(不是 image-embedding/),OCR 才走 ocr/。 */}
+            {(() => {
+              const subdir =
+                capability === 'image-embedding' ? 'image' : capability;
+              const root = bundledRoot
+                ? bundledRoot.replace(/[/\\]+$/, '')
+                : '<bundled>';
+              const exampleOwner =
+                capability === 'chat'
+                  ? 'Qwen--Qwen3-4B-Instruct-2507-GGUF'
+                  : capability === 'embedding'
+                  ? 'gpustack--bge-m3-GGUF'
+                  : capability === 'rerank'
+                  ? 'gpustack--bge-reranker-v2-m3-GGUF'
+                  : capability === 'asr'
+                  ? 'ggerganov--whisper.cpp'
+                  : 'jinaai--jina-clip-v2';
+              const needsGguf =
+                capability === 'chat' ||
+                capability === 'embedding' ||
+                capability === 'rerank';
+              return (
+                <div className="space-y-1.5 rounded border border-amber-400/40 bg-amber-50/40 p-2 text-[11px] text-[var(--cy-text-secondary)] dark:bg-amber-950/20">
+                  <div className="font-medium text-[var(--cy-text-primary)]">
+                    {CAP_LABEL[capability]} 的正确目录结构:
+                  </div>
+                  <pre className="overflow-x-auto rounded bg-[var(--cy-surface-base)] p-1.5 font-mono text-[10px] leading-relaxed">{[
+                    `${root}/${subdir}/${exampleOwner}/`,
+                    `├── config.json`,
+                    `├── ${needsGguf ? '*.gguf            ← GGUF 量化权重' : '*.safetensors / *.onnx / *.bin'}`,
+                    `└── tokenizer.json  (有就放,没有跳过)`,
+                  ].join('\n')}</pre>
+                  <ul className="ml-4 list-disc space-y-0.5">
+                    <li>
+                      <b>必须套一层 <code className="bg-[var(--cy-surface-elev1)] px-1">&lt;owner--model&gt;/</code> 子目录</b> —
+                      跟「下载模型」自动落地格式一致,多模型并存才不打架。
+                    </li>
+                    {capability === 'image-embedding' && (
+                      <li>
+                        <b>放到 <code className="bg-[var(--cy-surface-elev1)] px-1">image/</code> 不是 <code className="bg-[var(--cy-surface-elev1)] px-1">image-embedding/</code></b> —
+                        这是图像嵌入(CLIP/ViT);OCR 模型放 <code className="bg-[var(--cy-surface-elev1)] px-1">ocr/</code> 子目录。
+                      </li>
+                    )}
+                    {needsGguf && (
+                      <li>
+                        <b>当前 runtime 是 llama-server,只吃 GGUF 量化版</b> —
+                        HF safetensors 仓库放进来会被扫到但 sidecar 起不来。
+                        推荐 <code className="bg-[var(--cy-surface-elev1)] px-1">{exampleOwner}</code> 这种 *-GGUF 仓库。
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              );
+            })()}
 
             <Button size="sm" onClick={() => void onScanAndMount()} disabled={isBusy}>
               {pending === 'scan' ? (
