@@ -18,10 +18,9 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Library, Layers3, Pen, ScanText, Mic,
-  AlertCircle, ExternalLink, Github, Globe,
+  AlertCircle,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
-import { getPlatform } from '@chayuan/platform-shared';
 import { useAuthStore } from '../../store/auth';
 import { useTabsStore } from '../../store/tabs';
 import { useTranslation } from '../../i18n';
@@ -91,17 +90,6 @@ const CAPS: ReadonlyArray<CapItem> = [
   },
 ];
 
-// ── 产品特性 chip ─────────────────────────────────────────────────
-const FEATURES: ReadonlyArray<string> = [
-  '多模型对话 ',
-  '模型对抗',
-  '本地知识库',
-  '离线运行 · 数据不出本机',
-  '兼容国产操作系统',
-  'WPS AI 助手联动',
-  'OpenAI / Ollama / Infinity / vLLM',
-];
-
 // ── 静态介绍文案 fallback(LLM 不可用时随机一段)────────────────────
 const STATIC_INTROS: ReadonlyArray<string> = [
   '察元 AI · 单机版,把多模型对话、本地知识库、离线推理装进同一个桌面应用。装完即用,数据全程留在本机;Ollama / Infinity / vLLM 等本地服务跟云端 LLM 一起摆在桌面上,随时切换、对比试用。',
@@ -121,10 +109,6 @@ function hasUsableLLM(catalog: ProviderCatalogEntry[]): boolean {
     (e) => e.configured && e.enabled && (e.llm_models ?? []).length > 0,
   );
 }
-
-// ── 外链 ───────────────────────────────────────────────────────────
-const WPS_REPO_URL = 'https://github.com/zhgyuhuii/chayuan';
-const OFFICIAL_SITE_URL = 'https://aidooo.com';
 
 export const HomePage: React.FC = () => {
   const { t } = useTranslation();
@@ -158,10 +142,6 @@ export const HomePage: React.FC = () => {
   const onConfigureModel = () => {
     open('/marketplace', { title: '模型广场', icon: 'box' });
     void navigate({ to: '/marketplace' as never });
-  };
-
-  const onOpenExternal = (url: string) => {
-    void getPlatform().shell.openExternal(url);
   };
 
   // ── 流式产品介绍 ────────────────────────────────────────────────
@@ -358,44 +338,6 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* ── 5. 特性 chips + 外链 ──────────────────────────────────
-       * 流式介绍已经移到顶部 greeting 下方(气泡形式 + 自动循环),
-       * 这里只剩"特性高亮 chip + 外链按钮",信息密度低、不抢眼,放页底收尾 */}
-      <section className="rounded-3xl border border-[var(--cy-border-subtle)] bg-gradient-to-br from-[var(--cy-surface-base)] to-[var(--cy-surface-1)] p-6">
-        <div className="flex flex-wrap gap-1.5">
-          {FEATURES.map((f) => (
-            <span
-              key={f}
-              className="inline-flex items-center rounded-full bg-[var(--cy-surface-base)] px-2.5 py-1 text-[11px] text-[var(--cy-text-secondary)] ring-1 ring-[var(--cy-border-subtle)]"
-            >
-              {f}
-            </span>
-          ))}
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onOpenExternal(WPS_REPO_URL)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-1.5 text-xs text-[var(--cy-text-primary)] transition-all hover:border-[var(--cy-brand-300)] hover:text-[var(--cy-brand-600)]"
-            title="WPS 加载项「察元 AI 文档助手」开源地址"
-          >
-            <Github className="h-3.5 w-3.5" />
-            WPS 加载项 · GitHub
-            <ExternalLink className="h-3 w-3 opacity-60" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onOpenExternal(OFFICIAL_SITE_URL)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-1.5 text-xs text-[var(--cy-text-primary)] transition-all hover:border-[var(--cy-brand-300)] hover:text-[var(--cy-brand-600)]"
-            title="察元 AI 官网"
-          >
-            <Globe className="h-3.5 w-3.5" />
-            aidooo.com
-            <ExternalLink className="h-3 w-3 opacity-60" />
-          </button>
-        </div>
-      </section>
     </div>
   );
 };

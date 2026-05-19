@@ -13,6 +13,7 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { getPlatform, isDesktop } from '@chayuan/platform-shared';
 import { useComposerStore } from '../../store/composer';
+import { useTabsStore } from '../../store/tabs';
 // upsertConversation 之前在 onNewChat 预建会话用,改草稿模式后已不需要
 
 export function useDesktopIntegrations(): void {
@@ -77,9 +78,19 @@ export function useDesktopIntegrations(): void {
   React.useEffect(() => {
     if (!isDesktop()) return;
     const onNewChat = async () => {
-      // 草稿模式:不预建会话,等用户首次发消息时 ChatPage.handleSend 才 lazy upsert,
-      // 与 Sidebar.onNewChat 一致;空对话不污染历史。
+      // 跟 Sidebar.onNewChat 完全一致 — 必须三件套都做,缺一不可:
+      //   1. setActive(null):草稿模式,不绑老会话
+      //   2. tabs.open('/chat', {forceNew:true}):每次开**新** tab,避免复用
+      //      上一个 /chat tab(里面可能正流式,会被打断)
+      //   3. navigate('/chat'):路由跳过去
+      // 之前只做 1+3 没开 tab:用户在主页 / 其它 tab 时点托盘"新对话",
+      // 路由是跳了但 tab 栏没新增、composer 在主页底下不可见 → 表现"无反应"
       useComposerStore.getState().setActive(null);
+      useTabsStore.getState().open('/chat', {
+        title: '新对话',
+        icon: 'message-square',
+        forceNew: true,
+      });
       void navigate({ to: '/chat' as never });
     };
 
