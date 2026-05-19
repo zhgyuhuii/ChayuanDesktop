@@ -1038,31 +1038,73 @@ dist-integrated/    ← 集成版 .dmg / .deb / .AppImage / .msi / .exe
 
 #### Windows
 
+打包入口固定是 `.\build-desktop.ps1`(或 `.\build-desktop.cmd`,内部转发到 ps1)。
+三类用例按需选:
+
+##### 用例 A:一次打 **lite + full** 双产物(完整发布)
+
 ```powershell
-# 默认 = 双产物(lite + full,约 30 分钟)
+# 完整双产物 — 第一次构建 / release 切版本前用,约 30 分钟
 .\build-desktop.ps1
-
-# 只打一种(推荐本地试用,约 5-10 分钟)
-.\build-desktop.ps1 -LiteOnly
-.\build-desktop.ps1 -FullOnly         # 旧名 -IntegratedOnly 仍可用
-
-# 跳过部分阶段(改了小地方,不想重跑整链)
-.\build-desktop.ps1 -LiteOnly -BundleOnly      # 仅重打 Tauri bundle(改了前端 / Rust)
-.\build-desktop.ps1 -LiteOnly -SkipServer      # sidecar 不变,跳 PyInstaller(改了前端)
-.\build-desktop.ps1 -LiteOnly -SkipServer -SkipHealthcheck
-                                                # 改了 build.py / sync_services / sync_bundled_models
-                                                # 但 sidecar 代码没动 — 重跑 Step 1b/1c 同步 + 重打 bundle
-.\build-desktop.ps1 -LiteOnly -SkipTypecheck   # 跳类型检查
-.\build-desktop.ps1 -LiteOnly -SkipModelCheck  # 跳模型体检
-.\build-desktop.ps1 -LiteOnly -NoIso           # 跳 ISO 生成(只要 MSI)
 ```
 
-`-BundleOnly` 是组合开关 = `-SkipServer -SkipHealthcheck -SkipInstall -SkipTypecheck`。
-注意它**也跳过 Step 1b**(services 同步)— 改了 `chayuan-server/packaging/pyinstaller/build.py`
-的 `sync_services` / `sync_bundled_models` 时不要用 `-BundleOnly`,要用
-`-SkipServer -SkipHealthcheck` 这种**只跳 sidecar 重打**的组合,让 Step 1b/1c 仍跑。
+不传任何 `-LiteOnly` / `-FullOnly` 时,脚本会按 lite → full 顺序各跑一轮完整流程:
+PyInstaller sidecar 编译一次两个 flavor 复用,只有 Step 1b(`sync_bundled_models`)
+按 flavor 各做一次 — lite 只同步 LITE_CAPS(embedding/rerank/asr/ocr/tts),
+full 加上 chat/image。
 
-也可用 `.cmd` 包装:`.\build-desktop.cmd -LiteOnly`(内部转发到 ps1)。
+产物分别落 `dist-lite\` 和 `dist-full\`(均含 `.msi + cab*.cab + models_seed/`
++ 整包 ISO)。
+
+##### 用例 B:只打 **lite** 或只打 **full**(本机迭代 / 单端发布)
+
+```powershell
+# 只出轻量版 — 本机试用首选,约 5-10 分钟
+.\build-desktop.ps1 -LiteOnly
+
+# 只出全量版 — 集成版发布前验证用
+.\build-desktop.ps1 -FullOnly
+```
+
+> `-FullOnly` 的旧名 `-IntegratedOnly` 仍可用,会打 deprecation hint,建议改新名。
+
+##### 用例 C:**分段打包**(迭代时复用上次产物,省 80-90% 时间)
+
+按"这次改了什么"挑对应跳过开关 — 跳过的步骤直接用上次产物,不重做。
+
+| 改的是什么 | 命令 | 耗时 | 说明 |
+|---|---|---|---|
+| **只改了 Rust / installer.nsh / WiX 模板** | `.\build-desktop.ps1 -LiteOnly -BundleOnly` | 1-3 min | 等价 `pnpm exec tauri build --bundles msi`,**最快**重打 |
+| **只改了前端 React 代码** | `.\build-desktop.ps1 -LiteOnly -SkipServer` | 3-5 min | sidecar 不重编,跑 typecheck + vite + tauri bundle |
+| **只改了 build.py 同步逻辑**(`sync_services` / `sync_bundled_models`) | `.\build-desktop.ps1 -LiteOnly -SkipServer -SkipHealthcheck` | 3-5 min | sidecar 复用,但 Step 1b/1c 重跑,把同步改动应用进 bundle |
+| **改了 Python 后端**(`.py` 文件) | `.\build-desktop.ps1 -LiteOnly` | 5-10 min | PyInstaller 指纹自动失效,完整重编 — **不需要手动加任何 -Force** |
+| **怀疑 PyInstaller 缓存过期**(改了 venv / 第三方包但没动 .py) | `.\build-desktop.ps1 -LiteOnly -ForceRebuildServer` | 5-10 min | 强制重编 sidecar,常规改 `.py` 不需要 |
+| **想干净重建**(排查打包问题时) | `.\build-desktop.ps1 -LiteOnly -Clean -VerboseSubprocess` | 8-15 min | 删 `dist/` + `bundle/`,顺带清掉 PyInstaller 指纹 |
+| **本机调试,不需要 ISO** | `.\build-desktop.ps1 -LiteOnly -NoIso` | -2 min | 只出 `.msi + cab`,不打 `.iso` |
+| **本机调试,跳类型检查** | `.\build-desktop.ps1 -LiteOnly -SkipTypecheck` | -30s ~ -1 min | **业务代码改动不要跳** — 只在调试 build 流程时用 |
+
+**分段打包注意事项:**
+
+1. **`-BundleOnly` 不能切 flavor** — 它跳过 Step 1b(`src-tauri/bundled_models/`
+   同步),用的是上次 flavor 的 bundled_models。如果上次 `-LiteOnly`、这次想换
+   `-FullOnly`,必须先跑一次不带 `-BundleOnly` 的完整流让 Step 1b 重做,然后才能
+   `-BundleOnly` 迭代。
+
+2. **改了 build.py 同步逻辑别用 `-BundleOnly`** — `-BundleOnly` 也跳 Step 1b。
+   要用 `-SkipServer -SkipHealthcheck` 这种组合,sidecar 复用但 Step 1b/1c 仍跑。
+
+3. **跨 flavor 串行用 `;` 而不是 `&&`** — PowerShell 没有 `&&`(PS 7+ 才有);
+   要一次跑两个独立 flavor 命令用 `;`:
+   ```powershell
+   .\build-desktop.ps1 -LiteOnly; .\build-desktop.ps1 -FullOnly
+   ```
+   但不推荐 — 直接不传 `-*Only` 让脚本内置双循环更省时间(sidecar 复用)。
+
+4. **MSI/cab 一致性自动校验** — 2026-05-19 起脚本在 Tauri bundle 收尾会自动跑
+   `Test-MsiCabIntegrity`:用 `WindowsInstaller` COM 读 `File`/`Media` 表 + `expand -D`
+   列 cab stream,交叉对一遍。若 File 表里某条 File ID 跟对应 cab 内的 stream 错位
+   (装机时必报 1334"找不到 cab1.cab"),脚本会 fail 并打印前 10 条错位明细 —
+   **坏包不会进 ISO,也不会到用户手里**。无需手动跑,无需关闭。
 
 #### macOS / Linux
 
