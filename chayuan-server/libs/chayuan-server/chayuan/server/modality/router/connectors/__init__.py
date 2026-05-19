@@ -26,6 +26,7 @@ from chayuan.server.modality.router.connectors import image_gen  # noqa: F401
 from chayuan.server.modality.router.connectors import image_edit  # noqa: F401
 from chayuan.server.modality.router.connectors import video_gen  # noqa: F401
 from chayuan.server.modality.router.connectors import tts  # noqa: F401
+from chayuan.server.modality.router.connectors import asr  # noqa: F401
 
 __all__ = [
     "Connector",
