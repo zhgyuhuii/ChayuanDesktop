@@ -18,7 +18,8 @@ import { AlertTriangle, Cpu, Loader2, ShieldCheck } from 'lucide-react';
 import { Button, Input, Switch, Textarea } from '@chayuan/ui';
 import { serverCapabilityDefaults } from '@chayuan/api';
 import { useCreateImageKb } from './useCreateKb';
-import { reportError, notifySuccess } from '../../../store/errorDialog';
+import { reportError, notifySuccess, notifyInfo } from '../../../store/errorDialog';
+import { BizError } from '@chayuan/api';
 
 export const ImageKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({ onSubmitted }) => {
   const navigate = useNavigate();
@@ -64,6 +65,11 @@ export const ImageKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({
       notifySuccess(`已创建图像库:${name}`);
       onSubmitted(r.id);
     } catch (e) {
+      // 后端 422 = "图像 embedding 未配置,用户操作可解决",同 DocumentKbForm 处理
+      if (e instanceof BizError && e.code === 422) {
+        notifyInfo('请先配置图像嵌入模型', e.message, 10000);
+        return;
+      }
       reportError(e, '创建图像库失败');
     }
   };

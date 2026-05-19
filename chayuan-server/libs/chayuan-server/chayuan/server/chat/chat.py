@@ -41,6 +41,37 @@ from chayuan.server.utils import (
 logger = build_logger()
 
 
+def _translate_chat_error(raw: str, model_name: str = "") -> str:
+    """把上游模型/SDK 抛出的原始报错翻译成给最终用户看的中文提示。
+
+    主要兜底两类常见误用,避免前端直接把 `BadRequestError(...)` 当错误红框甩出:
+      1. 把图像/多模态模型(qwen-vl / qwen-image-* / qwen-omni / qvq 等)当普通对话用 —
+         DashScope/OpenAI 兼容模式会返回 400 + "Input should be a valid list:
+         input.messages.0.content" / "invalid_parameter_error"。
+      2. 上游 key/quota 缺失,提示用户去配 API key。
+
+    其它情况原样回传,保留排查信息。
+    """
+    low = raw.lower()
+    looks_multimodal = (
+        ("should be a valid list" in low and "messages" in low and "content" in low)
+        or ("invalid_parameter_error" in low and "messages" in low)
+    )
+    if looks_multimodal:
+        m = model_name or "所选模型"
+        return (
+            f"模型「{m}」是图像/多模态专用模型,不能直接用纯文本对话。\n"
+            f"  • 改用对话模型(如 qwen-turbo / qwen-max / 智谱 GLM / 内置 chayuan-chat)\n"
+            f"  • 或在「设置 → 模型广场」隐藏此模型,避免误选"
+        )
+    if "no api key" in low or "invalid api key" in low or "401" in low and "unauthorized" in low:
+        return (
+            "上游模型 API key 缺失或无效。请到「设置 → 模型广场」对应厂商填一个有效 key,"
+            "或切到「本地模型服务 / chayuan-chat」。"
+        )
+    return raw
+
+
 def flatten_chat_model_config_for_inference(
     chat_model_config: dict, selected_model: str
 ) -> dict:
@@ -430,12 +461,14 @@ async def chat(
             # logger.exception 会把 traceback 附上；colors=False 已在 build_logger 里绑死，
             # 避免 traceback 里 <listcomp>/<module> 被 loguru colorizer 当色彩标签抛错。
             logger.exception(f"error in chat: {type(e).__name__}: {e}")
+            raw_msg = str(e) or repr(e)
+            friendly_msg = _translate_chat_error(raw_msg, locals().get("_model_name") or "")
             # 回传给前端一段可识别的 SSE 错误事件；原先只发 {"error": "..."}，前端（openai
             # SDK）把它当成异常 payload 吞了，结果用户看到的是 RemoteProtocolError 而非真因。
             err_payload = {
                 "error": {
                     "type": type(e).__name__,
-                    "message": str(e) or repr(e),
+                    "message": friendly_msg,
                 }
             }
             yield {"event": "error", "data": json.dumps(err_payload, ensure_ascii=False)}
