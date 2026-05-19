@@ -379,6 +379,64 @@ foreach ($e in $endpoints) {
     }
 }
 
+# ───────── 6b. ONNX 本地 fallback 探测 ─────────
+# 跟 chayuan/server/embeddings/onnx_local.py:_auto_discover_onnx_embed_dir() 和
+# chayuan/server/reranker/onnx_local.py:_auto_discover_onnx_rerank_dir() 同逻辑:
+# 扫 <DataDir>/models/bundled/{embedding,rerank}/<repo>/,看是否有 tokenizer.json
+# + onnx 文件 (5 个候选位置)。命中 → ONNX in-process 路径会激活,绕开 llama-server
+# 的 GGUF 要求。这里只做静态预判,运行时实际命中要看 server log 里
+# "[OnnxEmbeddings] auto-discovered" / "[OnnxReranker] auto-discovered" 行。
+Out-Section '6b. ONNX 本地 fallback 探测(embedding / rerank)'
+
+$onnxCandidates = @(
+    'model.onnx',
+    'onnx\model_quantized.onnx',
+    'onnx\model_int8.onnx',
+    'onnx\model.onnx',
+    'onnx\model_fp16.onnx'
+)
+
+foreach ($cap in @('embedding', 'rerank')) {
+    $capRoot = Join-Path $DataDir "models\bundled\$cap"
+    Out-Line ""
+    Out-Line "### $cap → $capRoot"
+    if (-not (Test-Path $capRoot)) {
+        Out-Line "**目录不存在** — ONNX fallback 不会命中,$cap 仅能走 llama-server(要 GGUF)"
+        continue
+    }
+    $subdirs = @(Get-ChildItem -Path $capRoot -Directory -ErrorAction SilentlyContinue)
+    if ($subdirs.Count -eq 0) {
+        Out-Line "目录空 — ONNX fallback 不会命中"
+        continue
+    }
+    $anyHit = $false
+    foreach ($sub in $subdirs) {
+        $tok = Join-Path $sub.FullName 'tokenizer.json'
+        $hasTok = Test-Path $tok
+        $hitOnnx = $null
+        foreach ($rel in $onnxCandidates) {
+            $p = Join-Path $sub.FullName $rel
+            if (Test-Path $p) { $hitOnnx = $rel; break }
+        }
+        if ($hasTok -and $hitOnnx) {
+            Out-Line "- **$($sub.Name)**:tokenizer.json ✓ + $hitOnnx ✓ → **ONNX fallback 会命中**"
+            $anyHit = $true
+        } elseif ($hasTok) {
+            Out-Line "- $($sub.Name):tokenizer.json ✓ 但 5 个候选 onnx 文件都缺;ONNX fallback 不会命中"
+        } else {
+            Out-Line "- $($sub.Name):缺 tokenizer.json;ONNX fallback 不会命中"
+        }
+    }
+    if (-not $anyHit) {
+        Out-Line ""
+        Out-Line "提示:$cap 当前没有可用 ONNX。业务跑到 $cap 时:"
+        Out-Line "  1. 先试 llama-server(需要 GGUF 量化版,如 gpustack/bge-m3-GGUF / *.gguf 单文件)"
+        Out-Line "  2. llama-server 起不来 → langchain LocalAIEmbeddings → 缺 API key → 报错"
+        Out-Line "  3. 修法:拷一个含 model.onnx + tokenizer.json 的 ONNX 整仓到 $capRoot\<repo>\,"
+        Out-Line "     或者拷 GGUF 量化版给 llama-server 用"
+    }
+}
+
 # ───────── 7. 日志 tail ─────────
 Out-Section '7. chayuan-server 日志 tail'
 
