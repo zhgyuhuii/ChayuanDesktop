@@ -388,6 +388,115 @@ async def create_chat_completions(
         return result
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 模态路由旁路:/v1/modality/completions
+#
+# 老 /v1/chat/completions 完全不动。这条新路径专给非聊天模型(t2i/t2v/tts/...)
+# 用,事件流走 Vercel AI SDK v5 UI Message Stream Protocol(SSE)。
+# 前端 ChatComposer 在选中 capability != chat 的模型时改打这条;选 chat
+# 模型仍走老路径(KB/agent/citation 等老链路一行未改)。
+#
+# Feature flag:CHAYUAN_MODALITY_NEW_PATH=1 才启用,默认 OFF。前端在确认环境
+# 启用前也会优先走老 chat 路径,防止旁路坏了影响日常对话。
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@openai_router.post(
+    "/modality/completions",
+    summary="模态路由旁路:非聊天模型(t2i/t2v/tts/asr/image_edit)统一入口",
+    response_class=EventSourceResponse,
+)
+async def create_modality_completion(
+    request: Request,
+    body: OpenAIChatInput,
+):
+    # 延迟 import:模态包不在主路径,启动时不强依赖
+    from chayuan.server.modality.router import (
+        Capability,
+        GenerateReq,
+        classify_capability,
+        dispatch,
+        is_enabled,
+        sse_encode,
+    )
+    from chayuan.server.modality.router.protocol import Cancelled
+
+    # 1. 总闸:env 没开就直接拒,引导用老 /v1/chat/completions
+    if not is_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "模态路由尚未启用(CHAYUAN_MODALITY_NEW_PATH != 1)。"
+                "请走老 /v1/chat/completions,或在服务端开启此 feature flag。"
+            ),
+        )
+
+    # 2. 解析 platform::model 命名空间(同老路径行为)
+    raw_model = body.model
+    explicit_platform: Optional[str] = None
+    actual_model = raw_model
+    if isinstance(raw_model, str) and "::" in raw_model:
+        explicit_platform, actual_model = raw_model.split("::", 1)
+        explicit_platform = explicit_platform.strip() or None
+        actual_model = actual_model.strip() or raw_model
+
+    # 3. 推 capability + 查 platform 元信息
+    cap = classify_capability(actual_model)
+    info = get_model_info(model_name=actual_model, platform_name=explicit_platform)
+    if not info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"未在 model_platform 表里找到模型「{actual_model}」",
+        )
+
+    # 4. 从 messages 抽取 prompt — t2i/tts 等只用最后一条 user message 的纯文本
+    #    (多模态 chat 已经走老链路,不来这里)
+    prompt = ""
+    for msg in reversed(body.messages or []):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            prompt = content
+            break
+        if isinstance(content, list):
+            # OpenAI 多模态形式 [{"type":"text","text":"..."}, ...]
+            parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+            prompt = "\n".join(p for p in parts if p)
+            break
+
+    # 5. 自定义参数从 extra_json / extra_body 透传(size / n / seed / voice 等)
+    extra = body.extra_json or {}
+    params = dict(extra.get("modality_params") or {})
+
+    # 6. 构造 GenerateReq + dispatch
+    req = GenerateReq(
+        capability=cap,
+        model=actual_model,
+        platform_name=info.get("platform_name") or "",
+        platform_type=info.get("platform_type") or "",
+        api_base=info.get("api_base_url") or "",
+        api_key=info.get("api_key") or "",
+        prompt=prompt,
+        params=params,
+        cancelled=Cancelled(),
+    )
+
+    async def event_stream():
+        try:
+            async for ev in dispatch(req):
+                # ServerSentEvent 的 data 字段会自动拼成 ``data: <data>\n\n``;
+                # 我们要传 v5 协议,直接 yield 已 JSON 化的字符串
+                import json as _json
+                yield _json.dumps(ev, ensure_ascii=False)
+        except asyncio.CancelledError:
+            # 客户端断连 → 通知 connector(如有 cancel hook)
+            req.cancelled.set() if req.cancelled else None
+            raise
+
+    return EventSourceResponse(event_stream())
+
+
 @openai_router.post("/completions")
 async def create_completions(
     request: Request,

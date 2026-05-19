@@ -30,6 +30,9 @@ import * as React from 'react';
 import { useTranslation } from '../../i18n';
 import { useComposerS, useComposerScopedStore } from '../../store/composer';
 import { modality } from '@chayuan/api';
+import { classifyModalityCapability } from '@chayuan/transport';
+import { getComposerMode } from './composerMode';
+import { ComposerModeBadge } from './ComposerModeBadge';
 import { McpPickerPill, ToolsPickerPill } from './CapabilityPickers';
 import { ComposerModelPill } from './ComposerModelPill';
 import { KnowledgePickerPill, type KnowledgePickerPillProps } from './KnowledgePickerPill';
@@ -170,7 +173,20 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     mic.cancel();
   };
 
-  const ph = placeholder ?? t('chat.inputPlaceholder', { model: modelId });
+  // 根据当前选中模型推 capability,联动 UI:
+  //   - badge:输入框顶上一颗 pill 告诉用户当前模式(对话/文生图/语音合成 …)
+  //   - placeholder:不同模式不同提示文案
+  //   - submitLabel:发送按钮文案("生成图像 ✨" / "合成语音 🔊" …)
+  // chat 模式即默认值,所有现有行为(KB / 工具 / 普通对话)完全不变。
+  const composerMode = React.useMemo(() => {
+    const cap = classifyModalityCapability(modelId);
+    return getComposerMode(cap);
+  }, [modelId]);
+  const ph =
+    placeholder
+    ?? (composerMode.capability === 'chat'
+          ? t('chat.inputPlaceholder', { model: modelId })
+          : composerMode.placeholder);
 
   React.useEffect(() => {
     if (autoFocus) taRef.current?.focus();
@@ -229,6 +245,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     >
       {topSlot && <div className="mb-2">{topSlot}</div>}
 
+      {/* 当前模式标识 — chat 模式默认隐藏,非 chat(文生图/语音合成/...)显示
+          一颗 pill,告诉用户输入框接下来要"画什么/说什么/转写什么"。 */}
+      <ComposerModeBadge mode={composerMode} className="mb-2 self-start" />
+
       {(mic.recording || recorderTranscribing) && (
         <ChatRecorderPanel
           recording={mic.recording}
@@ -266,7 +286,9 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       <div className="mt-3 flex min-w-0 flex-wrap items-center justify-between gap-2 pb-0.5">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {leadingControls}
-          {showKnowledgePicker && (
+          {/* 模态模式声明 hidePills 的(t2i/t2v/tts/...)隐藏 KB 选择 —
+              这些模式不走 chat 链路,KB 注入无意义。chat 模式不受影响。 */}
+          {showKnowledgePicker && !composerMode.hidePills?.includes('knowledge') && (
             <KnowledgePickerPill
               {...knowledgePillProps}
               iconOnly={compactControls || knowledgePillProps?.iconOnly}
@@ -349,7 +371,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
               type="button"
               disabled={!draft.trim()}
               onClick={() => void submit()}
-              aria-label={t('chat.send')}
+              // 鼠标悬浮看到模式专属文案("生成图像 ✨" 等);视觉上保持圆形小按钮
+              // (mode badge 已经告诉用户模式,按钮不再写字保持视觉一致)
+              aria-label={composerMode.capability === 'chat' ? t('chat.send') : composerMode.submitLabel}
+              title={composerMode.capability === 'chat' ? t('chat.send') : composerMode.submitLabel}
               className={cn(
                 'ml-2 flex h-9 w-9 items-center justify-center rounded-full transition-colors',
                 draft.trim()

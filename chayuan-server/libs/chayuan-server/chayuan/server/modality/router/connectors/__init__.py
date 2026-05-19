@@ -20,6 +20,9 @@ from chayuan.server.modality.router.connectors.base import (
     list_registered,
 )
 
+# 导入子包触发 @register 落表 — 新增 capability 子目录后这里加一行即可
+from chayuan.server.modality.router.connectors import image_gen  # noqa: F401
+
 __all__ = [
     "Connector",
     "register",
