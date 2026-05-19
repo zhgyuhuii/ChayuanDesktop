@@ -48,12 +48,15 @@
         </InstallExecuteSequence>
 
         <!--
-          Patched by chayuan-desktop:
-          - 单 CAB > 2 GB 会撞 LGHT0001/CreateCabFinish E_UNEXPECTED → MaximumUncompressedMediaSize="600" 分卷
-          - 国产杀软(火绒/360/腾讯)拦截 .msi 拷到 C:\Windows\Installer\ → EmbedCab="no"
-            CAB 不嵌进 .msi,作为独立文件 (app1.cab/app2.cab/...) 落在 .msi 旁边。
-            .msi 本体只剩元数据(~50 MB),Windows Installer 不再拷大文件到系统缓存,
-            从源目录直接逐 cab 读取安装。代价:分发必须把 .msi + 所有 .cab 打成 zip 一起给用户。
+          Patched by chayuan-desktop (ASCII-only; WiX 3 sometimes leaks XML comments
+          into MSI summary stream, which then trips LGHT0311 under code page 1252).
+          - MaximumUncompressedMediaSize=600 splits CAB to 600 MB volumes to avoid
+            LGHT0001 / CreateCabFinish E_UNEXPECTED on > 2 GB single CAB.
+          - EmbedCab=no keeps CAB files external (app1.cab/app2.cab/...) next to the
+            .msi, so domestic Windows AV (Huorong/360/Tencent) does not blackhole the
+            embedded payload that Windows Installer would otherwise copy to
+            C:\Windows\Installer\. Trade-off: distribution must ship the .msi *and*
+            all .cab files together (typically inside an ISO).
         -->
         <MediaTemplate EmbedCab="no" CompressionLevel="mszip" MaximumUncompressedMediaSize="600" />
 
