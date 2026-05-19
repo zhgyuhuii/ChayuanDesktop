@@ -15,6 +15,11 @@
   - 鉴权 / 配额(放在 HTTP 层中间件)
   - SSE 编码(``sse_encode`` 调用方做)
   - 日志/审计/计费(后续在 dispatch 周围加 hook,不动这里)
+
+PR-9 后:``dispatch_via_manager`` 是新主路径 —— 落库 task,跑后台 asyncio.Task,
+SSE 订阅 event_bus。客户端断开不会取消任务,刷新页面能续看。``dispatch`` 保留为
+兼容入口(走 manager 但 await 完成)— 但 manager-aware 客户端建议直接用
+``dispatch_via_manager`` 拿 task_id。
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ import asyncio
 import logging
 import os
 import uuid
-from typing import AsyncIterator, Dict
+from typing import AsyncIterator, Dict, Tuple
 
 from chayuan.server.modality.router.connectors.base import pick_connector
 from chayuan.server.modality.router.protocol import Capability, GenerateReq
@@ -114,3 +119,28 @@ async def dispatch(req: GenerateReq) -> AsyncIterator[Dict]:
     finally:
         yield finish_step_event()
         yield finish_event()
+
+
+# ──────────────────────────────────────────────────────────────
+# PR-9: TaskManager 路径
+# ──────────────────────────────────────────────────────────────
+
+
+async def dispatch_via_manager(req: GenerateReq) -> Tuple[str, AsyncIterator[Dict]]:
+    """新主路径 — 把请求落 task 表 → 后台 asyncio.Task 跑 → 返 (task_id, 事件流)。
+
+    与 ``dispatch`` 的本质区别:
+      - 后台 Task 不绑订阅者生命周期;SSE 断开 → 任务继续跑
+      - 同一个 task_id 可以被多次订阅(replay 历史 buffer + 续 live)
+
+    调用方:openai_routes.create_modality_completion;直接把返回流交给
+    EventSourceResponse。需要给前端透 task_id 用于"刷新页面续看"时,
+    取第一个返回值。
+    """
+    from chayuan.server.modality.router.tasks import manager as task_mgr
+
+    task_id = await task_mgr.create_task(req)
+    # 后台 Task 启动 — ensure_running 保 _running 字典持有强引用防 GC
+    task_mgr.ensure_running(task_id, req)
+    # subscribe 拿 AsyncIterator(replay buffer + live)
+    return task_id, task_mgr.subscribe(task_id)

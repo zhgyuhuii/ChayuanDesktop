@@ -503,7 +503,11 @@ async def create_modality_completion(
             # 已经是 /v1/artifacts/ 形态 — 直接透传
             attachments.append(Attachment(mime=mime, url=url, name=a.get("name")))
 
-    # 7. 构造 GenerateReq + dispatch
+    # 7. 构造 GenerateReq + dispatch via TaskManager
+    # PR-9 起切到 dispatch_via_manager:任务落库 + 后台 asyncio.Task 跑,
+    # 客户端断开**不**取消任务(只取消订阅),便于"刷新页面续看"。
+    from chayuan.server.modality.router import dispatch_via_manager
+
     req = GenerateReq(
         capability=cap,
         model=actual_model,
@@ -516,17 +520,19 @@ async def create_modality_completion(
         params=params,
         cancelled=Cancelled(),
     )
+    task_id, stream = await dispatch_via_manager(req)
+    logger.info("[modality.route] task_id=%s model=%s cap=%s", task_id, actual_model, cap.value)
 
     async def event_stream():
         try:
-            async for ev in dispatch(req):
+            async for ev in stream:
                 # ServerSentEvent 的 data 字段会自动拼成 ``data: <data>\n\n``;
                 # 我们要传 v5 协议,直接 yield 已 JSON 化的字符串
                 import json as _json
                 yield _json.dumps(ev, ensure_ascii=False)
         except asyncio.CancelledError:
-            # 客户端断连 → 通知 connector(如有 cancel hook)
-            req.cancelled.set() if req.cancelled else None
+            # 客户端断连 — 只断订阅,**不**取消后台任务(用户可能想刷页面续看)。
+            # 如果用户想真的撤销,走 POST /v1/modality/tasks/<id>/cancel(PR-9 C 阶段)。
             raise
 
     return EventSourceResponse(event_stream())

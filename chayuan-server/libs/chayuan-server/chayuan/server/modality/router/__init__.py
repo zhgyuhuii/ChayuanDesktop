@@ -26,7 +26,7 @@ from chayuan.server.modality.router.protocol import (
     GenerateReq,
     classify_capability,
 )
-from chayuan.server.modality.router.router import dispatch, is_enabled
+from chayuan.server.modality.router.router import dispatch, dispatch_via_manager, is_enabled
 from chayuan.server.modality.router.sse_v5 import (
     sse_encode,
     text_start,
@@ -44,6 +44,7 @@ __all__ = [
     "GenerateReq",
     "classify_capability",
     "dispatch",
+    "dispatch_via_manager",
     "is_enabled",
     "sse_encode",
     "text_start",

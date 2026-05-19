@@ -30,6 +30,9 @@ from chayuan.server.db.models import mcp_connection_model  # noqa: F401
 from chayuan.server.db.models import message_model  # noqa: F401
 from chayuan.server.db.models import model_metadata_model  # noqa: F401
 from chayuan.server.db.models import model_platform_model  # noqa: F401
+# ``modality_task`` 表实际定义在 modality 包(就近;不属于 generic DB 域)。
+# 这里只 import 触发 Base.registry 注册,让 create_all 看得到这张表。
+from chayuan.server.modality.router.tasks import db_model as _modality_task_model  # noqa: F401
 from chayuan.server.db.models import route_context_model  # noqa: F401
 from chayuan.server.db.models import sql_training_model  # noqa: F401
 from chayuan.server.db.models import user_model  # noqa: F401
