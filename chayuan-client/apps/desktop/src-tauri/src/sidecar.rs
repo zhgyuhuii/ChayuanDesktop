@@ -29,7 +29,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
-use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
 
 /// 子进程状态机。前端据此渲染 banner / 错误覆盖层。
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -243,7 +244,13 @@ pub fn chayuan_sidecar_start<R: Runtime>(
         ));
     }
 
-    let mut cmd = Command::new(exe_path.to_string_lossy().to_string())
+    // tauri-plugin-shell 2.x:Command::new 是 pub(crate),库外不能直接构造;
+    // 走 ShellExt::shell().command(<path>) 路径,接受任意可执行路径。
+    // shell.command 仅在 JS 端 IPC 调用时受 capabilities 策略约束;
+    // Rust 端直接 spawn 不走 IPC,不需要 shell:allow-execute 白名单。
+    let mut cmd = app
+        .shell()
+        .command(exe_path.to_string_lossy().to_string())
         .args(["start", "-a", "--single-machine"])
         // ⚠ CHAYUAN_ROOT_IGNORE_STATE=1 必须设。
         // chayuan/paths.py::resolve_chayuan_root 默认优先读 ~/.chayuan/state.json
