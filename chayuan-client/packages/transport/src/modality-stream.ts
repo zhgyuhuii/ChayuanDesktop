@@ -104,9 +104,29 @@ export function classifyModalityCapability(
 // streamModality — 打后端 /v1/modality/completions
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * 模态附件 — 给 image_edit / vl / asr 等需要"用户输入图/音/视"的能力用。
+ *
+ * 二选一形态:
+ *   - ``dataB64``:base64 编码字节(任意本地文件 / blob)
+ *   - ``url``:已上传到后端 artifacts 的 ``/v1/artifacts/<sha>.<ext>`` URL
+ *
+ * 后端解码 + 落 artifacts + 注入到 GenerateReq.attachments。
+ */
+export interface ModalityAttachment {
+  mime: string;
+  /** base64 字节(不含 ``data:...;base64,`` 前缀) */
+  dataB64?: string;
+  /** 已存在的 artifact URL,与 dataB64 二选一 */
+  url?: string;
+  name?: string;
+}
+
 export interface ModalityStreamReq {
   model: string;
   prompt: string;
+  /** image_edit / asr 等场景的输入附件(参考图、音频文件等) */
+  attachments?: ModalityAttachment[];
   params?: Record<string, unknown>;
   authHeader?: string;
   /** API base — 由调用方注入(浏览器走 vite proxy,Tauri 走 127.0.0.1:62581) */
@@ -131,11 +151,22 @@ export async function* streamModality(
   signal?: AbortSignal,
 ): AsyncGenerator<V5Event> {
   const url = req.baseUrl.replace(/\/+$/, '') + '/v1/modality/completions';
+  // 附件以 ``{mime, data_b64, name}`` / ``{mime, url, name}`` 形态塞进 extra_body
+  // 后端解码 base64 → artifacts 落盘 → 注入 GenerateReq.attachments。
+  const modalityAttachments = (req.attachments ?? []).map((a) => ({
+    mime: a.mime,
+    data_b64: a.dataB64,
+    url: a.url,
+    name: a.name,
+  }));
   const body = JSON.stringify({
     model: req.model,
     messages: [{ role: 'user', content: req.prompt }],
     stream: true,
-    extra_body: { modality_params: req.params ?? {} },
+    extra_body: {
+      modality_params: req.params ?? {},
+      modality_attachments: modalityAttachments,
+    },
   });
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

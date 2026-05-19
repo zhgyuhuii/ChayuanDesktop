@@ -108,6 +108,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const toggleDeepThink = useComposerS((s) => s.toggleDeepThink);
   const modelId = useComposerS((s) => s.modelId);
   const selectedKuCount = useComposerS((s) => s.selectedKuIds.length);
+  // 检查当前附件中有几张图,给 image_edit 模式判"必填参考图"用
+  const imageAttachmentCount = useComposerS((s) => s.attachments.filter((a) => a.type === 'image').length);
   const taRef = React.useRef<HTMLTextAreaElement>(null);
   const composingRef = React.useRef(false);
   // 用 store 实例引用,避免 onPartial 回调中的 stale closure
@@ -378,23 +380,13 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
               <Square className="h-4 w-4" />
             </button>
           ) : (
-            <button
-              type="button"
-              disabled={!draft.trim()}
+            <SendButton
+              draft={draft}
+              composerMode={composerMode}
+              imageAttachmentCount={imageAttachmentCount}
               onClick={() => void submit()}
-              // 鼠标悬浮看到模式专属文案("生成图像 ✨" 等);视觉上保持圆形小按钮
-              // (mode badge 已经告诉用户模式,按钮不再写字保持视觉一致)
-              aria-label={composerMode.capability === 'chat' ? t('chat.send') : composerMode.submitLabel}
-              title={composerMode.capability === 'chat' ? t('chat.send') : composerMode.submitLabel}
-              className={cn(
-                'ml-2 flex h-9 w-9 items-center justify-center rounded-full transition-colors',
-                draft.trim()
-                  ? 'bg-[var(--cy-ink-700)] text-white hover:bg-[var(--cy-ink-800)]'
-                  : 'cursor-not-allowed bg-[var(--cy-surface-2)] text-[var(--cy-text-tertiary)]',
-              )}
-            >
-              <ArrowUp className="h-4 w-4" />
-            </button>
+              chatSendLabel={t('chat.send')}
+            />
           )}
         </div>
       </div>
@@ -406,6 +398,46 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     <GlowFrame intensity="md" radius={24}>
       {Inner}
     </GlowFrame>
+  );
+};
+
+interface SendButtonProps {
+  draft: string;
+  composerMode: ReturnType<typeof getComposerMode>;
+  imageAttachmentCount: number;
+  chatSendLabel: string;
+  onClick: () => void;
+}
+
+/**
+ * 发送按钮 — 把"何时禁用 / 鼠标悬浮提示什么 / 哪种模式叫什么"全收敛进来,
+ * 避免 ChatComposer 主体里再写一坨条件 JSX 引起 parse 歧义。
+ */
+const SendButton: React.FC<SendButtonProps> = ({
+  draft, composerMode, imageAttachmentCount, chatSendLabel, onClick,
+}) => {
+  const needsImage =
+    composerMode.attachmentRule === 'required-image' && imageAttachmentCount === 0;
+  const blocked = !draft.trim() || needsImage;
+  const title = needsImage
+    ? '请先上传参考图,再点发送'
+    : (composerMode.capability === 'chat' ? chatSendLabel : composerMode.submitLabel);
+  return (
+    <button
+      type="button"
+      disabled={blocked}
+      onClick={onClick}
+      aria-label={title}
+      title={title}
+      className={cn(
+        'ml-2 flex h-9 w-9 items-center justify-center rounded-full transition-colors',
+        blocked
+          ? 'cursor-not-allowed bg-[var(--cy-surface-2)] text-[var(--cy-text-tertiary)]'
+          : 'bg-[var(--cy-ink-700)] text-white hover:bg-[var(--cy-ink-800)]',
+      )}
+    >
+      <ArrowUp className="h-4 w-4" />
+    </button>
   );
 };
 

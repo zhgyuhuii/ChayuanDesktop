@@ -51,6 +51,20 @@ import { useModalitySubmit } from './useModalitySubmit';
 import { getClientConfig } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
 
+/**
+ * ArrayBuffer → base64(浏览器原生 btoa 一次只能吃 8KB 左右 String 才稳,
+ * 不切片大文件会爆栈。chunk 32KB 是经验值)。
+ */
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  const CHUNK = 0x8000;
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
 export interface ConversationViewProps {
   /** 当前激活会话 id;null/undefined = 草稿模式(首条消息时 lazy 创建) */
   conversationId?: string | null;
@@ -276,7 +290,27 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       // 拉当前 composer store 里的模态参数(size/n/seed 等)— ImageGenParamBar
       // 之类的 UI 把用户选的存进去,这里读一次随请求带走。
       const modalityParams = composer.getState().modalityParams;
-      await modalitySubmit.run({ text, modelId, params: modalityParams });
+      // image_edit 必填参考图:把当前 attachments(image 类型)转 base64 一并发。
+      // 其它非 chat 模式当前不用附件(t2i/t2v/tts);留通道一致预留。
+      // 走 fetch(previewUrl) → arrayBuffer → base64 — 老 useAttachments 没存
+      // 原 File 对象,只有 blob URL,所以走 fetch 回读一次。
+      const draftAttachments = enableAttachments ? composer.getState().attachments : [];
+      const modalityAttachments = await Promise.all(
+        draftAttachments
+          .filter((a) => a.type === 'image' && a.previewUrl)
+          .map(async (a) => {
+            const resp = await fetch(a.previewUrl!);
+            const buf = await resp.arrayBuffer();
+            const b64 = arrayBufferToBase64(buf);
+            return { mime: a.mime || 'image/png', dataB64: b64, name: a.name };
+          }),
+      );
+      await modalitySubmit.run({
+        text, modelId, params: modalityParams,
+        attachments: modalityAttachments.length > 0 ? modalityAttachments : undefined,
+      });
+      // 发完清理附件,与 chat 路径行为一致
+      if (enableAttachments) attachments.reset();
       return;
     }
     if (!activeId) {

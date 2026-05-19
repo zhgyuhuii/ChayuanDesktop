@@ -469,7 +469,41 @@ async def create_modality_completion(
     extra = body.extra_json or {}
     params = dict(extra.get("modality_params") or {})
 
-    # 6. 构造 GenerateReq + dispatch
+    # 6. 附件:extra_body.modality_attachments = [{mime, data_b64, name?}]
+    #    image_edit 必填一张参考图;t2i/t2v/tts 暂不需要附件但通道一致预留。
+    #    base64 解码后落到 artifacts 拿到本地 URL,Connector 通过
+    #    GenerateReq.attachments 消费;Connector 端要 base64 再发上游时可
+    #    通过 url 反查 artifact 文件再编码。
+    from chayuan.server.modality.router.protocol import Attachment
+    from chayuan.server.modality.router.artifacts import save_bytes
+    import base64 as _b64
+
+    raw_attachments = extra.get("modality_attachments") or []
+    attachments: List["Attachment"] = []
+    for a in raw_attachments:
+        if not isinstance(a, dict):
+            continue
+        mime = (a.get("mime") or "application/octet-stream").strip()
+        data_b64 = a.get("data_b64")
+        url = a.get("url")
+        if data_b64:
+            try:
+                raw_bytes = _b64.b64decode(data_b64)
+            except Exception:  # noqa: BLE001
+                continue
+            if not raw_bytes:
+                continue
+            saved = save_bytes(raw_bytes, mime)
+            attachments.append(Attachment(
+                mime=mime,
+                url=saved["url"],
+                name=a.get("name"),
+            ))
+        elif url:
+            # 已经是 /v1/artifacts/ 形态 — 直接透传
+            attachments.append(Attachment(mime=mime, url=url, name=a.get("name")))
+
+    # 7. 构造 GenerateReq + dispatch
     req = GenerateReq(
         capability=cap,
         model=actual_model,
@@ -478,6 +512,7 @@ async def create_modality_completion(
         api_base=info.get("api_base_url") or "",
         api_key=info.get("api_key") or "",
         prompt=prompt,
+        attachments=attachments,
         params=params,
         cancelled=Cancelled(),
     )

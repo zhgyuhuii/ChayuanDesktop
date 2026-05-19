@@ -24,6 +24,7 @@ import { uuid } from '@chayuan/platform-shared';
 import {
   classifyModalityCapability,
   streamModality,
+  type ModalityAttachment,
   type V5Event,
   isFilePart,
   isTextDelta,
@@ -58,6 +59,7 @@ export interface UseModalitySubmitReturn {
     text: string;
     modelId: string;
     params?: Record<string, unknown>;
+    attachments?: ModalityAttachment[];
   }): Promise<void>;
 }
 
@@ -79,7 +81,12 @@ export function useModalitySubmit(opts: UseModalitySubmitOptions): UseModalitySu
   }, []);
 
   const run = React.useCallback(
-    async (input: { text: string; modelId: string; params?: Record<string, unknown> }) => {
+    async (input: {
+      text: string;
+      modelId: string;
+      params?: Record<string, unknown>;
+      attachments?: ModalityAttachment[];
+    }) => {
       const text = input.text.trim();
       if (!text) return;
       const now = Date.now();
@@ -119,6 +126,7 @@ export function useModalitySubmit(opts: UseModalitySubmitOptions): UseModalitySu
           {
             model: input.modelId,
             prompt: text,
+            attachments: input.attachments,
             params: input.params,
             baseUrl,
             authHeader,
