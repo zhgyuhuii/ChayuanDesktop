@@ -292,7 +292,19 @@ pub fn run() {
                 &[&show, &new_chat, &sep1, &restart, &about, &sep2, &quit],
             )?;
 
+            // 托盘图标:用 tauri build 注入的 default_window_icon (即 tauri.conf.json
+            // bundle.icon 链里第一张),保证跟标题栏 / installer 图标视觉一致。
+            // 拿不到 → setup 失败 (理论不会 — bundle.icon 已配 icons/icon.ico,
+            // tauri 编译期把 ico 嵌进 binary 当 default_window_icon)。
+            let tray_icon = app
+                .default_window_icon()
+                .cloned()
+                .ok_or_else(|| {
+                    "default_window_icon 不存在 — tauri.conf.json bundle.icon 链丢失?"
+                        .to_string()
+                })?;
             let _tray = TrayIconBuilder::with_id("main")
+                .icon(tray_icon)
                 .tooltip("察元 AI")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
