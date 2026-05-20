@@ -389,7 +389,7 @@ function Test-MsiCabIntegrity {
             Write-Fail "列 $name 内容失败:$($_.Exception.Message)"
             return $false
         }
-        Write-Note "  $name:$($cabStreams[$name].Count) 个 stream"
+        Write-Note "  ${name}:$($cabStreams[$name].Count) 个 stream"
     }
 
     $missing = @()
