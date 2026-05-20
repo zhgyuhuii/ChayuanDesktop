@@ -78,6 +78,11 @@ const ImageToTextPage = React.lazy(() =>
 const AudioToTextPage = React.lazy(() =>
   import('../audioToText/AudioToTextPage').then((m) => ({ default: m.AudioToTextPage })),
 );
+// 在线办公功能占位页 —— 单机版不支持的「察元办公 / 智能空间 / 应用中心 /
+// 我的待办 / 训练数据中心」点击后进此页,按 feature key 参数化做流式介绍。
+const OnlineFeaturePage = React.lazy(() =>
+  import('../online/OnlineFeaturePage').then((m) => ({ default: m.OnlineFeaturePage })),
+);
 
 /**
  * 模型广场路由包装 —— 把 ``/marketplace?configure=<pid>`` 的 search param
@@ -239,6 +244,12 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     render: () => <AudioToTextPage />,
     defaultTitle: '音转文',
     defaultIcon: 'mic',
+  },
+  {
+    // 在线办公功能占位页:/online/<feature>(office / space / market / tasks / annotation)
+    pattern: /^\/online\/(?<feature>[^/]+)$/,
+    render: (params) => <OnlineFeaturePage featureKey={params.feature ?? ''} />,
+    defaultIcon: 'lock',
   },
   {
     pattern: /^\/admin\/(?<tab>traces|outbox|prompts|platforms)$/,

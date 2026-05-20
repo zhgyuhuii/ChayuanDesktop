@@ -26,6 +26,12 @@ import {
   Shield,
   Plug,
   Wrench,
+  Briefcase,
+  Grid3x3,
+  Store,
+  Bell,
+  Tags,
+  Lock,
 } from 'lucide-react';
 import { useNavigate, useLocation } from '@tanstack/react-router';
 // uuid / useQueryClient / upsertConversation 之前用于 onNewChat 预建会话,
@@ -71,6 +77,25 @@ const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { to: '/tools', labelKey: 'nav.tools', icon: Wrench },
   // 单机版移除训练数据中心(/annotation)
   { to: '/history', labelKey: 'nav.history', icon: Clock },
+];
+
+/**
+ * 「在线办公」功能组 —— 单机版不支持,点击后进 OnlineFeaturePage 占位页。
+ * label 直接写字面量(不走 i18n):这些在线功能在单机版只是占位,文案固定。
+ * 路由与 OnlineFeaturePage 的 feature key 对齐(page-registry:/online/<key>)。
+ */
+interface OnlineNavItem {
+  to: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const ONLINE_NAV_ITEMS: ReadonlyArray<OnlineNavItem> = [
+  { to: '/online/office', label: '察元办公', icon: Briefcase },
+  { to: '/online/space', label: '智能空间', icon: Grid3x3 },
+  { to: '/online/market', label: '应用中心', icon: Store },
+  { to: '/online/tasks', label: '我的待办', icon: Bell },
+  { to: '/online/annotation', label: '训练数据中心', icon: Tags },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, ...rest }) => {
@@ -212,6 +237,42 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
           {!list.isLoading && (list.data?.length ?? 0) === 0 && (
             <p className="px-2 text-xs text-[var(--cy-text-tertiary)]">{t('history.empty')}</p>
           )}
+        </div>
+      )}
+
+      {/* 在线办公功能组 —— 单机版不支持,点击进占位页(流式介绍 + 联系商务) */}
+      {!collapsed && (
+        <div className="shrink-0 border-t border-[var(--cy-border-subtle)] px-2 py-2">
+          <p className="mb-1 flex items-center gap-1 px-2 text-[11px] font-medium uppercase tracking-wider text-[var(--cy-text-tertiary)]">
+            <Lock className="h-3 w-3" />
+            在线办公
+          </p>
+          <nav className="flex flex-col gap-0.5 text-sm">
+            {ONLINE_NAV_ITEMS.map((it) => {
+              const Icon = it.icon;
+              const active = location.pathname === it.to;
+              return (
+                <button
+                  key={it.to}
+                  type="button"
+                  onClick={() => onNavItem(it.to, it.label, 'lock')}
+                  title={`${it.label} · 在线功能,当前单机版不支持`}
+                  className={cn(
+                    'flex items-center gap-2 rounded-full px-3 py-1.5 text-left transition-colors',
+                    active
+                      ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]'
+                      : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-secondary)]',
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="flex-1 truncate">{it.label}</span>
+                  <span className="shrink-0 rounded-full bg-[var(--cy-surface-2)] px-1.5 py-0.5 text-[10px] font-normal text-[var(--cy-text-tertiary)]">
+                    在线
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
         </div>
       )}
 
