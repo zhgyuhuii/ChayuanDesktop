@@ -1,17 +1,21 @@
 /**
  * HomePage — 主页(单机版重构 2026-05-09):
  *
- *   1. Greeting(早/午/晚 + 用户名)+ 流式产品介绍气泡(进首页跑一次,流完即静止)
+ *   1. Greeting(早/午/晚 + 用户名 + Logo)
  *   2. [可选 banner] 还没配模型 → 跳模型广场
  *   3. 5 张炫酷功能入口卡(知识库 / 模型广场 / 图转文 / 音转文 / AI 笔记)
- *   4. 关注我们 + 收款码 三张二维码
- *   5. 特性 chip + WPS 加载项 / GitHub / 官网链接
+ *   4. 按模型类型开始对话(CapabilityCardGrid)
+ *   5. 流式产品介绍气泡(进首页跑一次,流完即静止)
+ *   6. 招商合作 banner
+ *   7. 关注我们 + 收款码 三张二维码
  *
  * 历史:
  *  - 2026-05-09 移除旧版 Composer + 占位能力,首页改为产品入口 + 介绍。
  *  - 2026-05-12 取消"每 4s 自动换文案"循环 — LLM 不可用时它会在静态文案
  *    间反复切,视觉上就是"屏幕闪烁"。改为单次播放 + rAF 合批 chunk 渲染,
  *    气泡固定 min-h 避免内容增长推开下方卡片。
+ *  - 2026-05-20 AI 介绍气泡从顶部下移到招商合作 banner 上方 — 让 5 个工具
+ *    卡 + CapabilityCardGrid 上移,首屏直接看到全部功能入口。
  */
 
 import * as React from 'react';
@@ -229,7 +233,7 @@ export const HomePage: React.FC = () => {
           本页内容下方,不会跑到 sidebar/header 之上。 */}
       <HomeFxLayer />
 
-      {/* ── 1. Greeting + 流式介绍气泡 ─────────────────────────── */}
+      {/* ── 1. Greeting(Logo + 早/午/晚 + 用户名)───────────────── */}
       <div className="relative z-10 flex items-center gap-3">
         <img
           src={CHAYUAN_LOGO_URL}
@@ -247,32 +251,6 @@ export const HomePage: React.FC = () => {
             )}
           </h1>
           <p className="text-sm text-[var(--cy-text-tertiary)]">察元 AI · 本地优先的办公 AI 工作台</p>
-        </div>
-      </div>
-
-      {/* 流式介绍气泡 — 一次播放,流完即静止;不再循环换文案,避免视觉闪烁。
-          固定 min-h-[5rem] 让气泡高度不随文字增长抖动,下方卡片不会被反复推开。
-          光标用 opacity 1s 步进切换,比 animate-pulse 柔和。 */}
-      <div className="relative z-10 flex max-w-3xl items-start gap-3 -mt-3">
-        <div
-          className="h-7 w-7 shrink-0 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] flex items-center justify-center text-[11px] font-semibold text-white shadow-sm"
-          style={{ animation: 'cy-badge-halo 3.6s 1.2s ease-in-out infinite' }}
-        >
-          AI
-        </div>
-        <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm bg-[var(--cy-surface-base)] px-4 py-3 ring-1 ring-[var(--cy-border-subtle)] shadow-sm">
-          <p className="min-h-[5rem] text-sm leading-relaxed text-[var(--cy-text-secondary)]">
-            {intro || (introDone ? '' : <TypingDots />)}
-            {!introDone && intro && <Caret />}
-          </p>
-          {introError && (
-            <p
-              className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]"
-              title={introError}
-            >
-              (LLM 不可用,已用本地文案兜底 — 可前往模型广场配置)
-            </p>
-          )}
         </div>
       </div>
 
@@ -335,7 +313,7 @@ export const HomePage: React.FC = () => {
         })}
       </div>
 
-      {/* ── 3.5 按模型类型开始对话 ────────────────────────────
+      {/* ── 4. 按模型类型开始对话 ────────────────────────────
        *  7 张 capability 卡(对话 / 视觉 / 文生图 / 图像编辑 / 文生视频
        *  / 语音合成 / 语音识别)。已配模型的卡点击直接新对话并预选最优模型;
        *  未配卡点击弹支持目录,锚跳到对应 cap 段帮用户找申请地址。
@@ -345,14 +323,42 @@ export const HomePage: React.FC = () => {
         <CapabilityCardGrid />
       </div>
 
-      {/* ── 5. 招商合作 banner ─────────────────────────────────
+      {/* ── 5. 流式产品介绍气泡 ────────────────────────────────
+          一次播放,流完即静止;不再循环换文案,避免视觉闪烁。
+          固定 min-h-[5rem] 让气泡高度不随文字增长抖动。
+          2026-05-20 从顶部下移到此 — 让上方 5 个工具卡 + CapabilityCardGrid
+          首屏即可见,产品介绍作为补充信息靠后展示。 */}
+      <div className="relative z-10 flex max-w-3xl items-start gap-3">
+        <div
+          className="h-7 w-7 shrink-0 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] flex items-center justify-center text-[11px] font-semibold text-white shadow-sm"
+          style={{ animation: 'cy-badge-halo 3.6s 1.2s ease-in-out infinite' }}
+        >
+          AI
+        </div>
+        <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm bg-[var(--cy-surface-base)] px-4 py-3 ring-1 ring-[var(--cy-border-subtle)] shadow-sm">
+          <p className="min-h-[5rem] text-sm leading-relaxed text-[var(--cy-text-secondary)]">
+            {intro || (introDone ? '' : <TypingDots />)}
+            {!introDone && intro && <Caret />}
+          </p>
+          {introError && (
+            <p
+              className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]"
+              title={introError}
+            >
+              (LLM 不可用,已用本地文案兜底 — 可前往模型广场配置)
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── 6. 招商合作 banner ─────────────────────────────────
        *  寻找城市合伙人 / ISV 集成商 / 私有化部署 / 行业定制。
        *  深金渐变背景 + 金线缠绕,显得"郑重",2 个 CTA 弹联系方式
        *  Dialog(微信/电话/邮箱,可复制)。
        *  文案/联系方式在 PartnershipBanner.tsx 顶部常量,后续替换简单。 */}
       <PartnershipBanner />
 
-      {/* ── 4. 关注我们 / 收款码 ───────────────────────────────── */}
+      {/* ── 7. 关注我们 / 收款码 ───────────────────────────────── */}
       <section className="relative z-10 rounded-3xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-6">
         <div className="mb-4 flex items-baseline justify-between">
           <h2 className="text-sm font-semibold text-[var(--cy-text-primary)]">支持我们</h2>
