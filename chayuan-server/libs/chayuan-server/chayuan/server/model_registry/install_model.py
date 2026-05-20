@@ -469,7 +469,20 @@ class InstallModelJobManager:
         else:
             with self._lock:
                 job.log_tail.append(f"[install_model] modelscope snapshot: {job.model_id}")
-            ms_snapshot(model_id=job.model_id, cache_dir=str(target_dir))
+            # 用 local_dir 让文件**平铺**进 target_dir。ModelScope 的 cache_dir
+            # 模式会多套一层 <owner>/<name> 子目录(target_dir/BAAI/bge-m3/...),
+            # 导致模型仓库被埋深一层 → model_id 变成丑陋的嵌套路径
+            # (models/bundled/embedding/BAAI--bge-m3/BAAI/bge-m3),还留 ._____temp。
+            # 老版本 modelscope SDK 不认 local_dir → TypeError,回退 cache_dir。
+            try:
+                ms_snapshot(model_id=job.model_id, local_dir=str(target_dir))
+            except TypeError:
+                with self._lock:
+                    job.log_tail.append(
+                        "[install_model] modelscope SDK 不支持 local_dir,"
+                        "回退 cache_dir(会多套一层 owner/name 目录)"
+                    )
+                ms_snapshot(model_id=job.model_id, cache_dir=str(target_dir))
 
         with self._lock:
             job.progress_pct = 90.0
