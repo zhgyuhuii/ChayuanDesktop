@@ -74,10 +74,17 @@ export function useDesktopIntegrations(): void {
     };
   }, []);
 
-  // 来自 Rust 托盘的事件
+  // 来自 Rust 托盘的「新对话」—— 双通道:emit 事件(快) + pending flag 兜底。
   React.useEffect(() => {
     if (!isDesktop()) return;
-    const onNewChat = async () => {
+
+    // 去重:emit 事件和 pending-flag 兜底可能为同一次点击各触发一遍。
+    // 记录上次新建时间,1s 内重复触发直接吞掉,避免开两个 tab。
+    let lastNewChatAt = 0;
+    const onNewChat = () => {
+      const now = Date.now();
+      if (now - lastNewChatAt < 1000) return;
+      lastNewChatAt = now;
       // 跟 Sidebar.onNewChat 完全一致 — 必须三件套都做,缺一不可:
       //   1. setActive(null):草稿模式,不绑老会话
       //   2. tabs.open('/chat', {forceNew:true}):每次开**新** tab,避免复用
@@ -97,6 +104,7 @@ export function useDesktopIntegrations(): void {
     // Tauri 通过 webview emit;用 listen API。
     // app 包不直接依赖 @tauri-apps/api(它在 platform-tauri),走动态字符串 import 绕过 TS 模块解析。
     let cleanup: (() => void) | null = null;
+    let disposed = false;
     void (async () => {
       try {
         const winName = '@tauri-apps' + '/api/window';
@@ -106,13 +114,31 @@ export function useDesktopIntegrations(): void {
           };
         };
         const win = winMod.getCurrentWindow();
-        const off = await win.listen('cy:new-chat', () => void onNewChat());
+        const off = await win.listen('cy:new-chat', () => onNewChat());
+        if (disposed) {
+          // 卸载赶在 listen 注册完成之前 — 直接注销,别留悬挂监听
+          off();
+          return;
+        }
         cleanup = off;
+
+        // 兜底:listener 注册「之前」用户可能已点过托盘「新对话」,那次
+        // emit 没人收到。listener 就绪后向 Rust 取一次 pending flag,
+        // 命中就补触发(onNewChat 内的时间窗去重保证不会和 emit 重复开 tab)。
+        const coreName = '@tauri-apps' + '/api/core';
+        const coreMod = (await import(/* @vite-ignore */ coreName)) as {
+          invoke: <T>(cmd: string) => Promise<T>;
+        };
+        const pending = await coreMod.invoke<boolean>('chayuan_take_pending_new_chat');
+        if (!disposed && pending) onNewChat();
       } catch {
         /* noop in non-tauri */
       }
     })();
-    return () => cleanup?.();
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
   }, [navigate]);
 
   // 流式完成 + 窗口不可见 → 系统通知,提醒用户回来看

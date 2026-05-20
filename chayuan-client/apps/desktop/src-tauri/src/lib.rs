@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use sha2::{Digest, Sha256};
@@ -37,6 +38,24 @@ struct MonitorGeom {
     y: i32,
     width: u32,
     height: u32,
+}
+
+/// 托盘「新对话」的待处理标记。
+///
+/// 为什么需要它:托盘菜单点「新对话」时,Rust 会 `show()` 主窗 + `emit("cy:new-chat")`。
+/// 但 `emit` 是一锤子买卖 —— 如果此刻前端的 listener 还没注册好(冷启动 webview
+/// 还在 mount、`Chrome` 懒加载 chunk 没到、`useDesktopIntegrations` 里
+/// `getCurrentWindow().listen` 这个 async 注册没完成),事件就丢了,表现为
+/// 「窗口开了但没新建对话」。
+///
+/// 解法:点菜单时除了 emit,还把这个 flag 置 true;前端 `useDesktopIntegrations`
+/// 在 listener 注册就绪后,主动 `invoke('chayuan_take_pending_new_chat')` 把 flag
+/// `swap` 取走消费一次。两条路任一命中都触发新建对话,前端用短时间窗去重,
+/// 保证不会开两个 tab。
+#[derive(Default)]
+struct TrayPendingState {
+    /// 托盘点了「新对话」但前端可能还没收到 —— 前端就绪后 take 一次。
+    new_chat: AtomicBool,
 }
 
 mod data_dir;
@@ -187,6 +206,16 @@ fn chayuan_take_screenshot_result(
         .flatten())
 }
 
+/// 前端取走并清除「托盘新对话」待处理标记。
+///
+/// `useDesktopIntegrations` 在 `cy:new-chat` listener 注册完成后调一次:
+/// 返回 `true` 说明在 listener 就绪前用户点过托盘「新对话」、`emit` 很可能丢了,
+/// 前端据此补触发一次新建对话。`swap` 取走后 flag 归位,保证只消费一次。
+#[tauri::command]
+fn chayuan_take_pending_new_chat(state: tauri::State<'_, TrayPendingState>) -> bool {
+    state.new_chat.swap(false, Ordering::SeqCst)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // window_state plugin:只持久化 SIZE / POSITION / MAXIMIZED / FULLSCREEN,
@@ -244,6 +273,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::new(sidecar::SidecarManager::new(62581)))
         .manage(ScreenshotState::default())
+        .manage(TrayPendingState::default())
         .invoke_handler(tauri::generate_handler![
             chayuan_vault_password,
             chayuan_tray_set_menu,
@@ -253,6 +283,7 @@ pub fn run() {
             chayuan_take_screenshot_buffer,
             chayuan_submit_screenshot_result,
             chayuan_take_screenshot_result,
+            chayuan_take_pending_new_chat,
             chayuan_open_path,
             data_dir::chayuan_data_dir_state,
             data_dir::chayuan_data_dir_set,
@@ -315,10 +346,17 @@ pub fn run() {
                         }
                     }
                     "new_chat" => {
+                        // 先置「待处理」标记:即便下面的 emit 因前端 listener 还没
+                        // 注册好而丢失,前端就绪后也会 invoke 把它取走补触发。
+                        app.state::<TrayPendingState>()
+                            .new_chat
+                            .store(true, Ordering::SeqCst);
                         if let Some(w) = app.get_webview_window("main") {
                             let _ = w.unminimize();
                             let _ = w.show();
                             let _ = w.set_focus();
+                            // 快路径:前端已就绪时事件即时命中;丢了也有上面的
+                            // 标记 + 前端 take 兜底。两条路前端会去重。
                             let _ = w.emit("cy:new-chat", ());
                         }
                     }
