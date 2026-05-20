@@ -69,22 +69,6 @@ fn chayuan_tray_set_tooltip(text: String, app: tauri::AppHandle) -> Result<(), S
     Ok(())
 }
 
-/// 关闭独立 splashscreen 窗口 + 显示主窗口。
-/// 前端 main.tsx 在 React 首屏 paint 之后调用本 command,把 splash 渐隐换主窗。
-/// 兜底:无 splashscreen 窗口时也要让 main show(避免主窗口卡在 visible=false)。
-#[tauri::command]
-async fn chayuan_close_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(splash) = app.get_webview_window("splashscreen") {
-        // 关 splash 失败不阻塞 main show — 至少让用户能看到主窗
-        let _ = splash.close();
-    }
-    if let Some(main) = app.get_webview_window("main") {
-        main.show().map_err(|e| format!("show main: {e}"))?;
-        let _ = main.set_focus();
-    }
-    Ok(())
-}
-
 /// 截图（全屏第一块显示器）→ PNG 字节
 #[tauri::command]
 fn chayuan_screenshot() -> Result<Vec<u8>, String> {
@@ -178,18 +162,12 @@ fn chayuan_take_screenshot_result(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // window_state plugin:默认 save 全部 state flags(SIZE / POSITION / MAXIMIZED /
-    // FULLSCREEN / DECORATIONS / VISIBLE),启动时按窗口 label 自动 restore。
+    // window_state plugin:只持久化 SIZE / POSITION / MAXIMIZED / FULLSCREEN,
+    // 启动时按窗口 label 自动 restore。
     //
-    // ⚠ 这里**必须排除 VISIBLE**,否则:之前 session main 窗口 visible=true 被存了,
-    // 下次启动 plugin 在 setup 之前 restore → main 被强制 show,即使 conf.json
-    // 写了 visible: false。用户看到的就是 main 的 backgroundColor(#0f172a 深蓝)
-    // 即"蓝屏",splash 窗口被遮挡 / 还没起来就被夺焦。
-    // 同时排除 DECORATIONS,避免 plugin 覆盖 splash 窗口的 decorations:false。
-    //
-    // splashscreen 窗口完全不持久化(每次启动都是固定 420×420 center 状态)。
-    // 关键:排除 VISIBLE / DECORATIONS;splashscreen 窗口靠 setup 阶段 force show
-    // 兜底,plugin 即便存了它的 state 也无害。
+    // 排除 VISIBLE / DECORATIONS:主窗口 conf.json 固定 visible:true +
+    // decorations:true,不让 plugin 用历史 state 覆盖(否则上次若意外存了
+    // visible=false,下次启动主窗口会不显示)。
     let window_state_plugin = tauri_plugin_window_state::Builder::default()
         .with_state_flags(
             tauri_plugin_window_state::StateFlags::SIZE
@@ -248,7 +226,6 @@ pub fn run() {
             chayuan_take_screenshot_buffer,
             chayuan_submit_screenshot_result,
             chayuan_take_screenshot_result,
-            chayuan_close_splashscreen,
             data_dir::chayuan_data_dir_state,
             data_dir::chayuan_data_dir_set,
             data_dir::chayuan_data_dir_default,
@@ -259,17 +236,9 @@ pub fn run() {
             sidecar::chayuan_sidecar_kill
         ])
         .setup(|app| {
-            // ── splash 强制顺序(double safety net)─────────────────
-            // 即便 window_state plugin / WebView2 startup quirks 抢先 show 了 main,
-            // 这里把 main 强行 hide、把 splash 强行 show 一次,确保 splash 是首先
-            // 出现的那一个。两个 best-effort,失败不阻塞 setup。
-            if let Some(main) = app.get_webview_window("main") {
-                let _ = main.hide();
-            }
-            if let Some(splash) = app.get_webview_window("splashscreen") {
-                let _ = splash.show();
-                let _ = splash.set_focus();
-            }
+            // splash 改为内联在 index.html 的 #chayuan-splash(单窗口方案),
+            // 主窗口 conf.json 直接 visible:true,首帧就是 HTML 解析出的 splash
+            // 动画。不再需要"隐藏 main / 显示独立 splash 窗口"的强制顺序。
 
             // ── 系统托盘 ────────────────────────────────────────────
             // 菜单(从上到下):
@@ -387,21 +356,9 @@ pub fn run() {
                 window.open_devtools();
             }
 
-            // splash 兜底:前端 30s 没 invoke chayuan_close_splashscreen 也强制 show main
-            // (异步 import 失败 / sidecar 卡死 / 前端 crash 等极端情况),让用户能看到错误。
-            let handle = app.handle().clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(30));
-                if let Some(main) = handle.get_webview_window("main") {
-                    if !main.is_visible().unwrap_or(false) {
-                        let _ = main.show();
-                        let _ = main.set_focus();
-                    }
-                }
-                if let Some(splash) = handle.get_webview_window("splashscreen") {
-                    let _ = splash.close();
-                }
-            });
+            // 单窗口内联 splash 方案下不再需要"30s 强制 show main"兜底 —
+            // 主窗口始终 visible,splash 是 DOM 节点(#chayuan-splash),
+            // 由前端 splash.ts 的 8s 安全兜底负责移除,Rust 端无需介入。
 
             Ok(())
         })

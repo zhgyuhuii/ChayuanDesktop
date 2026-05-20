@@ -66,27 +66,20 @@ const FALLBACK_API_BASE =
   import.meta.env.VITE_API_BASE || (THIN_CLIENT ? '' : SINGLE_MACHINE_BASE);
 
 /**
- * splash 收尾 — 双轨:
- *   ① **独立 splashscreen 窗口** (推荐):tauri.conf.json 配两个 window,
- *     主窗口初始 visible:false,前端首屏 paint 后 invoke('chayuan_close_splashscreen')
- *     → Rust 端 close splash + show main。这是用户感知的"启动动画"主路径,
- *     完全不受 vite bundle 下载时长影响。
- *   ② **inline splash DOM**(legacy):index.html 内嵌的 #chayuan-splash,
- *     在主窗口已经显示后,React 接管 DOM 时 hideSplash() fade out 它。
- *     新方案下主窗口启动是 invisible,这条路其实只对 web app 和 thin client
- *     模式有意义。保留以免回退。
+ * splash 收尾 — 单轨:内联 splash DOM。
  *
- * 30 秒兜底:Rust 端独立 timer 也兜底(setup 里 spawn 的 thread),双保险。
+ * 主窗口 tauri.conf.json 固定 visible:true,启动即显示;首帧就是
+ * index.html 解析出的 #chayuan-splash CSS 动画(零 JS、零 bundle 依赖)。
+ * React 首屏 commit 后 Shell 通过 window.__cyHideSplash 触发 hideSplash()
+ * 把它 360ms 淡出 + 移除。
+ *
+ * 旧的"独立 splashscreen 窗口 + invoke('chayuan_close_splashscreen')"双轨
+ * 已废弃 —— 两个 webview + 窗口切换闪烁不值当,单窗口内联更干净。
+ *
+ * 8s 安全兜底:Shell 万一永远挂不上来,也强制移除 splash 让用户看到界面。
  */
-async function dismissSplash(): Promise<void> {
+function dismissSplash(): void {
   hideSplash();
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('chayuan_close_splashscreen');
-  } catch (e) {
-    // 非 Tauri 环境(web/dev preview)或 command 未注册 — 静默,inline splash 已 fade
-    console.debug('[splash] close_splashscreen invoke 不可达:', e);
-  }
 }
 (window as unknown as { __cyHideSplash?: () => void }).__cyHideSplash =
   dismissSplash;
