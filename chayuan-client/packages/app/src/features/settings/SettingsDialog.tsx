@@ -123,8 +123,10 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onOpenChan
             </Field>
           )}
 
-          {/* 单机模式专属:数据目录信息 + 切换向导 */}
-          {singleMachine && (
+          {/* 数据目录信息 + 切换向导 — 桌面端都显示(不再只限单机模式)。
+              数据库 / 索引 / 模型缓存都落在这个目录,用户需要能看到 + 切换。
+              DataDirSwitchSection 内部再处理"读取中 / 不支持 / 失败"各态。 */}
+          {platform.kind === 'desktop' && (
             <Field label="数据目录">
               <DataDirSwitchSection />
             </Field>

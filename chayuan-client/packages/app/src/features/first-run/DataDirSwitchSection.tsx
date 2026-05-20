@@ -30,6 +30,7 @@ import { getPlatform } from '@chayuan/platform-shared';
 export const DataDirSwitchSection: React.FC = () => {
   const supported = isDataDirSupported();
   const [currentPath, setCurrentPath] = React.useState<string>('');
+  const [loadError, setLoadError] = React.useState<string>('');
   const [open, setOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -37,12 +38,31 @@ export const DataDirSwitchSection: React.FC = () => {
     void getDataDirApi()
       .state()
       .then((s) => setCurrentPath(s.path))
-      .catch(() => {
-        /* 拿不到状态(命令未注册等)— 当作不支持,不显示 */
+      .catch((e: unknown) => {
+        // 拿不到状态(命令未注册等)— 不再静默,显式提示
+        setLoadError(String((e as { message?: string })?.message ?? e));
       });
   }, [supported]);
 
-  if (!supported || !currentPath) return null;
+  // 不再静默 return null —— 用户在设置里点开"数据目录"必须看到东西。
+  // 三种降级态各给明确文案:
+  if (!supported) {
+    return (
+      <p className="text-xs text-zinc-500">
+        当前运行形态不支持本地数据目录(仅桌面端可用)。
+      </p>
+    );
+  }
+  if (loadError) {
+    return (
+      <p className="text-xs text-amber-600 dark:text-amber-400">
+        读取数据目录失败:{loadError}
+      </p>
+    );
+  }
+  if (!currentPath) {
+    return <p className="text-xs text-zinc-500">正在读取数据目录…</p>;
+  }
 
   return (
     <>
