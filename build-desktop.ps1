@@ -501,6 +501,46 @@ function Test-Tool {
     }
 }
 
+# Rust 工具链缺失时用 rustup 自动安装(跟 vendor 自动安装同思路:能自愈就别
+# 让用户中断)。装到默认 ~/.cargo,装完把 ~/.cargo/bin 补进本次进程 PATH ——
+# rustup 会改注册表 PATH(新终端自动生效),但当前进程要自己补才能立即用。
+function Install-RustIfMissing {
+    if (Get-Command cargo -ErrorAction SilentlyContinue) { return }
+    $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+    # 之前装过、只是当前 shell PATH 没刷新 —— 补进 PATH 再试,免得重复装
+    if (Test-Path (Join-Path $cargoBin 'cargo.exe')) {
+        $env:PATH = "$cargoBin;$env:PATH"
+        if (Get-Command cargo -ErrorAction SilentlyContinue) {
+            Write-Note "Rust 之前已装,把 $cargoBin 补进本次 PATH"
+            return
+        }
+    }
+    Write-Step 'Rust 工具链自动安装 (rustup)'
+    Write-Note '未检测到 cargo —— 用 rustup 自动安装 Rust stable(要下载工具链,可能几分钟)...'
+    $rustupInit = Join-Path $env:TEMP 'chayuan-rustup-init.exe'
+    try {
+        $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
+        Invoke-WebRequest -Uri "https://win.rustup.rs/$arch" -OutFile $rustupInit -UseBasicParsing
+        # -y 静默;minimal = rustc+cargo+std(不装 docs/clippy,够编译且快);
+        # 默认 host x86_64-pc-windows-msvc(MSVC 由下方工具链检查单独校验)
+        & $rustupInit -y --default-toolchain stable --profile minimal
+        if ($LASTEXITCODE -ne 0) { throw "rustup-init 退出码 $LASTEXITCODE" }
+    } catch {
+        Write-Fail "Rust 自动安装失败:$_"
+        Write-Note '手动装:浏览器开 https://rustup.rs/ 跑 rustup-init。墙内工具链下载慢/失败可先设镜像:'
+        Write-Note '  $env:RUSTUP_DIST_SERVER="https://rsproxy.cn"; $env:RUSTUP_UPDATE_ROOT="https://rsproxy.cn/rustup"'
+        return
+    } finally {
+        Remove-Item $rustupInit -ErrorAction SilentlyContinue
+    }
+    if (Test-Path (Join-Path $cargoBin 'cargo.exe')) {
+        $env:PATH = "$cargoBin;$env:PATH"
+        Write-Ok "Rust 已装好($cargoBin 已加入本次 PATH;以后新开终端自动生效)"
+    } else {
+        Write-Fail "rustup 跑完但 $cargoBin\cargo.exe 不存在,请检查安装"
+    }
+}
+
 Write-Step '工具链检查'
 $ok = $true
 if (-not $SkipServer) {
@@ -510,6 +550,8 @@ if (-not $SkipServer) {
 if (-not $SkipFrontend) {
     $ok = (Test-Tool 'node'  '--version' '需要 22.x: nvm install 22') -and $ok
     $ok = (Test-Tool 'pnpm'  '--version' 'corepack enable; corepack prepare pnpm@9 --activate') -and $ok
+    # rustc / cargo 缺失 → 先自动装,再体检
+    Install-RustIfMissing
     $ok = (Test-Tool 'rustc' '--version' 'https://rustup.rs/') -and $ok
     $ok = (Test-Tool 'cargo' '--version' 'rustup install stable') -and $ok
 
