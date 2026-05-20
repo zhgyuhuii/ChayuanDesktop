@@ -1430,7 +1430,27 @@ if ($SkipFrontend) {
     }
     Write-Ok 'Tauri bundle 完成:'
     $flavorOut = Join-Path $WorkspaceRoot "dist-$Flavor"
-    if (Test-Path $flavorOut) { Remove-Item $flavorOut -Recurse -Force }
+    # 清空 dist-{flavor}/ 准备放新产物。不直接 Remove 整个目录 —— 杀软 / 文件
+    # 索引器可能正占着里面某个文件(如 PkgExplorerPlugin.dll.log),整目录
+    # -Recurse 删会因一个锁文件整体抛 IOException 把构建打断。改为逐项删 + 重试,
+    # 删不掉的只警告继续(构建自己的产物随后 Copy -Force 覆盖,残留杀软日志无害)。
+    if (Test-Path $flavorOut) {
+        foreach ($item in Get-ChildItem -LiteralPath $flavorOut -Force) {
+            $removed = $false
+            foreach ($attempt in 1..4) {
+                try {
+                    Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
+                    $removed = $true
+                    break
+                } catch {
+                    Start-Sleep -Milliseconds (200 * $attempt)
+                }
+            }
+            if (-not $removed) {
+                Write-Note "清不掉(被占用,跳过):$($item.Name) — 不影响本次产物覆盖"
+            }
+        }
+    }
     New-Item -ItemType Directory -Force -Path $flavorOut | Out-Null
     foreach ($a in $artifacts) {
         $sz = [math]::Round($a.Length / 1MB, 1)
