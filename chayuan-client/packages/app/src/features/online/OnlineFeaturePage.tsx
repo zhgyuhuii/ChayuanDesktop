@@ -34,6 +34,7 @@ import {
   LayoutGrid,
   Clock,
   ClipboardList,
+  CircleDot,
   Briefcase,
   Grid3x3,
   Store,
@@ -268,6 +269,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   bell: Bell,
   tags: Tags,
   'list-checks': ListChecks,
+  'circle-dot': CircleDot,
   target: Target,
   sparkles: Sparkles,
 };
