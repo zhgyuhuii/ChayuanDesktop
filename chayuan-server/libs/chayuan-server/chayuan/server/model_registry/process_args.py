@@ -214,8 +214,29 @@ def _expand_to_model_file(
             f"{capability} entry {entry.model_id!r} 是目录 {p} 但里面没找到 {label} 文件"
         )
         return None
-    # 多 quantization 时取最小:Q3 < Q4 < Q5 ... 小的更稳,大文件撞 Windows installer 2GB 上限
-    candidates.sort(key=lambda c: c.stat().st_size)
+
+    # 多权重文件时的选择策略:
+    #   1. 优先"文件名跟目录名公共前缀最长"的 —— 用户偶尔把别的模型权重
+    #      误丢进某个模型文件夹(线上诊断:rerank/bge-reranker-v2-m3/ 里
+    #      塞了 gte-...gguf)。文件名跟目录名对得上 = 这文件夹本来要装的
+    #      模型;对不上 = 误入的,排后。
+    #   2. 同前缀(典型:同一仓库的 Q3/Q4/Q8 多量化)取最小 —— 小量化更稳,
+    #      大文件还可能撞 Windows installer 2GB 上限。
+    def _norm(s: str) -> str:
+        return "".join(ch for ch in s.lower() if ch.isalnum())
+
+    def _common_prefix_len(a: str, b: str) -> int:
+        n = 0
+        for x, y in zip(a, b):
+            if x != y:
+                break
+            n += 1
+        return n
+
+    dir_norm = _norm(p.name)
+    candidates.sort(
+        key=lambda c: (-_common_prefix_len(dir_norm, _norm(c.stem)), c.stat().st_size)
+    )
     return candidates[0]
 
 

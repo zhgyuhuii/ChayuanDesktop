@@ -66,3 +66,35 @@ def test_resolve_llamacpp_args_missing_model_reports_capability(monkeypatch):
     r = process_args.resolve_llamacpp_args(capability="embedding")
     assert "embedding" in r.missing
     assert "chat" not in r.missing
+
+
+def test_expand_gguf_prefers_dirname_match_over_smallest(tmp_path, monkeypatch):
+    """目录里多个 .gguf 时,选文件名跟目录名公共前缀最长的那个 ——
+    用户偶尔把别的模型权重误丢进某个模型文件夹(线上诊断:
+    rerank/bge-reranker-v2-m3/ 里塞了 gte-...gguf)。即便误入的更小,
+    也要选目录名对得上的那个,不能简单取最小。"""
+    d = tmp_path / "bge-reranker-v2-m3"
+    d.mkdir()
+    # 这文件夹本来要装的模型(故意做大)
+    (d / "bge-reranker-v2-m3-Q8_0.gguf").write_bytes(b"x" * 6000)
+    # 误丢进来的别的模型(更小 —— 旧逻辑"取最小"会错选它)
+    (d / "gte-multilingual-reranker-base-Q8_0.gguf").write_bytes(b"y" * 3000)
+    e = _fake_entry("bge-reranker-v2-m3", "gguf", str(d))
+    monkeypatch.setattr(process_args, "_resolve", lambda cap, **kw: (e, ""))
+    r = process_args.resolve_llamacpp_args(capability="rerank")
+    model_arg = r.args[r.args.index("--model") + 1]
+    assert model_arg.endswith("bge-reranker-v2-m3-Q8_0.gguf")
+    assert "--reranking" in r.args
+
+
+def test_expand_gguf_same_model_quant_variants_picks_smallest(tmp_path, monkeypatch):
+    """同一模型多量化(Q4/Q8)→ 公共前缀相同 → 退回取最小(小量化更稳)。"""
+    d = tmp_path / "Qwen3-4B-GGUF"
+    d.mkdir()
+    (d / "Qwen3-4B-Q8_0.gguf").write_bytes(b"x" * 9000)
+    (d / "Qwen3-4B-Q4_K_M.gguf").write_bytes(b"y" * 4000)
+    e = _fake_entry("Qwen3-4B-GGUF", "gguf", str(d))
+    monkeypatch.setattr(process_args, "_resolve", lambda cap, **kw: (e, ""))
+    r = process_args.resolve_llamacpp_args(capability="chat", n_ctx=4096)
+    model_arg = r.args[r.args.index("--model") + 1]
+    assert model_arg.endswith("Qwen3-4B-Q4_K_M.gguf")
