@@ -170,4 +170,11 @@ Write-Host '  --- GET /runtime/models(本地磁盘模型索引内存视图)---' 
 Api 'GET' '/runtime/models' $null | Write-Host
 
 Write-Host ''
+Write-Host '  --- GET /runtime/llama/registry(各 capability 运行时状态 + 错误)---' -ForegroundColor DarkGray
+Api 'GET' '/runtime/llama/registry' $null | Write-Host
+Write-Host ''
+Write-Host '  --- GET /runtime/services(受管 sidecar 服务端点)---' -ForegroundColor DarkGray
+Api 'GET' '/runtime/services' $null | Write-Host
+
+Write-Host ''
 Write-Host '======= 诊断完成 — 请把以上完整输出整段复制回贴 =======' -ForegroundColor Green
