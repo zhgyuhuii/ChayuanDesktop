@@ -24,36 +24,39 @@
 import * as React from 'react';
 import { makeFlightPath, type FlightPath } from './dragonPath';
 
-const SEG_COUNT = 36;
-const SEG_LEN = 10; // 段间距 px;36×10 = 总长 ~360px(舒展) / 紧密盘旋时 ~280
+const SEG_COUNT = 48;
+const SEG_LEN = 10; // 段间距 px;48×10 = 总长 ~480px(舒展) / 紧密盘旋时 ~380
 const HEAD_WIDTH = 26;
 const TRAIL_LEN = 16;
-// 飞行结束后再拖 1.6s,让头沿出场方向匀速跑出屏外,身体节节跟着出去 —
+// 飞行结束后再拖 2s,让头沿出场方向匀速跑出屏外,身体节节跟着出去 —
 // 否则 t=1 时头在屏边界、尾还在屏中,直接停掉会"残留半截龙"。
-const EXIT_EXTENSION_MS = 1600;
+// 龙身加长后 EXIT 时间也要相应延长(本来 1.6s 够 36 段,48 段需要 ~2s)。
+const EXIT_EXTENSION_MS = 2000;
 const EXIT_VELOCITY_PXPS = 480;
-// 四足挂点 — 段编号。1/6, 1/3, 5/8, 3/4 沿体长
+// 四足挂点 — 前足在颈肩,后足在中后体
 const LIMB_ANCHORS: ReadonlyArray<{ idx: number; side: 1 | -1 }> = [
-  { idx: 5, side: 1 },   // 右前足
-  { idx: 5, side: -1 },  // 左前足
-  { idx: 22, side: 1 },  // 右后足
-  { idx: 22, side: -1 }, // 左后足
+  { idx: 6, side: 1 },   // 右前足
+  { idx: 6, side: -1 },  // 左前足
+  { idx: 28, side: 1 },  // 右后足
+  { idx: 28, side: -1 }, // 左后足
 ];
 
-// 段半径渐变:头(单独 SVG 渲染不计入 outline)→ 蛇颈细 → 主体丰满 → 尾尖
-// "蛇项":首 6 段紧缩到 10~13 模拟细长蛇颈,跟头部巨大反差
+// 段半径渐变:头(单独 SVG 渲染不计入 outline)→ 蛇颈细 → 肩部增粗 →
+// 主体平直 → 长后段渐细 → 长尾稍尖
+// 用户反馈"龙尾太短",这版把段数 36→48,多出的 12 段全分给后段+尾,
+// 尾部从原 5 段拉到 14 段,长度翻倍,且渐变更细腻
 function segRadius(i: number): number {
-  if (i === 0) return HEAD_WIDTH; // 仅给 head 自身参考,outline 跳过
-  // 1~6 段蛇颈:13 → 11(略递减) — 跟头部 (~50px wide) 形成显著对比
+  if (i === 0) return HEAD_WIDTH;
+  // 1~6 段蛇颈:13 → 11(细)
   if (i <= 6) return 13 - (i - 1) * 0.4;
-  // 7~14 颈到身的过渡:11 → 20(快速增粗,模拟肩部)
+  // 7~14 颈到身的过渡:11 → 20(快速增粗,肩部)
   if (i <= 14) return 11 + (i - 6) * 1.2;
-  // 15~24 主体段:20 → 17(平缓收)
-  if (i <= 24) return 20 - (i - 14) * 0.3;
-  // 25~30 后段渐细:17 → 11
-  if (i <= 30) return 17 - (i - 24) * 1.0;
-  // 31~35 尾尖:11 → 3
-  return Math.max(2, 11 - (i - 30) * 1.8);
+  // 15~26 主体段:20 → 17(平缓收)— 比旧版多 2 段
+  if (i <= 26) return 20 - (i - 14) * 0.25;
+  // 27~36 长后段渐细:17 → 11 — 比旧版多 4 段
+  if (i <= 36) return 17 - (i - 26) * 0.6;
+  // 37~47 长尾段:11 → 2 — 比旧版尾尖 5 段加到 11 段,有真正的长尾甩动空间
+  return Math.max(2, 11 - (i - 36) * 0.85);
 }
 
 interface SegPt {
@@ -733,11 +736,11 @@ function commitToDom(
     }
   }
 
-  // —— 4. 背鳍 + 鬃毛(前 14 段)
+  // —— 4. 背鳍 + 鬃毛(前 26 段,跟着加长的龙身延伸更远)
   const fins = svg.querySelector<SVGGElement>('g[data-role="fins"]');
   if (fins) {
     while (fins.firstChild) fins.removeChild(fins.firstChild);
-    for (let i = 1; i < 18; i++) {
+    for (let i = 1; i < 26; i++) {
       const s = segs[i];
       if (!s) continue;
       const r = segRadius(i);
