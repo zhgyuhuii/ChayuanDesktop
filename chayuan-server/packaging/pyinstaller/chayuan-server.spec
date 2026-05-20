@@ -97,6 +97,21 @@ hidden_modules += [
     "pydantic_settings",
 ]
 
+# pip —— 单机版运行时要靠 ``chayuan-server.exe -m pip install ...`` 装可选依赖
+# (在线 PyTorch、redis/arq 等)。frozen 入口是 Click CLI,业务代码没有 ``import
+# pip``,PyInstaller 静态分析挖不到 pip,默认**不会**打进 bundle ── 装机后
+# ``-m pip`` 即便被 runtime hook 透传(见 multiprocessing_freeze.py section 5)
+# 也会 ``ModuleNotFoundError: No module named 'pip'``。这里显式 collect_submodules
+# 把整套 pip 子模块拉进 hiddenimports;pip 的 vendored data(cacert.pem 等)
+# 由下面 _collect_safe("pip") 一并收。setuptools / pkg_resources 是 pip 解依赖 /
+# 装 wheel 时的运行期依赖,一并带上。
+hidden_modules += collect_submodules("pip")
+hidden_modules += [
+    "pip",
+    "setuptools",
+    "pkg_resources",
+]
+
 
 # ──────────────────────────────────────────────────────────────
 # Data files(yaml 模板 / 静态资源 / 字体 / 证书)
@@ -572,6 +587,11 @@ for big in (
     "fitz",
     "rapidocr_onnxruntime",
     "onnxruntime",
+    # pip:运行时 ``-m pip install`` 需要 pip 自带的 vendored 资源
+    # (_vendor/certifi/cacert.pem 等)。collect_submodules 已加进 hiddenimports,
+    # 这里 collect_all 把 datas/binaries 一并带上。setuptools 同理(装 wheel 时用)。
+    "pip",
+    "setuptools",
     # 注意:
     # - ``nltk`` 已被 _pyinstaller_hooks_contrib 的 hook-nltk.py 接管,
     #   再 collect_all 会把整个 nltk.test / nltk.app(几百 MB)拉进来。

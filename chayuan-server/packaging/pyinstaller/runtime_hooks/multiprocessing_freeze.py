@@ -153,4 +153,83 @@ if len(_argv) >= 2 and (
         )
 
 
+# ──────────────────────────────────────────────────────────────
+# 5) ``chayuan-server.exe -m <module> ...`` —— 把 frozen exe 当 python 解释器
+#    用来跑模块(等价 ``python -m <module> ...``)。
+#
+#    为什么需要:frozen bundle 的入口是 Click CLI(chayuan/cli.py),它**不**
+#    像真 python 那样支持 ``-m``。但 chayuan 内部多处用
+#    ``[sys.executable, "-m", "pip", "install", ...]`` 装运行时依赖:
+#      · runtime/pytorch_installer.py 的 build_install_recipe(在线/离线装 torch)
+#      · shared/deps.py 的 _run_pip_install(ensure_pkg / ensure_runtime_deps)
+#      · cli.py 的 _auto_repair_torch
+#    在 frozen 环境里 sys.executable 就是 chayuan-server.exe,这些命令变成
+#    ``chayuan-server.exe -m pip install ...`` → Click 把 ``-m`` 当未知 option
+#    报 ``No such option: -m`` 直接退(rc=2)。
+#
+#    这里在 Click 接管 argv **之前**拦截 ``-m``,用 runpy.run_module 跑目标模块,
+#    并把 sys.argv 调整成模块自己看到的样子(``[<module-as-script-path>, ...rest]``),
+#    行为对齐 ``python -m <module>``。
+#
+#    注意:必须放在 section 3/4 之后 —— mp spawn 协议偶尔也带 ``-m``(罕见),
+#    但那些已被 freeze_support 在前面消费;走到这里的 ``-m`` 就是用户/业务代码
+#    显式发起的 ``-m <module>`` 调用。
+# ──────────────────────────────────────────────────────────────
+if len(_argv) >= 2 and _argv[1] == "-m":
+    if len(_argv) < 3 or not _argv[2]:
+        _log("argv[1]=='-m' 但缺模块名;按 python 行为退出")
+        sys.stderr.write("Error: -m requires a module name\n")
+        sys.exit(2)
+    _mod = _argv[2]
+    _mod_args = _argv[3:]
+    _log(f"intercept -m {_mod!r} args={_mod_args!r}")
+    import runpy as _runpy
+
+    # python -m 的语义:sys.argv[0] 被替换成模块的 __file__(脚本路径),
+    # 其余参数原样。run_module(run_name="__main__") 内部会再设一遍 argv[0],
+    # 这里先把 rest 摆好,模块解析 sys.argv[1:] 时就能拿到正确参数。
+    sys.argv = [_mod] + list(_mod_args)
+    try:
+        _runpy.run_module(_mod, run_name="__main__", alter_sys=True)
+    except SystemExit:
+        raise
+    except BaseException as _e:  # noqa: BLE001
+        _log(f"-m 路径 run_module 失败:{_e!r}")
+        import traceback as _tb
+
+        _tb.print_exc()
+        sys.exit(1)
+    sys.exit(0)
+
+
+# ──────────────────────────────────────────────────────────────
+# 6) 把运行时安装 torch 的可写目录(<CHAYUAN_ROOT>/py_packages/)加进 sys.path。
+#
+#    单机版用户点「在线安装 PyTorch」走 ``-m pip install --target
+#    <CHAYUAN_ROOT>/py_packages torch ...``(见 pytorch_installer.build_install_recipe)。
+#    torch 不落进只读的 _internal/,而是这个可写目录;装完重启 server 后,这里要
+#    保证它在 sys.path 上,``import torch`` 才能命中。
+#
+#    放在 user code(Click)之前 + 在所有 frozen 子进程(API server / config
+#    panel / worker)都跑,覆盖所有 ``import torch`` 路径。拿不到 CHAYUAN_ROOT /
+#    目录不存在都无害(只是多一个空目录在 path 上)。
+#
+#    注意:section 5 的 ``-m`` 透传会 ``sys.exit()`` 不会走到这里 —— 那是 pip
+#    安装子进程,本来也不该把 py_packages 抢在 pip 前面(避免半装的 torch 干扰
+#    pip 自己的依赖解析)。这里只服务真正的 server 启动进程。
+# ──────────────────────────────────────────────────────────────
+try:
+    from chayuan.server.runtime.pytorch_installer import (
+        ensure_torch_target_on_syspath as _ensure_torch_path,
+    )
+
+    _added = _ensure_torch_path()
+    if _added:
+        _log(f"py_packages 已加入 sys.path:{_added}")
+except BaseException as _e:  # noqa: BLE001
+    # chayuan 包还没在 path 上 / settings 异常 —— 不阻断启动,server 启动后
+    # first_launch 链路仍会触发安装;最坏情况 import torch 时再报清晰错误。
+    _log(f"py_packages sys.path 注入跳过:{_e!r}")
+
+
 _log("没拦截任何 spawn 协议,继续 user code")

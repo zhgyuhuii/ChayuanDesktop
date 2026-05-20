@@ -293,6 +293,55 @@ def seed_torch_wheels(*, target_dir: Optional[Path] = None) -> dict:
     return report
 
 
+def torch_install_target_dir() -> Optional[Path]:
+    """运行时安装 torch 的可写目标目录 —— frozen 单机版必须显式 ``--target``。
+
+    为什么需要
+    ==========
+    PyInstaller frozen 的 ``chayuan-server.exe`` **没有可写的常规 site-packages**:
+      - ``_internal/`` 是只读 bundle(随安装包发,普通用户对 Program Files 无写权);
+      - frozen 解释器的 ``site`` 模块被裁剪,``pip install`` 默认落点(purelib)
+        指向构建机路径,装机环境根本不存在。
+    所以 ``pip install torch`` 必须带 ``--target <可写目录>``,且该目录运行时要在
+    ``sys.path`` 上,装完(重启 server)``import torch`` 才能命中。
+
+    目录选择:``<CHAYUAN_ROOT>/py_packages/`` —— 跟 torch_wheels / models 等
+    运行时资产同在用户数据目录,可写、跨重启稳定、卸载 app 不残留到系统目录。
+    可用 ``CHAYUAN_PY_PACKAGES_DIR`` 环境变量覆盖(运维 / 测试)。
+
+    返回 None 表示拿不到 CHAYUAN_ROOT(理论上不会发生);caller 应据此放弃
+    ``--target`` 退回默认行为。
+    """
+    env = os.environ.get("CHAYUAN_PY_PACKAGES_DIR")
+    if env:
+        return Path(env).expanduser()
+    try:
+        from chayuan.settings import CHAYUAN_ROOT
+        return Path(CHAYUAN_ROOT) / "py_packages"
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def ensure_torch_target_on_syspath() -> Optional[str]:
+    """把 :func:`torch_install_target_dir` 加进 ``sys.path``,让装好的 torch 可 import。
+
+    幂等:重复调用只插一次。返回实际加入的目录字符串(已存在 / 拿不到则 None)。
+
+    调用时机:**任何 ``import torch`` 之前**。frozen 单机版由 PyInstaller runtime
+    hook(multiprocessing_freeze.py)在每个进程最早期调用,覆盖 API server /
+    config panel / worker 等所有 frozen 子进程。非 frozen(dev / pytest)环境
+    torch 走常规 site-packages,这里加一个不存在的目录也无害。
+    """
+    target = torch_install_target_dir()
+    if target is None:
+        return None
+    s = str(target)
+    # 放在最前:用户主动装的新版 torch 优先于 bundle 里可能存在的旧版
+    if s not in sys.path:
+        sys.path.insert(0, s)
+    return s
+
+
 def _find_offline_wheels(variant: str) -> List[Path]:
     """在 offline_wheels_dir 找匹配本机 + variant 的 torch / torchvision wheel。
 
@@ -446,22 +495,37 @@ def build_install_recipe(
     if variant not in _PYTORCH_INDEXES:
         raise ValueError(f"unknown variant: {variant!r}; expected one of {tuple(_PYTORCH_INDEXES)}")
 
+    # ``pip install`` 的安装落点:
+    # frozen 单机版没有可写常规 site-packages,必须 ``--target <可写目录>``,
+    # 否则 pip 默认 purelib 指向构建机路径,装机环境写不进 / 装了也 import 不到。
+    # dev / 非 frozen 环境 torch_install_target_dir 仍返回 <CHAYUAN_ROOT>/py_packages,
+    # 显式 --target 同样可用(且 ensure_torch_target_on_syspath 已把它加进 sys.path)。
+    target_dir = torch_install_target_dir()
+    target_args: List[str] = []
+    if target_dir is not None:
+        # --upgrade 与 --target 同用时 pip 需要 --upgrade-strategy(否则 transitive
+        # 依赖可能不被刷新);这里显式装 torch+tv,deps 让 pip 自己解,够用。
+        target_args = ["--target", str(target_dir)]
+
     # 优先离线 wheel(无网兜底)
     if prefer_offline:
         offline = _find_offline_wheels(variant)
         if offline:
             cmd = [
                 sys.executable, "-m", "pip", "install", "--upgrade",
+                *target_args,
                 "--no-index",  # 完全不查网,只用本地 wheel + 它们的 transitive
                 "--find-links", str(offline[0].parent),  # 让 pip 在同目录找 deps
                 *[str(p) for p in offline],
             ]
+            _target_note = f" 装到:{target_dir}。" if target_dir else ""
             return InstallRecipe(
                 label=f"PyTorch {variant} (离线 wheel)",
                 cmd=cmd,
                 note=(
                     f"用内置的 torch + torchvision {variant} wheel 安装(无需网络)。"
-                    f" 路径:{offline[0].parent}。装完需重启 chayuan-server 才能 import 新版本。"
+                    f" 路径:{offline[0].parent}。{_target_note}"
+                    f"装完需重启 chayuan-server 才能 import 新版本。"
                 ),
                 requires="",
             )
@@ -472,15 +536,18 @@ def build_install_recipe(
     pkgs.append("torchvision" if not torchvision_spec else f"torchvision{torchvision_spec}")
     cmd = [
         sys.executable, "-m", "pip", "install", "--upgrade",
+        *target_args,
         *pkgs,
         "--index-url", index_url,
     ]
+    _target_note = f" 装到:{target_dir}。" if target_dir else ""
     return InstallRecipe(
         label=f"PyTorch {variant} (在线 · 官方源)",
         cmd=cmd,
         note=(
             f"装 torch + torchvision({variant} wheel)— 同一条 pip 保证版本配对。"
-            f" 包大小:CPU ~250MB / CUDA ~2-3GB。装完需重启 chayuan-server 才能 import 新版本。"
+            f" 包大小:CPU ~250MB / CUDA ~2-3GB。{_target_note}"
+            f"装完需重启 chayuan-server 才能 import 新版本。"
         ),
         requires="",
     )

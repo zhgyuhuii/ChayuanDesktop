@@ -106,3 +106,80 @@ def test_find_offline_wheels_returns_empty_when_pair_incomplete(tmp_path):
         pi._offline_wheels_dir = orig  # type: ignore[attr-defined]
 
     assert result == []
+
+
+# ───────────────────────────────────────────────────────────────
+# build_install_recipe:frozen 单机版必须 ``--target <可写目录>``
+# (frozen exe 没有可写常规 site-packages;不带 --target 装了也 import 不到)
+# ───────────────────────────────────────────────────────────────
+
+
+def test_online_recipe_has_target_arg(tmp_path, monkeypatch):
+    """在线 fallback 命令必须带 ``--target <py_packages>``,落到可写目录。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    pkg_dir = tmp_path / "py_packages"
+    monkeypatch.setenv("CHAYUAN_PY_PACKAGES_DIR", str(pkg_dir))
+
+    # prefer_offline=False 强制走在线分支
+    recipe = pi.build_install_recipe("cpu", prefer_offline=False)
+    cmd = recipe.cmd
+
+    assert "-m" in cmd and "pip" in cmd, f"应是 ``-m pip`` 命令:{cmd}"
+    assert "--target" in cmd, f"在线 recipe 必须带 --target:{cmd}"
+    ti = cmd.index("--target")
+    assert cmd[ti + 1] == str(pkg_dir), f"--target 应指向 py_packages:{cmd}"
+    # torch / torchvision 仍在
+    assert any("torch" in c for c in cmd)
+
+
+def test_offline_recipe_has_target_arg(tmp_path, monkeypatch):
+    """离线 wheel 命令同样要带 ``--target``。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    pkg_dir = tmp_path / "py_packages"
+    monkeypatch.setenv("CHAYUAN_PY_PACKAGES_DIR", str(pkg_dir))
+
+    wheels_root = tmp_path / "torch_wheels"
+    sub = wheels_root / "win_amd64_py312_cpu"
+    sub.mkdir(parents=True)
+    (sub / "torch-2.6.0+cpu-cp312-cp312-win_amd64.whl").write_bytes(b"x")
+    (sub / "torchvision-0.21.0+cpu-cp312-cp312-win_amd64.whl").write_bytes(b"x")
+
+    orig = pi._offline_wheels_dir
+    try:
+        pi._offline_wheels_dir = lambda: wheels_root  # type: ignore[attr-defined]
+        recipe = pi.build_install_recipe("cpu", prefer_offline=True)
+    finally:
+        pi._offline_wheels_dir = orig  # type: ignore[attr-defined]
+
+    cmd = recipe.cmd
+    assert "--target" in cmd, f"离线 recipe 必须带 --target:{cmd}"
+    assert cmd[cmd.index("--target") + 1] == str(pkg_dir)
+    assert "--no-index" in cmd  # 离线特性不丢
+
+
+def test_ensure_torch_target_on_syspath_idempotent(tmp_path, monkeypatch):
+    """ensure_torch_target_on_syspath 把 py_packages 加进 sys.path,且幂等。"""
+    import sys
+
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    pkg_dir = tmp_path / "py_packages"
+    monkeypatch.setenv("CHAYUAN_PY_PACKAGES_DIR", str(pkg_dir))
+
+    # 清掉可能的残留
+    s = str(pkg_dir)
+    while s in sys.path:
+        sys.path.remove(s)
+
+    try:
+        added = pi.ensure_torch_target_on_syspath()
+        assert added == s
+        assert sys.path.count(s) == 1
+        # 再调一次 —— 不应重复插入
+        pi.ensure_torch_target_on_syspath()
+        assert sys.path.count(s) == 1
+    finally:
+        while s in sys.path:
+            sys.path.remove(s)

@@ -282,7 +282,14 @@ def run_first_launch_hooks() -> FirstLaunchReport:
         from chayuan.server.runtime.pytorch_installer import (
             seed_torch_wheels,
             auto_install_on_startup,
+            ensure_torch_target_on_syspath,
         )
+        # 把 <CHAYUAN_ROOT>/py_packages/(用户点「安装 PyTorch」的 --target 落点)
+        # 加进 sys.path。frozen 单机版由 PyInstaller runtime hook 已提前注入一次,
+        # 这里幂等再补一次,顺带覆盖非 frozen(dev / pip 装)环境。
+        added = ensure_torch_target_on_syspath()
+        if added:
+            logger.info("[first_launch] py_packages 已加入 sys.path: %s", added)
         seed_rep = seed_torch_wheels()
         if seed_rep.get("copied"):
             logger.info(
