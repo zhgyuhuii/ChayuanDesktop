@@ -996,6 +996,7 @@ if ($SkipModelCheck) {
 
 # 把 Step 1-3 + 单 flavor 输出包成函数,主循环按 $Flavors 调一次或两次。
 $AllArtifacts = @()    # 各 flavor 的产物:flavor / src / dest / sizeMB
+$IsoFailures  = @()    # 期望出 ISO 但没出的 flavor + 原因;主循环结束后醒目汇总
 function Invoke-FlavorBuild {
     param([string]$Flavor)
     # Flavor → build.py --lite 显式 CLI 参数(优先);保留 CHAYUAN_LITE_BUILD env
@@ -1482,7 +1483,22 @@ if ($SkipFrontend) {
     # WiX 模板写死 EmbedCab=no,MSI 必须带着外置 CAB 一起分发,所以 lite/full
     # 都默认出 ISO 单文件分发(用户双击挂载光驱后双击 MSI 即装)。-NoIso 跳过
     # (开发本机迭代不需要)。IsoBoth 历史参数保留兼容,新逻辑下已无意义。
-    $shouldMakeIso = (-not $NoIso) -and (-not $SkipFrontend) -and ($IsWindows -or $env:OS -eq 'Windows_NT')
+    $isWin         = ($IsWindows -or $env:OS -eq 'Windows_NT')
+    $shouldMakeIso = (-not $NoIso) -and (-not $SkipFrontend) -and $isWin
+    if (-not $shouldMakeIso) {
+        # 不出 ISO 时一定要说清楚原因 — 否则用户对着没有 .iso 的 dist-{flavor}\ 干瞪眼。
+        $isoSkipReason = if ($NoIso) {
+            '传了 -NoIso(开发本机迭代不打 ISO)'
+        } elseif ($SkipFrontend) {
+            '传了 -SkipFrontend(没有前端产物,不打 ISO)'
+        } elseif (-not $isWin) {
+            "当前不是 Windows(IMAPI2 仅 Windows 可用),ISO 只能在 Windows 上打"
+        } else {
+            '未知原因'
+        }
+        Write-Skip "ISO 镜像 ($Flavor) — 跳过:$isoSkipReason"
+        Write-Note "如需 ISO,请在 Windows 上不带 -NoIso / -SkipFrontend 重跑;dist-$Flavor\ 里的 .msi + .cab 也可手动 zip 分发。"
+    }
     if ($shouldMakeIso) {
         Write-Step "ISO 镜像 ($Flavor)"
 
@@ -1516,12 +1532,20 @@ if ($SkipFrontend) {
         $makeIso = Join-Path $WorkspaceRoot 'scripts\make-iso.ps1'
 
         if (-not (Test-Path $makeIso)) {
-            Write-Fail "scripts\make-iso.ps1 找不到,跳过 ISO 生成"
+            Write-Fail "scripts\make-iso.ps1 找不到,跳过 ISO 生成 — 期望的 $isoName 不会出现!"
+            Write-Note "确认 $makeIso 存在;脚本随仓库分发,缺失通常是 checkout 不完整。"
+            $script:IsoFailures += [PSCustomObject]@{
+                Flavor = $Flavor; Iso = $isoName; Reason = "scripts\make-iso.ps1 找不到"
+            }
         } else {
             try {
                 # 同进程调用 — make-iso.ps1 内部 $ErrorActionPreference='Stop',
                 # 任何报错 throw 出来直接被外层 catch 接住,不需要 $LASTEXITCODE。
                 & $makeIso -SourceDir $flavorOut -OutputIso $isoOut -VolumeLabel $volumeLabel
+                if (-not (Test-Path $isoOut)) {
+                    # make-iso.ps1 没 throw 但 .iso 也没落盘 — 极少见,但绝不能当成功。
+                    throw "make-iso.ps1 返回了但 $isoOut 不存在"
+                }
                 $isoSize = [math]::Round((Get-Item $isoOut).Length / 1MB, 1)
                 Write-Ok "ISO 完成:$isoOut ($isoSize MB)"
                 $script:AllArtifacts += [PSCustomObject]@{
@@ -1531,8 +1555,11 @@ if ($SkipFrontend) {
                     SizeMB = $isoSize
                 }
             } catch {
-                Write-Fail "ISO 生成失败:$_"
+                Write-Fail "ISO 生成失败($Flavor)—— 期望的 $isoName 没有生成!原因:$_"
                 Write-Note "dist-$Flavor\ 里的 MSI + CAB 仍可手动 zip 分发,本步不阻断后续 flavor。"
+                $script:IsoFailures += [PSCustomObject]@{
+                    Flavor = $Flavor; Iso = $isoName; Reason = "$_"
+                }
             }
         }
     }
@@ -1578,6 +1605,16 @@ if ($Flavors.Count -eq 2) {
     Write-Host '    切忌 只发 .msi 不带 .cab — 会装到一半报 1311/1335。'
 }
 Write-Host ''
+if ($IsoFailures.Count -gt 0) {
+    # ISO 没出但前面没硬退出 —— 在最终汇总里再喊一遍,别让用户对着没有 .iso 的目录猜。
+    if ($useColor) { Write-Host "$ESC[31m[FAIL] 以下 ISO 期望生成但未生成:$ESC[0m" }
+    else { Write-Host '[FAIL] 以下 ISO 期望生成但未生成:' }
+    foreach ($f in $IsoFailures) {
+        Write-Host ("  {0,-8} {1}  —  {2}" -f $f.Flavor, $f.Iso, $f.Reason)
+    }
+    Write-Host '  MSI + CAB 已在 dist-{flavor}\ 下,可手动 zip 分发;ISO 步骤失败原因见上。'
+    Write-Host ''
+}
 if ($useColor) { Write-Host "$ESC[32m[OK] 全部步骤通过$ESC[0m" }
 else { Write-Host '[OK] 全部步骤通过' }
 
