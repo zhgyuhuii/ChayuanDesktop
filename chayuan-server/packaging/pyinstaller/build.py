@@ -157,7 +157,28 @@ def rust_target_triple() -> str:
     return f"unknown-{sysname.lower()}"
 
 
+def _ensure_pyinstaller() -> None:
+    """确保当前解释器(sys.executable)能 import PyInstaller —— 不行就装。
+
+    build.py 总是用 ``sys.executable -m PyInstaller`` 跑打包。Windows 的
+    build-desktop.ps1 走 ``poetry run`` 会先 ``pip install pyinstaller``;但
+    在别的调用环境(如 Linux 直接用 micromamba/conda 的 python 跑 build.py)
+    那一步不一定经过 → ``No module named PyInstaller``。这里让 build.py 自带
+    兜底:缺了就往当前解释器装,不依赖外层脚本。
+    """
+    try:
+        import PyInstaller  # noqa: F401
+        return
+    except ImportError:
+        pass
+    print("[build] 当前解释器缺 PyInstaller,自动安装 (pip install 'pyinstaller>=6.0') ...", flush=True)
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "pyinstaller>=6.0"],
+    )
+
+
 def run_pyinstaller(extra_args: list[str]) -> None:
+    _ensure_pyinstaller()
     cmd = [sys.executable, "-m", "PyInstaller", str(SPEC), "--noconfirm", *extra_args]
     print(f"[build] $ {' '.join(cmd)}", flush=True)
     subprocess.check_call(cmd, cwd=str(ROOT))
