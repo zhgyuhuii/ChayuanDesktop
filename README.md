@@ -964,28 +964,92 @@ pnpm install
 pnpm dev:desktop
 ```
 
-### 10.3 模型放置与下载
+### 10.3 模型与服务下载
 
-> 模型相关的"下载地址 / 格式 / 放在哪 / 打包嵌入 / 调试自检"等完整指南,
-> 见 **[chayuan-server/vendor/bundled_models/README.md](chayuan-server/vendor/bundled_models/README.md)**。
+下载有**两条路径,目标目录不同,别混**:
 
-短版速记:
+| 场景 | 工具 | 落点 |
+|---|---|---|
+| 应用内下载(终端用户) | 应用里的「下载模型」对话框 | `<CHAYUAN_ROOT>/models/bundled/<cap>/` |
+| 打包前备料(开发者) | `scripts/install-vendor.*` | `chayuan-server/vendor/` |
+
+`<CHAYUAN_ROOT>` 默认:Windows `%APPDATA%\chayuan`、macOS `~/Library/Application Support/chayuan`、Linux `~/.local/share/chayuan`。
+
+#### A. 应用内下载模型(终端用户用)
+
+打开应用 → 模型广场 / 设置里的「下载模型」对话框:
+
+- 粘贴 `model_id`(形如 `owner/name`),选下载源:**ModelScope(国内快)** 或 HuggingFace(走 hf-mirror)
+- 重排模型已预填 5 个候选(bge-reranker-v2-m3 / gte-multilingual-reranker-base / jina-reranker-v2 / bge-reranker-base / ms-marco-MiniLM),点示例一键填好
+- 下载落到 `<CHAYUAN_ROOT>/models/bundled/<cap>/<model>/`,下完自动扫描挂载
+- 也可手动把模型文件放进该目录,再点「扫描挂载」。**一个模型一个子文件夹**,多个子文件夹会全部加载
+
+#### B. 打包前下载 vendor 资源(开发者 / 打包用)
+
+一站式脚本,把打全量包要塞进 `vendor/` 的东西一次装齐:
+
+```powershell
+# Windows
+.\scripts\install-vendor.ps1 -Flavor full
+```
+```bash
+# Linux / macOS
+bash scripts/install-vendor.sh --flavor full
+```
+
+下三类资源到 `chayuan-server/vendor/`:
+
+| 资源 | 落点 | 说明 |
+|---|---|---|
+| 模型 | `vendor/bundled_models/<cap>/` | 平台无关,一次全平台通用 |
+| 服务二进制 | `vendor/services/<engine>/<platform>/` | llama-server / whisper-server |
+| torch wheels | `vendor/torch_wheels/<platform_py>/` | 离线装 torch 兜底 |
+
+**墙内网络**:
+
+- `github.com` 不通时,脚本**自动探测可用镜像**(内置 `gh-proxy.com` / `ghfast.top`);也可手动指定:
+  `.\install-vendor.ps1 -GithubMirror https://gh-proxy.com/` / `--github-mirror https://gh-proxy.com/`
+- 模型走国内源:加 `-Source modelscope` / `--source modelscope`
+- 注:老的 `ghproxy.com` 已废弃,用 `gh-proxy.com` 或 `ghfast.top`
+
+**多平台 llama-server**:`install-vendor.ps1` 默认下全 5 个平台
+
+```powershell
+.\scripts\install-vendor.ps1 -Flavor full -Targets win-x64,win-arm64,linux-x64,macos-x64,macos-arm64
+```
+
+whisper-server 没有预编译,只能在目标机上 brew/docker/源码编译 —— 非本机平台需到对应机器跑 `install-whisper-server.sh`;llama-server 的 `linux-arm64` upstream 没发 zip,同样需自行处理。
+
+**单独装某一项**:
 
 ```bash
-# 自带模型固定放在 chayuan-server/vendor/bundled_models/<capability>/ 下
-# 子目录:chat / embedding / rerank / asr / ocr / image / custom
-# 单文件:*.gguf | *.onnx | *.safetensors;多文件仓库:带 config.json/tokenizer.json 的目录
+# 只装模型(--lite 瘦身集 / 不带 = 全量;--only 单 cap)
+python scripts/install-bundled-models.py --source modelscope --only chat
 
-# 体检本次能装上几个 capability 的模型
-python scripts/check-bundled-models.py
-python scripts/check-bundled-models.py --json    # 给 CI / 脚本消费
-python scripts/check-bundled-models.py --require chat --require embedding  # 强制项
+# 只装某平台的 llama-server
+.\scripts\install-llama-server.ps1 -Target win-arm64       # Windows
+bash scripts/install-llama-server.sh b9174 --target linux-x64   # Linux/macOS
 
-# 按 layout.yaml release 批量拉模型(集成版打包前必跑)
-cd chayuan-server
-python -m chayuan_packaging fetch --target linux --arch x86_64 --release standard
-python -m chayuan_packaging stage  --target linux --arch x86_64 --release standard
+# 只装 whisper-server(本机平台)
+.\scripts\install-whisper-server.ps1
+bash scripts/install-whisper-server.sh
 ```
+
+#### C. 校验
+
+```bash
+python scripts/check-bundled-models.py          # 模型完整性,能装上几类
+python scripts/check-bundled-models.py --json   # 给 CI / 脚本消费
+python scripts/check-services.py --target win-x64   # 服务二进制完整性
+
+# 排查"扫描挂载扫不到 / 服务起不来"(Windows)
+.\scripts\diagnose-models.ps1
+```
+
+> 模型"下载地址 / 格式 / 打包嵌入 / 调试自检"等更细的指南,
+> 见 **[chayuan-server/vendor/bundled_models/README.md](chayuan-server/vendor/bundled_models/README.md)**。
+> CI 三平台流水线按 layout.yaml release 批量拉模型,详见
+> **[PACKAGING.md](PACKAGING.md)**。
 
 ### 10.4 本地打包(默认双产物:轻量版 + 集成版)
 
