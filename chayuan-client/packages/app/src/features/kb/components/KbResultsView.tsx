@@ -275,11 +275,20 @@ const GroupCard: React.FC<{
 
   return (
     <article className="rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]">
-      <button
-        type="button"
+      {/* 用 div[role=button] 而非 <button> —— 展开头里嵌了「原文 / 下载」按钮和
+          外链 <a>,<button> 套 <button> 是非法 HTML(React 会报 nesting 错)。 */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setOpen((v) => !v);
+          }
+        }}
         aria-expanded={open}
-        className="flex w-full items-start gap-2 px-2.5 py-1.5 text-left hover:bg-[var(--cy-bg-hover)]"
+        className="flex w-full cursor-pointer items-start gap-2 px-2.5 py-1.5 text-left hover:bg-[var(--cy-bg-hover)]"
       >
         {idx ? (
           <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--cy-brand-600)] px-1 text-[10px] font-bold text-white">
@@ -353,7 +362,7 @@ const GroupCard: React.FC<{
             )}
           />
         </span>
-      </button>
+      </div>
       {open && (
         <div className="space-y-2 border-t border-[var(--cy-border-subtle)] px-2.5 py-2">
           {group.summary && (
