@@ -55,9 +55,11 @@
 #   (或 CI 双 runner)分别跑一次。脚本会在产物清单里明确标出当前 host
 #   架构,提醒分发时不要错配。
 #
-#   sidecar 二进制由 packaging/pyinstaller/build.py 按 ``rust target triple``
-#   命名为 ``chayuan-server-<triple>``,Tauri externalBin 会自动按 host triple
-#   找文件。所以脚本不需要手动改名。
+#   2026-05-19 起 chayuan-server 改用 PyInstaller ``--onedir``:产物不再是
+#   ``src-tauri/binaries/chayuan-server-<triple>`` 单文件,而是 build.py 把整个
+#   ``dist/chayuan-server/`` 树拷到 ``src-tauri/chayuan-server/``(bootloader
+#   ``chayuan-server`` + ``_internal/``),走 Tauri ``bundle.resources`` 而不是
+#   ``externalBin``。本脚本据此校验 src-tauri/chayuan-server/chayuan-server。
 # ====================================================================
 
 set -euo pipefail
@@ -69,7 +71,12 @@ SERVER_DIR="$WORKSPACE/chayuan-server"
 SERVER_PKG_DIR="$SERVER_DIR/libs/chayuan-server"
 CLIENT_DIR="$WORKSPACE/chayuan-client"
 DESKTOP_DIR="$CLIENT_DIR/apps/desktop"
-BINARIES_DIR="$DESKTOP_DIR/src-tauri/binaries"
+# 2026-05-19 chayuan-server 切 PyInstaller --onedir:产物不再是
+# src-tauri/binaries/chayuan-server-<triple> 单文件,而是 build.py 把整个
+# dist/chayuan-server/ 树拷到 src-tauri/chayuan-server/(走 Tauri ``resources``,
+# 见 tauri.conf.json bundle.resources)。这里跟 build.py::DESKTOP_CHAYUAN_SERVER_DIR
+# 及 build-desktop.ps1::$ChayuanServerClientDir 对齐。
+CHAYUAN_SERVER_DIR="$DESKTOP_DIR/src-tauri/chayuan-server"
 TAURI_BUNDLE="$DESKTOP_DIR/src-tauri/target/release/bundle"
 
 UNAME_S="$(uname -s)"
@@ -84,7 +91,6 @@ case "$UNAME_S" in
             x86_64|amd64)  ARCH=x86_64  ; TRIPLE=x86_64-apple-darwin  ;;
             *) echo "[FAIL] unsupported macOS arch: $UNAME_M" >&2 ; exit 2 ;;
         esac
-        SIDECAR_NAME="chayuan-server-${TRIPLE}"
         ;;
     Linux)
         OS_NAME=linux
@@ -93,7 +99,6 @@ case "$UNAME_S" in
             x86_64|amd64)  ARCH=x86_64  ; TRIPLE=x86_64-unknown-linux-gnu  ;;
             *) echo "[FAIL] unsupported Linux arch: $UNAME_M" >&2 ; exit 2 ;;
         esac
-        SIDECAR_NAME="chayuan-server-${TRIPLE}"
         ;;
     *)
         echo "[FAIL] 本脚本仅支持 macOS / Linux;Windows 请用 build-desktop.cmd" >&2
@@ -101,7 +106,11 @@ case "$UNAME_S" in
         ;;
 esac
 
-SIDECAR_PATH="$BINARIES_DIR/$SIDECAR_NAME"
+# --onedir 产物里的 bootloader 可执行文件。Linux/macOS 无 .exe 后缀,且不带
+# rust target triple —— build.py copy_to_tauri_resources() 整树拷过来时它就叫
+# ``chayuan-server``(对应 Windows 的 chayuan-server.exe)。
+SIDECAR_NAME="chayuan-server"
+SIDECAR_PATH="$CHAYUAN_SERVER_DIR/$SIDECAR_NAME"
 
 # ── 1. 参数解析 ──────────────────────────────────────────────────
 SKIP_SERVER=0
@@ -312,12 +321,17 @@ do_build_flavor() {
 # ── 5. Step 1: chayuan-server PyInstaller ─────────────────────────
 #
 # 指纹缓存:把 chayuan/*.py + packaging/pyinstaller/* + pyproject.toml + poetry.lock
-# 合算 sha256,落在 ``$SIDECAR_PATH.sha256`` 旁边。下次构建时如果指纹没变,自动
+# 合算 sha256,落在 chayuan-server/dist/ 下。下次构建时如果指纹没变,自动
 # 跳过 PyInstaller(可省 5-10 分钟)。
 #
-# - 强制重建:加 --rebuild-server 或删掉 .sha256 stamp 文件。
+# 注:stamp 不能放进 src-tauri/chayuan-server/ —— build.py 的
+# copy_to_tauri_resources() 每次 PyInstaller 后会 rmtree 整个目录再 copytree,
+# 放里面会被清掉(且会污染 Tauri ``resources`` glob)。放 chayuan-server/dist/
+# 旁边,跟 build-desktop.ps1 的 .build-fingerprint-<triple>.json 同思路。
+#
+# - 强制重建:加 --rebuild-server 或删掉 stamp 文件。
 # - 显式跳过:加 --skip-server(不算指纹,直接复用)。
-fingerprint_file="$SIDECAR_PATH.sha256"
+fingerprint_file="$SERVER_DIR/dist/.sidecar-fingerprint-${TRIPLE}.sha256"
 SERVER_FINGERPRINT=""
 if [[ "$SKIP_SERVER" != "1" ]]; then
     SERVER_FINGERPRINT=$(
@@ -348,12 +362,13 @@ if [[ "$SKIP_SERVER" == "1" ]]; then
         note "去掉 --skip-server / 加 --rebuild-server 重跑,或先复制其它机器上同 triple 的 sidecar 进来。"
         exit 1
     fi
-    sz=$(du -m "$SIDECAR_PATH" | awk '{print $1}')
+    # --onedir:报整个 chayuan-server/ 目录大小(含 _internal/),单 bootloader 没参考价值。
+    sz=$(du -sm "$CHAYUAN_SERVER_DIR" | awk '{print $1}')
     if [[ "$SKIP_SERVER_AUTO" == "1" ]]; then
-        ok "源码指纹未变,自动复用 sidecar: $SIDECAR_PATH (${sz} MB)"
+        ok "源码指纹未变,自动复用 sidecar: $SIDECAR_PATH (onedir 总计 ${sz} MB)"
         note "强制重建:--rebuild-server"
     else
-        ok "复用现有 sidecar: $SIDECAR_PATH (${sz} MB)"
+        ok "复用现有 sidecar: $SIDECAR_PATH (onedir 总计 ${sz} MB)"
     fi
 else
     step 'Step 1: chayuan-server PyInstaller'
@@ -377,15 +392,19 @@ else
 
     if [[ ! -f "$SIDECAR_PATH" ]]; then
         fail "PyInstaller 跑完了但 sidecar 没出现在: $SIDECAR_PATH"
-        note "build.py 是按 host triple ($TRIPLE) 命名的,如果实际产物名不一致,看 build.py::rust_target_triple"
+        note "build.py(--onedir)应把整个 dist/chayuan-server/ 拷到 src-tauri/chayuan-server/;"
+        note "看看 $SERVER_DIR/dist/ 里实际生成了啥,以及 build.py::copy_to_tauri_resources。"
         exit 1
     fi
     chmod +x "$SIDECAR_PATH"
-    sz=$(du -m "$SIDECAR_PATH" | awk '{print $1}')
-    ok "Sidecar 已就位: $SIDECAR_PATH (${sz} MB)"
+    # --onedir 下 $SIDECAR_PATH 只是 bootloader(几 MB),整个 bundle 在同目录
+    # _internal/ 子目录;报整个 chayuan-server/ 目录大小才有意义。
+    sz=$(du -sm "$CHAYUAN_SERVER_DIR" | awk '{print $1}')
+    ok "Sidecar 已就位: $SIDECAR_PATH (onedir 总计 ${sz} MB)"
 
     # 把这次构建用的源码指纹落盘 —— 下次同样指纹会直接命中自动跳过。
     if [[ -n "$SERVER_FINGERPRINT" ]]; then
+        mkdir -p "$(dirname "$fingerprint_file")"
         echo "$SERVER_FINGERPRINT" > "$fingerprint_file"
         note "源码指纹已记录:$fingerprint_file"
     fi
