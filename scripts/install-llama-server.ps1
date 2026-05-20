@@ -15,6 +15,12 @@
     win-x64-avx512  兼容别名 → 同 win-x64
     win-x64-noavx   兼容别名 → 同 win-x64
     win-arm64       Surface Pro X / Copilot+ PC
+    linux-x64       Ubuntu x64 —— GitHub release zip,可从 Windows 跨平台下
+    macos-x64       Intel Mac —— 同上
+    macos-arm64     Apple Silicon —— 同上
+    linux-arm64     upstream 没发 zip,本脚本拒绝;需 ARM Linux 上 docker/源码
+  注:跨平台下的 linux/macos 二进制在 Windows 上不带执行位,打对应平台
+  安装包时由 build 脚本 / 运行时补 chmod +x。
 
   注意:b5400 起 llama.cpp 不再分 avx2/avx/avx512/noavx 多个 zip,改单一 -cpu-x64.zip
   内置运行时 CPU dispatch。旧别名只为脚本调用向后兼容,实际拉的是同一个 asset。
@@ -79,6 +85,18 @@ if ($useNewSchema) {
         'win-arm64'      = "llama-$Version-bin-win-llvm-arm64.zip"
     }
 }
+# linux / macos:命名 schema 跟版本无关(只有 win 在 b5400 合并过 avx 变体),
+# 三个都是单一 zip。加进 map 让 install-vendor.ps1 能从 Windows 跨平台下全。
+# .zip 用 Expand-Archive 在 Windows 上照样解,装到 vendor 给后续打包用。
+$assetMap['linux-x64']   = "llama-$Version-bin-ubuntu-x64.zip"
+$assetMap['macos-x64']   = "llama-$Version-bin-macos-x64.zip"
+$assetMap['macos-arm64'] = "llama-$Version-bin-macos-arm64.zip"
+
+if ($Target -eq 'linux-arm64') {
+    Write-Error ("linux-arm64 upstream 没发 zip。解法:在 ARM Linux 上 " +
+        "docker 提取 ghcr.io/ggml-org/llama.cpp:server,或源码 cmake build。")
+    exit 2
+}
 if (-not $assetMap.ContainsKey($Target)) {
     Write-Error "未识别的 target: $Target  (支持: $($assetMap.Keys -join ', '))"
     exit 1
@@ -117,14 +135,22 @@ $tmpExtract = Join-Path $env:TEMP ('llama-' + $Version + '-' + $Target + '-extra
 if (Test-Path $tmpExtract) { Remove-Item $tmpExtract -Recurse -Force }
 Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract -Force
 
-# 清旧
+# 清旧 binary / 共享库。用 -like 匹配 Name(不用 .Extension)—— Linux 的
+# 版本化 .so(libggml.so.0.11.1).Extension 会被解析成 ".1",漏删。
 Get-ChildItem $destDir -File | Where-Object {
-    $_.Extension -in '.exe', '.dll', '.so', '.dylib'
+    $_.Name -like '*.exe' -or $_.Name -like '*.dll' `
+    -or $_.Name -like '*.so' -or $_.Name -like '*.so.*' `
+    -or $_.Name -like '*.dylib' -or $_.Name -eq 'llama-server' `
+    -or $_.Name -eq 'ggml-metal.metal'
 } | Remove-Item -Force
 
-# 拷 llama-server.exe + 所有 dll
+# 拷主 binary + 共享库:win 是 llama-server.exe + *.dll;linux 是
+# llama-server + *.so(可能版本化);macos 是 llama-server + *.dylib +
+# ggml-metal.metal。Get-ChildItem -Recurse 兼容 win 顶层 / mac-linux build/bin。
 $needed = Get-ChildItem $tmpExtract -Recurse -File | Where-Object {
-    $_.Name -eq 'llama-server.exe' -or $_.Extension -eq '.dll'
+    $_.Name -eq 'llama-server.exe' -or $_.Name -eq 'llama-server' `
+    -or $_.Name -like '*.dll' -or $_.Name -like '*.so' -or $_.Name -like '*.so.*' `
+    -or $_.Name -like '*.dylib' -or $_.Name -eq 'ggml-metal.metal'
 }
 foreach ($f in $needed) {
     Copy-Item $f.FullName (Join-Path $destDir $f.Name) -Force

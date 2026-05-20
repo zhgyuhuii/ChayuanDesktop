@@ -38,6 +38,14 @@
 .PARAMETER LlamaVersion / WhisperVersion
     指定 vendor binary 版本,透传给对应 install-*.ps1。默认值同子脚本。
 
+.PARAMETER Targets
+    llama-server 要下哪些平台,逗号分隔。默认
+    'win-x64,win-arm64,linux-x64,macos-x64,macos-arm64' —— 这 5 个都是
+    GitHub release zip,能从 Windows 一台机器全下齐。
+    linux-arm64 upstream 没发 zip,不在默认里(需 ARM Linux 上自己处理)。
+    whisper-server 不受此参数影响:它没有预编译,只能装本机(Windows)平台,
+    其它平台需到对应机器跑 install-whisper-server.sh。
+
 .PARAMETER GithubMirror
     GitHub 镜像前缀。墙内 github.com 不通时用 — services(llama-server /
     whisper-server)的二进制只在 GitHub release 发,没别的源。
@@ -92,6 +100,10 @@ param(
 
     [string]$LlamaVersion   = '',
     [string]$WhisperVersion = '',
+
+    # llama-server 要下哪些平台,逗号分隔。默认把 5 个能从 Windows 跨平台
+    # 下的全下(linux-arm64 upstream 没 zip,不在默认里)。
+    [string]$Targets = 'win-x64,win-arm64,linux-x64,macos-x64,macos-arm64',
 
     # GitHub 镜像:墙内 github.com 不通时用。传 -GithubMirror 不带值默认
     # https://ghproxy.com/;也可显式给别的代理。会 export 成 GITHUB_MIRROR
@@ -278,23 +290,31 @@ if ($doServices) {
     $whisperPs1 = Join-Path $here 'install-whisper-server.ps1'
 
     if (Test-Path $llamaPs1) {
-        $llArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $llamaPs1)
-        if ($LlamaVersion) { $llArgs += @('-Version', $LlamaVersion) }
-        $stageSpecs.Add(@{
-            Stage = 'llama-server'
-            Cmd   = 'powershell.exe'
-            Args  = $llArgs
-            Cwd   = $WorkspaceRoot
-        })
+        # 按 -Targets 逐个平台下 llama-server。llama.cpp release 的 win/linux/
+        # macos 二进制都是 GitHub zip,可从 Windows 跨平台下;每个平台一个 stage。
+        $targetList = @($Targets -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        foreach ($tgt in $targetList) {
+            $llArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $llamaPs1, '-Target', $tgt)
+            if ($LlamaVersion) { $llArgs += @('-Version', $LlamaVersion) }
+            $stageSpecs.Add(@{
+                Stage = "llama-$tgt"
+                Cmd   = 'powershell.exe'
+                Args  = $llArgs
+                Cwd   = $WorkspaceRoot
+            })
+        }
     } else {
         Write-Fail "install-llama-server.ps1 不存在: $llamaPs1"
     }
 
+    # whisper-server:upstream 不发预编译,install-whisper-server.ps1 只能装
+    # 本机(Windows)平台。其它平台的 whisper-server 需到对应机器上跑
+    # install-whisper-server.sh(docker/brew/源码),无法从 Windows 跨平台下。
     if (Test-Path $whisperPs1) {
         $wsArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $whisperPs1)
         if ($WhisperVersion) { $wsArgs += @('-Version', $WhisperVersion) }
         $stageSpecs.Add(@{
-            Stage = 'whisper-server'
+            Stage = 'whisper-server(win-host)'
             Cmd   = 'powershell.exe'
             Args  = $wsArgs
             Cwd   = $WorkspaceRoot
