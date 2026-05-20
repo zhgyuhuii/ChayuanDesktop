@@ -276,10 +276,13 @@ class InstallModelJobManager:
         norm_file = _validate_filename(specific_file)
 
         with self._lock:
-            # 同一 model_id + cap 已经在跑就拒绝(避免重复硬盘竞争)
+            # 同一 model_id + cap 已经在跑就拒绝(避免重复硬盘竞争)。
+            # 但**已被请求取消**的任务不算"在跑" — 它的后台线程可能还卡在
+            # 阻塞的下载 SDK 调用里下不来,若仍拦着,用户取消后永远无法重试。
             for j in self._jobs.values():
                 if (j.model_id == norm_id and j.capability == norm_cap
-                        and j.status in (ModelJobStatus.QUEUED, ModelJobStatus.RUNNING)):
+                        and j.status in (ModelJobStatus.QUEUED, ModelJobStatus.RUNNING)
+                        and not j._cancel_requested):
                     raise RuntimeError(
                         f"{norm_id} ({norm_cap}) 已有运行中任务 {j.id} "
                         f"(status={j.status.value})"
@@ -315,6 +318,18 @@ class InstallModelJobManager:
                               ModelJobStatus.CANCELLED):
                 return job
             job._cancel_requested = True
+            # 乐观立即落 CANCELLED:hf / modelscope 的 snapshot_download 是
+            # **阻塞调用**,_cancel_requested 标志位要等 SDK 整段返回后才会被
+            # _check_cancel 看到 — 这期间 job 一直挂在 RUNNING,start() 的去重
+            # 检查就会一直拒绝用户重新下载("已有运行中任务")。
+            # 这里直接把状态落到 CANCELLED,用户能立刻重试;后台线程跑完当前
+            # 阻塞段后会在 _run 末尾的 guard 处自然退出,不会再覆写状态。
+            job.status = ModelJobStatus.CANCELLED
+            job.exit_code = -1
+            job.ended_at = time.time()
+            job.log_tail.append(
+                "[install_model] 已请求取消;任务标记 CANCELLED,可立即重新下载"
+            )
         return job
 
     def _run(self, job: InstallModelJob) -> None:
@@ -401,6 +416,18 @@ class InstallModelJobManager:
                 )
 
         with self._lock:
+            # 收尾前最后一道闸:用户在下载过程中点过取消(cancel() 已乐观把
+            # status 落到 CANCELLED),此处就不要再覆写成 SUCCEEDED — 否则
+            # UI 上会看到"取消了又突然变成功"。文件确实下下来了,保留即可。
+            if job._cancel_requested:
+                job.log_tail.append(
+                    "[install_model] 下载虽已完成,但任务此前被取消,保持 CANCELLED"
+                )
+                if job.status != ModelJobStatus.CANCELLED:
+                    job.status = ModelJobStatus.CANCELLED
+                    job.exit_code = -1
+                    job.ended_at = time.time()
+                return
             job.step = "done"
             job.status = ModelJobStatus.SUCCEEDED
             job.exit_code = 0
