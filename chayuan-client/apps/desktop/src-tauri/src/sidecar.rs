@@ -152,11 +152,29 @@ impl SidecarManager {
     /// spawn 出来的子孙进程。所以单 ``child.kill()`` 只收掉 Python 父进程,
     /// 模型服务会变成孤儿继续占显存 / 端口。要杀干净必须按进程树整棵收。
     ///
-    /// 实现:
-    ///   * Windows —— ``taskkill /PID <pid> /T /F``,``/T`` 连同子进程树一起杀。
-    ///   * unix    —— spawn 时未建独立进程组,这里对 pid 本身 ``kill -KILL``;
-    ///     mac/linux 当前不是单机版主力平台,先做基础兜底(杀父进程,子进程
-    ///     由 chayuan-server 自身的退出钩子 / 失去父进程后回收)。
+    /// ⚠ 为什么单 ``taskkill /T`` 不够 —— 头号坑:
+    ///   后端进程树是多层的:
+    ///     ``chayuan-server.exe``(Tauri 拉起,本 pid)
+    ///       └─ ``chayuan-server.exe``(startup.py ``mp.set_start_method("spawn")``
+    ///          起的 API Server 子进程)
+    ///            └─ ``llama-server.exe`` / ``whisper-server.exe``(local_runtime.py
+    ///               ``subprocess.Popen`` 起的模型 sidecar)
+    ///   ``taskkill /PID <root> /T /F`` 靠**实时 PPID 链**枚举整棵树,但 ``/F``
+    ///   强杀中间层时,根进程和 API Server 子进程几乎同时死,llama-server 在被
+    ///   枚举到之前父进程就没了 → 变孤儿(Windows 不把孤儿挂到祖父,PPID 失效)
+    ///   → ``/T`` 够不到 → 残留后台。这是用户报"llama-server 杀不掉"的根因。
+    ///
+    /// 实现(进程树 + 映像名双保险):
+    ///   * Windows —— 先 ``taskkill /PID <pid> /T /F`` 收进程树;再追加按映像名
+    ///     ``taskkill /F /IM llama-server.exe /IM whisper-server.exe`` 兜底,
+    ///     直接收掉所有同名 sidecar,不依赖 PPID 链。这两个二进制是本应用独占
+    ///     拉起的(集成版自带,单机版场景用户机上不会有别的同名进程),按映像名
+    ///     杀是稳妥的。
+    ///     注意:image-embedding 的 infinity sidecar 是 ``chayuan-server.exe -m
+    ///     ...`` 跑的(映像名跟后端自己一样),**不能**按映像名杀,但它是 API
+    ///     Server 的直接子进程,``/T`` 已覆盖,无需额外处理。
+    ///   * unix —— 先对 pid 本身 ``kill -KILL``;再 ``pkill -f`` 按名字兜底收掉
+    ///     llama-server / whisper-server(spawn 时没建独立进程组,无法 killpg)。
     ///
     /// 返回 ``true`` 表示拿到过 pid 并发出过 kill;``false`` 表示当时没有
     /// 在管理的子进程(已停 / 未启动 / dev 模式没 spawn)。
@@ -175,23 +193,43 @@ impl SidecarManager {
             use std::os::windows::process::CommandExt;
             // CREATE_NO_WINDOW(0x0800_0000):不弹 taskkill 的控制台黑窗。
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            // /T = 连子进程树,/F = 强制。先发 taskkill 收整棵树。
+            // 1) 进程树:/T = 连子进程树,/F = 强制。先同步收整棵树
+            //    (.status() 阻塞等 taskkill 跑完,确保在 child.kill() 之前完成)。
             let _ = std::process::Command::new("taskkill")
                 .args(["/PID", &pid.to_string(), "/T", "/F"])
                 .creation_flags(CREATE_NO_WINDOW)
                 .status();
-            // 兜底:即使 taskkill 失败,也再调一次 plugin-shell 的 kill 收父进程。
+            // 2) 映像名兜底:进程树枚举可能因多层 /F 强杀竞态够不到深层 sidecar,
+            //    直接按映像名收掉残留的 llama-server / whisper-server。
+            //    本应用独占拉起这两个二进制,单机版场景按名字杀是安全的。
+            let _ = std::process::Command::new("taskkill")
+                .args([
+                    "/F",
+                    "/IM", "llama-server.exe",
+                    "/IM", "whisper-server.exe",
+                ])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+            // 3) 兜底:即使上面都失败,也再调一次 plugin-shell 的 kill 收父进程。
             let _ = child.kill();
         }
 
         #[cfg(unix)]
         {
-            // spawn 时没设独立进程组,无法 killpg 整组;直接 SIGKILL 父 pid。
-            // chayuan-server 收到信号后由自身退出逻辑收子进程;再用 plugin-shell
-            // 的 kill 兜底一次。
+            // 1) spawn 时没设独立进程组,无法 killpg 整组;直接 SIGKILL 父 pid。
             unsafe {
                 libc_kill(pid as i32, 9);
             }
+            // 2) 映像名兜底:pkill -f 按命令行匹配收掉残留的 llama-server /
+            //    whisper-server(它们是后端的子孙进程,父进程被杀后会变孤儿)。
+            //    -f 匹配完整命令行,覆盖带绝对路径 spawn 的情况。
+            let _ = std::process::Command::new("pkill")
+                .args(["-9", "-f", "llama-server"])
+                .status();
+            let _ = std::process::Command::new("pkill")
+                .args(["-9", "-f", "whisper-server"])
+                .status();
+            // 3) plugin-shell 的 kill 兜底一次。
             let _ = child.kill();
         }
 

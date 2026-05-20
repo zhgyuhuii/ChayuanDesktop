@@ -409,10 +409,11 @@ pub fn run() {
                     }
                     "quit_all" => {
                         // 退出应用 + 杀所有由本应用拉起的后台服务。
-                        // 先杀后端 chayuan-server 整棵进程树 —— 模型服务
-                        // (llama-server / whisper-server / infinity 等)都是
-                        // chayuan-server 自己 spawn 的子孙进程,Tauri 不直接管,
-                        // 所以收掉整棵树才能把它们一并清干净。
+                        // kill_tree_on_exit 双保险:先 taskkill /T 收后端
+                        // chayuan-server 整棵进程树,再按映像名兜底收掉残留的
+                        // llama-server / whisper-server —— 模型 sidecar 处在
+                        // 多层进程树深处,/F 强杀中间层会让它们变孤儿、/T 够不到,
+                        // 必须追加映像名 kill 才能真正清干净(见 sidecar.rs 注释)。
                         let mgr = app.state::<Arc<sidecar::SidecarManager>>();
                         mgr.kill_tree_on_exit();
                         // 再退出应用;app.exit 仍会触发 RunEvent::ExitRequested →
