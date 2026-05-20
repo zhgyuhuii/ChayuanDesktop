@@ -260,6 +260,35 @@ fi
 if [[ "$SKIP_FRONTEND" != "1" ]]; then
     require_cmd pnpm "请装 pnpm (corepack enable;npm i -g pnpm)"
     require_cmd cargo "请装 Rust (https://rustup.rs)"
+    # Tauri 在 Linux 上编译需要 C 编译器(cc/gcc,Rust 链接用)+ 一堆 GTK/WebKit
+    # 开发库。这些是系统包、要 root 装(不像 Rust 能装进 ~/.cargo),只检测 +
+    # 给确切安装命令,不自动 sudo。一次把缺的全列出来,免得一个个撞。
+    if [[ "$OS_NAME" == "linux" ]]; then
+        missing_sys=()
+        command -v cc         >/dev/null 2>&1 || missing_sys+=("C 编译器(cc/gcc)")
+        command -v pkg-config >/dev/null 2>&1 || missing_sys+=("pkg-config")
+        if command -v pkg-config >/dev/null 2>&1; then
+            pkg-config --exists webkit2gtk-4.1 2>/dev/null || missing_sys+=("libwebkit2gtk-4.1-dev")
+            pkg-config --exists gtk+-3.0       2>/dev/null || missing_sys+=("libgtk-3-dev")
+        fi
+        if [[ ${#missing_sys[@]} -gt 0 ]]; then
+            fail "Tauri Linux 编译缺系统依赖:${missing_sys[*]}"
+            if command -v apt-get >/dev/null 2>&1; then
+                note "Debian/Ubuntu 一条装齐:"
+                note "  sudo apt-get install -y build-essential pkg-config libssl-dev libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev"
+            elif command -v dnf >/dev/null 2>&1; then
+                note "Fedora 一条装齐:"
+                note "  sudo dnf install -y @development-tools pkgconf-pkg-config openssl-devel webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel libxdo-devel"
+            elif command -v pacman >/dev/null 2>&1; then
+                note "Arch 一条装齐:"
+                note "  sudo pacman -S --needed base-devel pkgconf openssl webkit2gtk-4.1 gtk3 libayatana-appindicator librsvg libxdo"
+            else
+                note "用你发行版的包管理器装:C 编译器(gcc) + pkg-config + webkit2gtk-4.1 + gtk3 + appindicator + librsvg2 + libxdo 的开发包"
+            fi
+            exit 127
+        fi
+        note "cc / pkg-config / webkit2gtk-4.1 / gtk3 就绪"
+    fi
 fi
 
 # ── 4. 可选清理 ──────────────────────────────────────────────────
