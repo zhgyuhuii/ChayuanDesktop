@@ -40,15 +40,20 @@ const LIMB_ANCHORS: ReadonlyArray<{ idx: number; side: 1 | -1 }> = [
   { idx: 22, side: -1 }, // 左后足
 ];
 
-// 段半径渐变:头 22 → 中段最粗 16 → 尾 3
+// 段半径渐变:头(单独 SVG 渲染不计入 outline)→ 蛇颈细 → 主体丰满 → 尾尖
+// "蛇项":首 6 段紧缩到 10~13 模拟细长蛇颈,跟头部巨大反差
 function segRadius(i: number): number {
-  if (i === 0) return HEAD_WIDTH;
-  const u = i / (SEG_COUNT - 1);
-  // 改进抛物线:1 段 18,中段 14,尾段 3 — 更细更优雅
-  if (u < 0.15) return 18 - u * 13; // 1~5 段从 18 渐到 16
-  if (u < 0.75) return 16 - (u - 0.15) * 6; // 中段从 16 到 ~12
-  // 尾部加速变细
-  return Math.max(2, 12 - (u - 0.75) * 36);
+  if (i === 0) return HEAD_WIDTH; // 仅给 head 自身参考,outline 跳过
+  // 1~6 段蛇颈:13 → 11(略递减) — 跟头部 (~50px wide) 形成显著对比
+  if (i <= 6) return 13 - (i - 1) * 0.4;
+  // 7~14 颈到身的过渡:11 → 20(快速增粗,模拟肩部)
+  if (i <= 14) return 11 + (i - 6) * 1.2;
+  // 15~24 主体段:20 → 17(平缓收)
+  if (i <= 24) return 20 - (i - 14) * 0.3;
+  // 25~30 后段渐细:17 → 11
+  if (i <= 30) return 17 - (i - 24) * 1.0;
+  // 31~35 尾尖:11 → 3
+  return Math.max(2, 11 - (i - 30) * 1.8);
 }
 
 interface SegPt {
@@ -277,11 +282,12 @@ export const GoldDragon: React.FC<GoldDragonProps> = ({
         <path data-role="spine-highlight" fill="none" stroke="#fff8d0" strokeWidth="1.2" strokeLinecap="round" opacity="0.7" />
       </g>
 
-      {/* —— 鳞片层(每段一簇 3 片菱形鳞) */}
+      {/* —— 鳞片层(每段一簇 3 片菱形鳞)
+           各段初始 transform 挪屏外,首飞 commit 才正位 */}
       <g data-role="scales" filter="url(#gd-glow)">
         {Array.from({ length: SEG_COUNT }).map((_, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: 段数固定
-          <g key={i} data-scale={i}>
+          <g key={i} data-scale={i} transform="translate(-9999 -9999)">
             {i > 0 && i < SEG_COUNT - 2 && (
               <>
                 <ScaleDiamond r={Math.max(2, segRadius(i) * 0.42)} dy={-segRadius(i) * 0.25} />
@@ -299,8 +305,8 @@ export const GoldDragon: React.FC<GoldDragonProps> = ({
       {/* —— 背鳍 + 鬃毛(每帧重画,沿身体上方) */}
       <g data-role="fins" filter="url(#gd-glow)" />
 
-      {/* —— 龙头 */}
-      <g data-role="head" filter="url(#gd-glow)">
+      {/* —— 龙头 — 初始挪到屏外,首飞 rAF 第一帧才正位 */}
+      <g data-role="head" transform="translate(-9999 -9999)" filter="url(#gd-glow)">
         <DragonHead />
       </g>
     </svg>
@@ -325,178 +331,286 @@ const ScaleDiamond: React.FC<{ r: number; dy: number }> = ({ r, dy }) => (
 // 龙头 — 怒目张嘴 + 喉内能量球
 // ──────────────────────────────────────────────────────────────
 
+/**
+ * 龙头 — 按"鹿角、驼头、兔眼、牛耳、狮鼻、虎口、蛇项、鲤须" 9 似复刻,
+ * 加用户附加要求:额心大菱形鳞、骨棱粗眉、深口至眼后、上下交错獠牙、
+ * 颊须长扫、鬃发如刺、肌颈连身。
+ *
+ * 头部坐标系
+ * ----------
+ * 原点 (0,0) = 颈接合点(头颅根部内侧);+X = 朝向运动方向(吻部前方)
+ *
+ *     -X (颈/后脑) ← ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ → +X (吻部)
+ *
+ *     -Y (顶)
+ *           ╱╲    ╱╲    鹿角
+ *           ╲╱    ╲╱
+ *           牛耳
+ *      ┌─鬃刺─頭顶─驼峰─┐
+ *      │              额心菱形       眉骨
+ *      │      鬃刺      ┃         ◉ 兔眼  狮鼻
+ *      │      鬃刺      ┃                 ╱
+ *      │            ━━ 虎口张 ━━━━━━━━━━╲╲╲ 獠牙
+ *      │            鲤须 ─ ─ ─ ─ ─ ─ ─ ─ ─→
+ *      └──颔下──颊须──┘
+ *     +Y (颌下)
+ *
+ * 渲染顺序(由后到前):
+ *   1. 头后/颊须放射刺(鬃毛如针)
+ *   2. 鹿角(粗壮多枝杈)
+ *   3. 牛耳(小三角)
+ *   4. 下颚(独立闭合)
+ *   5. 口腔深暗
+ *   6. 喉内能量球
+ *   7. 上头颅主轮廓
+ *   8. 骨棱眉骨
+ *   9. 额心菱形大鳞
+ *   10. 狮鼻 + 鼻孔 + 喷火
+ *   11. 兔眼(凸圆 + 竖瞳)
+ *   12. 交错獠牙(上下)
+ *   13. 鲤须(2 长 + 2 副,最上层)
+ */
 const DragonHead: React.FC = () => (
   <>
-    {/* —— 鬃毛 5 簇:头后向上下散开,大簇 */}
-    <path
-      d="M -12,-14 Q -28,-30 -52,-30 Q -62,-22 -68,-10"
-      stroke="#d4a72c"
-      strokeWidth="3.5"
-      strokeLinecap="round"
-      fill="none"
-    />
-    <path
-      d="M -10,-18 Q -24,-34 -46,-38 Q -54,-32 -56,-22"
-      stroke="#fff8d0"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      fill="none"
-      opacity="0.9"
-    />
-    <path
-      d="M -8,-20 Q -18,-38 -32,-42"
-      stroke="#ffd75a"
-      strokeWidth="2"
-      strokeLinecap="round"
-      fill="none"
-    />
-    <path
-      d="M -10,14 Q -26,30 -48,34 Q -58,28 -62,18"
-      stroke="#d4a72c"
-      strokeWidth="3"
-      strokeLinecap="round"
-      fill="none"
-    />
-    <path
-      d="M -8,18 Q -22,34 -38,38"
-      stroke="#a87209"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      fill="none"
-    />
+    {/* ═══ 1. 鬃发如针 — 头颅周围 10 簇放射状尖刺(类似"爆炸针") ═══ */}
+    <g data-part="mane-spikes">
+      {/* 顶冠 4 簇朝后上 */}
+      <path d="M -2,-30 L -26,-58 L -14,-32 Z" fill="url(#gd-scale)" stroke="#3a1f00" strokeWidth="0.5" />
+      <path d="M 6,-34 L -8,-62 L 4,-36 Z" fill="url(#gd-scale)" stroke="#3a1f00" strokeWidth="0.5" />
+      <path d="M 14,-36 L 4,-66 L 18,-38 Z" fill="url(#gd-scale)" stroke="#3a1f00" strokeWidth="0.5" />
+      <path d="M -8,-22 L -38,-44 L -22,-22 Z" fill="url(#gd-scale)" stroke="#3a1f00" strokeWidth="0.5" />
+      {/* 后脑 3 簇朝后 */}
+      <path d="M -10,-12 L -50,-22 L -22,-8 Z" fill="url(#gd-scale)" stroke="#3a1f00" strokeWidth="0.5" />
+      <path d="M -10,-2 L -52,2 L -22,4 Z" fill="url(#gd-scale)" stroke="#3a1f00" strokeWidth="0.5" />
+      <path d="M -8,10 L -48,18 L -20,16 Z" fill="url(#gd-scale)" stroke="#3a1f00" strokeWidth="0.5" />
+      {/* 颌下髯 3 簇朝下后 */}
+      <path d="M -2,20 L -30,38 L -18,22 Z" fill="url(#gd-scale)" stroke="#3a1f00" strokeWidth="0.5" />
+      <path d="M 10,26 L -8,44 L 0,26 Z" fill="url(#gd-scale)" stroke="#3a1f00" strokeWidth="0.5" />
+      <path d="M 22,28 L 4,48 L 14,28 Z" fill="url(#gd-scale)" stroke="#3a1f00" strokeWidth="0.5" />
+    </g>
 
-    {/* —— 双角:粗壮鹿角,带分叉 */}
-    <path
-      d="M -10,-12 Q -22,-26 -32,-38 Q -36,-44 -42,-42 M -32,-38 Q -38,-42 -42,-36"
-      stroke="#5a3306"
-      strokeWidth="3.2"
-      strokeLinecap="round"
-      fill="none"
-    />
-    <path
-      d="M -6,-15 Q -16,-30 -24,-42 Q -28,-48 -34,-44 M -24,-42 Q -30,-46 -34,-38"
-      stroke="#7a4a06"
-      strokeWidth="2.6"
-      strokeLinecap="round"
-      fill="none"
-    />
+    {/* ═══ 2. 鹿角 — 2 根多枝杈,粗壮虬曲 ═══ */}
+    <g data-part="antlers">
+      {/* 前角:主干 + 2 分枝 */}
+      <path
+        d="M 8,-32 Q -6,-52 -24,-62 M -10,-50 Q -18,-58 -26,-56 M -2,-44 Q -10,-52 -16,-50"
+        stroke="#3a1f00"
+        strokeWidth="4.5"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path
+        d="M 8,-32 Q -6,-52 -24,-62"
+        stroke="#d4a72c"
+        strokeWidth="1.5"
+        fill="none"
+        opacity="0.7"
+      />
+      {/* 后角:主干 + 2 分枝(略小、相位差) */}
+      <path
+        d="M 18,-32 Q 7,-50 -10,-58 M 2,-48 Q -4,-54 -12,-52 M 12,-42 Q 6,-50 -2,-48"
+        stroke="#5a3306"
+        strokeWidth="3.8"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path
+        d="M 18,-32 Q 7,-50 -10,-58"
+        stroke="#ffd75a"
+        strokeWidth="1.2"
+        fill="none"
+        opacity="0.65"
+      />
+    </g>
 
-    {/* —— 头部主轮廓(张开嘴,上下颚分离) */}
-    {/* 上颚 */}
+    {/* ═══ 3. 牛耳 — 2 片小尖三角,藏在角根 ═══ */}
+    <g data-part="ears">
+      <path d="M 6,-28 L -6,-32 L 0,-22 Z" fill="url(#gd-body)" stroke="#3a1f00" strokeWidth="0.8" />
+      <path d="M 4,-26 L -2,-30 L 0,-23 Z" fill="#5a3306" opacity="0.55" />
+      <path d="M 16,-26 L 4,-30 L 10,-20 Z" fill="url(#gd-body)" stroke="#3a1f00" strokeWidth="0.8" />
+    </g>
+
+    {/* ═══ 4. 下颚 — 独立闭合形,先画(主头会盖颌根) ═══ */}
     <path
       d="
-        M 34,-2
-        C 32,-12 22,-18 8,-18
-        C -10,-18 -20,-10 -20,-2
-        C -20,2 -8,4 4,2
-        C 14,2 24,0 30,-2
-        L 34,-2 Z
+        M 30,14
+        L 86,12
+        Q 90,10 89,7
+        Q 90,16 84,20
+        Q 70,24 56,26
+        Q 35,30 12,28
+        Q -8,24 -10,16
+        Q -4,11 8,11
+        L 30,14 Z
       "
       fill="url(#gd-body)"
-      stroke="#5a3306"
-      strokeWidth="0.9"
+      stroke="#3a1f00"
+      strokeWidth="1.3"
     />
-    {/* 下颚 */}
+
+    {/* ═══ 5. 口腔深暗 — 上下颚之间的阴影,显出"嘴张到眼后"的纵深 ═══ */}
     <path
       d="
-        M 32,4
-        C 28,12 18,16 6,16
-        C -6,16 -16,12 -18,6
-        C -18,4 -10,4 0,5
-        C 12,7 22,7 32,4 Z
+        M 28,8
+        L 84,5
+        Q 88,8 84,12
+        L 30,14
+        Q 22,12 24,8
+        Z
+      "
+      fill="#0a0500"
+      opacity="0.92"
+    />
+
+    {/* ═══ 6. 喉内能量球 ═══ */}
+    <circle cx="20" cy="14" r="6.5" fill="url(#gd-orb)">
+      <animate attributeName="r" values="5.5;8;5.5" dur="1.6s" repeatCount="indefinite" />
+    </circle>
+    <circle cx="20" cy="14" r="11" fill="url(#gd-orb)" opacity="0.4">
+      <animate attributeName="opacity" values="0.3;0.75;0.3" dur="1.6s" repeatCount="indefinite" />
+    </circle>
+
+    {/* ═══ 7. 上头颅主轮廓 — "驼峰额"+"狮鼻吻"+张口至眼后的虎口 ═══ */}
+    <path
+      d="
+        M -8,-30
+        Q 5,-38 22,-39
+        Q 38,-40 50,-37
+        Q 60,-33 62,-26
+        Q 64,-20 64,-16
+        Q 70,-12 80,-8
+        Q 88,-4 90,0
+        Q 91,4 88,6
+        L 84,6
+        L 28,8
+        Q 22,6 24,1
+        Q 22,-8 16,-14
+        Q 6,-22 -4,-25
+        Q -10,-26 -8,-30 Z
       "
       fill="url(#gd-body)"
-      stroke="#5a3306"
-      strokeWidth="0.9"
+      stroke="#3a1f00"
+      strokeWidth="1.4"
     />
 
-    {/* —— 喉内能量球(发光) */}
-    <circle cx="6" cy="4" r="5.5" fill="url(#gd-orb)">
-      <animate
-        attributeName="r"
-        values="5;7;5"
-        dur="1.6s"
-        repeatCount="indefinite"
+    {/* ═══ 8. 骨棱眉骨 — 重压感,眼眶上方一道凸起 ═══ */}
+    <path
+      d="M 38,-26 Q 50,-32 64,-26 L 60,-22 Q 50,-26 42,-22 Z"
+      fill="#3a1f00"
+      opacity="0.92"
+    />
+    <path
+      d="M 40,-25 Q 50,-30 62,-25"
+      stroke="#d4a72c"
+      strokeWidth="0.8"
+      fill="none"
+      opacity="0.55"
+    />
+
+    {/* ═══ 9. 额心菱形大鳞 — 中央点睛(用户原话"大菱形中央鳞") ═══ */}
+    <g transform="translate(34 -32)">
+      <path
+        d="M 0,-9 L 10,0 L 0,9 L -10,0 Z"
+        fill="url(#gd-scale)"
+        stroke="#3a1f00"
+        strokeWidth="0.9"
       />
-    </circle>
-    {/* 能量球外层光晕 */}
-    <circle cx="6" cy="4" r="9" fill="url(#gd-orb)" opacity="0.45">
-      <animate
-        attributeName="opacity"
-        values="0.4;0.8;0.4"
-        dur="1.6s"
-        repeatCount="indefinite"
+      {/* 菱形内 facet 高光层 */}
+      <path d="M 0,-5 L 5,0 L 0,5 L -5,0 Z" fill="#fff8d0" opacity="0.7" />
+      <path d="M 0,-2 L 2,0 L 0,2 L -2,0 Z" fill="#ffffff" opacity="0.9" />
+    </g>
+
+    {/* ═══ 10. 狮鼻 — 阔球 + 双鼻孔 + 喷火 ═══ */}
+    <g data-part="nose">
+      {/* 鼻球底色 */}
+      <ellipse cx="83" cy="-1" rx="9" ry="6" fill="url(#gd-body)" stroke="#3a1f00" strokeWidth="0.9" />
+      {/* 鼻翼阴影 */}
+      <path d="M 75,-2 Q 78,-7 86,-7 Q 88,-4 86,-2 Z" fill="#7a4a06" opacity="0.55" />
+      {/* 鼻孔(双) */}
+      <ellipse cx="80" cy="-1" rx="2.6" ry="1.7" fill="#0a0500" />
+      <ellipse cx="80" cy="-2" rx="1.1" ry="0.7" fill="#fff8d0" opacity="0.55" />
+      {/* 喷火 — SMIL 透明度脉动 */}
+      <path d="M 78,-2 Q 72,-6 67,-3 Q 72,-1 78,-1 Z" fill="url(#gd-orb)" opacity="0.7">
+        <animate attributeName="opacity" values="0.35;0.95;0.35" dur="0.7s" repeatCount="indefinite" />
+      </path>
+      <path d="M 75,1 Q 70,4 66,1" stroke="#ff6a1a" strokeWidth="0.8" fill="none" opacity="0.5">
+        <animate attributeName="opacity" values="0;0.6;0" dur="0.7s" repeatCount="indefinite" />
+      </path>
+    </g>
+
+    {/* ═══ 11. 兔眼 — 大凸圆 + 竖瞳 + 眼骨凹 ═══ */}
+    <g data-part="eye">
+      {/* 眼眶凹陷阴影(让眼"凸"出来) */}
+      <ellipse cx="50" cy="-17" rx="10" ry="8" fill="#1a0d00" opacity="0.95" />
+      {/* 眼球白底(凸起,稍偏上) */}
+      <ellipse cx="51" cy="-18" rx="7.5" ry="6" fill="#fff8d0" />
+      {/* 虹膜金 */}
+      <circle cx="52" cy="-17" r="5" fill="#ffaa3a">
+        <animate attributeName="r" values="4.5;5.3;4.5" dur="2.4s" repeatCount="indefinite" />
+      </circle>
+      {/* 虹膜外环深色 */}
+      <circle cx="52" cy="-17" r="5" fill="none" stroke="#7a4a06" strokeWidth="0.6" opacity="0.7" />
+      <circle cx="52" cy="-17" r="3.6" fill="none" stroke="#ff6a1a" strokeWidth="0.45" opacity="0.6" />
+      {/* 竖瞳 */}
+      <ellipse cx="52" cy="-17" rx="0.9" ry="4.5" fill="#0a0500" />
+      {/* 眼球高光(单大点 + 小点) */}
+      <ellipse cx="53.6" cy="-19.2" rx="1.6" ry="1.1" fill="#ffffff" />
+      <circle cx="50.5" cy="-15" r="0.5" fill="#fff" opacity="0.7" />
+    </g>
+
+    {/* ═══ 12. 交错獠牙 — 上颚 5 颗 + 下颚 4 颗,X-Y 错位形成"interlocking"咬合感 ═══ */}
+    <g data-part="fangs">
+      {/* 上獠 — 从上颚下垂,大小递减 */}
+      <path d="M 78,6 L 75,15 L 72,6 Z" fill="#fff8d0" stroke="#3a1f00" strokeWidth="0.35" />
+      <path d="M 68,6 L 64,16 L 60,6 Z" fill="#ffffff" stroke="#3a1f00" strokeWidth="0.35" />
+      <path d="M 56,6 L 53,13 L 50,6 Z" fill="#fff8d0" stroke="#3a1f00" strokeWidth="0.35" />
+      <path d="M 46,7 L 43,12 L 40,7 Z" fill="#fff8d0" stroke="#3a1f00" strokeWidth="0.35" />
+      <path d="M 36,7 L 33,11 L 30,7 Z" fill="#fff8d0" stroke="#3a1f00" strokeWidth="0.35" />
+      {/* 下獠 — 从下颚上挺,在上獠之间交错 */}
+      <path d="M 76,14 L 73,6 L 70,14 Z" fill="#fff8d0" stroke="#3a1f00" strokeWidth="0.35" />
+      <path d="M 64,14 L 61,5 L 58,14 Z" fill="#ffffff" stroke="#3a1f00" strokeWidth="0.35" />
+      <path d="M 52,14 L 49,7 L 46,14 Z" fill="#fff8d0" stroke="#3a1f00" strokeWidth="0.35" />
+      <path d="M 42,13 L 39,8 L 36,13 Z" fill="#fff8d0" stroke="#3a1f00" strokeWidth="0.35" />
+    </g>
+
+    {/* ═══ 13. 鲤须 — 2 长(主鬚,颊后扫向身后)+ 2 副(短伴鬚) ═══ */}
+    <g data-part="whiskers">
+      {/* 主鬚 1:上唇后颊出,长扫到颈侧 */}
+      <path
+        d="M 26,4 Q -2,2 -28,8 Q -56,18 -82,18"
+        stroke="#fff8d0"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        fill="none"
+        opacity="0.96"
       />
-    </circle>
-
-    {/* —— 獠牙 上下两排 */}
-    <path d="M 30,-1 L 27,5 L 24,-1 Z" fill="#fff8d0" />
-    <path d="M 23,-1 L 20,4 L 17,-1 Z" fill="#fff8d0" />
-    <path d="M 28,5 L 25,0 L 22,5 Z" fill="#fff8d0" />
-    <path d="M 21,5 L 18,0 L 15,5 Z" fill="#fff8d0" />
-
-    {/* —— 龙须 4 根:2 长(主)+ 2 短(副)*/}
-    <path
-      d="M 26,-3 Q 0,-16 -36,-22 Q -56,-22 -72,-14"
-      stroke="#fff8d0"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      fill="none"
-      opacity="0.95"
-    />
-    <path
-      d="M 26,7 Q 0,22 -36,28 Q -56,28 -72,20"
-      stroke="#fff8d0"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      fill="none"
-      opacity="0.95"
-    />
-    <path
-      d="M 22,-5 Q 0,-12 -22,-15"
-      stroke="#ffd75a"
-      strokeWidth="0.9"
-      strokeLinecap="round"
-      fill="none"
-      opacity="0.75"
-    />
-    <path
-      d="M 22,9 Q 0,18 -22,20"
-      stroke="#ffd75a"
-      strokeWidth="0.9"
-      strokeLinecap="round"
-      fill="none"
-      opacity="0.75"
-    />
-
-    {/* —— 怒目:眼眶下压(三角斜眼),金光瞳孔 */}
-    {/* 眉骨阴影 */}
-    <path d="M 4,-12 L 18,-10 L 14,-6 Z" fill="#5a3306" opacity="0.85" />
-    {/* 眼白 */}
-    <ellipse cx="11" cy="-6" rx="3.5" ry="2.2" fill="#fff8d0" transform="rotate(-12 11 -6)" />
-    {/* 金瞳孔 */}
-    <ellipse cx="11.5" cy="-5.6" rx="1.8" ry="2" fill="#ffaa3a" transform="rotate(-12 11.5 -5.6)">
-      <animate attributeName="rx" values="1.6;2.0;1.6" dur="2.4s" repeatCount="indefinite" />
-    </ellipse>
-    {/* 竖瞳 */}
-    <ellipse cx="11.5" cy="-5.6" rx="0.45" ry="1.7" fill="#1a0d00" transform="rotate(-12 11.5 -5.6)" />
-    {/* 眼内高光 */}
-    <circle cx="12.3" cy="-6.2" r="0.6" fill="#fff" />
-
-    {/* —— 鼻孔 — 火焰小喷流 */}
-    <ellipse cx="28" cy="-5" rx="1.6" ry="0.9" fill="#3a1d00" />
-    <path
-      d="M 30,-4 Q 34,-6 36,-3 Q 33,-3 30,-3 Z"
-      fill="url(#gd-orb)"
-      opacity="0.65"
-    >
-      <animate
-        attributeName="opacity"
-        values="0.4;0.85;0.4"
-        dur="0.9s"
-        repeatCount="indefinite"
+      {/* 主鬚 2:下唇后颊出,长扫到颈下 */}
+      <path
+        d="M 26,14 Q 2,22 -22,28 Q -50,34 -78,30"
+        stroke="#fff8d0"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        fill="none"
+        opacity="0.96"
       />
-    </path>
+      {/* 副鬚 1+2:短伴鬚,跟主鬚同向但更短更细 */}
+      <path
+        d="M 24,6 Q 6,10 -14,16"
+        stroke="#ffd75a"
+        strokeWidth="1"
+        strokeLinecap="round"
+        fill="none"
+        opacity="0.82"
+      />
+      <path
+        d="M 24,12 Q 4,20 -14,24"
+        stroke="#ffd75a"
+        strokeWidth="1"
+        strokeLinecap="round"
+        fill="none"
+        opacity="0.82"
+      />
+    </g>
   </>
 );
 
@@ -515,10 +629,11 @@ function commitToDom(
   const N = segs.length;
 
   // —— 1. 主体外轮廓(taper polygon)
-  // 上下边各计算 N 个点,前向 + 后向连接成闭合多边形
+  // **跳过 segs[0]** — 头部用独立 SVG 渲染,outline 从颈部 segs[1] 开始
+  // 否则巨大头部会跟连续 outline 撞色 + 形状对不上
   const topPts: Array<[number, number]> = [];
   const botPts: Array<[number, number]> = [];
-  for (let i = 0; i < N; i++) {
+  for (let i = 1; i < N; i++) {
     const s = segs[i]!;
     const r = segRadius(i);
     const perpX = -Math.sin(s.angle);
@@ -528,12 +643,13 @@ function commitToDom(
   }
 
   const outline = svg.querySelector<SVGPathElement>('path[data-role="body-outline"]');
-  if (outline) {
-    // 用 quadratic bezier 串平滑曲线 — 控制点 = 相邻两点中点
+  if (outline && topPts.length >= 2) {
+    // topPts / botPts 长度 = N-1(对应 segs[1..N-1])
+    const M = topPts.length;
     let d = '';
     // 上边:沿 topPts 头→尾
     d += `M ${topPts[0]![0].toFixed(1)},${topPts[0]![1].toFixed(1)}`;
-    for (let i = 1; i < N; i++) {
+    for (let i = 1; i < M; i++) {
       const a = topPts[i - 1]!;
       const b = topPts[i]!;
       const mx = (a[0] + b[0]) / 2;
@@ -541,8 +657,8 @@ function commitToDom(
       d += ` Q ${a[0].toFixed(1)},${a[1].toFixed(1)} ${mx.toFixed(1)},${my.toFixed(1)}`;
     }
     // 尾部 — 收尖
-    const tailTop = topPts[N - 1]!;
-    const tailBot = botPts[N - 1]!;
+    const tailTop = topPts[M - 1]!;
+    const tailBot = botPts[M - 1]!;
     const tailMid: [number, number] = [(tailTop[0] + tailBot[0]) / 2, (tailTop[1] + tailBot[1]) / 2];
     // 尾鳍:从尾收尖向外延伸一个小三角(火苗状)
     const tailAngle = segs[N - 1]!.angle + Math.PI;
@@ -550,7 +666,7 @@ function commitToDom(
     const tailExtY = tailMid[1] + Math.sin(tailAngle) * 14;
     d += ` L ${tailExtX.toFixed(1)},${tailExtY.toFixed(1)}`;
     // 下边:沿 botPts 尾→头
-    for (let i = N - 1; i >= 1; i--) {
+    for (let i = M - 1; i >= 1; i--) {
       const a = botPts[i]!;
       const b = botPts[i - 1]!;
       const mx = (a[0] + b[0]) / 2;

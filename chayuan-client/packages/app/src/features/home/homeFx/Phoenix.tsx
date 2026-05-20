@@ -241,8 +241,9 @@ export const Phoenix: React.FC<PhoenixProps> = ({
       {/* 火星粒子层 */}
       <g data-role="ph-sparks" filter="url(#ph-glow)" />
 
-      {/* 鸟体(头/身/翼/冠) */}
-      <g data-role="ph-body" filter="url(#ph-glow)">
+      {/* 鸟体(头/身/翼/冠)— 初始 transform 挪到屏外,等首飞 rAF 第一帧
+          才把它移到正确位置;否则首飞前用户会看到鸟体"卡"在左上角 (0,0) */}
+      <g data-role="ph-body" transform="translate(-9999 -9999)" filter="url(#ph-glow)">
         <PhoenixBody />
       </g>
     </svg>
