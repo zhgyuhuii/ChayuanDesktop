@@ -77,6 +77,33 @@ def local_index_path() -> Path:
     return Path(CHAYUAN_ROOT) / "model_registry" / "local_models.json"
 
 
+def _atomic_replace_with_retry(tmp: str, dst: Path, *, attempts: int = 6) -> None:
+    """带退避重试的 ``os.replace``。
+
+    Windows 上 ``os.replace`` 覆盖已存在文件时,若目标文件正被其它句柄占用
+    (Windows Defender 实时扫描刚写好的文件、Search 索引器、OneDrive 同步盘
+    等)会抛 ``PermissionError`` ([WinError 5] 拒绝访问)。这类锁几乎都是
+    **瞬时**的(毫秒级),退避重试几次基本都能成功。
+
+    退避:0.05 → 0.1 → 0.2 → 0.4 → 0.8s,累计约 1.55s,足够等过一次 AV 扫描。
+    全部失败再把异常抛出去,由调用方降级处理(local_index 是缓存文件,
+    写不进去只是下次启动要重扫,不影响功能)。
+
+    Linux/macOS 上 ``os.replace`` 是真原子操作,基本不会撞这个问题,
+    重试逻辑对它们是无害的 no-op(第一次就成功)。
+    """
+    delay = 0.05
+    for i in range(attempts):
+        try:
+            os.replace(tmp, dst)
+            return
+        except PermissionError:
+            if i == attempts - 1:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.8)
+
+
 # bundled_models 子目录约定（与 vendor/bundled_models/README.md 对齐）。
 BUNDLED_CAPABILITY_DIRS = ("chat", "embedding", "rerank", "asr", "tts", "ocr", "image", "custom")
 BUNDLED_DIRNAME = "bundled_models"
@@ -238,7 +265,7 @@ class LocalModelIndex:
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump(doc, f, ensure_ascii=False, indent=2)
-                os.replace(tmp, self._path)
+                _atomic_replace_with_retry(tmp, self._path)
             except Exception:
                 try:
                     os.remove(tmp)
