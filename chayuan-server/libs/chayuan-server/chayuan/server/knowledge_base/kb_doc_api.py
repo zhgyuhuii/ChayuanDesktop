@@ -358,16 +358,47 @@ def update_docs(
     ):
         if status:
             kb_name, file_name, new_docs = result
+            # 诊断:加载成功但切分出 0 个 chunk —— 之前这种情况 update_doc 返回
+            # False 被静默丢弃,接口照样 code=200,用户看不到任何反馈。
+            # 典型场景:无文字的图片(.png/.jpg)走 RapidOCRLoader,OCR 抽不到
+            # 文字 → 0 chunk → 入库 0 条。文档知识库只做 OCR 文本向量化,**不**
+            # 对纯图像做 CLIP 视觉向量;无字图应改用"图像知识库"(走
+            # /knowledge_source/{id}/image/upload → CLIP 图像嵌入)。
+            # 这里不再静默,把它如实报进 failed_files + 打日志。
+            if not new_docs:
+                ext = os.path.splitext(file_name)[-1].lower()
+                if ext in (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"):
+                    msg = (
+                        f"图片 {file_name} 未提取到任何文字,文档知识库仅按 OCR "
+                        "文本向量化,无文字图片不会被向量化。如需按图片内容检索,"
+                        "请改用「图像知识库」上传(走 CLIP 图像嵌入)。"
+                    )
+                else:
+                    msg = (
+                        f"文件 {file_name} 解析后未得到任何可向量化内容(0 个切片),"
+                        "已跳过向量化。请检查文件是否为空或格式是否受支持。"
+                    )
+                logger.warning(msg)
+                failed_files[file_name] = msg
+                continue
             kb_file = KnowledgeFile(
                 filename=file_name, knowledge_base_name=knowledge_base_name
             )
             kb_file.splited_docs = new_docs
-            kb.update_doc(
+            ok = kb.update_doc(
                 kb_file,
                 not_refresh_vs_cache=True,
                 file_hash=file_hashes.get(file_name),
                 uploader_id=uploader_id,
             )
+            # update_doc 返回 False(如 embedding 模型不可用)同样不再静默
+            if ok is False:
+                msg = (
+                    f"文件 {file_name} 向量化失败:嵌入模型不可用或写入向量库失败,"
+                    "请检查「设置 → AI 平台 → 文本嵌入」模型是否就绪。"
+                )
+                logger.warning(msg)
+                failed_files[file_name] = msg
         else:
             kb_name, file_name, error = result
             failed_files[file_name] = error

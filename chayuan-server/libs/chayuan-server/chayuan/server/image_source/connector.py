@@ -201,22 +201,61 @@ class ImageConnector(BaseConnector):
         **索引元数据**会同时写 ``embedder_model`` / ``embedder_dim`` /
         ``capabilities``——这是搜索一致性的基石：检索端用同名 embedder 拿
         query 向量，store 侧可以在 dim 层面立即发现错配。
+
+        历史 bug：本方法原先调 ``store.add()``，但 store.py 的 schema 改造后
+        公开 API 已换成 ``insert_placeholder`` + ``add_image_vector``，``add()``
+        被删 → 文件夹同步(folder_sync)的图像 ingest 每次都 ``AttributeError``，
+        图片入不了库且不走 CLIP。这里改用现有 store API：先插占位记录，再写
+        CLIP 图像向量，让 folder_sync 路径与 HTTP upload 流水线保持一致。
         """
         if not os.path.isfile(path):
             raise ConnectorError(f"图像文件不存在：{path}", code="not_found", dialect="image")
+        import hashlib
+
         emb = get_embedder(self._model_name)
-        vec = emb.embed_image(path)
+        # CLIP 图像向量 —— 失败直接抛 ConnectorError，**不静默**，让 folder_sync
+        # uploader 把它记进 errors（CLAUDE.md：图像数据必须带诊断，不静默丢弃）。
+        try:
+            vec = emb.embed_image(path)
+        except Exception as e:  # noqa: BLE001
+            raise ConnectorError(
+                f"图像向量化失败（CLIP embedder 不可用）：{type(e).__name__}: {e}",
+                code="embed_failed", dialect="image",
+            ) from e
         caps = getattr(emb, "capabilities", None)
-        return get_store(self._source_name).add(
-            vec, path=path,
-            extra={
-                "ocr_text": (ocr_text or "")[:2000],
-                "tags": tags[:200],
-                "embedder_model": self._model_name,
-                "embedder_dim": int(getattr(emb, "dim", 0) or 0),
-                "embedder_capabilities": caps.to_dict() if caps else None,
-            },
+
+        with open(path, "rb") as f:
+            data = f.read()
+        md5_full = hashlib.md5(data).hexdigest()
+        item_id = f"img_{md5_full[:12]}"
+        store = get_store(self._source_name)
+        # 去重：同 hash 已在库直接返回，不重复写向量
+        existing = store.get(item_id)
+        if existing is not None and existing.get("image_vector_id") is not None:
+            return item_id
+
+        if existing is None:
+            store.insert_placeholder(
+                item_id=item_id,
+                filename=os.path.basename(path),
+                mime_type="image/" + (os.path.splitext(path)[-1].lstrip(".").lower() or "octet-stream"),
+                size_bytes=len(data),
+                path=path,
+                md5=md5_full,
+                tags=(tags or "")[:200],
+            )
+        store.add_image_vector(item_id, vec)
+        store.update(
+            item_id,
+            state="ready",
+            progress=100,
+            ocr_text=(ocr_text or "")[:2000] or None,
+            embedder_model=self._model_name,
+            embedder_dim=int(getattr(emb, "dim", 0) or 0),
+            embedder_capabilities=caps.to_dict() if caps else None,
         )
+        store.flush()
+        return item_id
 
     # ---- 格式化 ----
 
