@@ -590,6 +590,9 @@ for big in (
     # pip:运行时 ``-m pip install`` 需要 pip 自带的 vendored 资源
     # (_vendor/certifi/cacert.pem 等)。collect_submodules 已加进 hiddenimports,
     # 这里 collect_all 把 datas/binaries 一并带上。setuptools 同理(装 wheel 时用)。
+    # ⚠ collect_all("pip") 已包含 pip._vendor.distlib 的 6 个 wrapper
+    # *.exe(t32/t64/w32/w64/t64-arm/w64-arm),装 wheel 时 distlib.scripts
+    # 在 import 阶段就要枚举它们;下面还会再显式 collect 一次兜底。
     "pip",
     "setuptools",
     # 注意:
@@ -603,6 +606,34 @@ for big in (
     datas.extend(_dat)
     binaries.extend(_bin)
     hidden_modules.extend(_hid)
+
+
+# ──────────────────────────────────────────────────────────────
+# pip._vendor.distlib 的 wrapper *.exe / *.cfg —— 显式兜底收集。
+#
+# 背景:``chayuan-server.exe -m pip install ... torch`` 装 wheel 时,
+# pip import ``pip._vendor.distlib.scripts``,该模块在 Windows 上(os.name
+# == 'nt')于 *import 阶段* 就执行
+#     WRAPPERS = {r.name: r.bytes
+#                 for r in finder('pip._vendor.distlib').iterator("")
+#                 if r.name.endswith('.exe')}
+# 枚举 distlib 自带的可执行 wrapper stub(t32/t64/w32/w64/t64-arm/w64-arm.exe)。
+# 这些是**非 .py 资源**,必须真实落进 ``_internal/pip/_vendor/distlib/``,
+# 否则 iterator 枚举为空,后续装 console_scripts 入口时拿不到 launcher。
+#
+# 上面 collect_all("pip") 当前已经把这 6 个 exe 收进 datas;这里再用
+# collect_data_files 显式收一次(幂等,PyInstaller COLLECT 阶段对重复
+# 目标去重),把"distlib 数据文件必须在场"这个约束写死、不依赖 collect_all
+# 的内部行为。注意:对应的 finder 注册见 runtime_hooks/distlib_finder_freeze.py
+# —— 数据文件在场 + finder 注册到位,缺一不可。
+try:
+    _distlib_data = collect_data_files("pip._vendor.distlib")
+    if _distlib_data:
+        datas.extend(_distlib_data)
+        print(f"[chayuan-spec] 已显式收集 pip._vendor.distlib 数据文件 {len(_distlib_data)} 个")
+except Exception as _e:  # noqa: BLE001
+    # pip 没装(瘦构建)/ distlib 结构变化 —— 不致命,collect_all("pip") 仍兜着。
+    print(f"[chayuan-spec] collect_data_files('pip._vendor.distlib') 跳过:{_e!r}")
 
 
 # torch / torchvision / transformers — full 版必装,缺则 fail-fast(见 _collect_required 注释)。
@@ -640,6 +671,11 @@ a = Analysis(
         # 必须在 user code / Click 解析 argv 之前调 multiprocessing.freeze_support(),
         # 否则 Windows 下子进程 ``--multiprocessing-fork`` 参数会被 Click 当未知 option 拒绝。
         str(ROOT / "packaging" / "pyinstaller" / "runtime_hooks" / "multiprocessing_freeze.py"),
+        # 给 pip 自带的 vendored distlib 注册 PyInstaller loader → ResourceFinder 映射。
+        # 不加的话 ``-m pip install`` 在 Windows frozen bundle 里 import
+        # pip._vendor.distlib.scripts 时崩:DistlibException: Unable to locate
+        # finder for 'pip._vendor.distlib'。详见该 hook 文件头注释。
+        str(ROOT / "packaging" / "pyinstaller" / "runtime_hooks" / "distlib_finder_freeze.py"),
         # macOS:在 _ssl 被 import 前用 ctypes 预加载 libssl/libcrypto,
         # 绕开 PyInstaller onefile 把 dylib 放在子目录、@rpath 又只解析到 bundle 根
         # 导致 ``Library not loaded: @rpath/libssl.3.dylib`` 的死局。
