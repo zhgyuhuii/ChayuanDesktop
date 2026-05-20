@@ -195,10 +195,21 @@ def _identify_hf_config(p: Path) -> Optional[ModelIdentity]:
         cap = "rerank"
         evidence.append("architectures=*ForSequenceClassification => rerank")
 
+    # format 修正:目录里同时有 .gguf 时标 format=gguf。
+    # chat/embedding/rerank 跑 llama-server 引擎只认 gguf;即便同目录有 HF
+    # config.json(metadata)+ tokenizer,真正可加载的权重是 gguf。不标 gguf
+    # 的话 llama-server 起 sidecar 时会拒:"format='hf_transformers' 不是 gguf"
+    # → 对应线上 embedding sidecar failed。capability/family/meta 仍取自
+    # config.json(那是更准的元数据),只有 format 跟着实际权重走。
+    fmt = "hf_transformers"
+    if p.is_dir() and any(p.glob("*.gguf")):
+        fmt = "gguf"
+        evidence.append("dir has .gguf => format=gguf")
+
     ident = ModelIdentity(
         family=family,
         capability=cap,
-        format="hf_transformers",
+        format=fmt,
         confidence=confidence,
         evidence=evidence,
         meta={
@@ -206,8 +217,13 @@ def _identify_hf_config(p: Path) -> Optional[ModelIdentity]:
             if k in cfg
         },
     )
-    # 进一步精修：vision 模型常见标志
-    if "vision_config" in cfg or mt in ("llava", "qwen2_vl", "internvl"):
+    # 进一步精修:vision 模型常见标志 → image-to-text(VL 看图说话)。
+    # 但 CLIP / SigLIP / ViT 这类**图像嵌入**模型也带 vision_config,它们
+    # 是 image-embedding 不是 image-to-text。已经被 _CAPABILITY_BY_MODELTYPE
+    # 正确判成 image-embedding 的,不要被这条 vision 规则覆盖掉
+    # → 对应线上 image-embedding sidecar "no local candidate"。
+    if (("vision_config" in cfg or mt in ("llava", "qwen2_vl", "internvl"))
+            and ident.capability != "image-embedding"):
         ident.capability = "image-to-text"
         ident.evidence.append("config.json has vision_config")
     return ident

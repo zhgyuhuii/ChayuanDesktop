@@ -63,6 +63,29 @@ def test_level1_hf_config_embedder_not_misjudged_as_rerank(tmp_path: Path):
     assert ident.capability == "text-embedding"
 
 
+def test_level1_hf_config_gguf_in_dir_marks_format_gguf(tmp_path: Path):
+    """目录里有 .gguf 时 format 必须标 gguf —— config.json 在场也不例外。
+    对应线上 embedding sidecar 因 format=hf_transformers 被 llama-server 拒。"""
+    repo = tmp_path / "bge-m3"
+    _write(repo / "config.json", {"model_type": "xlm-roberta", "hidden_size": 1024})
+    (repo / "bge-m3-Q8_0.gguf").write_bytes(b"GGUF placeholder")
+    ident = identify_path(repo)
+    assert ident.capability == "text-embedding"
+    assert ident.format == "gguf"  # 不是 hf_transformers
+
+
+def test_level1_hf_config_clip_stays_image_embedding(tmp_path: Path):
+    """CLIP 带 vision_config,但它是 image-embedding 不是 image-to-text;
+    vision 规则不能把它覆盖掉。对应线上 image-embedding "no local candidate"。"""
+    repo = tmp_path / "clip-vit-base-patch32"
+    _write(repo / "config.json", {
+        "model_type": "clip",
+        "vision_config": {"hidden_size": 768},
+    })
+    ident = identify_path(repo)
+    assert ident.capability == "image-embedding"
+
+
 def test_level2_diffusers_text_to_image(tmp_path: Path):
     repo = tmp_path / "SDXL-1.0"
     _write(repo / "model_index.json", {"_class_name": "StableDiffusionXLPipeline", "_diffusers_version": "0.30.0"})
