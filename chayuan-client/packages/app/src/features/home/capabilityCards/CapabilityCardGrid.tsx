@@ -65,7 +65,14 @@ export const CapabilityCardGrid: React.FC<CapabilityCardGridProps> = ({
   if (hideWhenAllEmpty && isFetched && !hasAny) return null;
 
   return (
-    <section className="rounded-3xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-5">
+    <section
+      // 背景半透明 — 让底部金龙 / 星空动画透出来,不被整块挡住;再用边框 +
+      // 极淡底色把 7 张卡片框成一个可辨识的「分组」。卡片自身不透明,内容清晰。
+      className="rounded-3xl border border-[var(--cy-border-default)] p-5"
+      style={{
+        background: 'color-mix(in srgb, var(--cy-surface-1) 26%, transparent)',
+      }}
+    >
       <header className="mb-3 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-[var(--cy-text-primary)]">按模型类型开始对话</h2>
