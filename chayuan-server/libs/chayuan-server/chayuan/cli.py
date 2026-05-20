@@ -766,6 +766,42 @@ def tray_cmd():
     tray_main()
 
 
+@main.command("install-pytorch",
+              help="安装 PyTorch CPU + torchvision（自己下 wheel + 解压，不用 pip）")
+@click.option("--offline", is_flag=True, default=False,
+              help="优先用内置 vendor/torch_wheels 里打包期预下的 torch/tv wheel（无网兜底）")
+@click.option("--force", is_flag=True, default=False,
+              help="已安装也强制重装")
+def install_pytorch_cmd(offline: bool, force: bool):
+    """「在线安装 PyTorch」recipe 的真正落点 —— 纯 Python wheel 安装器。
+
+    背景:旧实现让 frozen ``chayuan-server.exe -m pip install torch ...`` 跑 pip,
+    但 pip 不支持被 PyInstaller freeze(``-m`` 不支持 / pip 没打进包 / distlib
+    finder 失效)。改为这个 Click 子命令(Click 在 frozen 下工作正常),内部调
+    ``pytorch_installer.install_pytorch_wheels()`` —— 下 wheel + zipfile 解压,绕开 pip。
+
+    install_task_manager 的 recipe 会把本命令当一条 shell 命令 spawn,
+    stdout 即任务日志。所以这里直接 ``click.echo`` 进度,不另搞日志通道。
+    """
+    from chayuan.server.runtime.pytorch_installer import install_pytorch_wheels
+
+    def _log(msg: str) -> None:
+        click.echo(msg)
+        sys.stdout.flush()
+
+    result = install_pytorch_wheels(
+        prefer_offline=bool(offline),
+        log=_log,
+        force=bool(force),
+    )
+    action = result.get("action")
+    if action in ("installed", "skipped"):
+        click.echo(f"[install-pytorch] {action}: {result}")
+        sys.exit(0)
+    click.echo(f"[install-pytorch] 失败: {result.get('error')}", err=True)
+    sys.exit(1)
+
+
 @main.command("worker", help="启动异步入库 worker（基于 Arq）。需配置 REDIS_URL 并 pip install arq")
 @click.option("--burst", is_flag=True, default=False, help="跑完队列里现有任务就退出")
 @click.option("--max-jobs", type=int, default=None, help="覆盖 ARQ_MAX_JOBS")

@@ -17,20 +17,31 @@ PyTorch wheel 本身**不打包进 chayuan-server installer**:
 本模块负责:
   - **detect**:跑 ``nvidia-smi`` 看有没有 GPU;读当前 env 装的 torch/torchvision
     版本,验证它们能否 import(不报 nms 错)。
-  - **build_install_recipe**:按 CPU/CUDA variant 拼一条 ``pip install`` 命令,
-    交给 ``install_task_manager.start()`` 异步跑,前端流式取日志。
+  - **install_pytorch_wheels**:纯 Python(**无 pip**)安装器 —— 自己下 wheel +
+    用标准库 ``zipfile`` 解压到 ``torch_install_target_dir()``。pip 不支持被
+    PyInstaller freeze(``-m`` 不支持、pip 没打进包、distlib finder 失效),所以
+    彻底放弃 pip-in-frozen,改走 wheel 解压(wheel 本质就是 zip)。
+  - **build_install_recipe**:生成一条调 ``chayuan install-pytorch`` Click 子命令
+    的 InstallRecipe,交给 ``install_task_manager.start()`` 异步跑,前端流式取日志。
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import platform as _platform
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
+import time
+import urllib.request
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 logger = logging.getLogger("chayuan.runtime.pytorch_installer")
 
@@ -467,25 +478,454 @@ def detect_status() -> TorchStatus:
     )
 
 
+# ════════════════════════════════════════════════════════════════════════
+# 无 pip 的 wheel 安装器 —— 自己下 wheel + 用 zipfile 解压
+# ════════════════════════════════════════════════════════════════════════
+#
+# 为什么不用 pip
+# ==============
+# 「在线安装 PyTorch」原本让 frozen ``chayuan-server.exe -m pip install`` 跑 pip,
+# 但 pip 官方**不支持被 PyInstaller freeze**,连撞三个坑:
+#   ① frozen 解释器不支持 ``-m pip``(pip 没在 sys.modules,argv 处理也不对)
+#   ② pip 包没打进 frozen bundle
+#   ③ pip 自带的 distlib 在 frozen 下 ``Unable to locate finder``
+# 后面还有 ScriptMaker launcher / certifi / build-isolation 子进程一串坑。
+# pip-in-frozen 是死路。
+#
+# 替代方案:wheel 本质就是 zip。下载 .whl + 用标准库 ``zipfile`` 解压到
+# ``torch_install_target_dir()``,该目录已被 ``ensure_torch_target_on_syspath()``
+# 注入 sys.path → 解压完即「安装完成」。完全绕开 pip / distlib / setuptools。
+#
+# 依赖清单:固化 pinned 版本
+# ==========================
+# torch 的运行期依赖树很浅、很封闭(见下),lite 包场景版本也可控,所以这里
+# **固化一份 pinned 清单**而不是运行时解析 METADATA —— 最稳、最可复现、不受
+# PyPI 上游新版本 breaking change 影响。版本来源记录在 _TORCH_PINS 注释里。
+# 若要升 torch,改 _TORCH_PINS 后重跑 packaging/preflight_torch.py 即可。
+
+# 固化的 torch 版本 + 完整运行期依赖树。
+# ── 版本来源(2026-05 核对)──────────────────────────────────────────
+# torch / torchvision:取 download.pytorch.org/whl/cpu 上 cp312 有 manylinux_2_28
+#   wheel 的稳定配对。torch 2.7.0 ↔ torchvision 0.22.0(torchvision wheel 的
+#   METADATA 里 ``Requires-Dist: torch (==2.7.0)`` 强约束配对)。
+# torch METADATA(Requires-Dist,已剔除 ``extra ==`` 可选项 optree/opt-einsum):
+#   filelock / typing-extensions>=4.10.0 / setuptools(py>=3.12) / sympy>=1.13.3
+#   / networkx / jinja2 / fsspec
+# torchvision METADATA 额外:numpy / pillow(!=8.3.*,>=5.3.0)
+# 传递依赖:sympy→mpmath(<1.4,>=1.1.0);jinja2→markupsafe(>=2.0)。
+# 其余包(filelock/networkx/fsspec/typing-extensions/setuptools)无运行期依赖。
+# ── 纯 python vs 平台相关 ────────────────────────────────────────────
+# pure(py3-none-any,任何平台同一个 wheel):filelock / typing-extensions /
+#   setuptools / sympy / mpmath / networkx / jinja2 / fsspec
+# 平台相关(有 C 扩展,需按 platform+abi 选 wheel):markupsafe / numpy / pillow
+# torch / torchvision 本身当然也是平台相关(C++ 扩展)。
+_TORCH_VERSION = "2.7.0"
+_TORCHVISION_VERSION = "0.22.0"
+
+# (pkg_name, version, is_pure) —— is_pure=True 走 py3-none-any 通配 wheel,
+# is_pure=False 需按本机 platform+abi 选具体 wheel。
+_TORCH_DEP_PINS: List[tuple[str, str, bool]] = [
+    ("filelock", "3.18.0", True),
+    ("typing_extensions", "4.13.2", True),
+    ("setuptools", "80.9.0", True),
+    ("sympy", "1.14.0", True),
+    ("mpmath", "1.3.0", True),
+    ("networkx", "3.4.2", True),
+    ("jinja2", "3.1.6", True),
+    ("markupsafe", "3.0.2", False),
+    ("fsspec", "2025.3.2", True),
+    # torchvision 额外:
+    ("numpy", "2.2.6", False),
+    ("pillow", "11.2.1", False),
+]
+
+# PyPI JSON API —— 给纯依赖解析 wheel 下载 URL 用(torch / torchvision 走
+# download.pytorch.org,不经过这里)。
+_PYPI_JSON = "https://pypi.org/pypi/{name}/{version}/json"
+
+# 一次 HTTP 请求超时(秒);torch wheel ~250MB,connect/read 给足。
+_HTTP_TIMEOUT = 60
+_HTTP_HEADERS = {"User-Agent": "chayuan-pytorch-installer/1.0"}
+
+
+def _host_platform_tags() -> List[str]:
+    """返回本机可接受的 wheel platform tag 列表(优先级从精确到宽松)。
+
+    用于从 PyPI 的多 wheel 里挑 markupsafe / numpy / pillow 这类含 C 扩展的包。
+    torch / torchvision 走 download.pytorch.org 的固定文件名,不经过这里。
+    """
+    sys_name = sys.platform
+    machine = _platform.machine().lower()
+    is_x64 = machine in ("x86_64", "amd64")
+    is_arm64 = machine in ("arm64", "aarch64")
+    if sys_name.startswith("win"):
+        return ["win_amd64"] if is_x64 else (["win_arm64"] if is_arm64 else ["win_amd64"])
+    if sys_name.startswith("linux"):
+        if is_x64:
+            return ["manylinux_2_28_x86_64", "manylinux2014_x86_64",
+                    "manylinux_2_17_x86_64", "linux_x86_64"]
+        if is_arm64:
+            return ["manylinux_2_28_aarch64", "manylinux2014_aarch64",
+                    "manylinux_2_17_aarch64", "linux_aarch64"]
+        return ["manylinux2014_" + machine, "linux_" + machine]
+    if sys_name == "darwin":
+        if is_arm64:
+            return ["macosx_11_0_arm64", "macosx_12_0_arm64", "macosx_13_0_arm64",
+                    "macosx_14_0_arm64"]
+        return ["macosx_10_9_x86_64", "macosx_10_13_x86_64",
+                "macosx_11_0_x86_64", "macosx_12_0_x86_64"]
+    return []
+
+
+def _py_tag() -> str:
+    """当前解释器的 CPython abi tag,如 ``cp312``。"""
+    return f"cp{sys.version_info.major}{sys.version_info.minor}"
+
+
+def _torch_wheel_platform_tag() -> Optional[str]:
+    """download.pytorch.org 上 torch/torchvision wheel 文件名用的 platform tag。
+
+    与 :func:`_host_platform_tags` 不同:这里只返回 PyTorch 官方 wheel **实际
+    使用**的那一个规范 tag(torch >=2.6 的 Linux wheel 是 manylinux_2_28_*)。
+    """
+    sys_name = sys.platform
+    machine = _platform.machine().lower()
+    is_x64 = machine in ("x86_64", "amd64")
+    is_arm64 = machine in ("arm64", "aarch64")
+    if sys_name.startswith("win") and is_x64:
+        return "win_amd64"
+    if sys_name.startswith("linux") and is_x64:
+        return "manylinux_2_28_x86_64"
+    if sys_name.startswith("linux") and is_arm64:
+        return "manylinux_2_28_aarch64"
+    if sys_name == "darwin" and is_arm64:
+        return "macosx_11_0_arm64"
+    if sys_name == "darwin" and is_x64:
+        return "macosx_10_9_x86_64"
+    return None
+
+
+class WheelInstallError(RuntimeError):
+    """wheel 下载 / 解压 / 校验失败。"""
+
+
+def _http_get(url: str, *, range_header: Optional[str] = None) -> "urllib.request.addinfourl":
+    headers = dict(_HTTP_HEADERS)
+    if range_header:
+        headers["Range"] = range_header
+    req = urllib.request.Request(url, headers=headers)
+    return urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT)  # noqa: S310
+
+
+def _download_file(
+    url: str, dest: Path, *,
+    log: Callable[[str], None],
+    cancel: Optional[threading.Event] = None,
+    label: str = "",
+) -> Path:
+    """流式下载 ``url`` 到 ``dest``,带进度日志 + 可取消。
+
+    复用 install_task_manager 的「日志 callback + cancel_event」基础设施:
+    caller 把 task 的 log/cancel 传进来,本函数只管下载并往里写进度。
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    name = label or dest.name
+    log(f"[download] {name} <- {url}")
+    try:
+        with _http_get(url) as resp:
+            total = int(resp.headers.get("Content-Length") or 0)
+            got = 0
+            last_pct = -1
+            last_log = 0.0
+            with open(tmp, "wb") as f:
+                while True:
+                    if cancel is not None and cancel.is_set():
+                        raise WheelInstallError("已取消")
+                    chunk = resp.read(1 << 18)  # 256 KB
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    got += len(chunk)
+                    now = time.time()
+                    if total > 0:
+                        pct = int(got * 100 / total)
+                        # 每 5% 或每 3 秒打一行,避免日志刷屏
+                        if pct != last_pct and (pct % 5 == 0 or now - last_log > 3):
+                            log(f"[download] {name} {pct}% "
+                                f"({got // 1048576}/{total // 1048576} MB)")
+                            last_pct = pct
+                            last_log = now
+                    elif now - last_log > 3:
+                        log(f"[download] {name} {got // 1048576} MB")
+                        last_log = now
+    except WheelInstallError:
+        tmp.unlink(missing_ok=True)
+        raise
+    except Exception as e:  # noqa: BLE001
+        tmp.unlink(missing_ok=True)
+        raise WheelInstallError(f"下载 {name} 失败: {type(e).__name__}: {e}") from e
+    tmp.replace(dest)
+    log(f"[download] {name} 完成 ({dest.stat().st_size // 1048576} MB)")
+    return dest
+
+
+def _resolve_pypi_wheel_url(name: str, version: str, *, pure: bool,
+                            log: Callable[[str], None]) -> str:
+    """查 PyPI JSON API,挑出 ``name==version`` 对本机适用的 wheel 下载 URL。
+
+    pure=True → 取 ``py3-none-any`` / ``py2.py3-none-any`` 通配 wheel。
+    pure=False → 按 ``cp3XX`` abi + 本机 platform tag 挑(markupsafe/numpy/pillow)。
+    """
+    url = _PYPI_JSON.format(name=name, version=version)
+    try:
+        with _http_get(url) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:  # noqa: BLE001
+        raise WheelInstallError(
+            f"查询 PyPI 元数据失败 {name}=={version}: {type(e).__name__}: {e}"
+        ) from e
+    files = data.get("urls") or []
+    wheels = [f for f in files if (f.get("filename") or "").endswith(".whl")]
+    if not wheels:
+        raise WheelInstallError(f"{name}=={version} 在 PyPI 上没有 wheel")
+
+    if pure:
+        for f in wheels:
+            fn = f["filename"]
+            if "-py3-none-any.whl" in fn or "-py2.py3-none-any.whl" in fn:
+                return f["url"]
+        # 个别 pure 包用 cp3-abi3 之类;退而取第一个
+        log(f"[resolve] {name}=={version} 未命中 py3-none-any,取首个 wheel")
+        return wheels[0]["url"]
+
+    py = _py_tag()
+    plat_tags = _host_platform_tags()
+    # 优先精确 abi(cpXY-cpXY),其次 abi3,各自再按 platform tag 优先级匹配。
+    for abi_pat in (f"-{py}-{py}-", f"-{py}-abi3-", "-abi3-"):
+        for tag in plat_tags:
+            for f in wheels:
+                fn = f["filename"]
+                if abi_pat in fn and tag in fn:
+                    return f["url"]
+    raise WheelInstallError(
+        f"{name}=={version} 找不到匹配本机 ({py} / {plat_tags[:2]}) 的 wheel；"
+        f"可选: {[f['filename'] for f in wheels][:8]}"
+    )
+
+
+def _torch_cdn_wheel_url(pkg: str, version: str) -> str:
+    """拼 download.pytorch.org/whl/cpu 上 torch / torchvision wheel 的下载 URL。
+
+    PyTorch 官方 CPU wheel 文件名规范:
+      Windows / Linux: ``<pkg>-<ver>+cpu-cp312-cp312-<plat>.whl``
+      macOS:           ``<pkg>-<ver>-cp312-cp312-<plat>.whl``(macOS 无 +cpu 标识)
+    """
+    plat = _torch_wheel_platform_tag()
+    if plat is None:
+        raise WheelInstallError(
+            f"无法识别本机平台 ({sys.platform}/{_platform.machine()}),"
+            f"无法拼 {pkg} wheel URL"
+        )
+    py = _py_tag()
+    local = "" if sys.platform == "darwin" else "+cpu"
+    fname = f"{pkg}-{version}{local}-{py}-{py}-{plat}.whl"
+    return f"https://download.pytorch.org/whl/cpu/{fname}"
+
+
+def _extract_wheel(whl: Path, target: Path, *, log: Callable[[str], None]) -> None:
+    """按 wheel 规范把 ``whl`` 解压进 ``target``(不需要 pip)。
+
+    wheel 内布局:
+      ``<pkg>/...``                        → 直接进 target
+      ``<pkg>-<ver>.dist-info/...``         → 直接进 target(保留 metadata)
+      ``<pkg>-<ver>.data/purelib/...``      → 内容摊进 target(去掉 .data/purelib 前缀)
+      ``<pkg>-<ver>.data/platlib/...``      → 内容摊进 target(同上)
+      ``<pkg>-<ver>.data/scripts|headers|data/...`` → 忽略(console script 等不需要)
+
+    所有路径做防穿越校验(zip slip)。
+    """
+    target.mkdir(parents=True, exist_ok=True)
+    target_resolved = target.resolve()
+    extracted = 0
+    with zipfile.ZipFile(whl) as zf:
+        for info in zf.infolist():
+            name = info.filename
+            if name.endswith("/"):
+                continue
+            rel: Optional[str] = None
+            # <pkg>-<ver>.data/<key>/... — 只 purelib / platlib 摊平,其余丢弃
+            m = re.match(r"^[^/]+\.data/([^/]+)/(.+)$", name)
+            if m:
+                key, sub = m.group(1), m.group(2)
+                if key in ("purelib", "platlib"):
+                    rel = sub
+                else:
+                    # scripts / headers / data:不需要
+                    continue
+            else:
+                rel = name
+            out = (target / rel).resolve()
+            # zip slip 防护:解压目标必须在 target 子树内
+            if not str(out).startswith(str(target_resolved) + os.sep) and out != target_resolved:
+                raise WheelInstallError(f"wheel 含越界路径,拒绝解压: {name}")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info) as src, open(out, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            extracted += 1
+    log(f"[extract] {whl.name}: {extracted} 个文件 -> {target}")
+
+
+def _torch_already_installed(target: Path) -> bool:
+    """幂等检查:target 下 torch 是否已解压完整(__init__.py + version.py)。"""
+    return (target / "torch" / "__init__.py").is_file() and \
+           (target / "torch" / "version.py").is_file()
+
+
+def install_pytorch_wheels(
+    *,
+    prefer_offline: bool = True,
+    log: Optional[Callable[[str], None]] = None,
+    cancel: Optional[threading.Event] = None,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """纯 Python(无 pip)安装 PyTorch CPU + torchvision + 全部运行期依赖。
+
+    流程:
+      1. 确定目标目录 ``torch_install_target_dir()`` 与本机平台 / py tag。
+      2. 幂等:已装过(target 下有 torch)且非 force → 直接返回 skipped。
+      3. 收集 wheel:
+         * ``prefer_offline=True`` 且 vendor/torch_wheels 有配对 → 直接用本地 wheel
+           解压 torch + torchvision(纯依赖仍需在线补,见下)。
+         * 否则从 download.pytorch.org 在线下 torch + torchvision wheel。
+         * torch 的纯/平台依赖一律从 PyPI 下(_TORCH_DEP_PINS 固化版本)。
+      4. ``zipfile`` 逐个解压进 target。
+      5. 校验 target 下能定位 torch/__init__.py + torch/version.py。
+
+    Args:
+        prefer_offline: 优先用 vendor/torch_wheels 里打包期预下的 torch/tv wheel。
+        log: 日志回调(install_task_manager 把 task.log.append 传进来)。
+        cancel: 取消信号(install_task_manager 的 task.cancel_event)。
+        force: 已装也重装。
+
+    Returns:
+        ``{"action": "installed"|"skipped"|"failed", ...}``。
+    """
+    _log = log or (lambda m: logger.info("%s", m))
+
+    target = torch_install_target_dir()
+    if target is None:
+        return {"action": "failed", "error": "拿不到 CHAYUAN_ROOT / py_packages 目标目录"}
+    target = Path(target)
+
+    if _torch_already_installed(target) and not force:
+        _log(f"[install] torch 已安装于 {target},跳过(force=True 可强制重装)")
+        return {"action": "skipped", "target": str(target),
+                "reason": "torch already extracted"}
+
+    py = _py_tag()
+    plat = _torch_wheel_platform_tag()
+    _log(f"[install] 目标目录: {target}")
+    _log(f"[install] 本机: python={py} platform={plat or '未知'} "
+         f"({sys.platform}/{_platform.machine()})")
+    if plat is None:
+        return {"action": "failed",
+                "error": f"不支持的平台 {sys.platform}/{_platform.machine()}"}
+
+    work = Path(tempfile.mkdtemp(prefix="chayuan-torch-"))
+    downloaded: List[Path] = []
+    try:
+        # ---- 1) torch + torchvision wheel ----
+        offline = _find_offline_wheels("cpu") if prefer_offline else []
+        if offline:
+            _log(f"[install] 使用内置离线 wheel: {offline[0].parent}")
+            torch_whls = list(offline)  # [torch, torchvision]
+        else:
+            if prefer_offline:
+                _log("[install] 未找到内置 wheel,改为在线下载 torch / torchvision")
+            torch_whls = []
+            for pkg, ver in (("torch", _TORCH_VERSION),
+                             ("torchvision", _TORCHVISION_VERSION)):
+                if cancel is not None and cancel.is_set():
+                    raise WheelInstallError("已取消")
+                url = _torch_cdn_wheel_url(pkg, ver)
+                dest = work / url.rsplit("/", 1)[-1]
+                _download_file(url, dest, log=_log, cancel=cancel, label=f"{pkg} {ver}")
+                downloaded.append(dest)
+                torch_whls.append(dest)
+
+        # ---- 2) 纯依赖 / 平台依赖一律从 PyPI 下(固化版本)----
+        dep_whls: List[Path] = []
+        for name, ver, pure in _TORCH_DEP_PINS:
+            if cancel is not None and cancel.is_set():
+                raise WheelInstallError("已取消")
+            url = _resolve_pypi_wheel_url(name, ver, pure=pure, log=_log)
+            dest = work / url.rsplit("/", 1)[-1].split("#")[0]
+            _download_file(url, dest, log=_log, cancel=cancel, label=f"{name} {ver}")
+            downloaded.append(dest)
+            dep_whls.append(dest)
+
+        # ---- 3) 解压全部 wheel 进 target ----
+        if cancel is not None and cancel.is_set():
+            raise WheelInstallError("已取消")
+        _log(f"[install] 解压 {len(torch_whls) + len(dep_whls)} 个 wheel 到 {target}")
+        for whl in [*torch_whls, *dep_whls]:
+            _extract_wheel(Path(whl), target, log=_log)
+
+        # ---- 4) 校验 ----
+        if not _torch_already_installed(target):
+            raise WheelInstallError(
+                f"解压完成但 {target}/torch/ 下缺 __init__.py / version.py — "
+                f"wheel 可能损坏或布局异常"
+            )
+        _log(f"[install] ✓ torch {_TORCH_VERSION} + torchvision {_TORCHVISION_VERSION} "
+             f"已安装到 {target}")
+        _log("[install] 重启 chayuan-server 后即可 import torch")
+        return {
+            "action": "installed",
+            "target": str(target),
+            "torch_version": _TORCH_VERSION,
+            "torchvision_version": _TORCHVISION_VERSION,
+            "wheels": [Path(w).name for w in (*torch_whls, *dep_whls)],
+        }
+    except WheelInstallError as e:
+        _log(f"[install] ✗ 失败: {e}")
+        return {"action": "failed", "error": str(e)}
+    except Exception as e:  # noqa: BLE001
+        logger.exception("install_pytorch_wheels 崩溃")
+        _log(f"[install] ✗ 崩溃: {type(e).__name__}: {e}")
+        return {"action": "failed", "error": f"{type(e).__name__}: {e}"}
+    finally:
+        # 在线下载的临时 wheel 清掉;离线 vendor wheel 不动(它们是原始资产)
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def build_install_recipe(
     variant: Variant, *,
     torch_spec: str = ">=2.1,<3.0",
     torchvision_spec: str = "",
     prefer_offline: bool = True,
 ) -> "InstallRecipe":
-    """生成 ``pip install`` InstallRecipe。
+    """生成「安装 PyTorch」InstallRecipe —— 调用纯 Python wheel 安装器(**不再用 pip**)。
 
-    选择逻辑:
-      1. ``prefer_offline=True`` 且 vendor 目录有匹配 wheel → 直接 ``pip install
-         <torch-whl> <torchvision-whl>`` 离线装,**无需联网**。
-      2. 否则 ``pip install --upgrade torch torchvision --index-url <pytorch-cdn>``
-         走在线 wheel 源(PyTorch 官方 ``download.pytorch.org/whl/<variant>``)。
+    背景
+    ====
+    旧实现拼 ``chayuan-server.exe -m pip install torch ...``,但 pip 不支持被
+    PyInstaller freeze(``-m`` 不支持、pip 没打进包、distlib finder 失效……)。
+    现改为:recipe 调一条 ``chayuan install-pytorch`` Click 子命令,该子命令内部
+    跑 :func:`install_pytorch_wheels` —— 自己下 wheel + ``zipfile`` 解压,绕开 pip。
+    Click 子命令在 frozen exe 下工作正常(坑的只是 ``-m``,不是 Click)。
 
-    用户环境完全离线时,只要 chayuan installer 把 wheel 打到 ``vendor/torch_wheels/``
-    就能装上 — 这是 enterprise / 内网部署的常见诉求。
+    选择逻辑(由子命令 ``--offline`` 标志承载):
+      1. ``prefer_offline=True`` → ``install-pytorch --offline``:优先用
+         vendor/torch_wheels 里打包期预下的 torch/tv wheel(无网兜底)。
+      2. ``prefer_offline=False`` → ``install-pytorch``:在线从
+         ``download.pytorch.org/whl/cpu`` 现下。
+    两种情况纯依赖(filelock/sympy/numpy/...)都从 PyPI 下,版本由
+    :data:`_TORCH_DEP_PINS` 固化。
 
-    一条 pip 同时装 torch + torchvision,**保证版本配对**(pip 解依赖 / 离线
-    wheel 显式都打进同一命令)。
+    variant 兼容:本机单机版只走 CPU(image-embedding / rerank 两个 capability
+    够用);保留 variant 入参是为不破坏既有 API / 路由签名,cu* 一律按 cpu 处理。
     """
     from chayuan.server.config_panel.install_task_manager import InstallRecipe
 
@@ -495,58 +935,48 @@ def build_install_recipe(
     if variant not in _PYTORCH_INDEXES:
         raise ValueError(f"unknown variant: {variant!r}; expected one of {tuple(_PYTORCH_INDEXES)}")
 
-    # ``pip install`` 的安装落点:
-    # frozen 单机版没有可写常规 site-packages,必须 ``--target <可写目录>``,
-    # 否则 pip 默认 purelib 指向构建机路径,装机环境写不进 / 装了也 import 不到。
-    # dev / 非 frozen 环境 torch_install_target_dir 仍返回 <CHAYUAN_ROOT>/py_packages,
-    # 显式 --target 同样可用(且 ensure_torch_target_on_syspath 已把它加进 sys.path)。
     target_dir = torch_install_target_dir()
-    target_args: List[str] = []
-    if target_dir is not None:
-        # --upgrade 与 --target 同用时 pip 需要 --upgrade-strategy(否则 transitive
-        # 依赖可能不被刷新);这里显式装 torch+tv,deps 让 pip 自己解,够用。
-        target_args = ["--target", str(target_dir)]
+    _target_note = f" 装到:{target_dir}。" if target_dir else ""
 
-    # 优先离线 wheel(无网兜底)
+    # recipe = 一条 shell 命令(install_task_manager 用 subprocess.Popen 跑)。
+    # 用 ``sys.executable`` 自调:frozen 下 sys.executable 就是 chayuan-server.exe,
+    # ``chayuan-server.exe install-pytorch`` 走 Click 子命令(正常工作);
+    # dev / 非 frozen 下 sys.executable 是 python,需补 ``-m chayuan`` 进入 CLI。
+    frozen = bool(getattr(sys, "frozen", False))
+    if frozen:
+        base_cmd = [sys.executable, "install-pytorch"]
+    else:
+        base_cmd = [sys.executable, "-m", "chayuan", "install-pytorch"]
+
     if prefer_offline:
         offline = _find_offline_wheels(variant)
+        cmd = [*base_cmd, "--offline"]
         if offline:
-            cmd = [
-                sys.executable, "-m", "pip", "install", "--upgrade",
-                *target_args,
-                "--no-index",  # 完全不查网,只用本地 wheel + 它们的 transitive
-                "--find-links", str(offline[0].parent),  # 让 pip 在同目录找 deps
-                *[str(p) for p in offline],
-            ]
-            _target_note = f" 装到:{target_dir}。" if target_dir else ""
-            return InstallRecipe(
-                label=f"PyTorch {variant} (离线 wheel)",
-                cmd=cmd,
-                note=(
-                    f"用内置的 torch + torchvision {variant} wheel 安装(无需网络)。"
-                    f" 路径:{offline[0].parent}。{_target_note}"
-                    f"装完需重启 chayuan-server 才能 import 新版本。"
-                ),
-                requires="",
+            note = (
+                f"用内置的 torch + torchvision wheel 解压安装(无 pip)。"
+                f" 路径:{offline[0].parent}。{_target_note}"
+                f"纯依赖(numpy / pillow 等)仍从 PyPI 下。"
+                f"装完需重启 chayuan-server 才能 import。"
             )
+        else:
+            note = (
+                f"未找到内置 wheel,将在线从 download.pytorch.org 下载 + 解压(无 pip)。"
+                f"{_target_note}装完需重启 chayuan-server。"
+            )
+        return InstallRecipe(
+            label=f"PyTorch {variant} (离线 wheel · 无 pip)",
+            cmd=cmd,
+            note=note,
+            requires="",
+        )
 
-    # 在线 fallback
-    index_url = _PYTORCH_INDEXES[variant]
-    pkgs = [f"torch{torch_spec}"]
-    pkgs.append("torchvision" if not torchvision_spec else f"torchvision{torchvision_spec}")
-    cmd = [
-        sys.executable, "-m", "pip", "install", "--upgrade",
-        *target_args,
-        *pkgs,
-        "--index-url", index_url,
-    ]
-    _target_note = f" 装到:{target_dir}。" if target_dir else ""
+    # 在线
     return InstallRecipe(
-        label=f"PyTorch {variant} (在线 · 官方源)",
-        cmd=cmd,
+        label=f"PyTorch {variant} (在线 · 官方源 · 无 pip)",
+        cmd=list(base_cmd),
         note=(
-            f"装 torch + torchvision({variant} wheel)— 同一条 pip 保证版本配对。"
-            f" 包大小:CPU ~250MB / CUDA ~2-3GB。{_target_note}"
+            f"从 download.pytorch.org/whl/cpu 下载 torch + torchvision wheel 并用 "
+            f"zipfile 解压安装(完全不用 pip)。 包大小:CPU ~250MB。{_target_note}"
             f"装完需重启 chayuan-server 才能 import 新版本。"
         ),
         requires="",

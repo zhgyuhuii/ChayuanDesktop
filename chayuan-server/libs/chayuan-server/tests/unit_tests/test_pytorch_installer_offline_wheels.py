@@ -109,13 +109,13 @@ def test_find_offline_wheels_returns_empty_when_pair_incomplete(tmp_path):
 
 
 # ───────────────────────────────────────────────────────────────
-# build_install_recipe:frozen 单机版必须 ``--target <可写目录>``
-# (frozen exe 没有可写常规 site-packages;不带 --target 装了也 import 不到)
+# build_install_recipe:**不再用 pip**,改成调 ``chayuan install-pytorch``
+# Click 子命令(pip 不支持被 PyInstaller freeze;wheel 解压安装器替代)
 # ───────────────────────────────────────────────────────────────
 
 
-def test_online_recipe_has_target_arg(tmp_path, monkeypatch):
-    """在线 fallback 命令必须带 ``--target <py_packages>``,落到可写目录。"""
+def test_online_recipe_calls_install_pytorch_no_pip(tmp_path, monkeypatch):
+    """在线 recipe 命令应调 ``install-pytorch`` 子命令,且**不含 pip**。"""
     from chayuan.server.runtime import pytorch_installer as pi
 
     pkg_dir = tmp_path / "py_packages"
@@ -125,16 +125,15 @@ def test_online_recipe_has_target_arg(tmp_path, monkeypatch):
     recipe = pi.build_install_recipe("cpu", prefer_offline=False)
     cmd = recipe.cmd
 
-    assert "-m" in cmd and "pip" in cmd, f"应是 ``-m pip`` 命令:{cmd}"
-    assert "--target" in cmd, f"在线 recipe 必须带 --target:{cmd}"
-    ti = cmd.index("--target")
-    assert cmd[ti + 1] == str(pkg_dir), f"--target 应指向 py_packages:{cmd}"
-    # torch / torchvision 仍在
-    assert any("torch" in c for c in cmd)
+    assert "install-pytorch" in cmd, f"recipe 应调 install-pytorch 子命令:{cmd}"
+    assert "pip" not in cmd, f"recipe 不应再用 pip:{cmd}"
+    assert "-m" not in cmd or cmd[cmd.index("-m") + 1] != "pip", \
+        f"recipe 不应 ``-m pip``:{cmd}"
+    assert "--offline" not in cmd, f"在线 recipe 不应带 --offline:{cmd}"
 
 
-def test_offline_recipe_has_target_arg(tmp_path, monkeypatch):
-    """离线 wheel 命令同样要带 ``--target``。"""
+def test_offline_recipe_calls_install_pytorch_with_offline_flag(tmp_path, monkeypatch):
+    """离线 recipe 命令应带 ``--offline`` 标志,且不含 pip。"""
     from chayuan.server.runtime import pytorch_installer as pi
 
     pkg_dir = tmp_path / "py_packages"
@@ -154,9 +153,9 @@ def test_offline_recipe_has_target_arg(tmp_path, monkeypatch):
         pi._offline_wheels_dir = orig  # type: ignore[attr-defined]
 
     cmd = recipe.cmd
-    assert "--target" in cmd, f"离线 recipe 必须带 --target:{cmd}"
-    assert cmd[cmd.index("--target") + 1] == str(pkg_dir)
-    assert "--no-index" in cmd  # 离线特性不丢
+    assert "install-pytorch" in cmd, f"recipe 应调 install-pytorch 子命令:{cmd}"
+    assert "--offline" in cmd, f"离线 recipe 必须带 --offline:{cmd}"
+    assert "pip" not in cmd, f"recipe 不应再用 pip:{cmd}"
 
 
 def test_ensure_torch_target_on_syspath_idempotent(tmp_path, monkeypatch):
