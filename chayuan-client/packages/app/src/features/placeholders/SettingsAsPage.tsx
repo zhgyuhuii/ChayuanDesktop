@@ -41,6 +41,7 @@ import { SUPPORTED_LOCALES, useTranslation } from '../../i18n';
 import { notifySuccess, reportError } from '../../store/errorDialog';
 import { type LocalePreference, type ThemeMode, useSettingsStore } from '../../store/settings';
 import { LocalRuntimeServicesSection } from '../aiPlatform';
+import { DataDirSwitchSection } from '../first-run/DataDirSwitchSection';
 
 export const SettingsAsPage: React.FC = () => {
   const { t } = useTranslation();
@@ -219,6 +220,18 @@ export const SettingsAsPage: React.FC = () => {
           trailing={<Switch checked={teachMe} onCheckedChange={setTeachMe} />}
         />
       </Section>
+
+      {/* 数据目录 — 桌面端显示当前数据目录 + 切换向导。
+          数据库 / 向量索引 / 上传文件 / 模型缓存都存在这个目录下。 */}
+      {platform.kind === 'desktop' && (
+        <Section>
+          <Row title="数据目录" description="数据库、向量索引、上传文件、模型缓存都存放在这里">
+            <div className="mt-3">
+              <DataDirSwitchSection />
+            </div>
+          </Row>
+        </Section>
+      )}
 
       {/* 关于 */}
       <Section>
