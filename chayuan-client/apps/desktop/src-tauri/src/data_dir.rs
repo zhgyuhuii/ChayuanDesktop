@@ -31,6 +31,15 @@ use serde::{Deserialize, Serialize};
 const APP_DIR_NAME: &str = "chayuan";
 const CONFIG_FILE_NAME: &str = "desktop.json";
 
+/// 后端(Python)读的用户级状态文件名。与 ``desktop.json`` 同目录
+/// (``<config_dir>/chayuan/``),由 ``chayuan init`` 向导写入。
+///
+/// 后端 ``chayuan.paths.resolve_chayuan_root`` 解析数据根时,最高优先级就是读这个
+/// 文件的 ``last_init_root`` 字段。开发模式下手动启动的后端没有 sidecar 注入的
+/// ``CHAYUAN_ROOT`` / ``CHAYUAN_ROOT_IGNORE_STATE``,会落到读 state.json 这条路径,
+/// 因此向导选目录时同步写一份,开发模式后端才能用上同一个数据目录。
+const STATE_FILE_NAME: &str = "state.json";
+
 /// 当前持久化 schema 版本。v2 开始带 linked_install_id;读到 v1 旧文件 +
 /// 没字段 → 视为不匹配,fresh wizard。
 const PERSIST_SCHEMA_VERSION: u32 = 2;
@@ -129,6 +138,53 @@ fn write_persisted(cfg: &PersistedConfig) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| format!("create config dir: {e}"))?;
     }
     let body = serde_json::to_string_pretty(cfg).map_err(|e| format!("serialize: {e}"))?;
+    fs::write(&p, body).map_err(|e| format!("write {}: {e}", p.display()))?;
+    Ok(())
+}
+
+/// 后端读的 ``state.json`` 路径。与 ``desktop.json`` 同目录,仅文件名不同 ——
+/// 复用 ``config_file_path()`` 的父目录,避免硬编码各平台 config 目录。
+fn state_file_path() -> PathBuf {
+    config_file_path()
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(STATE_FILE_NAME)
+}
+
+/// 把选中的数据目录同步进后端读的 ``state.json`` 的 ``last_init_root`` 字段。
+///
+/// 行为对齐后端 ``chayuan.paths.write_user_state`` 的**浅合并**语义:
+/// 已存在的 ``state.json`` 先读出来,只覆盖 ``last_init_root``,其它字段
+/// (``last_activate_sh`` / ``last_init_at`` 等由 ``chayuan init`` 写入)原样保留;
+/// 文件不存在 / 坏 JSON 时则新建一个只含 ``last_init_root`` 的对象。
+///
+/// 这是「开发模式增益」:仅影响手动启动、读 state.json 的后端;生产模式 sidecar
+/// 注入 ``CHAYUAN_ROOT_IGNORE_STATE=1`` 后端会忽略此文件。因此本函数失败不应让
+/// ``chayuan_data_dir_set`` 失败 —— 调用方应吞掉 ``Err`` 仅记日志。
+fn sync_state_json_last_init_root(data_dir: &str) -> Result<(), String> {
+    let p = state_file_path();
+
+    // 读已有内容并尽量保留;不存在 / 坏 JSON / 非对象 → 从空对象开始。
+    // 与后端 read_user_state() 一致:坏文件不报错,直接当空处理。
+    let mut state: serde_json::Map<String, serde_json::Value> = match fs::read_to_string(&p) {
+        Ok(raw) => serde_json::from_str::<serde_json::Value>(&raw)
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default(),
+        Err(_) => serde_json::Map::new(),
+    };
+
+    state.insert(
+        "last_init_root".to_string(),
+        serde_json::Value::String(data_dir.to_string()),
+    );
+
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create config dir: {e}"))?;
+    }
+    let body = serde_json::to_string_pretty(&serde_json::Value::Object(state))
+        .map_err(|e| format!("serialize state.json: {e}"))?;
     fs::write(&p, body).map_err(|e| format!("write {}: {e}", p.display()))?;
     Ok(())
 }
@@ -289,7 +345,9 @@ pub fn chayuan_data_dir_check_existing(path: String) -> bool {
 /// 2. 校验路径可写(``touch .chayuan_write_test`` 后删除),失败直接报错给 UI
 /// 3. 在数据目录顶层放一个轻量 marker(``data_dir_marker``) ── 下次打开同一目录
 ///    时 ``has_existing_data`` 命中,UI 提示"沿用现有数据"
-/// 4. 写 ``desktop.json``
+/// 4. 写 ``desktop.json``(主持久化文件,失败则整个命令失败)
+/// 5. 同步写后端读的 ``state.json`` 的 ``last_init_root``(开发模式增益,
+///    失败仅记日志,不影响命令返回 —— desktop.json 已写好)
 #[tauri::command]
 pub fn chayuan_data_dir_set(path: String) -> Result<DataDirState, String> {
     let dir = PathBuf::from(path.trim());
@@ -321,6 +379,15 @@ pub fn chayuan_data_dir_set(path: String) -> Result<DataDirState, String> {
         linked_install_id: current_install_id(),
     };
     write_persisted(&cfg)?;
+
+    // desktop.json 已落盘 = 主持久化成功。再尽力把选择同步进后端读的 state.json,
+    // 让开发模式下手动启动(无 sidecar 注入 CHAYUAN_ROOT)的后端也能用上同一目录。
+    // 此步失败不回滚、不返回 Err —— state.json 只是开发模式增益,desktop.json 才是主。
+    if let Err(e) = sync_state_json_last_init_root(&cfg.data_dir) {
+        eprintln!(
+            "[chayuan][data_dir] 同步 state.json(last_init_root)失败,不影响数据目录设置:{e}"
+        );
+    }
 
     Ok(chayuan_data_dir_state())
 }
