@@ -38,6 +38,13 @@
 .PARAMETER LlamaVersion / WhisperVersion
     指定 vendor binary 版本,透传给对应 install-*.ps1。默认值同子脚本。
 
+.PARAMETER GithubMirror
+    GitHub 镜像前缀。墙内 github.com 不通时用 — services(llama-server /
+    whisper-server)的二进制只在 GitHub release 发,没别的源。
+    传 -GithubMirror 'https://ghproxy.com/' 后,下载 URL 会拼成
+    https://ghproxy.com/https://github.com/...。会 export 成 GITHUB_MIRROR
+    环境变量,子脚本自动识别。不传则读已有的 $env:GITHUB_MIRROR。
+
 .PARAMETER SkipNetTest
     Switch:跳过开头的网络可达性检测。CI / 已知联网 OK 时用。
 
@@ -51,6 +58,10 @@
 .EXAMPLE
     # full 装齐(chat 大模型 + image-embedding 全套)
     .\install-vendor.ps1 -Flavor full
+
+.EXAMPLE
+    # 墙内:github.com 不通,services 走 ghproxy 镜像
+    .\install-vendor.ps1 -Flavor full -GithubMirror https://ghproxy.com/
 
 .EXAMPLE
     # 只补 tts(piper)
@@ -77,6 +88,12 @@ param(
     [string]$LlamaVersion   = '',
     [string]$WhisperVersion = '',
 
+    # GitHub 镜像:墙内 github.com 不通时用。传 -GithubMirror 不带值默认
+    # https://ghproxy.com/;也可显式给别的代理。会 export 成 GITHUB_MIRROR
+    # 环境变量,install-llama-server.ps1 / install-whisper-server.sh 自动识别。
+    # 不传则读已有的 $env:GITHUB_MIRROR;都没有就直连 github.com。
+    [string]$GithubMirror = '',
+
     [switch]$SkipNetTest,
     [switch]$DryRun,
     # 默认并行启动 models / llama-server / whisper-server / torch 4 个阶段
@@ -102,6 +119,18 @@ function Write-Fail  { param([string]$Msg) Write-Host ('  [FAIL] ' + $Msg) -Fore
 Write-Host ('install-vendor.ps1 — Flavor={0}  Components={1}  Source={2}' -f $Flavor, $Components, $Source)
 Write-Host ('  Workspace: ' + $WorkspaceRoot)
 Write-Host ('  Vendor:    ' + $VendorDir)
+
+# ───────── GitHub 镜像 ─────────
+# 优先级:-GithubMirror 显式 > 已有的 $env:GITHUB_MIRROR > 不用镜像。
+# -GithubMirror 不带值(传了但空)时,PowerShell 会把它当 ''。这里约定:
+# 想用默认 ghproxy 就显式 -GithubMirror 'https://ghproxy.com/'。
+if ($GithubMirror) {
+    $env:GITHUB_MIRROR = $GithubMirror
+}
+$effectiveMirror = $env:GITHUB_MIRROR
+if ($effectiveMirror) {
+    Write-Host ('  GitHubMirror: ' + $effectiveMirror + '  (services 下载走镜像)') -ForegroundColor DarkCyan
+}
 
 # 解析 -Components
 $wantedComponents = @($Components -split ',' | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ })
@@ -141,7 +170,13 @@ if (-not $SkipNetTest) {
         $hosts.Add(@{ Url='https://modelscope.cn/';      Use='models (ModelScope — 内网兜底)'; Critical=$false })
     }
     if ($doServices) {
-        $hosts.Add(@{ Url='https://github.com/';                       Use='services (GitHub release API)';   Critical=$true })
+        if ($effectiveMirror) {
+            # 配了镜像 — 探镜像本身;github.com 直连降级为非关键(经镜像绕过)
+            $hosts.Add(@{ Url=$effectiveMirror;                         Use='services (GitHub 镜像 — 主路径)';        Critical=$true })
+            $hosts.Add(@{ Url='https://github.com/';                    Use='services (GitHub 直连 — 已配镜像,非关键)'; Critical=$false })
+        } else {
+            $hosts.Add(@{ Url='https://github.com/';                    Use='services (GitHub release API)';         Critical=$true })
+        }
         $hosts.Add(@{ Url='https://objects.githubusercontent.com/';    Use='services (GitHub asset CDN)';     Critical=$false })
     }
     if ($doTorch) {
@@ -167,6 +202,7 @@ if (-not $SkipNetTest) {
         Write-Host '[FAIL] 关键域名不可达,继续装会卡在下载阶段。处理:' -ForegroundColor Red
         Write-Host '  · 检查公司代理 / VPN 是否生效'                       -ForegroundColor DarkYellow
         Write-Host '  · 若只是 hf-mirror 不通,加 -Source modelscope 走 MS' -ForegroundColor DarkYellow
+        Write-Host '  · github.com 不通 → 加 -GithubMirror https://ghproxy.com/ 走镜像下 services' -ForegroundColor DarkYellow
         Write-Host '  · 内网完全无外网 → 拿外网机器跑此脚本,把 vendor\ 整目录拷过来' -ForegroundColor DarkYellow
         Write-Host '  · 想强行继续(自担风险),加 -SkipNetTest'              -ForegroundColor DarkYellow
         exit 2

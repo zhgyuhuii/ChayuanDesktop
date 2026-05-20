@@ -93,7 +93,17 @@ if (-not (Test-Path $destDir)) {
     New-Item -ItemType Directory -Force -Path $destDir | Out-Null
 }
 
-$url = "https://github.com/ggerganov/llama.cpp/releases/download/$Version/$zipName"
+# GitHub 镜像支持:墙内 github.com 不通时,设环境变量
+#   $env:GITHUB_MIRROR = "https://ghproxy.com/"
+# 下载 URL 会被拼成 https://ghproxy.com/https://github.com/...。不设则直连。
+$rawUrl = "https://github.com/ggerganov/llama.cpp/releases/download/$Version/$zipName"
+if ($env:GITHUB_MIRROR) {
+    $mirror = $env:GITHUB_MIRROR.TrimEnd('/')
+    $url = $mirror + '/' + $rawUrl
+    Write-Host "[install-llama-server] 经 GitHub 镜像: $mirror/"
+} else {
+    $url = $rawUrl
+}
 $tmpZip = Join-Path $env:TEMP $zipName
 
 Write-Host "[install-llama-server] target=$Target asset=$zipName dest=$destDir"

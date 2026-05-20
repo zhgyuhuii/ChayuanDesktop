@@ -131,10 +131,18 @@ try_build_from_source() {
     done
 
     local SRC="${TMPDIR:-/tmp}/whisper.cpp-$VERSION-src"
+    # GitHub 镜像支持:墙内设 export GITHUB_MIRROR="https://ghproxy.com/",
+    # git clone URL 拼成 https://ghproxy.com/https://github.com/...(ghproxy
+    # 支持 git 协议)。后续 git fetch 走的是 clone 时设好的 origin,自动同源。
+    local WHISPER_REPO="https://github.com/ggml-org/whisper.cpp.git"
+    if [ -n "${GITHUB_MIRROR:-}" ]; then
+        WHISPER_REPO="${GITHUB_MIRROR%/}/https://github.com/ggml-org/whisper.cpp.git"
+        echo "[install-whisper-server] 经 GitHub 镜像:${GITHUB_MIRROR%/}/"
+    fi
     if [ ! -d "$SRC/.git" ]; then
         rm -rf "$SRC"
         echo "[install-whisper-server] git clone whisper.cpp@$VERSION → $SRC"
-        git clone --depth 1 --branch "$VERSION" https://github.com/ggml-org/whisper.cpp.git "$SRC"
+        git clone --depth 1 --branch "$VERSION" "$WHISPER_REPO" "$SRC"
     else
         echo "[install-whisper-server] 复用已有 src tree $SRC"
         (cd "$SRC" && git fetch --depth 1 origin "$VERSION" && git checkout FETCH_HEAD) || true

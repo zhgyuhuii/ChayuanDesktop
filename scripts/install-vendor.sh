@@ -38,6 +38,11 @@
 #                           默认 linux-x64,linux-arm64,macos-x64,macos-arm64
 #   --py-versions LIST      torch wheels 的 Python 版本,逗号分隔(无点)。
 #                           默认 312
+#   --github-mirror URL     GitHub 镜像前缀。墙内 github.com 不通时用 —
+#                           services 二进制只在 GitHub release 发。
+#                           例:--github-mirror https://ghproxy.com/
+#                           会 export GITHUB_MIRROR,子脚本自动识别。
+#                           不传则读已有的 $GITHUB_MIRROR。
 #   --dry-run               只打印将执行的命令,不真跑
 #   -h|--help               显示本说明
 #
@@ -46,6 +51,7 @@
 #   bash scripts/install-vendor.sh --flavor full         # full 模型
 #   bash scripts/install-vendor.sh --components llama,torch   # 只补 binary+wheel
 #   bash scripts/install-vendor.sh --source modelscope   # 模型走 MS 镜像
+#   bash scripts/install-vendor.sh --github-mirror https://ghproxy.com/  # 墙内
 set -uo pipefail
 
 # ───────────────────────────── 默认值 ──────────────────────────────
@@ -55,6 +61,8 @@ SOURCE="auto"
 TARGETS="linux-x64,linux-arm64,macos-x64,macos-arm64"
 PY_VERSIONS="312"
 DRY_RUN=0
+# 不传 --github-mirror 时沿用调用方已 export 的 GITHUB_MIRROR(可能为空)
+GITHUB_MIRROR="${GITHUB_MIRROR:-}"
 
 # ───────────────────────────── 参数解析 ────────────────────────────
 while [ $# -gt 0 ]; do
@@ -69,6 +77,8 @@ while [ $# -gt 0 ]; do
         --targets=*)    TARGETS="${1#*=}"; shift ;;
         --py-versions)   PY_VERSIONS="$2"; shift 2 ;;
         --py-versions=*) PY_VERSIONS="${1#*=}"; shift ;;
+        --github-mirror)   GITHUB_MIRROR="$2"; shift 2 ;;
+        --github-mirror=*) GITHUB_MIRROR="${1#*=}"; shift ;;
         --dry-run)      DRY_RUN=1; shift ;;
         -h|--help)      grep -E '^#' "$0" | sed 's/^# \?//'; exit 0 ;;
         *) echo "[install-vendor] 未知参数 $1;-h 看用法" >&2; exit 64 ;;
@@ -102,6 +112,13 @@ detect_host_target() {
     esac
 }
 HOST_TARGET="$(detect_host_target)"
+
+# GitHub 镜像:export 出去,install-llama-server.sh / install-whisper-server.sh
+# 会读 $GITHUB_MIRROR 把下载 / git clone URL 套上镜像前缀。
+if [ -n "$GITHUB_MIRROR" ]; then
+    export GITHUB_MIRROR
+    echo "[install-vendor] GitHub 镜像:$GITHUB_MIRROR (services 下载走镜像)"
+fi
 
 # 组件开关
 want() { case ",$COMPONENTS," in *",all,"*) return 0;; *",$1,"*) return 0;; *) return 1;; esac; }

@@ -89,7 +89,17 @@ esac
 DEST="$WORKSPACE/chayuan-server/vendor/services/llama-server/$TARGET"
 mkdir -p "$DEST"
 
-URL="https://github.com/ggerganov/llama.cpp/releases/download/$VERSION/$ASSET"
+# GitHub 镜像支持:墙内 github.com 不通时,设环境变量
+#   export GITHUB_MIRROR="https://ghproxy.com/"
+# 下载 URL 会被拼成 https://ghproxy.com/https://github.com/...(ghproxy 这类
+# 代理就是把完整 github URL 接在自己后面)。不设则直连 github.com。
+RAW_URL="https://github.com/ggerganov/llama.cpp/releases/download/$VERSION/$ASSET"
+if [ -n "${GITHUB_MIRROR:-}" ]; then
+    URL="${GITHUB_MIRROR%/}/${RAW_URL}"
+    echo "[install-llama-server] 经 GitHub 镜像:${GITHUB_MIRROR%/}/"
+else
+    URL="$RAW_URL"
+fi
 TMPZIP="/tmp/$ASSET"
 
 echo "[install-llama-server] target=$TARGET asset=$ASSET dest=$DEST"
