@@ -92,10 +92,11 @@ const CAP_LABEL: Record<LocalRuntimeCapability, string> = {
 //   'hf_transformers' 不是 gguf"。所以预填的必须是 *-GGUF 量化仓库,并指定
 //   单个 quant 文件(单文件下载,免得把 9 个 quant 全拉下来)。
 //   gpustack/* 系列在 ModelScope 国内源,避开 HF Xet LFS 大文件卡 0% 的老坑。
-// embedding / image-embedding 仍故意不列:
-//   - embedding:GGUF/safetensors 取舍未定,留 examples 让用户主动挑。
-//   - image-embedding:HF transformers 整仓,走 infinity Python sidecar;
-//     project 还没把 image-embedding 进 verified 清单,先不预填。
+// embedding:跟 rerank 同理 —— embedding sidecar 也跑 llama-server,**只吃 GGUF**。
+//   HF safetensors 整仓(BAAI/bge-m3、iic/nlp_gte_* 那种)扫得到但 sidecar 起不来,
+//   报 "format='hf_transformers' 不是 gguf"。所以预填 *-GGUF 仓库 + 单 quant 文件。
+// image-embedding 仍故意不列:HF transformers 整仓,走 infinity Python sidecar;
+//   project 还没把 image-embedding 进 verified 清单,先不预填。
 type VerifiedDefault = { id: string; source: InstallModelSource; file?: string };
 const VERIFIED_DEFAULTS: Partial<Record<LocalRuntimeCapability, VerifiedDefault>> = {
   chat: {
@@ -107,6 +108,11 @@ const VERIFIED_DEFAULTS: Partial<Record<LocalRuntimeCapability, VerifiedDefault>
     id: 'ggerganov/whisper.cpp',
     source: 'huggingface',
     file: 'ggml-tiny.bin',
+  },
+  embedding: {
+    id: 'gpustack/bge-m3-GGUF',
+    source: 'modelscope',
+    file: 'bge-m3-Q8_0.gguf',
   },
   rerank: {
     id: 'gpustack/bge-reranker-v2-m3-GGUF',
@@ -145,12 +151,27 @@ const CAP_HINTS: Record<
     note: '推荐 GGUF 量化格式,体积小,llama.cpp 直接加载',
   },
   embedding: {
-    search: 'bge gte',
+    search: 'bge-m3 GGUF',
+    // embedding sidecar 跑 llama-server,只吃 GGUF。预填 ModelScope 上的
+    // *-GGUF 量化仓库 + 单个 Q8_0 quant 文件,点示例即装。HF safetensors 整仓
+    // (BAAI/bge-m3、iic/nlp_gte_*)扫得到但 sidecar 起不来,不再预填。
     examples: [
-      { id: 'BAAI/bge-m3', source: 'huggingface' },
-      { id: 'iic/nlp_gte_sentence-embedding_chinese-base', source: 'modelscope' },
+      {
+        id: 'gpustack/bge-m3-GGUF',
+        source: 'modelscope',
+        file: 'bge-m3-Q8_0.gguf',
+        label: 'bge-m3 · Q8_0 (默认)',
+        note: '605MB · 100+ 语种 · 多语种+中文检索强,办公场景首选',
+      },
+      {
+        id: 'gpustack/bge-m3-GGUF',
+        source: 'modelscope',
+        file: 'bge-m3-Q4_K_M.gguf',
+        label: 'bge-m3 · Q4_K_M (瘦身)',
+        note: '417MB · 同模型更小量化,内存吃紧时用',
+      },
     ],
-    note: '推荐 BGE / GTE 系列;multi-lingual 选 bge-m3 或 gte-multilingual',
+    note: 'embedding 只支持 GGUF;示例已预填 ModelScope 单文件源,点一下即装,默认 bge-m3 Q8_0',
   },
   rerank: {
     search: 'reranker GGUF',
