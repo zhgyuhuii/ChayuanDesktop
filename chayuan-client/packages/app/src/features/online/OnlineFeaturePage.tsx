@@ -9,10 +9,13 @@
  *   1. 流式打字机:对 onlineFeatures.ts 里**预先写好的静态文案**做逐字渲染。
  *      不调用任何 LLM —— 单机版要求完全离线可用,且文案是固定的。打字机用
  *      rAF 分块推进(参考首页 HomePage 的 rAF 合批思路)。
- *   2. 文案流完后:
- *      - 普通功能:直接展示「当前为免费单机版」说明 + 联系商务区。
- *      - 配了 rich 的功能(目前仅「我的待办」):先渲染多个功能板块
- *        (小标题 + 说明 + SVG 示意截图),再展示单机版说明 + 联系商务区。
+ *   2. 文案流完后:5 个在线功能都配了 rich 深度介绍 —— 先渲染多个功能板块
+ *      (小标题 + 说明 + 要点 + 可选的界面示意图 / 流程图 / 拓扑图),
+ *      再展示「当前为免费单机版」说明 + 联系商务区。
+ *
+ * 板块配图三选一(可叠加):
+ *   - mockup   : 界面示意图(TasklistMockups.tsx,仅「我的待办」用)
+ *   - diagram  : 流程图 / 拓扑图(online/diagrams/,5 个功能各 2 张)
  *
  * 联系方式复用 PartnershipBanner 的常量。视觉跟随主题,只用 var(--cy-*),
  * 不硬编码颜色。
@@ -31,6 +34,13 @@ import {
   LayoutGrid,
   Clock,
   ClipboardList,
+  Briefcase,
+  Grid3x3,
+  Store,
+  Bell,
+  Tags,
+  ListChecks,
+  Target,
   type LucideIcon,
 } from 'lucide-react';
 import { FOLLOW_QR_URL } from '../../lib/brandAssets';
@@ -45,6 +55,7 @@ import {
   ConversationalFormMock,
   FlowHandoffMock,
 } from './TasklistMockups';
+import { DIAGRAMS } from './diagrams';
 
 // 联系方式真源:与 PartnershipBanner 保持一致,不另写一套。
 const CONTACT_EMAIL = 'cmdbird@163.com';
@@ -72,16 +83,12 @@ export const OnlineFeaturePage: React.FC<OnlineFeaturePageProps> = ({ featureKey
 
 const OnlineFeatureBody: React.FC<{ feature: OnlineFeature }> = ({ feature }) => {
   const rich = feature.rich;
-  // 富版只把 paragraphs 用打字机流式输出,单机版说明挪到富版板块之后的卡片里;
-  // 普通版仍把功能介绍 + 单机版说明拼成一段一起打字。段落间用 \n\n 分隔。
-  const fullText = React.useMemo(() => {
-    if (rich) return feature.paragraphs.join('\n\n');
-    const upsell =
-      '说明:你当前使用的是「察元 AI 桌面单机版」—— 一个免费、本地离线运行的版本。' +
-      '上面介绍的「在线办公」能力需要服务端协同,单机版暂不支持。' +
-      '如果你的团队需要这些在线能力,欢迎通过下方方式联系我们获取在线版 / 私有化部署方案。';
-    return [...feature.paragraphs, upsell].join('\n\n');
-  }, [feature.paragraphs, rich]);
+  // 顶部只把 paragraphs 总览用打字机流式输出;深度板块、单机版说明、联系商务区
+  // 都在文案流完后依次出现。段落间用 \n\n 分隔。
+  const fullText = React.useMemo(
+    () => feature.paragraphs.join('\n\n'),
+    [feature.paragraphs],
+  );
 
   // 流式打字机:rAF 分块推进 typed 长度。done 后展示联系商务区。
   const [typedLen, setTypedLen] = React.useState(0);
@@ -148,15 +155,15 @@ const OnlineFeatureBody: React.FC<{ feature: OnlineFeature }> = ({ feature }) =>
           })}
         </article>
 
-        {/* 深度介绍板块 —— 仅 rich 功能(我的待办),文案流完后再出现 */}
-        {done && rich
+        {/* 深度介绍板块 —— 文案流完后依次出现 */}
+        {done
           ? rich.sections.map((section, i) => (
               <RichSectionBlock key={section.heading} section={section} index={i} />
             ))
           : null}
 
-        {/* 单机版说明 —— rich 功能把它单独成卡(普通版已拼进打字文案里) */}
-        {done && rich ? (
+        {/* 单机版说明 —— 深度板块之后单独成卡 */}
+        {done ? (
           <section className="rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-5">
             <div className="flex items-start gap-3">
               <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--cy-surface-2)] text-[var(--cy-text-tertiary)]">
@@ -168,8 +175,8 @@ const OnlineFeatureBody: React.FC<{ feature: OnlineFeature }> = ({ feature }) =>
                 </h2>
                 <p className="mt-1 text-sm leading-relaxed text-[var(--cy-text-secondary)]">
                   你正在使用「察元 AI 桌面单机版」—— 一个免费、本地离线运行的版本。上面介绍的
-                  「我的待办」依赖服务端的流程引擎、人工节点挂起与通知协同,单机版暂不支持。
-                  如果你的团队需要人机协同流程能力,欢迎通过下方方式联系我们获取在线版 /
+                  「{feature.title}」依赖服务端协同(知识库 / 流程引擎 / 模型网关等),单机版暂不支持。
+                  如果你的团队需要这些在线能力,欢迎通过下方方式联系我们获取在线版 /
                   私有化部署方案。
                 </p>
               </div>
@@ -255,6 +262,14 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   'messages-square': MessagesSquare,
   'layout-grid': LayoutGrid,
   clock: Clock,
+  briefcase: Briefcase,
+  'grid-3x3': Grid3x3,
+  store: Store,
+  bell: Bell,
+  tags: Tags,
+  'list-checks': ListChecks,
+  target: Target,
+  sparkles: Sparkles,
 };
 
 /** mockup id → 示意截图组件。 */
@@ -264,76 +279,125 @@ const MOCKUPS: Record<NonNullable<RichSection['mockup']>, React.FC> = {
   'flow-handoff': FlowHandoffMock,
 };
 
+/** 一个板块要画的配图(界面示意 / 流程图 / 拓扑图统一抽象)。 */
+interface SectionFigure {
+  Component: React.FC;
+  caption: string;
+}
+
+/** 从 section 解出它要渲染的配图列表(0~2 张):mockup 在前,diagram 在后。 */
+function resolveFigures(section: RichSection): SectionFigure[] {
+  const figures: SectionFigure[] = [];
+  if (section.mockup) {
+    figures.push({
+      Component: MOCKUPS[section.mockup],
+      caption: '界面示意图(在线版实际效果)',
+    });
+  }
+  if (section.diagram) {
+    const entry = DIAGRAMS[section.diagram];
+    figures.push({
+      Component: entry.component,
+      caption: entry.kind === 'flow' ? '流程示意图' : '拓扑示意图',
+    });
+  }
+  return figures;
+}
+
+/** 单张配图卡:边框 + 标题。 */
+const FigureCard: React.FC<{ figure: SectionFigure }> = ({ figure }) => {
+  const { Component } = figure;
+  return (
+    <figure className="min-w-0">
+      <div className="overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-2)] p-2 shadow-sm">
+        <Component />
+      </div>
+      <figcaption className="mt-1.5 text-center text-[11px] text-[var(--cy-text-tertiary)]">
+        {figure.caption}
+      </figcaption>
+    </figure>
+  );
+};
+
 /**
- * 单个功能板块:左侧小标题 + 说明 + 要点;右侧 SVG 示意截图。
- * 偶数 / 奇数板块左右交错排版,长页面读起来不单调;窄屏自动堆叠为单列。
+ * 单个功能板块:小标题 + 说明 + 要点,配 0~2 张图(界面示意 / 流程图 / 拓扑图)。
+ *
+ * 排版:
+ *   - 无配图:单列铺满。
+ *   - 1 张图:文字 + 图左右分栏,偶/奇板块交错,窄屏堆叠。
+ *   - 2 张图:文字占满上方,两张图在下方并排(窄屏堆叠)。
  */
 const RichSectionBlock: React.FC<{ section: RichSection; index: number }> = ({
   section,
   index,
 }) => {
   const Icon = SECTION_ICONS[section.icon] ?? ClipboardList;
-  const Mockup = section.mockup ? MOCKUPS[section.mockup] : null;
-  // 有配图才交错;无配图(如「截止置顶」)就单列铺满。
-  const reversed = Mockup != null && index % 2 === 1;
+  const figures = resolveFigures(section);
+  const soloFigure = figures.length === 1 ? figures[0] : undefined;
+  const reversed = soloFigure != null && index % 2 === 1;
+
+  const TextBlock = (
+    <div className="min-w-0 flex-1">
+      <div className="flex items-center gap-2">
+        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] text-white shadow-sm">
+          <Icon className="h-4 w-4" />
+        </span>
+        <h2 className="text-base font-semibold text-[var(--cy-text-primary)]">
+          {section.heading}
+        </h2>
+      </div>
+
+      {section.body.map((para, i) => (
+        <p
+          key={i}
+          className={`text-sm leading-relaxed text-[var(--cy-text-secondary)] ${
+            i === 0 ? 'mt-3' : 'mt-2'
+          }`}
+        >
+          {para}
+        </p>
+      ))}
+
+      {section.highlights && section.highlights.length > 0 ? (
+        <ul className="mt-3 space-y-1.5">
+          {section.highlights.map((h) => (
+            <li key={h} className="flex items-start gap-2 text-[13px] text-[var(--cy-text-primary)]">
+              <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--cy-brand-500)]" />
+              <span className="leading-snug">{h}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
 
   return (
     <section className="rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-5">
-      <div
-        className={
-          Mockup
-            ? `flex flex-col gap-5 md:items-center ${
-                reversed ? 'md:flex-row-reverse' : 'md:flex-row'
-              }`
-            : 'flex flex-col gap-3'
-        }
-      >
-        {/* 文字区 */}
-        <div className={Mockup ? 'min-w-0 flex-1' : 'min-w-0'}>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] text-white shadow-sm">
-              <Icon className="h-4 w-4" />
-            </span>
-            <h2 className="text-base font-semibold text-[var(--cy-text-primary)]">
-              {section.heading}
-            </h2>
+      {figures.length === 0 ? (
+        TextBlock
+      ) : soloFigure ? (
+        // 单图:文字与图左右分栏,交错排版
+        <div
+          className={`flex flex-col gap-5 md:items-center ${
+            reversed ? 'md:flex-row-reverse' : 'md:flex-row'
+          }`}
+        >
+          {TextBlock}
+          <div className="min-w-0 shrink-0 md:w-[46%]">
+            <FigureCard figure={soloFigure} />
           </div>
-
-          {section.body.map((para, i) => (
-            <p
-              key={i}
-              className={`text-sm leading-relaxed text-[var(--cy-text-secondary)] ${
-                i === 0 ? 'mt-3' : 'mt-2'
-              }`}
-            >
-              {para}
-            </p>
-          ))}
-
-          {section.highlights && section.highlights.length > 0 ? (
-            <ul className="mt-3 space-y-1.5">
-              {section.highlights.map((h) => (
-                <li key={h} className="flex items-start gap-2 text-[13px] text-[var(--cy-text-primary)]">
-                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--cy-brand-500)]" />
-                  <span className="leading-snug">{h}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
         </div>
-
-        {/* 示意截图区 */}
-        {Mockup ? (
-          <figure className="min-w-0 shrink-0 md:w-[46%]">
-            <div className="overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-2)] p-2 shadow-sm">
-              <Mockup />
-            </div>
-            <figcaption className="mt-1.5 text-center text-[11px] text-[var(--cy-text-tertiary)]">
-              界面示意图(在线版实际效果)
-            </figcaption>
-          </figure>
-        ) : null}
-      </div>
+      ) : (
+        // 双图:文字在上,两张图并排在下
+        <div className="flex flex-col gap-5">
+          {TextBlock}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {figures.map((fig, i) => (
+              <FigureCard key={i} figure={fig} />
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 };
