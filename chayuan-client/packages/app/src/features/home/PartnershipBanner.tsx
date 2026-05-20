@@ -16,7 +16,7 @@
  */
 
 import * as React from 'react';
-import { Sparkles, Phone, Mail, MessageSquare, Copy, Check } from 'lucide-react';
+import { Sparkles, Mail, MessageSquare, Copy, Check } from 'lucide-react';
 import {
   Button,
   Dialog,
@@ -26,35 +26,52 @@ import {
   DialogTitle,
 } from '@chayuan/ui';
 import { notifySuccess } from '../../store/errorDialog';
+import { FOLLOW_QR_URL } from '../../lib/brandAssets';
 
 // ── 招商文案 / 联系方式(集中维护)─────────────────────────────────
-//
-// 用户需自行替换为真实信息;占位用 ``aidooo.com`` 域名是因为现有 README
-// 提到过这个官方站,看起来比 example.com 更可信。
 
-const PARTNERSHIP = {
+type Contact =
+  | {
+      kind: 'qr';
+      icon: React.ComponentType<{ className?: string }>;
+      label: string;
+      value: string;
+      hint: string;
+      qrUrl: string;
+    }
+  | {
+      kind: 'copy';
+      icon: React.ComponentType<{ className?: string }>;
+      label: string;
+      value: string;
+      hint: string;
+    };
+
+const PARTNERSHIP: {
+  title: string;
+  subtitle: string;
+  badges: ReadonlyArray<string>;
+  contacts: ReadonlyArray<Contact>;
+} = {
   title: '寻找城市合伙人 · ISV 集成商',
   subtitle:
     '渠道分销、私有化部署、行业垂直定制 — 一起把察元 AI 带到更多企业',
-  badges: ['渠道加盟', '私有化', '行业定制'] as const,
+  badges: ['渠道加盟', '私有化', '行业定制'],
   contacts: [
     {
+      kind: 'qr',
       icon: MessageSquare,
-      label: '微信',
-      value: 'chayuan_ai',
-      hint: '商务合作 / 加盟咨询',
+      label: '微信公众号',
+      value: '智灵鸟科技',
+      hint: '扫码关注公众号,私信"合作"接洽',
+      qrUrl: FOLLOW_QR_URL,
     },
     {
-      icon: Phone,
-      label: '电话',
-      value: '400-000-0000',
-      hint: '工作日 9:00–18:00',
-    },
-    {
+      kind: 'copy',
       icon: Mail,
       label: '邮箱',
-      value: 'bd@aidooo.com',
-      hint: '招标 / 大客户对接',
+      value: 'cmdbird@163.com',
+      hint: '商务对接 / 招投标',
     },
   ],
 };
@@ -97,7 +114,7 @@ export const PartnershipBanner: React.FC = () => {
           {/* —— 右:CTA 按钮 —— */}
           <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
             <Button size="default" onClick={() => setOpen(true)}>
-              <Phone className="h-4 w-4" />
+              <MessageSquare className="h-4 w-4" />
               联系合作
             </Button>
             <Button
@@ -142,79 +159,85 @@ const ContactDialog: React.FC<{
             <ContactRow key={c.label} contact={c} />
           ))}
         </div>
-
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-          以上信息为示例,实际部署请在
-          <code className="mx-1 rounded bg-muted px-1 py-0.5">
-            PartnershipBanner.tsx
-          </code>
-          顶部 PARTNERSHIP 常量改为真实联系方式。
-        </p>
       </DialogContent>
     </Dialog>
   );
 };
 
-const ContactRow: React.FC<{
-  contact: (typeof PARTNERSHIP.contacts)[number];
-}> = ({ contact }) => {
+const ContactRow: React.FC<{ contact: Contact }> = ({ contact }) => {
   const Icon = contact.icon;
-  const [copied, setCopied] = React.useState(false);
 
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-3">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] text-white shadow-sm">
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium text-[var(--cy-text-tertiary)]">
+          {contact.label}
+        </p>
+        <p className="font-mono text-sm font-semibold text-[var(--cy-text-primary)]">
+          {contact.value}
+        </p>
+        <p className="text-[11px] text-[var(--cy-text-tertiary)]">{contact.hint}</p>
+      </div>
+      {contact.kind === 'qr' ? (
+        <img
+          src={contact.qrUrl}
+          alt={`${contact.label} 二维码`}
+          className="h-20 w-20 shrink-0 rounded-md border border-[var(--cy-border-subtle)] bg-white object-contain p-1"
+        />
+      ) : (
+        <CopyButton value={contact.value} label={contact.label} />
+      )}
+    </div>
+  );
+};
+
+const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }) => {
+  const [copied, setCopied] = React.useState(false);
   const onCopy = React.useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(contact.value);
+      await navigator.clipboard.writeText(value);
       setCopied(true);
-      notifySuccess(`已复制 ${contact.label}:${contact.value}`);
+      notifySuccess(`已复制 ${label}:${value}`);
       setTimeout(() => setCopied(false), 1600);
     } catch {
-      // 老 webview 不支持 clipboard API — 退化到 select-all
+      // 老 webview 不支持 clipboard API — fallback execCommand
       const ta = document.createElement('textarea');
-      ta.value = contact.value;
+      ta.value = value;
       document.body.appendChild(ta);
       ta.select();
       try {
         document.execCommand('copy');
         setCopied(true);
-        notifySuccess(`已复制 ${contact.label}`);
+        notifySuccess(`已复制 ${label}`);
         setTimeout(() => setCopied(false), 1600);
       } catch {
         /* noop */
       }
       document.body.removeChild(ta);
     }
-  }, [contact]);
+  }, [value, label]);
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-50/30 p-3 dark:bg-amber-950/20">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 text-white shadow-sm">
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium text-muted-foreground">
-          {contact.label}
-        </p>
-        <p className="font-mono text-sm font-semibold">{contact.value}</p>
-        <p className="text-[11px] text-muted-foreground">{contact.hint}</p>
-      </div>
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={() => void onCopy()}
-        className="shrink-0 gap-1"
-      >
-        {copied ? (
-          <>
-            <Check className="h-3.5 w-3.5" />
-            已复制
-          </>
-        ) : (
-          <>
-            <Copy className="h-3.5 w-3.5" />
-            复制
-          </>
-        )}
-      </Button>
-    </div>
+    <Button
+      size="sm"
+      variant="ghost"
+      onClick={() => void onCopy()}
+      className="shrink-0 gap-1"
+    >
+      {copied ? (
+        <>
+          <Check className="h-3.5 w-3.5" />
+          已复制
+        </>
+      ) : (
+        <>
+          <Copy className="h-3.5 w-3.5" />
+          复制
+        </>
+      )}
+    </Button>
   );
 };
