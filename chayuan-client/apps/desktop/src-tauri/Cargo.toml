@@ -19,7 +19,10 @@ serde_json = "1"
 # NOTE: ``devtools`` feature 让 release build 也能开 DevTools(F12 / 右键)。
 # 单机版 v0 ship 前用来排查白屏 / JS 抛错;GA 之前移掉这个 feature,生产
 # 用户右键开发者工具会暴露内部 API + 增加被注入风险。
-tauri = { version = "2.1.0", features = ["tray-icon", "image-png", "devtools"] }
+# 版本声明的 minor 要跟 package.json 的 @tauri-apps/api(^2.11)对齐 —— tauri CLI
+# 的 build 会校验「tauri crate ↔ @tauri-apps/api 同 major.minor」,不一致直接报错。
+# 写 "2.11"(而非 "2")还能强制旧 Cargo.lock 里残留的 2.1.x 失效 → 重新解析。
+tauri = { version = "2.11", features = ["tray-icon", "image-png", "devtools"] }
 tauri-plugin-clipboard-manager = "2.2.1"
 tauri-plugin-dialog = "2.2.0"
 tauri-plugin-fs = "2.2.0"
