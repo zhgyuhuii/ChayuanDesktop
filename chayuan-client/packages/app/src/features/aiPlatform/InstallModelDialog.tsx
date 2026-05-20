@@ -87,10 +87,11 @@ const CAP_LABEL: Record<LocalRuntimeCapability, string> = {
 // Dialog 一打开就把对应 cap 的 modelId + source + specificFile 预填好,用户点
 // "开始下载"即装,不需要看 examples 再手填。
 //
-// embedding / rerank / image-embedding **故意不列**:
-//   - embedding/rerank:manifest 给的是 BAAI/bge-m3 safetensors 整仓,但运行时
-//     是 llama-server(只吃 GGUF) → 装下来跑不动,**预填它等于给用户挖坑**。
-//     这些 cap 留空,用户用 examples buttons 主动挑(列表里有 GGUF 选项)。
+// rerank:预填 ModelScope 源的 bge-reranker-v2-m3 整仓 —— 这些 reranker 仓带
+//   onnx/,走 embedding/rerank 的 ONNX local fallback 加载(不依赖 llama-server
+//   GGUF)。ModelScope 国内源,避开 HF Xet LFS 大文件卡 0% 的老坑。
+// embedding / image-embedding 仍故意不列:
+//   - embedding:GGUF/safetensors 取舍未定,留 examples 让用户主动挑。
 //   - image-embedding:HF transformers 整仓,走 infinity Python sidecar;
 //     project 还没把 image-embedding 进 verified 清单,先不预填。
 type VerifiedDefault = { id: string; source: InstallModelSource; file?: string };
@@ -105,6 +106,10 @@ const VERIFIED_DEFAULTS: Partial<Record<LocalRuntimeCapability, VerifiedDefault>
     source: 'huggingface',
     file: 'ggml-tiny.bin',
   },
+  rerank: {
+    id: 'BAAI/bge-reranker-v2-m3',
+    source: 'modelscope',
+  },
 };
 
 // 按 cap 给出 ModelScope 上比较合适的搜索关键字 + 1-2 个示例 model_id。
@@ -115,7 +120,13 @@ const VERIFIED_DEFAULTS: Partial<Record<LocalRuntimeCapability, VerifiedDefault>
 // whisper.cpp(HF only)但默认 source=modelscope → repo_exists 404"那种坑。
 // 取舍:Qwen/* 双源都有,标 modelscope(国内快);BAAI/* 双源都有,标 huggingface
 // (走 hf-mirror)。iic/* 是阿里 ModelScope 专属 owner,必须 modelscope。
-type CapExample = { id: string; source: InstallModelSource };
+// label 有值时按钮显示 label(友好名),没有则显示 id;note 进 title tooltip。
+type CapExample = {
+  id: string;
+  source: InstallModelSource;
+  label?: string;
+  note?: string;
+};
 const CAP_HINTS: Record<
   LocalRuntimeCapability,
   { search: string; examples: CapExample[]; note: string }
@@ -137,12 +148,45 @@ const CAP_HINTS: Record<
     note: '推荐 BGE / GTE 系列;multi-lingual 选 bge-m3 或 gte-multilingual',
   },
   rerank: {
-    search: 'bge reranker GGUF',
+    search: 'reranker',
+    // 5 个 reranker 全部预填为 ModelScope 源(国内快,避开 HF Xet LFS 卡 0%)。
+    // id 已按 ModelScope 实际 repo 名校正:
+    //   - gte:HF 是 Alibaba-NLP/gte-multilingual-reranker-base,
+    //         MS 是 iic/gte_passage-ranking_multilingual-base
+    //   - ms-marco:HF 是 ...MiniLM-L-6-v2(带连字符),MS 是 ...MiniLM-L6-v2
     examples: [
-      { id: 'BAAI/bge-reranker-v2-m3', source: 'huggingface' },
-      { id: 'gpustack/bge-reranker-v2-m3-GGUF', source: 'huggingface' },
+      {
+        id: 'BAAI/bge-reranker-v2-m3',
+        source: 'modelscope',
+        label: 'bge-reranker-v2-m3 (默认)',
+        note: '2.12GB · 100+ 语种 · 多语种+中文办公强,跟 bge-m3 embedding 同家族对齐',
+      },
+      {
+        id: 'iic/gte_passage-ranking_multilingual-base',
+        source: 'modelscope',
+        label: 'gte-multilingual-reranker-base',
+        note: '584MB · 中英+70 语种 · 首选瘦身,阿里出品,同档质量体积 1/4',
+      },
+      {
+        id: 'jinaai/jina-reranker-v2-base-multilingual',
+        source: 'modelscope',
+        label: 'jina-reranker-v2-base-multilingual',
+        note: '531MB · 中英多语种 · Jina 出品,再小一点',
+      },
+      {
+        id: 'BAAI/bge-reranker-base',
+        source: 'modelscope',
+        label: 'bge-reranker-base',
+        note: '1.04GB · 中英 · bge 家族 v1,想保家族一致性时用',
+      },
+      {
+        id: 'cross-encoder/ms-marco-MiniLM-L6-v2',
+        source: 'modelscope',
+        label: 'ms-marco-MiniLM-L-6-v2',
+        note: '87MB · 仅英文 · 极致小,中文几乎不可用,纯英文场景才选',
+      },
     ],
-    note: '推荐 GGUF 格式;HF transformer 仓需要 PyTorch 占内存',
+    note: '5 个 reranker 已预填 ModelScope 国内源,点示例一键切换;默认 bge-reranker-v2-m3',
   },
   asr: {
     search: 'whisper',
@@ -364,9 +408,12 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
                     setModelId(eg.id);
                     setSource(eg.source);
                   }}
-                  title={`点击填到下方 (来源:${eg.source})`}
+                  title={
+                    (eg.note ? eg.note + '\n' : '') +
+                    `${eg.id}\n点击填到下方 (来源:${eg.source})`
+                  }
                 >
-                  {eg.id}
+                  {eg.label ?? eg.id}
                 </button>
               ))}
             </div>
