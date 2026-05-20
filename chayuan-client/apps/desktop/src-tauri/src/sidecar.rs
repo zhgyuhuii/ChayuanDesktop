@@ -133,11 +133,79 @@ impl SidecarManager {
     }
 
     /// 应用退出前的清理钩子(``lib.rs`` 在 ``RunEvent::ExitRequested`` 调用)。
+    ///
+    /// ⚠ 只 ``kill`` 后端 chayuan-server 进程**本身**,不递归子进程。
+    /// 模型服务(llama-server / whisper-server / infinity 等)是 chayuan-server
+    /// 自己 spawn 的子进程,这条路径不会收掉它们 —— 需要杀整棵进程树请用
+    /// ``kill_tree_on_exit``。
     pub fn kill_on_exit(&self) {
         if let Some(child) = self.take_child() {
             let _ = child.kill();
         }
     }
+
+    /// 杀掉后端 chayuan-server **整棵进程树**(它本身 + 它 spawn 的所有子孙)。
+    ///
+    /// 背景:Tauri 只直接拉起 chayuan-server 一个子进程(``externalBin`` 为空,
+    /// 没有任何模型 sidecar 由 Tauri 管理)。llama-server / whisper-server /
+    /// infinity 等模型服务全部是 chayuan-server(Python 后端)运行期自己
+    /// spawn 出来的子孙进程。所以单 ``child.kill()`` 只收掉 Python 父进程,
+    /// 模型服务会变成孤儿继续占显存 / 端口。要杀干净必须按进程树整棵收。
+    ///
+    /// 实现:
+    ///   * Windows —— ``taskkill /PID <pid> /T /F``,``/T`` 连同子进程树一起杀。
+    ///   * unix    —— spawn 时未建独立进程组,这里对 pid 本身 ``kill -KILL``;
+    ///     mac/linux 当前不是单机版主力平台,先做基础兜底(杀父进程,子进程
+    ///     由 chayuan-server 自身的退出钩子 / 失去父进程后回收)。
+    ///
+    /// 返回 ``true`` 表示拿到过 pid 并发出过 kill;``false`` 表示当时没有
+    /// 在管理的子进程(已停 / 未启动 / dev 模式没 spawn)。
+    pub fn kill_tree_on_exit(&self) -> bool {
+        // ``child`` 在 windows / unix 分支里都会被 ``child.kill()`` 消费掉;
+        // 仅在既非 windows 也非 unix 的(理论)平台上不会用到 —— 加 allow 抑制。
+        #[cfg_attr(not(any(windows, unix)), allow(unused_variables))]
+        let Some(child) = self.take_child() else {
+            return false;
+        };
+        // tauri-plugin-shell 2.x:CommandChild::pid() 返子进程 OS pid。
+        let pid = child.pid();
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // CREATE_NO_WINDOW(0x0800_0000):不弹 taskkill 的控制台黑窗。
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            // /T = 连子进程树,/F = 强制。先发 taskkill 收整棵树。
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+            // 兜底:即使 taskkill 失败,也再调一次 plugin-shell 的 kill 收父进程。
+            let _ = child.kill();
+        }
+
+        #[cfg(unix)]
+        {
+            // spawn 时没设独立进程组,无法 killpg 整组;直接 SIGKILL 父 pid。
+            // chayuan-server 收到信号后由自身退出逻辑收子进程;再用 plugin-shell
+            // 的 kill 兜底一次。
+            unsafe {
+                libc_kill(pid as i32, 9);
+            }
+            let _ = child.kill();
+        }
+
+        let _ = pid; // 非 windows/unix 平台占位,避免 unused 警告
+        true
+    }
+}
+
+/// 直接声明 ``kill(2)`` —— 仅 unix 用,避免为这一处引入 ``libc`` 整个 crate。
+/// signature 对齐 POSIX:``int kill(pid_t pid, int sig)``。
+#[cfg(unix)]
+extern "C" {
+    #[link_name = "kill"]
+    fn libc_kill(pid: i32, sig: i32) -> i32;
 }
 
 /// 默认端口与 ``Settings.basic_settings.API_SERVER["port"]`` 对齐。

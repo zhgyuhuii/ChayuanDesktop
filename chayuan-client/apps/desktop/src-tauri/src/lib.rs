@@ -308,18 +308,27 @@ pub fn run() {
             //   关于
             //   ─── 分隔 ───
             //   退出
+            //   退出应用和服务
             let show     = MenuItem::with_id(app, "show",     "打开察元 AI", true, None::<&str>)?;
             let new_chat = MenuItem::with_id(app, "new_chat", "新对话",       true, None::<&str>)?;
             let sep1     = PredefinedMenuItem::separator(app)?;
             let restart  = MenuItem::with_id(app, "restart",  "重启",         true, None::<&str>)?;
             let about    = MenuItem::with_id(app, "about",    "关于",         true, None::<&str>)?;
             let sep2     = PredefinedMenuItem::separator(app)?;
-            // 右上角 X 是关到托盘不退程序;真退出由这条菜单触发,后台 sidecar
+            // 右上角 X 是关到托盘不退程序;真退出由这两条菜单触发,后台 sidecar
             // 也会一起结束(由 RunEvent::ExitRequested 的 on_window_event 处理)。
+            //
+            // 两条退出项的区别:
+            //   quit      = 仅退出桌面应用;依赖 RunEvent::ExitRequested 里
+            //               kill_on_exit 收掉后端 chayuan-server 进程本身。
+            //   quit_all  = 退出应用 + 杀后端 chayuan-server **整棵进程树**,
+            //               连它 spawn 的 llama-server / whisper-server /
+            //               infinity 等模型服务子进程一并收掉。
             let quit     = MenuItem::with_id(app, "quit",     "退出", true, None::<&str>)?;
+            let quit_all = MenuItem::with_id(app, "quit_all", "退出应用和服务", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
-                &[&show, &new_chat, &sep1, &restart, &about, &sep2, &quit],
+                &[&show, &new_chat, &sep1, &restart, &about, &sep2, &quit, &quit_all],
             )?;
 
             // 托盘图标:用 tauri build 注入的 default_window_icon (即 tauri.conf.json
@@ -384,6 +393,18 @@ pub fn run() {
                             .show(|_| {});
                     }
                     "quit" => {
+                        app.exit(0);
+                    }
+                    "quit_all" => {
+                        // 退出应用 + 杀所有由本应用拉起的后台服务。
+                        // 先杀后端 chayuan-server 整棵进程树 —— 模型服务
+                        // (llama-server / whisper-server / infinity 等)都是
+                        // chayuan-server 自己 spawn 的子孙进程,Tauri 不直接管,
+                        // 所以收掉整棵树才能把它们一并清干净。
+                        let mgr = app.state::<Arc<sidecar::SidecarManager>>();
+                        mgr.kill_tree_on_exit();
+                        // 再退出应用;app.exit 仍会触发 RunEvent::ExitRequested →
+                        // kill_on_exit,但那时 take_child 已被取空,是安全 no-op。
                         app.exit(0);
                     }
                     _ => {}
