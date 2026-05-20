@@ -231,6 +231,22 @@ if [[ "$SKIP_SERVER" != "1" ]]; then
     else
         note "poetry -> $(command -v poetry)"
     fi
+    # PyInstaller 在 Linux 上需要 objdump(系统包 binutils)分析动态库依赖,
+    # 缺了会在打包深处报 "On Linux, objdump is required"。系统包要 root 装、
+    # 不像 Rust 能装进 ~/.cargo,这里只检测 + 给出明确安装命令,不自动 sudo
+    # (避免脚本挂在密码提示上 / 跨发行版乱猜)。
+    if ! command -v objdump >/dev/null 2>&1; then
+        fail "缺 'objdump'(系统包 binutils)—— PyInstaller 在 Linux 打包必需。"
+        if   command -v apt-get >/dev/null 2>&1; then note "请装:${C_BOLD}sudo apt-get install -y binutils${C_RESET}"
+        elif command -v dnf     >/dev/null 2>&1; then note "请装:${C_BOLD}sudo dnf install -y binutils${C_RESET}"
+        elif command -v yum     >/dev/null 2>&1; then note "请装:${C_BOLD}sudo yum install -y binutils${C_RESET}"
+        elif command -v pacman  >/dev/null 2>&1; then note "请装:${C_BOLD}sudo pacman -S --noconfirm binutils${C_RESET}"
+        elif command -v zypper  >/dev/null 2>&1; then note "请装:${C_BOLD}sudo zypper install -y binutils${C_RESET}"
+        else note "用你发行版的包管理器安装 binutils"
+        fi
+        exit 127
+    fi
+    note "objdump -> $(command -v objdump)"
 fi
 if [[ "$SKIP_FRONTEND" != "1" ]]; then
     require_cmd pnpm "请装 pnpm (corepack enable;npm i -g pnpm)"
