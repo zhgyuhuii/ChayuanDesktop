@@ -21,7 +21,9 @@ import {
   ChevronRight,
   ClipboardList,
   CloudDownload,
+  Copy,
   FileBarChart2,
+  FolderOpen,
   Play,
   RefreshCw,
   RotateCw,
@@ -36,13 +38,16 @@ import {
   modality,
   type OcrSidecarStatus,
   type PytorchInstallTask,
+  type PytorchScanResult,
   type PytorchStatus,
   type PytorchVariant,
   type RuntimeServiceEngine,
   type RuntimeServiceInstallJob,
   runtimeModels,
 } from '@chayuan/api';
+import { getPlatform } from '@chayuan/platform-shared';
 import { Button, Switch } from '@chayuan/ui';
+import { notifySuccess, reportError } from '../../store/errorDialog';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
 import { CallLogDialog } from './CallLogDialog';
 import { DiagnoseModal } from './DiagnoseModal';
@@ -755,19 +760,28 @@ const OcrSidecarRow: React.FC = () => {
 };
 
 /**
- * 「PyTorch」行 — 显示 torch/torchvision 版本 + GPU 检测 + 一键安装。
+ * 「PyTorch」行 — 显示 torch/torchvision 版本 + GPU 检测 + 一键安装 + 手动放置/扫描。
  *
  * 设计:transformers image 链的硬依赖,wheel 体积大不打包进 installer。
  *   - import_ok=true:显示已就绪(绿)+ 版本号
  *   - import_ok=false:显示需安装(灰/红)+ 提供安装按钮
  *   - 安装时:disable 按钮 + 显示最近几行 log + 提示装完需重启 chayuan-server
  *   - 优先内置 wheel(offline_wheels_available=true,无网也能装);否则在线
+ *   - 「放置目录」:展示 install_target_dir,告诉用户手动装好的 torch 放哪;
+ *     可复制路径 / 用资源管理器打开(类比模型下载对话框的「扫描挂载」)
+ *   - 「扫描」:GET /runtime/pytorch/scan 识别 py_packages/ 里已放好的 torch,
+ *     展示版本 + CPU/CUDA
+ *   - GPU:has_nvidia_gpu=true 且 suggested_variant 为 cuXXX 时,除「安装 CPU 版」
+ *     再给「安装 GPU(CUDA)版」入口;CUDA 版体积 2-3 GB,按钮上注明
  */
 const PytorchRow: React.FC = () => {
   const [status, setStatus] = React.useState<PytorchStatus | null>(null);
   const [task, setTask] = React.useState<PytorchInstallTask | null>(null);
   const [installing, setInstalling] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // 「扫描挂载」结果 — null 表示还没扫过
+  const [scanResult, setScanResult] = React.useState<PytorchScanResult | null>(null);
+  const [scanning, setScanning] = React.useState(false);
 
   const refreshStatus = React.useCallback(async () => {
     try {
@@ -775,6 +789,26 @@ const PytorchRow: React.FC = () => {
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  const onScan = React.useCallback(async () => {
+    setScanning(true);
+    setError(null);
+    try {
+      const r = await localRuntime.pytorchScan();
+      setScanResult(r);
+      if (r.torch_installed) {
+        notifySuccess(
+          '扫描完成',
+          `已识别 torch ${r.torch_version ?? '?'}（${r.is_cuda ? 'GPU/CUDA' : 'CPU'} 版）`,
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      reportError(e, '扫描失败');
+    } finally {
+      setScanning(false);
     }
   }, []);
 
@@ -796,6 +830,14 @@ const PytorchRow: React.FC = () => {
           if (['done', 'failed', 'cancelled'].includes(t.state)) {
             setInstalling(false);
             await refreshStatus();
+            // 装完顺手扫一次,让「放置目录」状态同步显示新装的 torch
+            if (t.state === 'done') {
+              try {
+                setScanResult(await localRuntime.pytorchScan());
+              } catch {
+                /* 扫描失败不影响安装结果展示 */
+              }
+            }
             return;
           }
         } catch (e) {
@@ -842,6 +884,15 @@ const PytorchRow: React.FC = () => {
     auto: '自动',
   };
 
+  // 检测到 NVIDIA GPU 且后端按驱动反推出某个 cuXXX variant 时,才提供 GPU(CUDA)版入口。
+  // 驱动太老 → 后端 suggested_variant 退回 cpu,这时不显示 CUDA 按钮(装了也用不了)。
+  const cudaVariant: PytorchVariant | null =
+    status?.has_nvidia_gpu && status?.suggested_variant && status.suggested_variant !== 'cpu'
+      ? status.suggested_variant
+      : null;
+
+  const targetDir = status?.install_target_dir ?? scanResult?.target_dir ?? null;
+
   return (
     <div
       id="local-runtime-pytorch"
@@ -876,25 +927,40 @@ const PytorchRow: React.FC = () => {
         )}
 
         <div className="ml-auto flex items-center gap-1">
+          {/* 「扫描」— 任何状态可点;识别用户手动放进 py_packages/ 的 torch */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void onScan()}
+            disabled={scanning || installing}
+            title="扫描 py_packages/ 识别手动放好的 torch（版本 / CPU / GPU）"
+          >
+            <RotateCw className={'mr-1 h-3.5 w-3.5' + (scanning ? ' animate-spin' : '')} />
+            {scanning ? '扫描中…' : '扫描'}
+          </Button>
           {!isReady && status?.can_install !== false && (
             <>
+              {/* CPU 版 — 始终提供。无 GPU 时它是唯一/主按钮;有 GPU 时是次选。 */}
               <Button
                 size="sm"
-                onClick={() => void startInstall(status?.suggested_variant ?? 'auto')}
+                variant={cudaVariant ? 'outline' : 'default'}
+                onClick={() => void startInstall('cpu')}
                 disabled={installing}
+                title="CPU 版 PyTorch，~250 MB，无需 GPU"
               >
-                {installing
-                  ? '安装中…'
-                  : `安装 ${variantLabel[status?.suggested_variant ?? 'auto']}`}
+                {installing ? '安装中…' : '安装 CPU 版'}
               </Button>
-              {status?.has_nvidia_gpu && status?.suggested_variant !== 'cpu' && !installing && (
+              {/* GPU(CUDA)版 — 仅检测到 NVIDIA GPU 且驱动够新时显示 */}
+              {cudaVariant && (
                 <Button
                   size="sm"
-                  variant="outline"
-                  onClick={() => void startInstall('cpu')}
-                  title="跳过 CUDA,只装 CPU 版(小,无 GPU 加速)"
+                  onClick={() => void startInstall(cudaVariant)}
+                  disabled={installing}
+                  title={`GPU 加速版 PyTorch（${variantLabel[cudaVariant]}）。wheel 含 CUDA runtime，体积 2-3 GB，下载较慢`}
                 >
-                  装 CPU 版
+                  {installing
+                    ? '安装中…'
+                    : `安装 GPU 版（${variantLabel[cudaVariant]}）`}
                 </Button>
               )}
             </>
@@ -913,6 +979,44 @@ const PytorchRow: React.FC = () => {
         </div>
       </div>
 
+      {/* 放置目录 — 告诉用户手动装好的 torch / 解压好的 wheel 放哪里。
+          类比模型下载对话框的「扫描挂载」:展示绝对路径 + 复制 + 资源管理器打开。 */}
+      {targetDir && (
+        <div className="space-y-1 rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2">
+          <div className="text-[11px] text-[var(--cy-text-secondary)]">
+            手动装好的 torch / 解压好的 wheel 放这里,然后点上方「扫描」识别:
+          </div>
+          <div className="flex items-center gap-1.5">
+            <code className="flex-1 truncate rounded border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-2 py-1 text-[11px]">
+              {targetDir}
+            </code>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                void navigator.clipboard?.writeText(targetDir);
+                notifySuccess('已复制路径', targetDir);
+              }}
+              title="复制目录路径"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                void getPlatform()
+                  .shell.openPath(targetDir)
+                  .catch((e) => reportError(e, '打开文件夹失败'));
+              }}
+              title="用资源管理器打开"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="text-[11px] text-[var(--cy-text-tertiary)] space-y-0.5">
         {status && (
           <div>
@@ -930,6 +1034,30 @@ const PytorchRow: React.FC = () => {
         {status?.notes?.map((n, i) => (
           <div key={i} className="text-amber-700 dark:text-amber-300">{n}</div>
         ))}
+        {/* 扫描结果 — 用户点「扫描」后展示 py_packages/ 里识别到的 torch */}
+        {scanResult && (
+          <div className="mt-1 rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-1.5">
+            {scanResult.torch_installed ? (
+              <div className="text-emerald-700 dark:text-emerald-300">
+                扫描:已安装 torch {scanResult.torch_version ?? '?'}
+                {' · '}
+                <span className="font-medium">
+                  {scanResult.is_cuda
+                    ? `GPU/CUDA 版${scanResult.torch_cuda_build ? `(${scanResult.torch_cuda_build})` : ''}`
+                    : 'CPU 版'}
+                </span>
+                {scanResult.torchvision_installed && (
+                  <> · torchvision {scanResult.torchvision_version ?? '?'}</>
+                )}
+              </div>
+            ) : (
+              <div className="text-amber-700 dark:text-amber-300">
+                扫描:py_packages/ 下未发现 torch。把手动下好 / 解压好的 torch
+                放进上方目录后再点「扫描」,或用上方「安装」按钮在线安装。
+              </div>
+            )}
+          </div>
+        )}
         {error && (
           <div className="text-rose-600 dark:text-rose-400">{error}</div>
         )}

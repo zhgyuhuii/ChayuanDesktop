@@ -210,8 +210,26 @@ export interface PytorchStatus {
   /** 内置 wheel 是否可用 — true 时即使无网也能装上(走 vendor/torch_wheels) */
   offline_wheels_available: boolean;
   offline_wheels_dir: string | null;
+  /** torch 的运行时安装目标目录(<CHAYUAN_ROOT>/py_packages)。
+   *  UI 展示「手动装好的 torch / 解压好的 wheel 放这里」。 */
+  install_target_dir: string | null;
   /** 给前端的额外提示(驱动太老 / 版本不配等)*/
   notes: string[];
+}
+
+/** GET /runtime/pytorch/scan —— 扫描 py_packages/ 里手动放好的 torch。 */
+export interface PytorchScanResult {
+  /** 用户该把 torch / 解压好的 wheel 放进这个目录(绝对路径)。 */
+  target_dir: string | null;
+  /** py_packages/torch/ 是否完整(__init__.py + version.py 都在)。 */
+  torch_installed: boolean;
+  torch_version: string | null;
+  /** "cu124" / "cpu" / null —— 从 torch/version.py 读出。 */
+  torch_cuda_build: string | null;
+  /** true = CUDA(GPU)版,false = CPU 版。 */
+  is_cuda: boolean;
+  torchvision_installed: boolean;
+  torchvision_version: string | null;
 }
 
 /** install_task_manager.InstallTask 子集(只暴露 UI 用得到的字段)*/
@@ -229,6 +247,11 @@ export interface PytorchInstallTask {
 
 async function pytorchStatus(): Promise<PytorchStatus> {
   return (await request<PytorchStatus>('/runtime/pytorch/status')).data;
+}
+
+/** 扫描 py_packages/ 看用户手动放好的 torch —— 类比模型下载对话框的「扫描挂载」。 */
+async function pytorchScan(): Promise<PytorchScanResult> {
+  return (await request<PytorchScanResult>('/runtime/pytorch/scan')).data;
 }
 
 async function pytorchInstall(
@@ -372,6 +395,7 @@ export const localRuntime = {
   setAutoStart,
   // PyTorch 检测 + 安装(transformers image 链硬依赖)
   pytorchStatus,
+  pytorchScan,
   pytorchInstall,
   pytorchInstallTask,
   // 运行时服务(sidecar 二进制)下载补回

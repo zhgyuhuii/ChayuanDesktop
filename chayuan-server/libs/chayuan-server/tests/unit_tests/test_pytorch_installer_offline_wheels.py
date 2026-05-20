@@ -158,6 +158,24 @@ def test_offline_recipe_calls_install_pytorch_with_offline_flag(tmp_path, monkey
     assert "pip" not in cmd, f"recipe 不应再用 pip:{cmd}"
 
 
+def test_recipe_passes_variant_flag(tmp_path, monkeypatch):
+    """recipe 命令应带 ``--variant <variant>`` 把 cpu / cuXXX 透传给 CLI 子命令。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    pkg_dir = tmp_path / "py_packages"
+    monkeypatch.setenv("CHAYUAN_PY_PACKAGES_DIR", str(pkg_dir))
+
+    cpu_recipe = pi.build_install_recipe("cpu", prefer_offline=False)
+    assert "--variant" in cpu_recipe.cmd
+    assert cpu_recipe.cmd[cpu_recipe.cmd.index("--variant") + 1] == "cpu"
+
+    cuda_recipe = pi.build_install_recipe("cu124", prefer_offline=False)
+    assert "--variant" in cuda_recipe.cmd
+    assert cuda_recipe.cmd[cuda_recipe.cmd.index("--variant") + 1] == "cu124"
+    # CUDA recipe 的 note 应提到大体积,提醒用户
+    assert "GB" in cuda_recipe.note
+
+
 def test_ensure_torch_target_on_syspath_idempotent(tmp_path, monkeypatch):
     """ensure_torch_target_on_syspath 把 py_packages 加进 sys.path,且幂等。"""
     import sys

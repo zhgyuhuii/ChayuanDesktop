@@ -82,6 +82,9 @@ class TorchStatus:
     # 内置(离线)wheel 是否可用 — 用户无网情况下也能装上
     offline_wheels_available: bool = False
     offline_wheels_dir: Optional[str] = None      # 调试用,告诉用户去哪看
+    # torch 的运行时安装目标目录(<CHAYUAN_ROOT>/py_packages)。前端 UI 直接展示,
+    # 告诉用户「手动装好的 torch / 解压好的 wheel 放这里」。
+    install_target_dir: Optional[str] = None
     notes: List[str] = field(default_factory=list)  # 给前端的额外提示
 
     def to_dict(self) -> Dict[str, Any]:
@@ -97,6 +100,7 @@ class TorchStatus:
             "can_install": self.can_install,
             "offline_wheels_available": self.offline_wheels_available,
             "offline_wheels_dir": self.offline_wheels_dir,
+            "install_target_dir": self.install_target_dir,
             "notes": list(self.notes),
         }
 
@@ -462,6 +466,8 @@ def detect_status() -> TorchStatus:
             "torch+torchvision 配对;离线安装不可用,将走在线下载"
         )
 
+    target_dir = torch_install_target_dir()
+
     return TorchStatus(
         torch_version=torch_ver,
         torch_cuda_build=torch_build,
@@ -474,6 +480,7 @@ def detect_status() -> TorchStatus:
         can_install=shutil.which("pip") is not None or bool(sys.executable),
         offline_wheels_available=offline_ok,
         offline_wheels_dir=str(offline_dir) if offline_dir else None,
+        install_target_dir=str(target_dir) if target_dir else None,
         notes=notes,
     )
 
@@ -714,23 +721,38 @@ def _resolve_pypi_wheel_url(name: str, version: str, *, pure: bool,
     )
 
 
-def _torch_cdn_wheel_url(pkg: str, version: str) -> str:
-    """拼 download.pytorch.org/whl/cpu 上 torch / torchvision wheel 的下载 URL。
+def _torch_cdn_wheel_url(pkg: str, version: str, variant: str = "cpu") -> str:
+    """拼 download.pytorch.org 上 torch / torchvision wheel 的下载 URL。
 
-    PyTorch 官方 CPU wheel 文件名规范:
-      Windows / Linux: ``<pkg>-<ver>+cpu-cp312-cp312-<plat>.whl``
-      macOS:           ``<pkg>-<ver>-cp312-cp312-<plat>.whl``(macOS 无 +cpu 标识)
+    PyTorch 官方 wheel 文件名规范(``variant`` 决定 index 路径 + ``+local`` 标识):
+      CPU,Windows / Linux: ``/whl/cpu/<pkg>-<ver>+cpu-cp312-cp312-<plat>.whl``
+      CPU,macOS:           ``/whl/cpu/<pkg>-<ver>-cp312-cp312-<plat>.whl``(macOS 无 +cpu)
+      CUDA(cuXXX):         ``/whl/cu124/<pkg>-<ver>+cu124-cp312-cp312-<plat>.whl``
+
+    CUDA 版与 CPU 版的差异(为什么不能共用一个 index):
+      - index 路径不同:CPU 走 ``/whl/cpu``,CUDA 走 ``/whl/cu124`` 等;
+      - 文件名 ``+local`` 标识不同(``+cpu`` vs ``+cu124``);
+      - CUDA wheel 体积大很多(CPU ~250 MB,CUDA 2-3 GB —— 打包了 CUDA runtime);
+      - macOS 没有 CUDA wheel(Apple 不支持 NVIDIA),CUDA variant 在 macOS 直接拒绝。
     """
+    if variant not in _PYTORCH_INDEXES:
+        raise WheelInstallError(
+            f"未知 variant {variant!r};支持 {tuple(_PYTORCH_INDEXES)}"
+        )
     plat = _torch_wheel_platform_tag()
     if plat is None:
         raise WheelInstallError(
             f"无法识别本机平台 ({sys.platform}/{_platform.machine()}),"
             f"无法拼 {pkg} wheel URL"
         )
+    if variant != "cpu" and sys.platform == "darwin":
+        raise WheelInstallError("macOS 不提供 CUDA 版 PyTorch wheel,请改装 CPU 版")
     py = _py_tag()
-    local = "" if sys.platform == "darwin" else "+cpu"
+    index = _PYTORCH_INDEXES[variant]
+    # macOS 的 CPU wheel 文件名无 +local 段;其余(Win/Linux 的 cpu / 所有 cuXXX)都带。
+    local = "" if (variant == "cpu" and sys.platform == "darwin") else f"+{variant}"
     fname = f"{pkg}-{version}{local}-{py}-{py}-{plat}.whl"
-    return f"https://download.pytorch.org/whl/cpu/{fname}"
+    return f"{index}/{fname}"
 
 
 def _extract_wheel(whl: Path, target: Path, *, log: Callable[[str], None]) -> None:
@@ -782,27 +804,171 @@ def _torch_already_installed(target: Path) -> bool:
            (target / "torch" / "version.py").is_file()
 
 
+def _parse_torch_version_py(version_py: Path) -> tuple[Optional[str], Optional[str]]:
+    """读 ``torch/version.py``,解析 ``__version__`` 与 ``cuda``,返 (version, cuda_build)。
+
+    PyTorch wheel 解压后 ``torch/version.py`` 内容形如::
+
+        __version__ = '2.7.0+cpu'
+        debug = False
+        cuda: Optional[str] = None          # CPU 版
+        # 或  cuda: Optional[str] = '12.4'   # CUDA 版
+        git_version = '...'
+
+    解析策略:纯文本正则,**不 import torch**(扫描场景 torch 可能 ABI 不配 /
+    跟当前进程已 import 的版本冲突,import 会污染 / 崩)。
+
+    返回:
+      version    —— ``__version__`` 去掉 ``+local`` 段后的纯版本(如 ``2.7.0``);拿不到 None。
+      cuda_build —— ``cu124`` / ``cpu`` / None(版本文件残缺)。优先用 ``__version__``
+                    里的 ``+cuXXX`` / ``+cpu`` local 段;没有再退回 ``cuda = '12.4'``
+                    字段(转成 ``cu124``);两者都没有 → ``cpu``。
+    """
+    try:
+        text = version_py.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None, None
+
+    raw_version: Optional[str] = None
+    m = re.search(r"""__version__\s*[:=][^'"]*['"]([^'"]+)['"]""", text)
+    if m:
+        raw_version = m.group(1).strip()
+
+    version: Optional[str] = None
+    local: Optional[str] = None
+    if raw_version:
+        if "+" in raw_version:
+            version, local = raw_version.split("+", 1)
+        else:
+            version = raw_version
+
+    cuda_build: Optional[str] = None
+    if local:
+        # +cu124 / +cpu / +rocm6.0 …… 直接采纳(cuXXX / cpu 是我们关心的两类)
+        cuda_build = local.strip()
+    else:
+        # 没 local 段(PyPI 默认 cpu wheel 就没有)→ 看 cuda 字段
+        cm = re.search(r"""\bcuda\s*[:=][^'"]*['"]?([0-9.]+|None)['"]?""", text)
+        if cm:
+            val = cm.group(1).strip()
+            if val and val != "None":
+                # "12.4" → "cu124";"11.8" → "cu118"
+                digits = val.replace(".", "")
+                cuda_build = f"cu{digits}"
+            else:
+                cuda_build = "cpu"
+        else:
+            cuda_build = "cpu"
+
+    return version, cuda_build
+
+
+def scan_installed_torch(target: Optional[Path] = None) -> Dict[str, Any]:
+    """扫描 ``py_packages/`` 看用户手动放好的 torch 在不在、什么版本、CPU 还是 CUDA。
+
+    对应「模型下载对话框的扫描挂载」体验 —— 用户可以把手动下好 / 解压好的 torch
+    wheel 放进 :func:`torch_install_target_dir`,点「扫描」让本函数识别。**纯文件
+    探测,不 import torch**(避免污染当前进程 / ABI 不配崩溃)。
+
+    Args:
+        target: 显式指定扫描目录(测试用)。默认 :func:`torch_install_target_dir`。
+
+    Returns:
+        dict::
+
+            {
+              "target_dir": "<CHAYUAN_ROOT>/py_packages",   # 用户该把 torch 放这
+              "torch_installed": True/False,                 # py_packages/torch/ 完整
+              "torch_version": "2.7.0" | None,
+              "torch_cuda_build": "cu124" | "cpu" | None,    # CPU 还是 CUDA 版
+              "is_cuda": True/False,                         # 便于前端直接判定
+              "torchvision_installed": True/False,
+              "torchvision_version": "0.22.0" | None,
+            }
+    """
+    tgt = Path(target) if target is not None else torch_install_target_dir()
+    out: Dict[str, Any] = {
+        "target_dir": str(tgt) if tgt else None,
+        "torch_installed": False,
+        "torch_version": None,
+        "torch_cuda_build": None,
+        "is_cuda": False,
+        "torchvision_installed": False,
+        "torchvision_version": None,
+    }
+    if tgt is None:
+        return out
+
+    if _torch_already_installed(tgt):
+        out["torch_installed"] = True
+        ver, build = _parse_torch_version_py(tgt / "torch" / "version.py")
+        out["torch_version"] = ver
+        out["torch_cuda_build"] = build
+        out["is_cuda"] = bool(build and build.startswith("cu"))
+
+    # torchvision 没有独立 version.py;装好就有 torchvision/__init__.py,
+    # 版本走 dist-info/METADATA(wheel 解压会保留 metadata)。
+    tv_init = tgt / "torchvision" / "__init__.py"
+    if tv_init.is_file():
+        out["torchvision_installed"] = True
+        out["torchvision_version"] = _read_dist_info_version(tgt, "torchvision")
+
+    return out
+
+
+def _read_dist_info_version(target: Path, pkg: str) -> Optional[str]:
+    """从 ``target`` 下 ``<pkg>-<ver>.dist-info/METADATA`` 读包版本(不 import)。"""
+    try:
+        for child in target.iterdir():
+            name = child.name
+            if not child.is_dir() or not name.endswith(".dist-info"):
+                continue
+            stem = name[: -len(".dist-info")]
+            # <pkg>-<ver> —— 大小写不敏感比对 pkg 段
+            if "-" not in stem:
+                continue
+            pkg_part, ver_part = stem.rsplit("-", 1)
+            if pkg_part.lower().replace("_", "-") == pkg.lower().replace("_", "-"):
+                return ver_part or None
+    except OSError:
+        pass
+    # 兜底:读 METADATA 里的 Version 行
+    try:
+        for meta in target.glob(f"{pkg}-*.dist-info/METADATA"):
+            for line in meta.read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.lower().startswith("version:"):
+                    return line.split(":", 1)[1].strip() or None
+    except OSError:
+        pass
+    return None
+
+
 def install_pytorch_wheels(
     *,
+    variant: str = "cpu",
     prefer_offline: bool = True,
     log: Optional[Callable[[str], None]] = None,
     cancel: Optional[threading.Event] = None,
     force: bool = False,
 ) -> Dict[str, Any]:
-    """纯 Python(无 pip)安装 PyTorch CPU + torchvision + 全部运行期依赖。
+    """纯 Python(无 pip)安装 PyTorch + torchvision + 全部运行期依赖。
 
     流程:
       1. 确定目标目录 ``torch_install_target_dir()`` 与本机平台 / py tag。
       2. 幂等:已装过(target 下有 torch)且非 force → 直接返回 skipped。
       3. 收集 wheel:
-         * ``prefer_offline=True`` 且 vendor/torch_wheels 有配对 → 直接用本地 wheel
-           解压 torch + torchvision(纯依赖仍需在线补,见下)。
-         * 否则从 download.pytorch.org 在线下 torch + torchvision wheel。
+         * ``prefer_offline=True`` 且 vendor/torch_wheels 有对应 variant 配对 →
+           直接用本地 wheel 解压 torch + torchvision(纯依赖仍需在线补,见下)。
+         * 否则从 download.pytorch.org 对应 index 在线下 torch + torchvision wheel。
          * torch 的纯/平台依赖一律从 PyPI 下(_TORCH_DEP_PINS 固化版本)。
       4. ``zipfile`` 逐个解压进 target。
       5. 校验 target 下能定位 torch/__init__.py + torch/version.py。
 
     Args:
+        variant: ``cpu``(默认)或 ``cu118`` / ``cu121`` / ``cu124`` / ``cu126``。
+            CUDA variant 走 ``download.pytorch.org/whl/cuXXX`` index,torch wheel
+            带 CUDA runtime,体积 2-3 GB(CPU 版 ~250 MB);纯依赖不变。
+            macOS 无 CUDA wheel,传 cuXXX 会失败。
         prefer_offline: 优先用 vendor/torch_wheels 里打包期预下的 torch/tv wheel。
         log: 日志回调(install_task_manager 把 task.log.append 传进来)。
         cancel: 取消信号(install_task_manager 的 task.cancel_event)。
@@ -812,6 +978,11 @@ def install_pytorch_wheels(
         ``{"action": "installed"|"skipped"|"failed", ...}``。
     """
     _log = log or (lambda m: logger.info("%s", m))
+
+    if variant not in _PYTORCH_INDEXES:
+        return {"action": "failed",
+                "error": f"未知 variant {variant!r};支持 {tuple(_PYTORCH_INDEXES)}"}
+    is_cuda = variant != "cpu"
 
     target = torch_install_target_dir()
     if target is None:
@@ -826,29 +997,36 @@ def install_pytorch_wheels(
     py = _py_tag()
     plat = _torch_wheel_platform_tag()
     _log(f"[install] 目标目录: {target}")
+    _log(f"[install] variant={variant}"
+         + ("(CUDA 版,torch wheel 含 CUDA runtime,体积 2-3 GB)"
+            if is_cuda else "(CPU 版,~250 MB)"))
     _log(f"[install] 本机: python={py} platform={plat or '未知'} "
          f"({sys.platform}/{_platform.machine()})")
     if plat is None:
         return {"action": "failed",
                 "error": f"不支持的平台 {sys.platform}/{_platform.machine()}"}
+    if is_cuda and sys.platform == "darwin":
+        return {"action": "failed",
+                "error": "macOS 不提供 CUDA 版 PyTorch,请改装 CPU 版"}
 
     work = Path(tempfile.mkdtemp(prefix="chayuan-torch-"))
     downloaded: List[Path] = []
     try:
         # ---- 1) torch + torchvision wheel ----
-        offline = _find_offline_wheels("cpu") if prefer_offline else []
+        offline = _find_offline_wheels(variant) if prefer_offline else []
         if offline:
             _log(f"[install] 使用内置离线 wheel: {offline[0].parent}")
             torch_whls = list(offline)  # [torch, torchvision]
         else:
             if prefer_offline:
-                _log("[install] 未找到内置 wheel,改为在线下载 torch / torchvision")
+                _log(f"[install] 未找到 {variant} 内置 wheel,"
+                     f"改为在线下载 torch / torchvision")
             torch_whls = []
             for pkg, ver in (("torch", _TORCH_VERSION),
                              ("torchvision", _TORCHVISION_VERSION)):
                 if cancel is not None and cancel.is_set():
                     raise WheelInstallError("已取消")
-                url = _torch_cdn_wheel_url(pkg, ver)
+                url = _torch_cdn_wheel_url(pkg, ver, variant)
                 dest = work / url.rsplit("/", 1)[-1]
                 _download_file(url, dest, log=_log, cancel=cancel, label=f"{pkg} {ver}")
                 downloaded.append(dest)
@@ -878,12 +1056,13 @@ def install_pytorch_wheels(
                 f"解压完成但 {target}/torch/ 下缺 __init__.py / version.py — "
                 f"wheel 可能损坏或布局异常"
             )
-        _log(f"[install] ✓ torch {_TORCH_VERSION} + torchvision {_TORCHVISION_VERSION} "
-             f"已安装到 {target}")
+        _log(f"[install] ✓ torch {_TORCH_VERSION} ({variant}) + "
+             f"torchvision {_TORCHVISION_VERSION} 已安装到 {target}")
         _log("[install] 重启 chayuan-server 后即可 import torch")
         return {
             "action": "installed",
             "target": str(target),
+            "variant": variant,
             "torch_version": _TORCH_VERSION,
             "torchvision_version": _TORCHVISION_VERSION,
             "wheels": [Path(w).name for w in (*torch_whls, *dep_whls)],
@@ -920,12 +1099,14 @@ def build_install_recipe(
       1. ``prefer_offline=True`` → ``install-pytorch --offline``:优先用
          vendor/torch_wheels 里打包期预下的 torch/tv wheel(无网兜底)。
       2. ``prefer_offline=False`` → ``install-pytorch``:在线从
-         ``download.pytorch.org/whl/cpu`` 现下。
+         ``download.pytorch.org/whl/<variant>`` 现下。
     两种情况纯依赖(filelock/sympy/numpy/...)都从 PyPI 下,版本由
     :data:`_TORCH_DEP_PINS` 固化。
 
-    variant 兼容:本机单机版只走 CPU(image-embedding / rerank 两个 capability
-    够用);保留 variant 入参是为不破坏既有 API / 路由签名,cu* 一律按 cpu 处理。
+    variant 透传:``--variant`` 标志把 cpu / cuXXX 传给子命令。CPU 版 ~250 MB
+    走 ``/whl/cpu``;CUDA 版(cuXXX)2-3 GB 走 ``/whl/cuXXX``,torch wheel 自带
+    CUDA runtime。``auto`` 按 detect_status().suggested_variant 解析(有 NVIDIA
+    GPU + 驱动够新 → cuXXX,否则 cpu)。
     """
     from chayuan.server.config_panel.install_task_manager import InstallRecipe
 
@@ -935,8 +1116,14 @@ def build_install_recipe(
     if variant not in _PYTORCH_INDEXES:
         raise ValueError(f"unknown variant: {variant!r}; expected one of {tuple(_PYTORCH_INDEXES)}")
 
+    is_cuda = variant != "cpu"
     target_dir = torch_install_target_dir()
     _target_note = f" 装到:{target_dir}。" if target_dir else ""
+    _size_note = (
+        "CUDA 版 torch wheel 自带 CUDA runtime,体积 2-3 GB(CPU 版 ~250 MB),"
+        "下载耗时较长。"
+        if is_cuda else "包大小:CPU ~250 MB。"
+    )
 
     # recipe = 一条 shell 命令(install_task_manager 用 subprocess.Popen 跑)。
     # 用 ``sys.executable`` 自调:frozen 下 sys.executable 就是 chayuan-server.exe,
@@ -947,21 +1134,23 @@ def build_install_recipe(
         base_cmd = [sys.executable, "install-pytorch"]
     else:
         base_cmd = [sys.executable, "-m", "chayuan", "install-pytorch"]
+    # variant 透传给 CLI 子命令;cpu 也显式带上(子命令默认 cpu,显式更清楚)
+    base_cmd = [*base_cmd, "--variant", variant]
 
     if prefer_offline:
         offline = _find_offline_wheels(variant)
         cmd = [*base_cmd, "--offline"]
         if offline:
             note = (
-                f"用内置的 torch + torchvision wheel 解压安装(无 pip)。"
+                f"用内置的 {variant} torch + torchvision wheel 解压安装(无 pip)。"
                 f" 路径:{offline[0].parent}。{_target_note}"
                 f"纯依赖(numpy / pillow 等)仍从 PyPI 下。"
                 f"装完需重启 chayuan-server 才能 import。"
             )
         else:
             note = (
-                f"未找到内置 wheel,将在线从 download.pytorch.org 下载 + 解压(无 pip)。"
-                f"{_target_note}装完需重启 chayuan-server。"
+                f"未找到 {variant} 内置 wheel,将在线从 download.pytorch.org 下载 + "
+                f"解压(无 pip)。{_size_note}{_target_note}装完需重启 chayuan-server。"
             )
         return InstallRecipe(
             label=f"PyTorch {variant} (离线 wheel · 无 pip)",
@@ -975,8 +1164,8 @@ def build_install_recipe(
         label=f"PyTorch {variant} (在线 · 官方源 · 无 pip)",
         cmd=list(base_cmd),
         note=(
-            f"从 download.pytorch.org/whl/cpu 下载 torch + torchvision wheel 并用 "
-            f"zipfile 解压安装(完全不用 pip)。 包大小:CPU ~250MB。{_target_note}"
+            f"从 download.pytorch.org/whl/{variant} 下载 torch + torchvision wheel "
+            f"并用 zipfile 解压安装(完全不用 pip)。{_size_note}{_target_note}"
             f"装完需重启 chayuan-server 才能 import 新版本。"
         ),
         requires="",

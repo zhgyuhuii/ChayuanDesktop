@@ -767,29 +767,44 @@ def tray_cmd():
 
 
 @main.command("install-pytorch",
-              help="安装 PyTorch CPU + torchvision（自己下 wheel + 解压，不用 pip）")
+              help="安装 PyTorch + torchvision（自己下 wheel + 解压，不用 pip）")
+@click.option("--variant", default="cpu",
+              type=click.Choice(["cpu", "cu118", "cu121", "cu124", "cu126", "auto"]),
+              help="cpu(默认，~250MB) / cuXXX(CUDA 版，2-3GB) / auto(按 GPU 自动选)")
 @click.option("--offline", is_flag=True, default=False,
               help="优先用内置 vendor/torch_wheels 里打包期预下的 torch/tv wheel（无网兜底）")
 @click.option("--force", is_flag=True, default=False,
               help="已安装也强制重装")
-def install_pytorch_cmd(offline: bool, force: bool):
-    """「在线安装 PyTorch」recipe 的真正落点 —— 纯 Python wheel 安装器。
+def install_pytorch_cmd(variant: str, offline: bool, force: bool):
+    """「安装 PyTorch」recipe 的真正落点 —— 纯 Python wheel 安装器。
 
     背景:旧实现让 frozen ``chayuan-server.exe -m pip install torch ...`` 跑 pip,
     但 pip 不支持被 PyInstaller freeze(``-m`` 不支持 / pip 没打进包 / distlib
     finder 失效)。改为这个 Click 子命令(Click 在 frozen 下工作正常),内部调
     ``pytorch_installer.install_pytorch_wheels()`` —— 下 wheel + zipfile 解压,绕开 pip。
 
+    ``--variant`` 决定装 CPU 版还是 CUDA 版:cpu 走 ``/whl/cpu``,cuXXX 走
+    ``/whl/cuXXX`` index。``auto`` 按本机 NVIDIA GPU + 驱动版本自动选。
+
     install_task_manager 的 recipe 会把本命令当一条 shell 命令 spawn,
     stdout 即任务日志。所以这里直接 ``click.echo`` 进度,不另搞日志通道。
     """
-    from chayuan.server.runtime.pytorch_installer import install_pytorch_wheels
+    from chayuan.server.runtime.pytorch_installer import (
+        detect_status,
+        install_pytorch_wheels,
+    )
 
     def _log(msg: str) -> None:
         click.echo(msg)
         sys.stdout.flush()
 
+    resolved = variant
+    if variant == "auto":
+        resolved = detect_status().suggested_variant
+        _log(f"[install-pytorch] auto -> variant={resolved}")
+
     result = install_pytorch_wheels(
+        variant=resolved,
         prefer_offline=bool(offline),
         log=_log,
         force=bool(force),

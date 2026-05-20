@@ -650,6 +650,23 @@ def pytorch_status() -> Dict[str, Any]:
     return _ok(detect_status().to_dict())
 
 
+@runtime_router.get(
+    "/pytorch/scan",
+    summary="扫描 py_packages/ 看用户手动放好的 torch 在不在、版本、CPU/CUDA",
+)
+def pytorch_scan() -> Dict[str, Any]:
+    """对应「模型下载对话框的扫描挂载」体验 —— 用户把手动下好 / 解压好的 torch
+    放进 ``<CHAYUAN_ROOT>/py_packages/`` 后,点「扫描」让本接口识别。
+
+    纯文件探测(不 import torch):读 ``py_packages/torch/version.py`` 拿
+    ``__version__`` + ``cuda`` 字段判断 CPU / CUDA 版。返回字段见
+    :func:`pytorch_installer.scan_installed_torch`,其中 ``target_dir`` 就是
+    用户应当放置 torch 的绝对路径,前端可直接展示 + 提供「打开文件夹」。
+    """
+    from chayuan.server.runtime.pytorch_installer import scan_installed_torch
+    return _ok(scan_installed_torch())
+
+
 @runtime_router.post(
     "/pytorch/install",
     summary="启动 PyTorch 安装(异步),返 task_id 供轮询进度",

@@ -112,6 +112,153 @@ def test_torch_cdn_url_shape():
         assert "%2Bcpu" in url or "+cpu" in url
 
 
+def test_torch_cdn_url_cuda_variant():
+    """CUDA variant 的 CDN URL 应走 /whl/cuXXX index,文件名带 +cuXXX 标识。"""
+    import sys
+
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    if pi._torch_wheel_platform_tag() is None:
+        pytest.skip("当前平台不在 torch wheel 映射里")
+    if sys.platform == "darwin":
+        # macOS 没有 CUDA wheel,应直接拒绝
+        with pytest.raises(pi.WheelInstallError):
+            pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cu124")
+        return
+    url = pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cu124")
+    assert url.startswith("https://download.pytorch.org/whl/cu124/")
+    assert "cu124" in url
+    assert url.endswith(".whl")
+
+
+def test_torch_cdn_url_rejects_unknown_variant():
+    """未知 variant 应抛 WheelInstallError。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    if pi._torch_wheel_platform_tag() is None:
+        pytest.skip("当前平台不在 torch wheel 映射里")
+    with pytest.raises(pi.WheelInstallError):
+        pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cu999")
+
+
+# ──────────────────── version.py 解析 / 扫描 py_packages ────────────────────
+
+
+def test_parse_torch_version_py_cpu(tmp_path):
+    """CPU 版 torch/version.py:__version__ 带 +cpu,cuda = None。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    vp = tmp_path / "version.py"
+    vp.write_text(
+        "__version__ = '2.7.0+cpu'\n"
+        "debug = False\n"
+        "cuda: Optional[str] = None\n"
+        "git_version = 'abc'\n",
+        encoding="utf-8",
+    )
+    ver, build = pi._parse_torch_version_py(vp)
+    assert ver == "2.7.0"
+    assert build == "cpu"
+
+
+def test_parse_torch_version_py_cuda_from_local(tmp_path):
+    """CUDA 版:__version__ 带 +cu124,优先采纳 local 段。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    vp = tmp_path / "version.py"
+    vp.write_text(
+        "__version__ = '2.7.0+cu124'\n"
+        "cuda: Optional[str] = '12.4'\n",
+        encoding="utf-8",
+    )
+    ver, build = pi._parse_torch_version_py(vp)
+    assert ver == "2.7.0"
+    assert build == "cu124"
+
+
+def test_parse_torch_version_py_cuda_from_cuda_field(tmp_path):
+    """__version__ 无 local 段时,从 cuda='12.4' 字段推出 cu124。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    vp = tmp_path / "version.py"
+    vp.write_text(
+        "__version__ = '2.7.0'\n"
+        "cuda = '12.4'\n",
+        encoding="utf-8",
+    )
+    ver, build = pi._parse_torch_version_py(vp)
+    assert ver == "2.7.0"
+    assert build == "cu124"
+
+
+def test_scan_installed_torch_not_installed(tmp_path, monkeypatch):
+    """py_packages/ 下没 torch → torch_installed=False,但 target_dir 仍给出。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    pkg_dir = tmp_path / "py_packages"
+    pkg_dir.mkdir()
+    monkeypatch.setenv("CHAYUAN_PY_PACKAGES_DIR", str(pkg_dir))
+
+    r = pi.scan_installed_torch()
+    assert r["torch_installed"] is False
+    assert r["is_cuda"] is False
+    assert r["target_dir"] == str(pkg_dir)
+
+
+def test_scan_installed_torch_cpu(tmp_path, monkeypatch):
+    """py_packages/torch/ 完整 + CPU version.py → 识别为 CPU 版。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    pkg_dir = tmp_path / "py_packages"
+    (pkg_dir / "torch").mkdir(parents=True)
+    (pkg_dir / "torch" / "__init__.py").write_text("")
+    (pkg_dir / "torch" / "version.py").write_text(
+        "__version__ = '2.7.0+cpu'\ncuda = None\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("CHAYUAN_PY_PACKAGES_DIR", str(pkg_dir))
+
+    r = pi.scan_installed_torch()
+    assert r["torch_installed"] is True
+    assert r["torch_version"] == "2.7.0"
+    assert r["torch_cuda_build"] == "cpu"
+    assert r["is_cuda"] is False
+
+
+def test_scan_installed_torch_cuda(tmp_path, monkeypatch):
+    """torch/version.py 带 +cu124 → is_cuda=True。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    pkg_dir = tmp_path / "py_packages"
+    (pkg_dir / "torch").mkdir(parents=True)
+    (pkg_dir / "torch" / "__init__.py").write_text("")
+    (pkg_dir / "torch" / "version.py").write_text(
+        "__version__ = '2.7.0+cu124'\ncuda = '12.4'\n", encoding="utf-8"
+    )
+    # torchvision 也放一份,验证版本从 dist-info 读
+    (pkg_dir / "torchvision").mkdir()
+    (pkg_dir / "torchvision" / "__init__.py").write_text("")
+    di = pkg_dir / "torchvision-0.22.0.dist-info"
+    di.mkdir()
+    (di / "METADATA").write_text("Name: torchvision\nVersion: 0.22.0\n", encoding="utf-8")
+    monkeypatch.setenv("CHAYUAN_PY_PACKAGES_DIR", str(pkg_dir))
+
+    r = pi.scan_installed_torch()
+    assert r["torch_installed"] is True
+    assert r["torch_cuda_build"] == "cu124"
+    assert r["is_cuda"] is True
+    assert r["torchvision_installed"] is True
+    assert r["torchvision_version"] == "0.22.0"
+
+
+def test_install_rejects_unknown_variant(tmp_path, monkeypatch):
+    """install_pytorch_wheels 收到未知 variant → action=failed,不下载。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    monkeypatch.setenv("CHAYUAN_PY_PACKAGES_DIR", str(tmp_path / "py_packages"))
+    result = pi.install_pytorch_wheels(variant="cu999", log=lambda m: None)
+    assert result["action"] == "failed"
+
+
 # ──────────────────────── 幂等 / 目标目录 ────────────────────────
 
 
