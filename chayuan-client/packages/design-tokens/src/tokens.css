@@ -218,6 +218,10 @@
   /* 深色下 brand 提亮一档 */
   --cy-brand-500: #5B92FF;
   --cy-brand-600: #4F87FF;
+  /* 深色下 brand-50 作为「选中 / 激活」浅底:浅色版 #EEF4FF 在深色界面会变成
+     刺眼的亮蓝块(侧栏历史对话选中项随之不跟随主题)。改用低透明度 brand 蓝着色,
+     与 --cy-info-50 等 semantic 浅底一致,叠在深色 surface 上得到柔和的蓝色高亮。 */
+  --cy-brand-50: rgba(91, 146, 255, 0.16);
 
   /* 深色下 glow 透明度调低,避免过曝 */
   --cy-glow-composer:

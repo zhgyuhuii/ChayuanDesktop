@@ -515,10 +515,19 @@ export const KbBoard: React.FC = () => {
   );
 
   const lastConvRef = React.useRef<string | null>(null);
+  // 标记「由本页 onSend 首次发问刚创建」的会话 id —— 这种 setActive 不算「切到了
+  // 另一个会话」,reset effect 必须跳过它,否则首次提问后 chatStarted 会被立刻
+  // 重置回 false / pickerOpen 回 true,页面停在选择器、不跳到对话视图。
+  const selfCreatedConvRef = React.useRef<string | null>(null);
   React.useEffect(() => {
     const cid = activeConversationId;
     if (cid === lastConvRef.current) return;
     lastConvRef.current = cid;
+    // 本页首发消息自建的会话:只同步 lastConvRef,不回退到 picker。
+    if (cid && cid === selfCreatedConvRef.current) {
+      selfCreatedConvRef.current = null;
+      return;
+    }
     setChatMessages((prev) => (prev.length === 0 ? prev : []));
     setChatStarted(false);
     setPickerOpen(true);
@@ -540,6 +549,8 @@ export const KbBoard: React.FC = () => {
     if (!activeConversationId) {
       const id = uuid();
       const now = Date.now();
+      // 先打标记再 setActive:reset effect 看到这个 id 就知道是自建会话,不回退。
+      selfCreatedConvRef.current = id;
       setActive(id);
       void upsertConversation({
         id,
