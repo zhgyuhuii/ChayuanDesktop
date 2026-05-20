@@ -20,6 +20,7 @@
  */
 
 import * as React from 'react';
+import { Keyframes } from './Keyframes';
 
 export const MagpieFlock: React.FC = () => {
   const reducedMotion = useReducedMotion();
@@ -66,7 +67,9 @@ export const MagpieFlock: React.FC = () => {
       <Magpie size={1.0} dx={0} dy={0} flapDelay="0s" />
       <Magpie size={0.78} dx={-22} dy={14} flapDelay="0.06s" />
       <Magpie size={0.78} dx={-22} dy={-14} flapDelay="0.12s" />
-      <style>{flight.keyframes}</style>
+      {/* 每次飞行的唯一命名 @keyframes — 走 CSSOM 注册(CSP 安全)。
+          dedupeKey 带 flight.id,每程一条互不冲突。 */}
+      <Keyframes cssText={flight.keyframes} dedupeKey={`cy-magpie-fly-${flight.id}`} />
     </div>
   );
 };

@@ -20,6 +20,7 @@
  */
 
 import * as React from 'react';
+import { Keyframes } from './Keyframes';
 
 interface Star {
   x: number;        // 0~100, vw 百分比
@@ -154,7 +155,8 @@ export const StarrySky: React.FC = React.memo(() => {
         />
       ))}
 
-      <style>{STAR_KEYFRAMES}</style>
+      {/* @keyframes 走 CSSOM 注册(CSP 安全),不用运行时 <style> 元素。 */}
+      <Keyframes cssText={STAR_KEYFRAMES} dedupeKey="cy-star-twinkle" />
     </div>
   );
 });

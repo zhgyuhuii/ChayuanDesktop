@@ -35,6 +35,7 @@ import { MagpieFlock } from './MagpieFlock';
 import { Phoenix } from './Phoenix';
 import { AuspiciousClouds } from './AuspiciousClouds';
 import { StarrySky } from './StarrySky';
+import { Keyframes } from './Keyframes';
 
 export const HomeFxLayer: React.FC = () => {
   const [size, setSize] = React.useState(() => ({
@@ -146,7 +147,8 @@ const LightSweep: React.FC = () => (
         mixBlendMode: 'screen',
       }}
     />
-    <style>{LIGHT_SWEEP_KEYFRAMES}</style>
+    {/* @keyframes 走 CSSOM 注册(CSP 安全),不用运行时 <style> 元素。 */}
+    <Keyframes cssText={LIGHT_SWEEP_KEYFRAMES} dedupeKey="cy-light-sweep" />
   </div>
 );
 

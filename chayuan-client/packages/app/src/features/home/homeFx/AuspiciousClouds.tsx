@@ -13,6 +13,7 @@
  */
 
 import * as React from 'react';
+import { Keyframes } from './Keyframes';
 
 export const AuspiciousClouds: React.FC = () => (
   <div
@@ -28,7 +29,8 @@ export const AuspiciousClouds: React.FC = () => (
     <Cloud size={1.2} top="14%" duration={62} delay={0} opacity={0.18} />
     <Cloud size={0.85} top="38%" duration={48} delay={20} opacity={0.14} />
     <Cloud size={1.0} top="62%" duration={70} delay={42} opacity={0.16} />
-    <style>{CLOUD_KEYFRAMES}</style>
+    {/* @keyframes 走 CSSOM 注册(CSP 安全),不用运行时 <style> 元素。 */}
+    <Keyframes cssText={CLOUD_KEYFRAMES} dedupeKey="cy-cloud-drift" />
   </div>
 );
 

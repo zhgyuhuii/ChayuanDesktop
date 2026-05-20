@@ -22,6 +22,7 @@
  */
 
 import * as React from 'react';
+import { Keyframes } from './Keyframes';
 
 export interface CardAuraProps {
   /** 颜色基调 — 默认金色,卡片想要冷色调可传 ``#7dd3fc`` 之类 */
@@ -134,7 +135,9 @@ export const CardAura: React.FC<CardAuraProps> = React.memo(({
           }}
         />
       ))}
-      <style>{AURA_KEYFRAMES}</style>
+      {/* @keyframes 走 CSSOM 注册(CSP 安全),不用运行时 <style> 元素。
+          这里同时定义了 HomePage logo/图标用的 cy-badge-halo / cy-icon-float。 */}
+      <Keyframes cssText={AURA_KEYFRAMES} dedupeKey="cy-card-aura" />
     </span>
   );
 });
