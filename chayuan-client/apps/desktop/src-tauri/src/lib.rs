@@ -234,6 +234,18 @@ pub fn run() {
         .build();
 
     tauri::Builder::default()
+        // 单实例:必须是第一个注册的插件(官方要求 single-instance 先于其它
+        // .plugin())。第二个实例启动时插件检测到已有实例 → 在首个实例里跑
+        // 下面的回调 → 第二个实例自动退出。回调里把已运行的主窗唤到前台,
+        // 复用托盘 "show" 分支同样的 unminimize/show/set_focus 三件套
+        // (窗口可能被最小化,或右上角 X 隐藏到了托盘)。
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(window_state_plugin)
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())

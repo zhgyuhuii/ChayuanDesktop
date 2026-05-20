@@ -32,6 +32,8 @@ tauri-plugin-notification = "2.2.1"
 tauri-plugin-os = "2.2.0"
 tauri-plugin-process = "2.2.0"
 tauri-plugin-shell = "2.2.0"
+# 单实例:已在运行时再双击图标不开新进程,而是唤回首个实例的窗口。
+tauri-plugin-single-instance = "2.2.0"
 tauri-plugin-sql = { version = "2.2.0", features = ["sqlite"] }
 tauri-plugin-stronghold = "2.2.0"
 tauri-plugin-updater = "2.3.0"
