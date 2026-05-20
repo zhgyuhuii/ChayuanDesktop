@@ -230,6 +230,69 @@ def test_verify_service_binaries_linker_error_is_soft_warning(build_module, tmp_
     assert "glibc" in captured.out.lower()
 
 
+def test_verify_service_binaries_shared_library_error_is_soft_warning(
+    build_module, tmp_path, monkeypatch, capsys
+):
+    """build host 缺某个系统级 .so → --help 命中 "shared libraries" 错 → 软警告不 fail。
+
+    whisper-server 是动态链接的,捆绑的 .so 已通过 LD_LIBRARY_PATH 解决;万一
+    host 还缺某个系统级 .so,这也是 host 环境问题,不代表二进制对目标平台坏。
+    """
+    services = tmp_path / "desktop_src_tauri" / "services"
+    eng = services / "whisper-server"
+    eng.mkdir(parents=True)
+    bin_path = eng / "whisper-server"
+    bin_path.write_bytes(b"\x7fELF" + b"x" * (200 * 1024))
+
+    class FakeResult:
+        returncode = 127
+        stdout = b""
+        stderr = (
+            b"whisper-server: error while loading shared libraries: "
+            b"libwhisper.so.1: cannot open shared object file: "
+            b"No such file or directory\n"
+        )
+
+    monkeypatch.setattr(build_module.subprocess, "run",
+                        lambda *a, **kw: FakeResult())
+
+    # 不应抛 SystemExit
+    build_module.verify_service_binaries(target_subdir="linux-x64", host_subdir="linux-x64")
+    captured = capsys.readouterr()
+    assert "runtime-linker 错误" in captured.out
+
+
+def test_verify_service_binaries_sets_library_path_env(
+    build_module, tmp_path, monkeypatch
+):
+    """--help 子进程的 env 必须把 binary 自身目录加进 LD_LIBRARY_PATH。"""
+    services = tmp_path / "desktop_src_tauri" / "services"
+    eng = services / "whisper-server"
+    eng.mkdir(parents=True)
+    bin_path = eng / "whisper-server"
+    bin_path.write_bytes(b"\x7fELF" + b"x" * (200 * 1024))
+
+    captured_env = {}
+
+    class FakeResult:
+        returncode = 0
+        stdout = b"usage: whisper-server\n"
+        stderr = b""
+
+    def fake_run(*a, **kw):
+        captured_env["env"] = kw.get("env")
+        return FakeResult()
+
+    monkeypatch.setattr(build_module.subprocess, "run", fake_run)
+
+    build_module.verify_service_binaries(target_subdir="linux-x64", host_subdir="linux-x64")
+
+    env = captured_env["env"]
+    assert env is not None
+    lib_var = "DYLD_LIBRARY_PATH" if build_module.sys.platform == "darwin" else "LD_LIBRARY_PATH"
+    assert str(eng) in env[lib_var].split(build_module.os.pathsep)
+
+
 def test_verify_service_binaries_fails_on_segfault(build_module, tmp_path, monkeypatch):
     """--help 非常规退出码(SIGSEGV 等)→ fail。"""
     services = tmp_path / "desktop_src_tauri" / "services"

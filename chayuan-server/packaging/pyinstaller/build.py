@@ -835,9 +835,27 @@ def verify_service_binaries(target_subdir: str, host_subdir: str) -> None:
                 # 系统上还会被国产杀软的"主动防御"沙箱拉去跑一遍才放行(实测
                 # 火绒 / 360 给十几秒延迟);5s 太紧,误报 hang。--help 本身
                 # 不加载模型,正常路径还是 < 1s 退。
+                #
+                # whisper-server / llama-server 这类二进制是动态链接的,捆绑的
+                # libwhisper.so.1 / libggml*.so 等共享库就扁平放在二进制自身
+                # 所在目录(sync_service_binaries 已一并拷过来)。动态链接器
+                # 默认不在二进制自身目录找 .so(除非 rpath=$ORIGIN),所以这里
+                # 把二进制所在目录加进 LD_LIBRARY_PATH(Linux)/ DYLD_LIBRARY_PATH
+                # (macOS),否则 --help 会 127 报 "cannot open shared object file"。
+                # app 运行期拉起 sidecar 时本来也得这么设。
+                run_env = os.environ.copy()
+                if sys.platform == "darwin":
+                    _lib_var = "DYLD_LIBRARY_PATH"
+                else:
+                    _lib_var = "LD_LIBRARY_PATH"
+                _bin_dir = str(bin_path.parent)
+                _existing = run_env.get(_lib_var, "")
+                run_env[_lib_var] = (
+                    f"{_bin_dir}{os.pathsep}{_existing}" if _existing else _bin_dir
+                )
                 r = subprocess.run(
                     [str(bin_path), "--help"],
-                    capture_output=True, timeout=30,
+                    capture_output=True, timeout=30, env=run_env,
                 )
                 stderr_bytes = r.stderr or b""
                 stdout_bytes = r.stdout or b""
@@ -853,6 +871,12 @@ def verify_service_binaries(target_subdir: str, host_subdir: str) -> None:
                     "incompatible library",
                     "cannot execute binary file",
                     "is not a valid win32 application",
+                    # 加固:即便设了 LD_LIBRARY_PATH,build host 仍可能缺某个
+                    # 系统级 .so(目标机器上有);这类 runtime-linker 错跟
+                    # glibc 不兼容同理 —— host 环境问题,不代表二进制对目标
+                    # 平台坏(magic / size 已校验过)。降级成 ⚠ 警告,不 FATAL。
+                    "error while loading shared libraries",
+                    "cannot open shared object file",
                 )
                 hit_linker = next(
                     (m for m in linker_err_markers if m in stderr_text), None,
