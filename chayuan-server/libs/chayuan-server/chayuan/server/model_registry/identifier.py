@@ -180,12 +180,27 @@ def _identify_hf_config(p: Path) -> Optional[ModelIdentity]:
     cap = _CAPABILITY_BY_MODELTYPE.get(mt) or "other"
     family = mt
     confidence = 0.95 if cap != "other" else 0.7
+    evidence = [f"config.json#model_type={mt}"]
+
+    # cross-encoder reranker 修正:bge-reranker / jina-reranker 这类重排模型
+    # 的 model_type 跟 embedding 模型同源(bge-reranker-v2-m3 是 xlm-roberta、
+    # bge-reranker-base 是 bert)→ 只看 model_type 会把它们误判成
+    # text-embedding。区别在 architectures:reranker 是 *ForSequenceClassification
+    # (带分类头,num_labels=1 输出相关性分),embedder 是纯 *Model。
+    # 有分类头 + 本来要落 text-embedding → 实际是 rerank。
+    archs = [str(a).lower() for a in (cfg.get("architectures") or [])]
+    if cap == "text-embedding" and any(
+        "forsequenceclassification" in a for a in archs
+    ):
+        cap = "rerank"
+        evidence.append("architectures=*ForSequenceClassification => rerank")
+
     ident = ModelIdentity(
         family=family,
         capability=cap,
         format="hf_transformers",
         confidence=confidence,
-        evidence=[f"config.json#model_type={mt}"],
+        evidence=evidence,
         meta={
             k: cfg[k] for k in ("hidden_size", "vocab_size", "torch_dtype", "model_type")
             if k in cfg

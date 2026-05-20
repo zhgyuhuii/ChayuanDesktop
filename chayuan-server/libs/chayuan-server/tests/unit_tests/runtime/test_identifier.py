@@ -35,6 +35,34 @@ def test_level1_hf_config_bert_embedding(tmp_path: Path):
     assert ident.family == "bert"
 
 
+def test_level1_hf_config_reranker_seqclassification(tmp_path: Path):
+    """cross-encoder reranker:model_type 跟 embedding 同源(xlm-roberta),
+    但 architectures 是 *ForSequenceClassification → 必须判 rerank 不是
+    text-embedding。对应 bge-reranker-v2-m3 被误判进 embedding 的线上 bug。"""
+    repo = tmp_path / "bge-reranker-v2-m3"
+    _write(repo / "config.json", {
+        "model_type": "xlm-roberta",
+        "architectures": ["XLMRobertaForSequenceClassification"],
+        "hidden_size": 1024,
+    })
+    ident = identify_path(repo)
+    assert ident.capability == "rerank"
+    assert ident.format == "hf_transformers"
+    assert any("ForSequenceClassification" in e for e in ident.evidence)
+
+
+def test_level1_hf_config_embedder_not_misjudged_as_rerank(tmp_path: Path):
+    """对照组:纯 *Model 架构的 embedder 仍判 text-embedding,不被规则误伤。"""
+    repo = tmp_path / "bge-m3"
+    _write(repo / "config.json", {
+        "model_type": "xlm-roberta",
+        "architectures": ["XLMRobertaModel"],
+        "hidden_size": 1024,
+    })
+    ident = identify_path(repo)
+    assert ident.capability == "text-embedding"
+
+
 def test_level2_diffusers_text_to_image(tmp_path: Path):
     repo = tmp_path / "SDXL-1.0"
     _write(repo / "model_index.json", {"_class_name": "StableDiffusionXLPipeline", "_diffusers_version": "0.30.0"})
