@@ -187,6 +187,10 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
   const describeAbortRef = React.useRef<AbortController | null>(null);
   // 上次自动拉取用过的 api_key,避免同一个 key 重复 blur 反复 fetch
   const lastAutoKey = React.useRef<string>('');
+  // 「默认开启」守卫:配好 API key + 模型后,自动把总开关打开**一次**,免得用户
+  // 配完忘了开。之后用户手动关掉不会被翻回去;原本就 enabled、或原平台已是
+  // 「有 key + 有模型」的可用态(其 enabled=false 可能是用户故意停用)都不自动碰。
+  const autoEnabledRef = React.useRef(false);
 
   // 打开时把 platform 灌成 draft
   React.useEffect(() => {
@@ -195,10 +199,35 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
       setTestResult(null);
       setShowKey(false);
       setPersisted(existsInDb);
+      autoEnabledRef.current = false;
     } else {
       setDraft(null);
     }
   }, [platform, existsInDb]);
+
+  // 「默认开启」:draft 达到「有 API key + 模型清单非空」时,自动开总开关一次。
+  React.useEffect(() => {
+    if (!draft || autoEnabledRef.current) return;
+    // 已开 / 原平台本就是可用态 → 不自动碰,仅置位守卫
+    const platformWasUsable =
+      !!platform &&
+      !!platform.api_key &&
+      MODEL_TYPES.some(
+        (meta) => ((platform[meta.field] as string[] | undefined) ?? []).length > 0,
+      );
+    if (draft.enabled || platformWasUsable) {
+      autoEnabledRef.current = true;
+      return;
+    }
+    const hasKey = draft.api_key.trim().length > 0;
+    const hasModels = MODEL_TYPES.some(
+      (meta) => (draft.models[meta.key] ?? []).length > 0,
+    );
+    if (hasKey && hasModels) {
+      autoEnabledRef.current = true;
+      setDraft((d) => (d ? { ...d, enabled: true } : d));
+    }
+  }, [draft, platform]);
 
   const set = <K extends keyof DraftState>(k: K, v: DraftState[K]) => {
     setDraft((d) => (d ? { ...d, [k]: v } : d));
@@ -513,10 +542,6 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
               保存后即时生效,无需重启服务
             </DialogDescription>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-[var(--cy-text-tertiary)]">总开关</span>
-            <Switch checked={draft.enabled} onCheckedChange={(v) => set('enabled', v)} />
-          </div>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -778,10 +803,13 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
             </span>
           )}
           <div className="flex items-center gap-2">
-            {/* 测试连通已移到「自动检测」开关同行右侧,这里页脚只保留「取消 / 保存」 */}
+            {/* 测试连通已移到「自动检测」开关同行右侧,这里页脚只保留「取消 / 总开关 / 保存」 */}
             <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
               取消
             </Button>
+            {/* 总开关 — 紧挨「保存」前:配好 API key + 模型后会自动打开,保存即生效 */}
+            <span className="text-[11px] text-[var(--cy-text-tertiary)]">总开关</span>
+            <Switch checked={draft.enabled} onCheckedChange={(v) => set('enabled', v)} />
             <Button
               size="sm"
               onClick={onSave}
