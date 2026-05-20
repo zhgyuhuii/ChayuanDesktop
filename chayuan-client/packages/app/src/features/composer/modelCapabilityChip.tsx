@@ -149,6 +149,20 @@ export function isInteractiveCapability(cap: ModalityCapability): boolean {
 }
 
 /**
+ * 对话类能力 —— 知识问答 / KB 检索链路**必须走 LLM 生成**,只有 chat(纯文本
+ * 对话)和 vl(视觉语言,走 chat 链路的多模态 content)能用。asr / tts / t2i /
+ * t2v / image_edit / ocr 虽然也"可交互",但接进知识问答会在生成阶段才报
+ * ModelNotConfigured / 404。绑定了知识库时,模型选择器据此把范围收窄到这里。
+ */
+export const CHAT_CAPABILITIES: ReadonlySet<ModalityCapability> = new Set([
+  'chat', 'vl',
+]);
+
+export function isChatCapability(cap: ModalityCapability): boolean {
+  return CHAT_CAPABILITIES.has(cap);
+}
+
+/**
  * 推断模型的 capability — 先用 ``classifyModalityCapability``(模型名前缀),
  * 命中不到再回退看后端 ``model_type``(老版本字段)。
  *

@@ -20,6 +20,7 @@ import { useComposerStore, useComposerS } from '../../store/composer';
 import { logEvent, Events } from '@chayuan/observability';
 import { useLogosManifest, useResolveLogo } from '../catalog/useLogos';
 import { ModelMenuList } from '../composer/ModelMenuList';
+import { CHAT_CAPABILITIES } from '../composer/modelCapabilityChip';
 
 const Logo: React.FC<{ src?: string; name: string }> = ({ src, name }) => {
   const [errored, setErrored] = React.useState(false);
@@ -59,6 +60,8 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
   const modelId = value?.modelId ?? storeModelId;
   const platformName = value?.platformName ?? storePlatformName;
   const setModel = onChange ?? storeSetModel;
+  // 绑定知识库时模型选择收窄到对话类(跟 ComposerModelPill 一致的防呆)
+  const kbBound = useComposerS((s) => s.selectedKuIds.length > 0);
   const [open, setOpen] = React.useState(false);
 
   // 与 ComposerModelPill 同步:快速读 + 不限 type — 让用户在顶栏也能选 t2i/tts 等
@@ -95,6 +98,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
           models={data}
           currentId={modelId}
           currentPlatform={platformName}
+          allowCapabilities={kbBound ? CHAT_CAPABILITIES : undefined}
           resolveLogo={resolveLogo}
           emptyAction={
             <Button

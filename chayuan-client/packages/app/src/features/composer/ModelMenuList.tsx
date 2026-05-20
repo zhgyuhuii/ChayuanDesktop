@@ -184,6 +184,13 @@ export interface ModelMenuListProps {
   emptyAction?: React.ReactNode;
   /** dropdown 容器最大高度(默认 384px) */
   maxHeight?: number;
+  /**
+   * 可选 capability 白名单 —— 传入后,下拉在 ``isInteractiveCapability`` 基础上
+   * 再收窄,只展示落在白名单内的模型。绑定知识库时上层传 ``CHAT_CAPABILITIES``
+   * (chat/vl),把 asr/tts/t2i 等非对话模型挡在选择器外,从源头避免知识问答
+   * 选错模型 → 生成时才报 ModelNotConfigured / 404。不传则维持原行为。
+   */
+  allowCapabilities?: ReadonlySet<ModalityCapability>;
 }
 
 /**
@@ -209,6 +216,7 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
   emptyLabel = '暂无可用模型',
   emptyAction,
   maxHeight = 384,
+  allowCapabilities,
 }) => {
   const [keyword, setKeyword] = React.useState('');
   const [capFilter, setCapFilter] = React.useState<ModalityCapability | null>(null);
@@ -222,10 +230,17 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
   }, []);
 
   /** 先把 embedding / rerank 这种"后台索引"模型从用户面前藏起来 — 它们在
-   *  对话框里点也没用,留着只是凑数 + 误导(参考 ``isInteractiveCapability``)。 */
+   *  对话框里点也没用,留着只是凑数 + 误导(参考 ``isInteractiveCapability``)。
+   *  再叠加可选 ``allowCapabilities`` 白名单(绑定知识库时只剩 chat/vl)。 */
   const interactiveModels = React.useMemo(
-    () => models.filter((m) => isInteractiveCapability(inferCapability(m))),
-    [models],
+    () =>
+      models.filter((m) => {
+        const cap = inferCapability(m);
+        if (!isInteractiveCapability(cap)) return false;
+        if (allowCapabilities && !allowCapabilities.has(cap)) return false;
+        return true;
+      }),
+    [models, allowCapabilities],
   );
 
   /** capability chip 行:只列出在当前 models 里**实际存在**的分类。 */

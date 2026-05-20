@@ -30,6 +30,7 @@ import { LOCAL_PLATFORM_KEY, LOCAL_PLATFORM_LABEL, displayLabel } from './ModelM
 import { useLogosManifest, useResolveLogo } from '../catalog/useLogos';
 import { useTranslation } from '../../i18n';
 import { ModelMenuList } from './ModelMenuList';
+import { CHAT_CAPABILITIES, inferCapability, isChatCapability } from './modelCapabilityChip';
 
 const Logo: React.FC<{ src?: string; name: string }> = ({ src, name }) => {
   const [errored, setErrored] = React.useState(false);
@@ -74,6 +75,8 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   const modelId = useComposerS((s) => s.modelId);
   const platformName = useComposerS((s) => s.platformName);
   const setModel = useComposerS((s) => s.setModel);
+  // 绑定了知识库 → 知识问答必走 LLM 链路,模型选择收窄到对话类(chat/vl)
+  const kbBound = useComposerS((s) => s.selectedKuIds.length > 0);
   const [open, setOpen] = React.useState(false);
 
   // 单机/桌面版关闭 check_access:每个不可达厂商会触发 OpenAI client 4 次重试
@@ -131,6 +134,20 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
     }
   }, [modelId, modelsWithLocal, current, setModel]);
 
+  // KB 防呆(反向场景):绑定知识库时,当前模型必须是对话类。用户若先选了非
+  // 对话模型(asr/tts/t2i…)再绑 KB,或持久化恢复出"非对话模型 + KB"的组合,
+  // 这里自动切到第一个可用对话模型 —— 否则知识问答发送时才会报
+  // ModelNotConfigured / 404。正向场景(KB 已绑时再选模型)由下拉的
+  // allowCapabilities 过滤兜住,用户根本选不到非对话模型。
+  React.useEffect(() => {
+    if (!kbBound || !current) return;
+    if (isChatCapability(inferCapability(current))) return;
+    const fallback = modelsWithLocal.find(
+      (m) => m.available !== false && isChatCapability(inferCapability(m)),
+    );
+    if (fallback) setModel(fallback.id, fallback.platform_name);
+  }, [kbBound, current, modelsWithLocal, setModel]);
+
   const currentLogo = resolveLogo(current?.platform_name, current?.id);
   // pill 上显示用 displayLabel(本地模型短化:Qwen3-4B-Instruct-2507 而不是
   // models/bundled/chat/Qwen3-4B-Instruct-2507-GGUF);完整 id 仍走 title hover。
@@ -172,6 +189,7 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
           models={modelsWithLocal}
           currentId={modelId}
           currentPlatform={platformName}
+          allowCapabilities={kbBound ? CHAT_CAPABILITIES : undefined}
           resolveLogo={resolveLogo}
           emptyLabel={t('chat.noModelAvailable')}
           emptyAction={
