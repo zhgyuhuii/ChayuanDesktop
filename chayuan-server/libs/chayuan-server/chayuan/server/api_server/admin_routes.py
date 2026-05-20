@@ -1275,6 +1275,27 @@ def admin_models_scan_and_mount() -> Dict[str, Any]:
     from chayuan.settings import CHAYUAN_ROOT
     bundled_root = str((__import__("pathlib").Path(CHAYUAN_ROOT) / "models" / "bundled"))
 
+    # ── 汇总:有没有模型 / 有几个 / 哪些 cap 加载失败 ────────────────
+    # 前端 "发现 0 个新模型" 那条提示信息量太小:增量为 0 不等于没模型。
+    # 这里额外回 total / by_capability / problems,让 UI 能讲清楚现状。
+    entries = idx.list_entries()
+    by_capability: Dict[str, int] = {}
+    for e in entries:
+        by_capability[e.capability] = by_capability.get(e.capability, 0) + 1
+
+    problems: list[Dict[str, str]] = []
+    try:
+        from chayuan.server.model_registry.local_runtime_registry import get_registry
+        for cap, st in get_registry().all_statuses().items():
+            sd = st.to_dict()
+            if sd.get("state") == "failed":
+                problems.append({
+                    "capability": cap,
+                    "reason": sd.get("last_error") or "未知错误",
+                })
+    except Exception as e:  # registry 未就绪不应让扫描接口整体失败
+        logger.warning("[scan_and_mount] 收集 runtime 失败状态出错: %r", e)
+
     return {
         "code": 0,
         "msg": "ok",
@@ -1286,6 +1307,11 @@ def admin_models_scan_and_mount() -> Dict[str, Any]:
             },
             "auto_started": auto_started,
             "bundled_root": bundled_root,
+            "summary": {
+                "total": len(entries),
+                "by_capability": by_capability,
+                "problems": problems,
+            },
         },
     }
 

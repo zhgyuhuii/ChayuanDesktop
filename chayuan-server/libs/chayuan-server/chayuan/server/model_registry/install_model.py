@@ -459,11 +459,25 @@ class InstallModelJobManager:
                     f"[install_model] modelscope single-file: "
                     f"{job.model_id} :: {job.requested_file}"
                 )
-            local_path = ms_file(
-                model_id=job.model_id,
-                file_path=job.requested_file,
-                cache_dir=str(target_dir),
-            )
+            # local_dir 让单文件**平铺**进 target_dir;cache_dir 模式会多套
+            # 一层 <owner>/<name>(跟下面 snapshot 同坑)。老 SDK 不认 → 回退。
+            try:
+                local_path = ms_file(
+                    model_id=job.model_id,
+                    file_path=job.requested_file,
+                    local_dir=str(target_dir),
+                )
+            except TypeError:
+                with self._lock:
+                    job.log_tail.append(
+                        "[install_model] modelscope SDK 不支持 local_dir,"
+                        "回退 cache_dir(会多套一层 owner/name 目录)"
+                    )
+                local_path = ms_file(
+                    model_id=job.model_id,
+                    file_path=job.requested_file,
+                    cache_dir=str(target_dir),
+                )
             with self._lock:
                 job.log_tail.append(f"[install_model] downloaded → {local_path}")
         else:

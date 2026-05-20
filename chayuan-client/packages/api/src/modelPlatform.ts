@@ -690,6 +690,19 @@ export interface ScanAndMountResult {
   auto_started: string[];
   /** ``<CHAYUAN_ROOT>/models/bundled`` 实际绝对路径,UI 给用户看"模型放这里"。 */
   bundled_root: string;
+  /**
+   * 当前本地模型现状汇总。增量(scan_delta)为 0 不代表没模型,UI 用这个
+   * 字段讲清楚"一共有几个模型 / 各能力几个 / 哪些 cap 加载失败"。
+   * 旧后端可能不回此字段,故为可选。
+   */
+  summary?: {
+    /** local_index 里的模型总数。 */
+    total: number;
+    /** 按 capability(索引里的长名,如 ``rerank`` / ``text-embedding``)计数。 */
+    by_capability: Record<string, number>;
+    /** runtime 里处于 failed 状态的 cap + 原因(短名,如 ``rerank``)。 */
+    problems: { capability: string; reason: string }[];
+  };
 }
 
 const MODELS_SCAN_MOUNT = '/admin/models/scan_and_mount';

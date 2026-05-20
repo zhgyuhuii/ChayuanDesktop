@@ -53,7 +53,7 @@ import {
   serverModelsScanAndMount,
 } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
-import { notifySuccess, reportError } from '../../store/errorDialog';
+import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
 
 export interface InstallModelDialogProps {
   open: boolean;
@@ -87,9 +87,11 @@ const CAP_LABEL: Record<LocalRuntimeCapability, string> = {
 // Dialog 一打开就把对应 cap 的 modelId + source + specificFile 预填好,用户点
 // "开始下载"即装,不需要看 examples 再手填。
 //
-// rerank:预填 ModelScope 源的 bge-reranker-v2-m3 整仓 —— 这些 reranker 仓带
-//   onnx/,走 embedding/rerank 的 ONNX local fallback 加载(不依赖 llama-server
-//   GGUF)。ModelScope 国内源,避开 HF Xet LFS 大文件卡 0% 的老坑。
+// rerank:rerank sidecar 跑 llama-server,**只吃 GGUF**。HF safetensors 整仓
+//   (BAAI/bge-reranker-v2-m3 那种)扫得到但 sidecar 起不来,报 "format=
+//   'hf_transformers' 不是 gguf"。所以预填的必须是 *-GGUF 量化仓库,并指定
+//   单个 quant 文件(单文件下载,免得把 9 个 quant 全拉下来)。
+//   gpustack/* 系列在 ModelScope 国内源,避开 HF Xet LFS 大文件卡 0% 的老坑。
 // embedding / image-embedding 仍故意不列:
 //   - embedding:GGUF/safetensors 取舍未定,留 examples 让用户主动挑。
 //   - image-embedding:HF transformers 整仓,走 infinity Python sidecar;
@@ -107,8 +109,9 @@ const VERIFIED_DEFAULTS: Partial<Record<LocalRuntimeCapability, VerifiedDefault>
     file: 'ggml-tiny.bin',
   },
   rerank: {
-    id: 'BAAI/bge-reranker-v2-m3',
+    id: 'gpustack/bge-reranker-v2-m3-GGUF',
     source: 'modelscope',
+    file: 'bge-reranker-v2-m3-Q8_0.gguf',
   },
 };
 
@@ -126,6 +129,8 @@ type CapExample = {
   source: InstallModelSource;
   label?: string;
   note?: string;
+  /** GGUF 多 quant 仓库:指定单个 quant 文件,点示例时一并填进"指定文件"。 */
+  file?: string;
 };
 const CAP_HINTS: Record<
   LocalRuntimeCapability,
@@ -148,45 +153,27 @@ const CAP_HINTS: Record<
     note: '推荐 BGE / GTE 系列;multi-lingual 选 bge-m3 或 gte-multilingual',
   },
   rerank: {
-    search: 'reranker',
-    // 5 个 reranker 全部预填为 ModelScope 源(国内快,避开 HF Xet LFS 卡 0%)。
-    // id 已按 ModelScope 实际 repo 名校正:
-    //   - gte:HF 是 Alibaba-NLP/gte-multilingual-reranker-base,
-    //         MS 是 iic/gte_passage-ranking_multilingual-base
-    //   - ms-marco:HF 是 ...MiniLM-L-6-v2(带连字符),MS 是 ...MiniLM-L6-v2
+    search: 'reranker GGUF',
+    // rerank sidecar 跑 llama-server,只吃 GGUF。这里预填的都是 ModelScope 上的
+    // *-GGUF 量化仓库(gpustack 系列),并指定单个 Q8_0 quant 文件 → 单文件
+    // 下载,免得把 9 个 quant 全拉下来。点示例会一并填进下方"指定文件"。
     examples: [
       {
-        id: 'BAAI/bge-reranker-v2-m3',
+        id: 'gpustack/bge-reranker-v2-m3-GGUF',
         source: 'modelscope',
-        label: 'bge-reranker-v2-m3 (默认)',
-        note: '2.12GB · 100+ 语种 · 多语种+中文办公强,跟 bge-m3 embedding 同家族对齐',
+        file: 'bge-reranker-v2-m3-Q8_0.gguf',
+        label: 'bge-reranker-v2-m3 · Q8_0 (默认)',
+        note: '606MB · 100+ 语种 · 多语种+中文办公强,跟 bge-m3 embedding 同家族对齐',
       },
       {
-        id: 'iic/gte_passage-ranking_multilingual-base',
+        id: 'gpustack/jina-reranker-v2-base-multilingual-GGUF',
         source: 'modelscope',
-        label: 'gte-multilingual-reranker-base',
-        note: '584MB · 中英+70 语种 · 首选瘦身,阿里出品,同档质量体积 1/4',
-      },
-      {
-        id: 'jinaai/jina-reranker-v2-base-multilingual',
-        source: 'modelscope',
-        label: 'jina-reranker-v2-base-multilingual',
-        note: '531MB · 中英多语种 · Jina 出品,再小一点',
-      },
-      {
-        id: 'BAAI/bge-reranker-base',
-        source: 'modelscope',
-        label: 'bge-reranker-base',
-        note: '1.04GB · 中英 · bge 家族 v1,想保家族一致性时用',
-      },
-      {
-        id: 'cross-encoder/ms-marco-MiniLM-L6-v2',
-        source: 'modelscope',
-        label: 'ms-marco-MiniLM-L-6-v2',
-        note: '87MB · 仅英文 · 极致小,中文几乎不可用,纯英文场景才选',
+        file: 'jina-reranker-v2-base-multilingual-Q8_0.gguf',
+        label: 'jina-reranker-v2 · Q8_0',
+        note: '291MB · 中英多语种 · Jina 出品,想瘦身选它',
       },
     ],
-    note: '5 个 reranker 已预填 ModelScope 国内源,点示例一键切换;默认 bge-reranker-v2-m3',
+    note: 'rerank 只支持 GGUF;两个示例已预填 ModelScope 单文件源,点一下即装,默认 bge-reranker-v2-m3',
   },
   asr: {
     search: 'whisper',
@@ -327,12 +314,37 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
       const r = await serverModelsScanAndMount.invoke();
       setScanResult(r);
       setBundledRoot(r.bundled_root);
-      if (r.scan_delta.added + r.scan_delta.updated > 0 || r.auto_started.length > 0) {
-        notifySuccess(
-          '扫描完成',
-          `发现 ${r.scan_delta.added} 个新模型;启动了 ${r.auto_started.length} 个 cap`,
+      onSuccess?.();
+
+      // 提示要讲清楚:一共有几个模型、本次有没有变化、有没有 cap 加载失败。
+      // "发现 0 个新模型" 信息量太小 —— 增量为 0 不等于没模型。
+      const sm = r.summary;
+      const total = sm?.total ?? -1;
+      if (total === 0) {
+        notifyInfo(
+          '未发现任何本地模型',
+          `把模型文件夹放进 ${r.bundled_root || 'bundled'}\\<能力>\\(如 rerank、embedding)后再点「扫描挂载」,` +
+            `或用上方「在线下载」一键安装。`,
         );
-        onSuccess?.();
+        return;
+      }
+      const lines: string[] = [];
+      if (total > 0) lines.push(`本地共 ${total} 个模型`);
+      lines.push(
+        `本次新增 ${r.scan_delta.added}、更新 ${r.scan_delta.updated}` +
+          (r.scan_delta.removed > 0 ? `、移除 ${r.scan_delta.removed}` : ''),
+      );
+      if (r.auto_started.length > 0) {
+        lines.push(`已自动启动:${r.auto_started.join('、')}`);
+      }
+      const problems = sm?.problems ?? [];
+      if (problems.length > 0) {
+        lines.push(
+          `⚠ ${problems.map((p) => p.capability).join('、')} 加载失败 — 详见下方说明`,
+        );
+        notifyInfo('扫描完成,但部分模型未就绪', lines.join('\n'));
+      } else {
+        notifySuccess('扫描完成', lines.join('\n'));
       }
     } catch (e) {
       reportError('扫描失败', e instanceof Error ? e.message : String(e));
@@ -407,10 +419,12 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
                   onClick={() => {
                     setModelId(eg.id);
                     setSource(eg.source);
+                    // GGUF 多 quant 仓库:示例带 file 时一并填,空则清掉上次的残留
+                    setSpecificFile(eg.file ?? '');
                   }}
                   title={
                     (eg.note ? eg.note + '\n' : '') +
-                    `${eg.id}\n点击填到下方 (来源:${eg.source})`
+                    `${eg.id}${eg.file ? ' :: ' + eg.file : ''}\n点击填到下方 (来源:${eg.source})`
                   }
                 >
                   {eg.label ?? eg.id}
@@ -616,18 +630,76 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
             </Button>
 
             {scanResult && (
-              <div className="rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-elev1)] p-2 text-xs">
-                扫描完成:新增 {scanResult.scan_delta.added} · 更新{' '}
-                {scanResult.scan_delta.updated} · 删除 {scanResult.scan_delta.removed}
+              <div className="space-y-1.5 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-elev1)] p-2 text-xs">
+                {/* 现状:一共几个模型 + 各能力几个 —— 增量为 0 不代表没模型 */}
+                {scanResult.summary ? (
+                  scanResult.summary.total === 0 ? (
+                    <div className="text-amber-700 dark:text-amber-300">
+                      未发现任何本地模型。把模型文件夹放进{' '}
+                      <code className="bg-[var(--cy-surface-base)] px-1">
+                        {bundledRoot || 'bundled'}\{capability}\
+                      </code>{' '}
+                      后再点「扫描挂载」,或用上方「在线下载」。
+                    </div>
+                  ) : (
+                    <div>
+                      本地共 <b>{scanResult.summary.total}</b> 个模型
+                      {Object.keys(scanResult.summary.by_capability).length > 0 && (
+                        <span className="text-[var(--cy-text-tertiary)]">
+                          {' '}
+                          ·{' '}
+                          {Object.entries(scanResult.summary.by_capability)
+                            .map(([cap, n]) => `${cap} ${n}`)
+                            .join(' / ')}
+                        </span>
+                      )}
+                    </div>
+                  )
+                ) : null}
+
+                <div className="text-[var(--cy-text-tertiary)]">
+                  本次:新增 {scanResult.scan_delta.added} · 更新{' '}
+                  {scanResult.scan_delta.updated} · 移除{' '}
+                  {scanResult.scan_delta.removed}
+                </div>
+
                 {scanResult.auto_started.length > 0 && (
-                  <div className="mt-1 text-emerald-700 dark:text-emerald-300">
-                    ✓ 已自动启动 cap:{scanResult.auto_started.join(', ')}
+                  <div className="text-emerald-700 dark:text-emerald-300">
+                    ✓ 已自动启动:{scanResult.auto_started.join('、')}
                   </div>
                 )}
-                {scanResult.scan_delta.added === 0 &&
-                  scanResult.scan_delta.updated === 0 && (
-                    <div className="mt-1 text-[var(--cy-text-tertiary)]">
-                      没扫到新模型 — 确认文件是否真的放到了 {capability}/ 子目录?
+
+                {/* 加载失败的 cap:逐条给原因,GGUF 格式错单独给可执行建议 */}
+                {(scanResult.summary?.problems ?? []).map((p) => {
+                  const isGgufFmt = /gguf/i.test(p.reason);
+                  return (
+                    <div
+                      key={p.capability}
+                      className="rounded border border-amber-300/60 bg-amber-50 p-1.5 text-amber-800 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200"
+                    >
+                      ⚠ <b>{p.capability}</b> 加载失败:{p.reason}
+                      {isGgufFmt && (
+                        <div className="mt-0.5">
+                          该能力的本地引擎只支持 <b>GGUF</b> 模型。当前放的是 HF
+                          safetensors 整仓 → 删掉它,改用上方示例下载{' '}
+                          <code className="bg-[var(--cy-surface-base)] px-1">
+                            *-GGUF
+                          </code>{' '}
+                          量化版本。
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {scanResult.summary &&
+                  scanResult.summary.total > 0 &&
+                  scanResult.scan_delta.added === 0 &&
+                  scanResult.scan_delta.updated === 0 &&
+                  (scanResult.summary.problems ?? []).length === 0 && (
+                    <div className="text-[var(--cy-text-tertiary)]">
+                      模型清单无变化 —— 若刚放了新文件,确认它在{' '}
+                      {capability}/ 子目录的独立文件夹里。
                     </div>
                   )}
               </div>
