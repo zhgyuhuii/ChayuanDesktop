@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # 下载 llama-server pre-built binary 到 vendor/services/llama-server/<platform>/
 #
+# 注:版本号 / 资产名 schema / GitHub 镜像清单同时被「应用内运行时服务下载」
+# 复用 —— 真源是 chayuan-server/.../chayuan/server/runtime/install_service.py
+# (_LLAMA_VERSION / _llama_asset_for / _GH_MIRRORS)。改一边记得同步另一边。
+#
 # 用法:
 #   bash scripts/install-llama-server.sh [version] [--target <plat>]
 #

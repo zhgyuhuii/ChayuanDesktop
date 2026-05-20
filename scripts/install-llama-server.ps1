@@ -7,6 +7,11 @@
   qwen3 / qwen3-moe / phi-4 / 2025 后的架构需要 b5092+ 才能加载。
   老 b4404 默认不支持 qwen3,撞 'unknown model architecture' 直接 fail。
 
+  注:版本号 / 资产名 schema / GitHub 镜像清单同时被「应用内运行时服务
+  下载」复用 —— 真源是
+    chayuan-server/libs/.../chayuan/server/runtime/install_service.py
+  (_LLAMA_VERSION / _llama_asset_for / _GH_MIRRORS)。改这里记得同步那边。
+
 .PARAMETER Target
   vendor 平台子目录。不传 = 按 PROCESSOR_ARCHITECTURE 选默认 win-x64 / win-arm64。
   支持:

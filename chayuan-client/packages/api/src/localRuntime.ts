@@ -252,6 +252,87 @@ async function pytorchInstallTask(taskId: string): Promise<PytorchInstallTask> {
   ).data;
 }
 
+// ─── 运行时服务(sidecar 二进制)下载 ───
+// 「运行时服务双保险」:llama-server / whisper-server 既打包进完整安装包,
+// 又支持缺失时按平台一键下载补回。对齐后端 /runtime/service-binaries/*
+// (刻意避开 /runtime/services/* —— 那里 GET /{name} 会吞静态段)。
+
+/** 单个运行时引擎(llama-server / whisper-server)的就绪状态。 */
+export interface RuntimeServiceEngine {
+  /** 引擎名:'llama-server' | 'whisper-server' */
+  engine: string;
+  /** 主 binary 名(不含 .exe) */
+  binary: string;
+  /** 当前平台已有可用 binary */
+  present: boolean;
+  /** 缺失时是否支持应用内下载补回(whisper 在非 Windows 平台为 false) */
+  downloadable: boolean;
+  /** 已就绪时的 binary 路径 */
+  path: string | null;
+  /** VERSION 文件首行(如 'b9174') */
+  version: string | null;
+  /** present=false 时的人类可读说明 */
+  reason: string | null;
+}
+
+export interface RuntimeServicesStatus {
+  /** 后端探测到的当前 vendor 平台名(如 'win-x64');无法识别为 null */
+  platform: string | null;
+  engines: RuntimeServiceEngine[];
+}
+
+/** 运行时服务下载任务 — 跟 PytorchInstallTask 同构。 */
+export interface RuntimeServiceInstallJob {
+  id: string;
+  engine: string;
+  platform: string;
+  /** 实际使用的 GitHub 镜像前缀('' = 直连) */
+  mirror: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  step: string;
+  started_at: number;
+  ended_at: number | null;
+  exit_code: number | null;
+  progress_pct: number;
+  progress_message: string;
+  target_dir: string | null;
+  log_tail: string[];
+}
+
+async function servicesStatus(): Promise<RuntimeServicesStatus> {
+  return (await request<RuntimeServicesStatus>('/runtime/service-binaries/status')).data;
+}
+
+async function installService(
+  engine: string,
+  opts: { platform?: string } = {},
+): Promise<RuntimeServiceInstallJob> {
+  return (
+    await request<RuntimeServiceInstallJob>('/runtime/service-binaries/install', {
+      method: 'POST',
+      body: { engine, ...(opts.platform ? { platform: opts.platform } : {}) },
+      timeoutMs: 30_000, // start 只是入队;真实下载异步跑
+    })
+  ).data;
+}
+
+async function installServiceTask(jobId: string): Promise<RuntimeServiceInstallJob> {
+  return (
+    await request<RuntimeServiceInstallJob>(
+      `/runtime/service-binaries/install/${encodeURIComponent(jobId)}`,
+    )
+  ).data;
+}
+
+async function cancelInstallService(jobId: string): Promise<RuntimeServiceInstallJob> {
+  return (
+    await request<RuntimeServiceInstallJob>(
+      `/runtime/service-binaries/install/${encodeURIComponent(jobId)}/cancel`,
+      { method: 'POST' },
+    )
+  ).data;
+}
+
 // ─── OCR (RapidOCR 进程内 onnxruntime,没有独立 sidecar) ───
 
 export interface RuntimeOcrHealth {
@@ -293,4 +374,9 @@ export const localRuntime = {
   pytorchStatus,
   pytorchInstall,
   pytorchInstallTask,
+  // 运行时服务(sidecar 二进制)下载补回
+  servicesStatus,
+  installService,
+  installServiceTask,
+  cancelInstallService,
 };

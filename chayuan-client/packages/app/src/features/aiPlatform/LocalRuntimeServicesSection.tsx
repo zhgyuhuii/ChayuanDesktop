@@ -38,6 +38,8 @@ import {
   type PytorchInstallTask,
   type PytorchStatus,
   type PytorchVariant,
+  type RuntimeServiceEngine,
+  type RuntimeServiceInstallJob,
   runtimeModels,
 } from '@chayuan/api';
 import { Button, Switch } from '@chayuan/ui';
@@ -386,6 +388,9 @@ export const LocalRuntimeServicesSection: React.FC = () => {
             ~250 MB(CPU)/ 2-3 GB(CUDA)不打包进 installer;启动后按需检测+安装。
             优先内置 wheel(无网兜底),没有 fallback 在线官方源。*/}
         <PytorchRow />
+        {/* 运行时服务(sidecar 二进制)— llama-server / whisper-server。
+            完整安装包已内置;轻量版 / 缺失时可按平台一键下载补回。*/}
+        <RuntimeServicesRow />
       </div>
 
       {installFor && (
@@ -942,6 +947,231 @@ const PytorchRow: React.FC = () => {
           </details>
         )}
       </div>
+    </div>
+  );
+};
+
+/**
+ * 「运行时服务」行 — llama-server / whisper-server 这两个 sidecar 二进制的
+ * 就绪状态 + 一键下载补回。
+ *
+ * 设计:「运行时服务双保险」的应用内补回侧。
+ *   - 完整安装包已把 vendor/services 打进去 → 这两个引擎显示「已内置」(绿)
+ *   - 轻量版 / 完整包构建漏装 → 显示「缺失」(琥珀)+「下载」按钮
+ *   - whisper-server 在非 Windows 平台 upstream 没预编译 → downloadable=false,
+ *     显示原因,不给下载按钮(对齐 install-whisper-server.sh 的能力边界)
+ *   - 下载中:轮询 job,展示步骤 + 进度条 + 日志,跟 PyTorch 行体验一致
+ *   - 平台名由后端探测返回,前端不硬编码
+ */
+const ENGINE_LABEL: Record<string, string> = {
+  'llama-server': 'llama-server(对话 / 嵌入 / 重排)',
+  'whisper-server': 'whisper-server(语音识别)',
+};
+
+const RuntimeServicesRow: React.FC = () => {
+  const [status, setStatus] = React.useState<{
+    platform: string | null;
+    engines: RuntimeServiceEngine[];
+  } | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  // engine 名 → 当前下载 job;null 表示该 engine 没有进行中的下载
+  const [jobs, setJobs] = React.useState<Record<string, RuntimeServiceInstallJob | null>>({});
+  // engine 名 → 是否正在轮询(用来 disable 按钮)
+  const [busy, setBusy] = React.useState<Record<string, boolean>>({});
+
+  const refresh = React.useCallback(async () => {
+    try {
+      setStatus(await localRuntime.servicesStatus());
+      setError(null);
+    } catch (e) {
+      // 老服务端没有这个端点 → 静默(整行不渲染)
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // 下载中:轮询对应 job 直到终态
+  const pollJob = React.useCallback(
+    async (engine: string, jobId: string) => {
+      setBusy((b) => ({ ...b, [engine]: true }));
+      try {
+        for (;;) {
+          const job = await localRuntime.installServiceTask(jobId);
+          setJobs((j) => ({ ...j, [engine]: job }));
+          if (['succeeded', 'failed', 'cancelled'].includes(job.status)) {
+            // 下完重拉一次 status,让「缺失」翻成「已就绪」
+            await refresh();
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy((b) => ({ ...b, [engine]: false }));
+      }
+    },
+    [refresh],
+  );
+
+  const onDownload = React.useCallback(
+    async (engine: string) => {
+      setError(null);
+      setBusy((b) => ({ ...b, [engine]: true }));
+      try {
+        const job = await localRuntime.installService(engine);
+        setJobs((j) => ({ ...j, [engine]: job }));
+        void pollJob(engine, job.id);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setBusy((b) => ({ ...b, [engine]: false }));
+      }
+    },
+    [pollJob],
+  );
+
+  const onCancel = React.useCallback(async (engine: string, jobId: string) => {
+    try {
+      const job = await localRuntime.cancelInstallService(jobId);
+      setJobs((j) => ({ ...j, [engine]: job }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  // 老服务端没有此端点 — 整行不渲染,避免误导
+  if (!status && error) return null;
+  if (!status) return null;
+
+  return (
+    <div
+      id="local-runtime-services-binaries"
+      className="rounded-md border border-[var(--cy-border-subtle)] p-3 space-y-2 scroll-mt-4"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-[var(--cy-text-primary)]">
+          运行时服务
+        </span>
+        <span
+          className="rounded-sm border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+          title="本地模型推理依赖的 sidecar 二进制;完整安装包已内置,缺失时可按平台下载补回"
+        >
+          {status.platform ?? '未知平台'}
+        </span>
+      </div>
+
+      {status.engines.map((eng) => {
+        const job = jobs[eng.engine] ?? null;
+        const isDownloading =
+          (job != null && (job.status === 'queued' || job.status === 'running')) ||
+          busy[eng.engine] === true;
+        const stateLabel = eng.present
+          ? '已就绪'
+          : eng.downloadable
+            ? '可下载'
+            : '不可用';
+        const stateColor = eng.present
+          ? 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30'
+          : eng.downloadable
+            ? 'bg-amber-500/15 text-amber-700 border-amber-500/30'
+            : 'bg-zinc-500/15 text-zinc-600 border-zinc-500/30';
+        const dotColor = eng.present
+          ? 'bg-emerald-500'
+          : eng.downloadable
+            ? 'bg-amber-500'
+            : 'bg-zinc-400';
+        return (
+          <div
+            key={eng.engine}
+            className="rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2.5 space-y-1.5"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${stateColor}`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
+                {stateLabel}
+              </span>
+              <span className="text-xs font-medium text-[var(--cy-text-primary)]">
+                {ENGINE_LABEL[eng.engine] ?? eng.engine}
+              </span>
+              {eng.present && eng.version && (
+                <code className="text-[11px] text-[var(--cy-text-tertiary)]">
+                  {eng.version}
+                </code>
+              )}
+
+              <div className="ml-auto flex items-center gap-1.5">
+                {!eng.present && eng.downloadable && !isDownloading && (
+                  <Button size="sm" onClick={() => void onDownload(eng.engine)}>
+                    <CloudDownload className="mr-1 h-3.5 w-3.5" />
+                    下载
+                  </Button>
+                )}
+                {isDownloading && job && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void onCancel(eng.engine, job.id)}
+                  >
+                    取消
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* 缺失原因 — 仅在未就绪时显示 */}
+            {!eng.present && eng.reason && !isDownloading && (
+              <div className="text-[11px] text-[var(--cy-text-tertiary)]">
+                {eng.reason}
+              </div>
+            )}
+
+            {/* 下载进度 */}
+            {job && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-[var(--cy-text-tertiary)]">
+                  <span>
+                    {job.progress_message || job.step || job.status}
+                    {job.mirror ? ` · 镜像 ${job.mirror}` : ''}
+                  </span>
+                  <span>{Math.round(job.progress_pct)}%</span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--cy-surface-2)]">
+                  <div
+                    className={
+                      'h-full rounded-full transition-all ' +
+                      (job.status === 'failed'
+                        ? 'bg-rose-500'
+                        : job.status === 'succeeded'
+                          ? 'bg-emerald-500'
+                          : 'bg-sky-500')
+                    }
+                    style={{ width: `${Math.min(100, Math.max(0, job.progress_pct))}%` }}
+                  />
+                </div>
+                {job.status === 'failed' && (
+                  <details className="mt-1 rounded border border-rose-500/30 bg-rose-50 p-1.5 dark:bg-rose-950/30">
+                    <summary className="cursor-pointer text-[11px] text-rose-700 dark:text-rose-300">
+                      下载失败 — 查看日志
+                    </summary>
+                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-[10px] font-mono text-rose-700 dark:text-rose-300">
+                      {job.log_tail.slice(-30).join('\n')}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {error && (
+        <div className="text-[11px] text-rose-600 dark:text-rose-400">{error}</div>
+      )}
     </div>
   );
 };

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # install-whisper-server.sh — 装 whisper-server 二进制 (Mac / Linux)
 #
+# 注:版本号 / GitHub 镜像清单同时被「应用内运行时服务下载」复用 —— 真源是
+# chayuan-server/.../chayuan/server/runtime/install_service.py
+# (_WHISPER_VERSION / _whisper_asset_for / _GH_MIRRORS)。Windows 预编译 zip
+# 走 install_service.py 直接下;本脚本只管 Mac/Linux 的 docker/brew/源码路径。
+#
 # 现状(2026-05-16):whisper.cpp upstream 官方只发 Windows pre-built,**没有**
 # Linux/Mac binary。本脚本两条路:
 #

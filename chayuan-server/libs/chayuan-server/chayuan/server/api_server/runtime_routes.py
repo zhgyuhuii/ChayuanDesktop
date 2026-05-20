@@ -788,4 +788,77 @@ def ocr_health() -> Dict[str, Any]:
     return _ok({"state": state, "reason": reason, "detail": detail})
 
 
+# ─────────────────── 运行时服务(sidecar 二进制)下载 ───────────────────
+# 「运行时服务双保险」的应用内补回侧:llama-server / whisper-server 既打包进
+# 完整安装包,又支持缺失时按平台一键下载。详见 runtime/install_service.py。
+#
+# 路径用 /runtime/service-binaries/* 独立命名空间 —— 刻意不挂在
+# /runtime/services/* 下:那里已有 GET /runtime/services/{name},会把
+# /runtime/services/status 这类静态段当成 name 参数吞掉(FastAPI 按注册顺序
+# 匹配,{name} 先注册)。
+
+
+@runtime_router.get(
+    "/service-binaries/status",
+    summary="当前平台 llama-server / whisper-server 就绪状态",
+)
+def service_binaries_status() -> Dict[str, Any]:
+    """前端「本地模型服务 → 运行时服务」区据此渲染:已内置 / 缺失 / 可下载。"""
+    from chayuan.server.runtime.install_service import service_status
+
+    return _ok(service_status())
+
+
+@runtime_router.post(
+    "/service-binaries/install",
+    summary="按当前平台下载 llama-server / whisper-server 补回",
+)
+def service_binaries_install(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """body: ``{"engine": "llama-server" | "whisper-server", "platform": "win-x64"(可选)}``。
+
+    异步跑下载 + 解压 + 校验,返回 job;前端轮询
+    ``GET /runtime/service-binaries/install/{job_id}`` 看进度。
+    平台不传 = 后端探测当前 host。
+    """
+    from chayuan.server.runtime.install_service import get_install_service_manager
+
+    engine = str((body or {}).get("engine") or "").strip()
+    platform = (body or {}).get("platform")
+    platform = str(platform).strip() if platform else None
+    try:
+        job = get_install_service_manager().start(engine=engine, platform=platform)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return _ok(job.to_dict())
+
+
+@runtime_router.get(
+    "/service-binaries/install/{job_id}",
+    summary="查运行时服务下载任务进度 / 日志",
+)
+def service_binaries_install_status(job_id: str) -> Dict[str, Any]:
+    from chayuan.server.runtime.install_service import get_install_service_manager
+
+    job = get_install_service_manager().get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"unknown job_id {job_id!r}")
+    return _ok(job.to_dict())
+
+
+@runtime_router.post(
+    "/service-binaries/install/{job_id}/cancel",
+    summary="取消运行时服务下载任务",
+)
+def service_binaries_install_cancel(job_id: str) -> Dict[str, Any]:
+    from chayuan.server.runtime.install_service import get_install_service_manager
+
+    try:
+        job = get_install_service_manager().cancel(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown job_id {job_id!r}")
+    return _ok(job.to_dict())
+
+
 __all__ = ["runtime_router"]

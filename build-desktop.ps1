@@ -947,8 +947,16 @@ if ($SkipModelCheck) {
 
     # services 体检 — 跟 bundled_models 配套,看 launcher binary 在不在
     # (历史 bug:lite 漏打 services/ 导致模型有但 sidecar 起不来,见 commit f3c51d9)
+    #
+    # 「运行时服务双保险」第一道保险:完整版(full)若 vendor/services/ 缺当前
+    # 平台的 llama-server / whisper-server,**直接 fail-fast 退出**,绝不静默
+    # 出一个跑不了本地模型的"完整包"。常见踩坑:开发者加了 -SkipInstallVendor
+    # 跳过自动安装,又忘了手动跑 install-vendor → 上面 0a 段被跳过,这里若只
+    # Write-Note 就会出问题包。lite 不在此 fail-fast(lite 缺 services 走应用内
+    # 下载补回,见 LocalRuntimeServicesSection「运行时服务」区)。
     Write-Step 'services 体检 (本次打包会装哪些 launcher binary)'
     $svcCheck = Join-Path $WorkspaceRoot 'scripts\check-services.py'
+    $buildHasFull = ($Flavors -contains 'full')
     if (Test-Path $svcCheck) {
         if ($pyExe) {
             # 推 host triple → vendor platform 子目录名(同 build.py triple_to_vendor_subdir)
@@ -957,10 +965,25 @@ if ($SkipModelCheck) {
             else                   { $hostVendorPlat = 'win-x64' }
             & $pyExe.Source $svcCheck --target $hostVendorPlat --require llama-server --require whisper-server
             if ($LASTEXITCODE -ne 0) {
+                if ($buildHasFull) {
+                    Write-Host "[FAIL] vendor/services/ 缺当前平台 ($hostVendorPlat) 的 llama-server / whisper-server。" -ForegroundColor Red
+                    Write-Host '  完整版不允许静默出"不含运行时服务"的安装包(装上跑不了本地模型)。' -ForegroundColor Red
+                    Write-Host '  修法(任选一):' -ForegroundColor DarkYellow
+                    Write-Host '    · 跑 .\scripts\install-vendor.ps1 -Flavor full -Components services 预下载;再重打' -ForegroundColor DarkYellow
+                    Write-Host '    · 或单独跑 .\scripts\install-llama-server.ps1 / .\scripts\install-whisper-server.ps1' -ForegroundColor DarkYellow
+                    Write-Host '    · 别加 -SkipInstallVendor / -SkipModelCheck(它们会跳过上方 vendor 自动安装段)' -ForegroundColor DarkYellow
+                    Restore-Console; exit 5
+                }
                 Write-Note "services binary 在 vendor/services/<engine>/$hostVendorPlat/ 下缺失。"
-                Write-Note "  跑 .\scripts\install-llama-server.ps1 / install-whisper-server.ps1 预下,再重打。"
+                Write-Note "  轻量版可装机后在「设置 → 本地模型服务 → 运行时服务」一键下载补回。"
+                Write-Note "  或现在跑 .\scripts\install-llama-server.ps1 / install-whisper-server.ps1 预下,再重打。"
             }
         } else {
+            if ($buildHasFull) {
+                Write-Host '[FAIL] 未找到 python,无法做 services 体检;完整版构建必须能校验运行时服务存在性。' -ForegroundColor Red
+                Write-Host '  装 Python 3.10+ 到 PATH 后重打;或确认 vendor/services/ 已手动填好后加 -SkipModelCheck 跳过。' -ForegroundColor DarkYellow
+                Restore-Console; exit 5
+            }
             Write-Note '未找到 python,跳过 services 体检'
         }
     } else {
