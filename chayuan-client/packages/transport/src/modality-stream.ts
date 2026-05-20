@@ -96,13 +96,40 @@ const PREFIX_TO_CAP: ReadonlyArray<readonly [string, ModalityCapability]> = [
  * 按模型名前缀推断 capability。命中不到一律 `chat`。
  * 兼容 `platform::model` 和 `provider/model` 两种命名空间写法。
  */
+/** 本地内置模型 id 形如 models/bundled/<cap>/<name> — 目录段 <cap> 即权威能力。 */
+const BUNDLED_FOLDER_TO_CAP: Readonly<Record<string, ModalityCapability>> = {
+  chat: 'chat',
+  asr: 'asr',
+  tts: 'tts',
+  ocr: 'ocr',
+  embedding: 'embedding',
+  rerank: 'rerank',
+  image: 'embedding', // image/ 放的是 CLIP 图像编码器,属 image-embedding,非交互
+};
+
 export function classifyModalityCapability(
   modelName: string | null | undefined,
 ): ModalityCapability {
   if (!modelName) return 'chat';
   let low = modelName.toLowerCase().trim();
   if (low.includes('::')) low = low.split('::', 2)[1] ?? low;
-  if (low.includes('/')) low = low.split('/', 2)[1] ?? low;
+
+  // 本地内置模型 id(models/bundled/<cap>/<name>)— 路径里的 <cap> 段才是权威
+  // 能力。旧写法 split('/',2)[1] 会错取到 "bundled" → 前缀全不命中 → 误判 chat,
+  // 导致 ASR/embedding/rerank/TTS 等本地模型混进对话模型下拉、被当 LLM 调用
+  // (如 whisper.cpp 跑生成报 ModelNotConfigured)。且 piper 这类模型名本身没有
+  // 可识别前缀,只能靠目录段判断。
+  const segs = low.split('/').filter(Boolean);
+  const bundledIdx = segs.indexOf('bundled');
+  if (bundledIdx >= 0) {
+    const folder = segs[bundledIdx + 1];
+    if (folder && folder in BUNDLED_FOLDER_TO_CAP) {
+      return BUNDLED_FOLDER_TO_CAP[folder]!;
+    }
+  }
+
+  // 其余(云端模型 / 裸模型名):取最后一段路径再按名字前缀推断。
+  low = segs[segs.length - 1] ?? low;
   for (const [prefix, cap] of PREFIX_TO_CAP) {
     if (low.startsWith(prefix)) return cap;
   }
