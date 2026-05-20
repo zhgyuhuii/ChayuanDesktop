@@ -724,6 +724,13 @@ const tauriShell: ShellApi = {
     const { open } = await import('@tauri-apps/plugin-shell');
     await open(url);
   },
+  async openPath(path) {
+    // 不能用 plugin-shell.open(file://...) —— 它按 URL 正则校验,
+    // 文件夹路径过不了。走 Rust 端 chayuan_open_path,按平台分别调
+    // explorer / open / xdg-open。
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('chayuan_open_path', { path });
+  },
 };
 
 // ──────────────────────────────────────────────────────────────

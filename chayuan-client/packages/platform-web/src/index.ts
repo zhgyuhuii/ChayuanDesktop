@@ -376,6 +376,10 @@ const webShell: ShellApi = {
   async openExternal(url) {
     window.open(url, '_blank', 'noopener,noreferrer');
   },
+  async openPath(path) {
+    // Web 端没有"打开本地文件管理器"的能力,noop + 提示。
+    console.warn('[platform-web] openPath 在 Web 端不可用:', path);
+  },
 };
 
 // Web 端原生 confirm/prompt/alert 在浏览器里完全可用,直接走 — 不需要弹 plugin。

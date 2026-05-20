@@ -149,6 +149,12 @@ export interface WindowApi {
 export interface ShellApi {
   /** 在系统默认浏览器打开 URL（Tauri 用 plugin-shell.open；Web 用 window.open） */
   openExternal(url: string): Promise<void>;
+  /**
+   * 在系统文件管理器里打开**本地文件夹路径**(Windows 资源管理器 /
+   * macOS 访达 / Linux 文件管理器)。不是 URL —— 不要用 openExternal 传
+   * file://(会被 plugin-shell 的 URL 正则拒)。Web 端无此能力,实现 noop。
+   */
+  openPath(path: string): Promise<void>;
 }
 
 /**

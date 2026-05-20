@@ -69,6 +69,33 @@ fn chayuan_tray_set_tooltip(text: String, app: tauri::AppHandle) -> Result<(), S
     Ok(())
 }
 
+/// 在系统文件管理器里打开一个本地路径(Windows 资源管理器 / macOS 访达 /
+/// Linux 文件管理器)。
+///
+/// 为什么不走 plugin-shell.open:那条命令把参数当 URL,按
+/// `^((mailto:\w+)|(tel:\w+)|(https?://\w+)).+` 正则校验,文件夹路径
+/// (`C:\Users\...` 或 `file://...`)过不了 → "failed regex validation"。
+/// 打开本地路径必须按平台分别调 explorer / open / xdg-open。
+#[tauri::command]
+fn chayuan_open_path(path: String) -> Result<(), String> {
+    if !std::path::Path::new(&path).exists() {
+        return Err(format!("路径不存在:{path}"));
+    }
+    #[cfg(target_os = "windows")]
+    let program = "explorer";
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let program = "xdg-open";
+    // fire-and-forget:explorer.exe 即便成功也常返回非 0 退出码,不 wait/不查
+    // exit status,spawn 成功即认为已唤起。
+    std::process::Command::new(program)
+        .arg(&path)
+        .spawn()
+        .map_err(|e| format!("打开 {path} 失败:{e}"))?;
+    Ok(())
+}
+
 /// 截图（全屏第一块显示器）→ PNG 字节
 #[tauri::command]
 fn chayuan_screenshot() -> Result<Vec<u8>, String> {
@@ -226,6 +253,7 @@ pub fn run() {
             chayuan_take_screenshot_buffer,
             chayuan_submit_screenshot_result,
             chayuan_take_screenshot_result,
+            chayuan_open_path,
             data_dir::chayuan_data_dir_state,
             data_dir::chayuan_data_dir_set,
             data_dir::chayuan_data_dir_default,

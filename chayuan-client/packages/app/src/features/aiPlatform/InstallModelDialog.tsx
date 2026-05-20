@@ -531,10 +531,13 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
                 variant="outline"
                 disabled={!bundledRoot}
                 onClick={() => {
-                  // Tauri shell.open 可以打开文件夹(open + file:// URI)
-                  // 不同平台资源管理器名字不同,统一交给 platform 处理
+                  // 打开本地文件夹要走 shell.openPath(Rust 端按平台调
+                  // explorer/open/xdg-open)。不能用 openExternal(file://...)
+                  // —— plugin-shell 把它当 URL 正则校验,文件夹路径过不了。
                   if (bundledRoot) {
-                    void getPlatform().shell.openExternal(`file://${bundledRoot}`);
+                    void getPlatform()
+                      .shell.openPath(bundledRoot)
+                      .catch((e) => reportError(e, '打开文件夹失败'));
                   }
                 }}
                 title="用资源管理器打开"

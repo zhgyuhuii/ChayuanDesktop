@@ -32,7 +32,7 @@ beforeEach(() => {
     clipboard: { readText: async () => '', writeText: async () => undefined },
     notify: { show: async () => undefined },
     window: { onThemeChange: () => () => undefined, isDarkSystem: () => false },
-    shell: { openExternal: async () => undefined },
+    shell: { openExternal: async () => undefined, openPath: async () => undefined },
     dialog: {
       confirm: async () => true,
       prompt: async () => null,
