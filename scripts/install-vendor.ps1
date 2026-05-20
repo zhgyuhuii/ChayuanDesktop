@@ -41,9 +41,12 @@
 .PARAMETER GithubMirror
     GitHub 镜像前缀。墙内 github.com 不通时用 — services(llama-server /
     whisper-server)的二进制只在 GitHub release 发,没别的源。
-    传 -GithubMirror 'https://ghproxy.com/' 后,下载 URL 会拼成
-    https://ghproxy.com/https://github.com/...。会 export 成 GITHUB_MIRROR
-    环境变量,子脚本自动识别。不传则读已有的 $env:GITHUB_MIRROR。
+    传 -GithubMirror 'https://gh-proxy.com/' 后,下载 URL 会拼成
+    https://gh-proxy.com/https://github.com/...。会 export 成 GITHUB_MIRROR
+    环境变量,子脚本自动识别。
+    **不传也行**:脚本检测到 github.com 不通时会自动从内置清单
+    (gh-proxy.com / ghfast.top,2026-05 实测可用)探一个能用的。
+    只在自动探测也失败、或想强制用某个镜像时才需手动传。
 
 .PARAMETER SkipNetTest
     Switch:跳过开头的网络可达性检测。CI / 已知联网 OK 时用。
@@ -60,8 +63,10 @@
     .\install-vendor.ps1 -Flavor full
 
 .EXAMPLE
-    # 墙内:github.com 不通,services 走 ghproxy 镜像
-    .\install-vendor.ps1 -Flavor full -GithubMirror https://ghproxy.com/
+    # 墙内:github.com 不通时脚本自动选可用镜像,直接跑即可
+    .\install-vendor.ps1 -Flavor full
+    # 想强制指定镜像
+    .\install-vendor.ps1 -Flavor full -GithubMirror https://gh-proxy.com/
 
 .EXAMPLE
     # 只补 tts(piper)
@@ -160,8 +165,36 @@ function Test-Net {
     } catch { return $false }
 }
 
+# GitHub 镜像自动探测:services 要从 GitHub release 下二进制,但 github.com
+# 常被墙。优先级:-GithubMirror / $env:GITHUB_MIRROR(显式)> github.com 直连
+# > 自动探内置镜像清单。内置清单是 2026-05 实测可下的(ghproxy.com 已废弃)。
+$AUTO_GH_MIRRORS = @('https://gh-proxy.com/', 'https://ghfast.top/')
+function Resolve-AutoMirror {
+    if ($effectiveMirror) { return $effectiveMirror }       # 已显式配置
+    if (Test-Net 'https://github.com/' 6) { return '' }      # 直连通,不用镜像
+    Write-Warn 'github.com 直连不可达,自动探测可用 GitHub 镜像...'
+    foreach ($cand in $AUTO_GH_MIRRORS) {
+        if (Test-Net $cand 8) {
+            Write-Ok ('自动选用 GitHub 镜像: ' + $cand)
+            return $cand
+        }
+    }
+    Write-Warn ('内置镜像都不可达(' + ($AUTO_GH_MIRRORS -join ', ') + ')')
+    return ''
+}
+
 if (-not $SkipNetTest) {
     Write-Step '0. 网络可达性检测'
+
+    # services 阶段:先解析(可能自动选)GitHub 镜像,再据此构造探测列表
+    if ($doServices -and -not $effectiveMirror) {
+        $auto = Resolve-AutoMirror
+        if ($auto) {
+            $effectiveMirror = $auto
+            $env:GITHUB_MIRROR = $auto   # export 给 install-llama-server.ps1 等子脚本
+        }
+    }
+
     # 按"哪个 component 用哪个域名"列表
     $hosts = New-Object System.Collections.Generic.List[hashtable]
     if ($doModels) {
@@ -202,7 +235,8 @@ if (-not $SkipNetTest) {
         Write-Host '[FAIL] 关键域名不可达,继续装会卡在下载阶段。处理:' -ForegroundColor Red
         Write-Host '  · 检查公司代理 / VPN 是否生效'                       -ForegroundColor DarkYellow
         Write-Host '  · 若只是 hf-mirror 不通,加 -Source modelscope 走 MS' -ForegroundColor DarkYellow
-        Write-Host '  · github.com 不通 → 加 -GithubMirror https://ghproxy.com/ 走镜像下 services' -ForegroundColor DarkYellow
+        Write-Host '  · github.com 不通且自动镜像也失败 → 手动指定可用镜像:' -ForegroundColor DarkYellow
+        Write-Host '      -GithubMirror https://gh-proxy.com/   (或 https://ghfast.top/)' -ForegroundColor DarkYellow
         Write-Host '  · 内网完全无外网 → 拿外网机器跑此脚本,把 vendor\ 整目录拷过来' -ForegroundColor DarkYellow
         Write-Host '  · 想强行继续(自担风险),加 -SkipNetTest'              -ForegroundColor DarkYellow
         exit 2

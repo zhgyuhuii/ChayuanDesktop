@@ -131,9 +131,10 @@ try_build_from_source() {
     done
 
     local SRC="${TMPDIR:-/tmp}/whisper.cpp-$VERSION-src"
-    # GitHub 镜像支持:墙内设 export GITHUB_MIRROR="https://ghproxy.com/",
-    # git clone URL 拼成 https://ghproxy.com/https://github.com/...(ghproxy
-    # 支持 git 协议)。后续 git fetch 走的是 clone 时设好的 origin,自动同源。
+    # GitHub 镜像支持:墙内设 export GITHUB_MIRROR="https://gh-proxy.com/",
+    # git clone URL 拼成 https://gh-proxy.com/https://github.com/...(这类
+    # 代理支持 git 协议)。后续 git fetch 走 clone 时设好的 origin,自动同源。
+    # 注:老的 ghproxy.com 已废弃,用 gh-proxy.com 或 ghfast.top。
     local WHISPER_REPO="https://github.com/ggml-org/whisper.cpp.git"
     if [ -n "${GITHUB_MIRROR:-}" ]; then
         WHISPER_REPO="${GITHUB_MIRROR%/}/https://github.com/ggml-org/whisper.cpp.git"

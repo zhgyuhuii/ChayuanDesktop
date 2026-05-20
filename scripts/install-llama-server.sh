@@ -90,9 +90,10 @@ DEST="$WORKSPACE/chayuan-server/vendor/services/llama-server/$TARGET"
 mkdir -p "$DEST"
 
 # GitHub 镜像支持:墙内 github.com 不通时,设环境变量
-#   export GITHUB_MIRROR="https://ghproxy.com/"
-# 下载 URL 会被拼成 https://ghproxy.com/https://github.com/...(ghproxy 这类
-# 代理就是把完整 github URL 接在自己后面)。不设则直连 github.com。
+#   export GITHUB_MIRROR="https://gh-proxy.com/"
+# 下载 URL 会被拼成 https://gh-proxy.com/https://github.com/...(这类代理
+# 就是把完整 github URL 接在自己后面)。不设则直连 github.com。
+# 注:老的 ghproxy.com 已废弃,用 gh-proxy.com 或 ghfast.top。
 RAW_URL="https://github.com/ggerganov/llama.cpp/releases/download/$VERSION/$ASSET"
 if [ -n "${GITHUB_MIRROR:-}" ]; then
     URL="${GITHUB_MIRROR%/}/${RAW_URL}"

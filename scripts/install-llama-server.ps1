@@ -94,8 +94,9 @@ if (-not (Test-Path $destDir)) {
 }
 
 # GitHub 镜像支持:墙内 github.com 不通时,设环境变量
-#   $env:GITHUB_MIRROR = "https://ghproxy.com/"
-# 下载 URL 会被拼成 https://ghproxy.com/https://github.com/...。不设则直连。
+#   $env:GITHUB_MIRROR = "https://gh-proxy.com/"
+# 下载 URL 会被拼成 https://gh-proxy.com/https://github.com/...。不设则直连。
+# 注:老的 ghproxy.com 已废弃,用 gh-proxy.com 或 ghfast.top。
 $rawUrl = "https://github.com/ggerganov/llama.cpp/releases/download/$Version/$zipName"
 if ($env:GITHUB_MIRROR) {
     $mirror = $env:GITHUB_MIRROR.TrimEnd('/')

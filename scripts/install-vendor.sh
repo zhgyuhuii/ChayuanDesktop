@@ -40,18 +40,18 @@
 #                           默认 312
 #   --github-mirror URL     GitHub 镜像前缀。墙内 github.com 不通时用 —
 #                           services 二进制只在 GitHub release 发。
-#                           例:--github-mirror https://ghproxy.com/
-#                           会 export GITHUB_MIRROR,子脚本自动识别。
-#                           不传则读已有的 $GITHUB_MIRROR。
+#                           例:--github-mirror https://gh-proxy.com/
+#                           不传也行:检测到 github.com 不通会自动从内置
+#                           清单(gh-proxy.com / ghfast.top)探一个可用的。
 #   --dry-run               只打印将执行的命令,不真跑
 #   -h|--help               显示本说明
 #
 # 例:
 #   bash scripts/install-vendor.sh                       # lite,全组件
-#   bash scripts/install-vendor.sh --flavor full         # full 模型
+#   bash scripts/install-vendor.sh --flavor full         # full 模型(墙内自动选镜像)
 #   bash scripts/install-vendor.sh --components llama,torch   # 只补 binary+wheel
 #   bash scripts/install-vendor.sh --source modelscope   # 模型走 MS 镜像
-#   bash scripts/install-vendor.sh --github-mirror https://ghproxy.com/  # 墙内
+#   bash scripts/install-vendor.sh --github-mirror https://gh-proxy.com/  # 强制指定镜像
 set -uo pipefail
 
 # ───────────────────────────── 默认值 ──────────────────────────────
@@ -113,17 +113,45 @@ detect_host_target() {
 }
 HOST_TARGET="$(detect_host_target)"
 
-# GitHub 镜像:export 出去,install-llama-server.sh / install-whisper-server.sh
-# 会读 $GITHUB_MIRROR 把下载 / git clone URL 套上镜像前缀。
-if [ -n "$GITHUB_MIRROR" ]; then
-    export GITHUB_MIRROR
-    echo "[install-vendor] GitHub 镜像:$GITHUB_MIRROR (services 下载走镜像)"
-fi
-
 # 组件开关
 want() { case ",$COMPONENTS," in *",all,"*) return 0;; *",$1,"*) return 0;; *) return 1;; esac; }
 if [ "$COMPONENTS" = "none" ]; then
     echo "[install-vendor] --components none,什么都不做"; exit 0
+fi
+
+# 探一个 URL 是否可达(curl HEAD,2xx/3xx/4xx 都算"网络通了")
+probe_url() {
+    local code
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time "${2:-8}" -I "$1" 2>/dev/null)" || return 1
+    case "$code" in 2*|3*|4*) return 0 ;; *) return 1 ;; esac
+}
+
+# GitHub 镜像:services 要从 GitHub release 下二进制,github.com 常被墙。
+# 优先级:--github-mirror / $GITHUB_MIRROR(显式)> github.com 直连
+#         > 自动探内置镜像(gh-proxy.com / ghfast.top,2026-05 实测可用;
+#           老的 ghproxy.com 已废弃,不要再用)。
+if want services && [ -z "$GITHUB_MIRROR" ]; then
+    if probe_url "https://github.com/" 6; then
+        : # github.com 直连可达,不用镜像
+    else
+        echo "[install-vendor] github.com 直连不可达,自动探测 GitHub 镜像..."
+        for cand in "https://gh-proxy.com/" "https://ghfast.top/"; do
+            if probe_url "$cand" 8; then
+                GITHUB_MIRROR="$cand"
+                echo "[install-vendor] 自动选用 GitHub 镜像:$cand"
+                break
+            fi
+        done
+        if [ -z "$GITHUB_MIRROR" ]; then
+            echo "[install-vendor] 内置镜像 gh-proxy.com / ghfast.top 也不可达 — services 阶段可能失败" >&2
+        fi
+    fi
+fi
+# GitHub 镜像 export 给 install-llama-server.sh / install-whisper-server.sh,
+# 它们读 $GITHUB_MIRROR 把下载 / git clone URL 套上镜像前缀。
+if [ -n "$GITHUB_MIRROR" ]; then
+    export GITHUB_MIRROR
+    echo "[install-vendor] GitHub 镜像:$GITHUB_MIRROR (services 下载走镜像)"
 fi
 
 # ───────────────────────────── 工具函数 ────────────────────────────
