@@ -27,6 +27,18 @@ export interface VendorEntry {
   models: string[];
   /** 一句话说明 — 价格档位 / 中文优势 / 注意事项 */
   note?: string;
+  /**
+   * 对应「模型广场」厂商目录(`/admin/model_platforms/catalog`)里的 ``pid``。
+   *
+   * 填了这个字段,帮助面板该厂商行就会多出一个「去配置」按钮 —— 点击后跳到
+   * ``/marketplace?configure=<platformId>`` 并自动弹出该厂商的 PlatformSettingsDialog
+   * (表单已按 catalog 预填 base URL / 模型清单,用户只需填 API key)。
+   *
+   * 对应不上 marketplace catalog 的厂商(本地 RapidOCR / PaddleOCR、catalog 暂未收录的
+   * Stability / Runway / Kling / Sora 等)留空,UI 不渲染「去配置」按钮,只保留外链。
+   * pid 取值见服务端 ``config_panel/model_config.py`` 的 ``PROVIDER_CATALOG``。
+   */
+  platformId?: string;
 }
 
 export interface CapabilityHelp {
@@ -52,6 +64,7 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://platform.openai.com/api-keys',
         models: ['gpt-4o', 'gpt-4o-mini', 'o1-mini', 'gpt-4.1'],
         note: '国内需走代理或第三方中转;支持函数调用 / vision / 长上下文。',
+        platformId: 'openai',
       },
       {
         name: 'Anthropic Claude',
@@ -59,6 +72,7 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://console.anthropic.com/settings/keys',
         models: ['claude-opus-4', 'claude-sonnet-4', 'claude-haiku-4'],
         note: '长文本与代码任务强;国内需代理。',
+        platformId: 'anthropic',
       },
       {
         name: '阿里云百炼(DashScope)',
@@ -66,6 +80,7 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://bailian.console.aliyun.com/?apiKey=1',
         models: ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwen3-coder-plus'],
         note: '国内直连;中文质量好;同一 key 可调画图 / 语音 / 视频系列。',
+        platformId: 'bailian',
       },
       {
         name: '深度求索 DeepSeek',
@@ -73,6 +88,7 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://platform.deepseek.com/api_keys',
         models: ['deepseek-chat', 'deepseek-reasoner'],
         note: '性价比极高;reasoner 走思维链推理。',
+        platformId: 'deepseek',
       },
       {
         name: '字节豆包(火山方舟 Ark)',
@@ -80,12 +96,14 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
         models: ['doubao-pro-4k', 'doubao-pro-32k', 'doubao-lite-32k'],
         note: '国内直连;按 endpoint 走,需要在控制台创建推理点。',
+        platformId: 'volcengine',
       },
       {
         name: '智谱 GLM',
         home: 'https://bigmodel.cn/',
         apiKey: 'https://bigmodel.cn/usercenter/apikeys',
         models: ['glm-4-plus', 'glm-4-flash', 'glm-4-air'],
+        platformId: 'zhipu',
       },
       {
         name: 'Moonshot 月之暗面 Kimi',
@@ -93,6 +111,7 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://platform.moonshot.cn/console/api-keys',
         models: ['moonshot-v1-32k', 'moonshot-v1-128k', 'kimi-k2'],
         note: '长上下文擅长。',
+        platformId: 'moonshot',
       },
       {
         name: 'OpenRouter(聚合代理)',
@@ -100,6 +119,7 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://openrouter.ai/keys',
         models: ['openrouter/auto', 'anthropic/claude-3.5-sonnet'],
         note: '一份 key 调用各家模型;价格略高于直连。',
+        platformId: 'openrouter',
       },
     ],
   },
@@ -115,18 +135,21 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://bailian.console.aliyun.com/?apiKey=1',
         models: ['qwen-vl-max', 'qwen-vl-plus', 'qwen-omni-turbo', 'qwen-audio-turbo'],
         note: '中文 OCR / 图表推理强;omni 还能处理音频输入。',
+        platformId: 'bailian',
       },
       {
         name: 'OpenAI GPT-4o / GPT-4.1 vision',
         home: 'https://platform.openai.com/',
         apiKey: 'https://platform.openai.com/api-keys',
         models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'],
+        platformId: 'openai',
       },
       {
         name: 'Anthropic Claude vision',
         home: 'https://console.anthropic.com/',
         apiKey: 'https://console.anthropic.com/settings/keys',
         models: ['claude-opus-4', 'claude-sonnet-4'],
+        platformId: 'anthropic',
       },
     ],
   },
@@ -141,18 +164,21 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://bailian.console.aliyun.com/?apiKey=1',
         models: ['qwen-image-max', 'qwen-image-plus', 'wanx-v1', 'wanxiang-v1'],
         note: 'wanx 走异步任务,延迟稍长但单图质量更高。',
+        platformId: 'bailian',
       },
       {
         name: 'OpenAI DALL·E / GPT-Image',
         home: 'https://platform.openai.com/docs/guides/images',
         apiKey: 'https://platform.openai.com/api-keys',
         models: ['dall-e-3', 'gpt-image-1'],
+        platformId: 'openai',
       },
       {
         name: '字节豆包 Doubao Image',
         home: 'https://www.volcengine.com/product/ark',
         apiKey: 'https://console.volcengine.com/ark',
         models: ['doubao-seedream-3-0-t2i', 'doubao-pro-image-256k'],
+        platformId: 'volcengine',
       },
       {
         name: 'Stability AI(可走 OpenRouter)',
@@ -173,12 +199,14 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://bailian.console.aliyun.com/?apiKey=1',
         models: ['qwen-image-edit-plus', 'qwen-image-edit'],
         note: '原生中文指令理解最稳。',
+        platformId: 'bailian',
       },
       {
         name: 'OpenAI GPT-Image / DALL·E edit',
         home: 'https://platform.openai.com/',
         apiKey: 'https://platform.openai.com/api-keys',
         models: ['gpt-image-1'],
+        platformId: 'openai',
       },
     ],
   },
@@ -193,6 +221,7 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         home: 'https://bailian.console.aliyun.com/',
         apiKey: 'https://bailian.console.aliyun.com/?apiKey=1',
         models: ['wanx-t2v-turbo', 'wanxiang-t2v-plus', 'wan-2.1-t2v'],
+        platformId: 'bailian',
       },
       {
         name: 'OpenAI Sora',
@@ -200,6 +229,7 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://platform.openai.com/api-keys',
         models: ['sora'],
         note: '当前需申请白名单。',
+        platformId: 'openai',
       },
       {
         name: 'Runway',
@@ -226,6 +256,7 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://bailian.console.aliyun.com/?apiKey=1',
         models: ['qwen3-tts-flash', 'qwen-tts-latest', 'cosyvoice-v1', 'sambert-zhichu-v1'],
         note: 'Cherry / Serena 等多个中文音色;qwen3-tts 还有方言版(京片儿 / 上海话 / 四川话)。',
+        platformId: 'bailian',
       },
       {
         name: 'OpenAI TTS',
@@ -233,12 +264,14 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://platform.openai.com/api-keys',
         models: ['tts-1', 'tts-1-hd', 'gpt-4o-mini-tts'],
         note: 'alloy / echo / fable / onyx / nova / shimmer 6 个标准音色。',
+        platformId: 'openai',
       },
       {
         name: '字节豆包 TTS',
         home: 'https://www.volcengine.com/product/ark',
         apiKey: 'https://console.volcengine.com/ark',
         models: ['doubao-tts'],
+        platformId: 'volcengine',
       },
     ],
   },
@@ -254,12 +287,14 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
         apiKey: 'https://bailian.console.aliyun.com/?apiKey=1',
         models: ['qwen3-asr-flash', 'qwen-asr-flash', 'paraformer-v2', 'paraformer-realtime-v2'],
         note: 'qwen3-asr-flash 同步 3 分钟内单文件;paraformer 实时流式。',
+        platformId: 'bailian',
       },
       {
         name: 'OpenAI Whisper / gpt-4o-transcribe',
         home: 'https://platform.openai.com/docs/guides/speech-to-text',
         apiKey: 'https://platform.openai.com/api-keys',
         models: ['whisper-1', 'whisper-large-v3', 'gpt-4o-transcribe', 'gpt-4o-mini-transcribe'],
+        platformId: 'openai',
       },
     ],
   },

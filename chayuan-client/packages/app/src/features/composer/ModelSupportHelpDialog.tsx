@@ -26,8 +26,9 @@ import {
   DialogDescription,
   cn,
 } from '@chayuan/ui';
+import { useNavigate } from '@tanstack/react-router';
 import { getPlatform } from '@chayuan/platform-shared';
-import { ExternalLink, HelpCircle } from 'lucide-react';
+import { ExternalLink, HelpCircle, Settings2 } from 'lucide-react';
 import type { ModalityCapability } from '@chayuan/transport';
 import { CapabilityChip, getCapabilityMeta } from './modelCapabilityChip';
 import { listCapabilityHelp, type CapabilityHelp, type VendorEntry } from './modelHelpCatalog';
@@ -59,6 +60,21 @@ export const ModelSupportHelpDialog: React.FC<ModelSupportHelpDialogProps> = ({
   open, onOpenChange, initialCap,
 }) => {
   const help = React.useMemo(() => listCapabilityHelp(), []);
+  const navigate = useNavigate();
+
+  // 「去配置」:关掉帮助面板,跳到模型广场并通过 ?configure=<pid> 自动弹出该
+  // 厂商的 PlatformSettingsDialog(表单已预填,用户只需填 API key)。
+  // 路径里直接带 query string —— 跟随本仓 ``navigate({ to: path as never })``
+  // 的既有写法(/marketplace 路由未声明 typed search,用 as never 绕过)。
+  const goConfigure = React.useCallback(
+    (platformId: string) => {
+      onOpenChange(false);
+      void navigate({
+        to: `/marketplace?configure=${encodeURIComponent(platformId)}` as never,
+      });
+    },
+    [navigate, onOpenChange],
+  );
   // open=true 切换瞬间执行锚跳;Dialog 没有 onAnimationEnd 但 setTimeout(0)
   // 足够等内容 mount。锚 id 固定 ``help-cap-<cap>``。
   React.useEffect(() => {
@@ -80,7 +96,7 @@ export const ModelSupportHelpDialog: React.FC<ModelSupportHelpDialogProps> = ({
         <DialogHeader className="border-b border-[var(--cy-border-subtle)] px-5 py-4">
           <DialogTitle>模型支持说明</DialogTitle>
           <DialogDescription>
-            察元支持下列各类模型;选好厂商在「设置 → AI 平台」里填 API key,模型就会出现在选择器里。
+            察元支持下列各类模型;选好厂商点「去配置」一键打开预填好的配置表单,只需填上 API key,模型就会出现在选择器里。
           </DialogDescription>
         </DialogHeader>
 
@@ -111,7 +127,12 @@ export const ModelSupportHelpDialog: React.FC<ModelSupportHelpDialogProps> = ({
           {/* 右侧内容 */}
           <div className="flex-1 overflow-y-auto px-5 py-4">
             {help.map((section) => (
-              <CapabilitySection key={section.cap} section={section} onOpen={openExternal} />
+              <CapabilitySection
+                key={section.cap}
+                section={section}
+                onOpen={openExternal}
+                onConfigure={goConfigure}
+              />
             ))}
             <p className="mt-6 text-[10px] text-[var(--cy-text-tertiary)]">
               链接以官方一手地址为准。海外厂商(OpenAI / Anthropic / Runway / Stability)国内需自行解决网络访问;阿里 / 字节 / 智谱 / 月之暗面 / 深度求索国内直连。
@@ -165,7 +186,8 @@ export const ModelSupportHelpButton: React.FC<ModelSupportHelpButtonProps> = ({ 
 const CapabilitySection: React.FC<{
   section: CapabilityHelp;
   onOpen(url: string): void;
-}> = ({ section, onOpen }) => {
+  onConfigure(platformId: string): void;
+}> = ({ section, onOpen, onConfigure }) => {
   const meta = getCapabilityMeta(section.cap);
   return (
     <section id={`help-cap-${section.cap}`} className="mb-6 scroll-mt-4">
@@ -177,7 +199,7 @@ const CapabilitySection: React.FC<{
       <p className="mb-3 text-xs leading-relaxed text-[var(--cy-text-secondary)]">{section.blurb}</p>
       <ul className="space-y-2">
         {section.vendors.map((v) => (
-          <VendorRow key={v.name} v={v} onOpen={onOpen} />
+          <VendorRow key={v.name} v={v} onOpen={onOpen} onConfigure={onConfigure} />
         ))}
       </ul>
     </section>
@@ -185,11 +207,28 @@ const CapabilitySection: React.FC<{
 };
 
 
-const VendorRow: React.FC<{ v: VendorEntry; onOpen(url: string): void }> = ({ v, onOpen }) => (
+const VendorRow: React.FC<{
+  v: VendorEntry;
+  onOpen(url: string): void;
+  onConfigure(platformId: string): void;
+}> = ({ v, onOpen, onConfigure }) => (
   <li className="rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 py-2">
     <div className="flex items-center justify-between gap-2">
       <span className="text-sm font-medium text-[var(--cy-text-primary)]">{v.name}</span>
       <div className="flex flex-shrink-0 items-center gap-1">
+        {/* 「去配置」只在能对应上模型广场 catalog 的厂商显示 —— 点击直接打开
+            预填好的配置表单(base URL / 模型清单已填),用户只需补 API key。 */}
+        {v.platformId && (
+          <button
+            type="button"
+            onClick={() => onConfigure(v.platformId!)}
+            title={`在「AI 平台」里打开 ${v.name} 的配置表单(已预填,只需填 API key)`}
+            className="inline-flex items-center gap-1 rounded-full bg-[var(--cy-brand-500)] px-2 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-[var(--cy-brand-600)]"
+          >
+            <Settings2 className="h-3 w-3" />
+            去配置
+          </button>
+        )}
         <ExternalLinkPill label="官网" url={v.home} onOpen={onOpen} />
         {v.apiKey && v.apiKey !== v.home && (
           <ExternalLinkPill label="申请 API key" url={v.apiKey} onOpen={onOpen} highlight />

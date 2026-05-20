@@ -14,6 +14,7 @@
 
 import * as React from 'react';
 import { tabsStaticTitle } from './tab-titles';
+import { useTabsStore } from '../../store/tabs';
 
 export interface RouteParams {
   [key: string]: string;
@@ -78,6 +79,38 @@ const AudioToTextPage = React.lazy(() =>
   import('../audioToText/AudioToTextPage').then((m) => ({ default: m.AudioToTextPage })),
 );
 
+/**
+ * 模型广场路由包装 —— 把 ``/marketplace?configure=<pid>`` 的 search param
+ * 解析出来注入给 ``MarketplacePage``,并在弹窗消费后把 ``configure`` 参数
+ * 从当前 Tab 路径里清掉(避免返回 / 刷新重复弹窗)。
+ *
+ * 之所以在这里(而非 MarketplacePage 内)读 search:本工作区不是标准 router
+ * 渲染,页面由 KeepAliveOutlet 按 ``tab.path`` 驱动,query string 保留在
+ * ``tab.path`` 上,page-registry 的 ``render(params, path)`` 能拿到完整 path。
+ */
+const MarketplaceRoute: React.FC<{ path: string }> = ({ path }) => {
+  const queryIdx = path.indexOf('?');
+  const configurePid =
+    queryIdx >= 0
+      ? new URLSearchParams(path.slice(queryIdx + 1)).get('configure') ?? undefined
+      : undefined;
+
+  // 清掉 configure 参数:找到当前这条 marketplace Tab,把 path 改回不带 query 的
+  // ``/marketplace``。updatePath 改 tab.path 后,TabHost 会把 URL 同步拉齐。
+  const onConfigureConsumed = React.useCallback(() => {
+    const { tabs, updatePath } = useTabsStore.getState();
+    const tab = tabs.find((t) => t.path === path);
+    if (tab && tab.path !== '/marketplace') updatePath(tab.id, '/marketplace');
+  }, [path]);
+
+  return (
+    <MarketplacePage
+      {...(configurePid ? { configurePid } : {})}
+      onConfigureConsumed={onConfigureConsumed}
+    />
+  );
+};
+
 export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
   {
     pattern: /^\/home$/,
@@ -140,8 +173,10 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     defaultIcon: 'library',
   },
   {
+    // 注意:resolveRoute 会先剥掉 ``?query``/``#hash`` 再做 pattern 匹配,
+    // 所以 ``/marketplace?configure=<pid>`` 仍命中本条;render 拿到的是完整 path。
     pattern: /^\/marketplace$/,
-    render: () => <MarketplacePage />,
+    render: (_params, path) => <MarketplaceRoute path={path} />,
     defaultTitle: 'nav.modelMarket',
     defaultIcon: 'box',
   },

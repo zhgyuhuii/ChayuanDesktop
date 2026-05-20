@@ -138,11 +138,25 @@ export interface MarketplacePageProps {
   embedded?: boolean;
   /** 隐藏 ``tags`` 含 "本地" 的厂商;``RuntimeCenter`` 已经独立配本地推理,避免重复。 */
   excludeLocal?: boolean;
+  /**
+   * 深链:进入页面时自动打开指定 ``pid`` 厂商的 PlatformSettingsDialog
+   * (等价于用户点了那张卡的 ⚙️)。
+   *
+   * 来源 = 路由 ``/marketplace?configure=<pid>`` 的 search param,由 page-registry
+   * 从 ``tab.path`` 解析后注入。catalog 是异步加载的,所以本组件用 effect 等
+   * catalog ready 后再匹配并开窗;开窗后会通过 ``onConfigureConsumed`` 把 URL 上的
+   * ``configure`` 参数清掉,避免返回 / 刷新重复弹窗。
+   */
+  configurePid?: string;
+  /** ``configurePid`` 对应的弹窗已打开后回调 —— 用于清掉 URL 上的 ``configure`` 参数。 */
+  onConfigureConsumed?(): void;
 }
 
 export const MarketplacePage: React.FC<MarketplacePageProps> = ({
   embedded = false,
   excludeLocal = false,
+  configurePid,
+  onConfigureConsumed,
 }) => {
   const setModel = useComposerStore((s) => s.setModel);
   const currentModel = useComposerStore((s) => s.modelId);
@@ -182,6 +196,23 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
     setSettingsTarget(catalogEntryToPlatformConfig(e));
     setSettingsExistsInDb(!!e.configured);
   }, []);
+
+  // 深链:``/marketplace?configure=<pid>`` 进来时,等 catalog 加载完后自动
+  // 打开对应厂商的 PlatformSettingsDialog(等价于点了那张卡的 ⚙️)。
+  // 用 ref 保证一次深链只消费一次 —— 开窗后立刻回调清 URL 参数,避免重复弹。
+  const consumedConfigureRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!configurePid) return;
+    if (consumedConfigureRef.current === configurePid) return;
+    // catalog 还没 ready —— 等下一次 catalog 变化的 effect 再试
+    if (rawCatalog.length === 0) return;
+    const entry = rawCatalog.find((e) => e.pid === configurePid);
+    consumedConfigureRef.current = configurePid;
+    if (entry) onOpenSettings(entry);
+    // 不论是否命中都清掉 URL 参数:命中 → 已开窗;未命中 → 厂商不在目录里,
+    // 留着参数也没意义,清掉避免刷新 / 返回反复触发。
+    onConfigureConsumed?.();
+  }, [configurePid, rawCatalog, onOpenSettings, onConfigureConsumed]);
 
   // 自动 snap:localStorage 持久化的 modelId 可能已不存在(厂商被禁用 / 模型被删等)。
   // 第一次拿到模型清单后,若 currentModel 不在任何启用平台的 llm_models 中 →
