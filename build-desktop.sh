@@ -378,12 +378,49 @@ else
     # 优先 poetry,无 poetry 用裸 python(假定 deps 已用 pip 装好)
     # 把 host triple 显式传给 build.py,确保 sync_services 按对的平台选 vendor 子目录
     if command -v poetry >/dev/null 2>&1; then
-        invoke_step 'pyinstaller (poetry)' "$SERVER_DIR" \
-            poetry run python packaging/pyinstaller/build.py --target "$TRIPLE"
+        # ── 装依赖(关键)──────────────────────────────────────────
+        # PyInstaller 打的是「当前 venv 里装了什么」。真正的 Python 包(含
+        # click / rich / tiktoken 等全部第三方依赖)在 libs/chayuan-server/;
+        # 根目录 chayuan-server/pyproject.toml 是 monorepo 元数据
+        # (package-mode=false,deps 只有 python),在那里跑 poetry install
+        # 等于啥都没装,PyInstaller Analysis 会找不到 click → 打进去缺包 →
+        # sidecar 运行时 ModuleNotFoundError。所以全部 poetry 调用都在
+        # $SERVER_PKG_DIR(libs/chayuan-server/)跑,跟 build-desktop.ps1
+        # 的 $ServerPkgDir 对齐。
+        #
+        # poetry.lock 跟 pyproject.toml 不同步时 Poetry 1.5+ 拒绝 install,
+        # 先 lock 再 install。不带 --no-update:Poetry 2.x 已删该 flag,
+        # 1.x 多点版本解析时间无伤。
+        invoke_step 'poetry lock' "$SERVER_PKG_DIR" \
+            poetry lock --no-interaction
+        invoke_step 'poetry install (--only main)' "$SERVER_PKG_DIR" \
+            poetry install --only main --no-interaction
+        # 删过时 pathlib backport(若存在):这个废弃的 stdlib pathlib backport
+        # 跟 PyInstaller 6+ 不兼容,会让打包报错。pip uninstall 找不到包时
+        # 退出码非 0,用 `|| true` 兜住(没装过是正常情况)。
+        invoke_step 'remove stale pathlib backport' "$SERVER_PKG_DIR" \
+            bash -c 'poetry run pip uninstall -y pathlib || true'
+        # PyInstaller 本身由 build.py 的 _ensure_pyinstaller() 兜底自动安装,
+        # 这里不重复装,避免与 build.py 冲突。
+        #
+        # build.py 路径相对 $SERVER_PKG_DIR:../../packaging/pyinstaller/build.py。
+        # 必须在 $SERVER_PKG_DIR 跑,poetry run 才命中刚装好依赖的那个 env。
+        invoke_step 'pyinstaller (poetry)' "$SERVER_PKG_DIR" \
+            poetry run python ../../packaging/pyinstaller/build.py --target "$TRIPLE"
     else
-        # 检查 pyinstaller 是否就绪
+        # 裸 python3 分支:没有 poetry 就没法自动装 chayuan-server 依赖。
+        # PyInstaller 打的是当前解释器 venv 里的包,缺 click/rich/tiktoken
+        # 等会导致 sidecar 运行时 ModuleNotFoundError。这里先校验依赖是否
+        # 就绪,缺了就 fail-fast 给出明确安装命令,不静默打出缺包的产物。
         if ! python3 -c "import PyInstaller" 2>/dev/null; then
             fail "python3 找不到 PyInstaller。请先 'pip install pyinstaller>=6.0' 或装 poetry。"
+            exit 127
+        fi
+        if ! python3 -c "import click" 2>/dev/null; then
+            fail "python3 找不到 chayuan-server 依赖(如 'click')。"
+            note "无 poetry 时本脚本不会自动装依赖。请先在当前 python3 环境装好 chayuan-server:"
+            note "  python3 -m pip install -e \"$SERVER_PKG_DIR\""
+            note "或安装 poetry 让脚本自动装依赖:pip install 'poetry>=1.8'"
             exit 127
         fi
         invoke_step 'pyinstaller (python3)' "$SERVER_DIR" \
