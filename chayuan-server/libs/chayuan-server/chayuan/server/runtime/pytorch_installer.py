@@ -101,6 +101,8 @@ def _detect_nvidia() -> tuple[bool, Optional[str]]:
         r = subprocess.run(
             ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
             capture_output=True, text=True, timeout=5,
+            # 显式 UTF-8 解码,不依赖平台默认编码(中文 Windows 默认 GBK 会崩)
+            encoding="utf-8", errors="replace",
         )
     except (subprocess.TimeoutExpired, OSError):
         return False, None

@@ -194,6 +194,38 @@ def test_start_service_known_framework_creates_task():
     assert final.is_terminal()
 
 
+def test_subprocess_output_with_non_gbk_bytes_does_not_crash():
+    """回归:子进程输出含非 GBK 字节时不应崩 runner。
+
+    中文 Windows 默认编码是 GBK(cp936)。pip install 的输出(wheel 名 /
+    进度条 / UTF-8 字符)含 0x9e 之类在 GBK 下非法的字节,若 Popen 不显式
+    指定 encoding,text=True 会用平台默认编码解码 → UnicodeDecodeError 崩。
+    本测试让子进程直接吐出 0x9e 等原始字节,验证改后能以 UTF-8 + replace
+    容错解码,task 正常终止而不是 crash。
+    """
+    import sys
+
+    # Python 子进程往 stdout 写含 0x9e / UTF-8 多字节的原始 bytes;
+    # 用 sys.executable 保证跨平台(Windows 上没有 bash)。
+    code = (
+        "import sys; "
+        "sys.stdout.buffer.write(b'before \\x9e middle \\xe4\\xb8\\xad after\\n'); "
+        "sys.stdout.buffer.flush()"
+    )
+    mgr = InstallTaskManager()
+    recipe = InstallRecipe(label="nongbk", cmd=[sys.executable, "-c", code])
+    task = mgr.start(framework="_test_nongbk", recipe=recipe)
+    _wait_terminal(mgr, task.task_id, timeout=8.0)
+    final = mgr.get(task.task_id)
+    # 关键:没有崩成 failed-with-crash,return_code 正常为 0
+    assert final.state == "done", f"state={final.state} error={final.error!r}"
+    assert final.return_code == 0
+    # 没有任何 [end] crash: UnicodeDecodeError 行
+    assert not any("crash" in line and "codec" in line for line in final.log)
+    # 输出仍被捕获(0x9e 被 replace 成 U+FFFD,可读部分保留)
+    assert any("before" in line and "after" in line for line in final.log)
+
+
 def test_start_recipes_table_covers_main_runtimes():
     """主流框架都得有启动配方。"""
     from chayuan.server.config_panel.install_task_manager import _START_RECIPES

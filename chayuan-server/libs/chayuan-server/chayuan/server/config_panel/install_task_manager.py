@@ -226,11 +226,21 @@ class InstallTaskManager:
                 task.log.append(f"[recipe] {task.recipe_label}")
                 task.log.append(f"[cmd] {' '.join(shlex.quote(s) for s in task.cmd)}")
 
+            # 子进程输出统一按 UTF-8 解码,errors='replace' 容错。
+            # 不能依赖平台默认编码:中文 Windows 默认 GBK(cp936),pip / wheel
+            # 名 / 进度条含非 GBK 字节时 text=True 会抛 UnicodeDecodeError 崩 runner。
+            # PYTHONIOENCODING=utf-8 让被调子进程(尤其 chayuan-server.exe -m pip)
+            # 也按 UTF-8 输出,双保险。
+            child_env = dict(os.environ)
+            child_env["PYTHONIOENCODING"] = "utf-8"
+
             # 启动进程
             try:
                 proc = subprocess.Popen(  # noqa: S603
                     task.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, bufsize=1,
+                    encoding="utf-8", errors="replace",
+                    env=child_env,
                     # Windows 下不开 console 窗口
                     creationflags=subprocess.CREATE_NO_WINDOW
                     if hasattr(subprocess, "CREATE_NO_WINDOW") and os.name == "nt"
