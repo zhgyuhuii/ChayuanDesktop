@@ -25,7 +25,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@chayuan/ui';
-import { CardAura } from './homeFx/CardAura';
 import { notifySuccess } from '../../store/errorDialog';
 
 // ── 招商文案 / 联系方式(集中维护)─────────────────────────────────
@@ -65,38 +64,29 @@ export const PartnershipBanner: React.FC = () => {
 
   return (
     <>
-      <section
-        className="relative z-10 overflow-hidden rounded-3xl border border-amber-700/30 p-6 shadow-[0_4px_20px_-4px_rgba(180,120,20,0.25)]"
-        style={{
-          background:
-            'linear-gradient(120deg, #2a1d05 0%, #1a0d00 35%, #2a1d05 60%, #4a2f0a 100%)',
-        }}
-      >
-        {/* 金线缠绕装饰 */}
-        <CardAura hue="gold" intensity="vivid" radius={24} />
-
-        <div className="relative z-10 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+      <section className="relative z-10 rounded-3xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           {/* —— 左:标题 + 副标题 + 服务 chip —— */}
           <div className="min-w-0 flex-1">
             <div className="mb-2 flex items-center gap-2">
-              <span className="inline-flex items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 p-1.5 shadow-sm">
-                <Sparkles className="h-4 w-4 text-white" />
+              <span className="inline-flex items-center justify-center rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] p-1.5 shadow-sm">
+                <Sparkles className="h-3.5 w-3.5 text-white" />
               </span>
-              <span className="text-[11px] font-medium uppercase tracking-wider text-amber-300/85">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--cy-text-tertiary)]">
                 合作 · 招商
               </span>
             </div>
-            <h3 className="text-lg font-bold text-amber-50 sm:text-xl">
+            <h3 className="text-lg font-semibold text-[var(--cy-text-primary)] sm:text-xl">
               {PARTNERSHIP.title}
             </h3>
-            <p className="mt-1 text-sm text-amber-100/75">
+            <p className="mt-1 text-sm text-[var(--cy-text-secondary)]">
               {PARTNERSHIP.subtitle}
             </p>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {PARTNERSHIP.badges.map((b) => (
                 <span
                   key={b}
-                  className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-200"
+                  className="inline-flex items-center rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--cy-text-secondary)]"
                 >
                   {b}
                 </span>
@@ -106,11 +96,7 @@ export const PartnershipBanner: React.FC = () => {
 
           {/* —— 右:CTA 按钮 —— */}
           <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-            <Button
-              size="default"
-              onClick={() => setOpen(true)}
-              className="bg-gradient-to-br from-amber-400 to-amber-600 text-zinc-900 shadow-md hover:from-amber-300 hover:to-amber-500"
-            >
+            <Button size="default" onClick={() => setOpen(true)}>
               <Phone className="h-4 w-4" />
               联系合作
             </Button>
@@ -118,7 +104,6 @@ export const PartnershipBanner: React.FC = () => {
               size="default"
               variant="outline"
               onClick={() => setOpen(true)}
-              className="border-amber-500/50 bg-amber-500/5 text-amber-100 hover:border-amber-400 hover:bg-amber-500/10 hover:text-amber-50"
             >
               申请商务资料
             </Button>
