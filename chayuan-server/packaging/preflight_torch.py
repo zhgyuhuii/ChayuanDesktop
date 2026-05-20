@@ -47,6 +47,13 @@ _PYTORCH_INDEXES = {
 
 # Rust target triple → pip --platform tag(PyInstaller 跨平台打包用)
 # 注:CPU/CUDA wheel 都按这个 platform tag 区分 Windows/Linux/macOS
+#
+# Linux 仍用 ``manylinux2014_*`` 作为 *规范* tag —— 它决定 vendor/torch_wheels/
+# 的子目录名(见 WheelTarget.subdir),保持目录约定稳定。但 PyTorch 官方在
+# ``download.pytorch.org/whl/`` 上的新版 torch(>=2.6)Linux wheel 已经升到
+# ``manylinux_2_28_*``(glibc 2.28),manylinux2014(= manylinux_2_17)约束会
+# 把它们全过滤掉 → "from versions: none"。所以 _download() 对 Linux target 会
+# 额外补 _EXTRA_PLATFORM_TAGS 里的较新 tag(pip --platform 可重复,命中任一即可)。
 _PLATFORM_TAG = {
     "x86_64-pc-windows-msvc": "win_amd64",
     "aarch64-pc-windows-msvc": "win_arm64",
@@ -54,6 +61,15 @@ _PLATFORM_TAG = {
     "aarch64-unknown-linux-gnu": "manylinux2014_aarch64",
     "x86_64-apple-darwin": "macosx_10_9_x86_64",
     "aarch64-apple-darwin": "macosx_11_0_arm64",
+}
+
+# 规范 platform tag → 下载时额外要传给 pip 的 --platform tag(更新的 manylinux)。
+# pip 的 --platform 可重复出现,只要某个 wheel 兼容 *任一* tag 即被接受。
+# 新版 torch CPU wheel 是 manylinux_2_28_*,老版本(<2.6)才有 manylinux2014_*,
+# 同时传两个能兼容新旧 torch。
+_EXTRA_PLATFORM_TAGS = {
+    "manylinux2014_x86_64": ["manylinux_2_28_x86_64"],
+    "manylinux2014_aarch64": ["manylinux_2_28_aarch64"],
 }
 
 # CUDA wheel 只在 Windows / Linux 有(PyTorch 官方);macOS 无 CUDA
@@ -104,11 +120,17 @@ def _download(target: WheelTarget, out_dir: Path, *,
     out_dir.mkdir(parents=True, exist_ok=True)
     pkgs = [f"torch{torch_spec}"]
     pkgs.append("torchvision" if not torchvision_spec else f"torchvision{torchvision_spec}")
+    # 规范 tag + 该 tag 的额外较新 tag(如 manylinux_2_28_*)一起传给 pip,
+    # 命中任一兼容 wheel 即可。Windows / macOS 没有额外 tag,只传规范 tag。
+    platform_tags = [target.platform, *_EXTRA_PLATFORM_TAGS.get(target.platform, [])]
+    platform_args: List[str] = []
+    for tag in platform_tags:
+        platform_args.extend(["--platform", tag])
     cmd = [
         sys.executable, "-m", "pip", "download",
         "--only-binary=:all:",
         "--no-deps",
-        "--platform", target.platform,
+        *platform_args,
         "--python-version", target.py_version,
         "--implementation", "cp",
         "--abi", f"cp{target.py_version}",
