@@ -31,6 +31,7 @@ import {
 import { CapabilityCardGrid } from './capabilityCards/CapabilityCardGrid';
 import { HomeFxLayer } from './homeFx/HomeFxLayer';
 import { CardAura } from './homeFx/CardAura';
+import { PartnershipBanner } from './PartnershipBanner';
 
 // ── 5 张功能入口卡定义 ──────────────────────────────────────────────
 interface CapItem {
@@ -343,6 +344,13 @@ export const HomePage: React.FC = () => {
       <div className="relative z-10">
         <CapabilityCardGrid />
       </div>
+
+      {/* ── 5. 招商合作 banner ─────────────────────────────────
+       *  寻找城市合伙人 / ISV 集成商 / 私有化部署 / 行业定制。
+       *  深金渐变背景 + 金线缠绕,显得"郑重",2 个 CTA 弹联系方式
+       *  Dialog(微信/电话/邮箱,可复制)。
+       *  文案/联系方式在 PartnershipBanner.tsx 顶部常量,后续替换简单。 */}
+      <PartnershipBanner />
 
       {/* ── 4. 关注我们 / 收款码 ───────────────────────────────── */}
       <section className="relative z-10 rounded-3xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-6">
