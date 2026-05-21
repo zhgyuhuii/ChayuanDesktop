@@ -22,6 +22,7 @@ import {
 } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
+import { OcrTextDialog } from './OcrTextDialog';
 import type { DetailPanelProps } from './types';
 
 /** 把 ku_id='src:42' 解出 sourceId=42 */
@@ -603,6 +604,7 @@ const ImageCard: React.FC<{
   onDelete(): void;
 }> = ({ img, score, checked, showCheckbox, canDelete, onToggle, onPreview, onDelete }) => {
   const [src, setSrc] = React.useState<string>('');
+  const [ocrOpen, setOcrOpen] = React.useState(false);
   React.useEffect(() => {
     let live = true;
     void absImageUrl(img.thumb_url || img.url).then((u) => {
@@ -683,12 +685,20 @@ const ImageCard: React.FC<{
         </span>
       )}
       {img.state === 'ready' && img.ocr_text && (
-        <span
-          className="absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded-full bg-blue-500/90 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm"
-          title={img.ocr_text}
-        >
-          <FileText className="h-3 w-3" /> 含文字
-        </span>
+        <>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOcrOpen(true);
+            }}
+            title="点击查看 / 复制图片文字"
+            className="absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded-full bg-blue-500/90 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm transition-colors hover:bg-blue-500"
+          >
+            <FileText className="h-3 w-3" /> 含文字
+          </button>
+          <OcrTextDialog open={ocrOpen} onOpenChange={setOcrOpen} text={img.ocr_text} />
+        </>
       )}
       {img.state === 'ready' && img.has_text_vector === false && img.ocr_text && (
         <span
