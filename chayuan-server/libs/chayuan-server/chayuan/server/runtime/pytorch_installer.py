@@ -629,7 +629,12 @@ _TORCH_DEP_PINS: List[tuple[str, str, bool]] = [
     ("safetensors", "0.6.2", False),       # Rust 扩展,cp38-abi3
     ("huggingface_hub", "0.35.3", True),
     ("regex", "2024.11.6", False),         # C 扩展;此版本支持 py3.8-3.13
-    ("pyyaml", "6.0.2", False),            # libyaml C 扩展,按 platform+abi 选
+    # ⚠ 不要把 pyyaml 加回来。chayuan-server 自身(frozen bundle / dev venv)
+    #   已经带 yaml,而 py_packages 在 sys.path 靠前;一旦这里也装一份,运行中的
+    #   进程会从 py_packages import yaml、把 yaml/_yaml.*.pyd 这个 C 扩展锁住,
+    #   后续 force 重装解压到它就 PermissionError、整个 py_packages 被弄成半套
+    #   (image-embedding 报 ModuleNotFoundError: yaml.error)。transformers 用
+    #   yaml 跟版本无关,交给外层那份即可 —— 这里不装,import yaml 自然落到外层。
     ("packaging", "25.0", True),
     ("tqdm", "4.67.1", True),
     # requests + 其传递依赖:
