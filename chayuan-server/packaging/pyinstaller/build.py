@@ -77,6 +77,8 @@ except (AttributeError, OSError):
 HERE = Path(__file__).resolve().parent                       # packaging/pyinstaller
 ROOT = HERE.parent.parent                                    # chayuan-server/(repo root)
 WORKSPACE = ROOT.parent                                      # chayuan-desktop/
+# 真正的 chayuan 包(dist 名 chayuan-server);PyInstaller 必须分析这份 live 源码。
+SERVER_PKG = ROOT / "libs" / "chayuan-server"
 DESKTOP_SRC_TAURI = (
     WORKSPACE / "chayuan-client" / "apps" / "desktop" / "src-tauri"
 )
@@ -177,8 +179,30 @@ def _ensure_pyinstaller() -> None:
     )
 
 
+def _ensure_chayuan_installed() -> None:
+    """把 chayuan 包 editable 装进当前解释器 —— PyInstaller 必须分析到最新源码。
+
+    PyInstaller 的 collect_submodules / modulegraph 按 ``import chayuan`` 解析到
+    的那份包来分析。build-desktop.{sh,ps1} 只跑 ``poetry install --only main``,
+    而 poetry 的 ``--only`` 不会(重新)安装根包本身 → 当前解释器里的 chayuan
+    可能是旧安装残留的陈旧副本,缺新加的 ``chayuan.server.*`` 子模块,导致
+    sidecar 运行时 ``ModuleNotFoundError``(实测 ``chayuan.server.utils`` /
+    ``chayuan.server.profiles`` / ``chayuan.server.config_panel.restart``)。
+
+    这里在 PyInstaller 前强制 editable 安装:让 ``import chayuan`` 永远指向
+    live 源码,杜绝陈旧副本。deps 已由外层 ``poetry install --only main`` 装好,
+    ``--no-deps`` 不重复解析;``--force-reinstall`` 确保旧的非 editable 副本被换掉。
+    """
+    print(f"[build] editable 安装 chayuan(确保 PyInstaller 分析最新源码):{SERVER_PKG}", flush=True)
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "-e", str(SERVER_PKG),
+         "--no-deps", "--force-reinstall"],
+    )
+
+
 def run_pyinstaller(extra_args: list[str]) -> None:
     _ensure_pyinstaller()
+    _ensure_chayuan_installed()
     cmd = [sys.executable, "-m", "PyInstaller", str(SPEC), "--noconfirm", *extra_args]
     print(f"[build] $ {' '.join(cmd)}", flush=True)
     subprocess.check_call(cmd, cwd=str(ROOT))
