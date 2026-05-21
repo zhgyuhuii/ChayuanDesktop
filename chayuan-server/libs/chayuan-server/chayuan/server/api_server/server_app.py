@@ -326,6 +326,26 @@ def create_app(run_mode: str = None):
         except Exception:  # noqa: BLE001
             pass
 
+    # 启动前清理上一次遗留的孤儿 sidecar 进程 —— dev 热重启 / 进程被强杀会留下
+    # llama-server / whisper-server / infinity_server / rapidocr_server,堆积起来
+    # 吃内存、抢端口,新实例的 sidecar 反而起不来。必须在下面 auto-start 所有
+    # sidecar 之前跑(本 hook 注册在 _auto_start_rapidocr / _auto_start_capabilities
+    # 之前,startup hook 按注册顺序执行)。
+    @app.on_event("startup")
+    async def _reap_orphan_sidecars() -> None:
+        import asyncio as _asyncio
+        import logging as _logging
+        log = _logging.getLogger("chayuan.startup")
+        try:
+            from chayuan.server.model_registry.local_runtime_registry import (
+                reap_orphan_sidecars,
+            )
+            n = await _asyncio.to_thread(reap_orphan_sidecars)
+            if n:
+                log.info("[reap] 启动前清理孤儿 sidecar %d 个", n)
+        except Exception:  # noqa: BLE001
+            log.exception("[reap] 清理孤儿 sidecar 失败(不阻塞启动)")
+
     # RapidOCR sidecar 自动拉起 — 此前 OCR 必须用户手动在 UI 点启动,导致首次
     # 上传图就拿 503 "OCR sidecar not ready"。chayuan-server 起来时一并拉起,
     # 用户感知一致 — 装了就能用,跟 chat/embedding 等 5 个 capability 一样。
