@@ -198,6 +198,35 @@ _CAP_TO_PLATFORM_FIELD: Dict[str, str] = {
     "image-embedding": "image2text_models",
 }
 
+# capability → local_index 里的 capability 标签。绝大多数同名;image-embedding
+# 在 local_index 里登记为 ``image``(跟 bundled_models/ 子目录约定一致)。
+_CAP_TO_INDEX_CAP: Dict[str, str] = {
+    "image-embedding": "image",
+}
+
+
+def _list_downloaded_models(capability: str) -> list:
+    """列出某 capability 下「所有已下载模型」的 model_id。
+
+    项目原则:任何下载好的模型都要能选用 —— 平台清单不能只放当前在跑的
+    那一个,否则用户选别的已下载模型会报 ``ModelNotConfigured``。
+    从 :func:`local_index.get_local_index` 枚举;失败 / 没装返回空 list,
+    调用方自行兜底加入当前 model_id。
+    """
+    out: list = []
+    try:
+        from chayuan.server.model_registry.local_index import get_local_index
+        idx = get_local_index()
+        index_caps = {capability, _CAP_TO_INDEX_CAP.get(capability, capability)}
+        for cap in index_caps:
+            for entry in idx.by_capability(cap):
+                mid = getattr(entry, "model_id", None)
+                if mid and mid not in out:
+                    out.append(mid)
+    except Exception as e:  # noqa: BLE001 — 枚举失败不阻塞注册,退化到只注册在跑的模型
+        logger.warning("[local-runtime] 枚举 %s 已下载模型失败: %r", capability, e)
+    return out
+
 
 def _register_local_platform(*, capability: str, host: str, port: int, model_id: Optional[str]) -> None:
     """sidecar ready 时,把它写入 ``model_platform`` DB 表(model_platform_repository)。
@@ -232,8 +261,14 @@ def _register_local_platform(*, capability: str, host: str, port: int, model_id:
         "speech2text_models": [],
         "image2text_models": [],
     }
-    if model_field and model_id:
-        fields[model_field] = [model_id]
+    if model_field:
+        # 该 capability 下「所有已下载模型」都进清单,不只当前在跑的那个 ——
+        # 否则用户选别的下载好的模型会报 ModelNotConfigured(项目原则:
+        # 任何下载的模型都要能选用)。当前在跑的 model_id 兜底确保在列。
+        models = _list_downloaded_models(capability)
+        if model_id and model_id not in models:
+            models = [model_id, *models]
+        fields[model_field] = models
 
     try:
         from chayuan.server.db.repository.model_platform_repository import upsert_platform

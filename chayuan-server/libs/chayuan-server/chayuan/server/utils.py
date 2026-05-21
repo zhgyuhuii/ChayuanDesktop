@@ -435,8 +435,16 @@ def get_config_models(
         model_types = [f"{model_type}_models"]
 
     for m in list(get_config_platforms().values()):
-        if platform_name is not None and platform_name != m.get("platform_name"):
-            continue
+        if platform_name is not None:
+            _pn = str(m.get("platform_name") or "")
+            # 遗留的裸 ``local::`` 命名空间(老前端 / 旧持久化状态留下的)实际
+            # 对应 local-chat / local-embedding 等 sidecar 平台 —— 容忍匹配,
+            # 否则 ``local::<model>`` 永远命中不到 → ModelNotConfigured。
+            if platform_name == "local":
+                if not (_pn == "local" or _pn.startswith("local-")):
+                    continue
+            elif platform_name != _pn:
+                continue
 
         if m.get("auto_detect_model"):
             ptype = m.get("platform_type")
