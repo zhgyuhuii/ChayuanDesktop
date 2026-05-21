@@ -5,9 +5,13 @@ from typing import Optional
 from fastapi import Body
 
 from chayuan.settings import Settings
-from chayuan.server.db.repository.knowledge_base_repository import list_kbs_from_db
+from chayuan.server.db.repository.knowledge_base_repository import (
+    delete_kb_from_db,
+    list_kbs_from_db,
+)
+from chayuan.server.db.repository.knowledge_file_repository import delete_files_from_db
 from chayuan.server.knowledge_base.kb_service.base import KBServiceFactory, force_rmtree
-from chayuan.server.knowledge_base.utils import validate_kb_name
+from chayuan.server.knowledge_base.utils import get_kb_path, validate_kb_name
 from chayuan.server.utils import BaseResponse, ListResponse, get_default_embedding
 from chayuan.utils import build_logger
 
@@ -48,16 +52,11 @@ def create_kb(
     kb = KBServiceFactory.get_service(
         knowledge_base_name, vector_store_type, embed_model, kb_info=kb_info
     )
-    # 同名重建兜底:走到这里 KB 一定不在 DB(上面已挡重名)。磁盘上若还有同名
-    # 目录,那是上一次删除没清净的残留 —— 先清掉。否则 get_kb_file_details 的
-    # list_files_from_folder 会把残留 content/ 里的旧文件读出来,表现为
-    # "删了知识库、重新建同名的、旧文件又回来了"。
-    if os.path.exists(kb.kb_path) and not force_rmtree(kb.kb_path):
-        logger.error(
-            "create_kb: 残留的同名知识库目录清不掉 kb=%s path=%s —— 旧文件可能"
-            "复活;请关闭占用该目录的进程后重试。",
-            knowledge_base_name, kb.kb_path,
-        )
+    # 同名重建兜底:走到这里 KB 一定不在 DB(上面已挡重名)。把上一次删除没
+    # 清净的残留**全部**按名字清掉 —— 磁盘 content/ 目录 + DB 的 knowledge_file
+    # 行,两处都清。否则 get_kb_file_details 会从这两个来源把旧文件读回来,
+    # 表现为"删了知识库、重新建同名的、旧文件又复活了"。
+    _purge_kb_residue(knowledge_base_name)
     try:
         kb.create_kb()
     except Exception as e:
@@ -96,6 +95,30 @@ def create_kb(
     return BaseResponse(code=200, msg=f"已新增知识库 {knowledge_base_name}")
 
 
+def _purge_kb_residue(knowledge_base_name: str) -> None:
+    """按名字清掉一个 KB 的全部残留:DB 的 knowledge_file / file_doc 行 +
+    磁盘 content/ 目录。
+
+    KB 的文件列表 get_kb_file_details = 磁盘 content/ 文件夹 ∪ DB 的
+    knowledge_file 行,**两个来源**。任一处残留,"删知识库 → 同名重建"后
+    旧文件就会复活。删除 / 重建前都调一次,保证两处都不留痕。
+    """
+    try:
+        delete_files_from_db(knowledge_base_name)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("purge: delete_files_from_db(%s) 失败: %r",
+                       knowledge_base_name, e)
+    try:
+        kb_dir = get_kb_path(knowledge_base_name)
+        if os.path.exists(kb_dir) and not force_rmtree(kb_dir):
+            logger.error(
+                "purge: 知识库磁盘目录清不掉 kb=%s path=%s —— 旧文件可能复活,"
+                "关掉占用该目录的进程后重试。", knowledge_base_name, kb_dir,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("purge: 清磁盘目录(%s)失败: %r", knowledge_base_name, e)
+
+
 def delete_kb(
     knowledge_base_name: str = Body(..., examples=["samples"]),
 ) -> BaseResponse:
@@ -107,7 +130,15 @@ def delete_kb(
     kb = KBServiceFactory.get_service_by_name(knowledge_base_name)
 
     if kb is None:
-        return BaseResponse(code=404, msg=f"未找到知识库 {knowledge_base_name}")
+        # KBService 构造不出来(KB 不在 DB / vs_type 无法识别等)。仍按名字兜底
+        # 清残留 —— 文件行 + 磁盘目录 + KB 行都清掉,避免同名重建时复活。
+        _purge_kb_residue(knowledge_base_name)
+        try:
+            delete_kb_from_db(knowledge_base_name)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("delete_kb: delete_kb_from_db(%s) 失败: %r",
+                           knowledge_base_name, e)
+        return BaseResponse(code=200, msg=f"已删除知识库 {knowledge_base_name}")
 
     try:
         # clear_vs 与 drop_kb 解耦:clear_vs(清向量内容 + file metadata)失败
