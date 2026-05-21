@@ -358,15 +358,29 @@ def torch_install_target_dir() -> Optional[Path]:
 
 
 def torch_dir_has_torch(path: Any) -> bool:
-    """``path`` 目录里有没有 ``torch/`` 子包。
+    """``path`` 目录里有没有**真正可 import 的** torch 包。
 
-    只有 ``torchvision/`` 没有 ``torch/`` 的「半套」目录**绝不能**加进
+    只看 ``torch/`` 目录在不在不够 —— 半套 / 装坏 / 装到一半被中断的
+    ``py_packages`` 里,``torch/`` 可能是个**空壳目录**(没有 ``__init__.py``)。
+    必须看到 ``torch/__init__.py`` 才算数。
+
+    只有 ``torchvision/`` 没有真 ``torch/`` 的「半套」目录**绝不能**加进
     ``sys.path`` / ``PYTHONPATH`` —— 那会让 ``import torchvision`` 命中这里、
     ``import torch`` 漏到外部环境(conda / 系统 Python),两者版本错配,
     触发 ``RuntimeError: operator torchvision::nms does not exist``。
     """
     try:
-        return (Path(path) / "torch").is_dir()
+        return (Path(path) / "torch" / "__init__.py").is_file()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _is_half_torch_dir(path: Any) -> bool:
+    """``path`` 是不是「半套」torch 目录:有 ``torchvision/`` 真包、却没有
+    真 ``torch/`` —— 留在 sys.path 上必然触发 torchvision::nms 错配。"""
+    try:
+        p = Path(path)
+        return (p / "torchvision" / "__init__.py").is_file() and not torch_dir_has_torch(p)
     except Exception:  # noqa: BLE001
         return False
 
@@ -409,6 +423,22 @@ def ensure_torch_target_on_syspath() -> Optional[str]:
         active = resolve_active_torch_dir()
     except Exception as e:  # noqa: BLE001
         logger.debug("[torch-syspath] resolve_active_torch_dir 失败: %r", e)
+
+    # 先主动清掉 sys.path 上已经存在的「半套」torch 目录(有 torchvision/ 真包、
+    # 没真 torch/)—— 不论它是上一轮本函数加的、还是别处 / 环境变量带进来的。
+    # 留着它:import torchvision 命中半套、import torch 漏到外部环境 → 版本错配
+    # → 'operator torchvision::nms does not exist'。摘掉后 torchvision 会和
+    # torch 一起从同一个完整环境(conda 等)解析,自洽。
+    for _p in list(sys.path):
+        try:
+            if _is_half_torch_dir(_p):
+                sys.path.remove(_p)
+                logger.warning(
+                    "[torch-syspath] 从 sys.path 摘掉半套 torch 目录 %s"
+                    "(有 torchvision/ 无 torch/),避免 torchvision::nms 错配。", _p,
+                )
+        except Exception:  # noqa: BLE001
+            continue
 
     # 只挑一个 torch 目录加进 sys.path,避免「外部 torch + py_packages torchvision」
     # 跨目录混装。active 已自洽(auto 模式优先 py_packages);没有 active 才退回
