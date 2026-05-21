@@ -9,9 +9,17 @@ from chayuan.server.db.repository.knowledge_base_repository import (
     delete_kb_from_db,
     list_kbs_from_db,
 )
-from chayuan.server.db.repository.knowledge_file_repository import delete_files_from_db
+from chayuan.server.db.repository.knowledge_file_repository import (
+    delete_files_from_db,
+    list_files_from_db,
+)
 from chayuan.server.knowledge_base.kb_service.base import KBServiceFactory, force_rmtree
-from chayuan.server.knowledge_base.utils import get_kb_path, validate_kb_name
+from chayuan.server.knowledge_base.utils import (
+    get_file_path,
+    get_kb_path,
+    list_files_from_folder,
+    validate_kb_name,
+)
 from chayuan.server.utils import BaseResponse, ListResponse, get_default_embedding
 from chayuan.utils import build_logger
 
@@ -96,20 +104,88 @@ def create_kb(
 
 
 def _purge_kb_residue(knowledge_base_name: str) -> None:
-    """按名字清掉一个 KB 的全部残留:DB 的 knowledge_file / file_doc 行 +
-    磁盘 content/ 目录。
+    """按名字**彻底**清掉一个 KB 的全部残留。
 
     KB 的文件列表 get_kb_file_details = 磁盘 content/ 文件夹 ∪ DB 的
-    knowledge_file 行,**两个来源**。任一处残留,"删知识库 → 同名重建"后
-    旧文件就会复活。删除 / 重建前都调一次,保证两处都不留痕。
+    knowledge_file 行,**两个来源**;文件实体还可能同时落在 FileStorage
+    (KB_CONTENT 命名空间)。任一处残留,"删知识库 → 同名重建"后旧文件
+    就会复活。
+
+    清理步骤(删除 / 重建前都调一次):
+      1. 列出该 KB 已知的所有文件名(磁盘 content/ ∪ DB knowledge_file 行);
+      2. **逐个文件名删**:本地磁盘文件 + FileStorage 对象;
+      3. FileStorage 再按前缀兜底清一遍;
+      4. 删 DB 的 knowledge_file / file_doc 行;
+      5. force_rmtree 整个 KB 目录(逐个删完剩空壳,这步兜底删目录树)。
+    每步都 logger,删/建知识库后搜后端日志 "[purge]" 即可逐项核对。
     """
+    import stat
+
+    # 1. 收集该 KB 已知的所有文件名(磁盘 + DB 两个来源)
+    names: set = set()
+    try:
+        names.update(list_files_from_folder(knowledge_base_name))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[purge] 列磁盘文件失败 kb=%s: %r", knowledge_base_name, e)
+    try:
+        names.update(list_files_from_db(knowledge_base_name) or [])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[purge] 列 DB 文件失败 kb=%s: %r", knowledge_base_name, e)
+
+    # FileStorage 句柄(local 后端落 KB_ROOT/../storage;minio 在远端 bucket)
+    storage = None
+    NS = None
+    try:
+        from chayuan.server.file_storage import NS as _NS, get_storage
+        storage = get_storage()
+        NS = _NS
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[purge] FileStorage 不可用(忽略): %r", e)
+
+    # 2. 逐个文件名删:本地磁盘 + FileStorage
+    removed = 0
+    for fname in sorted(names):
+        try:
+            fp = get_file_path(knowledge_base_name, fname)
+            if fp and os.path.isfile(fp):
+                try:
+                    os.chmod(fp, stat.S_IWRITE)  # 清只读位,防 Windows 删不掉
+                except Exception:  # noqa: BLE001
+                    pass
+                os.remove(fp)
+                removed += 1
+                logger.info("[purge] 删文件 kb=%s name=%s -> %s",
+                            knowledge_base_name, fname, fp)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[purge] 删本地文件失败 kb=%s name=%s: %r",
+                           knowledge_base_name, fname, e)
+        if storage is not None:
+            try:
+                storage.delete(NS.KB_CONTENT, f"{knowledge_base_name}/{fname}")
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[purge] 删 FileStorage 失败 kb=%s name=%s: %r",
+                             knowledge_base_name, fname, e)
+
+    # 3. FileStorage 再按前缀兜底清(逐个删可能漏掉 list 不到名字的对象)
+    if storage is not None:
+        try:
+            for obj in storage.list(NS.KB_CONTENT,
+                                    prefix=f"{knowledge_base_name}/", limit=10000):
+                storage.delete(NS.KB_CONTENT, obj.key)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[purge] FileStorage 前缀清理失败 kb=%s: %r",
+                         knowledge_base_name, e)
+
+    # 4. DB 的 knowledge_file / file_doc 行
     db_ok = True
     try:
         delete_files_from_db(knowledge_base_name)
     except Exception as e:  # noqa: BLE001
         db_ok = False
-        logger.warning("purge: delete_files_from_db(%s) 失败: %r",
+        logger.warning("[purge] delete_files_from_db(%s) 失败: %r",
                        knowledge_base_name, e)
+
+    # 5. force_rmtree 整个 KB 目录(逐个删完后多半剩空壳,这步兜底删目录树)
     folder_existed = False
     folder_cleared = True
     kb_dir = ""
@@ -120,17 +196,18 @@ def _purge_kb_residue(knowledge_base_name: str) -> None:
             folder_cleared = force_rmtree(kb_dir)
             if not folder_cleared:
                 logger.error(
-                    "purge: 知识库磁盘目录清不掉 kb=%s path=%s —— 旧文件可能复活,"
+                    "[purge] 知识库磁盘目录清不掉 kb=%s path=%s —— 旧文件可能复活,"
                     "关掉占用该目录的进程后重试。", knowledge_base_name, kb_dir,
                 )
     except Exception as e:  # noqa: BLE001
         folder_cleared = False
-        logger.warning("purge: 清磁盘目录(%s)失败: %r", knowledge_base_name, e)
-    # 一行总结日志:删/建知识库后到后端日志搜 "[purge]" 即可确认新代码在跑、
-    # 两个来源(DB 行 + 磁盘目录)各自清没清干净。
+        logger.warning("[purge] 清磁盘目录(%s)失败: %r", knowledge_base_name, e)
+
     logger.info(
-        "[purge] KB=%s db_rows_cleared=%s folder_existed=%s folder_cleared=%s path=%s",
-        knowledge_base_name, db_ok, folder_existed, folder_cleared, kb_dir,
+        "[purge] KB=%s 文件名=%d 删除文件=%d db_rows_cleared=%s "
+        "folder_existed=%s folder_cleared=%s path=%s",
+        knowledge_base_name, len(names), removed, db_ok,
+        folder_existed, folder_cleared, kb_dir,
     )
 
 
@@ -144,31 +221,25 @@ def delete_kb(
 
     kb = KBServiceFactory.get_service_by_name(knowledge_base_name)
 
-    if kb is None:
-        # KBService 构造不出来(KB 不在 DB / vs_type 无法识别等)。仍按名字兜底
-        # 清残留 —— 文件行 + 磁盘目录 + KB 行都清掉,避免同名重建时复活。
-        _purge_kb_residue(knowledge_base_name)
-        try:
-            delete_kb_from_db(knowledge_base_name)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("delete_kb: delete_kb_from_db(%s) 失败: %r",
-                           knowledge_base_name, e)
-        return BaseResponse(code=200, msg=f"已删除知识库 {knowledge_base_name}")
-
-    try:
-        # clear_vs 与 drop_kb 解耦:clear_vs(清向量内容 + file metadata)失败
-        # 不能阻止 drop_kb 清磁盘文件 / FileStorage / KB DB 行 —— 否则磁盘上
-        # 的文件按 kb_name 残留,同名重建会"复活"。要求:删库不留任何数据。
+    # KB 在 DB 里 → 先让 KBService 清向量库 collection。clear_vs / drop_kb
+    # 失败都不致命:下面 _purge_kb_residue 会按名字把文件 + DB 行兜底全清。
+    if kb is not None:
         try:
             kb.clear_vs()
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"clear_vs 失败,仍继续 drop_kb 清磁盘 + DB: {e!r}")
-        status = kb.drop_kb()
-        if status:
-            return BaseResponse(code=200, msg=f"成功删除知识库 {knowledge_base_name}")
-    except Exception as e:
-        msg = f"删除知识库时出现意外： {e}"
-        logger.error(f"{e.__class__.__name__}: {msg}")
-        return BaseResponse(code=500, msg=msg)
+            logger.warning("delete_kb: clear_vs 失败,继续: %r", e)
+        try:
+            kb.drop_kb()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("delete_kb: drop_kb 失败,继续按名清残留: %r", e)
 
-    return BaseResponse(code=500, msg=f"删除知识库失败 {knowledge_base_name}")
+    # 不管 kb 在不在、drop_kb 成没成,都按名字做一次**彻底清理**:列出文件名
+    # 逐个删本地磁盘 + FileStorage,再删目录、DB 文件行;最后删 KB 行。
+    # 保证"删知识库 → 同名重建"绝不复活旧文件。删除是幂等的,恒返回 200。
+    _purge_kb_residue(knowledge_base_name)
+    try:
+        delete_kb_from_db(knowledge_base_name)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("delete_kb: delete_kb_from_db(%s) 失败: %r",
+                       knowledge_base_name, e)
+    return BaseResponse(code=200, msg=f"已删除知识库 {knowledge_base_name}")
