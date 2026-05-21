@@ -91,11 +91,12 @@ async def test_pipeline_ocr_fails_still_ready(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_clip_fails_still_ready_if_ocr_ok(monkeypatch):
-    """CLIP 失败 + OCR 成功 → state=ready(以图搜图缺位,可文字检索)。
+async def test_pipeline_clip_fails_is_partial_even_if_ocr_ok(monkeypatch):
+    """CLIP 失败 → state=partial,即便 OCR / 文字向量都成功。
 
-    2026-05 起两条路径独立:CLIP/OCR 任一可用就 ready,error 字段写降级提示;
-    只有两边都失败才 state=failed。"""
+    图像 KB 的核心能力是 CLIP 图像向量。CLIP 失败 = 以图搜图不可用 = 没真正
+    建好,不能标"成功"(ready);即便 OCR 出了文字、文字向量也建好,也只是
+    降级可用 → partial,让用户一眼看出这张图没做图像向量。"""
     from chayuan.server.image_source import pipeline
 
     async def _ocr(b, *, port, timeout=30.0):
@@ -116,7 +117,7 @@ async def test_pipeline_clip_fails_still_ready_if_ocr_ok(monkeypatch):
     await pipeline.process_item(ctx.store_name, "img_p1", b"fakepng",
                                  model_name="clip-test")
     rec = ctx.store.get("img_p1")
-    assert rec["state"] == "ready"
+    assert rec["state"] == "partial"
     assert rec["ocr_text"] == "x"
     assert rec["has_text_vector"] is True
     # image_vector_id 未设(CLIP 失败) — 老 store 可能 default 给 None / 缺字段

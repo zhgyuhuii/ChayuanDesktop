@@ -162,15 +162,14 @@ async def process_item(
 ) -> None:
     """处理一个 upload item。永不抛异常,失败信息写到 item.state/error。
 
-    两条路径(OCR 文字 / CLIP 图像向量)**互相独立**,任一可用即视为可用:
-      - 都成功     → state=ready,以图搜图 + 文字检索
-      - 只 CLIP 成功 → state=ready,只能以图搜图
-      - 只 OCR 成功  → state=ready,只能文字检索
-      - 都失败     → state=partial — 图已落盘,记录在库,但无任何向量索引;
-                                       用户改完环境(装/升 transformers / 装 RapidOCR)后
-                                       可点 UI 上的"重新索引"重跑 pipeline。
-                                       (相比 failed,partial 让用户至少在图像 KB 列表
-                                        看到这张图,而不是被隐藏掉)
+    图像 KB 的核心能力是 CLIP 图像向量(以图搜图),OCR 文字是附加:
+      - CLIP 成功 → state=ready;文字向量缺失只挂 diag 备注,不降级。
+      - CLIP 失败 → state=partial — **不算"成功"**:图像向量缺失、以图搜图找不到
+                    这张图。即便 OCR 出了文字(仅文字可检索)也只是降级可用。
+                    图已落盘、记录在库;用户修好环境(让 Infinity image-embedding
+                    sidecar 起来 / 装升 transformers)后点 UI 上"重新索引"重跑。
+                    (partial 让用户在图像 KB 列表仍看得到这张图、且一眼看出它没做
+                     图像向量,而不是被误标成"成功"。)
     """
     store = get_store(store_name)
 
@@ -225,12 +224,12 @@ async def process_item(
 
     store.update(item_id, has_text_vector=has_text_vector)
 
-    # 任一路径可用 → ready;都没货 → partial(图保留可见,用户修环境后重索引)
+    # 图像 KB 的核心能力是 CLIP 图像向量。只有 has_image_vector 才算真正"成功"
+    # (ready);CLIP 失败的图即便 OCR 出了文字,也只是降级可用 → partial,
+    # 让用户一眼看出"这张图没做图像向量、以图搜图找不到它",不被误标成"成功"。
     clip_friendly = _friendly_clip_error(clip_res.error or "")
-    if has_image_vector or has_text_vector or ocr_res.text:
+    if has_image_vector:
         notes: list[str] = []
-        if not has_image_vector:
-            notes.append(clip_friendly or "以图搜图不可用(CLIP 未装/失败)")
         if ocr_res.text and not has_text_vector:
             notes.append("OCR 文字向量缺失(默认文本嵌入未配)")
         if not ocr_res.text:
@@ -238,10 +237,16 @@ async def process_item(
         diag = " · ".join(notes) or None
         store.update(item_id, state="ready", progress=100, error=diag)
     else:
-        # 两边都没货:保留图,state=partial(降级 ready);用户修完环境可重索引
-        clip_part = clip_friendly or (clip_res.error or "no vector")
-        ocr_part = ocr_res.error or "no text"
-        err = f"CLIP: {clip_part} · OCR: {ocr_part}"
+        # CLIP 图像向量缺失 —— 核心能力没到位,不算成功。图保留可见,
+        # 用户修完环境(Infinity sidecar 起来)后可点"重新索引"重跑。
+        clip_part = clip_friendly or (clip_res.error or "CLIP 未装/失败")
+        if has_text_vector:
+            err = f"图像向量缺失(以图搜图不可用),仅文字可检索 —— CLIP: {clip_part}"
+        elif ocr_res.text:
+            err = f"图像向量 + OCR 文字向量均缺失 —— CLIP: {clip_part}"
+        else:
+            ocr_part = ocr_res.error or "no text"
+            err = f"CLIP: {clip_part} · OCR: {ocr_part}"
         store.update(item_id, state="partial", error=err, progress=100)
 
     store.flush()
