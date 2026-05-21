@@ -32,6 +32,14 @@ export default {
     history: '历史对话',
     settings: '系统设置',
     home: '工作主页',
+    onlineGroup: '在线办公',
+    onlineOffice: '察元办公',
+    onlineSpace: '智能空间',
+    onlineMarket: '应用中心',
+    onlineTasks: '我的待办',
+    onlineAnnotation: '训练数据中心',
+    onlineHint: '在线功能,当前单机版不支持',
+    onlineBadge: '在线',
   },
   home: {
     greeting: {

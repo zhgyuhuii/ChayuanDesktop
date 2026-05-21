@@ -81,21 +81,21 @@ const NAV_ITEMS: ReadonlyArray<NavItem> = [
 
 /**
  * 「在线办公」功能组 —— 单机版不支持,点击后进 OnlineFeaturePage 占位页。
- * label 直接写字面量(不走 i18n):这些在线功能在单机版只是占位,文案固定。
- * 路由与 OnlineFeaturePage 的 feature key 对齐(page-registry:/online/<key>)。
+ * 文案走 i18n(nav.online*);路由与 OnlineFeaturePage 的 feature key 对齐
+ * (page-registry:/online/<key>)。
  */
 interface OnlineNavItem {
   to: string;
-  label: string;
+  labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
 }
 
 const ONLINE_NAV_ITEMS: ReadonlyArray<OnlineNavItem> = [
-  { to: '/online/office', label: '察元办公', icon: Briefcase },
-  { to: '/online/space', label: '智能空间', icon: Grid3x3 },
-  { to: '/online/market', label: '应用中心', icon: Store },
-  { to: '/online/tasks', label: '我的待办', icon: Bell },
-  { to: '/online/annotation', label: '训练数据中心', icon: Tags },
+  { to: '/online/office', labelKey: 'nav.onlineOffice', icon: Briefcase },
+  { to: '/online/space', labelKey: 'nav.onlineSpace', icon: Grid3x3 },
+  { to: '/online/market', labelKey: 'nav.onlineMarket', icon: Store },
+  { to: '/online/tasks', labelKey: 'nav.onlineTasks', icon: Bell },
+  { to: '/online/annotation', labelKey: 'nav.onlineAnnotation', icon: Tags },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, ...rest }) => {
@@ -245,7 +245,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
         <div className="shrink-0 border-t border-[var(--cy-border-subtle)] px-2 py-2">
           <p className="mb-1 flex items-center gap-1 px-2 text-[11px] font-medium uppercase tracking-wider text-[var(--cy-text-tertiary)]">
             <Lock className="h-3 w-3" />
-            在线办公
+            {t('nav.onlineGroup')}
           </p>
           <nav className="flex flex-col gap-0.5 text-sm">
             {ONLINE_NAV_ITEMS.map((it) => {
@@ -255,8 +255,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
                 <button
                   key={it.to}
                   type="button"
-                  onClick={() => onNavItem(it.to, it.label, 'lock')}
-                  title={`${it.label} · 在线功能,当前单机版不支持`}
+                  onClick={() => onNavItem(it.to, t(it.labelKey), 'lock')}
+                  title={`${t(it.labelKey)} · ${t('nav.onlineHint')}`}
                   className={cn(
                     'flex items-center gap-2 rounded-full px-3 py-1.5 text-left transition-colors',
                     active
@@ -265,9 +265,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
                   )}
                 >
                   <Icon className="h-4 w-4" />
-                  <span className="flex-1 truncate">{it.label}</span>
+                  <span className="flex-1 truncate">{t(it.labelKey)}</span>
                   <span className="shrink-0 rounded-full bg-[var(--cy-surface-2)] px-1.5 py-0.5 text-[10px] font-normal text-[var(--cy-text-tertiary)]">
-                    在线
+                    {t('nav.onlineBadge')}
                   </span>
                 </button>
               );

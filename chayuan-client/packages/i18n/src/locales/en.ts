@@ -32,6 +32,14 @@ export default {
     history: 'Chat History',
     settings: 'Settings',
     home: 'Home',
+    onlineGroup: 'Online Office',
+    onlineOffice: 'Office',
+    onlineSpace: 'Smart Space',
+    onlineMarket: 'App Center',
+    onlineTasks: 'My Tasks',
+    onlineAnnotation: 'Training Data',
+    onlineHint: 'Online feature — not available in the standalone edition',
+    onlineBadge: 'Online',
   },
   home: {
     greeting: {
