@@ -247,6 +247,15 @@ fn chayuan_take_pending_new_chat(state: tauri::State<'_, TrayPendingState>) -> b
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ── Linux:关掉 WebKitGTK 的 DMABUF 渲染器 ───────────────────────────
+    // WebKitGTK 2.42+ 默认用 DMABUF 做 GPU 合成层。在没有正常 GPU 加速的环境
+    // (虚拟机 / 国产 Linux 杂牌显卡 / 远程桌面)里 DMABUF 合成会失败,弹层 /
+    // 下拉 / 对话框 / tab 等「独立合成层」渲染成黑块或品红块(实测 bug/ 截图)。
+    // 关掉 DMABUF 渲染器即回退到可靠路径,实测黑块全消。
+    // 必须在 webview / GTK 初始化前设置 —— 放 run() 第一行。
+    #[cfg(target_os = "linux")]
+    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+
     // window_state plugin:只持久化 SIZE / POSITION / MAXIMIZED / FULLSCREEN,
     // 启动时按窗口 label 自动 restore。
     //
