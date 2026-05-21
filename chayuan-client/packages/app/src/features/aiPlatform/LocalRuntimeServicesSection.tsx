@@ -46,7 +46,7 @@ import {
   type RuntimeServiceInstallJob,
   runtimeModels,
 } from '@chayuan/api';
-import { getPlatform } from '@chayuan/platform-shared';
+import { getDataDirApi } from '../first-run/dataDirApi';
 import { Button, Switch } from '@chayuan/ui';
 import { notifySuccess, reportError } from '../../store/errorDialog';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
@@ -1054,7 +1054,7 @@ const PytorchRow: React.FC = () => {
       </div>
 
       {/* 放置目录 — 告诉用户手动装好的 torch / 解压好的 wheel 放哪里。
-          类比模型下载对话框的「扫描挂载」:展示绝对路径 + 复制 + 资源管理器打开。 */}
+          展示绝对路径 + 复制 + 换位置(选别的 PyTorch 环境目录并验证)。 */}
       {targetDir && (
         <div className="space-y-1 rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2">
           <div className="text-[11px] text-[var(--cy-text-secondary)]">
@@ -1078,14 +1078,26 @@ const PytorchRow: React.FC = () => {
             <Button
               size="sm"
               variant="outline"
+              disabled={pickBusy}
               onClick={() => {
-                void getPlatform()
-                  .shell.openPath(targetDir)
-                  .catch((e) => reportError(e, '打开文件夹失败'));
+                void (async () => {
+                  try {
+                    // 弹原生选目录框,让用户挑「别的 PyTorch 环境」目录
+                    const picked = await getDataDirApi().pickDirectory({
+                      defaultPath: targetDir || undefined,
+                    });
+                    // onUseExternalDir 会校验该目录 torch/torchvision 是否配套
+                    // (pytorchValidateDir),合法则采纳并弹出「是否正常」结果。
+                    if (picked) await onUseExternalDir(picked);
+                  } catch (e) {
+                    reportError(e, '选择目录失败');
+                  }
+                })();
               }}
-              title="用资源管理器打开"
+              title="换位置 —— 选择别的 PyTorch 环境目录并验证"
             >
               <FolderOpen className="h-3.5 w-3.5" />
+              换位置
             </Button>
           </div>
         </div>
