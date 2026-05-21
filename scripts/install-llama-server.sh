@@ -4,6 +4,9 @@
 # 注:版本号 / 资产名 schema / GitHub 镜像清单同时被「应用内运行时服务下载」
 # 复用 —— 真源是 chayuan-server/.../chayuan/server/runtime/install_service.py
 # (_LLAMA_VERSION / _llama_asset_for / _GH_MIRRORS)。改一边记得同步另一边。
+# 例外:linux-x64 本脚本已改为 Docker(ubuntu:20.04)源码编译(官方 ubuntu-x64
+# zip 是 24.04 CI 编的、需 GLIBC_2.38,老系统跑不起来)。install_service.py 的
+# linux-x64 仍是下载,有同样隐患 —— 应用内若走那条路需另行处理。
 #
 # 用法:
 #   bash scripts/install-llama-server.sh [version] [--target <plat>]
@@ -11,7 +14,7 @@
 #   version: llama.cpp release tag,默认 b4404
 #   --target: vendor 平台子目录名 + 对应 upstream asset。不传 = 自动按 host 选。
 #     支持:
-#       linux-x64          (ubuntu x64,默认 Linux host)
+#       linux-x64          (Docker ubuntu:20.04 内源码编译,需 docker;老 glibc 通跑)
 #       linux-arm64        (Docker fallback,不走本脚本;装方法见 README)
 #       macos-arm64        (Apple Silicon,默认 macOS arm64 host)
 #       macos-x64          (Intel Mac,默认 macOS x86_64 host)
@@ -70,6 +73,56 @@ if [ -z "$TARGET" ]; then
         echo "[install] 不支持的 host OS $(uname -s),请显式传 --target" >&2
         exit 1
     fi
+fi
+
+# ── linux-x64:不下官方 zip,改 Docker(ubuntu:20.04)源码编译 ──────────────
+# 官方 llama-bXXXX-bin-ubuntu-x64.zip 在 Ubuntu 24.04 CI 编译,需 GLIBC_2.38 /
+# GLIBCXX_3.4.32 → 在 Ubuntu 22.04 / 统信 / 麒麟(glibc<=2.35)上起不来。
+# 在 ubuntu:20.04 容器内源码编译 llama.cpp(master),产物 glibc<=2.29,老系统
+# 通跑;GGML_NATIVE=OFF 让 CPU 也通吃(并保留运行时 CPU 派发)。
+if [ "$TARGET" = "linux-x64" ]; then
+    DEST="$WORKSPACE/chayuan-server/vendor/services/llama-server/linux-x64"
+    mkdir -p "$DEST"
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "[install-llama-server] linux-x64 需用 Docker(ubuntu:20.04)源码编译,但本机无 docker。" >&2
+        echo "  先装:sudo apt-get install -y docker.io  (装完可能要 newgrp docker / 重新登录)" >&2
+        echo "  或在一台 Ubuntu 20.04 机器上源码 cmake 编译后,把 llama-server + *.so 放进:" >&2
+        echo "  $DEST" >&2
+        exit 3
+    fi
+    OUT="/tmp/llama-src-build-$$"
+    rm -rf "$OUT"; mkdir -p "$OUT"
+    echo "[install-llama-server] linux-x64:在 ubuntu:20.04 容器内源码编译 llama.cpp(约 10-20 分钟)..."
+    docker run --rm -v "$OUT:/out" ubuntu:20.04 bash -c '
+        set -ex
+        A="-o Acquire::Check-Valid-Until=false -o Acquire::AllowInsecureRepositories=true"
+        apt-get $A update || apt-get $A update
+        DEBIAN_FRONTEND=noninteractive apt-get $A install -y --allow-unauthenticated \
+            build-essential cmake git ca-certificates
+        git clone --depth 1 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
+        cd /tmp/llama.cpp
+        git rev-parse --short HEAD > /out/COMMIT
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF
+        cmake --build build -j"$(nproc)" --target llama-server
+        cp build/bin/llama-server /out/
+        find build/bin -maxdepth 1 -name "*.so*" -exec cp {} /out/ \;
+    '
+    # 旧 binary / so 清掉,放新产物(LICENSE 等保留)
+    find "$DEST" -maxdepth 1 -type f \
+        \( -name 'llama-server' -o -name '*.so' -o -name '*.so.*' \) -delete 2>/dev/null || true
+    cp -f "$OUT"/llama-server "$OUT"/*.so* "$DEST/"
+    chmod +x "$DEST/llama-server"
+    printf 'source-build: llama.cpp %s (ubuntu:20.04 容器,glibc<=2.29)\n%s\n' \
+        "$(cat "$OUT/COMMIT" 2>/dev/null || echo unknown)" "$(date +%Y-%m-%d)" > "$DEST/VERSION"
+    rm -rf "$OUT"
+    echo
+    echo "[install-llama-server] linux-x64 完成 → $DEST"
+    ls -lh "$DEST"
+    if command -v objdump >/dev/null 2>&1; then
+        _hi="$(objdump -T "$DEST"/*.so 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -1 || true)"
+        echo "[install-llama-server] glibc 验收:.so 最高需 ${_hi:-?}(应远低于 2.38)"
+    fi
+    exit 0
 fi
 
 # target → upstream asset name
