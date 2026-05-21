@@ -141,10 +141,13 @@ def _detect_nvidia() -> tuple[bool, Optional[str]]:
     if r.returncode != 0:
         return False, None
     line = (r.stdout or "").strip().splitlines()
-    if not line:
-        return True, None  # GPU 有但拿不到驱动版本(罕见)
-    drv = line[0].strip()
-    return True, drv or None
+    if not line or not line[0].strip():
+        # --query-gpu=driver_version 一行都没有 = nvidia-smi 跑通(exit 0)但枚举到
+        # 0 个 GPU。常见于装过 NVIDIA 驱动 / GeForce 套件、但机器其实没有 GPU
+        # (或虚拟机)—— nvidia-smi.exe 还在 PATH 里、能跑、却查不到设备。
+        # 真有 GPU 时这个查询必然返回驱动版本号,不会为空 → 空即判无 GPU。
+        return False, None
+    return True, line[0].strip()
 
 
 def _suggest_cuda_variant(driver: Optional[str]) -> str:
