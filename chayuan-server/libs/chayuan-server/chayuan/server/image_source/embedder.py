@@ -849,6 +849,62 @@ def _try_http_backed_embedder(model_name: str):
     return None
 
 
+def _detect_image_family(model_dir: Path) -> str:
+    """读 config.json 的 model_type + 目录名,推断 image embedder family。"""
+    mt = ""
+    try:
+        import json as _json
+        cfg = _json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
+        mt = str(cfg.get("model_type") or "").lower()
+    except Exception:  # noqa: BLE001
+        pass
+    nm = (mt + " " + model_dir.name).lower()
+    if "chinese" in nm and "clip" in nm:
+        return "chinese_clip"
+    if "jina" in nm and "clip" in nm:
+        return "jina_clip"
+    if "siglip" in nm:
+        return "siglip"
+    # openai/clip-vit-* 的 config model_type 就是 "clip";未知也按 clip 试
+    return "clip"
+
+
+def _resolve_local_model_spec(name: str) -> Optional[ModelSpec]:
+    """``name`` 指向一个**本地模型目录**(bundled 自带 / 用户放的)时,构造一个
+    ModelSpec 直接按路径加载 —— 不要求它出现在 SUPPORTED_MODELS。
+
+    name 形如 ``models/bundled/image/clip-vit-base-patch32``(相对 CHAYUAN_ROOT)
+    或绝对路径。目录里有 config.json 才算可加载的 HF 模型;family 按
+    config.json 的 model_type / 目录名推断,交给对应 loader 按路径加载。
+    """
+    if not name:
+        return None
+    cands: List[Path] = []
+    p = Path(name)
+    if p.is_absolute():
+        cands.append(p)
+    else:
+        try:
+            from chayuan.settings import CHAYUAN_ROOT
+            cands.append(Path(CHAYUAN_ROOT) / name)
+        except Exception:  # noqa: BLE001
+            pass
+        cands.append(p)
+    for d in cands:
+        try:
+            if d.is_dir() and (d / "config.json").is_file():
+                return ModelSpec(
+                    name=str(d), family=_detect_image_family(d), dim=512,
+                    approx_size_mb=0, chinese_level="medium",
+                    languages="multilingual",
+                    description=f"本地模型目录 {d.name}",
+                    capabilities=CROSSMODAL,
+                )
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
 def _get_inproc_embedder(model_name: Optional[str] = None) -> BaseImageEmbedder:
     """Plan 1 时期的 in-process loader 路径(原 get_embedder 函数体)。
 
@@ -877,10 +933,28 @@ def _get_inproc_embedder(model_name: Optional[str] = None) -> BaseImageEmbedder:
         logger.info("get_embedder: %s → HTTP 桥接(%s)", name, bridge._client.base_url)
         return bridge
 
+    # 本地模型目录(bundled 自带 / 用户放的)—— 直接按路径加载,不要求在
+    # SUPPORTED_MODELS。修:bundled image 模型(如 clip-vit-base-patch32)的
+    # model_id 是 'models/bundled/image/...' 路径,不在 SUPPORTED_MODELS,
+    # 之前被误判"未知模型"→ 回退 SigLIP2 → SigLIP2 没下载 → 失败。
+    local_spec = _resolve_local_model_spec(name)
+    if local_spec is not None:
+        with _REG_LOCK:
+            cached = _EMBEDDERS.get(name)
+            if cached is not None:
+                return cached
+            emb = create_embedder(local_spec)
+            _EMBEDDERS[name] = emb
+        logger.info(
+            "get_embedder: %s → 本地模型目录加载(%s, family=%s)",
+            name, local_spec.name, local_spec.family,
+        )
+        return emb
+
     if name not in SUPPORTED_MODELS:
         logger.warning(
             "未知图像模型 %s,该模型不在本地 SUPPORTED_MODELS 列表"
-            "(且 Infinity inventory 也没找到);"
+            "(也不是本地模型目录、Infinity inventory 也没找到);"
             "回退到内置默认 %s 做图像嵌入",
             name, _BUILTIN_FALLBACK_MODEL,
         )
