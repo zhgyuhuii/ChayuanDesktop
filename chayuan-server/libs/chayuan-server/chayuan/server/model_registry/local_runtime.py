@@ -228,6 +228,36 @@ def _list_downloaded_models(capability: str) -> list:
     return out
 
 
+def _purge_stale_py_packages_yaml(active_dir: str) -> None:
+    """清掉残留的 ``py_packages/yaml/``(自愈)。
+
+    torch 安装器已不再把 pyyaml 装进 py_packages(见 pytorch_installer
+    ._TORCH_DEP_PINS 注释)。但老版本装过的会留下 ``py_packages/yaml/``,且常
+    是半套(``__init__.py`` 在、``error.py`` 等缺)。py_packages 在 sidecar 的
+    sys.path 靠前,这个坏 yaml 会盖住外层好的 yaml,让 image-embedding 的
+    infinity_server ``import yaml`` 崩(``ModuleNotFoundError: 'yaml.error'``)。
+
+    在把 py_packages 加进 sidecar PYTHONPATH 前清掉它。**只清应用自管的
+    py_packages**(== :func:`torch_install_target_dir`),绝不碰用户用「换位置」
+    指向的外部 Python 环境。整目录删不掉(个别文件被占用)时部分删除也行 ——
+    只要 ``__init__.py`` 没了,import yaml 就会落到外层那份。
+    """
+    try:
+        import shutil
+        from chayuan.server.runtime.pytorch_installer import torch_install_target_dir
+        managed = torch_install_target_dir()
+        if managed is None or Path(active_dir).resolve() != Path(managed).resolve():
+            return  # active_dir 是外部环境,不是应用自管 py_packages → 不碰
+        yaml_dir = Path(managed) / "yaml"
+        if yaml_dir.is_dir():
+            shutil.rmtree(yaml_dir, ignore_errors=True)
+            logger.info(
+                "[local-runtime] 已清理残留的 py_packages/yaml —— import yaml 交还给外层那份",
+            )
+    except Exception as e:  # noqa: BLE001 — 清理失败不阻塞 sidecar 启动
+        logger.warning("[local-runtime] 清理 py_packages/yaml 失败: %r", e)
+
+
 def _register_local_platform(*, capability: str, host: str, port: int, model_id: Optional[str]) -> None:
     """sidecar ready 时,把它写入 ``model_platform`` DB 表(model_platform_repository)。
 
@@ -586,6 +616,9 @@ class SidecarRuntimeManager:
                     return self._status
                 _active = resolve_active_torch_dir(selection=_sel)
                 if _active:
+                    # 加进 sidecar PYTHONPATH 前,清掉老版本残留的 py_packages/yaml
+                    # —— 它会盖住外层好的 yaml,让 infinity_server import yaml 崩。
+                    _purge_stale_py_packages_yaml(_active)
                     if proc_env is None:
                         proc_env = os.environ.copy()
                     _existing_pp = proc_env.get("PYTHONPATH", "")
