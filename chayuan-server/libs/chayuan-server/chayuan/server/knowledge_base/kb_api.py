@@ -99,7 +99,13 @@ def delete_kb(
         return BaseResponse(code=404, msg=f"未找到知识库 {knowledge_base_name}")
 
     try:
-        status = kb.clear_vs()
+        # clear_vs 与 drop_kb 解耦:clear_vs(清向量内容 + file metadata)失败
+        # 不能阻止 drop_kb 清磁盘文件 / FileStorage / KB DB 行 —— 否则磁盘上
+        # 的文件按 kb_name 残留,同名重建会"复活"。要求:删库不留任何数据。
+        try:
+            kb.clear_vs()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"clear_vs 失败,仍继续 drop_kb 清磁盘 + DB: {e!r}")
         status = kb.drop_kb()
         if status:
             return BaseResponse(code=200, msg=f"成功删除知识库 {knowledge_base_name}")

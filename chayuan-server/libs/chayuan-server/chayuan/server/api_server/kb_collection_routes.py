@@ -447,10 +447,20 @@ def _run_search_sync(conn, query: str) -> List[Any]:
 def _delete_member_kb(ku_id: str, kind: str, user: Any) -> None:
     """级联删子 KB。失败抛异常给上层 errors 记录。"""
     if kind == "document":
-        from chayuan.server.db.repository.knowledge_base_repository import (
-            delete_kb_from_db,
-        )
-        delete_kb_from_db(ku_id)
+        # 完整删除:向量数据 + 磁盘文件 + FileStorage + file metadata + KB DB 行。
+        # 之前只删 DB 行 → 磁盘文件 / 向量按 kb_name 残留,删掉再建同名 KB 会把
+        # 旧文件 / 旧向量"复活"。改走 KBService.clear_vs + drop_kb 整套清干净。
+        from chayuan.server.knowledge_base.kb_service.base import KBServiceFactory
+        kb = KBServiceFactory.get_service_by_name(ku_id)
+        if kb is not None:
+            kb.clear_vs()   # do_clear_vs(清向量内容)+ delete_files_from_db(file metadata 行)
+            kb.drop_kb()    # do_drop_kb(删 collection)+ rmtree(kb_path)+ FileStorage + delete_kb_from_db
+        else:
+            # KBService 取不到(配置残破等)→ 至少兜底删 KB DB 行
+            from chayuan.server.db.repository.knowledge_base_repository import (
+                delete_kb_from_db,
+            )
+            delete_kb_from_db(ku_id)
     elif kind == "image":
         if isinstance(ku_id, str) and ku_id.startswith("src:"):
             from chayuan.server.db.repository.knowledge_source_repository import (
