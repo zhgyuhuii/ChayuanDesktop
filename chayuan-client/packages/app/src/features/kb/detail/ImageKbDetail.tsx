@@ -200,15 +200,10 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
       );
     }
     if (scoreMap && scoreMap.size > 0) {
-      // 命中前置,未命中按原顺序拼后面
-      const matched: ImageItem[] = [];
-      const rest: ImageItem[] = [];
-      for (const it of arr) {
-        if (scoreMap.has(it.id)) matched.push(it);
-        else rest.push(it);
-      }
-      matched.sort((a, b) => (scoreMap.get(b.id) ?? 0) - (scoreMap.get(a.id) ?? 0));
-      arr = [...matched, ...rest];
+      // 以图搜图:只展示命中的图,按 score 降序;未命中的不显示
+      arr = arr
+        .filter((it) => scoreMap.has(it.id))
+        .sort((a, b) => (scoreMap.get(b.id) ?? 0) - (scoreMap.get(a.id) ?? 0));
     }
     return arr;
   }, [items, keyword, scoreMap]);
@@ -561,7 +556,9 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
       )}
 
       <div className="flex-1 overflow-y-auto p-4">
-        {items.length === 0 ? (
+        {/* 以文搜图(textResult)激活时,命中结果已在上方独立结果区展示,
+            主网格隐藏 —— 搜索时只显示命中的图,不再列出全部图片。 */}
+        {textResult ? null : items.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-[var(--cy-text-tertiary)]">
             还没有图片
           </div>
