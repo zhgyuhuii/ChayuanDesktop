@@ -99,21 +99,25 @@ MANIFEST: dict[str, dict[str, Any]] = {
         ],
     },
     "embedding": {
-        "approx_mb": 605,
-        "note": "BAAI BGE-M3 多语种 embedding GGUF Q8_0(~605 MB,8192 ctx,568M 参数);"
+        "approx_mb": 468,
+        "note": "BAAI BGE-M3 多语种 embedding GGUF Q5_K_M(~468 MB,8192 ctx,568M 参数);"
                 "GGUF 给 llama-server --embedding 单文件加载。"
+                "embedding 是 RAG 检索召回的根基,用 Q5_K_M(K-quant 稳妥档)比 Q8 省"
+                " ~165 MB、检索质量基本无损;不取 Q4 以更稳地保住召回。"
                 "原计划用 gte-multilingual-base GGUF 但社区无人做(2026-05-16 HF 全网无效),"
                 "改用 bge-m3 — 同档多语种 embedding,功能等价。",
         "dest_subdir": "bge-m3",
         # 2026-05-16 验证:gpustack/bge-m3-GGUF 17.5k downloads 最稳;
         # vonjack/bge-m3-gguf 备份;原 gte-multilingual GGUF 全 404 已删除。
         "hf": [
-            # GGUF 首选 — llama-server --embedding 单文件加载,Q8 ~605 MB
+            # GGUF 首选 — llama-server --embedding 单文件加载,Q5_K_M ~468 MB
             {"repo": "gpustack/bge-m3-GGUF",
-             "allow_patterns": ["*Q8_0.gguf", "*q8_0.gguf"]},
-            # 备选:bbvch-ai 镜像 1.7k downloads
+             "allow_patterns": ["*Q5_K_M.gguf", "*q5_k_m.gguf"]},
+            # 备选:bbvch-ai 镜像。该 repo 只发了 Q4_K_M 单档(没有 Q5/Q8)→
+            # 备选退到 Q4_K_M;回退路径极少命中,可接受。
+            # (注:旧 *Q8_0 模式在该 repo 匹配不到任何文件,备选其实早已失效。)
             {"repo": "bbvch-ai/bge-m3-GGUF",
-             "allow_patterns": ["*Q8_0.gguf", "*q8_0.gguf"]},
+             "allow_patterns": ["*Q4_K_M.gguf", "*q4_k_m.gguf"]},
             # transformers fallback(infinity_emb 路径,~2.4 GB 全权重 — llama-server
             # 不要 transformers 格式,但保留给 infinity sidecar / 通用 fallback)
             {"repo": "BAAI/bge-m3",
@@ -132,23 +136,25 @@ MANIFEST: dict[str, dict[str, Any]] = {
         ],
     },
     "rerank": {
-        "approx_mb": 600,
-        "note": "BAAI BGE-Reranker-v2-m3 GGUF Q8_0(~600 MB,多语种 cross-encoder reranker);"
-                "GGUF 给 llama-server --reranking 单文件加载。",
+        "approx_mb": 438,
+        "note": "BAAI BGE-Reranker-v2-m3 GGUF Q4_K_M(~438 MB,多语种 cross-encoder reranker);"
+                "GGUF 给 llama-server --reranking 单文件加载。"
+                "reranker 是 cross-encoder 打分,对量化不敏感,Q4_K_M 比 Q8 省 ~195 MB、"
+                "排序质量几乎无损。",
         # dest_subdir 跟实际拉的 repo 对齐(原 gte-multilingual-reranker-base 是历史遗留命名;
         # 现在用 gpustack/bge-reranker-v2-m3-GGUF 作主源)。
         "dest_subdir": "bge-reranker-v2-m3",
         # 2026-05-16 验证:gpustack/bge-reranker-v2-m3-GGUF 11.2k downloads 主源;
         # gpustack/gte-multilingual-reranker-base-GGUF 213 downloads(更轻 ~316 MB Q8)备选。
         "hf": [
-            # 首选:bge-reranker-v2-m3 GGUF — Q8_0 单文件,~600 MB
+            # 首选:bge-reranker-v2-m3 GGUF — Q4_K_M 单文件,~438 MB
             # 注意: gpustack repo 里有 F32/F16/Q8/Q6/Q5/Q4/Q3/Q2 八种量化共 ~4.85 GB,
-            #       allow_patterns 必须卡死 *Q8_0.gguf,否则 *.gguf 会把全家桶拉下来。
+            #       allow_patterns 必须卡死 *Q4_K_M.gguf,否则 *.gguf 会把全家桶拉下来。
             {"repo": "gpustack/bge-reranker-v2-m3-GGUF",
-             "allow_patterns": ["*Q8_0.gguf"]},
-            # 备选:更轻的 gte-multilingual-reranker-base GGUF(~316 MB Q8)
+             "allow_patterns": ["*Q4_K_M.gguf", "*q4_k_m.gguf"]},
+            # 备选:更轻的 gte-multilingual-reranker-base GGUF(Q4_K_M ~200 MB)
             {"repo": "gpustack/gte-multilingual-reranker-base-GGUF",
-             "allow_patterns": ["*Q8_0.gguf"]},
+             "allow_patterns": ["*Q4_K_M.gguf", "*q4_k_m.gguf"]},
             # transformers fallback(走 infinity_emb 或自实现 cross-encoder)
             {"repo": "BAAI/bge-reranker-v2-m3",
              "allow_patterns": [

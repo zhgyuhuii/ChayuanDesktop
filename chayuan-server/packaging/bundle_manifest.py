@@ -15,9 +15,11 @@
     驱动的 release matrix,跟桌面打包链路独立,不复用本清单。
 
 设计:
-  * "lite installer" ≈ ~0.9 GB 安装包,自带:文本嵌入 + 重排 + 语音识别 + OCR;
+  * "lite installer" ≈ ~0.6 GB 安装包,自带:文本嵌入 + 重排 + 语音识别 + OCR;
     对话(chat) 由用户运行时按需下载(或对接云端 LLM),图像嵌入同理。
-  * "full installer" ≈ ~3.7 GB,全 6 类能力本地化。
+  * "full installer" ≈ ~3.3 GB,全 6 类能力本地化。
+  * embedding 用 GGUF Q5_K_M、rerank 用 Q4_K_M(2026-05 从 Q8_0 下调,
+    省 ~365 MB;量化档位真源在 scripts/install-bundled-models.py 的 MANIFEST)。
   * cap 名称跟 ``install-bundled-models.py`` 的 MANIFEST key 一致:
     chat / embedding / rerank / asr / ocr / image (=image-embedding)。
 
@@ -26,7 +28,7 @@ install-bundled-models 都跟着走。
 """
 from __future__ import annotations
 
-#: 轻量版安装包随包嵌入的 capability(磁盘 ~ 990 MB)
+#: 轻量版安装包随包嵌入的 capability(磁盘 ~ 625 MB)
 LITE_CAPS: tuple[str, ...] = (
     "embedding",
     "rerank",
@@ -35,7 +37,7 @@ LITE_CAPS: tuple[str, ...] = (
     "tts",   # piper zh_CN-huayan-medium ~60 MB,离线 CPU TTS,装机即用
 )
 
-#: 全量版安装包随包嵌入的 capability(磁盘 ~ 3.5 GB,含 chat 主力模型)
+#: 全量版安装包随包嵌入的 capability(磁盘 ~ 3.1 GB,含 chat 主力模型)
 FULL_CAPS: tuple[str, ...] = LITE_CAPS + (
     "chat",
     "image",          # 图像嵌入(image-embedding 的短名,跟 install-bundled-models MANIFEST 一致)
