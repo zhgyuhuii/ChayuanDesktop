@@ -357,6 +357,20 @@ def torch_install_target_dir() -> Optional[Path]:
         return None
 
 
+def torch_dir_has_torch(path: Any) -> bool:
+    """``path`` 目录里有没有 ``torch/`` 子包。
+
+    只有 ``torchvision/`` 没有 ``torch/`` 的「半套」目录**绝不能**加进
+    ``sys.path`` / ``PYTHONPATH`` —— 那会让 ``import torchvision`` 命中这里、
+    ``import torch`` 漏到外部环境(conda / 系统 Python),两者版本错配,
+    触发 ``RuntimeError: operator torchvision::nms does not exist``。
+    """
+    try:
+        return (Path(path) / "torch").is_dir()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def ensure_torch_target_on_syspath() -> Optional[str]:
     """把生效的 torch 目录加进 ``sys.path``,让装好的 torch 可 import。
 
@@ -400,6 +414,17 @@ def ensure_torch_target_on_syspath() -> Optional[str]:
     # 跨目录混装。active 已自洽(auto 模式优先 py_packages);没有 active 才退回
     # py_packages 本身。
     chosen = active or target_s
+    # 只把**含 torch/ 子目录的目录**加进 sys.path。半套目录(有 torchvision/
+    # 没 torch/ —— 例如 py_packages 被装坏、只剩 torchvision)一旦加进来,
+    # import torchvision 命中这里、import torch 漏到外部环境 → 版本错配 →
+    # 'operator torchvision::nms does not exist'。宁可不加,让 torch /
+    # torchvision 都从同一个外部环境(conda 等)解析,保持自洽。
+    if chosen and not torch_dir_has_torch(chosen):
+        logger.warning(
+            "[torch-syspath] %s 缺 torch/ 子目录(半套安装),不加进 sys.path"
+            " —— 避免 torch / torchvision 跨目录版本错配。", chosen,
+        )
+        chosen = None
     if chosen and chosen not in sys.path:
         sys.path.insert(0, chosen)
     # 返回 py_packages 目标(本应用的安装落点);拿不到时退回实际加入的目录。

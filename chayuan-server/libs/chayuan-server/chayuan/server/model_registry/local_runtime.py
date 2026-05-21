@@ -600,6 +600,7 @@ class SidecarRuntimeManager:
             try:
                 from chayuan.server.runtime.pytorch_installer import (
                     get_torch_selection, resolve_active_torch_dir,
+                    torch_dir_has_torch,
                 )
                 _sel = get_torch_selection()
                 if _sel.get("mode") == "disabled":
@@ -615,6 +616,16 @@ class SidecarRuntimeManager:
                     self._release_port_reservation()
                     return self._status
                 _active = resolve_active_torch_dir(selection=_sel)
+                if _active and not torch_dir_has_torch(_active):
+                    # 半套目录(有 torchvision/ 没 torch/)注进 sidecar PYTHONPATH
+                    # 会让 import torch / torchvision 跨目录错配 → torchvision::nms
+                    # 不存在。宁可不注,让 sidecar 从它自己的环境解析 torch。
+                    logger.warning(
+                        "[local-runtime] %s 缺 torch/ 子目录(半套安装),不注入"
+                        " sidecar PYTHONPATH —— 避免 torch/torchvision 版本错配。",
+                        _active,
+                    )
+                    _active = None
                 if _active:
                     # 加进 sidecar PYTHONPATH 前,清掉老版本残留的 py_packages/yaml
                     # —— 它会盖住外层好的 yaml,让 infinity_server import yaml 崩。
