@@ -101,3 +101,21 @@ chayuan-client/apps/desktop/src-tauri/torch_wheels/
 # (体积 ~250 MB / 平台 × 4 平台 ≈ 1 GB)。运行时构件,跟 bundled_models 一样不入库。
 *.whl
 chayuan-server/dist/torch_wheels_seed/
+
+# ===== 单机版打包产物(build-desktop 生成,绝不入库) =====
+# PyInstaller --onedir 服务端 bundle:build.py 拷进来供 Tauri 打包。跟同级
+# bundled_models/ services/ tools/ 一样是运行时构件(2026-05-19 --onedir
+# 切换后新增的 resource 目录,之前漏进 .gitignore)。
+chayuan-client/apps/desktop/src-tauri/chayuan-server/
+# build-desktop 收尾把各 flavor 最终安装包收集到 dist-<flavor>/
+/dist-*/
+# ISO 镜像(Windows full 包分发载体)+ 下载中途的 .part
+*.iso
+*.iso.part
+
+# vendor/bundled_models/:模型权重 / 配置 / 缓存均为 build 时下载,只留 .gitkeep
+# 目录骨架(*.gguf/*.onnx 等大文件上面已忽略,这里连配置/分词器小文件一并忽略)。
+chayuan-server/vendor/bundled_models/**
+!chayuan-server/vendor/bundled_models/**/
+!chayuan-server/vendor/bundled_models/**/.gitkeep
+!chayuan-server/vendor/bundled_models/**/README.md
