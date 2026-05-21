@@ -137,3 +137,35 @@ def test_torch_runtime_unavailable_reason_when_nothing_installed(pi, tmp_path, m
     reason = pi.torch_runtime_unavailable_reason()
     assert reason and "PyTorch" in reason
     assert "本地模型服务" in reason
+
+
+def test_resolve_active_auto_prefers_py_packages_over_system(pi, tmp_path, monkeypatch):
+    """防混用核心:auto 模式下 py_packages/ 自带 torch 时,绝不退回系统 Python。
+
+    复现根因 —— 系统 Python 装着 torch 2.11(版本不可控),py_packages/ 里是
+    本应用装的自洽 torch 2.7。auto 必须选 py_packages,否则 import torch 命中
+    系统 2.11、import torchvision 命中 py_packages 0.22 → torchvision::nms 崩。
+    """
+    # py_packages/ 里放一份本应用装的 torch 2.7(自洽配对的一套)
+    pkg = tmp_path / "py_packages"
+    _make_torch_dir(pkg, cuda=False, version="2.7.0")
+    # 系统 site-packages 里放一份版本不配套的 torch 2.11
+    sys_sp = tmp_path / "system_site_packages"
+    _make_torch_dir(sys_sp, cuda=False, version="2.11.0")
+    monkeypatch.setattr(pi, "_system_site_packages_dirs", lambda: [sys_sp])
+
+    # auto 模式(默认)→ 必须返回 py_packages,而不是系统目录
+    got = pi.resolve_active_torch_dir()
+    assert got == str(pkg)
+
+
+def test_resolve_active_auto_falls_back_to_system_when_no_py_packages(pi, tmp_path, monkeypatch):
+    """py_packages/ 没装 torch 时,auto 才退回系统 Python 的 torch。"""
+    # py_packages/ 为空
+    (tmp_path / "py_packages").mkdir()
+    sys_sp = tmp_path / "system_site_packages"
+    _make_torch_dir(sys_sp, cuda=False, version="2.11.0")
+    monkeypatch.setattr(pi, "_system_site_packages_dirs", lambda: [sys_sp])
+
+    got = pi.resolve_active_torch_dir()
+    assert got == str(sys_sp)

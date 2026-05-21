@@ -118,6 +118,7 @@ class TorchStatus:
             ),
             "pinned_torch_version": _TORCH_VERSION,
             "pinned_torchvision_version": _TORCHVISION_VERSION,
+            "pinned_transformers_version": _TRANSFORMERS_VERSION,
         }
 
 
@@ -363,37 +364,43 @@ def ensure_torch_target_on_syspath() -> Optional[str]:
     Python site-packages 等)而非本应用的 ``py_packages/``;拿不到时退回
     :func:`torch_install_target_dir`(``py_packages/``,保持老行为)。
 
+    防混用(只加一个 torch 目录)
+    ============================
+    历史实现把 ``active`` **和** ``py_packages/`` 都插进 sys.path。当 ``active``
+    是外部目录(用户系统 Python,可能装着另一个版本的 torch,例如 2.11)而
+    ``py_packages/`` 里又有我们自己装的一套 torch/torchvision(2.7 / 0.22)时,
+    会出现 ``import torch`` 命中外部 2.11、``import torchvision`` 漏到 py_packages
+    的 0.22 —— 版本错配,触发 ``operator torchvision::nms does not exist``。
+    所以这里**只加一个 torch 目录**:有 ``active`` 就只加 ``active``(它内部
+    torch+torchvision 自洽,由 resolve_active_torch_dir 保证 auto 模式优先
+    py_packages);没有 ``active`` 才退回只加 ``py_packages/``。绝不同时加两个,
+    杜绝跨目录拼装。
+
     调用时机:**任何 ``import torch`` 之前**。frozen 单机版由 PyInstaller runtime
     hook(multiprocessing_freeze.py)在每个进程最早期调用,覆盖 API server /
     config panel / worker 等所有 frozen 子进程。非 frozen(dev / pytest)环境
     torch 走常规 site-packages,这里加一个不存在的目录也无害。
     """
-    # py_packages/ 默认目标 —— 始终加入并作为返回值(老行为不变)。
+    # py_packages/ 默认目标 —— 作为返回值(本应用的安装落点)。
     target = torch_install_target_dir()
     target_s = str(target) if target is not None else None
 
-    # 用户选用 / 自动判定的目录(可能是外部 site-packages)。仅当它与
-    # py_packages 不同才额外加入;选用配置探测涉及读盘 + 扫盘,失败忽略。
+    # 用户选用 / 自动判定的目录(可能是外部 site-packages)。选用配置探测涉及
+    # 读盘 + 扫盘,失败忽略。
     active: Optional[str] = None
     try:
         active = resolve_active_torch_dir()
     except Exception as e:  # noqa: BLE001
         logger.debug("[torch-syspath] resolve_active_torch_dir 失败: %r", e)
 
-    # 收集要插入的目录,顺序 = 优先级(靠前优先)。
-    dirs: List[str] = []
-    if active and active != target_s:
-        dirs.append(active)
-    if target_s is not None:
-        dirs.append(target_s)
-    if not dirs:
-        return target_s
-    # 反向插入,保证 dirs[0] 落到 sys.path 最前。
-    for s in reversed(dirs):
-        if s not in sys.path:
-            sys.path.insert(0, s)
-    # 返回 py_packages 目标(本应用的安装落点);拿不到时退回首个加入的目录。
-    return target_s if target_s is not None else dirs[0]
+    # 只挑一个 torch 目录加进 sys.path,避免「外部 torch + py_packages torchvision」
+    # 跨目录混装。active 已自洽(auto 模式优先 py_packages);没有 active 才退回
+    # py_packages 本身。
+    chosen = active or target_s
+    if chosen and chosen not in sys.path:
+        sys.path.insert(0, chosen)
+    # 返回 py_packages 目标(本应用的安装落点);拿不到时退回实际加入的目录。
+    return target_s if target_s is not None else chosen
 
 
 def _find_offline_wheels(variant: str) -> List[Path]:
@@ -553,20 +560,47 @@ def detect_status() -> TorchStatus:
 # ── 版本来源(2026-05 核对)──────────────────────────────────────────
 # torch / torchvision:取 download.pytorch.org/whl/cpu 上 cp312 有 manylinux_2_28
 #   wheel 的稳定配对。torch 2.7.0 ↔ torchvision 0.22.0(torchvision wheel 的
-#   METADATA 里 ``Requires-Dist: torch (==2.7.0)`` 强约束配对)。
+#   METADATA 里 ``Requires-Dist: torch (==2.7.0)`` 强约束配对;官方配对表见
+#   github.com/pytorch/vision —— 2.6↔0.21 / 2.7↔0.22 / 2.8↔0.23)。
+#   ⚠ torch 与 torchvision 必须**同时升级**且保持官方配对,否则 torchvision 的
+#   C++ 算子(torchvision::nms)注册不上,image 链直接崩。
 # torch METADATA(Requires-Dist,已剔除 ``extra ==`` 可选项 optree/opt-einsum):
 #   filelock / typing-extensions>=4.10.0 / setuptools(py>=3.12) / sympy>=1.13.3
 #   / networkx / jinja2 / fsspec
 # torchvision METADATA 额外:numpy / pillow(!=8.3.*,>=5.3.0)
 # 传递依赖:sympy→mpmath(<1.4,>=1.1.0);jinja2→markupsafe(>=2.0)。
 # 其余包(filelock/networkx/fsspec/typing-extensions/setuptools)无运行期依赖。
+# ── transformers 全家桶(CLIP / SigLIP2 图像向量化所需)─────────────────
+# image-embedding(hf_clip.py)用 ``transformers.AutoProcessor`` + ``AutoModel``
+# 加载 CLIP / SigLIP2 / Chinese-CLIP / Jina-CLIP。默认推荐模型是 SigLIP 2 ——
+# 需 transformers>=4.49(SigLIP2 在 4.49.0 引入)。环境里若没装 / 装了太旧的
+# transformers,就报 "当前 transformers 包没有 AutoProcessor"。所以 transformers
+# 必须跟 torch 一起装进同一个 py_packages/ 目录,版本自洽。
+# transformers 4.57.1 METADATA(Requires-Dist 核心,已剔除 framework extra):
+#   tokenizers(>=0.22,<=0.23)/ safetensors>=0.4.3 / huggingface-hub(>=0.34,<1.0)
+#   / regex / pyyaml>=5.1 / requests / numpy>=1.17 / packaging>=20.0 / filelock
+#   / tqdm>=4.27
+# 传递依赖:
+#   tokenizers / huggingface-hub → huggingface-hub(已收)
+#   huggingface-hub → fsspec(已收)/ typing-extensions(已收)/ packaging /
+#                     pyyaml / requests / tqdm / filelock(已收)
+#   requests → certifi / charset-normalizer / idna / urllib3
+# numpy / filelock / fsspec / typing-extensions 与 torch 依赖树共用,不重复列。
 # ── 纯 python vs 平台相关 ────────────────────────────────────────────
 # pure(py3-none-any,任何平台同一个 wheel):filelock / typing-extensions /
-#   setuptools / sympy / mpmath / networkx / jinja2 / fsspec
-# 平台相关(有 C 扩展,需按 platform+abi 选 wheel):markupsafe / numpy / pillow
+#   setuptools / sympy / mpmath / networkx / jinja2 / fsspec / huggingface-hub /
+#   packaging / pyyaml(有纯 py3-none-any wheel)/ tqdm / requests / certifi /
+#   idna / charset-normalizer(取其 py3-none-any 纯 wheel)/ transformers
+# 平台相关(有 C / Rust 扩展,需按 platform+abi 选 wheel):markupsafe / numpy /
+#   pillow / tokenizers(cp39-abi3)/ safetensors(cp38-abi3)/ regex
 # torch / torchvision 本身当然也是平台相关(C++ 扩展)。
+# abi3 wheel 由 _resolve_pypi_wheel_url 的 ``-abi3-`` 分支命中,无需特殊处理。
 _TORCH_VERSION = "2.7.0"
 _TORCHVISION_VERSION = "0.22.0"
+
+# transformers 主版本 —— 跟随 _TORCH_DEP_PINS 里的 transformers 条目,单列出来
+# 便于诊断 / 日志展示。
+_TRANSFORMERS_VERSION = "4.57.1"
 
 # (pkg_name, version, is_pure) —— is_pure=True 走 py3-none-any 通配 wheel,
 # is_pure=False 需按本机 platform+abi 选具体 wheel。
@@ -583,6 +617,23 @@ _TORCH_DEP_PINS: List[tuple[str, str, bool]] = [
     # torchvision 额外:
     ("numpy", "2.2.6", False),
     ("pillow", "11.2.1", False),
+    # ── transformers 全家桶(image-embedding / CLIP 所需,含 AutoProcessor)──
+    ("transformers", _TRANSFORMERS_VERSION, True),
+    ("tokenizers", "0.22.1", False),       # Rust 扩展,cp39-abi3
+    ("safetensors", "0.6.2", False),       # Rust 扩展,cp38-abi3
+    ("huggingface_hub", "0.35.3", True),
+    ("regex", "2024.11.6", False),         # C 扩展;此版本支持 py3.8-3.13
+    ("pyyaml", "6.0.2", False),            # libyaml C 扩展,按 platform+abi 选
+    ("packaging", "25.0", True),
+    ("tqdm", "4.67.1", True),
+    # requests + 其传递依赖:
+    ("requests", "2.32.5", True),
+    ("certifi", "2025.4.26", True),
+    # charset-normalizer 近版本只发 mypyc 编译 wheel(无 py3-none-any 纯版),
+    # 按 platform+abi 选 cp3XX wheel。
+    ("charset_normalizer", "3.4.2", False),
+    ("idna", "3.10", True),
+    ("urllib3", "2.4.0", True),
 ]
 
 # PyPI JSON API —— 给纯依赖解析 wheel 下载 URL 用(torch / torchvision 走
@@ -615,11 +666,19 @@ def _host_platform_tags() -> List[str]:
                     "manylinux_2_17_aarch64", "linux_aarch64"]
         return ["manylinux2014_" + machine, "linux_" + machine]
     if sys_name == "darwin":
+        # macOS 上不少含 C/Rust 扩展的包(charset-normalizer 等)只发
+        # ``universal2`` wheel(Intel + Apple Silicon 合一),不单独发 arm64 /
+        # x86_64 —— 所以 universal2 tag 必须一并列入候选,否则 arm64 / Intel
+        # 机器都会漏选这类 wheel。
         if is_arm64:
             return ["macosx_11_0_arm64", "macosx_12_0_arm64", "macosx_13_0_arm64",
-                    "macosx_14_0_arm64"]
+                    "macosx_14_0_arm64",
+                    "macosx_10_13_universal2", "macosx_11_0_universal2",
+                    "macosx_10_9_universal2"]
         return ["macosx_10_9_x86_64", "macosx_10_13_x86_64",
-                "macosx_11_0_x86_64", "macosx_12_0_x86_64"]
+                "macosx_11_0_x86_64", "macosx_12_0_x86_64",
+                "macosx_10_13_universal2", "macosx_11_0_universal2",
+                "macosx_10_9_universal2"]
     return []
 
 
@@ -1328,9 +1387,24 @@ def resolve_active_torch_dir(
       - mode=disabled        → 返回 None(caller 据此「不启 image-embedding」)。
       - mode=path            → 返回配置里的 ``path``(已在 set 时校验过)。
       - mode=auto:
-          * 同时有 CPU + CUDA 版 → 按 ``prefer`` 选(默认 prefer 缺省时优先 CUDA);
+          * **本应用 py_packages/ 自带一份合法 torch → 直接用它**(优先级最高,
+            见下「防混用」);
+          * 否则同时有 CPU + CUDA 版 → 按 ``prefer`` 选(prefer 缺省时优先 CUDA);
           * 只有一个 → 用那个;
           * 都没有 → 返回 None。
+
+    防混用(为什么 py_packages/ 优先)
+    ================================
+    :func:`install_pytorch_wheels` 把 torch + torchvision + transformers 全家桶
+    **作为一套互相配对的版本**一起解压进 ``py_packages/``。而用户系统 Python 的
+    site-packages 里可能装着**另一个版本**的 torch(例如 torch 2.11),且不一定
+    配套 torchvision。若 auto 选了系统目录当 active,而 ``ensure_torch_target_on_
+    syspath`` 又始终把 ``py_packages/`` 也加进 sys.path,就会出现
+    ``import torch`` 命中系统 torch 2.11、``import torchvision`` 命中 py_packages
+    的 0.22 —— 版本错配,触发 ``operator torchvision::nms does not exist``。
+    所以:只要 ``py_packages/`` 里有我们自己装的那套自洽 torch,auto 模式就**必须**
+    用它,绝不退回系统 Python 的 torch。用户若确实想用系统 / 外部 torch,应显式走
+    mode=path 指定目录(那种情况下用户自负配对责任)。
 
     传入 ``selection`` / ``has_*`` / ``*_dir`` 可避免重复扫盘(scan_torch_locations
     内部已经扫过就直接传进来);不传则本函数自己扫。
@@ -1343,16 +1417,21 @@ def resolve_active_torch_dir(
     if mode == "path":
         return sel.get("path") or None
 
-    # mode=auto:需要 has_cpu / has_cuda / *_dir;没传则自己扫一遍候选目录。
+    # mode=auto 防混用:本应用 py_packages/ 自带合法 torch → 直接用它,不再看
+    # 系统 Python。py_packages/ 里的 torch + torchvision + transformers 是
+    # install_pytorch_wheels 一次性装的自洽配对,系统 torch 版本不可控,混用会
+    # 触发 torchvision::nms 注册失败。
+    tgt = torch_install_target_dir()
+    if tgt is not None:
+        own = validate_torch_dir(tgt)
+        if own["valid"]:
+            return own["dir"]
+
+    # py_packages/ 没有自带 torch —— 才退回扫系统 Python 等候选目录。
     if has_cpu is None or has_cuda is None:
         has_cpu = has_cuda = False
         cpu_dir = cuda_dir = None
-        tgt = torch_install_target_dir()
-        cand_dirs: List[Path] = []
-        if tgt is not None:
-            cand_dirs.append(Path(tgt))
-        cand_dirs.extend(_system_site_packages_dirs())
-        for d in cand_dirs:
+        for d in _system_site_packages_dirs():
             info = validate_torch_dir(d)
             if not info["valid"]:
                 continue
@@ -1517,14 +1596,17 @@ def install_pytorch_wheels(
                 f"wheel 可能损坏或布局异常"
             )
         _log(f"[install] ✓ torch {_TORCH_VERSION} ({variant}) + "
-             f"torchvision {_TORCHVISION_VERSION} 已安装到 {target}")
-        _log("[install] 重启 chayuan-server 后即可 import torch")
+             f"torchvision {_TORCHVISION_VERSION} + "
+             f"transformers {_TRANSFORMERS_VERSION} 已安装到 {target}")
+        _log("[install] 重启 chayuan-server 后即可 import torch / transformers"
+             "(图像向量化 CLIP / SigLIP2 依赖)")
         return {
             "action": "installed",
             "target": str(target),
             "variant": variant,
             "torch_version": _TORCH_VERSION,
             "torchvision_version": _TORCHVISION_VERSION,
+            "transformers_version": _TRANSFORMERS_VERSION,
             "wheels": [Path(w).name for w in (*torch_whls, *dep_whls)],
         }
     except WheelInstallError as e:
@@ -1604,7 +1686,8 @@ def build_install_recipe(
             note = (
                 f"用内置的 {variant} torch + torchvision wheel 解压安装(无 pip)。"
                 f" 路径:{offline[0].parent}。{_target_note}"
-                f"纯依赖(numpy / pillow 等)仍从 PyPI 下。"
+                f"依赖(numpy / pillow / transformers 全家桶等)仍从 PyPI 下,"
+                f"含图像向量化 CLIP / SigLIP2 所需的 transformers。"
                 f"装完需重启 chayuan-server 才能 import。"
             )
         else:

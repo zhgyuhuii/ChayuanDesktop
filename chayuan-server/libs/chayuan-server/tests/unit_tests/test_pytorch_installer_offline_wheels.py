@@ -177,13 +177,28 @@ def test_recipe_passes_variant_flag(tmp_path, monkeypatch):
 
 
 def test_ensure_torch_target_on_syspath_idempotent(tmp_path, monkeypatch):
-    """ensure_torch_target_on_syspath 把 py_packages 加进 sys.path,且幂等。"""
+    """ensure_torch_target_on_syspath 把生效 torch 目录加进 sys.path,且幂等。
+
+    py_packages/ 里放一份合法 torch —— 此时 auto 模式应选 py_packages 本身
+    (防混用:不退回系统 Python 的 torch),把它加进 sys.path 且只加一次。
+    """
     import sys
 
     from chayuan.server.runtime import pytorch_installer as pi
 
     pkg_dir = tmp_path / "py_packages"
+    # py_packages/ 内放一份合法 torch,让 resolve_active_torch_dir(auto)命中它,
+    # 行为不受测试机系统 Python 是否装了 torch 影响。
+    (pkg_dir / "torch").mkdir(parents=True)
+    (pkg_dir / "torch" / "__init__.py").write_text("")
+    (pkg_dir / "torch" / "version.py").write_text(
+        "__version__ = '2.7.0+cpu'\ncuda = None\n", encoding="utf-8"
+    )
     monkeypatch.setenv("CHAYUAN_PY_PACKAGES_DIR", str(pkg_dir))
+    # 用 auto 选用配置,避免读到机器上残留的 torch_selection.json
+    monkeypatch.setenv(
+        "CHAYUAN_TORCH_SELECTION_FILE", str(tmp_path / "torch_selection.json")
+    )
 
     # 清掉可能的残留
     s = str(pkg_dir)
@@ -200,3 +215,47 @@ def test_ensure_torch_target_on_syspath_idempotent(tmp_path, monkeypatch):
     finally:
         while s in sys.path:
             sys.path.remove(s)
+
+
+def test_ensure_torch_target_no_mix_external_and_py_packages(tmp_path, monkeypatch):
+    """防混用:active 是外部目录时,py_packages 不应也被加进 sys.path。
+
+    场景复现「系统 torch 2.11 + py_packages torchvision 0.22 混搭」的根因 ——
+    旧实现把 active 与 py_packages 都插进 sys.path,会导致跨目录拼装。新实现只
+    加一个 torch 目录。
+    """
+    import sys
+
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    # py_packages/ 为空(没装 torch);外部目录放一份「系统 torch」。
+    pkg_dir = tmp_path / "py_packages"
+    pkg_dir.mkdir()
+    ext_dir = tmp_path / "system_site_packages"
+    (ext_dir / "torch").mkdir(parents=True)
+    (ext_dir / "torch" / "__init__.py").write_text("")
+    (ext_dir / "torch" / "version.py").write_text(
+        "__version__ = '2.11.0+cpu'\ncuda = None\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("CHAYUAN_PY_PACKAGES_DIR", str(pkg_dir))
+    sel_file = tmp_path / "torch_selection.json"
+    sel_file.write_text(
+        '{"mode": "path", "path": "%s", "prefer": null}' % str(ext_dir),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CHAYUAN_TORCH_SELECTION_FILE", str(sel_file))
+
+    ps, es = str(pkg_dir), str(ext_dir)
+    for x in (ps, es):
+        while x in sys.path:
+            sys.path.remove(x)
+
+    try:
+        pi.ensure_torch_target_on_syspath()
+        # 只加 active(外部目录),py_packages 不加 —— 杜绝跨目录拼装
+        assert es in sys.path
+        assert ps not in sys.path
+    finally:
+        for x in (ps, es):
+            while x in sys.path:
+                sys.path.remove(x)
