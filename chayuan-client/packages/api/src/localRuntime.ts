@@ -323,12 +323,14 @@ async function pytorchScan(): Promise<PytorchScanResult> {
 
 async function pytorchInstall(
   variant: PytorchVariant = 'auto',
-  opts: { preferOffline?: boolean } = {},
+  opts: { preferOffline?: boolean; force?: boolean } = {},
 ): Promise<PytorchInstallTask> {
   return (
     await request<PytorchInstallTask>('/runtime/pytorch/install', {
       method: 'POST',
-      body: { variant, prefer_offline: opts.preferOffline ?? true },
+      // force=true:后端解压前先清空 py_packages/,避免新 torch 叠在旧 torchvision
+      // 上版本对不上。UI 的「安装 / 重装」按钮都传 true。
+      body: { variant, prefer_offline: opts.preferOffline ?? true, force: opts.force ?? false },
       timeoutMs: 30_000,  // start 本身只是入队,几百 ms;真实安装异步跑
     })
   ).data;

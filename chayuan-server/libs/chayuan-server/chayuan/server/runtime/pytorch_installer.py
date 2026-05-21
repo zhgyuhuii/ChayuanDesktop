@@ -1503,7 +1503,7 @@ def install_pytorch_wheels(
            直接用本地 wheel 解压 torch + torchvision(纯依赖仍需在线补,见下)。
          * 否则从 download.pytorch.org 对应 index 在线下 torch + torchvision wheel。
          * torch 的纯/平台依赖一律从 PyPI 下(_TORCH_DEP_PINS 固化版本)。
-      4. ``zipfile`` 逐个解压进 target。
+      4. force 重装时先清空 target,再 ``zipfile`` 逐个解压进 target。
       5. 校验 target 下能定位 torch/__init__.py + torch/version.py。
 
     Args:
@@ -1514,7 +1514,8 @@ def install_pytorch_wheels(
         prefer_offline: 优先用 vendor/torch_wheels 里打包期预下的 torch/tv wheel。
         log: 日志回调(install_task_manager 把 task.log.append 传进来)。
         cancel: 取消信号(install_task_manager 的 task.cancel_event)。
-        force: 已装也重装。
+        force: 已装也重装;且解压前先清空 target,去掉残留旧版本
+            (避免新 torch 叠在旧 torchvision 上、版本对不上)。
 
     Returns:
         ``{"action": "installed"|"skipped"|"failed", ...}``。
@@ -1585,14 +1586,24 @@ def install_pytorch_wheels(
             downloaded.append(dest)
             dep_whls.append(dest)
 
-        # ---- 3) 解压全部 wheel 进 target ----
+        # ---- 3) force 重装:解压前先清空 target,保证装出来配套自洽 ----
+        # 不清空就只是把新 wheel 覆盖到旧文件上 —— 旧 torchvision / 旧依赖里
+        # 新版本没有的文件会残留,torch 跟 torchvision 版本对不上,运行时
+        # torchvision::nms 注册失败。force=True 时整目录清掉重铺。
+        # ignore_errors 兜底:个别文件被占用删不掉也不致命,后面解压会覆盖。
+        if force and target.exists():
+            _log(f"[install] 重装:清空 {target}(去掉残留旧版本,确保 torch/torchvision 配套)")
+            shutil.rmtree(target, ignore_errors=True)
+            target.mkdir(parents=True, exist_ok=True)
+
+        # ---- 4) 解压全部 wheel 进 target ----
         if cancel is not None and cancel.is_set():
             raise WheelInstallError("已取消")
         _log(f"[install] 解压 {len(torch_whls) + len(dep_whls)} 个 wheel 到 {target}")
         for whl in [*torch_whls, *dep_whls]:
             _extract_wheel(Path(whl), target, log=_log)
 
-        # ---- 4) 校验 ----
+        # ---- 5) 校验 ----
         if not _torch_already_installed(target):
             raise WheelInstallError(
                 f"解压完成但 {target}/torch/ 下缺 __init__.py / version.py — "
@@ -1629,6 +1640,7 @@ def build_install_recipe(
     torch_spec: str = ">=2.1,<3.0",
     torchvision_spec: str = "",
     prefer_offline: bool = True,
+    force: bool = False,
 ) -> "InstallRecipe":
     """生成「安装 PyTorch」InstallRecipe —— 调用纯 Python wheel 安装器(**不再用 pip**)。
 
@@ -1681,6 +1693,10 @@ def build_install_recipe(
         base_cmd = [sys.executable, "-m", "chayuan", "install-pytorch"]
     # variant 透传给 CLI 子命令;cpu 也显式带上(子命令默认 cpu,显式更清楚)
     base_cmd = [*base_cmd, "--variant", variant]
+    # force 重装:CLI 收到 --force 会在解压前清空 py_packages/,避免新旧版本残留。
+    if force:
+        base_cmd = [*base_cmd, "--force"]
+    _reinstall_tag = " · 重装" if force else ""
 
     if prefer_offline:
         offline = _find_offline_wheels(variant)
@@ -1699,7 +1715,7 @@ def build_install_recipe(
                 f"解压(无 pip)。{_size_note}{_target_note}装完需重启 chayuan-server。"
             )
         return InstallRecipe(
-            label=f"PyTorch {variant} (离线 wheel · 无 pip)",
+            label=f"PyTorch {variant} (离线 wheel · 无 pip){_reinstall_tag}",
             cmd=cmd,
             note=note,
             requires="",
@@ -1707,7 +1723,7 @@ def build_install_recipe(
 
     # 在线
     return InstallRecipe(
-        label=f"PyTorch {variant} (在线 · 官方源 · 无 pip)",
+        label=f"PyTorch {variant} (在线 · 官方源 · 无 pip){_reinstall_tag}",
         cmd=list(base_cmd),
         note=(
             f"从 download.pytorch.org/whl/{variant} 下载 torch + torchvision wheel "
@@ -1719,14 +1735,17 @@ def build_install_recipe(
 
 
 def start_install(variant: Variant = "auto", *,
-                    prefer_offline: bool = True) -> "InstallTask":
+                    prefer_offline: bool = True,
+                    force: bool = False) -> "InstallTask":
     """启动 PyTorch 安装 task。返 InstallTask(含 task_id,前端轮询查进度)。
 
     ``prefer_offline=True``(默认):有内置 wheel 用内置,没有走在线。
     ``prefer_offline=False``:强制在线(用户可能要更新的 wheel 版本)。
+    ``force=True``(重装):已装也重装,且解压前清空 py_packages/ 去残留 ——
+    UI「安装 / 重装」按钮都走 force,保证装出来的 torch/torchvision 配套。
     """
     from chayuan.server.config_panel.install_task_manager import get_install_manager
-    recipe = build_install_recipe(variant, prefer_offline=prefer_offline)
+    recipe = build_install_recipe(variant, prefer_offline=prefer_offline, force=force)
     framework = f"pytorch-{variant if variant != 'auto' else detect_status().suggested_variant}"
     return get_install_manager().start(framework=framework, recipe=recipe)
 

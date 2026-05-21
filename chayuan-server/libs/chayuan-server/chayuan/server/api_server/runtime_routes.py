@@ -769,8 +769,11 @@ def pytorch_install(
     # prefer_offline=true(默认)— 有内置 wheel 优先用,无网也能装上
     # 用户显式要"强制在线"(更新 wheel 版本)时传 prefer_offline=false
     prefer_offline = bool((body or {}).get("prefer_offline", True))
+    # force=true(重装)— 解压前清空 py_packages/,去掉残留旧版本,避免
+    # 新 torch 叠在旧 torchvision 上版本对不上。UI 安装/重装按钮都传 true。
+    force = bool((body or {}).get("force", False))
     try:
-        task = start_install(variant, prefer_offline=prefer_offline)  # type: ignore[arg-type]
+        task = start_install(variant, prefer_offline=prefer_offline, force=force)  # type: ignore[arg-type]
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return _ok(task.to_dict())

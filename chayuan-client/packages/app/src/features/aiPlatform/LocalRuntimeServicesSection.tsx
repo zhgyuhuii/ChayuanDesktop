@@ -931,7 +931,9 @@ const PytorchRow: React.FC = () => {
     setInstalling(true);
     setTask(null);
     try {
-      const t = await localRuntime.pytorchInstall(variant);
+      // force:true — 用户点「安装 / 重装」都是显式动作,后端解压前清空
+      // py_packages/,去掉残留的旧 torch/torchvision,装出来版本严格配套。
+      const t = await localRuntime.pytorchInstall(variant, { force: true });
       setTask(t);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
