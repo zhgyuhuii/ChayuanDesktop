@@ -786,7 +786,6 @@ const PytorchRow: React.FC = () => {
   // 跨目录探测(CPU 版 / GPU 版各自是否存在)+ 当前选用配置
   const [locations, setLocations] = React.useState<PytorchLocationsResult | null>(null);
   // 「使用已装好的 PyTorch」:用户粘贴 / 选择的外部目录
-  const [pickPath, setPickPath] = React.useState('');
   const [pickBusy, setPickBusy] = React.useState(false);
   const [pickMsg, setPickMsg] = React.useState<string | null>(null);
   // 「下载说明」折叠区
@@ -851,7 +850,6 @@ const PytorchRow: React.FC = () => {
         '已采纳外部 PyTorch',
         `${v.dir}（torch ${v.torch_version ?? '?'} · ${v.is_cuda ? 'GPU/CUDA' : 'CPU'} 版）`,
       );
-      setPickPath('');
       await Promise.all([refreshStatus(), refreshLocations()]);
     } catch (e) {
       setPickMsg(e instanceof Error ? e.message : String(e));
@@ -1259,37 +1257,12 @@ const PytorchRow: React.FC = () => {
         </div>
       )}
 
-      {/* ── 使用已经装好的 PyTorch:粘贴 / 填写一个外部目录 ── */}
-      <div className="space-y-1 rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2">
-        <div className="text-[11px] text-[var(--cy-text-secondary)]">
-          已经在别处装好 PyTorch?填写那个目录(系统 Python 的 site-packages,
-          或之前解压过 torch 的目录),验证后即可直接采纳,不必再装一遍:
+      {/* PyTorch 操作错误(「换位置」校验失败 / 切换选用失败)统一在此显示 */}
+      {pickMsg && (
+        <div className="rounded-sm border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] text-rose-600 dark:border-rose-900/60 dark:bg-rose-900/20 dark:text-rose-400 break-all">
+          {pickMsg}
         </div>
-        <div className="flex items-center gap-1.5">
-          <input
-            type="text"
-            value={pickPath}
-            onChange={(e) => setPickPath(e.target.value)}
-            placeholder="例如 C:\\Python312\\Lib\\site-packages 或 /usr/lib/python3/dist-packages"
-            className="flex-1 rounded border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-2 py-1 text-[11px]"
-            disabled={pickBusy}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={pickBusy || !pickPath.trim()}
-            onClick={() => void onUseExternalDir(pickPath)}
-            title="验证该目录里的 torch 并采纳"
-          >
-            {pickBusy ? '处理中…' : '验证并使用'}
-          </Button>
-        </div>
-        {pickMsg && (
-          <div className="text-[11px] text-rose-600 dark:text-rose-400 break-all">
-            {pickMsg}
-          </div>
-        )}
-      </div>
+      )}
 
       <div className="text-[11px] text-[var(--cy-text-tertiary)] space-y-0.5">
         {status && (
