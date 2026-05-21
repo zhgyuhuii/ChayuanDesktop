@@ -493,6 +493,29 @@ else
         python3 packaging/pyinstaller/build.py --sync-bundled-only --target "$TRIPLE"
 fi
 
+# ── 5c. Step 1c: 同步诊断脚本到 src-tauri/tools/ ──────────────────
+# 把 scripts/diagnose.sh 拷进 src-tauri/tools/,Tauri 据 tauri.conf.json 的
+# resources "tools/**/*" 把它打进 installer,已装用户原地可跑诊断,无需
+# clone 整个仓库。对应 build-desktop.ps1 的 Step 1c(Windows 拷 .ps1)——
+# 2f574b0 只给 ps1 加了这步、漏了 sh,导致 Linux/macOS 打包必挂。
+#
+# 关键:"tools/**/*" 是所有平台共用的 glob,Tauri 在它匹配 0 文件时会硬
+# 报错("glob pattern tools/**/* ... didn't match any files")直接 fail。
+# 故无论 diagnose.sh 在不在,都先 touch 一个 .placeholder 兜底,保证 glob
+# 永不为空 —— 与 bundled_models/ services/ 的 .placeholder 做法一致。
+step "Step 1c: 同步诊断脚本到 src-tauri/tools/"
+tools_dst="$DESKTOP_DIR/src-tauri/tools"
+mkdir -p "$tools_dst"
+touch "$tools_dst/.placeholder"
+diag_src="$WORKSPACE/scripts/diagnose.sh"
+if [[ -f "$diag_src" ]]; then
+    cp -f "$diag_src" "$tools_dst/diagnose.sh"
+    chmod +x "$tools_dst/diagnose.sh"
+    note "  copied $diag_src -> $tools_dst/diagnose.sh"
+else
+    note "  scripts/diagnose.sh 不存在,跳过(installer 里只留 .placeholder)"
+fi
+
 # ── 6. Step 2: /healthz 探测 ─────────────────────────────────────
 if [[ "$SKIP_HEALTHCHECK" == "1" ]]; then
     step 'Step 2 [skipped]'
