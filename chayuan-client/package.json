@@ -17,8 +17,6 @@
     "build:desktop": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/desktop build",
     "build:desktop:full": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/desktop build:full",
     "build:desktop:integrated": "pnpm run build:desktop:full",
-    "build:desktop:nsis": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/desktop build:nsis",
-    "build:desktop:lite": "pnpm run build:desktop:nsis",
     "build:desktop:fast": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/desktop build:fast",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
