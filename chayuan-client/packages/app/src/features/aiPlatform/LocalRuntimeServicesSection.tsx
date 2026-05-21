@@ -24,6 +24,7 @@ import {
   Copy,
   FileBarChart2,
   FolderOpen,
+  HelpCircle,
   Play,
   RefreshCw,
   RotateCw,
@@ -54,6 +55,7 @@ import { CallLogDialog } from './CallLogDialog';
 import { DiagnoseModal } from './DiagnoseModal';
 import { InstallModelDialog } from './InstallModelDialog';
 import { LocalRuntimeStatusBadge } from './LocalRuntimeStatusBadge';
+import { PytorchHelpDialog } from './PytorchHelpDialog';
 
 const CAPABILITIES: LocalRuntimeCapability[] = [
   'chat',
@@ -788,8 +790,8 @@ const PytorchRow: React.FC = () => {
   // 「使用已装好的 PyTorch」:用户粘贴 / 选择的外部目录
   const [pickBusy, setPickBusy] = React.useState(false);
   const [pickMsg, setPickMsg] = React.useState<string | null>(null);
-  // 「下载说明」折叠区
-  const [showDownload, setShowDownload] = React.useState(false);
+  // 「手动安装 PyTorch」帮助弹窗(标题后的「?」图标触发)
+  const [helpOpen, setHelpOpen] = React.useState(false);
 
   const refreshStatus = React.useCallback(async () => {
     try {
@@ -981,6 +983,15 @@ const PytorchRow: React.FC = () => {
         <span className="text-sm font-medium text-[var(--cy-text-primary)]">
           PyTorch
         </span>
+        <button
+          type="button"
+          onClick={() => setHelpOpen(true)}
+          title="手动安装 PyTorch 帮助(离线 / 内网)"
+          aria-label="手动安装 PyTorch 帮助"
+          className="inline-flex items-center justify-center rounded-sm p-0.5 text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
+        >
+          <HelpCircle className="h-3.5 w-3.5" />
+        </button>
         {status?.has_nvidia_gpu && (
           <span
             className="rounded-sm border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200"
@@ -1101,60 +1112,13 @@ const PytorchRow: React.FC = () => {
         </div>
       )}
 
-      {/* ── 下载说明 ── 给「不想在线装、想自己下 wheel」的用户官方下载入口 */}
-      <details
-        className="rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2"
-        open={showDownload}
-        onToggle={(e) => setShowDownload((e.target as HTMLDetailsElement).open)}
-      >
-        <summary className="cursor-pointer text-[11px] text-[var(--cy-text-secondary)]">
-          想自己下载 PyTorch?(离线 / 内网环境)
-        </summary>
-        <div className="mt-1.5 space-y-1 text-[11px] text-[var(--cy-text-tertiary)]">
-          <div>
-            PyTorch wheel 体积大(CPU ~250 MB,GPU 2-3 GB),未打进安装包。
-            上方「安装」按钮会自动在线下载;若想自己下,从下面的 wheel index
-            按本机 Python 版本 + 平台挑 torch / torchvision 两个 .whl,解压(或放进
-            上方「放置目录」)后点「扫描」即可。
-            {status && (
-              <>
-                {' '}建议版本:torch {status.pinned_torch_version} · torchvision{' '}
-                {status.pinned_torchvision_version}。
-              </>
-            )}
-          </div>
-          {status && (
-            <ul className="space-y-0.5 pl-3">
-              <li>
-                官方下载页:{' '}
-                <code className="rounded bg-[var(--cy-surface-base)] px-1">
-                  {status.download_page}
-                </code>
-              </li>
-              <li>
-                CPU 版 wheel index:{' '}
-                <code className="rounded bg-[var(--cy-surface-base)] px-1">
-                  {status.download_index_cpu}
-                </code>
-              </li>
-              {status.download_index_cuda && (
-                <li>
-                  GPU(CUDA)版 wheel index:{' '}
-                  <code className="rounded bg-[var(--cy-surface-base)] px-1">
-                    {status.download_index_cuda}
-                  </code>
-                </li>
-              )}
-              {!status.download_index_cuda && (
-                <li className="text-[var(--cy-text-tertiary)]">
-                  GPU 版:在 https://download.pytorch.org/whl/ 下按 cuXXX
-                  (如 cu124)选对应目录;需先有 NVIDIA GPU + 够新驱动。
-                </li>
-              )}
-            </ul>
-          )}
-        </div>
-      </details>
+      {/* ── 手动安装帮助弹窗 ── 由标题后的「?」图标触发,全流程说明在这里 */}
+      <PytorchHelpDialog
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        status={status}
+        targetDir={targetDir}
+      />
 
       {/* ── CPU 版 / GPU 版双检测 + 选用哪个 / 不使用 ── */}
       {locations && (locations.has_cpu || locations.has_cuda || locations.selection.mode !== 'auto') && (
