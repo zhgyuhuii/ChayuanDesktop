@@ -1,3 +1,4 @@
+import os
 import urllib
 from typing import Optional
 
@@ -5,7 +6,7 @@ from fastapi import Body
 
 from chayuan.settings import Settings
 from chayuan.server.db.repository.knowledge_base_repository import list_kbs_from_db
-from chayuan.server.knowledge_base.kb_service.base import KBServiceFactory
+from chayuan.server.knowledge_base.kb_service.base import KBServiceFactory, force_rmtree
 from chayuan.server.knowledge_base.utils import validate_kb_name
 from chayuan.server.utils import BaseResponse, ListResponse, get_default_embedding
 from chayuan.utils import build_logger
@@ -47,6 +48,16 @@ def create_kb(
     kb = KBServiceFactory.get_service(
         knowledge_base_name, vector_store_type, embed_model, kb_info=kb_info
     )
+    # 同名重建兜底:走到这里 KB 一定不在 DB(上面已挡重名)。磁盘上若还有同名
+    # 目录,那是上一次删除没清净的残留 —— 先清掉。否则 get_kb_file_details 的
+    # list_files_from_folder 会把残留 content/ 里的旧文件读出来,表现为
+    # "删了知识库、重新建同名的、旧文件又回来了"。
+    if os.path.exists(kb.kb_path) and not force_rmtree(kb.kb_path):
+        logger.error(
+            "create_kb: 残留的同名知识库目录清不掉 kb=%s path=%s —— 旧文件可能"
+            "复活;请关闭占用该目录的进程后重试。",
+            knowledge_base_name, kb.kb_path,
+        )
     try:
         kb.create_kb()
     except Exception as e:

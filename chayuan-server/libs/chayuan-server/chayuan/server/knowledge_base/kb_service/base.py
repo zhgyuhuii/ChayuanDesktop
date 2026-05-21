@@ -166,9 +166,17 @@ class KBService(ABC):
                 self.kb_name, e,
             )
         # 子类 do_drop_kb 不一定清磁盘(milvus/chroma/zilliz/relyt 都只清向量),
-        # 这里统一兜底:不清的话同名重建会从 list_files_from_folder 读出残留文件。
-        if os.path.exists(self.kb_path):
-            shutil.rmtree(self.kb_path, ignore_errors=True)
+        # 这里统一兜底删整个 kb 目录。**绝不能用 ignore_errors=True** —— 它把
+        # 删除失败静默吞掉,残留的 content/ 文件会在同名重建时被
+        # get_kb_file_details → list_files_from_folder 重新读出来(= "删了知识库、
+        # 重新建同名的、旧文件又回来了" 的根因)。用 force_rmtree:处理只读 +
+        # 重试,删不净时如实 logger.error,不装成功。
+        if os.path.exists(self.kb_path) and not force_rmtree(self.kb_path):
+            logger.error(
+                "drop_kb: 知识库目录未删净 kb=%s path=%s —— 残留文件会在同名"
+                "重建时复活;多半是个别文件被占用,关掉占用进程后重删。",
+                self.kb_name, self.kb_path,
+            )
         # FileStorage(KB_CONTENT 命名空间)与本地 kb_path 是两份;local 后端落在
         # KB_ROOT_PATH/../storage 下,minio 在远端 bucket。一并清掉,避免残留。
         try:
@@ -601,6 +609,42 @@ def get_kb_details() -> List[Dict]:
         data.append(v)
 
     return data
+
+
+def force_rmtree(path) -> bool:
+    """尽力删掉整个目录树,返回最终是否删干净(目录已不存在)。
+
+    比 ``shutil.rmtree(ignore_errors=True)`` 强、且**不静默**:
+      - Windows 只读文件:onerror 里 chmod 成可写再删;
+      - 个别文件被瞬时占用:重试几次。
+    仍然删不掉返回 False —— 调用方据此 error 告警 / 兜底,不再把失败当成功。
+    ``ignore_errors=True`` 正是"删知识库后同名重建旧文件复活"的根源:它把删除
+    失败静默吞掉,残留 content/ 会被 get_kb_file_details→list_files_from_folder
+    重新读出来。
+    """
+    import stat
+    import time as _time
+
+    path = str(path)
+
+    def _onerror(func, p, _exc):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except Exception:  # noqa: BLE001
+            pass
+
+    for _ in range(3):
+        if not os.path.exists(path):
+            return True
+        try:
+            shutil.rmtree(path, onerror=_onerror)
+        except Exception:  # noqa: BLE001
+            pass
+        if not os.path.exists(path):
+            return True
+        _time.sleep(0.3)
+    return not os.path.exists(path)
 
 
 def get_kb_file_details(kb_name: str) -> List[Dict]:
