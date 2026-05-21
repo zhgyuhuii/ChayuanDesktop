@@ -1,3 +1,5 @@
+// 截图编码用,仅非 Linux 引入 —— Linux 不编译 xcap，两个抓屏函数走桩实现。
+#[cfg(not(target_os = "linux"))]
 use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -116,6 +118,12 @@ fn chayuan_open_path(path: String) -> Result<(), String> {
 }
 
 /// 截图（全屏第一块显示器）→ PNG 字节
+///
+/// xcap 在 Linux 上拖 pipewire/libspa(见 Cargo.toml 注释),libspa 没有能匹配
+/// 用户系统 SPA 头的版本，故 Linux 不引入 xcap。本命令在 Linux 用桩实现:命令
+/// 仍注册(invoke_handler 不缺命令、前端 invoke 不会因「命令不存在」崩),调用
+/// 时返回 Err 说明 Linux 暂不支持截图。
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 fn chayuan_screenshot() -> Result<Vec<u8>, String> {
     let monitors = xcap::Monitor::all().map_err(|e| format!("xcap: {e}"))?;
@@ -129,6 +137,13 @@ fn chayuan_screenshot() -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
+/// Linux 桩:截图功能在 Linux 暂不支持（见上方说明 / Cargo.toml）。
+#[cfg(target_os = "linux")]
+#[tauri::command]
+fn chayuan_screenshot() -> Result<Vec<u8>, String> {
+    Err("截图功能在 Linux 暂不支持".to_string())
+}
+
 /// 截图 → 写到共享 state,返回显示器几何信息给 caller 用来创建 overlay 窗口。
 ///
 /// 主窗调用时机:用户点剪刀 → 抓屏入 state → JS 端用 ``WebviewWindow`` 在主显示
@@ -136,6 +151,9 @@ fn chayuan_screenshot() -> Result<Vec<u8>, String> {
 /// 读回 PNG 字节 → 拖框选区。
 ///
 /// 同时清空 result slot(防止上次 cancelled 残留污染本次结果)。
+///
+/// Linux 同样走桩(见 ``chayuan_screenshot`` 说明):xcap 不在 Linux 编译。
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 fn chayuan_capture_for_overlay(
     state: tauri::State<'_, ScreenshotState>,
@@ -159,6 +177,17 @@ fn chayuan_capture_for_overlay(
     *state.buffer.lock().map_err(|e| format!("buffer lock: {e}"))? = Some(buf);
     *state.result.lock().map_err(|e| format!("result lock: {e}"))? = None;
     Ok(geom)
+}
+
+/// Linux 桩:截图功能在 Linux 暂不支持（见 ``chayuan_screenshot`` / Cargo.toml）。
+/// 保留 ``state`` 参数与签名不变，仅清空残留结果后返回 Err。
+#[cfg(target_os = "linux")]
+#[tauri::command]
+fn chayuan_capture_for_overlay(
+    state: tauri::State<'_, ScreenshotState>,
+) -> Result<MonitorGeom, String> {
+    let _ = &state;
+    Err("截图功能在 Linux 暂不支持".to_string())
 }
 
 /// overlay 窗口拉取主窗刚抓的 PNG;take 一次后 state 清空(避免悬挂大块内存)
