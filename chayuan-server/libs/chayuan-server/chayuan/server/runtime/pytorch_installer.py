@@ -368,7 +368,7 @@ def ensure_torch_target_on_syspath() -> Optional[str]:
     ============================
     历史实现把 ``active`` **和** ``py_packages/`` 都插进 sys.path。当 ``active``
     是外部目录(用户系统 Python,可能装着另一个版本的 torch,例如 2.11)而
-    ``py_packages/`` 里又有我们自己装的一套 torch/torchvision(2.7 / 0.22)时,
+    ``py_packages/`` 里又有我们自己装的一套 torch/torchvision(2.6 / 0.21)时,
     会出现 ``import torch`` 命中外部 2.11、``import torchvision`` 漏到 py_packages
     的 0.22 —— 版本错配,触发 ``operator torchvision::nms does not exist``。
     所以这里**只加一个 torch 目录**:有 ``active`` 就只加 ``active``(它内部
@@ -559,9 +559,12 @@ def detect_status() -> TorchStatus:
 # 固化的 torch 版本 + 完整运行期依赖树。
 # ── 版本来源(2026-05 核对)──────────────────────────────────────────
 # torch / torchvision:取 download.pytorch.org/whl/cpu 上 cp312 有 manylinux_2_28
-#   wheel 的稳定配对。torch 2.7.0 ↔ torchvision 0.22.0(torchvision wheel 的
-#   METADATA 里 ``Requires-Dist: torch (==2.7.0)`` 强约束配对;官方配对表见
+#   wheel 的稳定配对。torch 2.6.0 ↔ torchvision 0.21.0(torchvision wheel 的
+#   METADATA 里 ``Requires-Dist: torch (==2.6.0)`` 强约束配对;官方配对表见
 #   github.com/pytorch/vision —— 2.6↔0.21 / 2.7↔0.22 / 2.8↔0.23)。
+#   ⚠ 不要升到 2.7.0:download.pytorch.org/whl/cpu 上没有
+#   ``torch-2.7.0+cpu-cp312-cp312-win_amd64.whl``(在线装报 HTTP 403);2.6.0 的
+#   +cpu Windows wheel 存在、实测可下。要升必须先确认目标版本的 +cpu win wheel 存在。
 #   ⚠ torch 与 torchvision 必须**同时升级**且保持官方配对,否则 torchvision 的
 #   C++ 算子(torchvision::nms)注册不上,image 链直接崩。
 # torch METADATA(Requires-Dist,已剔除 ``extra ==`` 可选项 optree/opt-einsum):
@@ -595,8 +598,8 @@ def detect_status() -> TorchStatus:
 #   pillow / tokenizers(cp39-abi3)/ safetensors(cp38-abi3)/ regex
 # torch / torchvision 本身当然也是平台相关(C++ 扩展)。
 # abi3 wheel 由 _resolve_pypi_wheel_url 的 ``-abi3-`` 分支命中,无需特殊处理。
-_TORCH_VERSION = "2.7.0"
-_TORCHVISION_VERSION = "0.22.0"
+_TORCH_VERSION = "2.6.0"
+_TORCHVISION_VERSION = "0.21.0"
 
 # transformers 主版本 —— 跟随 _TORCH_DEP_PINS 里的 transformers 条目,单列出来
 # 便于诊断 / 日志展示。
