@@ -281,6 +281,56 @@ def delete_image_endpoint(
     return {"code": 0 if ok else 1, "msg": "ok" if ok else "not found"}
 
 
+@image_router.post(
+    "/{source_id}/image/{image_id}/reindex",
+    summary="对已上传的图像重新跑向量化流水线(OCR + CLIP)",
+)
+async def reindex_image_endpoint(
+    source_id: int, image_id: str,
+    background_tasks: "BackgroundTasks" = None,
+    user=Depends(require_auth_enabled()),
+):
+    """重新向量化:对一张已入库的图(常是 state=partial/failed —— 上次 CLIP 没
+    成功)重跑 pipeline。从磁盘重读原图、重置状态,后台再跑一遍 OCR + CLIP。
+    用户修好图像模型环境后不必重新上传,点"重新向量化"即可。"""
+    from fastapi import BackgroundTasks as _BG
+    if background_tasks is None:
+        background_tasks = _BG()
+    if not can_write(user, int(source_id)):
+        raise HTTPException(403, "no write permission")
+    _get_source_or_404(int(source_id))
+    conn = _build_image_connector(int(source_id))
+    store_name = conn.source_name
+
+    from chayuan.server.image_source.store import get_store
+    from chayuan.server.image_source.pipeline import process_item
+
+    store = get_store(store_name)
+    rec = store.get(image_id)
+    if rec is None:
+        raise HTTPException(404, f"未找到图像 {image_id}")
+
+    img_path = rec.get("path")
+    if not img_path or not os.path.exists(img_path):
+        raise HTTPException(
+            404,
+            f"图像原文件已不在({img_path or '无路径'}),无法重新向量化,请重新上传该图。",
+        )
+    try:
+        with open(img_path, "rb") as fh:
+            data = fh.read()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"读取图像原文件失败: {e}") from e
+
+    # 重置状态 → 后台重跑 pipeline(OCR + CLIP)
+    store.update(image_id, state="queued", progress=0, error=None)
+    background_tasks.add_task(
+        process_item, store_name, image_id, data,
+        model_name=conn._model_name,
+    )
+    return {"code": 0, "data": _item_to_wire(store.get(image_id), int(source_id))}
+
+
 @image_router.get("/{source_id}/image/{image_id}", summary="下载/预览图像文件")
 def image_file_endpoint(
     source_id: int, image_id: str,
