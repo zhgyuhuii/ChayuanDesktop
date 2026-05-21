@@ -6,7 +6,11 @@
   按顺序执行:
     Step 1  服务端 PyInstaller            (chayuan-server -> onedir + 拷到 src-tauri/chayuan-server/)
     Step 2  Sidecar 二进制健康检查         (启 .exe + GET /healthz)
-    Step 3  客户端 Tauri bundle           (chayuan-client -> .msi / .exe)
+    Step 3  客户端 Tauri bundle           (chayuan-client -> installer)
+
+  Windows installer 按 flavor 分流:
+    lite (轻量版) -> NSIS 单文件 *-setup.exe(自包含,无外置 cab,不打 ISO)
+    full (全量版) -> WiX 3 MSI + 外置 CAB + ISO(payload 超 NSIS 2 GB 上限)
 
   自动跳过已完成的步骤;失败时给出明确诊断 + 回退建议。
 
@@ -35,7 +39,7 @@
   最快重打:只跑 Tauri bundle 这一步(cargo + vite 走增量缓存,WiX/NSIS 重做)。
   等价于 ``-SkipServer -SkipHealthcheck -SkipInstall -SkipTypecheck
   -SkipInstallVendor -SkipModelCheck`` + 直接到 apps/desktop 跑
-  ``pnpm exec tauri build --bundles msi``。
+  ``pnpm exec tauri build --bundles <type>``(lite→nsis,full→msi)。
   通常 1-3 分钟出包。
 
   典型用法:
@@ -113,10 +117,12 @@ param(
     # 通过 -BundledSource $env:CHAYUAN_ROOT\models\bundled 复用同一份模型。
     # 不传 = build.py 默认走 vendor/bundled_models/(也可由 $CHAYUAN_BUILD_BUNDLED_SOURCE env 覆盖)。
     [string]$BundledSource,
-    # ISO 打包开关。2026-05-18 起 Windows 一律走 MSI(NSIS 撞 32-bit 限制),
-    # MSI + 外置 CAB 必须 ISO 打包分发,所以 lite/full 都默认出 ISO。
-    [switch]$NoIso,    # 跳过 ISO 生成(开发本机迭代不需要 ISO)
-    [switch]$IsoBoth,  # 历史兼容参数,新逻辑下已无意义(lite/full 都出 ISO)
+    # ISO 打包开关。2026-05-21 起按 flavor 分流:
+    #   * full → MSI + 外置 CAB,必须 ISO 打包分发,默认出 ISO。
+    #   * lite → NSIS 单文件 exe(自包含、无外置 cab),直接发 .exe,不出 ISO。
+    # -NoIso 仅影响 full(lite 本就不出 ISO)。
+    [switch]$NoIso,    # 跳过 full 的 ISO 生成(开发本机迭代不需要 ISO)
+    [switch]$IsoBoth,  # 历史兼容参数,新逻辑下已无意义(lite 不出 ISO、full 默认出)
     # PyInstaller 缓存:默认开。同一份 Python 源 + pyproject.toml + poetry.lock + build.py
     # 没改动时,跳过 Step 1(PyInstaller 编译),只跑 Step 1b(vendor sync)。
     # 改了 Python 代码会自动 cache miss,无需手动清理。-ForceRebuildServer 强制重编。
@@ -1449,12 +1455,29 @@ if ($SkipFrontend) {
     #      LZMA solid 累积 offset 32-bit 寻址。1.3+ GB raw payload 经 LZMA solid
     #      就溢出报"Internal compiler error #12345 error mmapping file ... out of range"。
     #
-    # 2026-05-18 实测:lite (LITE_CAPS=emb+rerank+asr+ocr+tts ~990 MB) + sidecar
-    # (~500 MB) + services 总 raw 1.5 GB,LZMA solid 中也撞限制 (#12345)。
-    # 所以 **Windows 一律走 MSI**(WiX 3 MSI 总大小 4 GB+,通过 CAB 分卷,无此限),
-    # 不再尝试 NSIS。代价是 lite 也变成 .msi + 外置 CAB(WiX 模板写死 EmbedCab=no
-    # 绕国产杀软),所以 lite 也必须靠 ISO 打包分发(同 full)。
-    $useMsi = ($IsWindows -or $env:OS -eq 'Windows_NT')
+    # 2026-05-21 起按 flavor 分流 Windows installer:
+    #   * lite  → NSIS 单文件 .exe。lite payload(LITE_CAPS 子集 + sidecar +
+    #     services)约 1.4 GB,在 32-bit makensis 的 < 2 GB 上限内,NSIS 可用。
+    #     选 NSIS 的原因:WiX 3 的 MSI 安装向导对话框在高 DPI Windows 上会塌缩
+    #     成左上角小窗、内容裁掉;NSIS 安装界面 DPI-aware,无此缺陷。
+    #     NSIS 产物是单个自包含 *-setup.exe,无外置 CAB → 不需要 cab 收集 /
+    #     MSI-cab 校验 / ISO 打包。
+    #   * full → 仍 WiX 3 MSI + 外置 CAB(EmbedCab=no 绕国产杀软)。full payload
+    #     约 3.5 GB(含 chat 大模型 + image),超 NSIS 32-bit 上限,只能走 MSI;
+    #     MSI 必须带外置 CAB 一起分发,故 full 仍打 ISO。
+    # 历史:2026-05-18 曾因 lite payload 经 LZMA solid 撞 #12345 把两个 flavor
+    # 都改成 MSI;后续 lite 体积下来后(只装 LITE 子集),NSIS 重新可用,故回切。
+    $isWindowsBuild = ($IsWindows -or $env:OS -eq 'Windows_NT')
+    # 本 flavor 的 Windows installer 类型:lite→nsis,full→msi。非 Windows 平台
+    # 走 tauri.conf.json targets(deb/appimage 等),$winBundleType 留空。
+    if ($isWindowsBuild) {
+        $winBundleType = if ($Flavor -eq 'lite') { 'nsis' } else { 'msi' }
+    } else {
+        $winBundleType = ''
+    }
+    # $useMsi:本 flavor 是否走 MSI+外置CAB+ISO 链路(cab 收集 / MSI-cab 校验 /
+    # ISO 那几步只对 MSI 有意义,NSIS 单 exe 直接发)。
+    $useMsi = ($winBundleType -eq 'msi')
 
     # 跑 tauri build 前清掉 Tauri bundler 输出目录 — Tauri 自己不会清,上一轮
     # 失败 / 切语言 / 改文件名后会有 stale .msi/.cab 残留。下面 Get-ChildItem
@@ -1482,67 +1505,93 @@ if ($SkipFrontend) {
         # ``tsc + vite build``,与本入口想跳过的 typecheck 重复。
         $DesktopDir = Join-Path $ClientDir 'apps\desktop'
         $tauriArgs = @('exec', 'tauri', 'build')
-        if ($useMsi) {
+        if ($winBundleType) {
             # Tauri 2 CLI 的 --bundles 只接受当前平台支持的 target;
-            # Windows 上要么 msi 要么 nsis,全量版选 msi。
-            $tauriArgs = @('exec', 'tauri', 'build', '--bundles', 'msi')
+            # Windows 上 lite→nsis、full→msi。--bundles 显式指定优先于
+            # tauri.conf.json 的 bundle.targets。
+            $tauriArgs = @('exec', 'tauri', 'build', '--bundles', $winBundleType)
         }
-        Invoke-Step -Name 'tauri-build (bundle-only)' `
+        Invoke-Step -Name "tauri-build (bundle-only, $Flavor)" `
             -WorkDir $DesktopDir `
             -Command 'pnpm' -Arguments $tauriArgs
     } else {
-        $buildScript = if ($useMsi) { 'build:desktop:full' } else { 'build:desktop' }
+        # pnpm script 按 flavor 选:full→build:desktop:full(--bundles msi),
+        # lite→build:desktop:nsis(--bundles nsis);非 Windows 走 build:desktop
+        # (无 --bundles,由 tauri.conf.json targets 决定)。
+        $buildScript = if ($winBundleType -eq 'msi') {
+            'build:desktop:full'
+        } elseif ($winBundleType -eq 'nsis') {
+            'build:desktop:nsis'
+        } else {
+            'build:desktop'
+        }
         Invoke-Step -Name "pnpm-$buildScript" `
             -WorkDir $ClientDir `
             -Command 'pnpm' -Arguments @($buildScript)
     }
 
-    # 收产物:.msi / NSIS .exe (主安装器) + .cab (外置 cabinet,全量版 EmbedCab="no" 才会有)
-    #
-    # cab 文件实际放在哪取决于 WiX 调 light 时的 CWD;Tauri 2 把 light 调起来后,
-    # cab 既可能跟 .msi 同目录(target/release/bundle/msi/),也可能落在
-    # target/release/wix/x64/(light 的 .wixobj 所在目录)。先在 .msi 旁边找,
-    # 没就扩搜整个 target/release。
+    # 收产物 — 按 flavor 的 installer 类型分流:
+    #   * full (MSI)  : .msi 主安装器 + 外置 .cab (EmbedCab="no")
+    #   * lite (NSIS) : 单个自包含 *-setup.exe,无外置 cab
     $artifacts = @()
-    $msiFiles = Get-ChildItem -Path (Join-Path $TauriBundle 'msi\*.msi') -ErrorAction SilentlyContinue
-    $exeFiles = Get-ChildItem -Path (Join-Path $TauriBundle 'nsis\*.exe') -ErrorAction SilentlyContinue
-    $artifacts += $msiFiles
-    $artifacts += $exeFiles
-
-    # cab 收集:先 .msi 旁边
+    $msiFiles = @()
+    $exeFiles = @()
     $cabFiles = @()
-    foreach ($msi in $msiFiles) {
-        $cabFiles += Get-ChildItem -Path (Join-Path $msi.DirectoryName 'cab*.cab') -ErrorAction SilentlyContinue
-        $cabFiles += Get-ChildItem -Path (Join-Path $msi.DirectoryName '*.cab') -ErrorAction SilentlyContinue
-    }
-    $cabFiles = $cabFiles | Sort-Object FullName -Unique
 
-    # 如果 .msi 旁边没找到 cab(WiX 把 cab 放别处了),扩搜 target/release
-    if ($msiFiles.Count -gt 0 -and $cabFiles.Count -eq 0) {
-        # $TauriBundle = chayuan-client\apps\desktop\src-tauri\target\release\bundle
-        # 它的上一层 release 下面 wix\ 也可能有 cab
-        $targetRelease = Split-Path -Parent $TauriBundle
-        if (Test-Path $targetRelease) {
-            Write-Note "msi 旁边没找到 cab*.cab,扩搜 $targetRelease ..."
-            $cabFiles = Get-ChildItem -Path $targetRelease -Recurse -Filter '*.cab' -File -ErrorAction SilentlyContinue
-            if ($cabFiles.Count -gt 0) {
-                Write-Note "扩搜命中 $($cabFiles.Count) 个 cab,位置:$($cabFiles[0].DirectoryName)"
+    if ($useMsi) {
+        # ---- MSI 链路(full):收 .msi + 外置 cab ----
+        # cab 文件实际放在哪取决于 WiX 调 light 时的 CWD;Tauri 2 把 light 调起来后,
+        # cab 既可能跟 .msi 同目录(target/release/bundle/msi/),也可能落在
+        # target/release/wix/x64/(light 的 .wixobj 所在目录)。先在 .msi 旁边找,
+        # 没就扩搜整个 target/release。
+        $msiFiles = Get-ChildItem -Path (Join-Path $TauriBundle 'msi\*.msi') -ErrorAction SilentlyContinue
+        $artifacts += $msiFiles
+
+        # cab 收集:先 .msi 旁边
+        foreach ($msi in $msiFiles) {
+            $cabFiles += Get-ChildItem -Path (Join-Path $msi.DirectoryName 'cab*.cab') -ErrorAction SilentlyContinue
+            $cabFiles += Get-ChildItem -Path (Join-Path $msi.DirectoryName '*.cab') -ErrorAction SilentlyContinue
+        }
+        $cabFiles = $cabFiles | Sort-Object FullName -Unique
+
+        # 如果 .msi 旁边没找到 cab(WiX 把 cab 放别处了),扩搜 target/release
+        if ($msiFiles.Count -gt 0 -and $cabFiles.Count -eq 0) {
+            # $TauriBundle = chayuan-client\apps\desktop\src-tauri\target\release\bundle
+            # 它的上一层 release 下面 wix\ 也可能有 cab
+            $targetRelease = Split-Path -Parent $TauriBundle
+            if (Test-Path $targetRelease) {
+                Write-Note "msi 旁边没找到 cab*.cab,扩搜 $targetRelease ..."
+                $cabFiles = Get-ChildItem -Path $targetRelease -Recurse -Filter '*.cab' -File -ErrorAction SilentlyContinue
+                if ($cabFiles.Count -gt 0) {
+                    Write-Note "扩搜命中 $($cabFiles.Count) 个 cab,位置:$($cabFiles[0].DirectoryName)"
+                }
             }
         }
-    }
-    $artifacts += $cabFiles
+        $artifacts += $cabFiles
 
-    # WiX EmbedCab="no" 写死了,lite/full MSI 都必须出外置 cab,否则 .msi 装到
-    # cabinet 阶段会 1311/1335 找不到文件。
-    if ($msiFiles.Count -gt 0 -and $cabFiles.Count -eq 0) {
-        Write-Fail "$Flavor .msi 出了但没找到任何 cab*.cab — light.exe 可能没产 cabinet"
-        Write-Note "手动确认:Get-ChildItem `"$($msiFiles[0].DirectoryName)`" -Recurse | ? Name -like '*.cab'"
-        Write-Note "或扩搜 target/release/ 下:Get-ChildItem `"$(Split-Path -Parent $TauriBundle)`" -Recurse -Filter '*.cab'"
-        Restore-Console; exit 1
+        # WiX EmbedCab="no" 写死了,full MSI 必须出外置 cab,否则 .msi 装到
+        # cabinet 阶段会 1311/1335 找不到文件。
+        if ($msiFiles.Count -gt 0 -and $cabFiles.Count -eq 0) {
+            Write-Fail "$Flavor .msi 出了但没找到任何 cab*.cab — light.exe 可能没产 cabinet"
+            Write-Note "手动确认:Get-ChildItem `"$($msiFiles[0].DirectoryName)`" -Recurse | ? Name -like '*.cab'"
+            Write-Note "或扩搜 target/release/ 下:Get-ChildItem `"$(Split-Path -Parent $TauriBundle)`" -Recurse -Filter '*.cab'"
+            Restore-Console; exit 1
+        }
+    } else {
+        # ---- NSIS 链路(lite):收单个 *-setup.exe,无 cab ----
+        # Tauri NSIS 产出形如 Chayuan_x.x.x_x64-setup.exe 的单个自包含安装器。
+        $exeFiles = Get-ChildItem -Path (Join-Path $TauriBundle 'nsis\*.exe') -ErrorAction SilentlyContinue
+        $artifacts += $exeFiles
+        if ($exeFiles.Count -eq 0) {
+            Write-Fail "$Flavor NSIS 没产出 *-setup.exe;看 $(Join-Path $TauriBundle 'nsis')"
+            Restore-Console; exit 1
+        }
+        Write-Note "NSIS 单文件安装器,无外置 cab — 跳过 cab 收集 / MSI-cab 校验 / ISO"
     }
 
     if ($artifacts.Count -eq 0) {
-        Write-Fail "Tauri bundle 没产出 .msi / .exe / .cab;看 $TauriBundle"
+        $expectedDesc = if ($useMsi) { '.msi + .cab' } else { 'NSIS *-setup.exe' }
+        Write-Fail "Tauri bundle 没产出 $expectedDesc;看 $TauriBundle"
         Restore-Console; exit 1
     }
     Write-Ok 'Tauri bundle 完成:'
@@ -1592,23 +1641,28 @@ if ($SkipFrontend) {
     }
 
     # ----------------------------------------------------------------
-    # MSI/cab 一致性校验 — 防止装机 1334
+    # MSI/cab 一致性校验 — 防止装机 1334(仅 MSI 链路 / full)
     # ----------------------------------------------------------------
     # 收齐到 dist-{flavor}\ 之后立刻验:File 表里每个 File ID 都能在 .msi 指定
     # 的 cab 里找到对应 stream。错位就 fail,别让坏包出 ISO。
-    $verifyMsiList = Get-ChildItem -Path $flavorOut -Filter '*.msi' -File -ErrorAction SilentlyContinue
-    $verifyCabList = Get-ChildItem -Path $flavorOut -Filter '*.cab' -File -ErrorAction SilentlyContinue
-    if ($verifyMsiList -and $verifyCabList) {
-        $cabPaths = @($verifyCabList | Select-Object -ExpandProperty FullName)
-        foreach ($m in $verifyMsiList) {
-            $ok = Test-MsiCabIntegrity -MsiPath $m.FullName -CabPaths $cabPaths
-            if (-not $ok) {
-                Write-Fail "$($m.Name) 装机必失败 (Error 1334) — 已 fail,不会继续打 ISO"
-                Restore-Console; exit 1
-            }
-        }
+    # NSIS 单文件 exe 无外置 cab,不存在 1334,整段跳过。
+    if (-not $useMsi) {
+        Write-Note "lite/NSIS 单文件安装器无外置 cab,跳过 MSI/cab 一致性校验"
     } else {
-        Write-Note "dist-$Flavor 没收到 msi/cab 组合,跳过一致性校验"
+        $verifyMsiList = Get-ChildItem -Path $flavorOut -Filter '*.msi' -File -ErrorAction SilentlyContinue
+        $verifyCabList = Get-ChildItem -Path $flavorOut -Filter '*.cab' -File -ErrorAction SilentlyContinue
+        if ($verifyMsiList -and $verifyCabList) {
+            $cabPaths = @($verifyCabList | Select-Object -ExpandProperty FullName)
+            foreach ($m in $verifyMsiList) {
+                $ok = Test-MsiCabIntegrity -MsiPath $m.FullName -CabPaths $cabPaths
+                if (-not $ok) {
+                    Write-Fail "$($m.Name) 装机必失败 (Error 1334) — 已 fail,不会继续打 ISO"
+                    Restore-Console; exit 1
+                }
+            }
+        } else {
+            Write-Note "dist-$Flavor 没收到 msi/cab 组合,跳过一致性校验"
+        }
     }
 
     # ----------------------------------------------------------------
@@ -1618,8 +1672,16 @@ if ($SkipFrontend) {
     # 这里把整树拷到 dist-{flavor}/,后面 make-iso.ps1 整目录打 ISO 时自动带上。
     # 装机后 chayuan-server first_launch -> bundled_seed 会扫挂载光驱的 models_seed/
     # 把这些大文件种到 <CHAYUAN_ROOT>/models/bundled/。
+    #
+    # 仅 MSI 链路(full)需要:外置 seed 靠 ISO 旁挂分发。lite/NSIS 是单文件
+    # exe、不出 ISO,没有承载大文件 seed 的介质;lite 的 LITE_CAPS 子集本就
+    # 全部进 NSIS payload,正常不会有 ≥ 2 GB 分流文件,故整段跳过。
     $extSeedSrc = Join-Path $ServerDir 'dist\models_seed'
-    if (Test-Path $extSeedSrc) {
+    if (-not $useMsi) {
+        if ((Test-Path $extSeedSrc) -and (Get-ChildItem -Path $extSeedSrc -Recurse -File -ErrorAction SilentlyContinue)) {
+            Write-Note "检测到 dist\models_seed\ 有大文件,但 lite/NSIS 不出 ISO、无法旁挂分发 — 跳过(若 lite 真需要大模型,应改回 MSI 或缩减 LITE_CAPS)"
+        }
+    } elseif (Test-Path $extSeedSrc) {
         $extFiles = Get-ChildItem -Path $extSeedSrc -Recurse -File -ErrorAction SilentlyContinue
         if ($extFiles -and $extFiles.Count -gt 0) {
             $extTotalMb = [math]::Round(($extFiles | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
@@ -1658,15 +1720,18 @@ if ($SkipFrontend) {
     # 单文件分发:用户双击 ISO,Win10+ 自动挂载成虚拟光驱,进光驱目录双击 MSI
     # 即可,MSI 在同目录(光驱根)能找到所有 CAB。
     #
-    # 2026-05-18 起 Windows 一律走 MSI(lite/full 都因 NSIS 撞 32-bit 限制不能用),
-    # WiX 模板写死 EmbedCab=no,MSI 必须带着外置 CAB 一起分发,所以 lite/full
-    # 都默认出 ISO 单文件分发(用户双击挂载光驱后双击 MSI 即装)。-NoIso 跳过
-    # (开发本机迭代不需要)。IsoBoth 历史参数保留兼容,新逻辑下已无意义。
+    # 2026-05-21 起仅 full(MSI 链路)出 ISO:full 是 MSI + 外置 CAB,必须把
+    # .msi 和所有 .cab 一起分发,ISO 是最省事的单文件载体。lite 改用 NSIS 单
+    # 文件 exe(自包含、无外置 cab),直接发那个 .exe 即可,不需要 ISO。
+    # -NoIso 仍可跳过 full 的 ISO(开发本机迭代不需要)。IsoBoth 历史参数保留
+    # 兼容,新逻辑下已无意义(lite 不出 ISO、full 默认出)。
     $isWin         = ($IsWindows -or $env:OS -eq 'Windows_NT')
-    $shouldMakeIso = (-not $NoIso) -and (-not $SkipFrontend) -and $isWin
+    $shouldMakeIso = (-not $NoIso) -and (-not $SkipFrontend) -and $isWin -and $useMsi
     if (-not $shouldMakeIso) {
         # 不出 ISO 时一定要说清楚原因 — 否则用户对着没有 .iso 的 dist-{flavor}\ 干瞪眼。
-        $isoSkipReason = if ($NoIso) {
+        $isoSkipReason = if (-not $useMsi) {
+            'lite 走 NSIS 单文件 exe(自包含、无外置 cab),直接发 dist-lite\ 里的 *-setup.exe 即可,不需要 ISO'
+        } elseif ($NoIso) {
             '传了 -NoIso(开发本机迭代不打 ISO)'
         } elseif ($SkipFrontend) {
             '传了 -SkipFrontend(没有前端产物,不打 ISO)'
@@ -1676,7 +1741,9 @@ if ($SkipFrontend) {
             '未知原因'
         }
         Write-Skip "ISO 镜像 ($Flavor) — 跳过:$isoSkipReason"
-        Write-Note "如需 ISO,请在 Windows 上不带 -NoIso / -SkipFrontend 重跑;dist-$Flavor\ 里的 .msi + .cab 也可手动 zip 分发。"
+        if ($useMsi) {
+            Write-Note "如需 ISO,请在 Windows 上不带 -NoIso / -SkipFrontend 重跑;dist-$Flavor\ 里的 .msi + .cab 也可手动 zip 分发。"
+        }
     }
     if ($shouldMakeIso) {
         Write-Step "ISO 镜像 ($Flavor)"
@@ -1697,7 +1764,8 @@ if ($SkipFrontend) {
             '     数据目录。复制完成(几十秒到几分钟)后才能正常对话。',
             '  3. 如果一时间不方便等待,你也可以现在弹出光驱;但是首次启动时',
             '     察元 AI 会提示"模型缺失,请重新挂载安装介质"。',
-            '  4. 如果是单文件 .exe (轻量版),直接双击即可,不需要 .cab。',
+            '  4. 本 ISO 是全量版(full)。轻量版(lite)是单独的 NSIS 单文件',
+            '     安装器(*-setup.exe),直接双击即可,不需要 ISO / .cab。',
             ''
         )
         Set-Content -Path $readmePath -Value $readmeLines -Encoding UTF8
@@ -1777,11 +1845,13 @@ if ($Flavors.Count -eq 2) {
     Write-Host '  全量版:vendor\bundled_models\ 进 Tauri resources,装机即用 (模型清单见上方"模型体检"输出,'
     Write-Host '          或 chayuan-server\vendor\bundled_models\README.md)'
     Write-Host ''
-    Write-Host '  ⚠ Windows 一律走 MSI + 外置 CAB (EmbedCab="no" 绕国产杀软对 C:\Windows\Installer\ 的拦截)。'
-    Write-Host '    推荐分发方式 — 直接发 chayuan-desktop_{lite,full}_setup.iso 给用户:'
-    Write-Host '    Win10+ 双击 ISO 自动挂载成光驱,进光驱后双击 MSI 即装(MSI 在光驱根能找到 CAB)。'
-    Write-Host '    不用 ISO 也可把 dist-{lite,full}\ 里的 .msi + 所有 .cab 一起打 zip 给用户。'
-    Write-Host '    切忌 只发 .msi 不带 .cab — 会装到一半报 1311/1335。'
+    Write-Host '  ⚠ Windows installer 按 flavor 分流:'
+    Write-Host '    · 轻量版 (lite):NSIS 单文件 *-setup.exe(DPI-aware 安装界面,自包含、无外置 cab)。'
+    Write-Host '      分发方式 — 直接把 dist-lite\ 里的 *-setup.exe 发给用户,双击即装,无需 ISO。'
+    Write-Host '    · 全量版 (full):WiX 3 MSI + 外置 CAB (EmbedCab="no" 绕国产杀软对 C:\Windows\Installer\ 的拦截)。'
+    Write-Host '      分发方式 — 直接发 chayuan-desktop_full_setup.iso:Win10+ 双击 ISO 挂载成光驱,'
+    Write-Host '      进光驱后双击 MSI 即装(MSI 在光驱根能找到 CAB)。也可把 dist-full\ 里的 .msi + 所有'
+    Write-Host '      .cab 一起打 zip 给用户。切忌 只发 .msi 不带 .cab — 会装到一半报 1311/1335。'
 }
 Write-Host ''
 if ($IsoFailures.Count -gt 0) {
