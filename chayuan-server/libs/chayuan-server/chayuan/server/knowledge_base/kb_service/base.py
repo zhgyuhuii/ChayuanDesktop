@@ -644,6 +644,24 @@ def force_rmtree(path) -> bool:
         if not os.path.exists(path):
             return True
         _time.sleep(0.3)
+
+    # rmtree 删不掉(Windows 上目录里有被占用的文件)→ 把整个目录**改名挪走**。
+    # 目录改名一般能成功(里面有打开的文件也不挡父目录 rename),原路径就此
+    # 空出 —— "删知识库 → 同名重建" 时 get_kb_path(name) 是干净的,不会再撞见
+    # 旧 content/、旧文件不会复活。挪走的 .trash 残骸 best-effort 再删一次,
+    # 删不掉就留着(对 list_files_from_folder / list_kbs 都不可见),无害。
+    if os.path.isdir(path):
+        try:
+            trash = f"{path}.trash-{int(_time.time())}"
+            os.rename(path, trash)
+            logger.warning("force_rmtree 删不掉,已改名挪走: %s → %s", path, trash)
+            try:
+                shutil.rmtree(trash, onerror=_onerror)
+            except Exception:  # noqa: BLE001
+                pass
+        except Exception as e:  # noqa: BLE001
+            logger.error("force_rmtree 连改名挪走都失败 %s: %r", path, e)
+
     return not os.path.exists(path)
 
 

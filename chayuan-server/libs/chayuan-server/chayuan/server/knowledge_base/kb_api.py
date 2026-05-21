@@ -103,20 +103,35 @@ def _purge_kb_residue(knowledge_base_name: str) -> None:
     knowledge_file 行,**两个来源**。任一处残留,"删知识库 → 同名重建"后
     旧文件就会复活。删除 / 重建前都调一次,保证两处都不留痕。
     """
+    db_ok = True
     try:
         delete_files_from_db(knowledge_base_name)
     except Exception as e:  # noqa: BLE001
+        db_ok = False
         logger.warning("purge: delete_files_from_db(%s) 失败: %r",
                        knowledge_base_name, e)
+    folder_existed = False
+    folder_cleared = True
+    kb_dir = ""
     try:
         kb_dir = get_kb_path(knowledge_base_name)
-        if os.path.exists(kb_dir) and not force_rmtree(kb_dir):
-            logger.error(
-                "purge: 知识库磁盘目录清不掉 kb=%s path=%s —— 旧文件可能复活,"
-                "关掉占用该目录的进程后重试。", knowledge_base_name, kb_dir,
-            )
+        folder_existed = os.path.exists(kb_dir)
+        if folder_existed:
+            folder_cleared = force_rmtree(kb_dir)
+            if not folder_cleared:
+                logger.error(
+                    "purge: 知识库磁盘目录清不掉 kb=%s path=%s —— 旧文件可能复活,"
+                    "关掉占用该目录的进程后重试。", knowledge_base_name, kb_dir,
+                )
     except Exception as e:  # noqa: BLE001
+        folder_cleared = False
         logger.warning("purge: 清磁盘目录(%s)失败: %r", knowledge_base_name, e)
+    # 一行总结日志:删/建知识库后到后端日志搜 "[purge]" 即可确认新代码在跑、
+    # 两个来源(DB 行 + 磁盘目录)各自清没清干净。
+    logger.info(
+        "[purge] KB=%s db_rows_cleared=%s folder_existed=%s folder_cleared=%s path=%s",
+        knowledge_base_name, db_ok, folder_existed, folder_cleared, kb_dir,
+    )
 
 
 def delete_kb(
