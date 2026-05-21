@@ -670,7 +670,11 @@ const ImageCard: React.FC<{
       )}
       {img.state === 'failed' && (
         <span
-          className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-red-600/90 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm"
+          className={cn(
+            'absolute top-1.5 inline-flex items-center gap-1 rounded-full bg-red-600/90 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm',
+            // 有选择框时往右让位,别盖住左上角的复选框
+            showCheckbox ? 'left-8' : 'left-1.5',
+          )}
           title={img.error ?? '失败'}
         >
           <AlertCircle className="h-3 w-3" /> 失败
@@ -678,8 +682,12 @@ const ImageCard: React.FC<{
       )}
       {img.state === 'partial' && (
         <span
-          className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-amber-600/90 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm"
-          title={img.error ?? '两路向量化均失败,图保留但暂不可检索'}
+          className={cn(
+            'absolute top-1.5 inline-flex items-center gap-1 rounded-full bg-amber-600/90 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-sm',
+            // 有选择框时往右让位,别盖住左上角的复选框
+            showCheckbox ? 'left-8' : 'left-1.5',
+          )}
+          title={img.error ?? '图像向量化未完成,以图搜图不可用'}
         >
           <AlertCircle className="h-3 w-3" /> 未索引
         </span>
