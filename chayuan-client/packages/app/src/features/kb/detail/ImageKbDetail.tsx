@@ -684,7 +684,9 @@ const ImageCard: React.FC<{
           <AlertCircle className="h-3 w-3" /> 未索引
         </span>
       )}
-      {img.state === 'ready' && img.ocr_text && (
+      {/* 「含文字」徽标:只要识别出了 OCR 文字就显示 —— ready(已索引)和
+          partial(图像向量化失败但 OCR 出了文字)都要能看 / 复制这段文字。 */}
+      {(img.state === 'ready' || img.state === 'partial') && img.ocr_text && (
         <>
           <button
             type="button"
