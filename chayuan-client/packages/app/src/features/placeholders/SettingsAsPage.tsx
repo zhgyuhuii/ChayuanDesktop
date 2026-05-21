@@ -7,7 +7,7 @@
  *
  * 结构(从上到下,每张卡都是无 label 的圆角容器):
  *
- *   1. 基础(主题 / 字号 / 语言 / 名称设置)
+ *   1. 基础(主题 / 字号 / 语言)
  *   2. 本地模型服务(LocalRuntimeServicesSection — chat/embedding/rerank/asr/image-embedding 启停)
  *   3. 默认模型(聊天 / 文本嵌入 / 图像嵌入 / 重排)
  *   4. 知识中心(添加结构化数据库)
@@ -19,8 +19,6 @@
  *   - 删掉 ``<h1>{settings.title}</h1>`` 顶部大标题
  *   - 删掉 「个人设置」整个分组(单机版无登录概念,只有「本地用户」一行没意义)
  *   - 删掉 「更换声音」行(无后端能力,空按钮误导)
- *   - 「名称设置」 改为 ``<Input>`` + 保存按钮,写 settings.displayName,
- *     UserMenuPopover 头像下拉同步显示
  *   - Section 的 ``label`` 不再渲染 ``<h2>``,但卡片视觉保留(圆角 + 边框)
  *   - 2026-05-16:删除「后端服务」「上传遥测」两行(单机版无业务价值),
  *     腾出位置插入「本地模型服务」分组
@@ -32,7 +30,7 @@ import {
   serverCapabilityDefaults,
 } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
-import { Button, Input, Pill, Slider, Switch, cn } from '@chayuan/ui';
+import { Button, Pill, Slider, Switch, cn } from '@chayuan/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { Cpu, Monitor, Moon, RotateCcw, Sun } from 'lucide-react';
@@ -48,14 +46,9 @@ export const SettingsAsPage: React.FC = () => {
   const settings = useSettingsStore();
   const platform = getPlatform();
 
-  const [nameInput, setNameInput] = React.useState(settings.displayName);
   const [localModel, setLocalModel] = React.useState(false);
   const [deviceOpt, setDeviceOpt] = React.useState(true);
   const [teachMe, setTeachMe] = React.useState(true);
-
-  React.useEffect(() => {
-    setNameInput(settings.displayName);
-  }, [settings.displayName]);
 
   // 处理 footer 状态灯跳转过来的 hash(#local-runtime-<cap>):
   // 先等本地模型 section 渲染完成,再 scrollIntoView。空轮询 ~10 次 (~500ms)
@@ -80,12 +73,6 @@ export const SettingsAsPage: React.FC = () => {
     };
     tick();
   }, []);
-
-  const onSaveName = () => {
-    const v = nameInput.trim();
-    settings.setDisplayName(v);
-    notifySuccess('名称已保存', v || '已恢复默认显示');
-  };
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-8">
@@ -153,24 +140,6 @@ export const SettingsAsPage: React.FC = () => {
             </select>
           }
         />
-        <Row title={t('settings.changeName')} description={t('settings.changeNameDesc')}>
-          <div className="mt-3 flex items-center gap-2">
-            <Input
-              value={nameInput}
-              placeholder="例如:小察"
-              maxLength={30}
-              onChange={(e) => setNameInput(e.target.value)}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onSaveName}
-              disabled={nameInput === settings.displayName}
-            >
-              {t('common.save')}
-            </Button>
-          </div>
-        </Row>
       </Section>
 
       {/* 本地模型服务(spec: 2026-05-16) */}
@@ -276,7 +245,6 @@ export const SettingsAsPage: React.FC = () => {
             const ok = await platform.dialog.confirm('恢复默认设置?', { title: '恢复默认' });
             if (!ok) return;
             settings.reset();
-            setNameInput('');
           }}
         >
           <RotateCcw className="h-4 w-4" />
