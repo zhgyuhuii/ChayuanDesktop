@@ -122,10 +122,21 @@ class ImageConnector(BaseConnector):
                 hint = emb.missing_deps_hint() or ""
             except Exception:  # noqa: BLE001
                 pass
+            # torch 未装 / 不可用是「图像 Embedder 未就绪」最常见根因 ——
+            # 给出可执行指引(去设置页装 PyTorch),而不是只丢个 pip 命令。
+            torch_hint = ""
+            try:
+                from chayuan.server.runtime.pytorch_installer import (
+                    torch_runtime_unavailable_reason,
+                )
+                torch_hint = torch_runtime_unavailable_reason() or ""
+            except Exception:  # noqa: BLE001
+                pass
             return [_error_chunk(
                 "图像 Embedder 未就绪"
-                + (f"，请安装：`{hint}`" if hint else "（缺 torch/transformers）")
-                + "；或到「模型配置」页下载其他已就绪模型。",
+                + (f"。{torch_hint}" if torch_hint else "")
+                + (f" 缺少依赖,可安装:`{hint}`。" if hint else "（缺 torch/transformers）")
+                + "或到「模型配置」页下载其他已就绪模型。",
                 self.source_id,
             )]
         # 能力检查：仅视觉模型（DINOv2/ResNet）不支持文本查图
@@ -218,10 +229,17 @@ class ImageConnector(BaseConnector):
         try:
             vec = emb.embed_image(path)
         except Exception as e:  # noqa: BLE001
-            raise ConnectorError(
-                f"图像向量化失败（CLIP embedder 不可用）：{type(e).__name__}: {e}",
-                code="embed_failed", dialect="image",
-            ) from e
+            # 把底层 stack 翻译成可执行指引:torch / image-embedding 运行时不可用
+            # 时,明确告诉用户去「设置 → 本地模型服务 → PyTorch」装。
+            raw = f"{type(e).__name__}: {e}"
+            friendly = ""
+            try:
+                from chayuan.server.image_source.pipeline import _friendly_clip_error
+                friendly = _friendly_clip_error(raw)
+            except Exception:  # noqa: BLE001
+                pass
+            msg = friendly or f"图像向量化失败（CLIP embedder 不可用）：{raw}"
+            raise ConnectorError(msg, code="embed_failed", dialect="image") from e
         caps = getattr(emb, "capabilities", None)
 
         with open(path, "rb") as f:

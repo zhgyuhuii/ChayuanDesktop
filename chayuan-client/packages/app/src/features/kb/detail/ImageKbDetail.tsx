@@ -12,7 +12,8 @@
  */
 
 import * as React from 'react';
-import { AlertCircle, Download, Eye, FileText, ImageIcon, ImagePlus, Loader2, RefreshCw, Search, Trash2, Type, X } from 'lucide-react';
+import { AlertCircle, Download, Eye, FileText, ImageIcon, ImagePlus, Loader2, RefreshCw, Search, Settings2, Trash2, Type, X } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { Button, cn } from '@chayuan/ui';
 import {
   getAccessToken, getClientConfig, imageSource,
@@ -55,6 +56,7 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
   onMutate,
 }) => {
   const sourceId = React.useMemo(() => srcIdFromKuId(detail.ku_id), [detail.ku_id]);
+  const navigate = useNavigate();
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [preview, setPreview] = React.useState<ImageItem | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -85,6 +87,25 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
       return o ? { ...it, ...o } : it;
     });
   }, [detail.items, statusOverrides]);
+
+  // 「未能向量化」根因检测:有图片处于 failed / partial 且错误信息提到 PyTorch /
+  // image-embedding 运行时不可用时,给一条可执行指引(去「设置 → 本地模型服务」装)。
+  // 后端 pipeline._friendly_clip_error 已把诊断写进 item.error,这里只做归集。
+  const torchFailureHint = React.useMemo<string | null>(() => {
+    for (const it of items) {
+      if (it.state !== 'failed' && it.state !== 'partial') continue;
+      const err = it.error ?? '';
+      if (
+        err.includes('PyTorch') ||
+        err.includes('image-embedding') ||
+        err.includes('未安装 PyTorch') ||
+        err.includes('本地模型服务')
+      ) {
+        return err;
+      }
+    }
+    return null;
+  }, [items]);
 
   // pipeline 终态:任意一个 → 不再轮询,且 UI 隐藏进度卡片
   // ready  = 至少一路向量化成功
@@ -508,6 +529,33 @@ export const ImageKbDetail: React.FC<DetailPanelProps<KuImageDetail>> = ({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* 「未能向量化」根因指引 —— 失败根因是 PyTorch / image-embedding 运行时
+          不可用时,明确告诉用户该去哪装,并提供直达「本地模型服务」的入口。 */}
+      {torchFailureHint && (
+        <div className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-900/50 dark:bg-amber-950/40">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+              部分图片未能向量化
+            </p>
+            <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+              {torchFailureHint}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void navigate({ to: '/settings', hash: 'local-runtime-pytorch' });
+            }}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-amber-300 bg-white px-2.5 text-[11px] font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-200"
+            title="跳转到「设置 → 本地模型服务 → PyTorch」"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            去安装 PyTorch
+          </button>
         </div>
       )}
 

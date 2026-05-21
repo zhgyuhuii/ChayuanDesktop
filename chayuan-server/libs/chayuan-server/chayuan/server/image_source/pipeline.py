@@ -71,7 +71,42 @@ def _resolve_text_embed_endpoint() -> Tuple[Optional[str], Optional[str], Option
 
 # ---- 主流程 ----
 
+# PyTorch 未安装 / 不可用 —— 图像向量化(image-embedding)硬依赖 PyTorch。
+# 这个指引必须可执行:明确告诉用户去哪装、跟 PyTorch 有关。
+_TORCH_MISSING_HINT = (
+    "图像向量化失败:未安装 PyTorch。图像入知识库需要先把图片转成向量,"
+    "这一步(image-embedding)依赖 PyTorch + 图像向量模型(CLIP / SigLIP 等)。"
+    "请到「设置 → 本地模型服务 → PyTorch」安装 PyTorch(无 GPU 装 CPU 版,"
+    "有 NVIDIA GPU 可装 GPU 版),装完重启 chayuan-server;"
+    "再到「图像嵌入」处下载图像向量模型,然后重新上传图片。"
+)
+
+# torch 装了但 import 链断裂(多半 torchvision 跟 torch 版本不配对)。
+_TORCH_BROKEN_HINT = (
+    "图像向量化失败:PyTorch 已安装但加载失败(torch 与 torchvision 版本不配对)。"
+    "请到「设置 → 本地模型服务 → PyTorch」点「重装」让两者版本同步,"
+    "装完重启 chayuan-server 后重新上传图片。"
+)
+
+# transformers 缺失 —— 同样是 image-embedding 运行时依赖。
+_TRANSFORMERS_MISSING_HINT = (
+    "图像向量化失败:缺少 transformers 运行时依赖。"
+    "image-embedding 依赖 PyTorch + transformers;"
+    "请到「设置 → 本地模型服务 → PyTorch」安装 PyTorch(会一并装好依赖),"
+    "或在 chayuan-server 的 Python 环境运行 `pip install -U transformers`,"
+    "然后重启 chayuan-server。"
+)
+
 _CLIP_ERR_HINTS: tuple[tuple[str, str], ...] = (
+    # ── PyTorch 运行时不可用 —— image-embedding 的根因 #1 ────────────────
+    # torch 没装:import torch 抛 "No module named 'torch'"。
+    ("No module named 'torch'", _TORCH_MISSING_HINT),
+    ("No module named \"torch\"", _TORCH_MISSING_HINT),
+    # torchvision 缺失 / ABI 不配:transformers image 链断在 torchvision。
+    ("No module named 'torchvision'", _TORCH_MISSING_HINT),
+    ("operator torchvision::nms does not exist", _TORCH_BROKEN_HINT),
+    # transformers 缺失。
+    ("No module named 'transformers'", _TRANSFORMERS_MISSING_HINT),
     # 模型未缓存 — hf_clip.py 默认 local_files_only=True 时抛的友好错误
     ("没在本地缓存",
      "图像向量模型尚未下载。到「设置 → AI 平台 → 图像嵌入」点击模型旁"
@@ -93,12 +128,31 @@ _CLIP_ERR_HINTS: tuple[tuple[str, str], ...] = (
 
 def _friendly_clip_error(raw: str) -> str:
     """把底层 stack 翻译成产品级提示;命中规则返友好文案,**不匹配返空字符串**,
-    让 caller 走默认 fallback("以图搜图不可用 ...")。"""
+    让 caller 走默认 fallback("以图搜图不可用 ...")。
+
+    特别处理 PyTorch:image-embedding 硬依赖 PyTorch,torch 没装 / 不可用是
+    「未能向量化」最常见的根因。除字符串规则外,还会调
+    :func:`pytorch_installer.torch_runtime_unavailable_reason` 主动探一遍
+    torch 是否就绪,把「需要去设置页装 PyTorch」这条可执行指引补全。
+    """
     if not raw:
         return ""
     for pattern, hint in _CLIP_ERR_HINTS:
         if pattern in raw:
             return hint
+    # 字符串规则没命中,但失败可能仍是 torch 环境问题(loader 包装过异常文案)。
+    # 主动探一次 torch 是否可用,可用才返空走默认 fallback。
+    low = raw.lower()
+    if "torch" in low or "tensor" in low or "embedder" in low or "torch/transformers" in low:
+        try:
+            from chayuan.server.runtime.pytorch_installer import (
+                torch_runtime_unavailable_reason,
+            )
+            reason = torch_runtime_unavailable_reason()
+            if reason:
+                return reason
+        except Exception:  # noqa: BLE001 — 探测失败不影响主流程
+            pass
     return ""
 
 

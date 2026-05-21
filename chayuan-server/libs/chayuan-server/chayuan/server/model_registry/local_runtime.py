@@ -525,6 +525,41 @@ class SidecarRuntimeManager:
             existing = proc_env.get(var, "")
             proc_env[var] = f"{exe_dir}:{existing}" if existing else exe_dir
 
+        # infinity sidecar(image-embedding)的 CLIP 向量化硬依赖 PyTorch。
+        # torch 可能装在本应用 py_packages/、用户指定的外部目录或系统 Python ——
+        # 由「PyTorch 选用配置」决定。把生效目录加进子进程 PYTHONPATH;
+        # mode=disabled 时直接拒绝启动。frozen 下子进程的 runtime hook
+        # ensure_torch_target_on_syspath 也会兜底,这里再注入一次保证非 frozen /
+        # 外部目录场景也命中。
+        if self.engine == "infinity":
+            try:
+                from chayuan.server.runtime.pytorch_installer import (
+                    get_torch_selection, resolve_active_torch_dir,
+                )
+                _sel = get_torch_selection()
+                if _sel.get("mode") == "disabled":
+                    self._status = RuntimeStatus(
+                        state="failed",
+                        last_error=(
+                            "已在「设置 → 本地模型服务 → PyTorch」选择「不使用 PyTorch」;"
+                            "image-embedding 依赖 PyTorch,无法启动。请改回「自动」"
+                            "或指定一个已装好 torch 的目录。"
+                        ),
+                    )
+                    self._persist_status()
+                    self._release_port_reservation()
+                    return self._status
+                _active = resolve_active_torch_dir(selection=_sel)
+                if _active:
+                    if proc_env is None:
+                        proc_env = os.environ.copy()
+                    _existing_pp = proc_env.get("PYTHONPATH", "")
+                    proc_env["PYTHONPATH"] = (
+                        _active + (os.pathsep + _existing_pp if _existing_pp else "")
+                    )
+            except Exception as e:  # noqa: BLE001 — torch 选用探测失败不阻塞启动
+                logger.debug("[local-runtime] torch 选用探测失败: %r", e)
+
         try:
             self._process = subprocess.Popen(
                 args,

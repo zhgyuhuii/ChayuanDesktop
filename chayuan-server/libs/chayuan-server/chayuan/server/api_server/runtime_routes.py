@@ -667,6 +667,88 @@ def pytorch_scan() -> Dict[str, Any]:
     return _ok(scan_installed_torch())
 
 
+@runtime_router.get(
+    "/pytorch/locations",
+    summary="跨目录扫 torch:CPU 版 / GPU 版各自是否存在 + 当前选用配置",
+)
+def pytorch_locations() -> Dict[str, Any]:
+    """扫多个候选目录(py_packages/、用户指定目录、系统 Python site-packages),
+    汇总「CPU 版」「GPU(CUDA)版」torch 各自是否存在,以及当前 torch 选用
+    配置(auto / 指定目录 / 不使用)与生效目录。
+
+    前端「PyTorch」行据此:
+      - 同时检测到 CPU + GPU 两个版本 → 让用户选用哪个;
+      - 也支持选「不使用 PyTorch」(image-embedding 等会不可用)。
+    返回字段见 :func:`pytorch_installer.scan_torch_locations`。
+    """
+    from chayuan.server.runtime.pytorch_installer import scan_torch_locations
+    return _ok(scan_torch_locations())
+
+
+@runtime_router.post(
+    "/pytorch/validate-dir",
+    summary="验证用户指定的目录里有没有合法的 torch(可采纳为外部已装 torch)",
+)
+def pytorch_validate_dir(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """body: ``{"path": "<目录绝对路径>"}``。
+
+    用户可复制粘贴一个路径 / 选择一个目录,指向「已经装好 torch 的目录」
+    (系统 Python 的 site-packages,或之前解压过 torch wheel 的目录)。
+    本接口纯文件探测目录里是否有合法 torch,返回版本 / CPU-CUDA 判定,
+    **不写配置**(写配置走 POST /runtime/pytorch/select with mode=path)。
+    """
+    from chayuan.server.runtime.pytorch_installer import validate_torch_dir
+    path = (body or {}).get("path")
+    if not isinstance(path, str) or not path.strip():
+        raise HTTPException(status_code=400, detail="`path` 必填且为非空字符串")
+    return _ok(validate_torch_dir(path.strip()))
+
+
+@runtime_router.get(
+    "/pytorch/select",
+    summary="读当前 torch 选用配置(auto / 指定目录 / 不使用)",
+)
+def pytorch_select_get() -> Dict[str, Any]:
+    from chayuan.server.runtime.pytorch_installer import (
+        get_torch_selection, resolve_active_torch_dir,
+    )
+    sel = get_torch_selection()
+    return _ok({"selection": sel, "active_dir": resolve_active_torch_dir(selection=sel)})
+
+
+@runtime_router.post(
+    "/pytorch/select",
+    summary="设置 torch 选用配置:auto / 指定外部目录 / 不使用 PyTorch",
+)
+def pytorch_select_set(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """body: ``{"mode": "auto"|"path"|"disabled", "path": "<目录>"?, "prefer": "cpu"|"cuda"?}``。
+
+    - ``mode=auto``     :自动用扫到的 torch;``prefer`` 在 CPU + GPU 两版都装时
+      决定优先用哪个(缺省优先 GPU)。
+    - ``mode=path``     :强制用 ``path`` 指定的外部已装 torch 目录(写前会校验)。
+    - ``mode=disabled`` :不使用 PyTorch —— image-embedding 等依赖功能不可用。
+
+    sidecar(image-embedding / infinity)下次启动按此决定 PYTHONPATH。
+    """
+    from chayuan.server.runtime.pytorch_installer import (
+        resolve_active_torch_dir, set_torch_selection,
+    )
+    mode = (body or {}).get("mode")
+    if not isinstance(mode, str):
+        raise HTTPException(status_code=400, detail="`mode` 必填(auto/path/disabled)")
+    path = (body or {}).get("path")
+    prefer = (body or {}).get("prefer")
+    try:
+        cfg = set_torch_selection(
+            mode=mode,
+            path=str(path) if path else None,
+            prefer=str(prefer) if prefer else None,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _ok({"selection": cfg, "active_dir": resolve_active_torch_dir(selection=cfg)})
+
+
 @runtime_router.post(
     "/pytorch/install",
     summary="启动 PyTorch 安装(异步),返 task_id 供轮询进度",

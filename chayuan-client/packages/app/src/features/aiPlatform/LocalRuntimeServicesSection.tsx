@@ -38,6 +38,7 @@ import {
   modality,
   type OcrSidecarStatus,
   type PytorchInstallTask,
+  type PytorchLocationsResult,
   type PytorchScanResult,
   type PytorchStatus,
   type PytorchVariant,
@@ -782,6 +783,14 @@ const PytorchRow: React.FC = () => {
   // 「扫描挂载」结果 — null 表示还没扫过
   const [scanResult, setScanResult] = React.useState<PytorchScanResult | null>(null);
   const [scanning, setScanning] = React.useState(false);
+  // 跨目录探测(CPU 版 / GPU 版各自是否存在)+ 当前选用配置
+  const [locations, setLocations] = React.useState<PytorchLocationsResult | null>(null);
+  // 「使用已装好的 PyTorch」:用户粘贴 / 选择的外部目录
+  const [pickPath, setPickPath] = React.useState('');
+  const [pickBusy, setPickBusy] = React.useState(false);
+  const [pickMsg, setPickMsg] = React.useState<string | null>(null);
+  // 「下载说明」折叠区
+  const [showDownload, setShowDownload] = React.useState(false);
 
   const refreshStatus = React.useCallback(async () => {
     try {
@@ -789,6 +798,14 @@ const PytorchRow: React.FC = () => {
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  const refreshLocations = React.useCallback(async () => {
+    try {
+      setLocations(await localRuntime.pytorchLocations());
+    } catch {
+      /* 探测失败不阻塞主流程;主状态仍由 refreshStatus 提供 */
     }
   }, []);
 
@@ -804,19 +821,75 @@ const PytorchRow: React.FC = () => {
           `已识别 torch ${r.torch_version ?? '?'}（${r.is_cuda ? 'GPU/CUDA' : 'CPU'} 版）`,
         );
       }
+      // 顺手刷新跨目录探测,让「CPU 版 / GPU 版」徽标同步
+      await refreshLocations();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       reportError(e, '扫描失败');
     } finally {
       setScanning(false);
     }
-  }, []);
+  }, [refreshLocations]);
+
+  // 采纳用户指定的外部 torch 目录 —— 先校验再写 selection(mode=path)
+  const onUseExternalDir = React.useCallback(async (dir: string) => {
+    const d = dir.trim();
+    if (!d) {
+      setPickMsg('请先填写或选择一个目录');
+      return;
+    }
+    setPickBusy(true);
+    setPickMsg(null);
+    try {
+      const v = await localRuntime.pytorchValidateDir(d);
+      if (!v.valid) {
+        setPickMsg(v.reason || '该目录里没有合法的 torch');
+        return;
+      }
+      await localRuntime.pytorchSetSelection({ mode: 'path', path: v.dir ?? d });
+      notifySuccess(
+        '已采纳外部 PyTorch',
+        `${v.dir}（torch ${v.torch_version ?? '?'} · ${v.is_cuda ? 'GPU/CUDA' : 'CPU'} 版）`,
+      );
+      setPickPath('');
+      await Promise.all([refreshStatus(), refreshLocations()]);
+    } catch (e) {
+      setPickMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPickBusy(false);
+    }
+  }, [refreshStatus, refreshLocations]);
+
+  // 设置 torch 选用配置(auto / disabled / prefer)
+  const onSetSelection = React.useCallback(
+    async (opts: { mode: 'auto' | 'disabled'; prefer?: 'cpu' | 'cuda' }) => {
+      setPickBusy(true);
+      setPickMsg(null);
+      try {
+        await localRuntime.pytorchSetSelection(opts);
+        notifySuccess(
+          '已更新 PyTorch 选用',
+          opts.mode === 'disabled'
+            ? '已选择「不使用 PyTorch」,图像向量化等依赖功能将不可用'
+            : `已切换为「自动」${opts.prefer ? `(优先 ${opts.prefer === 'cpu' ? 'CPU' : 'GPU'} 版)` : ''}`,
+        );
+        await Promise.all([refreshStatus(), refreshLocations()]);
+      } catch (e) {
+        setPickMsg(e instanceof Error ? e.message : String(e));
+      } finally {
+        setPickBusy(false);
+      }
+    },
+    [refreshStatus, refreshLocations],
+  );
+
 
   React.useEffect(() => {
     void refreshStatus();
+    void refreshLocations();
     const t = window.setInterval(() => void refreshStatus(), 5_000);
     return () => window.clearInterval(t);
-  }, [refreshStatus]);
+  }, [refreshStatus, refreshLocations]);
 
   // 安装中:轮询 task,直到 terminal state
   React.useEffect(() => {
@@ -830,13 +903,14 @@ const PytorchRow: React.FC = () => {
           if (['done', 'failed', 'cancelled'].includes(t.state)) {
             setInstalling(false);
             await refreshStatus();
-            // 装完顺手扫一次,让「放置目录」状态同步显示新装的 torch
+            // 装完顺手扫一次,让「放置目录」/「CPU 版 GPU 版」状态同步
             if (t.state === 'done') {
               try {
                 setScanResult(await localRuntime.pytorchScan());
               } catch {
                 /* 扫描失败不影响安装结果展示 */
               }
+              await refreshLocations();
             }
             return;
           }
@@ -850,7 +924,7 @@ const PytorchRow: React.FC = () => {
     };
     void poll();
     return () => { cancelled = true; };
-  }, [task, installing, refreshStatus]);
+  }, [task, installing, refreshStatus, refreshLocations]);
 
   const startInstall = async (variant: PytorchVariant) => {
     setError(null);
@@ -1016,6 +1090,194 @@ const PytorchRow: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── 下载说明 ── 给「不想在线装、想自己下 wheel」的用户官方下载入口 */}
+      <details
+        className="rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2"
+        open={showDownload}
+        onToggle={(e) => setShowDownload((e.target as HTMLDetailsElement).open)}
+      >
+        <summary className="cursor-pointer text-[11px] text-[var(--cy-text-secondary)]">
+          想自己下载 PyTorch?(离线 / 内网环境)
+        </summary>
+        <div className="mt-1.5 space-y-1 text-[11px] text-[var(--cy-text-tertiary)]">
+          <div>
+            PyTorch wheel 体积大(CPU ~250 MB,GPU 2-3 GB),未打进安装包。
+            上方「安装」按钮会自动在线下载;若想自己下,从下面的 wheel index
+            按本机 Python 版本 + 平台挑 torch / torchvision 两个 .whl,解压(或放进
+            上方「放置目录」)后点「扫描」即可。
+            {status && (
+              <>
+                {' '}建议版本:torch {status.pinned_torch_version} · torchvision{' '}
+                {status.pinned_torchvision_version}。
+              </>
+            )}
+          </div>
+          {status && (
+            <ul className="space-y-0.5 pl-3">
+              <li>
+                官方下载页:{' '}
+                <code className="rounded bg-[var(--cy-surface-base)] px-1">
+                  {status.download_page}
+                </code>
+              </li>
+              <li>
+                CPU 版 wheel index:{' '}
+                <code className="rounded bg-[var(--cy-surface-base)] px-1">
+                  {status.download_index_cpu}
+                </code>
+              </li>
+              {status.download_index_cuda && (
+                <li>
+                  GPU(CUDA)版 wheel index:{' '}
+                  <code className="rounded bg-[var(--cy-surface-base)] px-1">
+                    {status.download_index_cuda}
+                  </code>
+                </li>
+              )}
+              {!status.download_index_cuda && (
+                <li className="text-[var(--cy-text-tertiary)]">
+                  GPU 版:在 https://download.pytorch.org/whl/ 下按 cuXXX
+                  (如 cu124)选对应目录;需先有 NVIDIA GPU + 够新驱动。
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      </details>
+
+      {/* ── CPU 版 / GPU 版双检测 + 选用哪个 / 不使用 ── */}
+      {locations && (locations.has_cpu || locations.has_cuda || locations.selection.mode !== 'auto') && (
+        <div className="space-y-1.5 rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2">
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="text-[var(--cy-text-secondary)]">已检测到:</span>
+            <span
+              className={
+                'rounded-sm border px-1.5 py-0.5 text-[10px] font-medium ' +
+                (locations.has_cpu
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'
+                  : 'border-zinc-300 bg-zinc-50 text-zinc-500 dark:bg-zinc-800/40')
+              }
+              title={locations.cpu_dir ?? ''}
+            >
+              CPU 版 {locations.has_cpu ? '✓' : '—'}
+            </span>
+            <span
+              className={
+                'rounded-sm border px-1.5 py-0.5 text-[10px] font-medium ' +
+                (locations.has_cuda
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'
+                  : 'border-zinc-300 bg-zinc-50 text-zinc-500 dark:bg-zinc-800/40')
+              }
+              title={locations.cuda_dir ?? ''}
+            >
+              GPU(CUDA)版 {locations.has_cuda ? '✓' : '—'}
+            </span>
+          </div>
+
+          {/* 两个版本都装了 → 让用户选用哪个 */}
+          {locations.has_cpu && locations.has_cuda && (
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <span className="text-[var(--cy-text-secondary)]">
+                CPU / GPU 两个版本都装了,选用:
+              </span>
+              <Button
+                size="sm"
+                variant={
+                  locations.selection.mode === 'auto' &&
+                  locations.selection.prefer !== 'cpu'
+                    ? 'default'
+                    : 'outline'
+                }
+                disabled={pickBusy}
+                onClick={() => void onSetSelection({ mode: 'auto', prefer: 'cuda' })}
+                title="优先用 GPU(CUDA)版"
+              >
+                GPU 版
+              </Button>
+              <Button
+                size="sm"
+                variant={
+                  locations.selection.mode === 'auto' &&
+                  locations.selection.prefer === 'cpu'
+                    ? 'default'
+                    : 'outline'
+                }
+                disabled={pickBusy}
+                onClick={() => void onSetSelection({ mode: 'auto', prefer: 'cpu' })}
+                title="优先用 CPU 版"
+              >
+                CPU 版
+              </Button>
+            </div>
+          )}
+
+          {/* 选用哪个目录 / 不使用 PyTorch */}
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="text-[var(--cy-text-secondary)]">PyTorch:</span>
+            <Button
+              size="sm"
+              variant={locations.selection.mode !== 'disabled' ? 'default' : 'outline'}
+              disabled={pickBusy || locations.selection.mode === 'auto'}
+              onClick={() => void onSetSelection({ mode: 'auto' })}
+              title="自动选用扫到的 torch"
+            >
+              {locations.selection.mode === 'path' ? '改回自动' : '自动'}
+            </Button>
+            <Button
+              size="sm"
+              variant={locations.selection.mode === 'disabled' ? 'default' : 'outline'}
+              disabled={pickBusy}
+              onClick={() => void onSetSelection({ mode: 'disabled' })}
+              title="不使用 PyTorch — 图像向量化等依赖功能将不可用"
+            >
+              不使用 PyTorch
+            </Button>
+            {locations.selection.mode === 'disabled' && (
+              <span className="text-amber-700 dark:text-amber-300">
+                已禁用:图像向量化(image-embedding)等依赖 PyTorch 的功能不可用。
+              </span>
+            )}
+            {locations.selection.mode === 'path' && locations.selection.path && (
+              <span className="text-[var(--cy-text-tertiary)] break-all">
+                当前用外部目录:{locations.selection.path}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 使用已经装好的 PyTorch:粘贴 / 填写一个外部目录 ── */}
+      <div className="space-y-1 rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2">
+        <div className="text-[11px] text-[var(--cy-text-secondary)]">
+          已经在别处装好 PyTorch?填写那个目录(系统 Python 的 site-packages,
+          或之前解压过 torch 的目录),验证后即可直接采纳,不必再装一遍:
+        </div>
+        <div className="flex items-center gap-1.5">
+          <input
+            type="text"
+            value={pickPath}
+            onChange={(e) => setPickPath(e.target.value)}
+            placeholder="例如 C:\\Python312\\Lib\\site-packages 或 /usr/lib/python3/dist-packages"
+            className="flex-1 rounded border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-2 py-1 text-[11px]"
+            disabled={pickBusy}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pickBusy || !pickPath.trim()}
+            onClick={() => void onUseExternalDir(pickPath)}
+            title="验证该目录里的 torch 并采纳"
+          >
+            {pickBusy ? '处理中…' : '验证并使用'}
+          </Button>
+        </div>
+        {pickMsg && (
+          <div className="text-[11px] text-rose-600 dark:text-rose-400 break-all">
+            {pickMsg}
+          </div>
+        )}
+      </div>
 
       <div className="text-[11px] text-[var(--cy-text-tertiary)] space-y-0.5">
         {status && (

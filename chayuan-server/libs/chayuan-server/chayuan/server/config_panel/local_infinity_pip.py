@@ -174,6 +174,40 @@ def start_local_infinity_subprocess(
         # 包能 import 但 binary 找不到 → 用 python -m
         cmd = [sys.executable, "-m", "infinity_emb", "v2",
                "--model-id", model_id, "--port", str(target_port)]
+
+    # ── torch 选用:把用户选定 / 自动判定的 torch 目录加进子进程 PYTHONPATH ──
+    # infinity_emb 的 CLIP 图像向量化硬依赖 PyTorch。torch 可能装在本应用的
+    # py_packages/、用户指定的外部目录,或系统 Python —— 由「PyTorch 选用配置」
+    # 决定。mode=disabled 时直接拒绝启动(用户主动关了 PyTorch)。
+    env = dict(os.environ)
+    torch_disabled_msg: Optional[str] = None
+    try:
+        from chayuan.server.runtime.pytorch_installer import (
+            get_torch_selection, resolve_active_torch_dir,
+        )
+        sel = get_torch_selection()
+        if sel.get("mode") == "disabled":
+            torch_disabled_msg = (
+                "已在「设置 → 本地模型服务 → PyTorch」选择「不使用 PyTorch」;"
+                "image-embedding(图像向量化)依赖 PyTorch,无法启动。"
+                "请改回「自动」或指定一个已装好 torch 的目录。"
+            )
+        else:
+            active_dir = resolve_active_torch_dir(selection=sel)
+            if active_dir:
+                existing = env.get("PYTHONPATH", "")
+                env["PYTHONPATH"] = (
+                    active_dir + (os.pathsep + existing if existing else "")
+                )
+                logger.info(
+                    "[local_infinity_pip] torch 目录注入 PYTHONPATH: %s", active_dir,
+                )
+    except Exception as e:  # noqa: BLE001 — torch 选用探测失败不阻塞启动
+        logger.debug("[local_infinity_pip] torch 选用探测失败: %r", e)
+
+    if torch_disabled_msg:
+        return {"ok": False, "pid": None, "msg": torch_disabled_msg, "url": base}
+
     try:
         proc = subprocess.Popen(
             cmd,
@@ -181,6 +215,7 @@ def start_local_infinity_subprocess(
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
             start_new_session=True,
+            env=env,
         )
         return {"ok": True, "pid": proc.pid,
                 "msg": f"已发起启动(模型加载需若干秒);命令: {' '.join(cmd)}",

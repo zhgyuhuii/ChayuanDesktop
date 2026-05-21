@@ -215,6 +215,73 @@ export interface PytorchStatus {
   install_target_dir: string | null;
   /** 给前端的额外提示(驱动太老 / 版本不配等)*/
   notes: string[];
+  /** PyTorch 官方下载页 —— 给「不想在线装、想自己下 wheel」的用户。 */
+  download_page: string;
+  /** 按建议 variant 的 wheel index 直链(CPU → /whl/cpu;GPU → /whl/cuXXX)。 */
+  download_index: string;
+  /** CPU 版 wheel index 直链。 */
+  download_index_cpu: string;
+  /** GPU 版 wheel index 直链;无 GPU / 驱动太老时为 null。 */
+  download_index_cuda: string | null;
+  /** 本应用固化的 torch / torchvision 版本(自己下 wheel 时对齐用)。 */
+  pinned_torch_version: string;
+  pinned_torchvision_version: string;
+}
+
+/** 单个候选目录里的 torch 探测结果(GET /runtime/pytorch/locations)。 */
+export interface PytorchLocation {
+  /** 含 torch/ 的目录绝对路径。 */
+  dir: string;
+  /** 目录来源:'user-selected' | 'py_packages' | 'system-python'。 */
+  source: string;
+  /** 目录里有合法 torch。 */
+  valid: boolean;
+  torch_version: string | null;
+  torch_cuda_build: string | null;
+  /** true = CUDA(GPU)版。 */
+  is_cuda: boolean;
+  torchvision_installed: boolean;
+  torchvision_version: string | null;
+  /** invalid 时的人类可读原因。 */
+  reason: string;
+}
+
+/** torch 选用配置:auto / 指定外部目录 / 不使用 PyTorch。 */
+export type PytorchSelectionMode = 'auto' | 'path' | 'disabled';
+
+export interface PytorchSelection {
+  mode: PytorchSelectionMode;
+  /** mode=path 时指向的外部已装 torch 目录。 */
+  path: string | null;
+  /** CPU + GPU 两版都装时优先用哪个;null = 默认(优先 GPU)。 */
+  prefer: 'cpu' | 'cuda' | null;
+}
+
+/** GET /runtime/pytorch/locations —— 跨目录扫 torch 汇总。 */
+export interface PytorchLocationsResult {
+  locations: PytorchLocation[];
+  /** 任一目录有 CPU 版 torch。 */
+  has_cpu: boolean;
+  /** 任一目录有 CUDA(GPU)版 torch。 */
+  has_cuda: boolean;
+  cpu_dir: string | null;
+  cuda_dir: string | null;
+  selection: PytorchSelection;
+  /** 当前生效的 torch 目录;disabled / 都没装时为 null。 */
+  active_dir: string | null;
+}
+
+/** POST /runtime/pytorch/validate-dir —— 验证用户指定目录里的 torch。 */
+export interface PytorchValidateDirResult {
+  valid: boolean;
+  dir: string | null;
+  torch_version: string | null;
+  torch_cuda_build: string | null;
+  is_cuda: boolean;
+  torchvision_installed: boolean;
+  torchvision_version: string | null;
+  /** invalid 时的人类可读原因。 */
+  reason: string;
 }
 
 /** GET /runtime/pytorch/scan —— 扫描 py_packages/ 里手动放好的 torch。 */
@@ -271,6 +338,47 @@ async function pytorchInstallTask(taskId: string): Promise<PytorchInstallTask> {
   return (
     await request<PytorchInstallTask>(
       `/runtime/pytorch/install/${encodeURIComponent(taskId)}`,
+    )
+  ).data;
+}
+
+/** GET /runtime/pytorch/locations —— 跨目录扫 torch(CPU / GPU 版各自是否存在)。 */
+async function pytorchLocations(): Promise<PytorchLocationsResult> {
+  return (await request<PytorchLocationsResult>('/runtime/pytorch/locations')).data;
+}
+
+/** POST /runtime/pytorch/validate-dir —— 验证用户指定目录里有没有合法 torch。 */
+async function pytorchValidateDir(path: string): Promise<PytorchValidateDirResult> {
+  return (
+    await request<PytorchValidateDirResult>('/runtime/pytorch/validate-dir', {
+      method: 'POST',
+      body: { path },
+    })
+  ).data;
+}
+
+/** GET /runtime/pytorch/select —— 读当前 torch 选用配置。 */
+async function pytorchGetSelection(): Promise<{
+  selection: PytorchSelection;
+  active_dir: string | null;
+}> {
+  return (
+    await request<{ selection: PytorchSelection; active_dir: string | null }>(
+      '/runtime/pytorch/select',
+    )
+  ).data;
+}
+
+/** POST /runtime/pytorch/select —— 设置 torch 选用配置(auto / 指定目录 / 不使用)。 */
+async function pytorchSetSelection(opts: {
+  mode: PytorchSelectionMode;
+  path?: string;
+  prefer?: 'cpu' | 'cuda';
+}): Promise<{ selection: PytorchSelection; active_dir: string | null }> {
+  return (
+    await request<{ selection: PytorchSelection; active_dir: string | null }>(
+      '/runtime/pytorch/select',
+      { method: 'POST', body: opts },
     )
   ).data;
 }
@@ -398,6 +506,11 @@ export const localRuntime = {
   pytorchScan,
   pytorchInstall,
   pytorchInstallTask,
+  // PyTorch 多目录探测 + 用户自选 torch 目录 + 选用哪个/不用
+  pytorchLocations,
+  pytorchValidateDir,
+  pytorchGetSelection,
+  pytorchSetSelection,
   // 运行时服务(sidecar 二进制)下载补回
   servicesStatus,
   installService,

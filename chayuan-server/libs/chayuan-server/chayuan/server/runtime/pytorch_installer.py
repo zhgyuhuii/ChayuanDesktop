@@ -55,6 +55,9 @@ _PYTORCH_INDEXES: Dict[str, str] = {
     "cu126": "https://download.pytorch.org/whl/cu126",
 }
 
+# PyTorch 官方下载页 —— 给「不想在线装,自己下 wheel」的用户。前端 UI 直接展示。
+PYTORCH_DOWNLOAD_PAGE = "https://pytorch.org/get-started/locally/"
+
 # NVIDIA 驱动版本 → 最高可装 CUDA(参考 PyTorch 官方兼容表;保守取整)
 # 用户驱动 >= 这些版本就能装对应 CUDA;否则降级
 _DRIVER_TO_CUDA: List[tuple[int, str]] = [
@@ -88,6 +91,10 @@ class TorchStatus:
     notes: List[str] = field(default_factory=list)  # 给前端的额外提示
 
     def to_dict(self) -> Dict[str, Any]:
+        # 给「不想在线装、想自己下 wheel」的用户的官方下载入口。
+        # download_index 按 suggested_variant 给出对应 wheel index 直链
+        # (CPU → /whl/cpu,GPU → /whl/cuXXX)。
+        sv = self.suggested_variant if self.suggested_variant in _PYTORCH_INDEXES else "cpu"
         return {
             "torch_version": self.torch_version,
             "torch_cuda_build": self.torch_cuda_build,
@@ -102,6 +109,15 @@ class TorchStatus:
             "offline_wheels_dir": self.offline_wheels_dir,
             "install_target_dir": self.install_target_dir,
             "notes": list(self.notes),
+            # 下载说明:官方页 + 按建议 variant 的 wheel index 直链 + pinned 版本
+            "download_page": PYTORCH_DOWNLOAD_PAGE,
+            "download_index": _PYTORCH_INDEXES[sv],
+            "download_index_cpu": _PYTORCH_INDEXES["cpu"],
+            "download_index_cuda": (
+                _PYTORCH_INDEXES[sv] if sv != "cpu" else None
+            ),
+            "pinned_torch_version": _TORCH_VERSION,
+            "pinned_torchvision_version": _TORCHVISION_VERSION,
         }
 
 
@@ -338,23 +354,46 @@ def torch_install_target_dir() -> Optional[Path]:
 
 
 def ensure_torch_target_on_syspath() -> Optional[str]:
-    """把 :func:`torch_install_target_dir` 加进 ``sys.path``,让装好的 torch 可 import。
+    """把生效的 torch 目录加进 ``sys.path``,让装好的 torch 可 import。
 
-    幂等:重复调用只插一次。返回实际加入的目录字符串(已存在 / 拿不到则 None)。
+    幂等:重复调用只插一次。返回实际(最高优先级)加入的目录字符串。
+
+    生效目录选择:优先用户在「PyTorch 选用配置」里指定 / 自动判定的目录
+    (:func:`resolve_active_torch_dir`)—— 这允许 torch 装在外部目录(系统
+    Python site-packages 等)而非本应用的 ``py_packages/``;拿不到时退回
+    :func:`torch_install_target_dir`(``py_packages/``,保持老行为)。
 
     调用时机:**任何 ``import torch`` 之前**。frozen 单机版由 PyInstaller runtime
     hook(multiprocessing_freeze.py)在每个进程最早期调用,覆盖 API server /
     config panel / worker 等所有 frozen 子进程。非 frozen(dev / pytest)环境
     torch 走常规 site-packages,这里加一个不存在的目录也无害。
     """
+    # py_packages/ 默认目标 —— 始终加入并作为返回值(老行为不变)。
     target = torch_install_target_dir()
-    if target is None:
-        return None
-    s = str(target)
-    # 放在最前:用户主动装的新版 torch 优先于 bundle 里可能存在的旧版
-    if s not in sys.path:
-        sys.path.insert(0, s)
-    return s
+    target_s = str(target) if target is not None else None
+
+    # 用户选用 / 自动判定的目录(可能是外部 site-packages)。仅当它与
+    # py_packages 不同才额外加入;选用配置探测涉及读盘 + 扫盘,失败忽略。
+    active: Optional[str] = None
+    try:
+        active = resolve_active_torch_dir()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[torch-syspath] resolve_active_torch_dir 失败: %r", e)
+
+    # 收集要插入的目录,顺序 = 优先级(靠前优先)。
+    dirs: List[str] = []
+    if active and active != target_s:
+        dirs.append(active)
+    if target_s is not None:
+        dirs.append(target_s)
+    if not dirs:
+        return target_s
+    # 反向插入,保证 dirs[0] 落到 sys.path 最前。
+    for s in reversed(dirs):
+        if s not in sys.path:
+            sys.path.insert(0, s)
+    # 返回 py_packages 目标(本应用的安装落点);拿不到时退回首个加入的目录。
+    return target_s if target_s is not None else dirs[0]
 
 
 def _find_offline_wheels(variant: str) -> List[Path]:
@@ -940,6 +979,427 @@ def _read_dist_info_version(target: Path, pkg: str) -> Optional[str]:
                     return line.split(":", 1)[1].strip() or None
     except OSError:
         pass
+    return None
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 多目录 torch 探测 + 用户自选 torch 目录 + 「选用哪个 / 不用」配置
+# ════════════════════════════════════════════════════════════════════════
+#
+# 背景
+# ====
+# 用户机器上 torch 可能装在好几个地方:
+#   - 本应用装的 ``<CHAYUAN_ROOT>/py_packages/``(install_pytorch_wheels 落点);
+#   - 系统 Python 的 site-packages(用户自己 ``pip install torch`` 过);
+#   - 之前手动解压 / 别处 venv 的 site-packages。
+# 而且可能同时存在 CPU 版和 CUDA 版(在不同目录)。本节负责:
+#   1. :func:`validate_torch_dir` — 验证某个目录里有没有合法 torch,返版本/CPU/CUDA。
+#   2. :func:`scan_torch_locations` — 扫所有候选目录,汇总 CPU 版 / GPU 版各自存在与否。
+#   3. torch 选用配置(``torch_selection.json``):mode=auto / path / disabled,
+#      允许用户「指定一个外部已装好的 torch 目录」或「不使用 PyTorch」。
+#   4. :func:`resolve_active_torch_dir` — 按配置算出 sidecar 启动时该把哪个目录
+#      加进 PYTHONPATH(或返回 disabled 让 caller 不启 image-embedding)。
+
+
+def validate_torch_dir(path: Any) -> Dict[str, Any]:
+    """验证 ``path`` 目录里是否有一份合法的 torch,返回版本 / CPU-CUDA 判定。
+
+    「合法」标准跟 :func:`_torch_already_installed` 一致:目录下有
+    ``torch/__init__.py`` + ``torch/version.py``。纯文件探测,**不 import torch**。
+
+    可接受两种 ``path``:
+      - 直接指向含 ``torch/`` 子目录的目录(site-packages / py_packages 本身);
+      - 指向 ``torch/`` 目录本身(用户可能选错一层)—— 自动回退到其父目录。
+
+    Returns:
+        dict::
+
+            {
+              "valid": True/False,
+              "dir": "<规范化后的目录>",        # valid 时是真正含 torch/ 的那层
+              "torch_version": "2.7.0" | None,
+              "torch_cuda_build": "cu124" | "cpu" | None,
+              "is_cuda": True/False,
+              "torchvision_installed": True/False,
+              "torchvision_version": "0.22.0" | None,
+              "reason": "...",                  # invalid 时给人类可读原因
+            }
+    """
+    out: Dict[str, Any] = {
+        "valid": False,
+        "dir": None,
+        "torch_version": None,
+        "torch_cuda_build": None,
+        "is_cuda": False,
+        "torchvision_installed": False,
+        "torchvision_version": None,
+        "reason": "",
+    }
+    if not path:
+        out["reason"] = "未提供目录路径"
+        return out
+    try:
+        p = Path(str(path)).expanduser()
+    except (TypeError, ValueError):
+        out["reason"] = f"非法路径: {path!r}"
+        return out
+    if not p.exists():
+        out["reason"] = f"目录不存在: {p}"
+        return out
+    if not p.is_dir():
+        out["reason"] = f"不是目录: {p}"
+        return out
+
+    # 用户可能选到 torch/ 目录本身 —— 回退到父目录(site-packages 那层)
+    cand = p
+    if p.name == "torch" and (p / "__init__.py").is_file():
+        cand = p.parent
+
+    if not _torch_already_installed(cand):
+        out["reason"] = (
+            f"{cand} 下没有合法的 torch(缺 torch/__init__.py 或 torch/version.py);"
+            "请选择「装好 torch 的目录」(系统 Python 的 site-packages,"
+            "或之前解压过 torch wheel 的目录)"
+        )
+        return out
+
+    ver, build = _parse_torch_version_py(cand / "torch" / "version.py")
+    out.update(
+        valid=True,
+        dir=str(cand),
+        torch_version=ver,
+        torch_cuda_build=build,
+        is_cuda=bool(build and build.startswith("cu")),
+        reason="ok",
+    )
+    tv_init = cand / "torchvision" / "__init__.py"
+    if tv_init.is_file():
+        out["torchvision_installed"] = True
+        out["torchvision_version"] = _read_dist_info_version(cand, "torchvision")
+    return out
+
+
+def _system_site_packages_dirs() -> List[Path]:
+    """返回系统 / 当前解释器的 site-packages 候选目录(去重,只保留存在的)。
+
+    frozen 单机版的 ``sys.path`` 里不一定有真实 site-packages;但用户机器上
+    可能装了系统 Python 并 ``pip install`` 过 torch。这里尽量多探几处:
+      - ``site.getsitepackages()`` / ``site.getusersitepackages()``;
+      - ``sys.path`` 上所有名为 ``site-packages`` / ``dist-packages`` 的目录。
+    """
+    found: List[Path] = []
+    seen: set = set()
+
+    def _add(raw: Any) -> None:
+        if not raw:
+            return
+        try:
+            p = Path(str(raw)).resolve()
+        except (TypeError, ValueError, OSError):
+            return
+        key = str(p)
+        if key in seen or not p.is_dir():
+            return
+        seen.add(key)
+        found.append(p)
+
+    try:
+        import site
+        getsp = getattr(site, "getsitepackages", None)
+        if callable(getsp):
+            for d in getsp():
+                _add(d)
+        getusp = getattr(site, "getusersitepackages", None)
+        if callable(getusp):
+            _add(getusp())
+    except Exception:  # noqa: BLE001 — frozen 下 site 被裁剪,getsitepackages 可能不在
+        pass
+
+    for entry in list(sys.path):
+        name = os.path.basename(str(entry).rstrip("/\\"))
+        if name in ("site-packages", "dist-packages"):
+            _add(entry)
+
+    return found
+
+
+def scan_torch_locations() -> Dict[str, Any]:
+    """跨多个候选目录扫 torch,汇总「CPU 版 / GPU(CUDA)版」各自是否存在。
+
+    候选目录(按优先级):
+      1. 用户在配置里指定的 torch 目录(``torch_selection.json`` 的 ``path``);
+      2. 本应用安装目标 :func:`torch_install_target_dir`(``py_packages/``);
+      3. 系统 / 当前解释器的 site-packages(:func:`_system_site_packages_dirs`)。
+
+    每个目录走 :func:`validate_torch_dir` 探测,**纯文件探测不 import torch**。
+
+    Returns:
+        dict::
+
+            {
+              "locations": [ {dir, source, valid, torch_version,
+                              torch_cuda_build, is_cuda, ...}, ... ],
+              "has_cpu": True/False,        # 任一目录有 CPU 版 torch
+              "has_cuda": True/False,       # 任一目录有 CUDA 版 torch
+              "cpu_dir": "<含 CPU 版 torch 的目录>" | None,
+              "cuda_dir": "<含 CUDA 版 torch 的目录>" | None,
+              "selection": { ... },         # 当前 torch 选用配置(见 get_torch_selection)
+              "active_dir": "<当前生效的 torch 目录>" | None,
+            }
+    """
+    selection = get_torch_selection()
+
+    # (source 标签, 目录) —— 顺序即优先级
+    candidates: List[tuple[str, Path]] = []
+    sel_path = selection.get("path")
+    if sel_path:
+        try:
+            candidates.append(("user-selected", Path(str(sel_path)).expanduser()))
+        except (TypeError, ValueError):
+            pass
+    tgt = torch_install_target_dir()
+    if tgt is not None:
+        candidates.append(("py_packages", Path(tgt)))
+    for sp in _system_site_packages_dirs():
+        candidates.append(("system-python", sp))
+
+    locations: List[Dict[str, Any]] = []
+    seen_dirs: set = set()
+    has_cpu = has_cuda = False
+    cpu_dir: Optional[str] = None
+    cuda_dir: Optional[str] = None
+
+    for source, raw_dir in candidates:
+        try:
+            key = str(Path(raw_dir).resolve())
+        except (OSError, ValueError):
+            key = str(raw_dir)
+        if key in seen_dirs:
+            continue
+        seen_dirs.add(key)
+        info = validate_torch_dir(raw_dir)
+        entry = {
+            "dir": info.get("dir") or str(raw_dir),
+            "source": source,
+            "valid": info["valid"],
+            "torch_version": info["torch_version"],
+            "torch_cuda_build": info["torch_cuda_build"],
+            "is_cuda": info["is_cuda"],
+            "torchvision_installed": info["torchvision_installed"],
+            "torchvision_version": info["torchvision_version"],
+            "reason": info["reason"],
+        }
+        locations.append(entry)
+        if info["valid"]:
+            if info["is_cuda"]:
+                has_cuda = True
+                cuda_dir = cuda_dir or info["dir"]
+            else:
+                has_cpu = True
+                cpu_dir = cpu_dir or info["dir"]
+
+    active = resolve_active_torch_dir(selection=selection,
+                                     has_cpu=has_cpu, has_cuda=has_cuda,
+                                     cpu_dir=cpu_dir, cuda_dir=cuda_dir)
+    return {
+        "locations": locations,
+        "has_cpu": has_cpu,
+        "has_cuda": has_cuda,
+        "cpu_dir": cpu_dir,
+        "cuda_dir": cuda_dir,
+        "selection": selection,
+        "active_dir": active,
+    }
+
+
+# ---- torch 选用配置:auto / path / disabled --------------------------------
+#
+# 存盘位置:``<CHAYUAN_ROOT>/runtime/torch_selection.json``(跟 infinity.yaml
+# 等运行时配置同目录)。结构:
+#   {"mode": "auto"|"path"|"disabled", "path": "<目录>"|null, "prefer": "cpu"|"cuda"|null}
+# - mode=auto    : 自动用 py_packages / 系统 Python 里能找到的 torch;
+#                  ``prefer`` 在「CPU + CUDA 两个版本都装了」时决定优先用哪个。
+# - mode=path    : 强制用 ``path`` 指定的外部目录(用户指定的「已装好的 torch」)。
+# - mode=disabled: 不使用 PyTorch —— image-embedding 等依赖 torch 的功能不可用。
+
+_VALID_TORCH_MODES = ("auto", "path", "disabled")
+_VALID_TORCH_PREFER = ("cpu", "cuda")
+
+
+def _torch_selection_path() -> Optional[Path]:
+    """``torch_selection.json`` 的存盘路径。拿不到 CHAYUAN_ROOT 返 None。"""
+    env = os.environ.get("CHAYUAN_TORCH_SELECTION_FILE")
+    if env:
+        return Path(env).expanduser()
+    try:
+        from chayuan.settings import CHAYUAN_ROOT
+        return Path(CHAYUAN_ROOT) / "runtime" / "torch_selection.json"
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _default_torch_selection() -> Dict[str, Any]:
+    return {"mode": "auto", "path": None, "prefer": None}
+
+
+def get_torch_selection() -> Dict[str, Any]:
+    """读 torch 选用配置;文件不存在 / 损坏 → 返回默认(mode=auto)。"""
+    p = _torch_selection_path()
+    if p is None or not p.is_file():
+        return _default_torch_selection()
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[torch-select] 配置文件损坏,用默认: %r", e)
+        return _default_torch_selection()
+    if not isinstance(data, dict):
+        return _default_torch_selection()
+    mode = data.get("mode")
+    if mode not in _VALID_TORCH_MODES:
+        mode = "auto"
+    prefer = data.get("prefer")
+    if prefer not in _VALID_TORCH_PREFER:
+        prefer = None
+    path = data.get("path")
+    return {
+        "mode": mode,
+        "path": str(path) if path else None,
+        "prefer": prefer,
+    }
+
+
+def set_torch_selection(
+    *,
+    mode: str,
+    path: Optional[str] = None,
+    prefer: Optional[str] = None,
+) -> Dict[str, Any]:
+    """写 torch 选用配置。
+
+    mode=path 时会先 :func:`validate_torch_dir` 校验 ``path``,目录里没有合法
+    torch 直接 ``ValueError`` 拒绝(不写坏配置)。
+
+    Returns: 写盘后的配置 dict(同 :func:`get_torch_selection`)。
+    Raises:  ValueError —— mode 非法 / path 模式但目录无效。
+    """
+    if mode not in _VALID_TORCH_MODES:
+        raise ValueError(
+            f"未知 mode {mode!r};支持 {_VALID_TORCH_MODES}"
+        )
+    if prefer is not None and prefer not in _VALID_TORCH_PREFER:
+        raise ValueError(f"未知 prefer {prefer!r};支持 {_VALID_TORCH_PREFER}")
+
+    resolved_path: Optional[str] = None
+    if mode == "path":
+        if not path:
+            raise ValueError("mode=path 必须同时提供 path(已装好 torch 的目录)")
+        info = validate_torch_dir(path)
+        if not info["valid"]:
+            raise ValueError(info["reason"] or f"{path} 不是合法的 torch 目录")
+        resolved_path = info["dir"]  # 规范化到真正含 torch/ 的那层
+
+    cfg = {"mode": mode, "path": resolved_path, "prefer": prefer}
+    p = _torch_selection_path()
+    if p is None:
+        raise ValueError("拿不到 CHAYUAN_ROOT,无法保存 torch 选用配置")
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as e:
+        raise ValueError(f"写 torch 选用配置失败: {e}") from e
+    logger.info("[torch-select] 已保存: %s", cfg)
+    return cfg
+
+
+def resolve_active_torch_dir(
+    *,
+    selection: Optional[Dict[str, Any]] = None,
+    has_cpu: Optional[bool] = None,
+    has_cuda: Optional[bool] = None,
+    cpu_dir: Optional[str] = None,
+    cuda_dir: Optional[str] = None,
+) -> Optional[str]:
+    """按 torch 选用配置算出当前应生效的 torch 目录。
+
+    sidecar(image-embedding / infinity)启动时调本函数,把返回目录加进
+    ``PYTHONPATH``,让子进程 import 到正确的 torch。
+
+    决策:
+      - mode=disabled        → 返回 None(caller 据此「不启 image-embedding」)。
+      - mode=path            → 返回配置里的 ``path``(已在 set 时校验过)。
+      - mode=auto:
+          * 同时有 CPU + CUDA 版 → 按 ``prefer`` 选(默认 prefer 缺省时优先 CUDA);
+          * 只有一个 → 用那个;
+          * 都没有 → 返回 None。
+
+    传入 ``selection`` / ``has_*`` / ``*_dir`` 可避免重复扫盘(scan_torch_locations
+    内部已经扫过就直接传进来);不传则本函数自己扫。
+    """
+    sel = selection if selection is not None else get_torch_selection()
+    mode = sel.get("mode", "auto")
+
+    if mode == "disabled":
+        return None
+    if mode == "path":
+        return sel.get("path") or None
+
+    # mode=auto:需要 has_cpu / has_cuda / *_dir;没传则自己扫一遍候选目录。
+    if has_cpu is None or has_cuda is None:
+        has_cpu = has_cuda = False
+        cpu_dir = cuda_dir = None
+        tgt = torch_install_target_dir()
+        cand_dirs: List[Path] = []
+        if tgt is not None:
+            cand_dirs.append(Path(tgt))
+        cand_dirs.extend(_system_site_packages_dirs())
+        for d in cand_dirs:
+            info = validate_torch_dir(d)
+            if not info["valid"]:
+                continue
+            if info["is_cuda"]:
+                if not has_cuda:
+                    has_cuda, cuda_dir = True, info["dir"]
+            else:
+                if not has_cpu:
+                    has_cpu, cpu_dir = True, info["dir"]
+
+    if has_cpu and has_cuda:
+        prefer = sel.get("prefer")
+        if prefer == "cpu":
+            return cpu_dir
+        # prefer=cuda 或未指定 → 优先 GPU(用户既然装了 CUDA 版多半想用)
+        return cuda_dir
+    if has_cuda:
+        return cuda_dir
+    if has_cpu:
+        return cpu_dir
+    return None
+
+
+def torch_runtime_unavailable_reason() -> Optional[str]:
+    """若当前 torch 不可用,返回一句人类可读的诊断;可用则返 None。
+
+    供 image-embedding 失败链路复用 —— 把「为什么没有 torch」翻译成可执行指引。
+    判定:
+      - mode=disabled       → 用户主动关了 PyTorch;
+      - 没有任何生效 torch 目录 → torch 没装;
+      - 有目录但 import 链断 → 版本不配对。
+    """
+    sel = get_torch_selection()
+    if sel.get("mode") == "disabled":
+        return (
+            "当前已在「设置 → 本地模型服务 → PyTorch」选择「不使用 PyTorch」,"
+            "图像向量化(image-embedding)依赖 PyTorch,已被禁用。"
+            "如需使用,请去该页面改回「自动」或指定一个已装好 torch 的目录。"
+        )
+    active = resolve_active_torch_dir(selection=sel)
+    if not active:
+        return (
+            "未检测到可用的 PyTorch。图像向量化(image-embedding)依赖 PyTorch + "
+            "图像向量模型(CLIP / SigLIP 等)。请到「设置 → 本地模型服务 → PyTorch」"
+            "安装 PyTorch(CPU 版或 GPU 版),或指定一个已装好 torch 的目录;"
+            "再到「图像嵌入」处下载图像向量模型,然后重新上传图片。"
+        )
     return None
 
 
