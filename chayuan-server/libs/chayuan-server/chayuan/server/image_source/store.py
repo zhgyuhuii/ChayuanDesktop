@@ -194,22 +194,39 @@ class ImageStore:
             rec = self._meta.pop(idx)
             img_vid = rec.get("image_vector_id")
             txt_vid = rec.get("text_vector_id")
-            if isinstance(img_vid, int) and self._matrix is not None:
-                self._matrix = np.delete(self._matrix, img_vid, axis=0)
-                # 后续行的 image_vector_id 减 1
-                for r in self._meta:
-                    v = r.get("image_vector_id")
-                    if isinstance(v, int) and v > img_vid:
-                        r["image_vector_id"] = v - 1
-            elif self._matrix is not None and idx < self._matrix.shape[0]:
+            # 删向量矩阵的对应行 —— 严格 bounds-check。矩阵跟 meta 不同步时
+            # (partial 图从没拿到 CLIP 向量、.npy 丢失 / 被清空等)只删 meta、
+            # 不碰矩阵 —— 不能让一次删除把整个端点打成 500。
+            if isinstance(img_vid, int):
+                # 新布局:image_vector_id 即矩阵行号
+                if self._matrix is not None and 0 <= img_vid < self._matrix.shape[0]:
+                    self._matrix = np.delete(self._matrix, img_vid, axis=0)
+                    # 后续行的 image_vector_id 减 1
+                    for r in self._meta:
+                        v = r.get("image_vector_id")
+                        if isinstance(v, int) and v > img_vid:
+                            r["image_vector_id"] = v - 1
+                else:
+                    logger.warning(
+                        "remove(%s): image_vector_id=%s 越界 / 矩阵为空,跳过矩阵删除",
+                        item_id, img_vid,
+                    )
+            elif self._matrix is not None and 0 <= idx < self._matrix.shape[0]:
                 # 老布局:按 _meta 行号对应 _matrix 行
                 self._matrix = np.delete(self._matrix, idx, axis=0)
-            if isinstance(txt_vid, int) and self._text_matrix is not None:
-                self._text_matrix = np.delete(self._text_matrix, txt_vid, axis=0)
-                for r in self._meta:
-                    v = r.get("text_vector_id")
-                    if isinstance(v, int) and v > txt_vid:
-                        r["text_vector_id"] = v - 1
+            if isinstance(txt_vid, int):
+                if (self._text_matrix is not None
+                        and 0 <= txt_vid < self._text_matrix.shape[0]):
+                    self._text_matrix = np.delete(self._text_matrix, txt_vid, axis=0)
+                    for r in self._meta:
+                        v = r.get("text_vector_id")
+                        if isinstance(v, int) and v > txt_vid:
+                            r["text_vector_id"] = v - 1
+                else:
+                    logger.warning(
+                        "remove(%s): text_vector_id=%s 越界 / 文本矩阵为空,跳过矩阵删除",
+                        item_id, txt_vid,
+                    )
             self._save()
             return True
 
