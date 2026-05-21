@@ -368,8 +368,30 @@ def delete_source_endpoint(
 ):
     if not can_admin(user, int(source_id)):
         raise HTTPException(403, "owner only")
+    # 删 DB 行前先记下:这是不是图像源、它的图像 store 名是什么 —— 删完
+    # DB 行(source + connection)就再也解析不出来了。图像知识源的索引
+    # store / 原图文件 / 进程内缓存全在 delete_source 之外,必须单独清,
+    # 否则同名重建时 get_store 命中旧数据,旧图全部复活。
+    _img_store_name = None
+    try:
+        _src = get_source(int(source_id))
+        if _src is not None and (_src.get("kind") or "") == "image":
+            from chayuan.server.api_server.image_routes import _resolve_store_name
+            _img_store_name = _resolve_store_name(int(source_id))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("delete_source: 解析图像 store 名失败 source=%s: %r",
+                       source_id, e)
     if not delete_source(int(source_id)):
         raise HTTPException(404, "source not found")
+    if _img_store_name is not None:
+        try:
+            from chayuan.server.api_server.image_routes import (
+                purge_image_source_storage,
+            )
+            purge_image_source_storage(int(source_id), _img_store_name)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("delete_source: 清图像存储失败 source=%s: %r",
+                           source_id, e)
     return {"code": 0, "msg": "ok"}
 
 

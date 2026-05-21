@@ -51,6 +51,57 @@ def _resolve_store_name(source_id: int) -> str:
     return _build_image_connector(int(source_id)).source_name
 
 
+def purge_image_source_storage(source_id: int, store_name: str) -> None:
+    """删图像知识源后,清掉它在磁盘 + 进程内的全部痕迹。
+
+    根因:``delete_source`` 只删 DB 行(source / connection / grants /
+    schema_cache),图像知识源真正的数据全在 DB 之外:
+
+      * ``data/image_indexes/<source_name>/`` —— meta.json + 向量 .npy;
+      * ``data/image_indexes/<source_id>_files/`` —— 原图文件;
+      * ``get_store`` 的进程内缓存 ``_STORES``(按 source_name 键)。
+
+    这三处 delete_source 都不碰。而 ``source_name`` 取自 spec.options /
+    spec.database —— **跟名字走、稳定**。于是「删图像知识库 → 同名重建」时
+    ``get_store`` 命中旧 meta.json / 旧缓存对象 → 旧图全部复活。删除时必须
+    把这三处一并清掉。
+    """
+    import shutil  # noqa: F401 — force_rmtree 已够用,保留以备
+    from chayuan.server.image_source.store import _image_indexes_root, invalidate
+    from chayuan.server.knowledge_base.kb_service.base import force_rmtree
+
+    # 1. 进程内 store 缓存(_STORES,按 source_name 键)
+    try:
+        invalidate(store_name)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[delete_source] 清 store 缓存失败 %s: %r", store_name, e)
+
+    # 2. 磁盘:store 目录(按 source_name)+ 原图文件目录(按 source_id)
+    root = _image_indexes_root()
+    for d in (root / store_name, root / f"{int(source_id)}_files"):
+        try:
+            if not d.exists():
+                continue
+            if force_rmtree(str(d)):
+                logger.info("[delete_source] 已清图像目录 %s", d)
+            else:
+                logger.error("[delete_source] 图像目录清不掉 %s —— 同名重建可能复活", d)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[delete_source] 清图像目录失败 %s: %r", d, e)
+
+    # 3. FileStorage(IMAGE_FILES 命名空间,按 source_id 前缀)
+    try:
+        from chayuan.server.file_storage import NS, get_storage
+        storage = get_storage()
+        for obj in storage.list(
+            NS.IMAGE_FILES, prefix=f"{int(source_id)}/", limit=100000
+        ):
+            storage.delete(NS.IMAGE_FILES, obj.key)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[delete_source] 清 IMAGE_FILES FileStorage 失败 %s: %r",
+                     source_id, e)
+
+
 # ---------------------------------------------------------------------------
 # Upload / list / delete
 # ---------------------------------------------------------------------------
