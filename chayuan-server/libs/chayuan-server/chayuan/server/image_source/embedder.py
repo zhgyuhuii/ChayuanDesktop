@@ -656,8 +656,13 @@ class _HttpBackedEmbedder(BaseImageEmbedder):
         base = self._client.base_url.rstrip("/")
         payload = {"model": self.name, "input": inputs}
         try:
+            # 首次 embed 请求会触发 sidecar 懒加载 CLIP / SigLIP 模型(读权重 +
+            # torch 初始化),CPU 机器上几十秒很常见,死 30s 必 ReadTimeout。
+            # connect 给短(sidecar 真没起来就快速失败),read 给足模型加载时间;
+            # 模型加载完后续请求都很快,长 read 不影响正常情况。
             r = httpx.post(
-                f"{base}/embeddings", json=payload, timeout=30.0,
+                f"{base}/embeddings", json=payload,
+                timeout=httpx.Timeout(connect=10.0, read=300.0, write=60.0, pool=10.0),
             )
         except Exception as e:  # noqa: BLE001
             raise RuntimeError(
