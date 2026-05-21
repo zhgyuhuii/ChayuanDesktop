@@ -145,6 +145,95 @@ def _repo_safe_name(repo: str) -> str:
     return repo.replace("/", "--")
 
 
+class ModelRepoNotFoundError(RuntimeError):
+    """下载源(ModelScope / HF)上找不到该模型仓库 — 转成给用户看的人话。
+
+    modelscope / huggingface SDK 在仓库不存在时会抛裸 ``requests`` /
+    ``huggingface_hub`` 的 HTTP 404 异常,堆栈对用户毫无意义。``_download_*``
+    捕获到 404 后改抛本异常,``_fail_with_traceback`` 会把这条人话写进
+    job 的 log_tail。
+    """
+
+
+def _http_status_of(exc: BaseException) -> Optional[int]:
+    """尽量从一个异常里抠出 HTTP 状态码。
+
+    覆盖:
+      * ``requests.exceptions.HTTPError`` —— ``exc.response.status_code``
+        (modelscope SDK 的 ``repo_exists`` 走的就是这个);
+      * ``huggingface_hub`` 的 ``HfHubHTTPError`` / ``RepositoryNotFoundError``
+        —— 同样挂在 ``.response.status_code``;
+      * 兜底:异常自带 ``.status_code`` 属性。
+
+    抠不出来返回 ``None``。
+    """
+    resp = getattr(exc, "response", None)
+    code = getattr(resp, "status_code", None)
+    if isinstance(code, int):
+        return code
+    code = getattr(exc, "status_code", None)
+    if isinstance(code, int):
+        return code
+    return None
+
+
+# ModelScope 服务端偶发的"非真·404":HTTP 状态码是 404,但 body 里写的是
+# 数据库过载之类的临时错误(典型 `Error 1461: max_prepared_stmt_count`)。
+# 这类不是"仓库不存在",转人话时不能让用户以为是自己 model_id 填错了。
+_MODELSCOPE_TRANSIENT_MARKERS = (
+    "max_prepared_stmt_count",
+    "Error 1461",
+    "too many connections",
+    "Deadlock",
+    "context deadline exceeded",
+)
+
+
+def _response_body_text(exc: BaseException) -> str:
+    """尽量从异常挂的 HTTP response 里抠出 body 文本(用于判断 404 的真实语义)。"""
+    resp = getattr(exc, "response", None)
+    if resp is None:
+        return ""
+    try:
+        text = getattr(resp, "text", None)
+        if isinstance(text, str):
+            return text
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
+def _raise_if_repo_404(exc: BaseException, *, source: str, model_id: str) -> None:
+    """若 ``exc`` 是 HTTP 404,转成 :class:`ModelRepoNotFoundError` 抛出。
+
+    不是 404 则原样 ``raise exc``(交给上层 ``_fail_with_traceback`` 记完整堆栈)。
+
+    ModelScope 的特殊情况:它的服务端数据库过载时也会回 HTTP 404(body 里是
+    ``Error 1461: max_prepared_stmt_count`` 这类临时错误)。这种**不是**"仓库
+    不存在",不能让用户去改 model_id —— 单独给一句"服务端临时故障,稍后重试"。
+    """
+    if _http_status_of(exc) != 404:
+        raise exc
+
+    site = "ModelScope" if source == "modelscope" else "Hugging Face"
+    alt = "Hugging Face" if source == "modelscope" else "ModelScope"
+
+    body = _response_body_text(exc)
+    if source == "modelscope" and any(m in body for m in _MODELSCOPE_TRANSIENT_MARKERS):
+        # 服务端临时过载,伪装成 404。提示重试,别让用户以为是 model_id 错了。
+        raise ModelRepoNotFoundError(
+            f"ModelScope 服务端暂时故障(数据库过载),无法确认模型仓库 "
+            f"'{model_id}' —— 这通常是临时的,请稍后重试;若持续失败,"
+            f"可改用 {alt} 源下载。"
+        ) from exc
+
+    raise ModelRepoNotFoundError(
+        f"{site} 上找不到该模型仓库 '{model_id}' —— "
+        f"请检查 model_id 拼写是否正确,或改用 {alt} 源重试,"
+        f"也可能是这个仓库已被作者删除 / 改名。"
+    ) from exc
+
+
 def _user_bundled_root() -> Path:
     from chayuan.settings import CHAYUAN_ROOT
     return Path(CHAYUAN_ROOT) / "models" / "bundled"
@@ -371,6 +460,14 @@ class InstallModelJobManager:
         except _Cancelled:
             self._set_cancelled(job)
             return
+        except ModelRepoNotFoundError as e:
+            # 仓库不存在(404):用户错误,不是程序 bug — 给人话即可,
+            # 不必把堆栈刷进 log_tail。progress_message 也写上,UI 直接显眼。
+            logger.info("install_model %s: 仓库不存在(404)", job.model_id)
+            with self._lock:
+                job.progress_message = str(e)
+            self._fail(job, str(e))
+            return
         except Exception as e:  # noqa: BLE001
             logger.exception("install_model %s 下载失败", job.model_id)
             self._fail_with_traceback(job, "下载失败", e, target_dir)
@@ -453,50 +550,61 @@ class InstallModelJobManager:
         with self._lock:
             job.progress_pct = 10.0
 
-        if job.requested_file:
-            with self._lock:
-                job.log_tail.append(
-                    f"[install_model] modelscope single-file: "
-                    f"{job.model_id} :: {job.requested_file}"
-                )
-            # local_dir 让单文件**平铺**进 target_dir;cache_dir 模式会多套
-            # 一层 <owner>/<name>(跟下面 snapshot 同坑)。老 SDK 不认 → 回退。
-            try:
-                local_path = ms_file(
-                    model_id=job.model_id,
-                    file_path=job.requested_file,
-                    local_dir=str(target_dir),
-                )
-            except TypeError:
+        # modelscope SDK 在 repo 不存在时会先做 repo_exists 检查,命中后抛裸
+        # requests.HTTPError(<Response [404]>)。这里整段包一层:404 转人话
+        # (ModelRepoNotFoundError),其余异常原样抛给上层记完整堆栈。
+        try:
+            if job.requested_file:
                 with self._lock:
                     job.log_tail.append(
-                        "[install_model] modelscope SDK 不支持 local_dir,"
-                        "回退 cache_dir(会多套一层 owner/name 目录)"
+                        f"[install_model] modelscope single-file: "
+                        f"{job.model_id} :: {job.requested_file}"
                     )
-                local_path = ms_file(
-                    model_id=job.model_id,
-                    file_path=job.requested_file,
-                    cache_dir=str(target_dir),
-                )
-            with self._lock:
-                job.log_tail.append(f"[install_model] downloaded → {local_path}")
-        else:
-            with self._lock:
-                job.log_tail.append(f"[install_model] modelscope snapshot: {job.model_id}")
-            # 用 local_dir 让文件**平铺**进 target_dir。ModelScope 的 cache_dir
-            # 模式会多套一层 <owner>/<name> 子目录(target_dir/BAAI/bge-m3/...),
-            # 导致模型仓库被埋深一层 → model_id 变成丑陋的嵌套路径
-            # (models/bundled/embedding/BAAI--bge-m3/BAAI/bge-m3),还留 ._____temp。
-            # 老版本 modelscope SDK 不认 local_dir → TypeError,回退 cache_dir。
-            try:
-                ms_snapshot(model_id=job.model_id, local_dir=str(target_dir))
-            except TypeError:
+                # local_dir 让单文件**平铺**进 target_dir;cache_dir 模式会多套
+                # 一层 <owner>/<name>(跟下面 snapshot 同坑)。老 SDK 不认 → 回退。
+                try:
+                    local_path = ms_file(
+                        model_id=job.model_id,
+                        file_path=job.requested_file,
+                        local_dir=str(target_dir),
+                    )
+                except TypeError:
+                    with self._lock:
+                        job.log_tail.append(
+                            "[install_model] modelscope SDK 不支持 local_dir,"
+                            "回退 cache_dir(会多套一层 owner/name 目录)"
+                        )
+                    local_path = ms_file(
+                        model_id=job.model_id,
+                        file_path=job.requested_file,
+                        cache_dir=str(target_dir),
+                    )
+                with self._lock:
+                    job.log_tail.append(f"[install_model] downloaded → {local_path}")
+            else:
                 with self._lock:
                     job.log_tail.append(
-                        "[install_model] modelscope SDK 不支持 local_dir,"
-                        "回退 cache_dir(会多套一层 owner/name 目录)"
+                        f"[install_model] modelscope snapshot: {job.model_id}"
                     )
-                ms_snapshot(model_id=job.model_id, cache_dir=str(target_dir))
+                # 用 local_dir 让文件**平铺**进 target_dir。ModelScope 的 cache_dir
+                # 模式会多套一层 <owner>/<name> 子目录(target_dir/BAAI/bge-m3/...),
+                # 导致模型仓库被埋深一层 → model_id 变成丑陋的嵌套路径
+                # (models/bundled/embedding/BAAI--bge-m3/BAAI/bge-m3),还留 ._____temp。
+                # 老版本 modelscope SDK 不认 local_dir → TypeError,回退 cache_dir。
+                try:
+                    ms_snapshot(model_id=job.model_id, local_dir=str(target_dir))
+                except TypeError:
+                    with self._lock:
+                        job.log_tail.append(
+                            "[install_model] modelscope SDK 不支持 local_dir,"
+                            "回退 cache_dir(会多套一层 owner/name 目录)"
+                        )
+                    ms_snapshot(model_id=job.model_id, cache_dir=str(target_dir))
+        except ModelRepoNotFoundError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            # 404 → 人话;其它(网络超时 / 限流 / 鉴权)原样上抛。
+            _raise_if_repo_404(e, source="modelscope", model_id=job.model_id)
 
         with self._lock:
             job.progress_pct = 90.0
@@ -516,21 +624,29 @@ class InstallModelJobManager:
                 f"[install_model] HF_ENDPOINT={os.environ['HF_ENDPOINT']}"
             )
 
-        if job.requested_file:
-            with self._lock:
-                job.log_tail.append(
-                    f"[install_model] hf single-file: "
-                    f"{job.model_id} :: {job.requested_file}"
+        # huggingface_hub 在 repo 不存在时抛 RepositoryNotFoundError /
+        # HfHubHTTPError(同样挂 .response.status_code=404)。与 modelscope
+        # 对称处理:404 转人话,其余原样上抛。
+        try:
+            if job.requested_file:
+                with self._lock:
+                    job.log_tail.append(
+                        f"[install_model] hf single-file: "
+                        f"{job.model_id} :: {job.requested_file}"
+                    )
+                hf_hub_download(
+                    repo_id=job.model_id,
+                    filename=job.requested_file,
+                    local_dir=str(target_dir),
                 )
-            hf_hub_download(
-                repo_id=job.model_id,
-                filename=job.requested_file,
-                local_dir=str(target_dir),
-            )
-        else:
-            with self._lock:
-                job.log_tail.append(f"[install_model] hf snapshot: {job.model_id}")
-            snapshot_download(repo_id=job.model_id, local_dir=str(target_dir))
+            else:
+                with self._lock:
+                    job.log_tail.append(f"[install_model] hf snapshot: {job.model_id}")
+                snapshot_download(repo_id=job.model_id, local_dir=str(target_dir))
+        except ModelRepoNotFoundError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            _raise_if_repo_404(e, source="huggingface", model_id=job.model_id)
 
         with self._lock:
             job.progress_pct = 90.0
@@ -751,6 +867,7 @@ __all__ = [
     "InstallModelJob",
     "InstallModelJobManager",
     "ModelJobStatus",
+    "ModelRepoNotFoundError",
     "get_install_model_manager",
     "trigger_auto_start_for_cap",
 ]

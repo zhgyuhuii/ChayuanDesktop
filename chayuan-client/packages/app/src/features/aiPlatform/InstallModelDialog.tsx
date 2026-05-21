@@ -332,7 +332,9 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
     setPending('scan');
     setJob(null);
     try {
-      const r = await serverModelsScanAndMount.invoke();
+      // 对话框是按能力打开的(rerank 对话框 / embedding 对话框 …),
+      // 「扫描挂载」只扫当前这个能力对应的 bundled 子目录,不碰别的 cap。
+      const r = await serverModelsScanAndMount.invoke(CAP_TO_CATALOG[capability]);
       setScanResult(r);
       setBundledRoot(r.bundled_root);
       onSuccess?.();
@@ -380,11 +382,13 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
   // 为了让"复制路径"按钮也能用,这里在 open 后做一次 lightweight scan(0 改动场景很快)。
   React.useEffect(() => {
     if (!open || bundledRoot) return;
+    // 同样带上当前 cap:这次只为拿 bundled_root,scan 范围越小越快,
+    // 也避免顺手把别的能力的 sidecar 启动起来。
     void serverModelsScanAndMount
-      .invoke()
+      .invoke(CAP_TO_CATALOG[capability])
       .then((r) => setBundledRoot(r.bundled_root))
       .catch(() => {});
-  }, [open, bundledRoot]);
+  }, [open, bundledRoot, capability]);
 
   const isBusy = pending !== null;
   const installRunning =

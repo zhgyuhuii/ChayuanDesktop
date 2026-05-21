@@ -341,7 +341,7 @@ class LocalModelIndex:
 # -- 扫描 ------------------------------------------------------------------
 
 
-def _candidate_roots() -> List[Tuple[Path, str]]:
+def _candidate_roots(*, bundled_cap_dir: Optional[str] = None) -> List[Tuple[Path, str]]:
     """返回 [(root, source_tag)] 列表。
 
     注意:bundled_models 不在这里直接挂载,而是由 :func:`seed_bundled_models`
@@ -349,9 +349,27 @@ def _candidate_roots() -> List[Tuple[Path, str]]:
     ``models`` 根扫到(relpath 以 ``bundled/`` 开头,UI 据此渲染"装机自带"badge)。
     这样统一以 ``<CHAYUAN_ROOT>/models`` 为唯一可写真源,避免与项目内/打包内的
     bundled 源同时出现导致重复条目。
+
+    Args:
+        bundled_cap_dir: 非空时只返回 ``<models>/bundled/<cap_dir>`` 这一个根
+            (root 仍是 ``models`` 顶层,source_tag=``models``,这样扫出来的
+            ``relpath`` 仍以 ``bundled/<cap_dir>/`` 开头,与全量扫描完全一致 —
+            只是把范围裁到单个 cap 子目录)。用于「按能力打开的下载对话框」
+            的「扫描挂载」:rerank 对话框只扫 ``bundled/rerank/``,不碰别的 cap。
+            目录不存在时返回空列表(没放模型,扫了也是 0)。
     """
     roots: List[Tuple[Path, str]] = []
     md = models_dir()
+
+    if bundled_cap_dir:
+        # cap-scoped:只挂 bundled/<cap> 一个根。root 仍取 md(models 顶层),
+        # 由 _walk_collect 的 subdir 参数把游标定位进 bundled/<cap>,relpath
+        # 因此保持以 bundled/<cap>/ 开头 — 与全量扫描出来的 model_id 一致。
+        cap_root = md / "bundled" / bundled_cap_dir
+        if cap_root.is_dir():
+            roots.append((md, "models"))
+        return roots
+
     if md.is_dir():
         roots.append((md, "models"))
         for sub in DEFAULT_LAYOUT_DIRS:
@@ -393,14 +411,31 @@ def _is_dir_repo(p: Path) -> bool:
     return False
 
 
-def _walk_collect(root: Path, source_tag: str, max_depth: int = 5) -> List[Tuple[Path, str]]:
+def _walk_collect(
+    root: Path,
+    source_tag: str,
+    max_depth: int = 5,
+    *,
+    start_subdir: Optional[str] = None,
+) -> List[Tuple[Path, str]]:
     """深度有限的扫描，收集 (entry_path, relpath) 列表。
 
     遇到 ``_is_dir_repo`` 命中的目录就**不再下钻**（避免把仓库下面的子目录也
     错认成模型）。同时收集顶层的 ``.gguf`` / ``.onnx`` 单文件。
+
+    Args:
+        start_subdir: 非空时游标从 ``root/<start_subdir>`` 开始下钻,但 relpath
+            仍相对 ``root`` 计算 — 这样「只扫 bundled/<cap>」时收集到的
+            ``relpath`` 仍以 ``bundled/<cap>/`` 开头,model_id 与全量扫描一致。
+            子目录不存在时返回空列表。
     """
     out: List[Tuple[Path, str]] = []
     root = root.resolve()
+    walk_start = root
+    if start_subdir:
+        walk_start = (root / start_subdir).resolve()
+        if not walk_start.is_dir():
+            return out
 
     def _walk(d: Path, depth: int) -> None:
         if depth > max_depth:
@@ -431,24 +466,40 @@ def _walk_collect(root: Path, source_tag: str, max_depth: int = 5) -> List[Tuple
             except OSError:
                 continue
 
-    if _is_dir_repo(root):
-        out.append((root, "."))
+    if _is_dir_repo(walk_start):
+        # walk_start 本身是个模型仓库:relpath 相对 root(可能 != ".")。
+        rel = "." if walk_start == root else str(walk_start.relative_to(root))
+        out.append((walk_start, rel))
     else:
-        _walk(root, 0)
+        _walk(walk_start, 0)
     return out
 
 
-def scan_once(*, persist: bool = True) -> ScanDelta:
-    """跑一次全量扫描，返回与上次差异。
+def scan_once(*, persist: bool = True, bundled_cap_dir: Optional[str] = None) -> ScanDelta:
+    """跑一次扫描，返回与上次差异。
 
     Args:
         persist: ``True`` → 写回 ``local_models.json``；``False`` 用于试跑。
+        bundled_cap_dir: 非空时只扫 ``<models>/bundled/<cap_dir>/`` 这一个能力
+            子目录(如 ``rerank`` / ``embedding`` / ``image``),其余 cap 的条目
+            **保持不变**(本次扫到的 + 索引里其它 cap 的旧条目合并写回)。
+            用于「按能力打开的下载对话框」的「扫描挂载」:只挂当前能力,
+            不误删别的 cap。不传则维持全量扫描(兼容别的调用方)。
+
+    Note:
+        cap-scoped 模式下,``ScanDelta`` 只反映该 cap 子目录的增/改/删 —
+        别的 cap 的旧条目既不算 added/updated 也不算 removed。
     """
     seen_ids: Set[str] = set()
     seen_real: Set[str] = set()
     entries: List[LocalModelEntry] = []
-    for root, tag in _candidate_roots():
-        for path, relpath in _walk_collect(root, tag):
+    # cap-scoped:把游标定位进 bundled/<cap>;root 仍是 models 顶层,
+    # relpath 因此保持以 bundled/<cap>/ 开头,与全量扫描一致。
+    start_subdir = (
+        f"bundled/{bundled_cap_dir}".replace("\\", "/") if bundled_cap_dir else None
+    )
+    for root, tag in _candidate_roots(bundled_cap_dir=bundled_cap_dir):
+        for path, relpath in _walk_collect(root, tag, start_subdir=start_subdir):
             mid_base = relpath if relpath != "." else root.name
             model_id = f"{tag}/{mid_base}".replace(os.sep, "/")
             # 幂等：同一份内容被多个根扫到时只保留第一次出现的（按 model_id）
@@ -491,6 +542,22 @@ def scan_once(*, persist: bool = True) -> ScanDelta:
             seen_real.add(real_key)
 
     idx = get_local_index()
+    if bundled_cap_dir:
+        # cap-scoped:本次只重扫了 bundled/<cap> 子目录。索引里属于**别的**
+        # cap 的旧条目必须原样保留 — 不然 replace_all 会把它们当 removed 全删,
+        # 别的能力下次启动就找不到模型了。
+        #
+        # 判定"属于本次扫描范围"靠 model_id 前缀:cap-scoped 扫出来的
+        # model_id 形如 ``models/bundled/<cap>/...``;在范围外的旧条目原样并入。
+        scope_prefix = f"models/bundled/{bundled_cap_dir}/".replace(os.sep, "/")
+        scanned_ids = {e.model_id for e in entries}
+        for old in idx.list_entries():
+            if old.model_id in scanned_ids:
+                continue
+            if old.model_id.startswith(scope_prefix):
+                # 在本 cap 范围内但本次没扫到 → 它确实被删了,让 replace_all 算 removed。
+                continue
+            entries.append(old)
     delta = idx.replace_all(entries)
     if not persist:
         # 持久化已经发生在 replace_all 内部；为 False 时回滚比较麻烦，

@@ -1246,30 +1246,74 @@ def admin_models_install_model_cancel(job_id: str) -> Dict[str, Any]:
     summary="手动放好模型文件后:扫描 + 自动启动新发现的 cap",
     tags=["Admin / Models"],
 )
-def admin_models_scan_and_mount() -> Dict[str, Any]:
+def admin_models_scan_and_mount(
+    payload: Optional[Dict[str, Any]] = Body(
+        None,
+        description=(
+            '可选 {"capability": "chat|text-embedding|rerank|speech-to-text|'
+            'image-embedding|..."}。传了就只扫该能力对应的 bundled 子目录,'
+            'auto_started / summary 也只反映该能力;不传则全量扫描(兼容旧调用)。'
+        ),
+    ),
+) -> Dict[str, Any]:
     """给"我已经把模型文件放到 bundled/<cap>/ 了"这条手动路径用。
 
     步骤:
-      1. ``scan_once`` 扫整个 models/ 目录,新文件入 local_index
+      1. ``scan_once`` 扫 models/ 目录(传了 ``capability`` 则只扫该能力子目录),
+         新文件入 local_index
       2. 找出"现在有 local candidate 但 runtime 未 ready"的 cap,逐个 trigger
          ``trigger_auto_start_for_cap`` 起 sidecar
 
     返回 ``{"scan_delta": {...}, "auto_started": [cap, ...]}`` — 让前端知道
     哪些新模型被发现 + 哪些 cap 被启动了,UI 可以据此刷新状态徽章。
+
+    cap-scoped 行为
+    ===============
+    「下载模型」对话框是**按能力打开**的(rerank 对话框 / embedding 对话框 …),
+    它的「扫描挂载」会带上当前 ``capability``。此时:
+      * ``scan_once`` 只扫 ``bundled/<cap>/``,别的 cap 的本地条目原样保留;
+      * ``auto_started`` 只尝试启动当前 cap;
+      * ``summary`` 的 total / by_capability / problems 也只统计当前 cap。
     """
     from chayuan.server.model_registry.local_index import scan_once, get_local_index
-    from chayuan.server.model_registry.install_model import trigger_auto_start_for_cap
+    from chayuan.server.model_registry.install_model import (
+        trigger_auto_start_for_cap,
+        _CAP_TO_BUNDLED_DIR,
+        _CAP_ALIAS,
+        _CAP_TO_RUNTIME,
+    )
 
-    delta = scan_once()
+    # ── 解析可选 capability:归一成 catalog 长名 + bundled 子目录名 ──────
+    raw_cap = ""
+    if isinstance(payload, dict):
+        raw_cap = str(payload.get("capability") or "").strip()
+    catalog_cap = _CAP_ALIAS.get(raw_cap, raw_cap) if raw_cap else ""
+    bundled_cap_dir: Optional[str] = None
+    if catalog_cap:
+        bundled_cap_dir = _CAP_TO_BUNDLED_DIR.get(catalog_cap)
+        if bundled_cap_dir is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"未知 capability {raw_cap!r}",
+            )
 
-    # 统计扫到了哪些 cap 的本地候选 — 这些 cap 都尝试自动启动
-    # (trigger_auto_start_for_cap 内部会判断 cap 是否已 ready/不在支持范围)
+    delta = scan_once(bundled_cap_dir=bundled_cap_dir)
+
     idx = get_local_index()
-    caps_with_local = {e.capability for e in idx.list_entries()}
-    auto_started: list[str] = []
-    for cap in caps_with_local:
-        if trigger_auto_start_for_cap(cap):
-            auto_started.append(cap)
+
+    if bundled_cap_dir:
+        # cap-scoped:只针对当前能力尝试 auto-start,别的 cap 不碰。
+        auto_started: list[str] = []
+        if catalog_cap in _CAP_TO_RUNTIME and trigger_auto_start_for_cap(catalog_cap):
+            auto_started.append(catalog_cap)
+    else:
+        # 全量:统计扫到了哪些 cap 的本地候选 — 这些 cap 都尝试自动启动
+        # (trigger_auto_start_for_cap 内部会判断 cap 是否已 ready/不在支持范围)
+        caps_with_local = {e.capability for e in idx.list_entries()}
+        auto_started = []
+        for cap in caps_with_local:
+            if trigger_auto_start_for_cap(cap):
+                auto_started.append(cap)
 
     # bundled 路径提示 — 让前端 Dialog 能直接展示给用户"模型放到这里"
     from chayuan.settings import CHAYUAN_ROOT
@@ -1278,15 +1322,22 @@ def admin_models_scan_and_mount() -> Dict[str, Any]:
     # ── 汇总:有没有模型 / 有几个 / 哪些 cap 加载失败 ────────────────
     # 前端 "发现 0 个新模型" 那条提示信息量太小:增量为 0 不等于没模型。
     # 这里额外回 total / by_capability / problems,让 UI 能讲清楚现状。
+    # cap-scoped 时只统计当前 cap — 别把别的 cap 的也算进来。
     entries = idx.list_entries()
+    if catalog_cap:
+        entries = [e for e in entries if e.capability == catalog_cap]
     by_capability: Dict[str, int] = {}
     for e in entries:
         by_capability[e.capability] = by_capability.get(e.capability, 0) + 1
 
+    # cap-scoped 时 problems 只保留当前 cap 的 runtime 短名。
+    runtime_cap_filter = _CAP_TO_RUNTIME.get(catalog_cap) if catalog_cap else None
     problems: list[Dict[str, str]] = []
     try:
         from chayuan.server.model_registry.local_runtime_registry import get_registry
         for cap, st in get_registry().all_statuses().items():
+            if runtime_cap_filter is not None and cap != runtime_cap_filter:
+                continue
             sd = st.to_dict()
             if sd.get("state") == "failed":
                 problems.append({

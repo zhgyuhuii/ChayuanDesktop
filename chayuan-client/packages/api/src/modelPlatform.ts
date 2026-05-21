@@ -712,10 +712,16 @@ export const serverModelsScanAndMount = {
    * 用户在 Dialog 里选"我已经手动把模型放好了" → 调这个接口。
    * 后端 ``scan_once`` 找到新模型 → 对未 ready 的 cap 自动 start。
    * 返回的 ``bundled_root`` 用作提示用户"模型放到这里"。
+   *
+   * @param capability 可选。「下载模型」对话框是按能力打开的;传入当前能力
+   *   (catalog 长名,如 ``rerank`` / ``text-embedding``)后,后端只扫该能力
+   *   对应的 ``bundled/<cap>/`` 子目录,auto_started / summary 也只反映该能力,
+   *   不会把别的能力的模型也算进来。不传则全量扫描(兼容旧调用)。
    */
-  async invoke(): Promise<ScanAndMountResult> {
+  async invoke(capability?: InstallModelCapability | string): Promise<ScanAndMountResult> {
     const r = await request<{ data: ScanAndMountResult }>(MODELS_SCAN_MOUNT, {
       method: 'POST',
+      body: capability ? { capability } : undefined,
       raw: true,
     });
     return (
