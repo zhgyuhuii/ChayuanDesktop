@@ -149,8 +149,10 @@ export const FirstRunSetup: React.FC<FirstRunSetupProps> = ({ onConfigured }) =>
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-[var(--cy-surface-2,#f8fafc)]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(99,102,241,0.10),transparent_32%),radial-gradient(circle_at_75%_75%,rgba(14,165,233,0.10),transparent_30%)]" />
-      <div className="absolute inset-0 flex items-center justify-center px-6">
-        <div className="w-full max-w-xl rounded-3xl border border-[var(--cy-border-subtle,#e2e8f0)] bg-[var(--cy-surface-base,#fff)]/95 p-8 shadow-[var(--cy-shadow-lg,0_24px_80px_rgba(15,23,42,0.12))] backdrop-blur-xl">
+      {/* 居中容器可滚动:内容比视口高时(Linux WebKitGTK 字体偏大 / 小窗 / 已有数据提示增高)
+          卡片用 my-auto —— 放得下垂直居中,放不下则滚动,绝不裁掉底部「开始使用」按钮。 */}
+      <div className="absolute inset-0 flex justify-center overflow-y-auto px-6 py-8">
+        <div className="my-auto w-full max-w-xl rounded-3xl border border-[var(--cy-border-subtle,#e2e8f0)] bg-[var(--cy-surface-base,#fff)]/95 p-8 shadow-[var(--cy-shadow-lg,0_24px_80px_rgba(15,23,42,0.12))] backdrop-blur-xl">
           <div className="mb-4 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--cy-brand-500,#6366f1)] text-base font-bold text-white">
               察
