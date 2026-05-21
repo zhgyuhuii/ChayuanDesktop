@@ -601,7 +601,19 @@ class SidecarRuntimeManager:
                 out_bytes = proc.stdout.read() if proc.stdout else b""
                 err_bytes = proc.stderr.read() if proc.stderr else b""
                 merged = (out_bytes + err_bytes).decode("utf-8", errors="replace").strip()
-                tail = merged[-800:] if merged else f"(无 stdout/stderr 输出,退出码 {proc.returncode})"
+                if merged:
+                    tail = merged[-800:]
+                else:
+                    # 一个字节都没捕获到时,至少把命令行给出来 —— 用户/开发者可以
+                    # 手动跑这条命令直接看 llama-server 的真实报错(常见:vendored
+                    # llama-server 太旧、不认新模型架构如 qwen3 → 静默退出码 1)。
+                    _cmdline = " ".join(
+                        f'"{a}"' if " " in str(a) else str(a) for a in args
+                    )
+                    tail = (
+                        f"(无 stdout/stderr 输出,退出码 {proc.returncode});"
+                        f"手动复现:{_cmdline}"
+                    )
                 self._status = RuntimeStatus(
                     state="failed",
                     last_error=f"llama-server 启动时退出:{tail}",

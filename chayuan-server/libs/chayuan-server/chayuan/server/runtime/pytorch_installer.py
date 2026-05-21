@@ -856,6 +856,46 @@ def _torch_cdn_wheel_url(pkg: str, version: str, variant: str = "cpu") -> str:
     return f"{index}/{fname}"
 
 
+def _write_wheel_member(
+    zf: zipfile.ZipFile,
+    info: zipfile.ZipInfo,
+    out: Path,
+    *,
+    log: Callable[[str], None],
+) -> None:
+    """把 wheel 里的一个文件写到 ``out``;``out`` 被占用时改名挪走再写。
+
+    背景:Windows 上,正在运行的 chayuan-server 进程一旦 import 过 py_packages/
+    里的某个扩展模块(如 ``yaml/_yaml.cp312-win_amd64.pyd``),那个 .pyd / .dll
+    就被进程锁住 —— **不能覆盖、也不能删除**(force 重装的 ``rmtree`` 也会跳过它),
+    直接 ``open(out, "wb")`` 会抛 ``PermissionError``,整个安装崩掉。
+
+    但 Windows 允许**改名**一个加载中的模块文件。所以撞 PermissionError 时:
+    把旧文件改名挪到 ``<name>.old-<pid>-<ts>``(它会一直锁到持有进程退出),
+    再把新版本写到原路径。下次重启后新文件生效;``.old-*`` 残留由下一次 force
+    重装的 ``rmtree`` 清掉(那时已不再被占用)。
+    """
+    try:
+        with zf.open(info) as src, open(out, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+        return
+    except PermissionError:
+        if not out.exists():
+            raise  # 不是"旧文件被占用",是真的没写权限 → 如实抛出
+    # 旧文件被占用:改名挪走,再写新文件
+    sidecar = out.with_name(f"{out.name}.old-{os.getpid()}-{int(time.time())}")
+    try:
+        os.replace(out, sidecar)
+    except OSError as e:
+        raise WheelInstallError(
+            f"{out.name} 被占用且无法改名挪走 —— 多半是 chayuan-server 仍加载着它。"
+            f"请彻底退出察元桌面端后再重装。原始错误:{type(e).__name__}: {e}"
+        ) from e
+    log(f"[extract] {out.name} 被占用 → 旧文件改名 {sidecar.name},写入新版本(重启后生效)")
+    with zf.open(info) as src, open(out, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+
+
 def _extract_wheel(whl: Path, target: Path, *, log: Callable[[str], None]) -> None:
     """按 wheel 规范把 ``whl`` 解压进 ``target``(不需要 pip)。
 
@@ -893,8 +933,7 @@ def _extract_wheel(whl: Path, target: Path, *, log: Callable[[str], None]) -> No
             if not str(out).startswith(str(target_resolved) + os.sep) and out != target_resolved:
                 raise WheelInstallError(f"wheel 含越界路径,拒绝解压: {name}")
             out.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(info) as src, open(out, "wb") as dst:
-                shutil.copyfileobj(src, dst)
+            _write_wheel_member(zf, info, out, log=log)
             extracted += 1
     log(f"[extract] {whl.name}: {extracted} 个文件 -> {target}")
 
