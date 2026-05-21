@@ -24,6 +24,7 @@ import * as React from 'react';
 import {
   CapabilityChip,
   inferCapability,
+  isChatCapability,
   isInteractiveCapability,
   listExistingCapabilities,
 } from './modelCapabilityChip';
@@ -231,12 +232,22 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
 
   /** 先把 embedding / rerank 这种"后台索引"模型从用户面前藏起来 — 它们在
    *  对话框里点也没用,留着只是凑数 + 误导(参考 ``isInteractiveCapability``)。
+   *
+   *  本地 sidecar(``isLocalPlatform``)起的模型里,只有对话(chat / vl)模型
+   *  能在对话框里真正用上;asr / tts / ocr / embedding / rerank / image-embedding
+   *  这些本地模型即便"可交互"也无法在对话框发起调用(走生成会 ModelNotConfigured),
+   *  无条件隐藏。云端的非对话模型(t2i / tts 等)不受影响 —— composer 本就支持。
+   *
    *  再叠加可选 ``allowCapabilities`` 白名单(绑定知识库时只剩 chat/vl)。 */
   const interactiveModels = React.useMemo(
     () =>
       models.filter((m) => {
         const cap = inferCapability(m);
         if (!isInteractiveCapability(cap)) return false;
+        // 本地非对话模型 — 无条件隐藏(与 allowCapabilities 是两条独立逻辑)
+        if (isLocalPlatform(m.platform_name ?? '') && !isChatCapability(cap)) {
+          return false;
+        }
         if (allowCapabilities && !allowCapabilities.has(cap)) return false;
         return true;
       }),
