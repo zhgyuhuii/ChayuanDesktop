@@ -273,23 +273,25 @@ if [[ "$SKIP_FRONTEND" != "1" ]]; then
             # libspa-sys / pipewire crate(截图 / 屏幕捕获依赖)编译需要 pipewire 开发包
             pkg-config --exists libpipewire-0.3 2>/dev/null || missing_sys+=("libpipewire-0.3-dev")
         fi
+        # libspa-sys 用 bindgen 生成 FFI 绑定,bindgen 运行期要加载 libclang.so(LLVM)
+        ldconfig -p 2>/dev/null | grep -qi libclang || missing_sys+=("libclang-dev")
         if [[ ${#missing_sys[@]} -gt 0 ]]; then
             fail "Tauri Linux 编译缺系统依赖:${missing_sys[*]}"
             if command -v apt-get >/dev/null 2>&1; then
                 note "Debian/Ubuntu 一条装齐:"
-                note "  sudo apt-get install -y build-essential pkg-config libssl-dev libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libpipewire-0.3-dev"
+                note "  sudo apt-get install -y build-essential pkg-config libssl-dev libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libpipewire-0.3-dev libclang-dev"
             elif command -v dnf >/dev/null 2>&1; then
                 note "Fedora 一条装齐:"
-                note "  sudo dnf install -y @development-tools pkgconf-pkg-config openssl-devel webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel libxdo-devel pipewire-devel"
+                note "  sudo dnf install -y @development-tools pkgconf-pkg-config openssl-devel webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel libxdo-devel pipewire-devel clang-devel"
             elif command -v pacman >/dev/null 2>&1; then
                 note "Arch 一条装齐:"
-                note "  sudo pacman -S --needed base-devel pkgconf openssl webkit2gtk-4.1 gtk3 libayatana-appindicator librsvg libxdo libpipewire"
+                note "  sudo pacman -S --needed base-devel pkgconf openssl webkit2gtk-4.1 gtk3 libayatana-appindicator librsvg libxdo libpipewire clang"
             else
-                note "用你发行版的包管理器装:C 编译器(gcc) + pkg-config + webkit2gtk-4.1 + gtk3 + appindicator + librsvg2 + libxdo + pipewire 的开发包"
+                note "用你发行版的包管理器装:C 编译器(gcc) + pkg-config + webkit2gtk-4.1 + gtk3 + appindicator + librsvg2 + libxdo + pipewire + libclang 的开发包"
             fi
             exit 127
         fi
-        note "cc / pkg-config / webkit2gtk-4.1 / gtk3 / pipewire 就绪"
+        note "cc / pkg-config / webkit2gtk-4.1 / gtk3 / pipewire / libclang 就绪"
     fi
 fi
 
