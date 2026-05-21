@@ -8,7 +8,10 @@ from PIL import Image
 
 from chayuan.settings import Settings
 from chayuan.server.file_rag.document_loaders.ocr import get_ocr
-from chayuan.server.file_rag.document_loaders.partition import partition_ocr_text
+from chayuan.server.file_rag.document_loaders.partition import (
+    IMAGE_OCR_PREFIX,
+    partition_ocr_text,
+)
 
 
 class RapidOCRPDFLoader(UnstructuredFileLoader):
@@ -85,7 +88,12 @@ class RapidOCRPDFLoader(UnstructuredFileLoader):
                         result, _ = ocr(img_array)
                         if result:
                             ocr_result = [line[1] for line in result]
-                            resp += "\n".join(ocr_result)
+                            # 来源标注:页内图片 OCR 出的文字,加前缀单独成段
+                            resp += (
+                                f"\n\n{IMAGE_OCR_PREFIX}"
+                                + "\n".join(ocr_result)
+                                + "\n\n"
+                            )
 
                 # 更新进度
                 b_unit.update(1)

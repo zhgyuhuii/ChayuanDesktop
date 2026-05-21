@@ -3,7 +3,10 @@ from typing import List
 import tqdm
 from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
 
-from chayuan.server.file_rag.document_loaders.partition import partition_ocr_text
+from chayuan.server.file_rag.document_loaders.partition import (
+    IMAGE_OCR_PREFIX,
+    partition_ocr_text,
+)
 
 
 class RapidOCRPPTLoader(UnstructuredFileLoader):
@@ -34,7 +37,12 @@ class RapidOCRPPTLoader(UnstructuredFileLoader):
                     result, _ = ocr(np.array(image))
                     if result:
                         ocr_result = [line[1] for line in result]
-                        resp += "\n".join(ocr_result)
+                        # 来源标注:幻灯片内图片 OCR 出的文字,加前缀单独成段
+                        resp += (
+                            f"\n\n{IMAGE_OCR_PREFIX}"
+                            + "\n".join(ocr_result)
+                            + "\n\n"
+                        )
                 elif shape.shape_type == 6:  # 6 表示组合
                     for child_shape in shape.shapes:
                         extract_text(child_shape)

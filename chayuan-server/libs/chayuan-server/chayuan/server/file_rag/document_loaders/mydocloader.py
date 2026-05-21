@@ -3,7 +3,10 @@ from typing import List, Optional
 import tqdm
 from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
 
-from chayuan.server.file_rag.document_loaders.partition import partition_ocr_text
+from chayuan.server.file_rag.document_loaders.partition import (
+    IMAGE_OCR_PREFIX,
+    partition_ocr_text,
+)
 
 
 def _docx_xml_text(filepath: str) -> str:
@@ -121,7 +124,9 @@ class RapidOCRDocLoader(UnstructuredFileLoader):
                                 blob = getattr(part, "blob", None) or getattr(part, "_blob", None)
                                 ocr_text = _ocr_image_blob(ocr, blob)
                                 if ocr_text:
-                                    resp += ocr_text + "\n"
+                                    # 来源标注:文档内嵌图片 OCR 出的文字,加前缀
+                                    # 并用空行单独成段(不混进正文段落)
+                                    resp += f"\n\n{IMAGE_OCR_PREFIX}{ocr_text}\n\n"
                 elif isinstance(block, Table):
                     for row in block.rows:
                         for cell in row.cells:
