@@ -6,8 +6,10 @@
 
 配置文件: <CHAYUAN_ROOT>/runtime/infinity.yaml(首次启动自动生成默认配置)。
 
-懒加载:启动时不预加载模型,首次 POST /embeddings 才调
-       chayuan.server.image_source.embedder.get_embedder 加载。
+模型加载:启动时后台线程预加载进程内 embedder(_get_inproc_embedder),
+       首张图不用干等;还没加载完时首次 POST /embeddings 会等待加载完成。
+       ⚠ 用 _get_inproc_embedder 而非 get_embedder —— 后者会把请求路由回
+       image-embedding sidecar,而本进程就是该 sidecar,会自己请求自己。
 
 端点:
   * POST /embeddings — michaelf34/infinity 兼容签名
@@ -19,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import threading
 from typing import Any, Dict, List
 
 from fastapi import HTTPException, Request  # noqa: E402 — module-level 让 FastAPI 注解解析正确
@@ -58,21 +61,32 @@ def _to_list(vec: Any) -> List[float]:
 def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
     """挂 /embeddings 端点。"""
 
+    _load_lock = threading.Lock()
+
     def _ensure_loaded() -> Any:
-        """懒加载 embedder;失败抛 HTTP 503。"""
+        """加载进程内 embedder;失败抛 HTTP 503。线程安全(预加载线程 + 请求并发)。"""
         if app.state.lib_loaded and app.state.lib_handle is not None:
             return app.state.lib_handle
-        try:
-            from chayuan.server.image_source.embedder import get_embedder
-            handle = get_embedder(cfg.get("model"))
-        except Exception as e:
-            app.state.lib_error = f"image embedder 加载失败: {e}"
-            logger.exception("image embedder init failed")
-            raise HTTPException(status_code=503, detail=app.state.lib_error) from e
-        app.state.lib_handle = handle
-        app.state.lib_loaded = True
-        app.state.lib_error = ""
-        return handle
+        with _load_lock:
+            # 取到锁后再查一次 —— 可能别的线程刚加载好
+            if app.state.lib_loaded and app.state.lib_handle is not None:
+                return app.state.lib_handle
+            try:
+                # ⚠ 必须用 _get_inproc_embedder,不能用 get_embedder。
+                # get_embedder 会先看 image-embedding sidecar 是否 ready,ready 就
+                # 返回一个 POST 到该 sidecar 的 HTTP 客户端 —— 而本进程**就是**那个
+                # sidecar,于是变成自己 POST 自己、递归挂死 → ReadTimeout。
+                # sidecar 必须直接用进程内 loader 真正算 embedding。
+                from chayuan.server.image_source.embedder import _get_inproc_embedder
+                handle = _get_inproc_embedder(cfg.get("model"))
+            except Exception as e:
+                app.state.lib_error = f"image embedder 加载失败: {e}"
+                logger.exception("image embedder init failed")
+                raise HTTPException(status_code=503, detail=app.state.lib_error) from e
+            app.state.lib_handle = handle
+            app.state.lib_loaded = True
+            app.state.lib_error = ""
+            return handle
 
     def _embed_one(embedder: Any, item: Any, idx: int) -> List[float]:
         """对一个 input item 调 embedder,返 embedding 列表。
@@ -113,6 +127,23 @@ def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
             data.append({"index": i, "embedding": emb})
 
         return {"data": data, "model": cfg.get("model", "unknown")}
+
+    @app.on_event("startup")
+    async def _preload_image_model() -> None:
+        """启动即在后台预加载模型 —— 不等首次请求,首张图就不用干等模型加载。
+
+        放后台线程跑:模型加载(读权重 + torch 初始化)是慢的同步操作,不能
+        阻塞 HTTP server 起来 / health 就绪(否则可能拖过 sidecar 健康超时)。
+        """
+        def _warm() -> None:
+            try:
+                emb = _ensure_loaded()
+                emb.embed_text("warmup")  # 触发进程内 loader 真正加载模型
+                logger.info("[infinity] 图像模型预加载完成")
+            except Exception as e:  # noqa: BLE001 — 预加载失败不致命,首次请求会重试
+                logger.warning("[infinity] 图像模型预加载失败(首次请求会重试): %r", e)
+
+        asyncio.get_event_loop().run_in_executor(None, _warm)
 
 
 if __name__ == "__main__":  # pragma: no cover - real serve path
