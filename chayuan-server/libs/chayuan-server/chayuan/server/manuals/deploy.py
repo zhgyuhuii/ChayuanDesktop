@@ -67,7 +67,7 @@ MANUAL_FILES: List[ManualSpec] = [
     ManualSpec(
         resource="about_chayuan.md",
         public_name="察元产品介绍",
-        description="察元 AI 项目背景 / 三层架构 / 9 类 capability / 开源策略 / 路线图",
+        description="察元 AI 桌面版产品介绍:字词级审核 / 五类知识源 / 六类本地能力 / 两档安装包",
     ),
 ]
 

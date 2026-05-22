@@ -2,10 +2,10 @@
 
 > 版本：v3.0 · 文档形态：随包预置 · 路径：`<CHAYUAN_ROOT>/manuals/察元使用手册.docx`
 >
-> 本手册随察元 AI 助手一同安装。集成版（standard / pro）首次启动时，必需的对话 /
-> 嵌入 / 重排模型已自动选好，**无需手动配置即可使用全部功能**。轻量版（lite）
-> 装机不带模型，但首次启动会在设置页给出一键下载、去模型广场配厂商、或直接刷新本
-> 地已有模型三条路径。
+> 本手册随察元 AI 助手一同安装。**全量版**首次启动时，必需的对话 / 嵌入 / 重排
+> 模型已自动选好，**无需手动配置即可使用全部功能**。**轻量版**装机不带本地大
+> 模型，但首次启动会在设置页给出一键下载、去模型广场配厂商、或直接刷新本地已有
+> 模型三条路径。
 
 ---
 
@@ -35,7 +35,7 @@
 
 ### 1.2 直接对话
 
-主界面左侧栏点「新对话」，下方输入框打字即可。集成版第一次提问会用预置的
+主界面左侧栏点「新对话」，下方输入框打字即可。全量版第一次提问会用预置的
 **Qwen3-4B-Instruct**（默认对话模型）；轻量版若尚未配置，会提示先去
 「设置 → 默认模型」补默认值。
 
@@ -44,7 +44,7 @@
 把任意 PDF / Word / Markdown / 网页拖到主界面，应用自动：
 
 1. 解析正文 + 抽取段落；
-2. 用 **bge-m3** 把每个段落切片做向量；
+2. 用 **gte-multilingual-base**（mGTE，默认文本嵌入模型）把每个段落切片做向量；
 3. 进入「临时会话知识库」；
 4. 下一句提问就会引用这份文档作答。
 
@@ -60,12 +60,15 @@
 
 ## 第二章 知识库管理
 
-### 2.1 知识库的三大类
+### 2.1 知识库的五类知识源
 
-* **文档知识库 (`doc:<name>`)** — 适合 PDF / Word / Markdown 等普通文档。
-* **结构化数据库 (`src:<id>`)** — 接入 SQLite / MySQL / 达梦 / 金仓等，支持
-  `text2sql` 自然语言查询。
+* **文档知识库 (`doc:<name>`)** — 适合 PDF / Word / Excel / Markdown / HTML 等普通文档。
+* **结构化数据库 (`src:<id>`)** — 接入 SQLite / MySQL / PostgreSQL / Oracle / 达梦 /
+  金仓 / Doris 等，支持 `text2sql` 自然语言查询。
+* **外部向量库 (`vec:<id>`)** — 接入你自己的 Milvus / Chroma / Zilliz / PGVector /
+  Relyt 集合，察元只负责连接与查询。
 * **办公私库 (`office:<owner>[:<group>]`)** — 个人 / 团队隐私场景，永不上云。
+* **图像知识库 (`img:`)** — 上传图片做 CLIP 图像向量，支持以图搜图 / 以文搜图。
 
 ### 2.2 创建文档知识库
 
@@ -74,7 +77,7 @@
 | 字段 | 说明 |
 |---|---|
 | 名称 | 用作 `doc:<name>` 唯一标识 |
-| 嵌入模型 | 默认 `bge-m3`；KB 一旦索引完成，**查询阶段不能更改** |
+| 嵌入模型 | 默认 `gte-multilingual-base`；KB 一旦索引完成，**查询阶段不能更改** |
 | 切分参数 | 段落 / 字符 / 中文分句三选一；推荐先用默认 |
 | 重排开关 | `bge-reranker-v2-m3` 默认启用；提升相关性 ≈ 8-15% |
 
@@ -108,8 +111,8 @@
 
 ### 3.1 默认模型
 
-「设置 → 默认模型」展示 9 类 capability：对话 / 文本向量 / 图像向量 / 重排 /
-文生图 / 文生视频 / 语音合成 / 语音识别 / 图像识别文字。
+「设置 → 默认模型」展示 6 类 capability：对话 (chat) / 文本嵌入 (embedding) /
+重排 (rerank) / 语音识别 (asr) / 图像嵌入 (image-embedding) / 图像识别文字 (ocr)。
 
 每类下拉框列出所有可选模型：
 
@@ -132,7 +135,7 @@
 「设置 → 默认模型」顶部若出现黄条「模型库不完整 — 缺失 文本向量 / 重排」，意味
 着系统检测到某些必需 capability 没有可用模型。三个按钮分别处理：
 
-1. **下载 lite/standard/pro 包** — 后端 subprocess 跑 `chayuan_packaging
+1. **下载轻量版 / 全量版包** — 后端 subprocess 跑 `chayuan_packaging
    fetch+stage`，进度可见，可取消，完成后自动 promote 默认。
 2. **去模型广场配厂商** — 跳转到模型广场配云模型。
 3. **我已有模型，刷新扫盘** — 已经手动把模型放进
@@ -160,7 +163,7 @@ status` 的「推理引擎启动参数」段会显示每个进程现在挂的具
 
 ### 3.6 自带模型与替换工作流
 
-集成版（standard / pro）安装包内带了"装机自带"模型，存放约定如下：
+全量版安装包内带了"装机自带"模型，存放约定如下：
 
 ```
 <CHAYUAN_ROOT>/models/bundled/
@@ -241,7 +244,7 @@ intent detection
 
 ### 5.1 接入外部向量库
 
-支持 Milvus / Qdrant / Weaviate / pgvector，配置后以 `src:<id>` 暴露。
+支持 Milvus / Chroma / Zilliz / PGVector / Relyt，配置后以 `vec:<id>` 暴露。
 
 向量库返回的结果与文档 KB 区别：
 
@@ -304,11 +307,6 @@ PDF 含扫描页时自动走 OCR（RapidOCR / PaddleOCR），中英文混排可�
 * 离线场景走 whisper-tiny / FunASR
 * 在线场景可配通义 / 百度等云端 ASR
 
-### 7.4 语音合成 (TTS)
-
-对话回答右下角喇叭按钮朗读。默认 Piper（本地）；可在「默认模型 → 语音合
-成」切到 CosyVoice / 通义。
-
 ---
 
 ## 第八章 MCP 工具与扩展
@@ -364,15 +362,17 @@ groundedness / hallucination_rate）。
 
 ### 10.2 完全离线
 
-集成版（standard / pro）装机自带 Qwen3-4B / bge-m3 / bge-reranker /
-whisper-tiny 等。断网后所有功能正常，**除非**你显式选了云模型。
+全量版装机自带 Qwen3-4B / gte-multilingual-base / bge-reranker-v2-m3 /
+whisper.cpp tiny / CLIP ViT-B/32 / RapidOCR 等。断网后所有功能正常，**除非**你
+显式选了云模型。
 
 ### 10.3 验证方法
 
 * **断网测试**：拔网线后聊天 / 检索 / 引用是否正常 —— 应该全过。
 * **抓包**：Wireshark 抓 chayuan-desktop 流量 —— 完全离线场景应无外部
   请求。
-* **开源审计**：察元 AI 助手 AGPL-3.0 开源，任何人可以审代码。
+* **代码与行为**：桌面版闭源、免费下载；察元 WPS 加载项 Apache-2.0 开源
+  （GitHub / Gitee），其离线行为可自行审阅。
 
 ### 10.4 国产化栈
 
@@ -393,7 +393,7 @@ whisper-tiny 等。断网后所有功能正常，**除非**你显式选了云模
 |---|---|
 | `$CHAYUAN_ROOT` | 数据根目录；默认 `~/chayuan_data`，可在 `chayuan init` 时改 |
 | `$CHAYUAN_ROOT/basic_settings.yaml` | 主配置（端口 / 鉴权 / 日志） |
-| `$CHAYUAN_ROOT/model_settings.yaml` | 9 类 capability 默认模型 + 平台清单 |
+| `$CHAYUAN_ROOT/model_settings.yaml` | 6 类 capability 默认模型 + 平台清单 |
 | `$CHAYUAN_ROOT/models/` | 本地模型仓库（自动扫盘） |
 | `$CHAYUAN_ROOT/data/` | 用户数据（聊天 / 知识库 / 评测） |
 | `$CHAYUAN_ROOT/manuals/` | 本手册及未来扩展 |
@@ -417,10 +417,10 @@ chayuan init --profile prod
 
 打开「设置 → 默认模型」，看「对话」一栏是否为空。
 
-* 集成版：本应自动指派；若空，跑 `chayuan model status` 看 local_index
+* 全量版：本应自动指派；若空，跑 `chayuan model status` 看 local_index
   是否扫到模型；若已扫到但 default 没填，重启 server 让 first_launch hook
   再跑一次自动指派。
-* 轻量版：点「下载 lite 包」或去模型广场配云厂商。
+* 轻量版：点「下载全量包」或去模型广场配云厂商。
 
 ### B.2 知识库检索返回 0 条
 

@@ -328,6 +328,19 @@ def run_first_launch_hooks() -> FirstLaunchReport:
         logger.warning("[first_launch] deploy_user_manuals 失败: %r", e)
         report.errors.append(f"deploy_user_manuals: {type(e).__name__}: {e}")
 
+    # 4b) 把产品介绍 + 使用手册塞进「使用帮助」文档知识库(首启只建一次;
+    #     用户删掉后不会复活 —— 见 help_kb._MARKER_NAME)
+    try:
+        from chayuan.server.manuals.help_kb import seed_help_kb
+        hk = seed_help_kb()
+        if hk.get("action") == "created":
+            logger.info("[first_launch] 已创建「使用帮助」知识库: %s", hk.get("files"))
+        elif hk.get("action") == "failed":
+            report.errors.append(f"seed_help_kb: {hk.get('error')}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[first_launch] seed_help_kb 失败: %r", e)
+        report.errors.append(f"seed_help_kb: {type(e).__name__}: {e}")
+
     # 5) 按 LocalRuntimeSettings.preload_* 异步拉起本地 runtime (chat / embedding / rerank)
     try:
         import asyncio
