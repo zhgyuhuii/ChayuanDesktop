@@ -95,6 +95,8 @@ param(
     [switch]$SkipTypecheck,
     [switch]$BundleOnly,
     [switch]$Clean,
+    # 默认每次打包前完全清 Rust target/(全量冷构建);传 -SkipCleanTarget 关闭
+    [switch]$SkipCleanTarget,
     [switch]$NoColor,
     [switch]$VerboseSubprocess,
     [switch]$LiteOnly,
@@ -1474,6 +1476,27 @@ if ($SkipFrontend) {
                 -File -Recurse -ErrorAction SilentlyContinue |
                 Remove-Item -Force -ErrorAction SilentlyContinue
         }
+    }
+
+    # 打包前完全清理 Rust target/ —— 每次打包都是干净的全量冷构建。
+    # 代价:清掉 Cargo 增量编译缓存,本次 tauri build 会全量重编依赖
+    # (Tauri 应用约 +10~30 分钟)。要快速增量打包:用 -BundleOnly(复用缓存)
+    # 或 -SkipCleanTarget 跳过本步。BundleOnly 本身依赖缓存,自动跳过清理。
+    if (-not $BundleOnly -and -not $SkipCleanTarget) {
+        $rustTargetDir = Join-Path $ClientDir 'apps\desktop\src-tauri\target'
+        if (Test-Path $rustTargetDir) {
+            Write-Step 'Clean target/(打包前完全清理 Rust 编译产物,本次为全量冷构建)'
+            Write-Note "删除 $rustTargetDir"
+            Remove-Item -Recurse -Force $rustTargetDir -ErrorAction SilentlyContinue
+            if (Test-Path $rustTargetDir) {
+                # 个别文件被占用 Remove-Item 删不净 —— 退回 cargo clean 兜底
+                Write-Note 'target/ 有残留,改用 cargo clean 兜底'
+                Push-Location (Join-Path $ClientDir 'apps\desktop\src-tauri')
+                try { & cargo clean 2>$null } catch { } finally { Pop-Location }
+            }
+        }
+    } elseif ($BundleOnly) {
+        Write-Note 'BundleOnly 复用 Cargo 编译缓存,跳过 target/ 清理'
     }
 
     if ($BundleOnly) {

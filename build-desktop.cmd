@@ -8,7 +8,13 @@ REM     build-desktop.cmd -IntegratedOnly       only the integrated flavor (with
 REM     build-desktop.cmd -SkipModelCheck       skip vendor/bundled_models inventory scan
 REM     build-desktop.cmd -SkipServer           skip PyInstaller, only Tauri
 REM     build-desktop.cmd -Clean                clean rebuild
+REM     build-desktop.cmd -SkipCleanTarget      skip the auto target\ wipe (fast incremental build)
 REM     build-desktop.cmd -NoColor              old console, disable ANSI color
+REM
+REM NOTE: every build wipes apps\desktop\src-tauri\target\ first, so each
+REM       package is a clean full cold build (slower: Rust deps recompile).
+REM       Pass -SkipCleanTarget for a fast incremental build, or use
+REM       -BundleOnly which reuses the cache and skips the wipe automatically.
 REM
 REM Outputs:
 REM     dist-lite\          lite flavor installers

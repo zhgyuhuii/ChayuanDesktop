@@ -17,6 +17,7 @@
 #   ./build-desktop.sh --skip-typecheck                 跳过 pnpm typecheck
 #   ./build-desktop.sh --bundle-only                    跳过前 4 步,只重做 Tauri bundle
 #   ./build-desktop.sh --clean                          构建前先清 dist + bundle
+#   ./build-desktop.sh --skip-clean-target              跳过"打包前清 target/"(默认会清=全量冷构建)
 #   ./build-desktop.sh --verbose                        透传 PyInstaller / pnpm 完整 stdout
 #
 # 双产物说明
@@ -120,6 +121,7 @@ SKIP_INSTALL=0
 SKIP_TYPECHECK=0
 BUNDLE_ONLY=0
 CLEAN=0
+SKIP_CLEAN_TARGET=0   # 默认每次打包前完全清 Rust target/;传 --skip-clean-target 关闭
 VERBOSE=0
 REBUILD_SERVER=0
 SKIP_SERVER_AUTO=0  # 内部状态:Step 1 是被指纹自动跳过,还是 --skip-server 显式跳过
@@ -142,6 +144,7 @@ while [[ $# -gt 0 ]]; do
         --skip-typecheck)   SKIP_TYPECHECK=1 ;;
         --bundle-only)      BUNDLE_ONLY=1 ;;
         --clean)            CLEAN=1 ;;
+        --skip-clean-target) SKIP_CLEAN_TARGET=1 ;;
         --verbose|-v)       VERBOSE=1 ;;
         --skip-model-check) SKIP_MODEL_CHECK=1 ;;
         --lite-only)        LITE_ONLY=1 ;;
@@ -149,7 +152,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)          usage ;;
         *)
             echo "[FAIL] 未知参数: $1" >&2
-            echo "可用参数:--lite-only / --integrated-only / --skip-model-check / --skip-server / --rebuild-server / --skip-healthcheck / --skip-frontend / --skip-install / --skip-typecheck / --bundle-only / --clean / --verbose" >&2
+            echo "可用参数:--lite-only / --integrated-only / --skip-model-check / --skip-server / --rebuild-server / --skip-healthcheck / --skip-frontend / --skip-install / --skip-typecheck / --bundle-only / --clean / --skip-clean-target / --verbose" >&2
             exit 2 ;;
     esac
     shift
@@ -593,6 +596,24 @@ else
         invoke_step 'tauri build (bundle-only)' "$DESKTOP_DIR" \
             pnpm exec tauri build
     else
+        # 打包前完全清理 Rust target/ —— 每次打包都是干净的全量冷构建。
+        # 代价:Cargo 增量编译缓存被清,本次 tauri build 会全量重编依赖
+        # (Tauri 应用约 +10~30 分钟)。要快速增量打包:用 --bundle-only
+        # (复用缓存)或 --skip-clean-target 跳过本步。
+        if [[ "$SKIP_CLEAN_TARGET" != "1" ]]; then
+            rust_target="$DESKTOP_DIR/src-tauri/target"
+            if [[ -d "$rust_target" ]]; then
+                step '打包前清理 target/(全量冷构建)'
+                if rm -rf "$rust_target" 2>/dev/null && [[ ! -d "$rust_target" ]]; then
+                    note "已删除 $rust_target"
+                else
+                    # 个别文件被占用 rm 删不净 —— 退回 cargo clean 兜底
+                    ( cd "$DESKTOP_DIR/src-tauri" && cargo clean 2>/dev/null ) \
+                        && note 'cargo clean 兜底完成' \
+                        || note 'target/ 清理可能不彻底,关掉占用该目录的进程后重试'
+                fi
+            fi
+        fi
         invoke_step 'pnpm build:desktop' "$CLIENT_DIR" pnpm build:desktop
     fi
 
