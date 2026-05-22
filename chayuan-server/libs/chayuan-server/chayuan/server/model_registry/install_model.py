@@ -647,7 +647,14 @@ class InstallModelJobManager:
             else:
                 with self._lock:
                     job.log_tail.append(f"[install_model] hf snapshot: {job.model_id}")
-                snapshot_download(repo_id=job.model_id, local_dir=str(target_dir))
+                # 跳过 flax(.msgpack)/ tensorflow(.h5)/ rust(.ot)权重 ——
+                # chayuan 一律走 PyTorch,这几份是同一模型的其它框架副本,
+                # 各几百 MB,下了纯属浪费(如 clip 整仓 1.8GB → 只需 ~600MB)。
+                snapshot_download(
+                    repo_id=job.model_id,
+                    local_dir=str(target_dir),
+                    ignore_patterns=["*.msgpack", "*.h5", "*.ot"],
+                )
         except ModelRepoNotFoundError:
             raise
         except Exception as e:  # noqa: BLE001
