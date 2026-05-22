@@ -142,62 +142,84 @@ const CAP_HINTS: Record<
   LocalRuntimeCapability,
   { search: string; examples: CapExample[]; note: string }
 > = {
-  // 每个能力只预填**系统默认**那一个模型 —— 弹窗只引导下载默认模型,避免
-  // 把一堆非默认模型(jina-clip / chinese-clip / 各种量化…)一并塞给用户。
-  // 想要别的模型,用上方「去 ModelScope 搜」+ 粘贴 model_id 自行下载。
+  // 各能力只预填**系统默认**那一个模型;每条 model_id / 源 / 文件均已
+  // 2026-05 实测可下载 —— ModelScope 真下载校验 GGUF/ZIP 文件头、hf-mirror
+  // 校验 whisper ggml 文件头。想要别的模型,用「去 ModelScope 搜 + 粘贴
+  // model_id」自行下载。
   chat: {
     search: 'Qwen3 GGUF',
-    // 已核 2026-05:Qwen/Qwen3-4B-Instruct-2507-GGUF 在 ModelScope 上 404
-    // (官方 Qwen owner 没发这个 GGUF 仓);unsloth/* 同名仓在 HuggingFace
-    // 实在(200),故 chat 示例用 unsloth 的 HF 仓。
+    // 实测:Qwen/Qwen3-4B-Instruct-2507-GGUF 在 ModelScope 404(官方 owner
+    // 没发);unsloth/Qwen3-4B-Instruct-2507-GGUF @ ModelScope 在,Q4_K_M
+    // 真下载文件头 = GGUF。必须带 file —— 不指定会把整仓 27 个 quant 全拉下来。
     examples: [
-      { id: 'unsloth/Qwen3-4B-Instruct-2507-GGUF', source: 'huggingface' },
+      {
+        id: 'unsloth/Qwen3-4B-Instruct-2507-GGUF',
+        source: 'modelscope',
+        file: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
+        label: 'Qwen3-4B-Instruct-2507 · Q4_K_M (系统默认)',
+        note: '约 2.5GB · 系统默认对话模型,llama.cpp 直接加载',
+      },
     ],
-    note: '系统默认对话模型;GGUF 量化、体积小,llama.cpp 直接加载。其它模型可搜索后粘贴 model_id 下载。',
+    note: 'chat 用 GGUF 单文件;示例即系统默认,点一下即装。其它模型可搜索后粘贴 model_id 下载。',
   },
   embedding: {
     search: 'bge-m3 GGUF',
-    // embedding sidecar 跑 llama-server,只吃 GGUF。预填 ModelScope 上的
-    // *-GGUF 量化仓库 + 单个 Q8_0 quant 文件,点示例即装。
+    // 实测:gpustack/bge-m3-GGUF @ ModelScope,bge-m3-Q8_0.gguf 真下载文件头 = GGUF。
     examples: [
       {
         id: 'gpustack/bge-m3-GGUF',
         source: 'modelscope',
         file: 'bge-m3-Q8_0.gguf',
         label: 'bge-m3 · Q8_0 (系统默认)',
-        note: '605MB · 100+ 语种 · 多语种+中文检索强,办公场景首选',
+        note: '约 605MB · 100+ 语种 · 多语种+中文检索强,办公场景首选',
       },
     ],
-    note: 'embedding 只支持 GGUF;示例即系统默认 bge-m3 Q8_0,点一下即装。其它模型可搜索后粘贴 model_id。',
+    note: 'embedding 只支持 GGUF 单文件;示例即系统默认 bge-m3 Q8_0,点一下即装。其它模型可搜索后粘贴 model_id。',
   },
   rerank: {
     search: 'reranker GGUF',
-    // rerank sidecar 跑 llama-server,只吃 GGUF。预填 ModelScope 的 *-GGUF
-    // 量化仓库 + 单个 Q8_0 quant 文件 → 单文件下载。
+    // 实测:gpustack/bge-reranker-v2-m3-GGUF @ ModelScope,
+    // bge-reranker-v2-m3-Q8_0.gguf 真下载文件头 = GGUF。
     examples: [
       {
         id: 'gpustack/bge-reranker-v2-m3-GGUF',
         source: 'modelscope',
         file: 'bge-reranker-v2-m3-Q8_0.gguf',
         label: 'bge-reranker-v2-m3 · Q8_0 (系统默认)',
-        note: '606MB · 100+ 语种 · 跟 bge-m3 embedding 同家族对齐',
+        note: '约 606MB · 100+ 语种 · 跟 bge-m3 embedding 同家族对齐',
       },
     ],
-    note: 'rerank 只支持 GGUF;示例即系统默认 bge-reranker-v2-m3 Q8_0,点一下即装。其它模型可搜索后粘贴 model_id。',
+    note: 'rerank 只支持 GGUF 单文件;示例即系统默认 bge-reranker-v2-m3 Q8_0,点一下即装。其它模型可搜索后粘贴 model_id。',
   },
   asr: {
-    search: 'whisper',
+    search: 'whisper ggml',
+    // 实测:whisper.cpp ggml 在 ModelScope 没有现成仓;ggerganov/whisper.cpp
+    // @ HuggingFace 经 hf-mirror,ggml-tiny.bin 真下载文件头 = whisper ggml
+    // 魔数。必须带 file —— 整仓有几十个不同大小的 ggml。
     examples: [
-      { id: 'ggerganov/whisper.cpp', source: 'huggingface' },
+      {
+        id: 'ggerganov/whisper.cpp',
+        source: 'huggingface',
+        file: 'ggml-tiny.bin',
+        label: 'whisper tiny · ggml (系统默认)',
+        note: '约 74MB · whisper.cpp ggml 单文件,经 hf-mirror 镜像下载',
+      },
     ],
-    note: '系统默认走 whisper.cpp ggml 格式(单文件,如 ggml-tiny.bin)。其它模型可搜索后粘贴 model_id 下载。',
+    note: 'asr 用 whisper.cpp ggml 单文件;示例即系统默认 tiny(走 hf-mirror)。其它模型可搜索后粘贴 model_id。',
   },
   'image-embedding': {
     search: 'CLIP',
+    // 实测:openai-mirror/clip-vit-base-patch32 @ ModelScope 在,config.json /
+    // pytorch_model.bin 真下载正常(.bin 文件头 = ZIP 魔数)。
     examples: [
-      { id: 'openai/clip-vit-base-patch32', source: 'huggingface' },
+      {
+        id: 'openai-mirror/clip-vit-base-patch32',
+        source: 'modelscope',
+        label: 'CLIP ViT-B/32 (系统默认)',
+        note: '标准 CLIP,transformers 直接加载、不挑依赖(整仓下载)',
+      },
     ],
-    note: '系统默认图像模型 CLIP ViT-B/32 —— 标准 CLIP,transformers 直接加载、不挑依赖。其它图像模型(jina-clip、chinese-clip 等)可在 ModelScope 搜索后自行粘贴 model_id 下载。',
+    note: '系统默认图像模型 CLIP ViT-B/32。其它图像模型(jina-clip、chinese-clip 等)可搜索后自行粘贴 model_id 下载。',
   },
 };
 
