@@ -204,9 +204,10 @@ export const PytorchHelpDialog: React.FC<PytorchHelpDialogProps> = ({
               <Code>torchvision/__init__.py</Code> 两个文件都在,才算放对。不要多
               套一层文件夹,也不要把 torch、torchvision 各放进一个子目录。
             </p>
-            <p>
-              另一种做法:如果你在别处已经装好一整套可用的 PyTorch(系统 Python
-              环境、之前解压好的目录等),不必搬动 —— 直接用面板的「换位置」按钮 指过去即可。
+            <p className="text-[var(--cy-text-tertiary)]">
+              迁移已装好的 PyTorch:如果你之前在别处装过 / 解压过 torch,把那一整套{' '}
+              <Code>torch/</Code>、<Code>torchvision/</Code>、<Code>transformers/</Code>{' '}
+              等目录复制进上面这个放置目录(并排放,别多套一层),再按下一步「扫描」即可。
             </p>
           </Step>
 
@@ -216,7 +217,6 @@ export const PytorchHelpDialog: React.FC<PytorchHelpDialogProps> = ({
                 放好后点面板的「扫描」按钮 —— 它会识别出{' '}
                 <Code>torch x.x.x(CPU/GPU 版)· torchvision x.x.x</Code>。
               </li>
-              <li>用「换位置」选目录时会自动校验,不用再单独扫描。</li>
               <li>验证通过的标志:面板状态徽标变绿,并显示 torch 与 torchvision 的版本号。</li>
             </ul>
           </Step>

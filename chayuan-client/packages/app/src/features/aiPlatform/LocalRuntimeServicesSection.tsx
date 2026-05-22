@@ -23,7 +23,6 @@ import {
   CloudDownload,
   Copy,
   FileBarChart2,
-  FolderOpen,
   HelpCircle,
   Play,
   RefreshCw,
@@ -47,7 +46,6 @@ import {
   type RuntimeServiceInstallJob,
   runtimeModels,
 } from '@chayuan/api';
-import { getDataDirApi } from '../first-run/dataDirApi';
 import { Button, Switch } from '@chayuan/ui';
 import { notifySuccess, reportError } from '../../store/errorDialog';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
@@ -832,34 +830,6 @@ const PytorchRow: React.FC = () => {
     }
   }, [refreshLocations]);
 
-  // 采纳用户指定的外部 torch 目录 —— 先校验再写 selection(mode=path)
-  const onUseExternalDir = React.useCallback(async (dir: string) => {
-    const d = dir.trim();
-    if (!d) {
-      setPickMsg('请先填写或选择一个目录');
-      return;
-    }
-    setPickBusy(true);
-    setPickMsg(null);
-    try {
-      const v = await localRuntime.pytorchValidateDir(d);
-      if (!v.valid) {
-        setPickMsg(v.reason || '该目录里没有合法的 torch');
-        return;
-      }
-      await localRuntime.pytorchSetSelection({ mode: 'path', path: v.dir ?? d });
-      notifySuccess(
-        '已采纳外部 PyTorch',
-        `${v.dir}（torch ${v.torch_version ?? '?'} · ${v.is_cuda ? 'GPU/CUDA' : 'CPU'} 版）`,
-      );
-      await Promise.all([refreshStatus(), refreshLocations()]);
-    } catch (e) {
-      setPickMsg(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPickBusy(false);
-    }
-  }, [refreshStatus, refreshLocations]);
-
   // 设置 torch 选用配置(auto / disabled / prefer)
   const onSetSelection = React.useCallback(
     async (opts: { mode: 'auto' | 'disabled'; prefer?: 'cpu' | 'cuda' }) => {
@@ -968,14 +938,6 @@ const PytorchRow: React.FC = () => {
       : null;
 
   const targetDir = status?.install_target_dir ?? scanResult?.target_dir ?? null;
-  // 「换位置」选了外部目录(selection.mode='path')时,「目录」一栏要显示那个
-  // 外部目录,而不是死显示安装落点 py_packages —— 否则点完「换位置」用户看着
-  // 路径没变,以为没生效。
-  const usingExternalTorch =
-    locations?.selection?.mode === 'path' && !!locations.selection.path;
-  const shownDir: string | null = usingExternalTorch
-    ? locations?.selection?.path ?? targetDir
-    : targetDir;
 
   return (
     <div
@@ -1072,67 +1034,34 @@ const PytorchRow: React.FC = () => {
         </div>
       </div>
 
-      {/* 放置目录 — 告诉用户手动装好的 torch / 解压好的 wheel 放哪里。
-          展示绝对路径 + 复制 + 换位置(选别的 PyTorch 环境目录并验证)。 */}
+      {/* PyTorch 安装位置 —「安装」装到这里;手动放好的 torch 也放这里再「扫描」。 */}
       {targetDir && (
         <div className="space-y-1 rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2">
           <div className="text-[11px] text-[var(--cy-text-secondary)]">
-            {usingExternalTorch
-              ? '当前 PyTorch 目录(已用「换位置」指到外部目录):'
-              : '手动装好的 torch / 解压好的 wheel 放这里,然后点上方「扫描」识别:'}
+            PyTorch 安装位置(点上方「安装」会装到这里):
           </div>
           <div className="flex items-center gap-1.5">
             <code className="flex-1 truncate rounded border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-2 py-1 text-[11px]">
-              {shownDir}
+              {targetDir}
             </code>
             <Button
               size="sm"
               variant="outline"
               onClick={() => {
-                if (!shownDir) return;
-                void navigator.clipboard?.writeText(shownDir);
-                notifySuccess('已复制路径', shownDir);
+                if (!targetDir) return;
+                void navigator.clipboard?.writeText(targetDir);
+                notifySuccess('已复制路径', targetDir);
               }}
-              title="复制目录路径"
+              title="复制安装位置路径"
             >
               <Copy className="h-3.5 w-3.5" />
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={pickBusy}
-              onClick={() => {
-                void (async () => {
-                  try {
-                    // 弹原生选目录框,让用户挑「别的 PyTorch 环境」目录
-                    const picked = await getDataDirApi().pickDirectory({
-                      defaultPath: targetDir || undefined,
-                    });
-                    // onUseExternalDir 会校验该目录 torch/torchvision 是否配套
-                    // (pytorchValidateDir),合法则采纳并弹出「是否正常」结果。
-                    if (picked) await onUseExternalDir(picked);
-                  } catch (e) {
-                    reportError(e, '选择目录失败');
-                  }
-                })();
-              }}
-              title="换位置 —— 选择别的 PyTorch 环境目录并验证"
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-              换位置
-            </Button>
           </div>
-          {usingExternalTorch ? (
-            <div className="text-[11px] text-emerald-700 dark:text-emerald-300">
-              ✓ 已指向上面这个外部目录,其中的 torch 已校验可用 —— 不必再点「扫描」
-              (扫描只查应用自带目录)。要改回自带目录,用下方「自动」。
-            </div>
-          ) : (
-            <div className="text-[11px] text-[var(--cy-text-tertiary)]">
-              说明:「扫描」只检查上面这个自带目录;torch 放在别处,请用「换位置」
-              直接指过去(指完即校验,无需再扫描)。
-            </div>
-          )}
+          <div className="text-[11px] text-[var(--cy-text-tertiary)]">
+            迁移已有的 PyTorch:把整套 torch / torchvision / transformers 等目录直接
+            复制进上面这个位置(并排放,别多套一层文件夹),再点上方「扫描」识别。
+            最省事是直接点「安装」,让程序自动下载并装好全套。
+          </div>
         </div>
       )}
 
@@ -1245,7 +1174,7 @@ const PytorchRow: React.FC = () => {
         </div>
       )}
 
-      {/* PyTorch 操作错误(「换位置」校验失败 / 切换选用失败)统一在此显示 */}
+      {/* PyTorch 操作错误(切换选用 / 安装失败等)统一在此显示 */}
       {pickMsg && (
         <div className="rounded-sm border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] text-rose-600 dark:border-rose-900/60 dark:bg-rose-900/20 dark:text-rose-400 break-all">
           {pickMsg}
