@@ -101,9 +101,10 @@ def test_torch_cdn_url_shape():
 
     from chayuan.server.runtime import pytorch_installer as pi
 
-    if pi._torch_wheel_platform_tag() is None:
+    tags = pi._torch_wheel_platform_tags()
+    if not tags:
         pytest.skip("当前平台不在 torch wheel 映射里")
-    url = pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION)
+    url = pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cpu", tags[0])
     assert url.startswith("https://download.pytorch.org/whl/cpu/")
     assert url.endswith(".whl")
     assert pi._TORCH_VERSION in url
@@ -118,14 +119,15 @@ def test_torch_cdn_url_cuda_variant():
 
     from chayuan.server.runtime import pytorch_installer as pi
 
-    if pi._torch_wheel_platform_tag() is None:
+    tags = pi._torch_wheel_platform_tags()
+    if not tags:
         pytest.skip("当前平台不在 torch wheel 映射里")
     if sys.platform == "darwin":
         # macOS 没有 CUDA wheel,应直接拒绝
         with pytest.raises(pi.WheelInstallError):
-            pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cu124")
+            pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cu124", tags[0])
         return
-    url = pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cu124")
+    url = pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cu124", tags[0])
     assert url.startswith("https://download.pytorch.org/whl/cu124/")
     assert "cu124" in url
     assert url.endswith(".whl")
@@ -135,10 +137,32 @@ def test_torch_cdn_url_rejects_unknown_variant():
     """未知 variant 应抛 WheelInstallError。"""
     from chayuan.server.runtime import pytorch_installer as pi
 
-    if pi._torch_wheel_platform_tag() is None:
-        pytest.skip("当前平台不在 torch wheel 映射里")
     with pytest.raises(pi.WheelInstallError):
-        pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cu999")
+        pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cu999", "win_amd64")
+
+
+def test_resolve_torch_url_picks_first_working(monkeypatch):
+    """_resolve_torch_cdn_wheel_url:跳过探测失败的候选,返回第一个能下载的。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    tags = pi._torch_wheel_platform_tags()
+    if not tags:
+        pytest.skip("当前平台不在 torch wheel 映射里")
+    # 只让最后一个候选 tag 的 URL "存在",前面的都当 404
+    good = pi._torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cpu", tags[-1])
+    monkeypatch.setattr(pi, "_url_exists", lambda u: u == good)
+    assert pi._resolve_torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cpu") == good
+
+
+def test_resolve_torch_url_all_fail_raises(monkeypatch):
+    """所有候选都探测失败 → 抛 WheelInstallError。"""
+    from chayuan.server.runtime import pytorch_installer as pi
+
+    if not pi._torch_wheel_platform_tags():
+        pytest.skip("当前平台不在 torch wheel 映射里")
+    monkeypatch.setattr(pi, "_url_exists", lambda u: False)
+    with pytest.raises(pi.WheelInstallError):
+        pi._resolve_torch_cdn_wheel_url("torch", pi._TORCH_VERSION, "cpu")
 
 
 # ──────────────────── version.py 解析 / 扫描 py_packages ────────────────────

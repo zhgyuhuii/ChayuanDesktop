@@ -776,6 +776,34 @@ def _torch_wheel_platform_tag() -> Optional[str]:
     return None
 
 
+def _torch_wheel_platform_tags() -> List[str]:
+    """download.pytorch.org 上 torch/torchvision wheel 的**候选** platform tag。
+
+    与 :func:`_torch_wheel_platform_tag`(单一 tag)不同:download.pytorch.org
+    对不同 torch 版本、不同平台,Linux wheel 用的 platform tag 并不固定 ——
+    ``linux_x86_64`` / ``manylinux_2_28_*`` / ``manylinux2014_*`` 都出现过。
+    硬拼单一 tag 经常 404,所以下载前要逐个候选探测(见
+    :func:`_resolve_torch_cdn_wheel_url`)。顺序:最可能命中的在前。
+    """
+    sys_name = sys.platform
+    machine = _platform.machine().lower()
+    is_x64 = machine in ("x86_64", "amd64")
+    is_arm64 = machine in ("arm64", "aarch64")
+    if sys_name.startswith("win") and is_x64:
+        return ["win_amd64"]
+    if sys_name.startswith("linux") and is_x64:
+        return ["linux_x86_64", "manylinux_2_28_x86_64",
+                "manylinux2014_x86_64", "manylinux_2_17_x86_64"]
+    if sys_name.startswith("linux") and is_arm64:
+        return ["linux_aarch64", "manylinux_2_28_aarch64",
+                "manylinux2014_aarch64", "manylinux_2_17_aarch64"]
+    if sys_name == "darwin" and is_arm64:
+        return ["macosx_11_0_arm64"]
+    if sys_name == "darwin" and is_x64:
+        return ["macosx_10_9_x86_64"]
+    return []
+
+
 class WheelInstallError(RuntimeError):
     """wheel 下载 / 解压 / 校验失败。"""
 
@@ -786,6 +814,19 @@ def _http_get(url: str, *, range_header: Optional[str] = None) -> "urllib.reques
         headers["Range"] = range_header
     req = urllib.request.Request(url, headers=headers)
     return urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT)  # noqa: S310
+
+
+def _url_exists(url: str) -> bool:
+    """探测 URL 能不能下:发一个 1 字节 ranged GET,2xx/3xx → True,404 等 → False。
+
+    用 ranged GET 而非 HEAD —— download.pytorch.org 走 CDN,Range 一定支持,
+    HEAD 个别边缘节点会 405。只取 1 字节,探测开销可忽略。
+    """
+    try:
+        with _http_get(url, range_header="bytes=0-0") as r:
+            return int(getattr(r, "status", 200)) < 400
+    except Exception:  # noqa: BLE001 — 404 / 连接失败都算"不可下载"
+        return False
 
 
 def _download_file(
@@ -885,29 +926,19 @@ def _resolve_pypi_wheel_url(name: str, version: str, *, pure: bool,
     )
 
 
-def _torch_cdn_wheel_url(pkg: str, version: str, variant: str = "cpu") -> str:
-    """拼 download.pytorch.org 上 torch / torchvision wheel 的下载 URL。
+def _torch_cdn_wheel_url(pkg: str, version: str, variant: str, plat: str) -> str:
+    """按给定 platform tag ``plat`` 拼一个 download.pytorch.org wheel URL。
 
     PyTorch 官方 wheel 文件名规范(``variant`` 决定 index 路径 + ``+local`` 标识):
       CPU,Windows / Linux: ``/whl/cpu/<pkg>-<ver>+cpu-cp312-cp312-<plat>.whl``
       CPU,macOS:           ``/whl/cpu/<pkg>-<ver>-cp312-cp312-<plat>.whl``(macOS 无 +cpu)
       CUDA(cuXXX):         ``/whl/cu124/<pkg>-<ver>+cu124-cp312-cp312-<plat>.whl``
 
-    CUDA 版与 CPU 版的差异(为什么不能共用一个 index):
-      - index 路径不同:CPU 走 ``/whl/cpu``,CUDA 走 ``/whl/cu124`` 等;
-      - 文件名 ``+local`` 标识不同(``+cpu`` vs ``+cu124``);
-      - CUDA wheel 体积大很多(CPU ~250 MB,CUDA 2-3 GB —— 打包了 CUDA runtime);
-      - macOS 没有 CUDA wheel(Apple 不支持 NVIDIA),CUDA variant 在 macOS 直接拒绝。
+    ``plat`` 由 :func:`_resolve_torch_cdn_wheel_url` 从候选列表里逐个试。
     """
     if variant not in _PYTORCH_INDEXES:
         raise WheelInstallError(
             f"未知 variant {variant!r};支持 {tuple(_PYTORCH_INDEXES)}"
-        )
-    plat = _torch_wheel_platform_tag()
-    if plat is None:
-        raise WheelInstallError(
-            f"无法识别本机平台 ({sys.platform}/{_platform.machine()}),"
-            f"无法拼 {pkg} wheel URL"
         )
     if variant != "cpu" and sys.platform == "darwin":
         raise WheelInstallError("macOS 不提供 CUDA 版 PyTorch wheel,请改装 CPU 版")
@@ -917,6 +948,41 @@ def _torch_cdn_wheel_url(pkg: str, version: str, variant: str = "cpu") -> str:
     local = "" if (variant == "cpu" and sys.platform == "darwin") else f"+{variant}"
     fname = f"{pkg}-{version}{local}-{py}-{py}-{plat}.whl"
     return f"{index}/{fname}"
+
+
+def _resolve_torch_cdn_wheel_url(
+    pkg: str, version: str, variant: str = "cpu",
+    *, log: Optional[Callable[[str], None]] = None,
+) -> str:
+    """逐个候选 platform tag 探测,返回第一个**真能下载**的 wheel URL。
+
+    「各平台自己先验证再下载」:download.pytorch.org 对不同 torch 版本 / 不同
+    平台,Linux wheel 用的 platform tag 并不固定(``linux_x86_64`` /
+    ``manylinux_2_28_*`` / ``manylinux2014_*`` 都出现过),硬拼单一 tag 经常
+    404(例:``torch-2.6.0+cpu-cp312-cp312-manylinux_2_28_x86_64.whl`` 在
+    ``/whl/cpu`` 上并不存在)。这里按平台列候选 URL、挨个探测,验证某个真能
+    下载了才用它 —— 用户点「下载」即可成功,不会撞死链。
+    """
+    _say = log or (lambda m: None)
+    tags = _torch_wheel_platform_tags()
+    if not tags:
+        raise WheelInstallError(
+            f"无法识别本机平台 ({sys.platform}/{_platform.machine()}),"
+            f"无法拼 {pkg} wheel URL"
+        )
+    tried: List[str] = []
+    for plat in tags:
+        url = _torch_cdn_wheel_url(pkg, version, variant, plat)
+        tried.append(url)
+        if _url_exists(url):
+            _say(f"[install] {pkg} wheel 链接已验证可下载:{url}")
+            return url
+        _say(f"[install] {pkg} wheel 链接不可用,试下一个候选:{url}")
+    raise WheelInstallError(
+        f"{pkg} {version}({variant})在 download.pytorch.org 上找不到可下载的 "
+        f"wheel —— {len(tried)} 个候选链接探测全部失败。多半是该版本此平台无官方 "
+        f"wheel,或当前网络不通。已试链接:\n  " + "\n  ".join(tried)
+    )
 
 
 def _write_wheel_member(
@@ -1672,7 +1738,7 @@ def install_pytorch_wheels(
                              ("torchvision", _TORCHVISION_VERSION)):
                 if cancel is not None and cancel.is_set():
                     raise WheelInstallError("已取消")
-                url = _torch_cdn_wheel_url(pkg, ver, variant)
+                url = _resolve_torch_cdn_wheel_url(pkg, ver, variant, log=_log)
                 dest = work / url.rsplit("/", 1)[-1]
                 _download_file(url, dest, log=_log, cancel=cancel, label=f"{pkg} {ver}")
                 downloaded.append(dest)
