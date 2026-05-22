@@ -146,11 +146,14 @@ const CAP_HINTS: Record<
   // 把一堆非默认模型(jina-clip / chinese-clip / 各种量化…)一并塞给用户。
   // 想要别的模型,用上方「去 ModelScope 搜」+ 粘贴 model_id 自行下载。
   chat: {
-    search: 'Qwen GGUF',
+    search: 'Qwen3 GGUF',
+    // 已核 2026-05:Qwen/Qwen3-4B-Instruct-2507-GGUF 在 ModelScope 上 404
+    // (官方 Qwen owner 没发这个 GGUF 仓);unsloth/* 同名仓在 HuggingFace
+    // 实在(200),故 chat 示例用 unsloth 的 HF 仓。
     examples: [
-      { id: 'Qwen/Qwen3-4B-Instruct-2507-GGUF', source: 'modelscope' },
+      { id: 'unsloth/Qwen3-4B-Instruct-2507-GGUF', source: 'huggingface' },
     ],
-    note: '系统默认对话模型;GGUF 量化、体积小,llama.cpp 直接加载。其它模型可在 ModelScope 搜索后粘贴 model_id 下载。',
+    note: '系统默认对话模型;GGUF 量化、体积小,llama.cpp 直接加载。其它模型可搜索后粘贴 model_id 下载。',
   },
   embedding: {
     search: 'bge-m3 GGUF',
