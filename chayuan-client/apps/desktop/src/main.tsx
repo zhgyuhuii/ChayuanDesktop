@@ -5,6 +5,7 @@ import { createTauriPlatform } from '@chayuan/platform-tauri';
 import { Shell, ScreenshotOverlayApp } from '@chayuan/app';
 import '@chayuan/ui/styles.css';
 import { ensureSplash, hideSplash } from './splash';
+import { initRuntimeSync } from './runtimeSync';
 
 // ── 截图选区子窗口分支(微信 / QQ 风格的系统级截图)─────────────────────
 // 主窗用 ``WebviewWindow`` 创建一个 label=screenshot-overlay 的无边框透明窗,
@@ -111,5 +112,11 @@ window.setTimeout(dismissSplash, 8000);
       />
     </React.StrictMode>,
   );
+
+  try {
+    initRuntimeSync(APP_VERSION);
+  } catch {
+    /* 静默 */
+  }
 })();
 }  // end else (非 overlay 子窗主分支)
