@@ -22,8 +22,16 @@ logger = logging.getLogger("chayuan.model_registry.hf_mirror")
 HF_MIRROR = "https://hf-mirror.com"
 
 
+_HF_DEFAULT = "https://huggingface.co"
+
+
 def force_hf_mirror_endpoint(endpoint: Optional[str] = None) -> str:
     """把本进程 huggingface_hub 的下载端点强制改成镜像,返回最终端点。
+
+    ⚠ 关键:``hf_hub_url`` 真正用来拼下载 URL 的是
+    ``constants.HUGGINGFACE_CO_URL_TEMPLATE`` —— 这个模板在 import 时就把
+    端点拼成字符串定死了。**只改 ``ENDPOINT`` 不够**,必须连模板一起改,
+    否则 hf_hub_download / snapshot_download 仍直连 huggingface.co。
 
     Args:
         endpoint: 显式指定端点;不传则尊重已有 ``HF_ENDPOINT`` 环境变量,
@@ -32,7 +40,7 @@ def force_hf_mirror_endpoint(endpoint: Optional[str] = None) -> str:
     Returns:
         实际生效的端点 URL。
     """
-    ep = endpoint or os.environ.get("HF_ENDPOINT") or HF_MIRROR
+    ep = (endpoint or os.environ.get("HF_ENDPOINT") or HF_MIRROR).rstrip("/")
     os.environ["HF_ENDPOINT"] = ep
     patched = 0
     for name, mod in list(sys.modules.items()):
@@ -42,7 +50,12 @@ def force_hf_mirror_endpoint(endpoint: Optional[str] = None) -> str:
             if getattr(mod, "ENDPOINT", None):
                 mod.ENDPOINT = ep
                 patched += 1
+            # 真正决定下载 URL 的模板 —— 必须改
+            tmpl = getattr(mod, "HUGGINGFACE_CO_URL_TEMPLATE", None)
+            if isinstance(tmpl, str) and _HF_DEFAULT in tmpl:
+                mod.HUGGINGFACE_CO_URL_TEMPLATE = tmpl.replace(_HF_DEFAULT, ep)
+                patched += 1
         except Exception:  # noqa: BLE001
             pass
-    logger.info("[hf-mirror] HF endpoint → %s(覆盖 %d 处缓存)", ep, patched)
+    logger.info("[hf-mirror] HF endpoint → %s(覆盖 %d 处)", ep, patched)
     return ep
