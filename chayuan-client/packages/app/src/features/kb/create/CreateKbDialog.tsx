@@ -52,13 +52,10 @@ const OPTIONS: KindOption[] = [
     desc: '上传 PDF / Word / Markdown / 网页等;自动切分 + 向量化',
     gradient: 'from-sky-500 to-indigo-600',
   },
-  {
-    value: 'image',
-    icon: Images,
-    label: '图像库',
-    desc: '上传图片;自动用 CLIP/Chinese-CLIP 提取向量入索引,支持以图搜图',
-    gradient: 'from-pink-500 to-rose-600',
-  },
+  // 图像库已隐藏 —— 整套图像向量化(CLIP / image-embedding)硬依赖 PyTorch +
+  // torchvision + transformers,体积/复杂度大且本机推理常出问题。文档库已能
+  // 自动对图片做 OCR → 文本嵌入,搜文字即可命中图片,够覆盖大多数图像检索
+  // 需求;以图搜图等纯视觉检索本版本暂未启用。
   {
     value: 'structured',
     icon: Database,

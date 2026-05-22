@@ -60,7 +60,8 @@ const CAPABILITIES: LocalRuntimeCapability[] = [
   'embedding',
   'rerank',
   'asr',
-  'image-embedding',
+  // image-embedding 已隐藏 —— 图像向量化是系统里唯一依赖 PyTorch 的能力,
+  // 现在文档库直接 OCR 处理图片,不再需要 PyTorch / image-embedding 服务。
 ];
 
 /** 与 LocalRuntimeCapabilityCard.tsx 保持同一处真源(后续两边一起改)。 */
@@ -390,10 +391,13 @@ export const LocalRuntimeServicesSection: React.FC = () => {
             RapidOCR 是独立的 python -m daemon,端口 18380,跟其它行视觉一致但走
             独立 API(modality.ocrSidecar.*)。后端 startup 已自动拉起一次。*/}
         <OcrSidecarRow />
-        {/* PyTorch + torchvision — transformers image 链的硬依赖,wheel 体积
-            ~250 MB(CPU)/ 2-3 GB(CUDA)不打包进 installer;启动后按需检测+安装。
-            优先内置 wheel(无网兜底),没有 fallback 在线官方源。*/}
-        <PytorchRow />
+        {/* PyTorch 行已隐藏 —— 系统中只有图像向量化(image-embedding)用
+            PyTorch,现在图像向量功能已下线(改走 OCR + 文本嵌入),PyTorch
+            的下载 / 安装 / 选用功能对用户不再有意义,隐藏避免误导。
+            `false && <PytorchRow />` 保留对组件的静态引用,避免 tsc 把它
+            判成未用代码;后续若彻底确认不再需要,再连同 PytorchRow /
+            PytorchHelpDialog / Pytorch* 类型 / 后端运行时一起清除。*/}
+        {false && <PytorchRow />}
         {/* 运行时服务(sidecar 二进制)— llama-server / whisper-server。
             完整安装包已内置;轻量版 / 缺失时可按平台一键下载补回。*/}
         <RuntimeServicesRow />

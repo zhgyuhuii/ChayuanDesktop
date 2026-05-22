@@ -369,9 +369,9 @@ def update_docs(
                 ext = os.path.splitext(file_name)[-1].lower()
                 if ext in (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"):
                     msg = (
-                        f"图片 {file_name} 未提取到任何文字,文档知识库仅按 OCR "
-                        "文本向量化,无文字图片不会被向量化。如需按图片内容检索,"
-                        "请改用「图像知识库」上传(走 CLIP 图像嵌入)。"
+                        f"图片 {file_name} OCR 未提取到任何文字,跳过向量化 —— "
+                        "文档库对图片走 OCR → 文本嵌入,只有图中含文字才能被检索到。"
+                        "(纯视觉的以图搜图本版本未启用;图像类知识库已下线。)"
                     )
                 else:
                     msg = (
