@@ -1077,6 +1077,65 @@ def _torch_already_installed(target: Path) -> bool:
            (target / "torch" / "version.py").is_file()
 
 
+def _scan_for_torch(
+    picked: Path, *, max_depth: int = 6, max_dirs: int = 4000,
+) -> Dict[str, Optional[Path]]:
+    """从用户所选目录**逐层向下**找一份解压好的 torch。
+
+    返回 ``{"root": <含 torch/ 的目录>|None, "whl": <扫到的 torch-*.whl>|None}``。
+
+    支持三种情形:
+      1. 选到含 ``torch/`` 的目录本身(site-packages / py_packages);
+      2. 选到 ``torch/`` 包目录本身 → 返回其父;
+      3. torch 埋在子目录里(如 wheel 解压落进 ``torch-2.6.0+cpu.../``)→ 逐层找。
+
+    优先返回 torch 与 torchvision **同在一层**的目录(运行时两者必须同目录,
+    否则跨目录版本错配);只有 torch 没有 torchvision 时退而返回 torch 那层。
+    没找到解压好的 torch、但扫到未解压的 ``torch-*.whl`` 时一并带回,便于给出
+    "请先解压 wheel" 的精确提示。BFS + ``max_depth`` / ``max_dirs`` 双重限深,
+    避免在巨大目录树里空转。
+    """
+    result: Dict[str, Optional[Path]] = {"root": None, "whl": None}
+    # 情形 2:选到 torch/ 包目录本身
+    if (picked.name == "torch"
+            and (picked / "version.py").is_file()
+            and (picked / "__init__.py").is_file()):
+        result["root"] = picked.parent
+        return result
+
+    torch_only: Optional[Path] = None
+    queue: List[tuple[Path, int]] = [(picked, 0)]
+    visited = 0
+    while queue:
+        d, depth = queue.pop(0)
+        visited += 1
+        if visited > max_dirs:
+            break
+        if _torch_already_installed(d):
+            # torch + torchvision 同目录 = 最佳,立即返回
+            if (d / "torchvision" / "__init__.py").is_file():
+                result["root"] = d
+                return result
+            # 只有 torch:先记下,继续找有没有更全的(torch+torchvision)
+            if torch_only is None:
+                torch_only = d
+            continue  # 命中 torch 目录,不再下钻它的子目录
+        try:
+            entries = sorted(d.iterdir())
+        except (OSError, PermissionError):
+            continue
+        for c in entries:
+            if c.is_dir():
+                if depth < max_depth:
+                    queue.append((c, depth + 1))
+            elif (result["whl"] is None and c.is_file()
+                  and c.name.lower().startswith("torch-")
+                  and c.name.lower().endswith(".whl")):
+                result["whl"] = c
+    result["root"] = torch_only
+    return result
+
+
 def _parse_torch_version_py(version_py: Path) -> tuple[Optional[str], Optional[str]]:
     """读 ``torch/version.py``,解析 ``__version__`` 与 ``cuda``,返 (version, cuda_build)。
 
@@ -1241,9 +1300,10 @@ def validate_torch_dir(path: Any) -> Dict[str, Any]:
     「合法」标准跟 :func:`_torch_already_installed` 一致:目录下有
     ``torch/__init__.py`` + ``torch/version.py``。纯文件探测,**不 import torch**。
 
-    可接受两种 ``path``:
+    逐层识别:从 ``path`` 向下递归搜索,以下情形都能自动认出 torch ——
       - 直接指向含 ``torch/`` 子目录的目录(site-packages / py_packages 本身);
-      - 指向 ``torch/`` 目录本身(用户可能选错一层)—— 自动回退到其父目录。
+      - 指向 ``torch/`` 目录本身(用户选错一层)—— 自动回退到其父目录;
+      - torch 埋在子目录里(如 wheel 解压落进 ``torch-2.6.0+cpu.../``)—— 逐层找出。
 
     Returns:
         dict::
@@ -1284,17 +1344,26 @@ def validate_torch_dir(path: Any) -> Dict[str, Any]:
         out["reason"] = f"不是目录: {p}"
         return out
 
-    # 用户可能选到 torch/ 目录本身 —— 回退到父目录(site-packages 那层)
-    cand = p
-    if p.name == "torch" and (p / "__init__.py").is_file():
-        cand = p.parent
-
-    if not _torch_already_installed(cand):
-        out["reason"] = (
-            f"{cand} 下没有合法的 torch(缺 torch/__init__.py 或 torch/version.py);"
-            "请选择「装好 torch 的目录」(系统 Python 的 site-packages,"
-            "或之前解压过 torch wheel 的目录)"
-        )
+    # 逐层识别:从所选目录向下递归找真正"装好 torch 的目录"——
+    # 支持选到 site-packages、torch/ 包本身、或 torch 埋在子目录里
+    # (如 wheel 解压落进 torch-2.6.0+cpu.../)三种情形。
+    scan = _scan_for_torch(p)
+    cand = scan["root"]
+    if cand is None:
+        whl = scan["whl"]
+        if whl is not None:
+            # 扫到未解压的 wheel —— 给"先解压"的精确提示
+            out["reason"] = (
+                f"在 {p} 下逐层搜索,只找到未解压的 wheel:{whl.name};"
+                "torch / torchvision 的 .whl 本质是 zip,请先解压(可改名 .zip 解压,"
+                "或用 7-Zip),再选解压出来的目录。"
+            )
+        else:
+            out["reason"] = (
+                f"在 {p} 下逐层搜索仍未找到解压好的 torch"
+                "(缺 torch/__init__.py 或 torch/version.py)。请选择「装好 torch 的"
+                "目录」——系统 Python 的 site-packages,或解压过 torch wheel 的目录。"
+            )
         return out
 
     ver, build = _parse_torch_version_py(cand / "torch" / "version.py")
