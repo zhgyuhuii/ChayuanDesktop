@@ -92,19 +92,12 @@ export const PytorchHelpDialog: React.FC<PytorchHelpDialogProps> = ({
               torch <Code>{torchVer}</Code> · torchvision <Code>{tvVer}</Code>。
             </p>
 
-            <p className="font-medium text-[var(--cy-text-primary)]">
-              这台机器能联网?最省事 —— 不用手动找文件,开命令行直接跑:
-            </p>
             <p>
-              <Code>
-                pip install torch=={torchVer} torchvision=={tvVer} --index-url
-                https://download.pytorch.org/whl/cpu
-              </Code>
+              联网的话直接点面板上的「安装」最省事 —— 它内置了下载 + 解压,
+              <strong>不需要 pip</strong>。下面这套是手动办法(离线 / 内网,
+              或想自己挑版本):
             </p>
-            <p>pip 会自己挑对文件。下面的手动步骤只在纯离线、不能用 pip 时才需要。</p>
-
-            <p className="font-medium text-[var(--cy-text-primary)]">手动下载:</p>
-            <p>① 浏览器打开这两个文件夹(CPU 版 wheel 列表):</p>
+            <p>① 用浏览器打开这两个文件夹(CPU 版 torch / torchvision 的 wheel 列表):</p>
             <ul className="list-disc space-y-0.5 pl-4">
               <li>
                 torch:<Code>https://download.pytorch.org/whl/cpu/torch/</Code>
@@ -156,26 +149,20 @@ export const PytorchHelpDialog: React.FC<PytorchHelpDialogProps> = ({
 
           <Step n={2} title="把两个 wheel 解压到同一个目录">
             <p>
-              <Code>.whl</Code> 本质就是 zip 压缩包。两个文件都要解压,而且
-              <strong>解压进同一个目录</strong>(比如新建一个 <Code>torch-pkg</Code> 文件夹)。
+              <Code>.whl</Code> 本质就是 zip 压缩包。第 1 步下到的两个文件都要解压,
+              而且<strong>解压进同一个目录</strong>(比如新建一个 <Code>torch-pkg</Code>{' '}
+              文件夹)。<strong>不需要 pip / Python</strong>,用系统自带的解压就行:
             </p>
-            <p>命令行(任意系统,有 Python 即可)—— 进到 wheel 所在目录后逐条跑:</p>
-            <p>
-              <Code>
-                python -m zipfile -e
-                torch-{torchVer}+cpu-cp312-cp312-linux_x86_64.whl torch-pkg
-              </Code>
-            </p>
-            <p>
-              <Code>
-                python -m zipfile -e
-                torchvision-{tvVer}+cpu-cp312-cp312-linux_x86_64.whl torch-pkg
-              </Code>
-            </p>
-            <p className="text-[var(--cy-text-tertiary)]">
-              文件名换成你第 1 步实际下到的那两个;Windows 也可以把后缀改成{' '}
-              <Code>.zip</Code> 右键解压到同一文件夹。
-            </p>
+            <ul className="list-disc space-y-0.5 pl-4">
+              <li>
+                Windows:把文件后缀 <Code>.whl</Code> 改成 <Code>.zip</Code>,
+                右键「全部解压」;两个文件都解压到同一个 <Code>torch-pkg</Code> 文件夹。
+              </li>
+              <li>
+                Linux / macOS:<Code>unzip 文件名.whl -d torch-pkg</Code>
+                (或 <Code>tar -xf 文件名.whl -C torch-pkg</Code>);两个 wheel 都解。
+              </li>
+            </ul>
             <p>
               解压完 <Code>torch-pkg/</Code> 里会有 <Code>torch/</Code>、
               <Code>torchvision/</Code> 两个包目录(外加几个 <Code>*.dist-info</Code>)
