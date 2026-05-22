@@ -968,6 +968,14 @@ const PytorchRow: React.FC = () => {
       : null;
 
   const targetDir = status?.install_target_dir ?? scanResult?.target_dir ?? null;
+  // 「换位置」选了外部目录(selection.mode='path')时,「目录」一栏要显示那个
+  // 外部目录,而不是死显示安装落点 py_packages —— 否则点完「换位置」用户看着
+  // 路径没变,以为没生效。
+  const usingExternalTorch =
+    locations?.selection?.mode === 'path' && !!locations.selection.path;
+  const shownDir: string | null = usingExternalTorch
+    ? locations?.selection?.path ?? targetDir
+    : targetDir;
 
   return (
     <div
@@ -1069,18 +1077,21 @@ const PytorchRow: React.FC = () => {
       {targetDir && (
         <div className="space-y-1 rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2">
           <div className="text-[11px] text-[var(--cy-text-secondary)]">
-            手动装好的 torch / 解压好的 wheel 放这里,然后点上方「扫描」识别:
+            {usingExternalTorch
+              ? '当前 PyTorch 目录(已用「换位置」指到外部目录):'
+              : '手动装好的 torch / 解压好的 wheel 放这里,然后点上方「扫描」识别:'}
           </div>
           <div className="flex items-center gap-1.5">
             <code className="flex-1 truncate rounded border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-2 py-1 text-[11px]">
-              {targetDir}
+              {shownDir}
             </code>
             <Button
               size="sm"
               variant="outline"
               onClick={() => {
-                void navigator.clipboard?.writeText(targetDir);
-                notifySuccess('已复制路径', targetDir);
+                if (!shownDir) return;
+                void navigator.clipboard?.writeText(shownDir);
+                notifySuccess('已复制路径', shownDir);
               }}
               title="复制目录路径"
             >
@@ -1111,6 +1122,17 @@ const PytorchRow: React.FC = () => {
               换位置
             </Button>
           </div>
+          {usingExternalTorch ? (
+            <div className="text-[11px] text-emerald-700 dark:text-emerald-300">
+              ✓ 已指向上面这个外部目录,其中的 torch 已校验可用 —— 不必再点「扫描」
+              (扫描只查应用自带目录)。要改回自带目录,用下方「自动」。
+            </div>
+          ) : (
+            <div className="text-[11px] text-[var(--cy-text-tertiary)]">
+              说明:「扫描」只检查上面这个自带目录;torch 放在别处,请用「换位置」
+              直接指过去(指完即校验,无需再扫描)。
+            </div>
+          )}
         </div>
       )}
 
