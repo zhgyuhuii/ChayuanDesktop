@@ -56,10 +56,10 @@ function detectSystem(): { os: string; osVer: string; arch: string } {
     const mac = ua.match(/Mac OS X ([0-9_]+)/);
     if (win) {
       os = 'windows';
-      osVer = win[1];
+      osVer = win[1] ?? '';
     } else if (mac) {
       os = 'macos';
-      osVer = mac[1].replace(/_/g, '.');
+      osVer = (mac[1] ?? '').replace(/_/g, '.');
     } else if (/Linux/.test(ua)) {
       os = 'linux';
     }
