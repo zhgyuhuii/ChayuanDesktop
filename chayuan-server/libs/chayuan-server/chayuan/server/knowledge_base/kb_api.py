@@ -221,6 +221,48 @@ def delete_kb(
 
     kb = KBServiceFactory.get_service_by_name(knowledge_base_name)
 
+    # 不是文档 KB → 可能是图像 / 向量 knowledge_source(同名)。前端有的入口
+    # (KbPage 等)删知识库不分 kind、统一打到本接口;这里必须把 knowledge_source
+    # 也删干净 —— 尤其**图像源**的索引 store(data/image_indexes/<name>/)+
+    # 进程内 _STORES 缓存,delete_source 自己不碰,不清就同名重建旧图复活。
+    if kb is None:
+        try:
+            from chayuan.server.db.repository.knowledge_source_repository import (
+                delete_source,
+                get_source_by_name,
+            )
+            _src = get_source_by_name(knowledge_base_name)
+            if _src is not None:
+                _sid = int(_src["id"])
+                _img_store = None
+                if (_src.get("kind") or "") == "image":
+                    try:
+                        from chayuan.server.api_server.image_routes import (
+                            _resolve_store_name,
+                        )
+                        _img_store = _resolve_store_name(_sid)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("delete_kb: 解析图像 store 名失败: %r", e)
+                delete_source(_sid)
+                if _img_store is not None:
+                    try:
+                        from chayuan.server.api_server.image_routes import (
+                            purge_image_source_storage,
+                        )
+                        purge_image_source_storage(_sid, _img_store)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("delete_kb: 清图像存储失败: %r", e)
+                logger.info(
+                    "[delete_kb] 按 knowledge_source 删除 name=%s id=%s kind=%s",
+                    knowledge_base_name, _sid, _src.get("kind"),
+                )
+                return BaseResponse(
+                    code=200, msg=f"已删除知识库 {knowledge_base_name}"
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("delete_kb: knowledge_source 兜底删除失败 name=%s: %r",
+                           knowledge_base_name, e)
+
     # KB 在 DB 里 → 先让 KBService 清向量库 collection。clear_vs / drop_kb
     # 失败都不致命:下面 _purge_kb_residue 会按名字把文件 + DB 行兜底全清。
     if kb is not None:
