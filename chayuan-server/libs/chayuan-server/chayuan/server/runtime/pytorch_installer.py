@@ -580,10 +580,22 @@ def detect_status() -> TorchStatus:
             "建议先升级 NVIDIA 驱动到 525+ 再装 CUDA 12.4 版"
         )
     if torch_ver and not import_ok:
-        notes.append(
-            f"torch {torch_ver} 已装但 import 链断裂 — 多半是 torchvision 跟 "
-            "torch 版本不配对,建议重装 torch + torchvision(本面板会同步装两个)"
-        )
+        if tv_ver is None:
+            # torchvision 压根没 import 到(No module named 'torchvision')——
+            # 不是版本不配对,是 torchvision 没装 / 没和 torch 放在同一个目录。
+            notes.append(
+                f"torch {torch_ver} 已装,但找不到 torchvision(No module named "
+                "'torchvision')。torch 与 torchvision 必须解压在【同一个目录】里"
+                "——该目录要同时直接含 torch/ 和 torchvision/ 两个子目录。请把配对的"
+                " torchvision wheel(torch 2.6.0 ↔ torchvision 0.21.0)解压到 torch "
+                "所在的同一目录后重启后端。"
+            )
+        else:
+            notes.append(
+                f"torch {torch_ver} + torchvision {tv_ver} 已装但 import 链断裂"
+                "——多半是两者版本不配对。请装配对版本(torch 2.6.0 ↔ "
+                "torchvision 0.21.0),且放在同一个目录。"
+            )
 
     offline_dir = _offline_wheels_dir()
     offline_ok = bool(offline_dir and _find_offline_wheels(suggested))
