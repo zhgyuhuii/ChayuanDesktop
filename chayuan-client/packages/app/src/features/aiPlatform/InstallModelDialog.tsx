@@ -98,16 +98,14 @@ const CAP_LABEL: Record<LocalRuntimeCapability, string> = {
 // image-embedding 仍故意不列:HF transformers 整仓,走 infinity Python sidecar;
 //   project 还没把 image-embedding 进 verified 清单,先不预填。
 type VerifiedDefault = { id: string; source: InstallModelSource; file?: string };
+// 弹窗打开即预填的「系统默认」模型。2026-05 逐条真下载实测过
+// (ModelScope / hf-mirror range-GET 校验文件头)。能用 ModelScope 的全走
+// ModelScope(国内直连);whisper.cpp ModelScope 无仓,走 HF→hf-mirror。
 const VERIFIED_DEFAULTS: Partial<Record<LocalRuntimeCapability, VerifiedDefault>> = {
   chat: {
     id: 'unsloth/Qwen3-4B-Instruct-2507-GGUF',
-    source: 'huggingface',
+    source: 'modelscope',
     file: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
-  },
-  asr: {
-    id: 'ggerganov/whisper.cpp',
-    source: 'huggingface',
-    file: 'ggml-tiny.bin',
   },
   embedding: {
     id: 'gpustack/bge-m3-GGUF',
@@ -118,6 +116,16 @@ const VERIFIED_DEFAULTS: Partial<Record<LocalRuntimeCapability, VerifiedDefault>
     id: 'gpustack/bge-reranker-v2-m3-GGUF',
     source: 'modelscope',
     file: 'bge-reranker-v2-m3-Q8_0.gguf',
+  },
+  asr: {
+    id: 'ggerganov/whisper.cpp',
+    source: 'huggingface',
+    file: 'ggml-tiny.bin',
+  },
+  'image-embedding': {
+    id: 'openai-mirror/clip-vit-base-patch32',
+    source: 'modelscope',
+    // CLIP 是多文件 transformers 模型 → 整仓下载,不指定单文件
   },
 };
 
