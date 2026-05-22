@@ -22,8 +22,8 @@
 | cap        | 推荐                            | 备选                  | 大小    |
 |------------|---------------------------------|-----------------------|---------|
 | chat       | Qwen3-4B-Instruct-2507 Q3_K_S   | Q3_K_M / IQ3          | ~1.8 GB |
-| embedding  | gte-multilingual-base           | -                     | ~1.22 GB |
-| rerank     | gte-multilingual-reranker-base  | -                     | ~584 MB |
+| embedding  | bge-m3 GGUF Q5_K_M              | -                     | ~468 MB |
+| rerank     | bge-reranker-v2-m3 GGUF Q4_K_M  | -                     | ~438 MB |
 | asr        | whisper.cpp ggml-tiny           | -                     | ~74 MB  |
 
 用法
@@ -92,8 +92,13 @@ MANIFEST: dict[str, dict[str, Any]] = {
              "allow_patterns": ["*Q3_K_S*"]},
         ],
         "ms": [
-            # 2026-05-16 验证:MS 上 qwen/Qwen3-4B-Instruct-2507-GGUF 404(社区尚无镜像)。
-            # 兜底 Qwen2.5-3B 官方 GGUF(2024 老版但 MS 上稳存在,~1.96 GB Q4_K_M)。
+            # 2026-05-22 实测:unsloth/Qwen3-4B-Instruct-2507-GGUF 在 ModelScope
+            # 上存在(与 HF 首选同名同档,仓内有 Qwen3-4B-Instruct-2507-Q3_K_S.gguf)
+            # → MS fallback 直接拿同一个 Qwen3-4B GGUF,不再降级成另一个模型。
+            # 注:官方 qwen/Qwen3-4B-Instruct-2507-GGUF 命名空间仍 404,别用那个。
+            {"repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+             "allow_patterns": ["*Q3_K_S*"]},
+            # 末位兜底:Qwen2.5-3B 官方 GGUF(2024 老版,仅 Qwen3 整个拉不动时用)
             {"repo": "qwen/Qwen2.5-3B-Instruct-GGUF",
              "allow_patterns": ["*q4_k_m*"]},
         ],
@@ -127,7 +132,13 @@ MANIFEST: dict[str, dict[str, Any]] = {
              ]},
         ],
         "ms": [
-            # BAAI 在 MS 上的官方 repo(transformers 格式;MS 上没 bge-m3 GGUF)
+            # GGUF 首选 — llama-server --embedding 只吃 GGUF。2026-05-22 实测
+            # gpustack/bge-m3-GGUF 在 ModelScope 上存在,仓内有 bge-m3-Q5_K_M.gguf。
+            # 之前这里只挂 BAAI/bge-m3(transformers 整仓)→ 国内走 MS 下到的
+            # embedding 模型 llama-server 加载不了、embedding 服务起不来。
+            {"repo": "gpustack/bge-m3-GGUF",
+             "allow_patterns": ["*Q5_K_M.gguf", "*q5_k_m.gguf"]},
+            # transformers 兜底(infinity sidecar / 通用 fallback;llama 引擎不用)
             {"repo": "BAAI/bge-m3",
              "allow_patterns": [
                  "*.json", "*.txt", "*.safetensors",
@@ -163,7 +174,13 @@ MANIFEST: dict[str, dict[str, Any]] = {
              ]},
         ],
         "ms": [
-            # MS 上 GGUF 稀缺,fallback 走 transformers
+            # GGUF 首选 — llama-server --reranking 只吃 GGUF。2026-05-22 实测
+            # gpustack/bge-reranker-v2-m3-GGUF 在 ModelScope 上存在,仓内有
+            # bge-reranker-v2-m3-Q4_K_M.gguf。之前这里只挂 transformers 整仓,
+            # 国内走 MS 下到的 rerank 模型 llama-server 加载不了。
+            {"repo": "gpustack/bge-reranker-v2-m3-GGUF",
+             "allow_patterns": ["*Q4_K_M.gguf", "*q4_k_m.gguf"]},
+            # transformers 兜底(infinity sidecar / 通用 fallback)
             {"repo": "BAAI/bge-reranker-v2-m3",
              "allow_patterns": [
                  "*.json", "*.txt", "*.safetensors",

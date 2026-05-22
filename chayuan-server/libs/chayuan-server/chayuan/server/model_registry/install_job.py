@@ -89,26 +89,20 @@ _RELEASE_MANIFEST: Dict[str, List[Dict[str, Any]]] = {
             "cap": "chat",
             "approx_bytes": 2_500_000_000,
         },
+        # embedding / rerank 必须是 GGUF 单文件 —— 运行时引擎是 llama-server
+        # (--embedding / --reranking),只吃 GGUF;装 BAAI/* 的 safetensors
+        # 整仓 sidecar 直接起不来(见 server/utils.py 的报错文案)。
         {
-            "repo": "BAAI/bge-m3",
+            "repo": "gpustack/bge-m3-GGUF",
+            "file": "bge-m3-Q5_K_M.gguf",
             "cap": "embedding",
-            "allow_patterns": [
-                "config.json", "tokenizer.json", "tokenizer_config.json",
-                "sentencepiece.bpe.model", "special_tokens_map.json",
-                "model.safetensors", "pytorch_model.bin",
-                "1_Pooling/*", "modules.json", "sentence_bert_config.json",
-            ],
-            "approx_bytes": 570_000_000,
+            "approx_bytes": 468_000_000,
         },
         {
-            "repo": "BAAI/bge-reranker-v2-m3",
+            "repo": "gpustack/bge-reranker-v2-m3-GGUF",
+            "file": "bge-reranker-v2-m3-Q4_K_M.gguf",
             "cap": "rerank",
-            "allow_patterns": [
-                "config.json", "tokenizer.json", "tokenizer_config.json",
-                "sentencepiece.bpe.model", "special_tokens_map.json",
-                "model.safetensors",
-            ],
-            "approx_bytes": 2_300_000_000,
+            "approx_bytes": 438_000_000,
         },
         {
             "repo": "ggerganov/whisper.cpp",

@@ -233,19 +233,24 @@ models:
     # - unsloth/Qwen3-4B-Instruct-2507-GGUF 单文件 2.33 GB,HEAD 200。
     note: 默认对话模型(Qwen3-4B Instruct 2507 Q4_K_M,2.33 GB)；中文/工具调用强；建议 8GB+ 内存
 
+  # embedding / rerank 必须是 GGUF 单文件 —— 运行时引擎是 llama-server
+  # (--embedding / --reranking),只吃 GGUF;装 BAAI/* 的 safetensors 整仓
+  # sidecar 直接起不来(见 server/utils.py 的报错文案)。
   - name: bge-m3
-    repo: BAAI/bge-m3
-    dest: models/embedding/BAAI--bge-m3
-    source: hf-mirror://BAAI/bge-m3
+    repo: gpustack/bge-m3-GGUF
+    file: bge-m3-Q5_K_M.gguf
+    dest: models/embedding/gpustack--bge-m3-GGUF
+    source: hf-mirror://gpustack/bge-m3-GGUF
     release: [lite, standard, pro]
-    note: 默认 embedding；中英多语言 + 长上下文(8K) + 稠密/稀疏/多向量；HF transformers ~570MB
+    note: 默认 embedding(GGUF Q5_K_M,~468MB,llama-server --embedding 单文件加载)；中英多语言 + 长上下文(8K)
 
   - name: bge-reranker-v2-m3
-    repo: BAAI/bge-reranker-v2-m3
-    dest: models/rerank/BAAI--bge-reranker-v2-m3
-    source: hf-mirror://BAAI/bge-reranker-v2-m3
+    repo: gpustack/bge-reranker-v2-m3-GGUF
+    file: bge-reranker-v2-m3-Q4_K_M.gguf
+    dest: models/rerank/gpustack--bge-reranker-v2-m3-GGUF
+    source: hf-mirror://gpustack/bge-reranker-v2-m3-GGUF
     release: [lite, standard, pro]
-    note: 默认 reranker；与 bge-m3 同家族，配套效果好；~560MB
+    note: 默认 reranker(GGUF Q4_K_M,~438MB,llama-server --reranking 单文件加载)；与 bge-m3 同家族
 
   - name: whisper-tiny-cpp
     repo: ggerganov/whisper.cpp

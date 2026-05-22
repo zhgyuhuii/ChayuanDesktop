@@ -11,7 +11,9 @@
 # 用法:
 #   bash scripts/install-llama-server.sh [version] [--target <plat>]
 #
-#   version: llama.cpp release tag,默认 b4404
+#   version: llama.cpp release tag,默认 b9174(与 install-llama-server.ps1 /
+#            runtime/install_service.py 的 _LLAMA_VERSION 对齐)。
+#            老 b4404 不支持 qwen3 等 2025 后架构,会撞 unknown model architecture。
 #   --target: vendor 平台子目录名 + 对应 upstream asset。不传 = 自动按 host 选。
 #     支持:
 #       linux-x64          (Docker ubuntu:20.04 内源码编译,需 docker;老 glibc 通跑)
@@ -26,10 +28,10 @@
 #
 # 例:
 #   bash scripts/install-llama-server.sh                      # 自动 host
-#   bash scripts/install-llama-server.sh b4404 --target win-x64-noavx
+#   bash scripts/install-llama-server.sh b9174 --target win-x64
 set -euo pipefail
 
-VERSION="b4404"
+VERSION="b9174"
 TARGET=""
 # 解析 args:第一个非 -- 开头的非空 arg 当 VERSION,--target <val> 取 TARGET
 while [ $# -gt 0 ]; do
@@ -130,11 +132,12 @@ case "$TARGET" in
     linux-x64)        ASSET="llama-$VERSION-bin-ubuntu-x64.zip" ;;
     macos-arm64)      ASSET="llama-$VERSION-bin-macos-arm64.zip" ;;
     macos-x64)        ASSET="llama-$VERSION-bin-macos-x64.zip" ;;
-    win-x64)          ASSET="llama-$VERSION-bin-win-avx2-x64.zip" ;;
-    win-x64-avx)      ASSET="llama-$VERSION-bin-win-avx-x64.zip" ;;
-    win-x64-avx512)   ASSET="llama-$VERSION-bin-win-avx512-x64.zip" ;;
-    win-x64-noavx)    ASSET="llama-$VERSION-bin-win-noavx-x64.zip" ;;
-    win-arm64)        ASSET="llama-$VERSION-bin-win-llvm-arm64.zip" ;;
+    win-x64|win-x64-avx|win-x64-avx512|win-x64-noavx)
+        # b5400 起 llama.cpp 不再分 avx/avx2/avx512/noavx 多个 zip,合并成单一
+        # win-cpu-x64.zip(运行时 SIMD dispatch)。默认 b9174 ≥ 5400 走新名;
+        # 与 runtime/install_service.py 的 _llama_asset_for 保持一致。
+        ASSET="llama-$VERSION-bin-win-cpu-x64.zip" ;;
+    win-arm64)        ASSET="llama-$VERSION-bin-win-cpu-arm64.zip" ;;
     linux-arm64)
         echo "[install] linux-arm64 upstream 没发 zip。" >&2
         echo "  解法 1:docker create ghcr.io/ggml-org/llama.cpp:server (arm64) + cp /app/* 到 vendor/.../linux-arm64/" >&2
