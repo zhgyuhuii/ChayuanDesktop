@@ -947,7 +947,11 @@ def _torch_cdn_wheel_url(pkg: str, version: str, variant: str, plat: str) -> str
     # macOS 的 CPU wheel 文件名无 +local 段;其余(Win/Linux 的 cpu / 所有 cuXXX)都带。
     local = "" if (variant == "cpu" and sys.platform == "darwin") else f"+{variant}"
     fname = f"{pkg}-{version}{local}-{py}-{py}-{plat}.whl"
-    return f"{index}/{fname}"
+    # ⚠ download.pytorch.org 的 CDN 要求 URL 路径里的 '+' 必须 %2B 编码 ——
+    # 字面 '+'(torch-2.6.0+cpu-...whl)会被 CDN 拒成 403,导致所有候选
+    # platform tag 探测全部"链接不可用"。这里只对 URL 编码;本地落盘文件名
+    # 由调用方把 %2B 还原成字面 '+'。
+    return f"{index}/{fname.replace('+', '%2B')}"
 
 
 def _resolve_torch_cdn_wheel_url(
@@ -1739,7 +1743,9 @@ def install_pytorch_wheels(
                 if cancel is not None and cancel.is_set():
                     raise WheelInstallError("已取消")
                 url = _resolve_torch_cdn_wheel_url(pkg, ver, variant, log=_log)
-                dest = work / url.rsplit("/", 1)[-1]
+                # URL 里的 '+' 已 %2B 编码;本地文件名还原成字面 '+'(.whl
+                # 规范文件名),避免落盘出现 torch-2.6.0%2Bcpu-...whl。
+                dest = work / url.rsplit("/", 1)[-1].replace("%2B", "+")
                 _download_file(url, dest, log=_log, cancel=cancel, label=f"{pkg} {ver}")
                 downloaded.append(dest)
                 torch_whls.append(dest)
