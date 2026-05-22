@@ -693,9 +693,32 @@ class SidecarRuntimeManager:
                         f"(无 stdout/stderr 输出,退出码 {proc.returncode});"
                         f"手动复现:{_cmdline}"
                     )
+                # 二进制错位自检:本该是 llama.cpp / whisper.cpp 的原生 server,
+                # 却跑出了 chayuan-server 本体的特征输出(Click Usage /
+                # [mp-freeze] / rthook)—— 说明 services/<engine>-server/ 下放的
+                # 二进制其实是 chayuan-server 本体(打包损坏 / 被错误替换)。它
+                # 是个 Click CLI,收到 --host/--port 不认就打 Usage 退出。直接给
+                # 可操作诊断,别甩给用户一坨看不懂的 Click usage。
+                if self.engine in ("llama", "whisper") and any(
+                    sig in merged for sig in (
+                        "chayuan-server [OPTIONS]",
+                        "[mp-freeze]",
+                        "chayuan-rthook",
+                    )
+                ):
+                    last_error = (
+                        f"{self.engine}-server 二进制错位:{exe} 跑起来其实是 "
+                        "chayuan-server 本体,而不是 llama.cpp / whisper.cpp 的"
+                        "原生 server —— 多半是安装包里该二进制损坏 / 被错误替换。"
+                        "请重装应用;若自行构建,确认 "
+                        f"vendor/services/{self.engine}-server/<平台>/ 下放的是"
+                        "真正的 server 二进制(而非 chayuan-server)后重新打包。"
+                    )
+                else:
+                    last_error = f"llama-server 启动时退出:{tail}"
                 self._status = RuntimeStatus(
                     state="failed",
-                    last_error=f"llama-server 启动时退出:{tail}",
+                    last_error=last_error,
                 )
                 self._process = None
                 self._persist_status()

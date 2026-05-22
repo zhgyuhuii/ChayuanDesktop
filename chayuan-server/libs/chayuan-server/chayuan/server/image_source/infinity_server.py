@@ -146,7 +146,15 @@ def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
         asyncio.get_event_loop().run_in_executor(None, _warm)
 
 
-if __name__ == "__main__":  # pragma: no cover - real serve path
+def main() -> None:  # pragma: no cover - real serve path
+    """image-embedding sidecar 入口。
+
+    两条拉起路径都汇到这里:
+      * 开发模式:``python -m chayuan.server.image_source.infinity_server ...``
+      * frozen:``chayuan-server --sidecar-mode image-embedding ...`` —— frozen 下
+        sys.executable 是 chayuan-server 本体、无法 ``python -m``,由
+        ``chayuan/__main__.py`` 摘掉 ``--sidecar-mode <cap>`` 后调用本函数。
+    """
     args = parse_serve_args(default_port=62586)
     cfg = dict(_DEFAULT_CONFIG)
     if args.model:
@@ -160,3 +168,7 @@ if __name__ == "__main__":  # pragma: no cover - real serve path
         register_routes=_register_routes,
     )
     serve(app, host=args.host, port=args.port)
+
+
+if __name__ == "__main__":  # pragma: no cover - real serve path
+    main()
