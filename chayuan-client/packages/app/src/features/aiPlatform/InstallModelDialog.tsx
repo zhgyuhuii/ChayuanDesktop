@@ -123,9 +123,11 @@ const VERIFIED_DEFAULTS: Partial<Record<LocalRuntimeCapability, VerifiedDefault>
     file: 'ggml-tiny.bin',
   },
   'image-embedding': {
-    id: 'openai-mirror/clip-vit-base-patch32',
-    source: 'modelscope',
-    // CLIP 是多文件 transformers 模型 → 整仓下载,不指定单文件
+    id: 'openai/clip-vit-base-patch32',
+    source: 'huggingface',
+    // CLIP 多文件 transformers 模型 → 整仓下载,不指定单文件。
+    // HF 走 hf-mirror 镜像;ModelScope 上对应的是 openai-mirror/ ——
+    // 主源 404 时 install_model 会自动换源回退,两边都能下成。
   },
 };
 
@@ -217,14 +219,14 @@ const CAP_HINTS: Record<
   },
   'image-embedding': {
     search: 'CLIP',
-    // 实测:openai-mirror/clip-vit-base-patch32 @ ModelScope 在,config.json /
-    // pytorch_model.bin 真下载正常(.bin 文件头 = ZIP 魔数)。
+    // openai/clip-vit-base-patch32 @ HuggingFace(经 hf-mirror);ModelScope
+    // 上对应 openai-mirror/clip-vit-base-patch32 —— 主源 404 后端自动换源。
     examples: [
       {
-        id: 'openai-mirror/clip-vit-base-patch32',
-        source: 'modelscope',
+        id: 'openai/clip-vit-base-patch32',
+        source: 'huggingface',
         label: 'CLIP ViT-B/32 (系统默认)',
-        note: '标准 CLIP,transformers 直接加载、不挑依赖(整仓下载)',
+        note: '标准 CLIP,transformers 直接加载、不挑依赖(整仓下载,经 hf-mirror)',
       },
     ],
     note: '系统默认图像模型 CLIP ViT-B/32。其它图像模型(jina-clip、chinese-clip 等)可搜索后自行粘贴 model_id 下载。',
