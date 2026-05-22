@@ -610,12 +610,29 @@ class InstallModelJobManager:
             job.progress_pct = 90.0
 
     def _download_huggingface(self, job: InstallModelJob, target_dir: Path) -> None:
-        # 默认走 hf-mirror(国内),用户可在 install_job 那边设过 HF_ENDPOINT
-        os.environ.setdefault("HF_ENDPOINT", _MIRROR_ENDPOINTS["hf-mirror"])
+        # 默认走 hf-mirror —— 国内直连 huggingface.co 常 "Network is unreachable"。
+        # 用户显式设过 HF_ENDPOINT 就尊重,否则强制镜像。
+        endpoint = os.environ.get("HF_ENDPOINT") or _MIRROR_ENDPOINTS["hf-mirror"]
+        os.environ["HF_ENDPOINT"] = endpoint
         try:
             from huggingface_hub import hf_hub_download, snapshot_download
         except ImportError as e:
             raise RuntimeError("huggingface_hub 未安装") from e
+        # ⚠ huggingface_hub **首次 import 时**就把 HF_ENDPOINT 固化进
+        # constants.ENDPOINT。本进程别处(模型扫描等)早已 import 过它,此时
+        # 再设环境变量已无效 —— 必须运行时直接覆盖 constants.ENDPOINT,否则
+        # 下载仍直连 huggingface.co、国内不可达。
+        try:
+            import huggingface_hub.constants as _hf_const
+            _hf_const.ENDPOINT = endpoint
+            import huggingface_hub.file_download as _hf_fd
+            if hasattr(_hf_fd, "ENDPOINT"):
+                _hf_fd.ENDPOINT = endpoint
+        except Exception as e:  # noqa: BLE001
+            with self._lock:
+                job.log_tail.append(
+                    f"[install_model] 覆盖 HF endpoint 失败(忽略): {e!r}"
+                )
 
         self._check_cancel(job)
         with self._lock:
