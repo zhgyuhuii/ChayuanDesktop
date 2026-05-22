@@ -184,9 +184,25 @@ export const PytorchHelpDialog: React.FC<PytorchHelpDialogProps> = ({
                 </span>
               )}
             </p>
+            <p>
+              放好后,放置目录应该长这样 —— <Code>torch/</Code> 和{' '}
+              <Code>torchvision/</Code> 两个目录【并排、同时直接】位于其下:
+            </p>
+            <pre className="overflow-x-auto rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-2.5 text-[11px] leading-relaxed text-[var(--cy-text-primary)]">
+{`放置目录/
+├─ torch/                          ← 必须有(里面有 __init__.py)
+├─ torchvision/                    ← 必须有(里面有 __init__.py)
+├─ torchgen/   functorch/   …      ← 解压出的其它包目录,一并放进来
+├─ torch-${torchVer}+cpu.dist-info/
+└─ torchvision-${tvVer}+cpu.dist-info/`}
+            </pre>
             <p className="text-[var(--cy-text-tertiary)]">
-              注意:让 <Code>torch/</Code> 目录直接位于放置目录下,不要多套一层 文件夹,也不要只放{' '}
-              <Code>.dist-info</Code>。
+              硬性要求:<Code>torch/</Code> 与 <Code>torchvision/</Code> 必须
+              <strong>同时、直接</strong>位于放置目录下、并排 —— 系统只会把这{' '}
+              <strong>一个</strong>目录加进运行路径,torch 和 torchvision 都得能
+              从它 import 到。自检:放置目录下 <Code>torch/__init__.py</Code> 和{' '}
+              <Code>torchvision/__init__.py</Code> 两个文件都在,才算放对。不要多
+              套一层文件夹,也不要把 torch、torchvision 各放进一个子目录。
             </p>
             <p>
               另一种做法:如果你在别处已经装好一整套可用的 PyTorch(系统 Python
@@ -208,6 +224,11 @@ export const PytorchHelpDialog: React.FC<PytorchHelpDialogProps> = ({
           <div className="space-y-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2.5 text-[12px] text-[var(--cy-text-secondary)]">
             <div className="font-medium text-[var(--cy-text-primary)]">常见问题</div>
             <ul className="list-disc space-y-0.5 pl-4">
+              <li>
+                报 <Code>No module named 'torchvision'</Code> —— torchvision 没和
+                torch 放在同一个目录。检查放置目录下 <Code>torch/</Code> 和{' '}
+                <Code>torchvision/</Code> 是否并排、都直接在里面(见上方目录结构图)。
+              </li>
               <li>
                 报 <Code>torchvision::nms does not exist</Code> —— torch 与 torchvision
                 版本不配套,重新下载配套的两个 wheel。
