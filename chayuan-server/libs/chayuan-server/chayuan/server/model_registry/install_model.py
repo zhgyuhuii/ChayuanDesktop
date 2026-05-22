@@ -460,14 +460,39 @@ class InstallModelJobManager:
         except _Cancelled:
             self._set_cancelled(job)
             return
-        except ModelRepoNotFoundError as e:
-            # 仓库不存在(404):用户错误,不是程序 bug — 给人话即可,
-            # 不必把堆栈刷进 log_tail。progress_message 也写上,UI 直接显眼。
-            logger.info("install_model %s: 仓库不存在(404)", job.model_id)
+        except ModelRepoNotFoundError:
+            # 主源 404 → **自动换另一个源重试**。同一个 model 在 ModelScope /
+            # HuggingFace 上的 owner 命名常常不同(openai/ vs openai-mirror/ 等),
+            # 前端 source 标错、或 model 只在另一边时,这里能自愈,不必让用户
+            # 纠结到底该选哪个源。
+            primary = job.source
+            fallback = "huggingface" if primary == "modelscope" else "modelscope"
             with self._lock:
-                job.progress_message = str(e)
-            self._fail(job, str(e))
-            return
+                job.log_tail.append(
+                    f"[install_model] {primary} 上没有 {job.model_id},"
+                    f"自动改用 {fallback} 重试…"
+                )
+            try:
+                if fallback == "modelscope":
+                    self._download_modelscope(job, target_dir)
+                else:
+                    self._download_huggingface(job, target_dir)
+            except _Cancelled:
+                self._set_cancelled(job)
+                return
+            except ModelRepoNotFoundError as e2:
+                # 两个源都没有 → 这才是真不存在。给人话,不刷堆栈。
+                logger.info("install_model %s: ModelScope/HF 都没有(404)",
+                            job.model_id)
+                msg = f"ModelScope 与 HuggingFace 上都找不到 {job.model_id}"
+                with self._lock:
+                    job.progress_message = msg
+                self._fail(job, msg)
+                return
+            except Exception as e2:  # noqa: BLE001
+                logger.exception("install_model %s 换源下载失败", job.model_id)
+                self._fail_with_traceback(job, "换源下载失败", e2, target_dir)
+                return
         except Exception as e:  # noqa: BLE001
             logger.exception("install_model %s 下载失败", job.model_id)
             self._fail_with_traceback(job, "下载失败", e, target_dir)
