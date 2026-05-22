@@ -174,6 +174,19 @@ _LLAMACPP_LOCAL_CAP_MAP = {
     "rerank": "rerank",
 }
 
+# embedding 物理批 / context 大小。
+# BERT 类编码器(bge-m3 等)做 embedding 时,llama.cpp 要求**整段输入落在
+# 同一个物理批(ubatch)** 里 —— 一段超过 ubatch 的文本会被 llama-server
+# 直接拒绝,报 500 "input (N tokens) is too large to process. increase the
+# physical batch size"。llama-server 默认 ubatch 仅 512,而知识库切块
+# (settings.CHUNK_SIZE 默认 750 字)叠加中文 token 密度、递归切分器在
+# 长段落无分隔符时的过切,经常切出 600~1200+ token 的块,于是上传文档时
+# 偶发向量化 500。
+# 这里把 embedding llama-server 的 ctx / batch / ubatch 一起抬到 4096,
+# 覆盖任何正常切块(约 3000+ 中文字),满足 ubatch ≤ batch ≤ ctx 约束;
+# bge-m3 这类编码器在该尺寸下 compute buffer 约 1GB,办公单机可承受。
+_EMBEDDING_N_CTX = 4096
+
 
 def _expand_to_model_file(
     entry: LocalModelEntry,
@@ -293,7 +306,15 @@ def resolve_llamacpp_args(
     if capability == "chat":
         r.args.extend(["--ctx-size", str(int(n_ctx))])
     elif capability == "embedding":
-        r.args.extend(["--embedding", "--pooling", "cls"])
+        # --batch-size / --ubatch-size 必须 ≥ 单段文本 token 数,否则
+        # llama-server 对超长块返 500(详见 _EMBEDDING_N_CTX 注释)。
+        # ubatch ≤ batch ≤ ctx,三者取同值最简单且都满足约束。
+        r.args.extend([
+            "--embedding", "--pooling", "cls",
+            "--ctx-size", str(_EMBEDDING_N_CTX),
+            "--batch-size", str(_EMBEDDING_N_CTX),
+            "--ubatch-size", str(_EMBEDDING_N_CTX),
+        ])
     elif capability == "rerank":
         r.args.extend(["--reranking"])
 

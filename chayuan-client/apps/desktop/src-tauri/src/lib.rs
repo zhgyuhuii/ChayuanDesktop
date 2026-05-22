@@ -352,33 +352,25 @@ pub fn run() {
             // ── 系统托盘 ────────────────────────────────────────────
             // 菜单(从上到下):
             //   打开察元 AI
-            //   新对话
             //   ─── 分隔 ───
             //   重启
             //   关于
             //   ─── 分隔 ───
             //   退出
-            //   退出应用和服务
             let show     = MenuItem::with_id(app, "show",     "打开察元 AI", true, None::<&str>)?;
-            let new_chat = MenuItem::with_id(app, "new_chat", "新对话",       true, None::<&str>)?;
             let sep1     = PredefinedMenuItem::separator(app)?;
             let restart  = MenuItem::with_id(app, "restart",  "重启",         true, None::<&str>)?;
             let about    = MenuItem::with_id(app, "about",    "关于",         true, None::<&str>)?;
             let sep2     = PredefinedMenuItem::separator(app)?;
-            // 右上角 X 是关到托盘不退程序;真退出由这两条菜单触发,后台 sidecar
+            // 右上角 X 是关到托盘不退程序;真退出由"退出"菜单触发,后台 sidecar
             // 也会一起结束(由 RunEvent::ExitRequested 的 on_window_event 处理)。
             //
-            // 两条退出项的区别:
-            //   quit      = 仅退出桌面应用;依赖 RunEvent::ExitRequested 里
-            //               kill_on_exit 收掉后端 chayuan-server 进程本身。
-            //   quit_all  = 退出应用 + 杀后端 chayuan-server **整棵进程树**,
-            //               连它 spawn 的 llama-server / whisper-server /
-            //               infinity 等模型服务子进程一并收掉。
+            // quit = 退出桌面应用;依赖 RunEvent::ExitRequested 里 kill_on_exit
+            //        收掉后端 chayuan-server 进程本身。
             let quit     = MenuItem::with_id(app, "quit",     "退出", true, None::<&str>)?;
-            let quit_all = MenuItem::with_id(app, "quit_all", "退出应用和服务", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
-                &[&show, &new_chat, &sep1, &restart, &about, &sep2, &quit, &quit_all],
+                &[&show, &sep1, &restart, &about, &sep2, &quit],
             )?;
 
             // 托盘图标:用 tauri build 注入的 default_window_icon (即 tauri.conf.json
@@ -402,21 +394,6 @@ pub fn run() {
                             let _ = w.unminimize();
                             let _ = w.show();
                             let _ = w.set_focus();
-                        }
-                    }
-                    "new_chat" => {
-                        // 先置「待处理」标记:即便下面的 emit 因前端 listener 还没
-                        // 注册好而丢失,前端就绪后也会 invoke 把它取走补触发。
-                        app.state::<TrayPendingState>()
-                            .new_chat
-                            .store(true, Ordering::SeqCst);
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.unminimize();
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                            // 快路径:前端已就绪时事件即时命中;丢了也有上面的
-                            // 标记 + 前端 take 兜底。两条路前端会去重。
-                            let _ = w.emit("cy:new-chat", ());
                         }
                     }
                     "restart" => {
@@ -443,19 +420,6 @@ pub fn run() {
                             .show(|_| {});
                     }
                     "quit" => {
-                        app.exit(0);
-                    }
-                    "quit_all" => {
-                        // 退出应用 + 杀所有由本应用拉起的后台服务。
-                        // kill_tree_on_exit 双保险:先 taskkill /T 收后端
-                        // chayuan-server 整棵进程树,再按映像名兜底收掉残留的
-                        // llama-server / whisper-server —— 模型 sidecar 处在
-                        // 多层进程树深处,/F 强杀中间层会让它们变孤儿、/T 够不到,
-                        // 必须追加映像名 kill 才能真正清干净(见 sidecar.rs 注释)。
-                        let mgr = app.state::<Arc<sidecar::SidecarManager>>();
-                        mgr.kill_tree_on_exit();
-                        // 再退出应用;app.exit 仍会触发 RunEvent::ExitRequested →
-                        // kill_on_exit,但那时 take_child 已被取空,是安全 no-op。
                         app.exit(0);
                     }
                     _ => {}
