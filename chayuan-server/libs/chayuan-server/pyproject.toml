@@ -197,8 +197,12 @@ datasets = { version = ">=2.17,<4.0", optional = true }
 minio = { version = ">=7.2,<8.0", optional = true }
 # ---- 图像知识源（extra image）----
 Pillow = { version = ">=10.0,<12.0", optional = true }
-torch = { version = ">=2.1,<3.0", optional = true }
-transformers = { version = ">=4.45,<5.0", optional = true }
+# 图像向量化(image-embedding / CLIP)已下线,torch / transformers 全家桶
+# 不再需要 —— 注销 optional 声明,避免开发环境 `-E image` 误装。
+# 要恢复图像功能:取消下面两行的注释,并把 PyInstaller spec 的 LITE_BUILD
+# 强制 True 改回读 env,以及 server_app / local_runtime_registry 等处的注销恢复。
+# torch = { version = ">=2.1,<3.0", optional = true }
+# transformers = { version = ">=4.45,<5.0", optional = true }
 # huggingface_hub:install_job 在线下载 bundled_models(lite/standard/pro)必需,
 # 桌面端 sidecar 也要靠它,因此必装,不再 optional。
 huggingface_hub = ">=0.24,<1.0"
@@ -275,11 +279,10 @@ eval = ["ragas", "datasets"]
 # pip install "chayuan-server[minio]"
 storage-minio = ["minio"]
 
-# ---- 图像知识源 ----
-# 必装：torch + transformers + Pillow
-# (huggingface_hub 已上移为主依赖,不在 extras 列表里)
-# pip install "chayuan-server[image]"
-image = ["Pillow", "torch", "transformers"]
+# ---- 图像知识源(已下线)----
+# 图像向量化能力已下线 —— extras 注销;若日后恢复,取消下行注释并把
+# 上方 torch / transformers 的 optional 声明也恢复。
+# image = ["Pillow", "torch", "transformers"]
 
 [tool.poetry.group.test]
 optional = true

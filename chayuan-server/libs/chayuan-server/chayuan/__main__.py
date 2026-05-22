@@ -55,12 +55,14 @@ def _run_sidecar_if_requested() -> bool:
     i = argv.index("--sidecar-mode")
     cap = argv[i + 1] if i + 1 < len(argv) else ""
     del argv[i:i + 2]  # 摘掉 `--sidecar-mode <cap>`,余下交给 sidecar 解析
-    if cap == "image-embedding":
-        from chayuan.server.image_source.infinity_server import (
-            main as _sidecar_main,
-        )
-        _sidecar_main()
-        return True
+    # image-embedding sidecar 已下线 —— 它是唯一依赖 PyTorch 的 sidecar,
+    # 图像功能改走文档库 OCR + 文本嵌入。要恢复:取消下面注释。
+    # if cap == "image-embedding":
+    #     from chayuan.server.image_source.infinity_server import (
+    #         main as _sidecar_main,
+    #     )
+    #     _sidecar_main()
+    #     return True
     print(f"[sidecar] 未知 --sidecar-mode 能力:{cap!r}", file=sys.stderr)
     sys.exit(2)
 

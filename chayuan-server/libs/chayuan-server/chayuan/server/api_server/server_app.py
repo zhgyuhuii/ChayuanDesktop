@@ -17,7 +17,8 @@ from chayuan.server.api_server.data_mount_routes import data_mount_router
 from chayuan.server.api_server.chat_routes import chat_router
 from chayuan.server.api_server.health_routes import health_router
 from chayuan.server.api_server.governance_routes import governance_router
-from chayuan.server.api_server.image_routes import image_model_router, image_router
+# 图像向量化能力已下线 —— image_routes 不再挂载;要恢复取消下行注释。
+# from chayuan.server.api_server.image_routes import image_model_router, image_router
 from chayuan.server.api_server.kb_query_routes import kb_query_router
 from chayuan.server.api_server.kb_routes import kb_router
 from chayuan.server.api_server.kb_remote_sync_routes import remote_sync_router
@@ -114,8 +115,9 @@ def create_app(run_mode: str = None):
     app.include_router(admin_router)
     # 72 题诊断:/api/debug/dump_platforms — 排查 deepseek 等厂商在哪一层卡住
     app.include_router(debug_router)
-    app.include_router(image_router)
-    app.include_router(image_model_router)
+    # 图像向量化能力已下线(image_routes 已注销 import,这里同步注销挂载):
+    # app.include_router(image_router)
+    # app.include_router(image_model_router)
     app.include_router(storage_router)
     app.include_router(tool_router)
     app.include_router(openai_router)

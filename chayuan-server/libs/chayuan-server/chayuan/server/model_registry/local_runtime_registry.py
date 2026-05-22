@@ -24,12 +24,14 @@ logger = logging.getLogger("chayuan.model_registry.local_runtime_registry")
 
 
 # Plan 3D: cap → engine 映射
+# image-embedding 已下线(它是唯一依赖 PyTorch 的 sidecar),注销其映射;
+# 要恢复:取消下行注释 + 同步恢复 _SIDECAR_CMDLINE_MARKERS / CAPABILITIES。
 _CAP_ENGINE: Dict[str, str] = {
     "chat": "llama",
     "embedding": "llama",
     "rerank": "llama",
     "asr": "whisper",
-    "image-embedding": "infinity",
+    # "image-embedding": "infinity",
 }
 
 
@@ -40,7 +42,8 @@ _CAP_ENGINE: Dict[str, str] = {
 # 子进程,按命令行里的模块路径认。
 _SIDECAR_NAME_PREFIXES = ("llama-server", "whisper-server")
 _SIDECAR_CMDLINE_MARKERS = (
-    "image_source.infinity_server",
+    # image-embedding 已下线:
+    # "image_source.infinity_server",
     "modality.rapidocr_server",
 )
 
@@ -105,7 +108,8 @@ def reap_orphan_sidecars() -> int:
 
 
 class LocalRuntimeRegistry:
-    CAPABILITIES = ("chat", "embedding", "rerank", "asr", "image-embedding")
+    # image-embedding 已下线:原 ("chat","embedding","rerank","asr","image-embedding")
+    CAPABILITIES = ("chat", "embedding", "rerank", "asr")
 
     def __init__(self, *, chayuan_root: Path) -> None:
         self._managers: Dict[str, SidecarRuntimeManager] = {

@@ -407,7 +407,12 @@ if sys.platform == "darwin":
 # lite 没有 image-embedding cap (LITE_CAPS = embedding/rerank/asr/ocr/tts),
 # torch+torchvision+transformers (~480 MB) 在 lite bundle 里是死重量 — 这里
 # 据 LITE_BUILD 把它们从 _collect_required 拿掉 + 加进 excludes。
-LITE_BUILD = os.environ.get("CHAYUAN_LITE_BUILD", "0") == "1"
+# ⚠ 图像向量化(image-embedding)能力已下线 —— 它是系统里**唯一**硬依赖
+# torch / torchvision / transformers 的能力。这里强制 LITE_BUILD=True,让
+# 下方 _collect_required 永远跳过这三个,full 版安装包 -480MB。
+# 要恢复图像功能:把下行改回 `os.environ.get("CHAYUAN_LITE_BUILD", "0") == "1"`,
+# 并同步打开 pyproject 的 torch / transformers / image extras 注销。
+LITE_BUILD = True  # 强制 True;原:os.environ.get("CHAYUAN_LITE_BUILD", "0") == "1"
 
 excludes = [
     # Celery / Redis 链路:单机模式走 asyncio.Queue + threadpool
