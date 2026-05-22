@@ -84,79 +84,102 @@ export const PytorchHelpDialog: React.FC<PytorchHelpDialogProps> = ({
             所以需要单独准备。整个过程不要求这台机器联网 —— 让能上网的机器把 wheel 下好,拷过来即可。
           </div>
 
-          <Step n={1} title="下载 wheel 文件">
+          <Step n={1} title="下载两个 wheel 文件">
             <p>
-              需要 <strong>两个</strong> wheel:<Code>torch</Code> 和 <Code>torchvision</Code>
-              。两者版本必须配套 —— ABI 严格绑定,错配会在 运行时报{' '}
-              <Code>torchvision::nms does not exist</Code> 之类的错。
+              需要 <strong>两个</strong> <Code>.whl</Code> 文件:<Code>torch</Code> 和{' '}
+              <Code>torchvision</Code>,版本必须严格配套(ABI 绑定,错配运行时报{' '}
+              <Code>torchvision::nms does not exist</Code>)。本次要下的版本:
+              torch <Code>{torchVer}</Code> · torchvision <Code>{tvVer}</Code>。
+            </p>
+
+            <p className="font-medium text-[var(--cy-text-primary)]">
+              这台机器能联网?最省事 —— 不用手动找文件,开命令行直接跑:
             </p>
             <p>
-              建议版本:torch <Code>{torchVer}</Code> · torchvision <Code>{tvVer}</Code>。
+              <Code>
+                pip install torch=={torchVer} torchvision=={tvVer} --index-url
+                https://download.pytorch.org/whl/cpu
+              </Code>
             </p>
-            <p>挑 wheel 时要对上三项:</p>
+            <p>pip 会自己挑对文件。下面的手动步骤只在纯离线、不能用 pip 时才需要。</p>
+
+            <p className="font-medium text-[var(--cy-text-primary)]">手动下载:</p>
+            <p>① 浏览器打开这两个文件夹(CPU 版 wheel 列表):</p>
             <ul className="list-disc space-y-0.5 pl-4">
               <li>
-                Python 版本 —— 本机是 3.12,选文件名带 <Code>cp312</Code> 的。
+                torch:<Code>https://download.pytorch.org/whl/cpu/torch/</Code>
               </li>
               <li>
-                系统 / 架构 —— Windows 选 <Code>win_amd64</Code>;Linux x86_64 的平台段
-                随 torch 版本不同,可能是 <Code>linux_x86_64</Code>,也可能是{' '}
-                <Code>manylinux_2_28_x86_64</Code> / <Code>manylinux2014_x86_64</Code>
-                ,下载页列出哪个就用哪个(都是 Linux x86_64 wheel);macOS 选对应
-                arm64 / x86_64。
-              </li>
-              <li>
-                CPU / GPU —— 没有 NVIDIA 独显就选 CPU 版(文件名带 <Code>+cpu</Code>
-                );有独显且驱动够新可选 CUDA 版。
+                torchvision:
+                <Code>https://download.pytorch.org/whl/cpu/torchvision/</Code>
               </li>
             </ul>
-            <p>下载地址:</p>
+            <p>
+              页面是一长串 <Code>.whl</Code> 文件链接。按 <Code>Ctrl+F</Code> 在页面里
+              搜下面的文件名,搜到后<strong>点那个链接</strong>即开始下载。
+            </p>
+            <p>
+              ② 文件名(本机 Python 3.12 对应 <Code>cp312</Code>,
+              <Code>&lt;平台&gt;</Code> 按系统替换):
+            </p>
             <ul className="list-disc space-y-0.5 pl-4">
-              {status ? (
-                <>
-                  <li>
-                    官方下载页:<Code>{status.download_page}</Code>
-                  </li>
-                  <li>
-                    CPU 版 wheel index:<Code>{status.download_index_cpu}</Code>
-                  </li>
-                  {status.download_index_cuda ? (
-                    <li>
-                      GPU(CUDA)版 wheel index:
-                      <Code>{status.download_index_cuda}</Code>
-                    </li>
-                  ) : (
-                    <li>
-                      GPU 版:在 <Code>https://download.pytorch.org/whl/</Code> 下 按{' '}
-                      <Code>cuXXX</Code>(如 <Code>cu124</Code>)进对应目录挑。
-                    </li>
-                  )}
-                </>
-              ) : (
-                <li>
-                  官方 wheel index:<Code>https://download.pytorch.org/whl/</Code>
-                  (CPU 版进 <Code>cpu/</Code> 子目录)。
-                </li>
-              )}
+              <li>
+                <Code>torch-{torchVer}+cpu-cp312-cp312-&lt;平台&gt;.whl</Code>
+              </li>
+              <li>
+                <Code>torchvision-{tvVer}+cpu-cp312-cp312-&lt;平台&gt;.whl</Code>
+              </li>
             </ul>
+            <p>
+              <Code>&lt;平台&gt;</Code> 取值:Windows = <Code>win_amd64</Code>;
+              Linux x86_64 = <Code>linux_x86_64</Code>(页面里搜不到再试{' '}
+              <Code>manylinux_2_28_x86_64</Code> / <Code>manylinux2014_x86_64</Code>,
+              都是 Linux x86_64 wheel);macOS = <Code>macosx_11_0_arm64</Code>
+              (Apple 芯片)/ <Code>macosx_10_9_x86_64</Code>(Intel)。
+            </p>
+            <p>例 —— Linux x86_64 要下的就是这两个文件:</p>
+            <ul className="list-disc space-y-0.5 pl-4">
+              <li>
+                <Code>torch-{torchVer}+cpu-cp312-cp312-linux_x86_64.whl</Code>
+              </li>
+              <li>
+                <Code>torchvision-{tvVer}+cpu-cp312-cp312-linux_x86_64.whl</Code>
+              </li>
+            </ul>
+            <p className="text-[var(--cy-text-tertiary)]">
+              装 GPU(CUDA)版:把上面所有 <Code>cpu</Code> 换成 <Code>cuXXX</Code>
+              (如 <Code>cu124</Code>)、文件夹换成{' '}
+              <Code>https://download.pytorch.org/whl/cu124/torch/</Code>。没 NVIDIA
+              显卡别装 GPU 版,CPU 版日常够用。
+            </p>
           </Step>
 
-          <Step n={2} title="解压 wheel">
+          <Step n={2} title="把两个 wheel 解压到同一个目录">
             <p>
-              <Code>.whl</Code> 本质是 zip 压缩包。两个 wheel 都要解压:
+              <Code>.whl</Code> 本质就是 zip 压缩包。两个文件都要解压,而且
+              <strong>解压进同一个目录</strong>(比如新建一个 <Code>torch-pkg</Code> 文件夹)。
             </p>
-            <ul className="list-disc space-y-0.5 pl-4">
-              <li>
-                Windows:把后缀 <Code>.whl</Code> 改成 <Code>.zip</Code>,右键解压; 或用{' '}
-                <Code>tar -xf 文件名.whl</Code>。
-              </li>
-              <li>
-                命令行通用:<Code>python -m zipfile -e 文件名.whl 目标目录</Code>。
-              </li>
-            </ul>
+            <p>命令行(任意系统,有 Python 即可)—— 进到 wheel 所在目录后逐条跑:</p>
             <p>
-              解压后会得到 <Code>torch/</Code>、<Code>torchvision/</Code> 等包目录 (以及{' '}
-              <Code>*.dist-info</Code>)。把两个 wheel 解压到同一个目录里。
+              <Code>
+                python -m zipfile -e
+                torch-{torchVer}+cpu-cp312-cp312-linux_x86_64.whl torch-pkg
+              </Code>
+            </p>
+            <p>
+              <Code>
+                python -m zipfile -e
+                torchvision-{tvVer}+cpu-cp312-cp312-linux_x86_64.whl torch-pkg
+              </Code>
+            </p>
+            <p className="text-[var(--cy-text-tertiary)]">
+              文件名换成你第 1 步实际下到的那两个;Windows 也可以把后缀改成{' '}
+              <Code>.zip</Code> 右键解压到同一文件夹。
+            </p>
+            <p>
+              解压完 <Code>torch-pkg/</Code> 里会有 <Code>torch/</Code>、
+              <Code>torchvision/</Code> 两个包目录(外加几个 <Code>*.dist-info</Code>)
+              —— 这就是下一步要放进去的内容。
             </p>
           </Step>
 
