@@ -138,7 +138,22 @@ class KBFaissPool(_FaissPool):
             if locked:  # we don't know exception raised before or after atomic.release
                 self.atomic.release()
             logger.exception(e)
-            raise RuntimeError(f"向量库 {kb_name} 加载失败。")
+            # 失败清理:新建的 item 已 set 进池但没 finish_loading() →
+            #   ① finish_loading() 唤醒任何卡在 wait_for_loading() 的线程,
+            #      否则下次 get() 会永久 hang;
+            #   ② pop 掉这个 obj=None 的半成品,否则下次加载直接拿到坏对象、
+            #      do_create_kb 还会"假成功",留下一个用不了的向量库。
+            if cache is None:
+                bad = self._cache.get((kb_name, vector_name))
+                if bad is not None:
+                    try:
+                        bad.finish_loading()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self.pop((kb_name, vector_name))
+            # chain 根因:上层 create_kb 要靠 message 判断是不是 embedding
+            # 服务不可用,吞掉根因就只能报无意义的"加载失败"。
+            raise RuntimeError(f"向量库 {kb_name} 加载失败:{e}") from e
         return self.get((kb_name, vector_name))
 
 

@@ -64,18 +64,16 @@ def create_kb(
         # load_kb_from_db 仍查得到 → 建同名库就报"已存在",成了既看不见
         # 又建不了的死结。这里按"有没有真实文件"判定:有文件→保护并报已存在;
         # 没文件→当残留清掉重建,不让用户卡死。
+        # "真有文件" = knowledge_file 表里有成功入库的行。磁盘 content/ 里散落的
+        # 文件**不算** —— 那是上次上传失败(如 embedding 服务不可用)留下的残料,
+        # 没有 DB 行就检索不到、对 KB 毫无意义,反而会卡住同名重建。这种残料
+        # 由下面的 _purge_kb_residue 收掉即可。
         has_files = False
         try:
             has_files = bool(list_files_from_db(knowledge_base_name))
         except Exception as e:  # noqa: BLE001
             logger.debug("[create_kb] 查 DB 文件行失败 %s: %r",
                          knowledge_base_name, e)
-        if not has_files:
-            try:
-                has_files = bool(list_files_from_folder(knowledge_base_name))
-            except Exception as e:  # noqa: BLE001
-                logger.debug("[create_kb] 查磁盘文件失败 %s: %r",
-                             knowledge_base_name, e)
         if has_files:
             return BaseResponse(
                 code=404, msg=f"已存在同名知识库 {knowledge_base_name}"
@@ -105,31 +103,46 @@ def create_kb(
         kb.create_kb()
     except Exception as e:
         emsg = str(e)
-        # 区分"embedding 未配置(用户操作可解决)"和"真错误":
-        # - get_Embeddings 在 embedding 不可用时抛带"embedding 模型... 不可用"的 RuntimeError
-        #   (见 chayuan/server/utils.py 翻译块);也可能是底层 langchain 直接抛
-        #   "openai_api_key" 错(向后兼容,极少出现)
-        # 这类错不应该红色 BizError — 改 code=422 + 短引导文案,前端识别后弹
-        # info-级提示让用户去配置,不是错误。
+        # create_kb() 是"先 add_kb_to_db 落行,再 do_create_kb 建向量库"。
+        # do_create_kb 失败时那行已经落库 → 必须回滚,否则留下一个没有向量库的
+        # 半成品 KB 行:后续要么重名报错、要么被 file_count 漂移变成幽灵库。
+        try:
+            _purge_kb_residue(knowledge_base_name)
+            delete_kb_from_db(knowledge_base_name)
+        except Exception as ce:  # noqa: BLE001
+            logger.warning("[create_kb] 失败回滚清理出错 %s: %r",
+                           knowledge_base_name, ce)
+        # 区分"embedding 不可用 / 服务没起来(用户操作可解决)"和"真错误":
+        # - get_Embeddings 在 embedding 不可用时抛带"embedding 模型...不可用"的错;
+        # - 建空向量库要现做一次 embedding 拿维度,embedding 服务没启动 / 连不上
+        #   时 faiss_cache 抛"向量库 X 加载失败:Connection error"(已 chain 根因);
+        # - 也可能底层 langchain 直接抛 openai_api_key 错。
+        # 这类都不该是红色 500 — 转 code=422 + 可操作引导,前端弹 info 级提示。
+        low = emsg.lower()
         needs_embedding_config = (
             ("embedding" in emsg and "不可用" in emsg)
-            or "openai_api_key" in emsg.lower()
-            or "OPENAI_API_KEY" in emsg
+            or "openai_api_key" in low
+            or ("向量库" in emsg and "加载失败" in emsg)
+            or "connection error" in low
         )
         if needs_embedding_config:
+            first_line = emsg.splitlines()[0] if emsg else str(e)
             logger.warning(
-                "[create_kb] embedding 未配置 → 422 引导用户配置(KB=%s): %s",
-                knowledge_base_name, emsg.splitlines()[0] if emsg else "",
+                "[create_kb] 向量模型不可用 → 422 引导(KB=%s): %s",
+                knowledge_base_name, first_line,
             )
             return BaseResponse(
                 code=422,
                 msg=(
-                    f"还没配置向量模型,无法创建知识库「{knowledge_base_name}」。\n"
-                    "请先去「设置 → 本地模型服务」配一个向量模型:\n"
-                    "  • 推荐:拷整仓 ONNX 模型(如 BAAI/bge-m3)到 "
-                    "<data>/models/bundled/embedding/<repo>/,系统会自动 in-process 跑\n"
-                    "  • 或拷 GGUF 量化版给 llama-server\n"
-                    "  • 或在 MODEL_PLATFORMS 配云端 embedding(OpenAI/阿里百炼/智谱)"
+                    f"无法创建知识库「{knowledge_base_name}」:文本嵌入"
+                    "(embedding)模型服务未就绪。\n"
+                    "创建知识库需要嵌入模型现场生成一次向量来初始化向量库。\n"
+                    "请按以下任一方式让 embedding 模型可用后重试:\n"
+                    "  • 到「设置 → 本地模型服务 / AI 平台」确认嵌入模型已下载\n"
+                    "    且已启动(状态为运行中);\n"
+                    "  • 若用本地 GGUF,确认 embedding 的 llama-server 旁车在跑;\n"
+                    "  • 或在 MODEL_PLATFORMS 配一个可达的云端 embedding。\n"
+                    f"(原始错误:{first_line})"
                 ),
             )
         msg = f"创建知识库出错: {e}"
