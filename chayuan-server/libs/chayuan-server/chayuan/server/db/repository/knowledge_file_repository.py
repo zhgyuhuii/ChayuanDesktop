@@ -167,7 +167,8 @@ def add_file_to_db(
                 docs_count=docs_count,
                 custom_docs=custom_docs,
             )
-            kb.file_count += 1
+            # NULL-safe:老库迁移遗留的 file_count 可能是 NULL,None+1 会抛
+            kb.file_count = (kb.file_count or 0) + 1
             session.add(new_file)
         add_docs_to_db(
             kb_name=kb_file.kb_name, file_name=kb_file.filename, doc_infos=doc_infos
@@ -301,7 +302,13 @@ def delete_file_from_db(session, kb_file: "KnowledgeFile"):
             .first()
         )
         if kb:
-            kb.file_count -= 1
+            # 下限保护:file_count 绝不允许变负。add_doc 是"先 delete_doc 再
+            # do_add_doc 再 add_file_to_db(+1)"——若 do_add_doc 失败(典型:
+            # embedding 服务对超长块返 500),后面的 +1 不会执行,这里的 -1 就
+            # 成了净漂移。一旦 file_count 变负,该 KB 会被 list_kbs_from_db 的
+            # 过滤藏掉(用户看不到、以为已删除),但 load_kb_from_db 仍查得到
+            # → 建同名库报"已存在",成了既看不见又建不了的幽灵库。
+            kb.file_count = max(0, (kb.file_count or 0) - 1)
             session.commit()
     return True
 

@@ -8,6 +8,7 @@ from chayuan.settings import Settings
 from chayuan.server.db.repository.knowledge_base_repository import (
     delete_kb_from_db,
     list_kbs_from_db,
+    load_kb_from_db,
 )
 from chayuan.server.db.repository.knowledge_file_repository import (
     delete_files_from_db,
@@ -53,17 +54,52 @@ def create_kb(
     if not embed_model:
         embed_model = get_default_embedding()
 
-    kb = KBServiceFactory.get_service_by_name(knowledge_base_name)
-    if kb is not None:
-        return BaseResponse(code=404, msg=f"已存在同名知识库 {knowledge_base_name}")
+    # 重名检测:直接查 knowledge_base 行,**不要**用 get_service_by_name —— 后者
+    # 在 vs_type 损坏时会返回 None,漏掉其实还在的行。
+    row_name, _, _ = load_kb_from_db(knowledge_base_name)
+    if row_name is not None:
+        # 名字已被占用。但必须区分"真有文件的 KB"和"幽灵残留":
+        # knowledge_base.file_count 因统计漂移变成负数时,该 KB 会被
+        # list_kbs_from_db 的过滤藏掉(用户看不到、以为已删除),可
+        # load_kb_from_db 仍查得到 → 建同名库就报"已存在",成了既看不见
+        # 又建不了的死结。这里按"有没有真实文件"判定:有文件→保护并报已存在;
+        # 没文件→当残留清掉重建,不让用户卡死。
+        has_files = False
+        try:
+            has_files = bool(list_files_from_db(knowledge_base_name))
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[create_kb] 查 DB 文件行失败 %s: %r",
+                         knowledge_base_name, e)
+        if not has_files:
+            try:
+                has_files = bool(list_files_from_folder(knowledge_base_name))
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[create_kb] 查磁盘文件失败 %s: %r",
+                             knowledge_base_name, e)
+        if has_files:
+            return BaseResponse(
+                code=404, msg=f"已存在同名知识库 {knowledge_base_name}"
+            )
+        logger.warning(
+            "[create_kb] 同名 KB「%s」无任何文件,判定为 file_count 漂移产生的"
+            "幽灵库 —— 清掉旧行后重建。", knowledge_base_name,
+        )
+        # 删掉幽灵行,让下面的 create_kb 重新 insert 一行干净的(file_count=0);
+        # 若不删,add_kb_to_db 是 upsert,会沿用旧行的负数 file_count,KB 依旧隐身。
+        try:
+            delete_kb_from_db(knowledge_base_name)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[create_kb] 清幽灵库行失败 %s: %r",
+                           knowledge_base_name, e)
 
     kb = KBServiceFactory.get_service(
         knowledge_base_name, vector_store_type, embed_model, kb_info=kb_info
     )
-    # 同名重建兜底:走到这里 KB 一定不在 DB(上面已挡重名)。把上一次删除没
-    # 清净的残留**全部**按名字清掉 —— 磁盘 content/ 目录 + DB 的 knowledge_file
-    # 行,两处都清。否则 get_kb_file_details 会从这两个来源把旧文件读回来,
-    # 表现为"删了知识库、重新建同名的、旧文件又复活了"。
+    # 同名重建兜底:走到这里 knowledge_base 行已不存在(真重名上面已挡掉,
+    # 幽灵库行也已删)。把上一次删除没清净的残留**全部**按名字清掉 —— 磁盘
+    # content/ 目录 + DB 的 knowledge_file 行,两处都清。否则 get_kb_file_details
+    # 会从这两个来源把旧文件读回来,表现为"删了知识库、重新建同名的、旧文件
+    # 又复活了"。
     _purge_kb_residue(knowledge_base_name)
     try:
         kb.create_kb()
@@ -256,9 +292,10 @@ def delete_kb(
                     "[delete_kb] 按 knowledge_source 删除 name=%s id=%s kind=%s",
                     knowledge_base_name, _sid, _src.get("kind"),
                 )
-                return BaseResponse(
-                    code=200, msg=f"已删除知识库 {knowledge_base_name}"
-                )
+                # 不在此 return —— 同一个名字可能同时存在 knowledge_base 行
+                # (文档库)和 knowledge_source 行(图像/向量源)。早返回会跳过
+                # 下面的 delete_kb_from_db,留下文档库幽灵行 → 同名重建报"已存在"。
+                # 继续贯穿走完文档库的彻底清理(无文档库时全是幂等 no-op)。
         except Exception as e:  # noqa: BLE001
             logger.warning("delete_kb: knowledge_source 兜底删除失败 name=%s: %r",
                            knowledge_base_name, e)

@@ -82,12 +82,21 @@ def set_kb_storage_backend(session, kb_name: str, backend: str) -> bool:
 
 @with_session
 def list_kbs_from_db(session, min_file_count: int = -1):
-    kbs = (
-        session.query(KnowledgeBaseModel)
-        .filter(KnowledgeBaseModel.file_count > min_file_count)
-        .all()
-    )
-    kbs = [KnowledgeBaseSchema.model_validate(kb) for kb in kbs]
+    q = session.query(KnowledgeBaseModel)
+    # min_file_count < 0 是"列出全部"语义。绝不能再用 file_count > min_file_count
+    # 当过滤 —— 一旦某 KB 的 file_count 因统计漂移变成负数 / NULL,它会从所有
+    # 列表与 UI 里消失,但 load_kb_from_db / create_kb 的重名检测仍查得到,
+    # 表现为"知识库看不见、却又建不了同名的"幽灵库。只有调用方显式要求
+    # min_file_count >= 0(按文件数过滤)时才加这个 WHERE。
+    if min_file_count is not None and min_file_count >= 0:
+        q = q.filter(KnowledgeBaseModel.file_count > min_file_count)
+    kbs = []
+    for kb in q.all():
+        schema = KnowledgeBaseSchema.model_validate(kb)
+        # 统计漂移兜底:对外恒不暴露负数 / NULL 文件数
+        if schema.file_count is None or schema.file_count < 0:
+            schema.file_count = 0
+        kbs.append(schema)
     return kbs
 
 
