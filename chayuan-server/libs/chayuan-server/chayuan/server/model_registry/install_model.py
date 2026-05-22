@@ -619,20 +619,26 @@ class InstallModelJobManager:
         except ImportError as e:
             raise RuntimeError("huggingface_hub 未安装") from e
         # ⚠ huggingface_hub **首次 import 时**就把 HF_ENDPOINT 固化进
-        # constants.ENDPOINT。本进程别处(模型扫描等)早已 import 过它,此时
-        # 再设环境变量已无效 —— 必须运行时直接覆盖 constants.ENDPOINT,否则
-        # 下载仍直连 huggingface.co、国内不可达。
-        try:
-            import huggingface_hub.constants as _hf_const
-            _hf_const.ENDPOINT = endpoint
-            import huggingface_hub.file_download as _hf_fd
-            if hasattr(_hf_fd, "ENDPOINT"):
-                _hf_fd.ENDPOINT = endpoint
-        except Exception as e:  # noqa: BLE001
-            with self._lock:
-                job.log_tail.append(
-                    f"[install_model] 覆盖 HF endpoint 失败(忽略): {e!r}"
-                )
+        # constants.ENDPOINT,且各子模块 `from .constants import ENDPOINT`
+        # 各自缓存了一份(file_download / hf_api / _snapshot_download …)。
+        # 本进程别处(模型扫描等)早已 import 过它,此时再设环境变量已无效 ——
+        # 必须运行时把**所有** huggingface_hub 子模块里的 ENDPOINT 都改成
+        # 镜像,只改 constants 一处不够,否则下载仍直连 huggingface.co。
+        import sys as _sys
+        _patched = 0
+        for _name, _mod in list(_sys.modules.items()):
+            if not _name.startswith("huggingface_hub"):
+                continue
+            try:
+                if getattr(_mod, "ENDPOINT", None):
+                    _mod.ENDPOINT = endpoint
+                    _patched += 1
+            except Exception:  # noqa: BLE001
+                pass
+        with self._lock:
+            job.log_tail.append(
+                f"[install_model] HF endpoint → {endpoint}(覆盖 {_patched} 处缓存)"
+            )
 
         self._check_cancel(job)
         with self._lock:
