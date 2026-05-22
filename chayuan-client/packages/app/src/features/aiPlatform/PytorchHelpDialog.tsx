@@ -72,8 +72,9 @@ export const PytorchHelpDialog: React.FC<PytorchHelpDialogProps> = ({
         <DialogHeader>
           <DialogTitle>手动安装 PyTorch(离线 / 内网环境)</DialogTitle>
           <DialogDescription>
-            联网环境直接点面板上的「安装」会自动下载。下面这套流程是给离线 /
-            内网、或想自己挑版本的用户:把 wheel 下好、解压、放进目录,再扫描验证即可。
+            联网环境直接点面板上的「安装」即可 —— 它会自动逐个验证候选下载链接、
+            命中能下的那个才下,不会撞死链。下面这套流程是给离线 / 内网、或想自己
+            挑版本的用户:把 wheel 下好、解压、放进目录,再扫描验证即可。
           </DialogDescription>
         </DialogHeader>
 
@@ -98,8 +99,11 @@ export const PytorchHelpDialog: React.FC<PytorchHelpDialogProps> = ({
                 Python 版本 —— 本机是 3.12,选文件名带 <Code>cp312</Code> 的。
               </li>
               <li>
-                系统 / 架构 —— Windows 选 <Code>win_amd64</Code>,Linux 选 <Code>linux_x86_64</Code>
-                ,macOS 选对应 arm64 / x86_64。
+                系统 / 架构 —— Windows 选 <Code>win_amd64</Code>;Linux x86_64 的平台段
+                随 torch 版本不同,可能是 <Code>linux_x86_64</Code>,也可能是{' '}
+                <Code>manylinux_2_28_x86_64</Code> / <Code>manylinux2014_x86_64</Code>
+                ,下载页列出哪个就用哪个(都是 Linux x86_64 wheel);macOS 选对应
+                arm64 / x86_64。
               </li>
               <li>
                 CPU / GPU —— 没有 NVIDIA 独显就选 CPU 版(文件名带 <Code>+cpu</Code>
