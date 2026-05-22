@@ -159,6 +159,21 @@ class TokenBucketRateLimiter(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
+        # 客户端在请求处理途中断开(慢请求 / 前端轮询超时很常见 —— 如首次
+        # 加载 faiss 耗时几十秒)时,Starlette BaseHTTPMiddleware 的 call_next
+        # 会抛 RuntimeError("No response returned.")。这不是真错误,服务器
+        # 仍正常 —— 安静收掉,别刷一大坨吓人的 ASGI traceback。
+        try:
+            return await self._dispatch(request, call_next)
+        except RuntimeError as e:
+            if "No response returned" in str(e):
+                from starlette.responses import Response as _Resp
+                return _Resp(status_code=499)  # client closed request
+            raise
+
+    async def _dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         from chayuan.settings import Settings
 
         bs = Settings.basic_settings
