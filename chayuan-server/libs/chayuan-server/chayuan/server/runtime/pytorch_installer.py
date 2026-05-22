@@ -1605,8 +1605,9 @@ def install_pytorch_wheels(
            直接用本地 wheel 解压 torch + torchvision(纯依赖仍需在线补,见下)。
          * 否则从 download.pytorch.org 对应 index 在线下 torch + torchvision wheel。
          * torch 的纯/平台依赖一律从 PyPI 下(_TORCH_DEP_PINS 固化版本)。
-      4. force 重装时先清空 target,再 ``zipfile`` 逐个解压进 target。
-      5. 校验 target 下能定位 torch/__init__.py + torch/version.py。
+      4. **原子安装**:整套 wheel 解压进 ``<target>.installing/`` staging 目录。
+      5. 校验 staging 自洽(torch/__init__.py + version.py)后,才把旧 target
+         挪走、staging 换入 —— 安装中途失败绝不破坏原本能用的 torch。
 
     Args:
         variant: ``cpu``(默认)或 ``cu118`` / ``cu121`` / ``cu124`` / ``cu126``。
@@ -1616,8 +1617,8 @@ def install_pytorch_wheels(
         prefer_offline: 优先用 vendor/torch_wheels 里打包期预下的 torch/tv wheel。
         log: 日志回调(install_task_manager 把 task.log.append 传进来)。
         cancel: 取消信号(install_task_manager 的 task.cancel_event)。
-        force: 已装也重装;且解压前先清空 target,去掉残留旧版本
-            (避免新 torch 叠在旧 torchvision 上、版本对不上)。
+        force: 已装也重装(否则 target 已有 torch 就跳过)。安装一律**原子化**:
+            解压进 staging、校验通过才换入 target,不会半途毁掉旧 torch。
 
     Returns:
         ``{"action": "installed"|"skipped"|"failed", ...}``。
@@ -1688,29 +1689,47 @@ def install_pytorch_wheels(
             downloaded.append(dest)
             dep_whls.append(dest)
 
-        # ---- 3) force 重装:解压前先清空 target,保证装出来配套自洽 ----
-        # 不清空就只是把新 wheel 覆盖到旧文件上 —— 旧 torchvision / 旧依赖里
-        # 新版本没有的文件会残留,torch 跟 torchvision 版本对不上,运行时
-        # torchvision::nms 注册失败。force=True 时整目录清掉重铺。
-        # ignore_errors 兜底:个别文件被占用删不掉也不致命,后面解压会覆盖。
-        if force and target.exists():
-            _log(f"[install] 重装:清空 {target}(去掉残留旧版本,确保 torch/torchvision 配套)")
-            shutil.rmtree(target, ignore_errors=True)
-            target.mkdir(parents=True, exist_ok=True)
+        # ---- 3) 原子安装:整套 wheel 解压进 staging 兄弟目录 ----
+        # 绝不能再像以前那样「先 rmtree(target) 再原地解压」—— 一旦解压中途
+        # 失败(Windows 上 torch 的 .pyd/.dll 被占用、网络断、用户取消),
+        # target 就被清空 / 只剩半套,**原本能用的 torch 被毁掉、还装不回来**
+        # (这正是「重装一次图像向量化就再也用不了」的根因)。
+        # 改为:解压进 <target>.installing/,校验自洽后再整体换入 target;
+        # 失败则 target 原封不动,旧 torch 始终可用。
+        from chayuan.server.knowledge_base.kb_service.base import force_rmtree
 
-        # ---- 4) 解压全部 wheel 进 target ----
+        stage = target.parent / f"{target.name}.installing"
+        if stage.exists():
+            force_rmtree(str(stage))
+        stage.mkdir(parents=True, exist_ok=True)
+
+        # ---- 4) 解压全部 wheel 进 staging ----
         if cancel is not None and cancel.is_set():
+            force_rmtree(str(stage))
             raise WheelInstallError("已取消")
-        _log(f"[install] 解压 {len(torch_whls) + len(dep_whls)} 个 wheel 到 {target}")
+        _log(f"[install] 解压 {len(torch_whls) + len(dep_whls)} 个 wheel 到 {stage}")
         for whl in [*torch_whls, *dep_whls]:
-            _extract_wheel(Path(whl), target, log=_log)
+            _extract_wheel(Path(whl), stage, log=_log)
 
-        # ---- 5) 校验 ----
-        if not _torch_already_installed(target):
+        # ---- 5) 校验 staging 自洽 ----
+        if not _torch_already_installed(stage):
+            force_rmtree(str(stage))
             raise WheelInstallError(
-                f"解压完成但 {target}/torch/ 下缺 __init__.py / version.py — "
-                f"wheel 可能损坏或布局异常"
+                "解压完成但 staging 下缺 torch/__init__.py / version.py — "
+                "wheel 可能损坏或布局异常(target 未动,旧 torch 仍可用)"
             )
+
+        # ---- 6) 换入:校验通过,旧 target 挪走、staging 改名成 target ----
+        if target.exists() and not force_rmtree(str(target)):
+            force_rmtree(str(stage))
+            raise WheelInstallError(
+                f"旧 torch 目录 {target} 清不掉(文件被占用?)—— 为避免装成"
+                "半套,放弃换入;旧 torch 仍可用。关掉占用进程后重试。"
+            )
+        try:
+            os.rename(str(stage), str(target))
+        except Exception:  # noqa: BLE001 — 跨盘等 rename 失败 → 退回 move
+            shutil.move(str(stage), str(target))
         _log(f"[install] ✓ torch {_TORCH_VERSION} ({variant}) + "
              f"torchvision {_TORCHVISION_VERSION} + "
              f"transformers {_TRANSFORMERS_VERSION} 已安装到 {target}")
@@ -1735,6 +1754,13 @@ def install_pytorch_wheels(
     finally:
         # 在线下载的临时 wheel 清掉;离线 vendor wheel 不动(它们是原始资产)
         shutil.rmtree(work, ignore_errors=True)
+        # staging 残骸(解压中途失败留下的)清掉,别占盘
+        try:
+            _stale_stage = target.parent / f"{target.name}.installing"
+            if _stale_stage.exists():
+                shutil.rmtree(_stale_stage, ignore_errors=True)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def build_install_recipe(
