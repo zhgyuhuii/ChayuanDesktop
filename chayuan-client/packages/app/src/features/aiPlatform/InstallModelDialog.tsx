@@ -142,75 +142,59 @@ const CAP_HINTS: Record<
   LocalRuntimeCapability,
   { search: string; examples: CapExample[]; note: string }
 > = {
+  // 每个能力只预填**系统默认**那一个模型 —— 弹窗只引导下载默认模型,避免
+  // 把一堆非默认模型(jina-clip / chinese-clip / 各种量化…)一并塞给用户。
+  // 想要别的模型,用上方「去 ModelScope 搜」+ 粘贴 model_id 自行下载。
   chat: {
     search: 'Qwen GGUF',
     examples: [
       { id: 'Qwen/Qwen3-4B-Instruct-2507-GGUF', source: 'modelscope' },
-      { id: 'unsloth/Qwen3-4B-Instruct-2507-GGUF', source: 'huggingface' },
     ],
-    note: '推荐 GGUF 量化格式,体积小,llama.cpp 直接加载',
+    note: '系统默认对话模型;GGUF 量化、体积小,llama.cpp 直接加载。其它模型可在 ModelScope 搜索后粘贴 model_id 下载。',
   },
   embedding: {
     search: 'bge-m3 GGUF',
     // embedding sidecar 跑 llama-server,只吃 GGUF。预填 ModelScope 上的
-    // *-GGUF 量化仓库 + 单个 Q8_0 quant 文件,点示例即装。HF safetensors 整仓
-    // (BAAI/bge-m3、iic/nlp_gte_*)扫得到但 sidecar 起不来,不再预填。
+    // *-GGUF 量化仓库 + 单个 Q8_0 quant 文件,点示例即装。
     examples: [
       {
         id: 'gpustack/bge-m3-GGUF',
         source: 'modelscope',
         file: 'bge-m3-Q8_0.gguf',
-        label: 'bge-m3 · Q8_0 (默认)',
+        label: 'bge-m3 · Q8_0 (系统默认)',
         note: '605MB · 100+ 语种 · 多语种+中文检索强,办公场景首选',
       },
-      {
-        id: 'gpustack/bge-m3-GGUF',
-        source: 'modelscope',
-        file: 'bge-m3-Q4_K_M.gguf',
-        label: 'bge-m3 · Q4_K_M (瘦身)',
-        note: '417MB · 同模型更小量化,内存吃紧时用',
-      },
     ],
-    note: 'embedding 只支持 GGUF;示例已预填 ModelScope 单文件源,点一下即装,默认 bge-m3 Q8_0',
+    note: 'embedding 只支持 GGUF;示例即系统默认 bge-m3 Q8_0,点一下即装。其它模型可搜索后粘贴 model_id。',
   },
   rerank: {
     search: 'reranker GGUF',
-    // rerank sidecar 跑 llama-server,只吃 GGUF。这里预填的都是 ModelScope 上的
-    // *-GGUF 量化仓库(gpustack 系列),并指定单个 Q8_0 quant 文件 → 单文件
-    // 下载,免得把 9 个 quant 全拉下来。点示例会一并填进下方"指定文件"。
+    // rerank sidecar 跑 llama-server,只吃 GGUF。预填 ModelScope 的 *-GGUF
+    // 量化仓库 + 单个 Q8_0 quant 文件 → 单文件下载。
     examples: [
       {
         id: 'gpustack/bge-reranker-v2-m3-GGUF',
         source: 'modelscope',
         file: 'bge-reranker-v2-m3-Q8_0.gguf',
-        label: 'bge-reranker-v2-m3 · Q8_0 (默认)',
-        note: '606MB · 100+ 语种 · 多语种+中文办公强,跟 bge-m3 embedding 同家族对齐',
-      },
-      {
-        id: 'gpustack/jina-reranker-v2-base-multilingual-GGUF',
-        source: 'modelscope',
-        file: 'jina-reranker-v2-base-multilingual-Q8_0.gguf',
-        label: 'jina-reranker-v2 · Q8_0',
-        note: '291MB · 中英多语种 · Jina 出品,想瘦身选它',
+        label: 'bge-reranker-v2-m3 · Q8_0 (系统默认)',
+        note: '606MB · 100+ 语种 · 跟 bge-m3 embedding 同家族对齐',
       },
     ],
-    note: 'rerank 只支持 GGUF;两个示例已预填 ModelScope 单文件源,点一下即装,默认 bge-reranker-v2-m3',
+    note: 'rerank 只支持 GGUF;示例即系统默认 bge-reranker-v2-m3 Q8_0,点一下即装。其它模型可搜索后粘贴 model_id。',
   },
   asr: {
     search: 'whisper',
     examples: [
       { id: 'ggerganov/whisper.cpp', source: 'huggingface' },
-      { id: 'Systran/faster-whisper-base', source: 'huggingface' },
     ],
-    note: '推荐 whisper.cpp ggml 格式(单文件),如 ``ggml-tiny.bin``',
+    note: '系统默认走 whisper.cpp ggml 格式(单文件,如 ggml-tiny.bin)。其它模型可搜索后粘贴 model_id 下载。',
   },
   'image-embedding': {
-    search: 'CLIP jina-clip',
+    search: 'CLIP',
     examples: [
-      { id: 'jinaai/jina-clip-v2', source: 'huggingface' },
-      { id: 'OFA-Sys/chinese-clip-vit-base-patch16', source: 'huggingface' },
+      { id: 'openai/clip-vit-base-patch32', source: 'huggingface' },
     ],
-    note: 'CLIP 系列,做图文检索;transformers 库加载',
+    note: '系统默认图像模型 CLIP ViT-B/32 —— 标准 CLIP,transformers 直接加载、不挑依赖。其它图像模型(jina-clip、chinese-clip 等)可在 ModelScope 搜索后自行粘贴 model_id 下载。',
   },
 };
 
