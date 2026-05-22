@@ -544,6 +544,16 @@ def _probe_import_chain() -> tuple[bool, Optional[str]]:
 
 def detect_status() -> TorchStatus:
     """组装当前 PyTorch 安装状态。"""
+    # 关键:探测前先把生效的 torch 目录加进 sys.path。否则用户刚装好 / 选好
+    # torch,而本后端进程启动时 sys.path 还没有它 —— 下面 _probe_torch_install
+    # 的 import torch 必然失败,状态卡在「未就绪」,但磁盘扫描(scan_installed_
+    # torch)却明明认出了 torch,造成「扫到了 ✓ 却未就绪」的矛盾。
+    # ensure_torch_target_on_syspath 幂等,可安全重复调用。
+    try:
+        ensure_torch_target_on_syspath()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[detect_status] ensure_torch_target_on_syspath 失败: %r", e)
+
     has_gpu, drv = _detect_nvidia()
     torch_ver, torch_build = _probe_torch_install()
     tv_ver = _probe_torchvision_install()
@@ -551,6 +561,19 @@ def detect_status() -> TorchStatus:
     suggested = _suggest_cuda_variant(drv) if has_gpu else "cpu"
 
     notes: List[str] = []
+    if torch_ver is None:
+        # 加进 sys.path 后仍 import 不到 torch —— 但磁盘上可能其实装好了。
+        # 给一句可操作提示,别让用户对着「扫到了却未就绪」干瞪眼。
+        try:
+            disk = scan_installed_torch()
+            if disk.get("torch_installed"):
+                notes.append(
+                    f"磁盘上已检测到 torch {disk.get('torch_version') or ''},"
+                    "但当前后端进程未能加载它 —— 多半是 torch 在后端启动之后才"
+                    "装好 / 选好。请重启后端服务(或重启整个应用)后再查看状态。"
+                )
+        except Exception:  # noqa: BLE001
+            pass
     if has_gpu and suggested == "cpu":
         notes.append(
             f"检测到 NVIDIA GPU 但驱动版本 {drv!r} 太老,装 CUDA 版可能不工作;"
