@@ -610,35 +610,17 @@ class InstallModelJobManager:
             job.progress_pct = 90.0
 
     def _download_huggingface(self, job: InstallModelJob, target_dir: Path) -> None:
-        # 默认走 hf-mirror —— 国内直连 huggingface.co 常 "Network is unreachable"。
-        # 用户显式设过 HF_ENDPOINT 就尊重,否则强制镜像。
-        endpoint = os.environ.get("HF_ENDPOINT") or _MIRROR_ENDPOINTS["hf-mirror"]
-        os.environ["HF_ENDPOINT"] = endpoint
         try:
             from huggingface_hub import hf_hub_download, snapshot_download
         except ImportError as e:
             raise RuntimeError("huggingface_hub 未安装") from e
-        # ⚠ huggingface_hub **首次 import 时**就把 HF_ENDPOINT 固化进
-        # constants.ENDPOINT,且各子模块 `from .constants import ENDPOINT`
-        # 各自缓存了一份(file_download / hf_api / _snapshot_download …)。
-        # 本进程别处(模型扫描等)早已 import 过它,此时再设环境变量已无效 ——
-        # 必须运行时把**所有** huggingface_hub 子模块里的 ENDPOINT 都改成
-        # 镜像,只改 constants 一处不够,否则下载仍直连 huggingface.co。
-        import sys as _sys
-        _patched = 0
-        for _name, _mod in list(_sys.modules.items()):
-            if not _name.startswith("huggingface_hub"):
-                continue
-            try:
-                if getattr(_mod, "ENDPOINT", None):
-                    _mod.ENDPOINT = endpoint
-                    _patched += 1
-            except Exception:  # noqa: BLE001
-                pass
+        # 强制走 hf-mirror —— 国内直连 huggingface.co 常 "Network is unreachable"。
+        # 必须运行时覆盖 huggingface_hub 各子模块缓存的 ENDPOINT(import 时已
+        # 固化,只设环境变量太晚)。install_model / install_job 共用此函数。
+        from chayuan.server.model_registry.hf_mirror import force_hf_mirror_endpoint
+        endpoint = force_hf_mirror_endpoint()
         with self._lock:
-            job.log_tail.append(
-                f"[install_model] HF endpoint → {endpoint}(覆盖 {_patched} 处缓存)"
-            )
+            job.log_tail.append(f"[install_model] HF endpoint = {endpoint}")
 
         self._check_cancel(job)
         with self._lock:

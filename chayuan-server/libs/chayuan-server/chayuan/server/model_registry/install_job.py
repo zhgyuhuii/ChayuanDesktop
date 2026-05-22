@@ -319,15 +319,7 @@ class InstallJobManager:
             job.status = JobStatus.RUNNING
             job.step = "downloading"
 
-        # 设镜像 endpoint(huggingface_hub 通过 HF_ENDPOINT env 读;**必须**
-        # 在第一次 import / 调用前生效。一些机器上之前可能已经设过别的值,
-        # 这里**覆盖**,避免 hf.co 不可达导致 ConnectTimeout)。
         mirror_key = job.mirror or "hf-mirror"
-        os.environ["HF_ENDPOINT"] = _MIRROR_ENDPOINTS[mirror_key]
-        with self._lock:
-            job.log_tail.append(
-                f"[install_job] HF_ENDPOINT={_MIRROR_ENDPOINTS[mirror_key]}"
-            )
 
         try:
             from huggingface_hub import hf_hub_download, snapshot_download
@@ -340,6 +332,13 @@ class InstallJobManager:
                 job.exit_code = 1
                 job.ended_at = time.time()
             return
+
+        # 强制走 hf-mirror —— 只设 HF_ENDPOINT 环境变量太晚(huggingface_hub
+        # import 时已把端点固化进各子模块)。运行时覆盖所有子模块的 ENDPOINT。
+        from chayuan.server.model_registry.hf_mirror import force_hf_mirror_endpoint
+        _endpoint = force_hf_mirror_endpoint(_MIRROR_ENDPOINTS[mirror_key])
+        with self._lock:
+            job.log_tail.append(f"[install_job] HF endpoint = {_endpoint}")
 
         try:
             models = _release_models(job.release)
