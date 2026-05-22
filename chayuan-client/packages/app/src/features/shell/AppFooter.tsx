@@ -36,7 +36,10 @@ const INDICATORS: CapabilityIndicator[] = [
   { key: 'embedding',        label: '文本嵌入' },
   { key: 'rerank',           label: '重排' },
   { key: 'asr',              label: '语音识别' },
-  { key: 'image-embedding',  label: '图像嵌入' },
+  // 图像向量化(image-embedding)已下线 —— 见 server: server_app.py、
+  // local_runtime_registry.py 已注销其入口;底部状态点同步注销。
+  // 要恢复:取消下行注释。
+  // { key: 'image-embedding',  label: '图像嵌入' },
   { key: 'ocr',              label: 'OCR' },
 ];
 
