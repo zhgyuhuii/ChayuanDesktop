@@ -1,30 +1,37 @@
 <#
 .SYNOPSIS
-    一次性收齐 Chayuan 本地 runtime 所有诊断信息,落一个 .md 直接贴给开发。
+    One-shot diagnostic dump for Chayuan local runtime — generates a single
+    UTF-8 markdown file you can paste back to a developer.
 
 .DESCRIPTION
-    包含 9 段:
-      1. 标准 diagnose(/runtime/diagnose 后端聚合检查)
-      2. 进程列表(chayuan / llama-server / whisper-server / rapidocr 等)
-      3. OCR sidecar 状态(/v1/modality/sidecar/ocr/status)
-      4. OCR health(/runtime/ocr/health,footer 灯用)
-      5. KB 创建烟雾测(faiss + bge-m3,临时名,失败时打真错)
-      6. server.log 尾 100 行(扫 %APPDATA%\chayuan 和 D:\chayuan-data)
-      7. <chayuan_root>/models/bundled 目录树(看模型真有没有在位)
-      8. rapidocr sidecar 自己日志尾 50 行(%TEMP%/chayuan_rapidocr.log)
-      9. 安装 exe 大小 + mtime(对版本)
+    All source code in this .ps1 is ASCII / English so that PowerShell 5.1
+    (which defaults to GBK on Chinese-locale Windows when there is no UTF-8
+    BOM on the file) does not mojibake string literals and break parsing.
+    The output .md is written via [System.IO.File]::WriteAllText with an
+    explicit UTF-8 BOM, so the report itself displays Chinese cleanly in
+    Notepad / VSCode / PS 5.1 / PS 7 alike.
 
-    UTF-8 + BOM 写入,Windows Notepad / PS 5.1 / PS 7 / VSCode / 命令行 cat 都能正确显示中文。
+    Sections gathered:
+      1. Standard diagnose (calls scripts/diagnose.ps1 -> /runtime/diagnose)
+      2. Process list (chayuan / llama-server / whisper-server / rapidocr ...)
+      3. OCR sidecar status (/v1/modality/sidecar/ocr/status)
+      4. OCR health (/runtime/ocr/health) - the footer indicator's source
+      5. KB creation smoke test (faiss + bge-m3, throwaway name)
+      6. server.log tail 100 lines (scans common chayuan_root locations)
+      7. bundled_models tree (under <chayuan_root>/models/bundled)
+      8. rapidocr sidecar log tail 50 lines (%TEMP%/chayuan_rapidocr.log)
+      9. Installed exe size + mtime (for version cross-check)
 
 .EXAMPLE
-    bash scripts\diagnose-all.ps1          # 默认 sidecar = http://127.0.0.1:62581
+    bash scripts\diagnose-all.ps1
     bash scripts\diagnose-all.ps1 -SidecarBase http://127.0.0.1:7861
 #>
 param(
     [string]$SidecarBase = "http://127.0.0.1:62581"
 )
 
-# UTF-8 强制:console + 文件两头都要,不然中文乱码(用户已经踩过)
+# Force UTF-8 on console + all child process IO; -- avoids GBK fallback
+# garbling our Get-Content / Out-String reads. Safe on PS 5.1 and 7+.
 chcp 65001 > $null
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 $OutputEncoding = [System.Text.UTF8Encoding]::new()
@@ -32,9 +39,10 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new()
 $ts  = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "chayuan-diag-all-$ts.md"
 
-# UTF-8 BOM 写,避免 PS5.1 Get-Content 默认 GBK 解码乱码
+# UTF-8 with BOM -- Notepad / PS5.1 Get-Content default decoder both detect
+# this and render Chinese correctly.
 $utf8Bom = [System.Text.UTF8Encoding]::new($true)
-[System.IO.File]::WriteAllText($out, "# Chayuan 一键诊断 $ts`n`n", $utf8Bom)
+[System.IO.File]::WriteAllText($out, "# Chayuan one-shot diagnostic $ts`n`n", $utf8Bom)
 
 function Append-Section {
     param([string]$Title, [string]$Body)
@@ -48,22 +56,22 @@ function Try-Invoke {
 }
 
 # ----------------------------------------------------------------------
-# 1. 标准 diagnose
+# 1. Standard diagnose
 # ----------------------------------------------------------------------
 $diagOut = Try-Invoke {
     $script = Join-Path $PSScriptRoot "diagnose.ps1"
     if (Test-Path $script) {
-        # 用同进程内 dot-source 跑,避免子进程编码再丢一遍
+        # Spawn child PS, captured stderr+stdout; encoding already forced above.
         $captured = & powershell -NoProfile -ExecutionPolicy Bypass -File $script -SidecarBase $SidecarBase 2>&1
         $captured | Out-String
     } else {
-        "scripts\diagnose.ps1 不存在,跳过"
+        "scripts\diagnose.ps1 not found, skipped"
     }
 }
-Append-Section "1. 标准 diagnose" $diagOut
+Append-Section "1. Standard diagnose (/runtime/diagnose)" $diagOut
 
 # ----------------------------------------------------------------------
-# 2. 进程列表
+# 2. Process list
 # ----------------------------------------------------------------------
 $proc = Try-Invoke {
     Get-CimInstance Win32_Process |
@@ -71,18 +79,18 @@ $proc = Try-Invoke {
         Select-Object ProcessId, ParentProcessId, Name, @{N='Cmd';E={$_.CommandLine}} |
         Format-Table -AutoSize -Wrap
 }
-Append-Section "2. 进程列表" $proc
+Append-Section "2. Process list" $proc
 
 # ----------------------------------------------------------------------
-# 3. OCR sidecar 状态
+# 3. OCR sidecar status
 # ----------------------------------------------------------------------
 $ocrStatus = Try-Invoke {
     (Invoke-RestMethod "$SidecarBase/v1/modality/sidecar/ocr/status" -TimeoutSec 5) | ConvertTo-Json -Depth 10
 }
-Append-Section "3. OCR sidecar 状态 /v1/modality/sidecar/ocr/status" $ocrStatus
+Append-Section "3. OCR sidecar status /v1/modality/sidecar/ocr/status" $ocrStatus
 
 # ----------------------------------------------------------------------
-# 4. OCR health(footer 灯逻辑用的真源)
+# 4. OCR health (the source of truth for the footer indicator)
 # ----------------------------------------------------------------------
 $ocrHealth = Try-Invoke {
     (Invoke-RestMethod "$SidecarBase/runtime/ocr/health" -TimeoutSec 5) | ConvertTo-Json -Depth 10
@@ -90,7 +98,7 @@ $ocrHealth = Try-Invoke {
 Append-Section "4. OCR health /runtime/ocr/health" $ocrHealth
 
 # ----------------------------------------------------------------------
-# 5. KB 创建烟雾测
+# 5. KB creation smoke test
 # ----------------------------------------------------------------------
 $smoke = Try-Invoke {
     $body = @{
@@ -102,10 +110,10 @@ $smoke = Try-Invoke {
         -Method POST -Body $body -ContentType "application/json" -TimeoutSec 30 |
         ConvertTo-Json -Depth 6
 }
-Append-Section "5. KB 创建烟雾测(临时 KB,失败也能看真错)" $smoke
+Append-Section "5. KB creation smoke test (throwaway name, surfaces real error on fail)" $smoke
 
 # ----------------------------------------------------------------------
-# 6. server.log 尾 100 行
+# 6. server.log tail 100
 # ----------------------------------------------------------------------
 $logs = Try-Invoke {
     $candidates = @(
@@ -115,7 +123,7 @@ $logs = Try-Invoke {
         "D:\chayuan-data\logs\chayuan.log",
         "C:\chayuan-data\logs\server.log"
     ) | Where-Object { Test-Path $_ }
-    if (-not $candidates) { return "(找不到 server log)" }
+    if (-not $candidates) { return "(no server log found)" }
     $sb = [System.Text.StringBuilder]::new()
     foreach ($p in $candidates) {
         $sb.AppendLine("--- $p ---") | Out-Null
@@ -125,10 +133,10 @@ $logs = Try-Invoke {
     }
     $sb.ToString()
 }
-Append-Section "6. server.log 尾 100 行" $logs
+Append-Section "6. server.log tail 100" $logs
 
 # ----------------------------------------------------------------------
-# 7. bundled_models 目录树
+# 7. bundled_models tree
 # ----------------------------------------------------------------------
 $bundled = Try-Invoke {
     $candidates = @(
@@ -136,39 +144,39 @@ $bundled = Try-Invoke {
         "D:\chayuan-data\models\bundled",
         "C:\chayuan-data\models\bundled"
     ) | Where-Object { Test-Path $_ }
-    if (-not $candidates) { return "(找不到 bundled 目录)" }
+    if (-not $candidates) { return "(no bundled dir found)" }
     $sb = [System.Text.StringBuilder]::new()
     foreach ($p in $candidates) {
         $sb.AppendLine("--- $p ---") | Out-Null
         $files = Get-ChildItem $p -Recurse -File |
-            Select-Object @{N='Rel';E={$_.FullName.Substring($p.Length + 1)}}, @{N='MB';E={[math]::Round($_.Length/1MB, 1)}}
+            Select-Object @{N='Rel';E={$_.FullName.Substring($p.Length + 1)}}, @{N='MB';E={[math]::Round($_.Length / 1MB, 1)}}
         ($files | Format-Table -AutoSize | Out-String).Split([Environment]::NewLine) | ForEach-Object {
             $sb.AppendLine($_) | Out-Null
         }
     }
     $sb.ToString()
 }
-Append-Section "7. bundled_models 目录(<chayuan_root>/models/bundled)" $bundled
+Append-Section "7. bundled_models tree (<chayuan_root>/models/bundled)" $bundled
 
 # ----------------------------------------------------------------------
-# 8. rapidocr sidecar 日志尾
+# 8. rapidocr sidecar log tail
 # ----------------------------------------------------------------------
 $ocrLog = Try-Invoke {
     $p = "$env:TEMP\chayuan_rapidocr.log"
     if (Test-Path $p) { Get-Content $p -Tail 50 -Encoding utf8 | Out-String }
-    else { "(没这文件,sidecar 从来没起过)" }
+    else { "(file missing -- rapidocr sidecar has never started)" }
 }
-Append-Section "8. rapidocr sidecar 日志尾 50 行" $ocrLog
+Append-Section "8. rapidocr sidecar log tail 50" $ocrLog
 
 # ----------------------------------------------------------------------
-# 9. 安装 exe 信息
+# 9. Installed exe info
 # ----------------------------------------------------------------------
 $exeInfo = Try-Invoke {
     $exes = @(
         "C:\Program Files\Chayuan\chayuan-server\chayuan-server.exe",
         "$env:LOCALAPPDATA\Programs\Chayuan\chayuan-server\chayuan-server.exe"
     ) | Where-Object { Test-Path $_ }
-    if (-not $exes) { return "(找不到 chayuan-server.exe)" }
+    if (-not $exes) { return "(chayuan-server.exe not found)" }
     $sb = [System.Text.StringBuilder]::new()
     foreach ($e in $exes) {
         $info = Get-Item $e
@@ -178,17 +186,17 @@ $exeInfo = Try-Invoke {
     }
     $sb.ToString()
 }
-Append-Section "9. 安装位置 + Build 信息" $exeInfo
+Append-Section "9. Installed exe location + build info" $exeInfo
 
 # ----------------------------------------------------------------------
-# 完成
+# Done
 # ----------------------------------------------------------------------
 Write-Host ""
-Write-Host "✓ 诊断写到 $out (UTF-8 with BOM)" -ForegroundColor Green
+Write-Host "OK -- diagnostic written to $out (UTF-8 with BOM)" -ForegroundColor Green
 Write-Host ""
-Write-Host "查看(任选其一):" -ForegroundColor Cyan
-Write-Host "  Get-Content '$out' -Encoding utf8       # 强制 UTF-8 读"
-Write-Host "  notepad '$out'                          # Notepad 自动识 BOM"
+Write-Host "View (any of):" -ForegroundColor Cyan
+Write-Host "  Get-Content '$out' -Encoding utf8       # force UTF-8 read"
+Write-Host "  notepad '$out'                          # Notepad auto-detects BOM"
 Write-Host "  code '$out'                             # VSCode"
 Write-Host ""
-Write-Host "整个文件粘贴给开发即可。" -ForegroundColor Cyan
+Write-Host "Paste the full file contents back to the developer." -ForegroundColor Cyan
