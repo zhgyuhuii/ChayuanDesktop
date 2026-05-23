@@ -196,20 +196,41 @@ case "$ASSET" in
 esac
 
 # 清旧 binary / dll / so / dylib(保留 LICENSE 之类不动)
-find "$DEST" -maxdepth 1 -type f \
+# ⚠ 不能加 `-type f` —— 上一轮 cp -f 给 mac 留下的可能是符号链接(llama.cpp
+# 官方 tar 把 libllama.dylib 软链到 libllama.<ver>.dylib),`-type f` 不匹配
+# 软链 → 不清掉 → 下面 cp 同名时撞既有软链,2>/dev/null 把错吞了 → 真文件
+# 没落盘。按名删,文件 / 软链一起清。
+find "$DEST" -maxdepth 1 \
     \( -name '*.exe' -o -name '*.dll' -o -name '*.so' -o -name '*.dylib' \
        -o -name 'llama-server' -o -name 'ggml-metal.metal' \) \
     -delete 2>/dev/null || true
 
 # Win 包结构:zip 顶层就是 *.exe + *.dll。Mac/Linux 包:build/bin/ 下。
 # 通配两种,只拷主 binary + 共享库 / Metal shader。
+# ⚠ 用 `-fL` 跟随软链 —— mac tar 里 libllama.dylib 通常是软链指向带版本号
+# 的真文件,cp -f(默认 -P 保软链)搬过来会变断链。cp -fL 解引用拷真内容,
+# 多名字会各存一份(总共多几 MB),功能正确。Linux .so / Windows .dll 不受
+# 影响(它们不用软链版本)。
 find "$TMP_EXTRACT" -type f \
     \( -name 'llama-server' -o -name 'llama-server.exe' \
        -o -name '*.dll' -o -name '*.so' -o -name '*.dylib' \
        -o -name 'ggml-metal.metal' \) \
-    -exec cp -f {} "$DEST/" \;
+    -exec cp -fL {} "$DEST/" \;
 
 [ -f "$DEST/llama-server" ] && chmod +x "$DEST/llama-server"
+
+# macOS:给 binary + 所有 .dylib 显式加 @loader_path 进 rpath。
+# llama.cpp 官方 mac release 的 binary 用 `@rpath/libllama-common.0.dylib`
+# 这种引用,但 binary 自己的 rpath 不含同目录 → 转包后兄弟 .dylib 就找不到。
+# 加 @loader_path 让每个 lib 都能在自己所在目录找兄弟。install_name_tool
+# -add_rpath 在 rpath 已存在时返非零,这里吞掉(idempotent)。
+if [ "$(uname -s)" = "Darwin" ] && command -v install_name_tool >/dev/null 2>&1; then
+    for f in "$DEST/llama-server" "$DEST"/*.dylib; do
+        [ -f "$f" ] || continue
+        chmod u+w "$f" 2>/dev/null || true
+        install_name_tool -add_rpath "@loader_path" "$f" 2>/dev/null || true
+    done
+fi
 
 # 写元数据
 echo -e "$VERSION\n$(date +%Y-%m-%d)" > "$DEST/VERSION"
