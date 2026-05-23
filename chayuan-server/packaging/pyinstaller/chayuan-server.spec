@@ -686,6 +686,12 @@ a = Analysis(
         # 导致 ``Library not loaded: @rpath/libssl.3.dylib`` 的死局。
         # 不论 PyInstaller 把 libssl 放在哪个子路径,这个 hook 都能找到并预加载。
         str(ROOT / "packaging" / "pyinstaller" / "runtime_hooks" / "openssl_preload.py"),
+        # tiktoken 用 ``pkgutil.iter_modules(tiktoken_ext.__path__)`` 发现 encoding
+        # 插件;命名空间包在 frozen 下 __path__ 经常为空,iter_modules 返空 →
+        # cl100k_base / o200k_base 等永远不注册 → ``Unknown encoding cl100k_base``。
+        # 这个 hook monkey-patch tiktoken.registry._available_plugin_modules 返回
+        # 硬编码列表(tiktoken_ext.openai_public 已在 hiddenimports 里保证可 import)。
+        str(ROOT / "packaging" / "pyinstaller" / "runtime_hooks" / "tiktoken_plugins_freeze.py"),
     ],
     excludes=excludes,
     cipher=block_cipher,
