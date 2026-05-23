@@ -161,8 +161,10 @@ def rebuild_atomic(
                 if status:
                     _, file_name, docs = result
                     kf = KnowledgeFile(filename=file_name, knowledge_base_name=kb_name)
-                    kf.splited_docs = docs
-                    real.add_doc(kf, not_refresh_vs_cache=True)
+                    # ⚠ 显式 docs=docs:add_doc 在 docs=[] 时会调
+                    # kb_file.file2text() 重读源文件;chunks 这里已经算好,
+                    # 不该再读盘(重复 IO + 与 shadow 路径分支共用同一坑)。
+                    real.add_doc(kf, docs=docs, not_refresh_vs_cache=True)
                     cnt += 1
             real.save_vector_store()
             return {"ok": True, "elapsed_s": round(time.time() - t0, 2),
@@ -189,8 +191,15 @@ def rebuild_atomic(
             if status:
                 _, file_name, docs = result
                 kf = KnowledgeFile(filename=file_name, knowledge_base_name=shadow_name)
-                kf.splited_docs = docs
-                shadow.add_doc(kf, not_refresh_vs_cache=True)
+                # ⚠ 双重必要,这里不修就是用户报的 "无法向量化" 真凶:
+                # 1) shadow 目录由 create_kb() 只建空骨架,没拷 content/,
+                #    所以 add_doc 默认 docs=[] 走 kb_file.file2text() →
+                #    读 <kb_root>/<shadow_name>/content/<file> →
+                #    FileNotFoundError([WinError 2] 系统找不到指定的文件)。
+                # 2) docs 已经被上面 files2docs_in_thread 用 REAL kb_name
+                #    的源文件算好了,本就不该再读盘。
+                # 显式 docs=docs 一并解决两个问题。
+                shadow.add_doc(kf, docs=docs, not_refresh_vs_cache=True)
                 cnt += 1
         shadow.save_vector_store()
 
