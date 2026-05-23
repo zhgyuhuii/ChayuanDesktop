@@ -849,10 +849,15 @@ const Header: React.FC<{
               <FileText className="h-3.5 w-3.5" />
               {t('knowledge.addDoc')}
             </DropdownMenuItem>
+            {/* 图像库已下线(Level C)—— image-embedding sidecar 需要 PyTorch,
+                full 版瘦身后没打。要恢复:取消下面注释 + 取消注释 KbBoard 的
+                Header 入参里 onCreateImage 那一条 + CreateKbDialog.tsx 里
+                kind === 'image' 表单。文档库现在自动 OCR,图像 PDF 也能搜。
             <DropdownMenuItem onClick={onCreateImage}>
               <Images className="h-3.5 w-3.5" />
               图像库
             </DropdownMenuItem>
+            */}
             <DropdownMenuItem onClick={onCreateDb}>
               <Database className="h-3.5 w-3.5" />
               {t('knowledge.addDb')}
