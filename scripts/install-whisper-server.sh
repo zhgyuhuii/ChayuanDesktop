@@ -121,7 +121,11 @@ try_brew() {
     [ -x "$brew_bin" ] || return 1
 
     # 清旧 binary / dylib / metal
-    find "$DEST_DIR" -maxdepth 1 -type f \
+    # ⚠ 不能加 -type f —— 上一轮 cp -af 留下的断链 .dylib 是 -type l,
+    # -type f 不匹配会漏删;后续 cp -fL 撞上既有断链同名,2>/dev/null 把错
+    # 吞了 → 真文件实际没拷进去,看起来 cp 成功了 verify 仍报同样 @rpath
+    # 解析失败。这里按名删,文件 / 软链一起清,不留死链堵 cp。
+    find "$DEST_DIR" -maxdepth 1 \
         \( -name "whisper-server" -o -name "*.dylib" -o -name "*.metal" \) \
         -delete 2>/dev/null || true
 
@@ -241,8 +245,8 @@ try_build_from_source() {
         return 1
     fi
 
-    # 清旧 binary + 共享库
-    find "$DEST_DIR" -maxdepth 1 -type f \
+    # 清旧 binary + 共享库(按名删,软链 / 普通文件一起清,见 try_brew 同处注释)
+    find "$DEST_DIR" -maxdepth 1 \
         \( -name "whisper-server" -o -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) \
         -delete 2>/dev/null || true
 
