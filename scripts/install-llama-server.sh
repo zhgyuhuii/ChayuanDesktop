@@ -129,20 +129,21 @@ fi
 
 # target → upstream asset name
 case "$TARGET" in
+    # ⚠ b9174+ 起 llama.cpp 把 mac/Linux 的 release asset 从 .zip 改成 .tar.gz
+    #   (只剩 Windows 仍是 .zip)。早期 b5xxx-b8xxx 用 .zip,但默认 b9174 已走
+    #   新约定 —— 这里 mac/linux-arm64 一律 .tar.gz,Win 保持 .zip。
+    # 同时 linux-x64(ubuntu-x64)b9174+ upstream 已不发 —— 走上面 Docker 源码
+    #   编译分支,这里这条仍保留是历史兼容(旧版本 b5xxx 还能下到)。
     linux-x64)        ASSET="llama-$VERSION-bin-ubuntu-x64.zip" ;;
-    macos-arm64)      ASSET="llama-$VERSION-bin-macos-arm64.zip" ;;
-    macos-x64)        ASSET="llama-$VERSION-bin-macos-x64.zip" ;;
+    linux-arm64)      ASSET="llama-$VERSION-bin-ubuntu-arm64.tar.gz" ;;
+    macos-arm64)      ASSET="llama-$VERSION-bin-macos-arm64.tar.gz" ;;
+    macos-x64)        ASSET="llama-$VERSION-bin-macos-x64.tar.gz" ;;
     win-x64|win-x64-avx|win-x64-avx512|win-x64-noavx)
         # b5400 起 llama.cpp 不再分 avx/avx2/avx512/noavx 多个 zip,合并成单一
         # win-cpu-x64.zip(运行时 SIMD dispatch)。默认 b9174 ≥ 5400 走新名;
         # 与 runtime/install_service.py 的 _llama_asset_for 保持一致。
         ASSET="llama-$VERSION-bin-win-cpu-x64.zip" ;;
     win-arm64)        ASSET="llama-$VERSION-bin-win-cpu-arm64.zip" ;;
-    linux-arm64)
-        echo "[install] linux-arm64 upstream 没发 zip。" >&2
-        echo "  解法 1:docker create ghcr.io/ggml-org/llama.cpp:server (arm64) + cp /app/* 到 vendor/.../linux-arm64/" >&2
-        echo "  解法 2:在 ARM Linux 机上源码 cmake build" >&2
-        exit 2 ;;
     *) echo "[install] 未识别的 target: $TARGET" >&2; exit 1 ;;
 esac
 
@@ -171,17 +172,28 @@ echo "[install-llama-server] 下完 $(du -h "$TMPZIP" | cut -f1)"
 TMP_EXTRACT="/tmp/llama-$VERSION-$TARGET-extract"
 rm -rf "$TMP_EXTRACT"
 mkdir -p "$TMP_EXTRACT"
-# 解压:unzip 首选,bsdtar / python3 zipfile 兜底(AL8 / Alpine minimal 默认不带 unzip)
-if command -v unzip >/dev/null 2>&1; then
-    unzip -q "$TMPZIP" -d "$TMP_EXTRACT"
-elif command -v bsdtar >/dev/null 2>&1; then
-    bsdtar -xf "$TMPZIP" -C "$TMP_EXTRACT"
-elif command -v python3 >/dev/null 2>&1; then
-    python3 -m zipfile -e "$TMPZIP" "$TMP_EXTRACT"
-else
-    echo "[install-llama-server] 没找到 unzip / bsdtar / python3,无法解压 $TMPZIP" >&2
-    exit 2
-fi
+# 解压:按 asset 后缀分派
+#   *.tar.gz / *.tgz —— mac / Linux b9174+ 走这条(tar -xzf,mac/Linux 自带);
+#   *.zip            —— Win + 老版本 mac/Linux,unzip 首选,bsdtar / python3
+#                       zipfile 兜底(AL8 / Alpine minimal 默认不带 unzip)。
+case "$ASSET" in
+    *.tar.gz|*.tgz)
+        tar -xzf "$TMPZIP" -C "$TMP_EXTRACT" ;;
+    *.zip)
+        if command -v unzip >/dev/null 2>&1; then
+            unzip -q "$TMPZIP" -d "$TMP_EXTRACT"
+        elif command -v bsdtar >/dev/null 2>&1; then
+            bsdtar -xf "$TMPZIP" -C "$TMP_EXTRACT"
+        elif command -v python3 >/dev/null 2>&1; then
+            python3 -m zipfile -e "$TMPZIP" "$TMP_EXTRACT"
+        else
+            echo "[install-llama-server] 没找到 unzip / bsdtar / python3,无法解压 $TMPZIP" >&2
+            exit 2
+        fi ;;
+    *)
+        echo "[install-llama-server] 未知归档格式:$ASSET" >&2
+        exit 2 ;;
+esac
 
 # 清旧 binary / dll / so / dylib(保留 LICENSE 之类不动)
 find "$DEST" -maxdepth 1 -type f \
