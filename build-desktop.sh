@@ -660,6 +660,33 @@ else
         ALL_ARTIFACTS+=("$FLAVOR|$a|$dest|$sz")
         echo "    $a → $dest (${sz} MB)"
     done
+
+    # mac:从 .app 再产 .dmg —— Tauri 内置 bundle_dmg.sh 在新 macOS 容易挂
+    # (Privacy/Automation 权限、hdiutil 版本兼容),改用 scripts/make-mac-dmg.sh
+    # 走 hdiutil + Applications 软链的最小路径。生成放在 flavor_out 里,跟 .app
+    # 并排。失败只警告不阻塞(.app 仍是有效产物)。
+    if [[ "$(uname -s)" = "Darwin" ]]; then
+        make_dmg="$WORKSPACE/scripts/make-mac-dmg.sh"
+        if [[ -x "$make_dmg" ]]; then
+            for src_app in "$flavor_out"/*.app; do
+                [[ -d "$src_app" ]] || continue
+                app_base="$(basename "$src_app")"
+                # Chayuan.full.app → Chayuan.full.dmg
+                dmg_name="${app_base%.app}.dmg"
+                dmg_dest="$flavor_out/$dmg_name"
+                step "生成 DMG: $dmg_name"
+                if bash "$make_dmg" "$src_app" "$dmg_dest" "Chayuan"; then
+                    dmg_sz=$(du -m "$dmg_dest" | awk '{print $1}')
+                    ALL_ARTIFACTS+=("$FLAVOR|$dmg_dest|$dmg_dest|$dmg_sz")
+                    ok "DMG 完成 → $dmg_dest (${dmg_sz} MB)"
+                else
+                    note "DMG 生成失败,跳过(.app 仍可用)"
+                fi
+            done
+        else
+            note "scripts/make-mac-dmg.sh 不存在或不可执行,跳过 DMG"
+        fi
+    fi
 fi
 
 }   # end do_build_flavor
