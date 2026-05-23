@@ -129,8 +129,16 @@ try_build_from_source() {
     for tool in cmake make git cc; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             echo "[install-whisper-server] 构建需要 $tool 但未安装" >&2
-            echo "    macOS:  brew install cmake git" >&2
-            echo "    Linux:  apt install -y cmake build-essential git  # 或 dnf/yum 等价" >&2
+            if [ "$OS" = "Darwin" ]; then
+                echo "    macOS:" >&2
+                echo "      · 没装 Xcode CLT(cc / make 来源)→ xcode-select --install" >&2
+                echo "      · 没装 cmake / git    → brew install cmake git" >&2
+                echo "      · 没装 brew           → /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"" >&2
+            else
+                echo "    Debian / Ubuntu:  sudo apt install -y cmake build-essential git" >&2
+                echo "    RHEL / CentOS:    sudo dnf install -y cmake gcc-c++ make git" >&2
+                echo "    Alpine:           sudo apk add cmake build-base git" >&2
+            fi
             return 1
         fi
     done
@@ -155,9 +163,15 @@ try_build_from_source() {
     fi
 
     echo "[install-whisper-server] cmake -B build -DWHISPER_BUILD_SERVER=ON ..."
+    # 不再把 cmake configure 重定向到 /dev/null —— 找不到依赖时的错误信息
+    # 一并吞掉,用户对着干瞪眼。让它正常输出。
     (
         cd "$SRC"
-        cmake -B build -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_SERVER=ON -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON >/dev/null
+        cmake -B build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DWHISPER_BUILD_SERVER=ON \
+              -DWHISPER_BUILD_TESTS=OFF \
+              -DWHISPER_BUILD_EXAMPLES=ON
         cmake --build build --target whisper-server -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
     )
 
@@ -176,9 +190,12 @@ try_build_from_source() {
     cp -f "$BUILT" "$DEST_DIR/whisper-server"
     chmod +x "$DEST_DIR/whisper-server"
 
-    # 同时收 build/ 里的 .so / .dylib(whisper.cpp 多个共享库依赖)
-    find "$SRC/build" \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" \) -type f \
-        -exec cp -f {} "$DEST_DIR/" \; 2>/dev/null || true
+    # 同时收 build/ 里的 .so / .dylib(whisper.cpp 多个共享库依赖)+ Metal
+    # shader(Apple Silicon 必需:没有 ggml-metal.metal 同目录,whisper-server
+    # 会在启动期 fallback 到纯 CPU 路径,速度差几十倍)。
+    find "$SRC/build" \
+        \( -name "*.dylib" -o -name "*.so" -o -name "*.so.*" -o -name "*.metal" \) \
+        -type f -exec cp -f {} "$DEST_DIR/" \; 2>/dev/null || true
 
     printf 'src:%s\n%s\n' "$VERSION" "$(date '+%Y-%m-%d')" > "$DEST_DIR/VERSION"
     return 0
