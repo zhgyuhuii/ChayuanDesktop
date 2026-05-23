@@ -832,12 +832,20 @@ def llama_auto_start_set(
 
 @runtime_router.get("/ocr/health", summary="OCR (RapidOCR) 健康检查")
 def ocr_health() -> Dict[str, Any]:
-    """OCR 不是独立 sidecar(无端口),onnxruntime 在 chayuan-server 进程内。
+    """OCR 走独立 sidecar(rapidocr_server.py uvicorn 跑 18380),不在 chayuan-server
+    进程内。
 
-    检查项:
-      1. RapidOCR python 包是否可 import
+    检查项(全 ready 才返回 ready):
+      0. **sidecar 真在 18380 监听**(否则前面两项都通过也不算 ready)
+      1. RapidOCR python 包是否可 import(chayuan-server 进程内能 import 才
+         意味着 sidecar 也能加载,这里 fail fast 给出清晰 reason)
       2. ``vendor/bundled_models/ocr/RapidOCR/`` 下 det/rec/cls 三件套 ONNX 是否齐全
     任何一项缺失返回 state=failed + reason,前端 footer 灯亮红。
+
+    历史:这条曾经把 OCR 当 chayuan-server 进程内 onnxruntime 用(无端口),
+    检查只看 pkg + 模型 → sidecar 没起来时仍返 ready,footer 误绿。改成 OCR
+    sidecar 化后(rapidocr_server.py + rapidocr_lifecycle.py),必须先确认
+    端口监听。
     """
     from pathlib import Path
 
@@ -845,14 +853,39 @@ def ocr_health() -> Dict[str, Any]:
     reason: Optional[str] = None
     detail: Dict[str, Any] = {}
 
-    # 1) python 包
+    # 0) sidecar 监听检测 —— 真源。其它检查再绿,这里不通也是没启动。
     try:
-        import rapidocr_onnxruntime as _rapidocr  # noqa: F401
-        detail["rapidocr_pkg"] = "ok"
+        from chayuan.server.modality.rapidocr_lifecycle import (
+            ocr_sidecar_status as _ocr_status,
+        )
+        status = _ocr_status() or {}
+        listening = bool(status.get("listening"))
+        detail["sidecar_state"] = status.get("state")
+        detail["sidecar_port"] = status.get("port")
+        detail["sidecar_pid"] = status.get("pid")
+        detail["sidecar_listening"] = listening
+        if not listening:
+            state = "failed"
+            reason = (
+                "RapidOCR sidecar 未在 "
+                f"{status.get('port', 18380)} 端口监听 —— "
+                "「设置 → 本地模型服务 → RapidOCR」点重新启动,或看日志 "
+                f"{status.get('log_path') or '%TEMP%/chayuan_rapidocr.log'}"
+            )
     except Exception as e:  # noqa: BLE001
         state = "failed"
-        reason = f"rapidocr_onnxruntime 不可 import: {e}"
-        detail["rapidocr_pkg"] = "missing"
+        reason = f"sidecar 状态查询失败: {e}"
+        detail["sidecar_state"] = "unknown"
+
+    # 1) python 包(仅在 sidecar 已 ok 时继续往下,避免一连串 fail 把真错盖掉)
+    if state == "ready":
+        try:
+            import rapidocr_onnxruntime as _rapidocr  # noqa: F401
+            detail["rapidocr_pkg"] = "ok"
+        except Exception as e:  # noqa: BLE001
+            state = "failed"
+            reason = f"rapidocr_onnxruntime 不可 import: {e}"
+            detail["rapidocr_pkg"] = "missing"
 
     # 2) bundled model 三件套(找一个候选路径就算 OK,跟 install-bundled-models 落点对齐)
     if state == "ready":

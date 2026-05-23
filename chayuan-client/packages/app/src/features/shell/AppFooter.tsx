@@ -189,8 +189,9 @@ export const AppFooter: React.FC = () => {
     };
   }, [reachable]);
 
-  // OCR 是进程内 onnxruntime,没有 sidecar/无云端 fallback —
-  // 未就绪一律按"配置不完整"红色处理(rapidocr 装了 + 模型齐才会 ready)。
+  // OCR 走独立 sidecar(rapidocr_server.py 跑 18380),没有云端 fallback —
+  // 未就绪一律按"配置不完整"红色处理:sidecar 在 18380 监听 + rapidocr 包
+  // 可 import + 模型齐才会 ready。后端 /runtime/ocr/health 真源。
   const ocrTone: Tone =
     !reachable ? 'failed'
     : ocrHealth?.state === 'ready' ? 'ready'
