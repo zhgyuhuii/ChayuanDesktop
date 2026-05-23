@@ -57,15 +57,37 @@ function Try-Invoke {
 
 # ----------------------------------------------------------------------
 # 1. Standard diagnose
+#
+# Do NOT capture child stdout via "& powershell ... | Out-String" -- the
+# child process inherits a fresh Console.OutputEncoding (system default,
+# usually GBK on zh-CN Windows), so UTF-8 bytes emitted by diagnose.ps1
+# get re-decoded as GBK on the way back -> mojibake (e.g. "sidecar HTTP
+# å±å°±ç»ª" should be "sidecar HTTP 层就绪").
+#
+# Workaround: diagnose.ps1 already Set-Content -Encoding UTF8 writes its
+# full report to $env:TEMP\chayuan-diagnose-<ts>.md. Run it (discard
+# stdout), then read its file with Get-Content -Encoding utf8 -- bytes
+# stay UTF-8 end to end.
 # ----------------------------------------------------------------------
 $diagOut = Try-Invoke {
     $script = Join-Path $PSScriptRoot "diagnose.ps1"
-    if (Test-Path $script) {
-        # Spawn child PS, captured stderr+stdout; encoding already forced above.
-        $captured = & powershell -NoProfile -ExecutionPolicy Bypass -File $script -SidecarBase $SidecarBase 2>&1
-        $captured | Out-String
+    if (-not (Test-Path $script)) {
+        return "scripts\diagnose.ps1 not found, skipped"
+    }
+    # Snapshot existing diagnose-*.md before so we can pick the new one
+    $before = @(Get-ChildItem "$env:TEMP\chayuan-diagnose-*.md" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $script -SidecarBase $SidecarBase *> $null
+    $after = Get-ChildItem "$env:TEMP\chayuan-diagnose-*.md" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending
+    $new = $after | Where-Object { $before -notcontains $_.FullName } | Select-Object -First 1
+    if (-not $new) {
+        # diagnose.ps1 might have failed before writing; fall back to most recent
+        $new = $after | Select-Object -First 1
+    }
+    if ($new) {
+        Get-Content $new.FullName -Raw -Encoding utf8
     } else {
-        "scripts\diagnose.ps1 not found, skipped"
+        "diagnose.ps1 ran but produced no output file under `$env:TEMP"
     }
 }
 Append-Section "1. Standard diagnose (/runtime/diagnose)" $diagOut
