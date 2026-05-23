@@ -267,7 +267,14 @@ def copy_to_tauri_resources() -> Path:
     if dst.exists():
         shutil.rmtree(dst)
     # copytree 保留权限位(macOS / Linux 上 chayuan-server bootloader 需要 +x)。
-    shutil.copytree(src, dst, symlinks=False)
+    # symlinks=True 必需:macOS 上 PyInstaller PKG 阶段 fixup 会在 _internal/
+    # 根目录留下指向不存在目标的 libssl.3.dylib / libcrypto.3.dylib 等断链
+    # (真 OpenSSL 已被 spec 显式落到 _internal/_chayuan_openssl/ 子路径,
+    # 启动期的 chayuan-rthook-openssl 从那里加载,根目录的断链是 fixup
+    # 残留、对运行时无害)。symlinks=False 会尝试解引用断链 → ENOENT 炸掉
+    # 整个 copytree。symlinks=True 按原样把符号链接搬过去,broken 仍 broken
+    # 但不阻塞拷贝,Linux 下正常 .so 软链也一并保留(省体积、保持原结构)。
+    shutil.copytree(src, dst, symlinks=True)
     # Windows 不需要 chmod;macOS/Linux 上 bootloader exe 必须可执行。
     if platform.system() != "Windows":
         exe = dst / "chayuan-server"
