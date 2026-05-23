@@ -135,20 +135,33 @@ try_brew() {
     # Metal shader 一起搬过来。
     local ggml_prefix=""
     ggml_prefix="$(brew --prefix ggml 2>/dev/null || true)"
-    for srcdir in "$brew_prefix/lib" "$ggml_prefix/lib"; do
+    # ⚠ 必须用 -L 跟随软链 —— brew 的 ${prefix}/lib/*.dylib 都是软链指向
+    # ../libexec/lib/<real>(brew tree 内部相对路径),原来用 cp -a 保留
+    # 软链 → 搬到 DEST_DIR 后变断链,verify 仍然报 "Library not loaded:
+    # @rpath/libwhisper.1.dylib (no such file)"。-L 解引用拷真文件,会
+    # 让多份软链(libwhisper.dylib / libwhisper.1.dylib / libwhisper.1.X.X.dylib)
+    # 各自变成同内容的真文件,空间略浪费但功能正确。
+    # 也把 libexec/lib(brew 的真文件落点)直接当源,免得 -L 解链时
+    # 跨目录 readlink 失败。
+    for srcdir in \
+        "$brew_prefix/libexec/lib" \
+        "$brew_prefix/lib" \
+        "$ggml_prefix/libexec/lib" \
+        "$ggml_prefix/lib"; do
         [ -d "$srcdir" ] || continue
-        # cp -a 保留软链(brew 同时给 libwhisper.1.7.6.dylib 和 libwhisper.1.dylib 软链)
         find "$srcdir" -maxdepth 1 -name "*.dylib" \
-            -exec cp -af {} "$DEST_DIR/" \; 2>/dev/null || true
+            -exec cp -fL {} "$DEST_DIR/" \; 2>/dev/null || true
     done
     # Apple Silicon Metal shader —— 缺了 whisper-server 启动会 fallback
-    # 到 CPU 路径,速度差几十倍。可能落在多处,找到一份即可。
+    # 到 CPU 路径,速度差几十倍。也可能在 libexec/ 下,加进候选。
     for cand in \
         "$brew_prefix/lib/ggml-metal.metal" \
+        "$brew_prefix/libexec/lib/ggml-metal.metal" \
         "$brew_prefix/share/whisper-cpp/ggml-metal.metal" \
         "${ggml_prefix}/lib/ggml-metal.metal" \
+        "${ggml_prefix}/libexec/lib/ggml-metal.metal" \
         "${ggml_prefix}/share/ggml/ggml-metal.metal"; do
-        [ -n "$cand" ] && [ -f "$cand" ] && cp -f "$cand" "$DEST_DIR/" && break
+        [ -n "$cand" ] && [ -f "$cand" ] && cp -fL "$cand" "$DEST_DIR/" && break
     done
 
     printf 'brew:%s\n%s\n' "$(brew list --versions whisper-cpp | awk '{print $2}')" "$(date '+%Y-%m-%d')" > "$DEST_DIR/VERSION"
