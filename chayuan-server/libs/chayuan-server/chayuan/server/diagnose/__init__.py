@@ -47,8 +47,10 @@ def run_all_checks() -> DiagnoseReport:
                            lambda: _checks.check_runtime_llama_status_for("rerank")),
         _checks._safe_call("runtime.llama.asr.status",
                            lambda: _checks.check_runtime_llama_status_for("asr")),
-        _checks._safe_call("runtime.llama.image-embedding.status",
-                           lambda: _checks.check_runtime_llama_status_for("image-embedding")),
+        # image-embedding 已下线(Level C),从 diagnose 也同步移除,
+        # 避免读 registry 时 "unknown capability" 噪声。要恢复:
+        # _checks._safe_call("runtime.llama.image-embedding.status",
+        #                    lambda: _checks.check_runtime_llama_status_for("image-embedding")),
     ]
 
     summary = {"ok": 0, "warn": 0, "fail": 0}
