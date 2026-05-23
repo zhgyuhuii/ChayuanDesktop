@@ -114,14 +114,60 @@ try_brew() {
     if ! brew list whisper-cpp >/dev/null 2>&1; then
         brew install whisper-cpp || return 1
     fi
-    local brew_bin
-    brew_bin="$(brew --prefix whisper-cpp 2>/dev/null)/bin/whisper-server"
+    local brew_prefix
+    brew_prefix="$(brew --prefix whisper-cpp 2>/dev/null)"
+    [ -d "$brew_prefix" ] || return 1
+    local brew_bin="$brew_prefix/bin/whisper-server"
     [ -x "$brew_bin" ] || return 1
+
+    # 清旧 binary / dylib / metal
+    find "$DEST_DIR" -maxdepth 1 -type f \
+        \( -name "whisper-server" -o -name "*.dylib" -o -name "*.metal" \) \
+        -delete 2>/dev/null || true
+
     cp -f "$brew_bin" "$DEST_DIR/whisper-server"
     chmod +x "$DEST_DIR/whisper-server"
-    # mac brew formula 把 .dylib 链到 cellar,运行时不需要拷
+
+    # ⚠ 关键(原 try_brew 漏的)—— binary 的 install_name 是
+    # @rpath/libwhisper.X.dylib,rpath 默认查 @executable_path/(就是
+    # DEST_DIR);不把 .dylib 拷到这里,运行就报 "Library not loaded:
+    # @rpath/libwhisper.1.dylib"。从 brew formula tree 把 .dylib +
+    # Metal shader 一起搬过来。
+    local ggml_prefix=""
+    ggml_prefix="$(brew --prefix ggml 2>/dev/null || true)"
+    for srcdir in "$brew_prefix/lib" "$ggml_prefix/lib"; do
+        [ -d "$srcdir" ] || continue
+        # cp -a 保留软链(brew 同时给 libwhisper.1.7.6.dylib 和 libwhisper.1.dylib 软链)
+        find "$srcdir" -maxdepth 1 -name "*.dylib" \
+            -exec cp -af {} "$DEST_DIR/" \; 2>/dev/null || true
+    done
+    # Apple Silicon Metal shader —— 缺了 whisper-server 启动会 fallback
+    # 到 CPU 路径,速度差几十倍。可能落在多处,找到一份即可。
+    for cand in \
+        "$brew_prefix/lib/ggml-metal.metal" \
+        "$brew_prefix/share/whisper-cpp/ggml-metal.metal" \
+        "${ggml_prefix}/lib/ggml-metal.metal" \
+        "${ggml_prefix}/share/ggml/ggml-metal.metal"; do
+        [ -n "$cand" ] && [ -f "$cand" ] && cp -f "$cand" "$DEST_DIR/" && break
+    done
+
     printf 'brew:%s\n%s\n' "$(brew list --versions whisper-cpp | awk '{print $2}')" "$(date '+%Y-%m-%d')" > "$DEST_DIR/VERSION"
     return 0
+}
+
+# 给 macOS 上拷过来的 binary + 所有 .dylib 显式加 @loader_path 进 rpath。
+# brew / cmake 产物里 .dylib 之间用 @rpath/libX.dylib 互引,若某个 .dylib
+# 自身的 rpath 不含同目录,转包后兄弟 .dylib 就找不着。加 @loader_path 让
+# 每个 lib 都能在自己所在目录找兄弟。install_name_tool -add_rpath 在 rpath
+# 已存在时返非零,这里吞掉(idempotent)。
+_fixup_macos_rpath() {
+    [ "$OS" = "Darwin" ] || return 0
+    command -v install_name_tool >/dev/null 2>&1 || return 0
+    for f in "$DEST_DIR/whisper-server" "$DEST_DIR"/*.dylib; do
+        [ -f "$f" ] || continue
+        chmod u+w "$f" 2>/dev/null || true
+        install_name_tool -add_rpath "@loader_path" "$f" 2>/dev/null || true
+    done
 }
 
 # ────────────────────────── 路径 2:源码 cmake build ──────────────────────
@@ -213,6 +259,12 @@ elif try_brew; then
 elif try_build_from_source; then
     ok=1
     echo "[install-whisper-server] 源码 build 完成 → $DEST_DIR"
+fi
+
+# 任何路径(brew / 源码)拷到 DEST_DIR 后,给 mac 二进制 + dylib 注入
+# @loader_path rpath,确保它们能从同目录找兄弟 .dylib。
+if [ $ok -eq 1 ]; then
+    _fixup_macos_rpath
 fi
 
 if [ $ok -eq 0 ]; then
