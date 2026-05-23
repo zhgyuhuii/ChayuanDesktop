@@ -49,8 +49,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# DMG 内的 .app 名做"去 flavor"规整 —— 用户拖到 /Applications 后应该看到
+# 标准的 Chayuan.app,而不是 Chayuan.lite.app / Chayuan.full.app。flavor
+# 后缀只用于分发文件名(DMG 自身),不该带进应用名:
+#   Chayuan.lite.app  → DMG 内 Chayuan.app
+#   Chayuan.full.app  → DMG 内 Chayuan.app
+#   Chayuan.app       → DMG 内 Chayuan.app(no-op)
+# 实现:basename 取第一个 `.` 前的部分(${var%%.*})作为应用名。我们的
+# app 名是 Chayuan,中间不含点,这个规则够用;若以后改成 "Chayuan AI.app"
+# 这种带空格 / 多点的名字需要再加显式 --inner-name 参数。
+APP_BASE="$(basename "$APP")"
+INNER_STEM="${APP_BASE%%.*}"
+INNER_NAME="${INNER_STEM}.app"
+
 echo "[make-mac-dmg] staging: $STAGE"
-cp -R "$APP" "$STAGE/"
+echo "[make-mac-dmg] inner app name: $APP_BASE → $INNER_NAME"
+cp -R "$APP" "$STAGE/$INNER_NAME"
 ln -s /Applications "$STAGE/Applications"
 
 # 先卸残留 + 删旧 DMG —— 上一次跑挂在中间会留卷
@@ -84,8 +98,9 @@ if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT" ]; then
     echo "[make-mac-dmg] DMG mount 失败" >&2
     exit 1
 fi
-if ! ls "$MOUNT_POINT" | grep -q "\.app$"; then
-    echo "[make-mac-dmg] mount 后没看到 .app(挂载点 $MOUNT_POINT)" >&2
+if [ ! -d "$MOUNT_POINT/$INNER_NAME" ]; then
+    echo "[make-mac-dmg] mount 后 $INNER_NAME 不在(挂载点 $MOUNT_POINT)" >&2
+    ls "$MOUNT_POINT" >&2
     hdiutil detach "$MOUNT_POINT" -force >/dev/null 2>&1 || true
     exit 1
 fi
