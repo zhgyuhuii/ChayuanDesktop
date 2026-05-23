@@ -32,6 +32,21 @@ encoding constructors 写在 ``tiktoken_ext.openai_public`` 里(我们 hiddenimp
 保证它可加载),patch 后 tiktoken 第一次 ``get_encoding`` 就能找到。
 
 只在 frozen 下生效;dev 模式 import 没问题不动它。
+
+⚠ 排在 multiprocessing_freeze 之前
+----------------------------------
+chayuan-server 用 ``mp.spawn`` 起 API server / config-panel 等子进程
+(``--multiprocessing-fork`` argv)。frozen 下 mp child 在
+``multiprocessing.spawn.freeze_support()`` 那一步就 ``sys.exit`` 进入
+spawn_main,**后续 runtime hook 全不会跑**。
+
+KB 创建 handler 跑在 API server 这个 mp child 里。如果 tiktoken patch
+排在 multiprocessing_freeze 之后,mp child 里就**没 patch**,KB 创建
+仍然 ``Unknown encoding cl100k_base``。
+
+每个 mp child 是独立 Python 解释器(Windows spawn 语义),各自重新跑
+所有 runtime hook 直到 freeze_support 退出 → 把 tiktoken hook 放在
+第一个,每个 child 启动时都 apply 一次,patch 在每个 child 里都生效。
 """
 from __future__ import annotations
 

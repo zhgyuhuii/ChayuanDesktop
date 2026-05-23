@@ -673,6 +673,12 @@ a = Analysis(
     hiddenimports=hidden_modules,
     hookspath=[str(ROOT / "packaging" / "pyinstaller" / "hooks")],
     runtime_hooks=[
+        # ⚠ tiktoken 必须排在 multiprocessing_freeze **之前** —— mp child 在
+        # freeze_support() 那一步就 sys.exit 进入 spawn_main,后续 runtime hook
+        # 全不跑。API server 跑在 mp child 里,KB 创建链路要用 tiktoken
+        # cl100k_base,patch 必须在每个 child 进程都 apply 才行(每个 child 是
+        # 独立 Python 解释器,各自重新跑 hook)。详见 tiktoken_plugins_freeze.py 注释。
+        str(ROOT / "packaging" / "pyinstaller" / "runtime_hooks" / "tiktoken_plugins_freeze.py"),
         # 必须在 user code / Click 解析 argv 之前调 multiprocessing.freeze_support(),
         # 否则 Windows 下子进程 ``--multiprocessing-fork`` 参数会被 Click 当未知 option 拒绝。
         str(ROOT / "packaging" / "pyinstaller" / "runtime_hooks" / "multiprocessing_freeze.py"),
@@ -686,12 +692,6 @@ a = Analysis(
         # 导致 ``Library not loaded: @rpath/libssl.3.dylib`` 的死局。
         # 不论 PyInstaller 把 libssl 放在哪个子路径,这个 hook 都能找到并预加载。
         str(ROOT / "packaging" / "pyinstaller" / "runtime_hooks" / "openssl_preload.py"),
-        # tiktoken 用 ``pkgutil.iter_modules(tiktoken_ext.__path__)`` 发现 encoding
-        # 插件;命名空间包在 frozen 下 __path__ 经常为空,iter_modules 返空 →
-        # cl100k_base / o200k_base 等永远不注册 → ``Unknown encoding cl100k_base``。
-        # 这个 hook monkey-patch tiktoken.registry._available_plugin_modules 返回
-        # 硬编码列表(tiktoken_ext.openai_public 已在 hiddenimports 里保证可 import)。
-        str(ROOT / "packaging" / "pyinstaller" / "runtime_hooks" / "tiktoken_plugins_freeze.py"),
     ],
     excludes=excludes,
     cipher=block_cipher,
