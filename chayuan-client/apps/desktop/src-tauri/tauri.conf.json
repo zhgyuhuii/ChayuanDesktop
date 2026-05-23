@@ -32,7 +32,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "deb", "dmg", "app"],
+    "targets": ["nsis", "deb", "app"],
     "externalBin": [],
     "resources": [
       "chayuan-server/**/*",
