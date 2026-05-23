@@ -665,14 +665,42 @@ else
     # (Privacy/Automation 权限、hdiutil 版本兼容),改用 scripts/make-mac-dmg.sh
     # 走 hdiutil + Applications 软链的最小路径。生成放在 flavor_out 里,跟 .app
     # 并排。失败只警告不阻塞(.app 仍是有效产物)。
+    #
+    # 命名对齐 Tauri 默认产物风格:`Chayuan_<version>_<arch>.<flavor>.dmg`,
+    # 跟 windows NSIS `Chayuan_0.1.0_x64-setup.<flavor>.exe` 同 schema。
     if [[ "$(uname -s)" = "Darwin" ]]; then
         make_dmg="$WORKSPACE/scripts/make-mac-dmg.sh"
         if [[ -x "$make_dmg" ]]; then
+            # 从 tauri.conf.json 拿版本号(真源,跟 Tauri 自己生成 DMG 名同一字段)
+            tauri_conf="$CLIENT_DIR/apps/desktop/src-tauri/tauri.conf.json"
+            app_version="$(python3 -c "import json,sys; print(json.load(open('$tauri_conf'))['version'])" 2>/dev/null || echo "")"
+            # arch:Tauri mac 用 aarch64 / x86_64(对齐 rust target_arch),
+            # 而不是 uname -m 的 arm64
+            arch_raw="$(uname -m)"
+            case "$arch_raw" in
+                arm64|aarch64) app_arch="aarch64" ;;
+                x86_64|amd64)  app_arch="x86_64"  ;;
+                *)             app_arch="$arch_raw" ;;
+            esac
             for src_app in "$flavor_out"/*.app; do
                 [[ -d "$src_app" ]] || continue
-                app_base="$(basename "$src_app")"
-                # Chayuan.full.app → Chayuan.full.dmg
-                dmg_name="${app_base%.app}.dmg"
+                app_base="$(basename "$src_app")"   # 例:Chayuan.lite.app
+                app_stem="${app_base%.app}"          # 例:Chayuan.lite
+                # 拆 flavor 后缀(Chayuan.lite → app_name=Chayuan, flavor_seg=lite)
+                if [[ "$app_stem" == *.* ]]; then
+                    app_name="${app_stem%.*}"
+                    flavor_seg=".${app_stem##*.}"
+                else
+                    app_name="$app_stem"
+                    flavor_seg=""
+                fi
+                # 拼回 Tauri 风格:Chayuan_0.1.0_aarch64.lite.dmg
+                if [[ -n "$app_version" ]]; then
+                    dmg_name="${app_name}_${app_version}_${app_arch}${flavor_seg}.dmg"
+                else
+                    # 版本读取失败兜底:不带版本,但仍带 arch
+                    dmg_name="${app_name}_${app_arch}${flavor_seg}.dmg"
+                fi
                 dmg_dest="$flavor_out/$dmg_name"
                 step "生成 DMG: $dmg_name"
                 if bash "$make_dmg" "$src_app" "$dmg_dest" "Chayuan"; then
