@@ -121,8 +121,18 @@ except BaseException as _e:  # noqa: BLE001
 # ──────────────────────────────────────────────────────────────
 _PY_FLAGS = {"-B", "-S", "-I", "-O", "-OO", "-E", "-u", "-v", "-q", "-d", "-bb"}
 _argv = sys.argv
+# 接受两种 -c 入口:
+#  (a) loky / uvicorn --reload / resource_tracker 风格,带 python flag 前缀:
+#        [exe, -B, -S, -I, -O, -c, prog, ...]
+#  (b) bare 风格(install_task_manager._bg_cmd_python_inline 用这条):
+#        [exe, -c, prog]
+# 早期实现只覆盖 (a),(b) 会落到 Click 报 "Usage:..." 退出 →
+# OCR / ollama / funasr / paddleocr 等所有 daemon 启动路全部死在这。
 if len(_argv) >= 2 and (
-    _argv[1] in _PY_FLAGS or _argv[1].startswith("-X") or _argv[1].startswith("-W")
+    _argv[1] == "-c"
+    or _argv[1] in _PY_FLAGS
+    or _argv[1].startswith("-X")
+    or _argv[1].startswith("-W")
 ):
     _i = 1
     while _i < len(_argv):
