@@ -81,6 +81,10 @@ hidden_modules += collect_submodules("sqlalchemy")
 hidden_modules += collect_submodules("pydantic")
 hidden_modules += collect_submodules("openai")
 hidden_modules += collect_submodules("tiktoken")
+# unstructured: RapidOCRDocLoader / mypdfloader / mydocloader 内部用 unstructured
+# 处理 .docx / .pdf / .ppt;它有大量动态 import 和 data file (nlp/english-words.txt
+# 等)需要显式收集。漏了用户上传 docx 时直接 FileNotFoundError english-words.txt。
+hidden_modules += collect_submodules("unstructured")
 hidden_modules += collect_submodules("nltk")
 hidden_modules += collect_submodules("sqlite_vec")
 # huggingface_hub:install_job 在线下载 bundled_models 时 import,
@@ -120,9 +124,16 @@ hidden_modules += [
 datas: list = []
 
 # 第三方包带的 data(tiktoken cl100k_base 等编码、rapidocr 模型权重等)
+# ⚠ unstructured 必须在,RapidOCRDocLoader / mypdf / mydoc / myppt 内部
+# 都依赖 unstructured 库,它要读 nlp/english-words.txt 等 data file。漏了 →
+# 用户上传 .docx / .doc / .pdf 时报:
+#   FileNotFoundError: [Errno 2] No such file or directory:
+#     '...\_internal\unstructured\nlp\english-words.txt'
+# (2026-05-23 实测,KB xxx 的 deepseek apikey 内容就是这样丢的)
 for pkg in (
     "tiktoken",
     "rapidocr_onnxruntime",
+    "unstructured",
     "nltk",
     "openai",
     "fastapi",
