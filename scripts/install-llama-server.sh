@@ -205,17 +205,26 @@ find "$DEST" -maxdepth 1 \
        -o -name 'llama-server' -o -name 'ggml-metal.metal' \) \
     -delete 2>/dev/null || true
 
-# Win 包结构:zip 顶层就是 *.exe + *.dll。Mac/Linux 包:build/bin/ 下。
-# 通配两种,只拷主 binary + 共享库 / Metal shader。
-# ⚠ 用 `-fL` 跟随软链 —— mac tar 里 libllama.dylib 通常是软链指向带版本号
-# 的真文件,cp -f(默认 -P 保软链)搬过来会变断链。cp -fL 解引用拷真内容,
-# 多名字会各存一份(总共多几 MB),功能正确。Linux .so / Windows .dll 不受
-# 影响(它们不用软链版本)。
-find "$TMP_EXTRACT" -type f \
+# Win 包结构:zip 顶层就是 *.exe + *.dll。Mac/Linux 包:b9174 起 tar 顶层
+# llama-b9174/(没有嵌套的 build/bin/)直接放 binary + 多版本 .dylib。
+#
+# 关键:mac tar 里每个 .dylib 是三层软链结构(全部 same-dir 相对软链),例如:
+#   libllama-common.dylib    → libllama-common.0.dylib       (软链 0 字节)
+#   libllama-common.0.dylib  → libllama-common.0.0.9174.dylib (软链 0 字节)
+#   libllama-common.0.0.9174.dylib                            (真文件 ~8 MB)
+# binary 用 `@rpath/libllama-common.0.dylib`(SONAME),所以软链那一份必须搬。
+#
+# ⚠ 不能加 `-type f` —— 那只匹配真文件,软链(-type l)漏过 → DEST 里只有
+# 带 0.0.9174 后缀的真文件,SONAME 软链缺失 → dyld 找不到。
+# ⚠ 也不能用 cp -fL(上轮我误改的方向):那会把每个软链都 dereference 成
+# 真文件,DEST 里同内容存 3 份,~3x 空间浪费。
+# 正解:`cp -af`(BSD:-pPR)保留软链。tar 里软链目标都是 same-dir basename,
+# 搬到 DEST 后软链在 DEST 内部解到 sibling 真文件,结构与上游一致。
+find "$TMP_EXTRACT" \
     \( -name 'llama-server' -o -name 'llama-server.exe' \
        -o -name '*.dll' -o -name '*.so' -o -name '*.dylib' \
        -o -name 'ggml-metal.metal' \) \
-    -exec cp -fL {} "$DEST/" \;
+    -exec cp -af {} "$DEST/" \;
 
 [ -f "$DEST/llama-server" ] && chmod +x "$DEST/llama-server"
 
