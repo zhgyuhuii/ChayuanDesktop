@@ -617,12 +617,21 @@ else
         invoke_step 'pnpm build:desktop' "$CLIENT_DIR" pnpm build:desktop
     fi
 
-    # 列出产物 — Tauri 默认输出文件名已经带架构后缀
+    # 列出产物 — Tauri 默认输出文件名已经带架构后缀。
+    # ⚠ mac 的 .app 是目录(<bundle>/macos/Chayuan.app/Contents/...),
+    # 拿掉 dmg target 后 mac 只剩 .app —— 这里要把目录也算 artifact。
+    # 顺手 nsis sub 也加进来:Windows 装机用的 nsis installer 落在
+    # bundle/nsis/ 不在原列表里,装机分发时会漏。
     artifacts=()
     if [[ -d "$TAURI_BUNDLE" ]]; then
-        for sub in dmg macos deb appimage rpm; do
+        for sub in dmg macos deb appimage rpm nsis msi; do
             for f in "$TAURI_BUNDLE/$sub"/* ; do
-                [[ -f "$f" ]] && artifacts+=("$f")
+                # 普通文件:任何后缀都收 (.dmg/.deb/.AppImage/.rpm/.exe/.msi)
+                # 目录形态:只收 *.app(mac bundle)—— deb 解包临时目录之类
+                # 不能误当 artifact
+                if [[ -f "$f" ]] || [[ -d "$f" && "$f" == *.app ]]; then
+                    artifacts+=("$f")
+                fi
             done
         done
     fi
@@ -645,7 +654,9 @@ else
             dest_name="${stem}.${FLAVOR}.${ext}"
         fi
         dest="$flavor_out/$dest_name"
-        cp -f "$a" "$dest"
+        # ⚠ .app 是目录 cp -f 拷不动,要 -R 递归;-a 顺带保留权限和软链。
+        # 普通文件用 cp -af 也工作(单文件时 -R 不生效但无害)。
+        cp -af "$a" "$dest"
         ALL_ARTIFACTS+=("$FLAVOR|$a|$dest|$sz")
         echo "    $a → $dest (${sz} MB)"
     done
