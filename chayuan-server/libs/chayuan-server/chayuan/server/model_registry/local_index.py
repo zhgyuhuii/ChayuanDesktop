@@ -117,7 +117,11 @@ def bundled_models_dir() -> Optional[Path]:
     1. 环境变量 ``CHAYUAN_BUNDLED_MODELS_DIR``(测试 / 特殊部署专用)
     2. PyInstaller 运行时：``sys._MEIPASS / "bundled_models"``
     3. 仓库 dev 模式：根据本文件位置回溯到 ``<chayuan-server>/vendor/bundled_models``
-    4. 可执行文件同级：``<argv0_dir>/bundled_models``(便携安装)
+    4. Tauri 装机布局:exe 同级 / 上一级 / resources 子目录里找 bundled_models
+       (与 ``local_runtime._default_install_services_dirs`` 同策略 —— Tauri
+       会把 sidecar 投到 ``<install>/resources/chayuan-server/`` 这种子目录,
+       而 ``bundled_models/`` 在 ``<install>/resources/`` 一级,只看 exe 同
+       目录会漏)。
     """
     env = os.environ.get("CHAYUAN_BUNDLED_MODELS_DIR")
     if env:
@@ -143,14 +147,41 @@ def bundled_models_dir() -> Optional[Path]:
     except (IndexError, OSError):
         pass
 
+    # 装机布局穷举:与 services/ 解析同策略
+    # Tauri 2 NSIS / dmg / appimage 把 ``resources`` 投到的子目录在不同平台
+    # 不一样,加上 sidecar 自己被 onedir 嵌进 ``resources/chayuan-server/``,
+    # 所以 exe 同级、上一级、resources 子目录都要看。任一命中即返回。
     try:
         argv0 = Path(sys.argv[0]).resolve()
-        if argv0.is_file():
-            p = argv0.parent / BUNDLED_DIRNAME
-            if p.is_dir():
-                return p
     except (IndexError, OSError):
-        pass
+        argv0 = None
+    # frozen 状态下 sys.executable 才是 sidecar exe(更稳),argv0 在被 launcher
+    # 重写参数时可能指向脚本路径;两个一起试,去重后逐个查。
+    bases: List[Path] = []
+    if getattr(sys, "frozen", False):
+        try:
+            bases.append(Path(sys.executable).resolve())
+        except OSError:
+            pass
+    if argv0 is not None and argv0.is_file():
+        bases.append(argv0)
+    seen: set[Path] = set()
+    for base in bases:
+        for cand in (
+            base.parent / BUNDLED_DIRNAME,
+            base.parent.parent / BUNDLED_DIRNAME,
+            base.parent / "resources" / BUNDLED_DIRNAME,
+            base.parent.parent / "resources" / BUNDLED_DIRNAME,
+            base.parent.parent / "Resources" / BUNDLED_DIRNAME,  # mac .app
+        ):
+            if cand in seen:
+                continue
+            seen.add(cand)
+            try:
+                if cand.is_dir():
+                    return cand
+            except OSError:
+                continue
 
     return None
 
