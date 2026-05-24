@@ -39,12 +39,22 @@ _BUILTIN_MODULES = (
 
 
 def _load_builtins() -> None:
-    """import 所有内置 handler 模块，触发其 ``register_handler``。"""
+    """import 所有内置 handler 模块，触发其 ``register_handler``。
+
+    历史教训(2026-05-24):import 失败原来打 logger.debug,debug 级别默认
+    不输出,导致 frozen 模式下 kb handler 静默注册失败 → get_handler('kb')
+    抛 HandlerNotFound → chat retrieve 返空 chunks → 用户挂载 KB 后 0 命中。
+    排查一整天才定位。升级到 warning + 输出完整 traceback。
+    """
     for mod in _BUILTIN_MODULES:
         try:
             importlib.import_module(mod)
         except Exception as e:  # noqa: BLE001
-            logger.debug("handler module %s 注册失败：%r", mod, e)
+            logger.warning(
+                "[handlers] %s 注册失败 (%s: %s) -- 这个 mode 的对话会走"
+                "空检索 fallback,问题大概率是 frozen 打包遗漏依赖。",
+                mod, type(e).__name__, e, exc_info=True,
+            )
 
 
 _load_builtins()
