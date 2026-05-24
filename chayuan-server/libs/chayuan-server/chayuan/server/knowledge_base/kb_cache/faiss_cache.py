@@ -36,8 +36,23 @@ class ThreadSafeFaiss(ThreadSafeObject):
         with self.acquire():
             if not os.path.isdir(path) and create_path:
                 os.makedirs(path)
+            # 诊断:save 时 vs 真实状态 + save 完磁盘文件大小
+            # 反复出现"add_embeddings 跑了 + save 也跑了,但磁盘 index.faiss
+            # 只有 4141 字节(0 vec)"。打 ntotal / docstore / disk 字节定位
+            # 究竟是 in-memory 0 vec(add 没生效)还是 save 时拿了别的 vs。
+            ntotal = getattr(getattr(self._obj, "index", None), "ntotal", "?")
+            docstore_n = len(getattr(getattr(self._obj, "docstore", None), "_dict", {}) or {})
             ret = self._obj.save_local(path)
-            logger.info(f"已将向量库 {self.key} 保存到磁盘")
+            try:
+                fpath = os.path.join(path, "index.faiss")
+                size = os.path.getsize(fpath) if os.path.isfile(fpath) else -1
+            except Exception:  # noqa: BLE001
+                size = -2
+            logger.info(
+                f"已将向量库 {self.key} 保存到磁盘 "
+                f"(in-mem index.ntotal={ntotal} docstore={docstore_n} "
+                f"on-disk index.faiss={size} bytes)"
+            )
         return ret
 
     def clear(self):

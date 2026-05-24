@@ -146,11 +146,40 @@ class FaissKBService(KBService):
                     f"Embedding model produced no signal -- check model name "
                     f"forwarding to sidecar."
                 )
+            # 加 ntotal 前后对比 + add_embeddings 返回 IDs,定位"embed 真返 vec
+            # 但 FAISS 没收"那一类 silent fail。
+            ntotal_before = getattr(getattr(vs, "index", None), "ntotal", "?")
+            docstore_before = len(getattr(getattr(vs, "docstore", None), "_dict", {}) or {})
+            # ⚠ vs.add_embeddings 入参是 zip 迭代器 —— 注意它内部可能 zip(*)
+            # 重新解包,迭代器一次性消耗光,理论是 OK,但记录 zip 物化成 list 防意外。
+            text_emb_pairs = list(zip(texts, embeddings))
             ids = vs.add_embeddings(
-                text_embeddings=zip(texts, embeddings), metadatas=metadatas
+                text_embeddings=text_emb_pairs, metadatas=metadatas
             )
+            ntotal_after = getattr(getattr(vs, "index", None), "ntotal", "?")
+            docstore_after = len(getattr(getattr(vs, "docstore", None), "_dict", {}) or {})
+            _embed_log.info(
+                "[embed-probe] add_embeddings done: ids=%d (%s) "
+                "index.ntotal %s -> %s  docstore %d -> %d",
+                len(ids) if ids else 0,
+                (ids[:3] if ids else "[]"),
+                ntotal_before, ntotal_after,
+                docstore_before, docstore_after,
+            )
+            if (isinstance(ntotal_after, int) and isinstance(ntotal_before, int)
+                    and ntotal_after == ntotal_before):
+                raise RuntimeError(
+                    f"FAISS.add_embeddings ran but index.ntotal did not change "
+                    f"({ntotal_before} -> {ntotal_after}). Vectors silently "
+                    f"dropped. Embeddings class={emb_class}, model={self.embed_model!r}."
+                )
             if not kwargs.get("not_refresh_vs_cache"):
                 vs.save_local(self.vs_path)
+                _embed_log.info(
+                    "[embed-probe] do_add_doc save_local done at vs_path=%s "
+                    "(ntotal=%s docstore=%d)",
+                    self.vs_path, ntotal_after, docstore_after,
+                )
         doc_infos = [{"id": id, "metadata": doc.metadata} for id, doc in zip(ids, docs)]
         return doc_infos
 
