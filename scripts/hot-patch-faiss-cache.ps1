@@ -86,9 +86,11 @@ Green "       contains _cosine_relevance_for_unit_l2 marker [OK]"
 # --- 2. Resolve install dir ---
 function Find-InstallDir {
     $candidates = @(
+        "C:\Program Files\chayuan-test",
         "C:\Program Files\Chayuan",
         "C:\Program Files\chayuan",
         "C:\Program Files\Chayuan Desktop",
+        "C:\Program Files (x86)\chayuan-test",
         "C:\Program Files (x86)\Chayuan",
         "$env:LOCALAPPDATA\Chayuan",
         "$env:LOCALAPPDATA\Programs\Chayuan",
