@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    One-shot diagnostic dump for Chayuan local runtime — generates a single
+    One-shot diagnostic dump for Chayuan local runtime -- generates a single
     UTF-8 markdown file you can paste back to a developer.
 
 .DESCRIPTION
@@ -61,8 +61,8 @@ function Try-Invoke {
 # Do NOT capture child stdout via "& powershell ... | Out-String" -- the
 # child process inherits a fresh Console.OutputEncoding (system default,
 # usually GBK on zh-CN Windows), so UTF-8 bytes emitted by diagnose.ps1
-# get re-decoded as GBK on the way back -> mojibake (e.g. "sidecar HTTP
-# å±å°±ç»ª" should be "sidecar HTTP 层就绪").
+# get re-decoded as GBK on the way back -> mojibake (Chinese chars come
+# back as garbage Latin-1-looking sequences).
 #
 # Workaround: diagnose.ps1 already Set-Content -Encoding UTF8 writes its
 # full report to $env:TEMP\chayuan-diagnose-<ts>.md. Run it (discard

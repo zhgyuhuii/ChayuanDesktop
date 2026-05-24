@@ -63,7 +63,7 @@ function Red    { param([string]$m) Write-Host $m -ForegroundColor Red }
 function Green  { param([string]$m) Write-Host $m -ForegroundColor Green }
 function Yellow { param([string]$m) Write-Host $m -ForegroundColor Yellow }
 
-# ─── 1. Detect installed chayuan-server.exe ─────────────────────────────
+# --- 1. Detect installed chayuan-server.exe -----------------------------
 function Detect-Exe {
     if ($script:Exe) {
         if (Test-Path $script:Exe) { return $script:Exe }
@@ -119,7 +119,7 @@ Write-Host "[smoke] secret token : sk-$Secret"
 Write-Host "[smoke] log file     : $LogFile"
 Write-Host "================================================"
 
-# ─── 2. Spawn chayuan-server ───────────────────────────────────────────
+# --- 2. Spawn chayuan-server -------------------------------------------
 $env:CHAYUAN_ROOT = $Root
 $proc = Start-Process -FilePath $ExePath `
                        -ArgumentList @("start", "-a", "--single-machine") `
@@ -145,7 +145,7 @@ function Cleanup-Server {
 
 try {
 
-    # ─── 3. Wait for API ────────────────────────────────────────────────
+    # --- 3. Wait for API ------------------------------------------------
     Write-Host "[smoke] waiting for http://127.0.0.1:$Port/runtime/diagnose ..."
     $apiUp = $false
     for ($i = 1; $i -le 90; $i++) {
@@ -158,7 +158,7 @@ try {
     }
     if (-not $apiUp) { Red "[FAIL] API never came up"; throw "api-not-up" }
 
-    # ─── 4. Wait for embedding sidecar ──────────────────────────────────
+    # --- 4. Wait for embedding sidecar ----------------------------------
     Write-Host "[smoke] waiting for embedding sidecar @ 127.0.0.1:$EmbedPort ..."
     $embedUp = $false
     for ($i = 1; $i -le 120; $i++) {
@@ -174,44 +174,108 @@ try {
         $Fail = 1
     }
 
-    # ─── 5. Create KB ───────────────────────────────────────────────────
+    # --- 4b. Discover the actual embed model id from /v1/models --------
+    # The platform registry uses full paths like `models/bundled/embedding/bge-m3`,
+    # NOT the short `bge-m3`. Hardcoding the short name -> KB create 422
+    # "embedding model 'bge-m3' unavailable". Auto-pick the first embed model the
+    # server actually advertises so this script does not lie about the bug.
+    Write-Host "[smoke] discovering embed model from /v1/models ..."
+    $EmbedModel = "bge-m3"   # fallback
+    try {
+        $models = Invoke-RestMethod "http://127.0.0.1:$Port/v1/models" -TimeoutSec 10
+        $embedEntry = $models.data | Where-Object { $_.model_type -eq "embed" -and $_.available } | Select-Object -First 1
+        if ($embedEntry) {
+            $EmbedModel = $embedEntry.id
+            Write-Host "  -> using embed_model = $EmbedModel (platform=$($embedEntry.platform_name))"
+        } else {
+            Yellow "  -> no available embed model in /v1/models; falling back to '$EmbedModel'"
+        }
+    } catch {
+        Yellow "  -> /v1/models query failed: $($_.Exception.Message); falling back to '$EmbedModel'"
+    }
+
+    # --- 5. Create KB ---------------------------------------------------
     Write-Host "[smoke] POST /knowledge_base/create_knowledge_base name=$KB"
     $body = @{
         knowledge_base_name = $KB
         vector_store_type   = "faiss"
-        embed_model         = "bge-m3"
+        embed_model         = $EmbedModel
     } | ConvertTo-Json
     $createOk = $false
     try {
         $r = Invoke-RestMethod "http://127.0.0.1:$Port/knowledge_base/create_knowledge_base" `
             -Method POST -Body $body -ContentType "application/json" -TimeoutSec 30
-        Write-Host "  → $($r | ConvertTo-Json -Depth 3 -Compress)"
+        Write-Host "  -> $($r | ConvertTo-Json -Depth 3 -Compress)"
         if ($r.code -eq 200) { $createOk = $true }
     } catch {
         Red "[FAIL] KB creation: $($_.Exception.Message)"
     }
     if (-not $createOk) { $Fail = 1 }
 
-    # ─── 6. Upload file ─────────────────────────────────────────────────
+    # --- 6. Upload file -------------------------------------------------
+    # ! Invoke-RestMethod -Form is PS 7+ only. On PS 5.1 we hand-build the
+    # multipart body. Test PS version and dispatch accordingly.
     Write-Host "[smoke] POST /knowledge_base/upload_docs file=$TestFile"
     try {
-        $form = @{
-            knowledge_base_name = $KB
-            files               = Get-Item $TestFile
-            override            = "true"
-            to_vector_store     = "true"
+        $uploadUrl = "http://127.0.0.1:$Port/knowledge_base/upload_docs"
+        if ($PSVersionTable.PSVersion.Major -ge 7) {
+            $form = @{
+                knowledge_base_name = $KB
+                files               = Get-Item $TestFile
+                override            = "true"
+                to_vector_store     = "true"
+            }
+            $up = Invoke-RestMethod $uploadUrl -Method POST -Form $form -TimeoutSec 180
+        } else {
+            # PS 5.1 manual multipart
+            $boundary  = [System.Guid]::NewGuid().ToString()
+            $LF        = "`r`n"
+            $fileBytes = [System.IO.File]::ReadAllBytes($TestFile)
+            $fileName  = [System.IO.Path]::GetFileName($TestFile)
+            # multipart body must be raw bytes -- mixing strings with bytes via
+            # Encoding.UTF8 only works when the binary part is text. For .txt
+            # it's fine; for binary uploads we'd need a binary writer.
+            $bodyLines = @(
+                "--$boundary",
+                "Content-Disposition: form-data; name=`"knowledge_base_name`"",
+                "",
+                $KB,
+                "--$boundary",
+                "Content-Disposition: form-data; name=`"override`"",
+                "",
+                "true",
+                "--$boundary",
+                "Content-Disposition: form-data; name=`"to_vector_store`"",
+                "",
+                "true",
+                "--$boundary",
+                "Content-Disposition: form-data; name=`"files`"; filename=`"$fileName`"",
+                "Content-Type: text/plain; charset=utf-8",
+                "",
+                [System.Text.Encoding]::UTF8.GetString($fileBytes),
+                "--$boundary--",
+                ""
+            )
+            $bodyStr = $bodyLines -join $LF
+            $up = Invoke-RestMethod $uploadUrl -Method POST `
+                    -Body $bodyStr `
+                    -ContentType "multipart/form-data; boundary=$boundary" `
+                    -TimeoutSec 180
         }
-        $up = Invoke-RestMethod "http://127.0.0.1:$Port/knowledge_base/upload_docs" `
-                -Method POST -Form $form -TimeoutSec 180
-        Write-Host "  → $($up | ConvertTo-Json -Depth 3 -Compress)" | Out-String | ForEach-Object { $_.Substring(0, [math]::Min(300, $_.Length)) } | Write-Host
+        $upJson = $up | ConvertTo-Json -Depth 3 -Compress
+        if ($upJson.Length -gt 300) { $upJson = $upJson.Substring(0, 300) + "...[truncated]" }
+        Write-Host "  -> $upJson"
     } catch {
         Red "[FAIL] upload_docs: $($_.Exception.Message)"
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+            Red "       body: $($_.ErrorDetails.Message)"
+        }
         $Fail = 1
     }
 
     Start-Sleep -Seconds 5
 
-    # ─── 7. docs_count check ────────────────────────────────────────────
+    # --- 7. docs_count check --------------------------------------------
     Write-Host "[smoke] checking list_files docs_count ..."
     $docsCount = 0
     try {
@@ -220,13 +284,13 @@ try {
     } catch {
         Red "[FAIL] list_files: $($_.Exception.Message)"
     }
-    Write-Host "  → total docs_count = $docsCount"
+    Write-Host "  -> total docs_count = $docsCount"
     if ($docsCount -eq 0) {
         Red "[FAIL] docs_count == 0 (chunking failed; check unstructured / text_splitter / tiktoken)"
         $Fail = 1
     }
 
-    # ─── 8. Vector store on-disk check ──────────────────────────────────
+    # --- 8. Vector store on-disk check ----------------------------------
     $KbDir = Join-Path $Root "data\knowledge_base\$KB"
     $faiss = Get-ChildItem $KbDir -Recurse -File -Filter "*.faiss" -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($faiss) {
@@ -240,7 +304,7 @@ try {
         $Fail = 1
     }
 
-    # ─── 9. search_docs with planted secret ─────────────────────────────
+    # --- 9. search_docs with planted secret -----------------------------
     Write-Host "[smoke] POST /knowledge_base/search_docs query='sk-$Secret'"
     $sBody = @{
         query               = "sk-$Secret"
@@ -276,11 +340,11 @@ try {
         $Fail = 1
     }
 
-    # ─── Bonus semantic query ───────────────────────────────────────────
+    # --- Bonus semantic query -------------------------------------------
     Write-Host ""
-    Write-Host "[smoke] semantic query: '查询 DeepSeek API key'"
+    Write-Host "[smoke] semantic query: 'what is the DeepSeek apikey'"
     $semBody = @{
-        query               = "查询 DeepSeek API key"
+        query               = "what is the DeepSeek apikey"
         knowledge_base_name = $KB
         top_k               = 5
         score_threshold     = 2.0
@@ -303,7 +367,7 @@ try {
     Cleanup-Server
 }
 
-# ─── Summary ───────────────────────────────────────────────────────────
+# --- Summary -----------------------------------------------------------
 Write-Host ""
 Write-Host "================================================"
 if ($Fail -eq 0) {
