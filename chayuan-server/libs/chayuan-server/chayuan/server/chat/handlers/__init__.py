@@ -45,11 +45,24 @@ def _load_builtins() -> None:
     不输出,导致 frozen 模式下 kb handler 静默注册失败 → get_handler('kb')
     抛 HandlerNotFound → chat retrieve 返空 chunks → 用户挂载 KB 后 0 命中。
     排查一整天才定位。升级到 warning + 输出完整 traceback。
+
+    ⚠ 同时打 print() 到 stdout(不走 logging 配置,绝不被任何 level 过滤)
+    —— 装机版排查时这条 marker 是判断"修法有没有真进 frozen"的依据。
     """
+    import sys, traceback as _tb
     for mod in _BUILTIN_MODULES:
+        sys.stdout.write(f"[_load_builtins] try   {mod}\n")
+        sys.stdout.flush()
         try:
             importlib.import_module(mod)
+            sys.stdout.write(f"[_load_builtins] OK    {mod}\n")
+            sys.stdout.flush()
         except Exception as e:  # noqa: BLE001
+            sys.stdout.write(
+                f"[_load_builtins] FAIL  {mod}: {type(e).__name__}: {e}\n"
+            )
+            _tb.print_exc(file=sys.stdout)
+            sys.stdout.flush()
             logger.warning(
                 "[handlers] %s 注册失败 (%s: %s) -- 这个 mode 的对话会走"
                 "空检索 fallback,问题大概率是 frozen 打包遗漏依赖。",
