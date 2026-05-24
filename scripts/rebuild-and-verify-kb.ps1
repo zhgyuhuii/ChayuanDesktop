@@ -67,6 +67,20 @@ function Green  { param([string]$m) Write-Host $m -ForegroundColor Green }
 function Yellow { param([string]$m) Write-Host $m -ForegroundColor Yellow }
 function Info   { param([string]$m) Write-Host "[rebuild-verify] $m" -ForegroundColor Cyan }
 
+# Pause-And-Exit:every early-exit must use this so admin-elevated PS
+# windows don't close before the user reads the failure / report path.
+# Skip via $env:CHAYUAN_REBUILD_VERIFY_NOPAUSE=1 in CI / scripted use.
+function Pause-And-Exit {
+    param([int]$Code = 0, [string]$Hint = "")
+    if ($Hint) { Write-Host $Hint -ForegroundColor Yellow }
+    if (-not $env:CHAYUAN_REBUILD_VERIFY_NOPAUSE) {
+        Write-Host ""
+        Write-Host "Exit code: $Code. Press Enter to close (Ctrl+C to keep window)..." -ForegroundColor Yellow
+        try { $null = Read-Host } catch { Start-Sleep 30 }
+    }
+    exit $Code
+}
+
 $ts  = Get-Date -Format "yyyyMMdd-HHmmss"
 $out = Join-Path $env:TEMP "chayuan-rebuild-verify-$ts.md"
 $utf8Bom = [System.Text.UTF8Encoding]::new($true)
@@ -81,10 +95,12 @@ if (-not $SmokeScript) {
     $SmokeScript = Join-Path (Split-Path $ServerRepo -Parent) "scripts\e2e-frozen-kb-smoke.ps1"
 }
 if (-not (Test-Path $ServerRepo)) {
-    Red "[FAIL] ServerRepo not found: $ServerRepo"; exit 2
+    Red "[FAIL] ServerRepo not found: $ServerRepo"
+    Pause-And-Exit -Code 2
 }
 if (-not (Test-Path $SmokeScript)) {
-    Red "[FAIL] SmokeScript not found: $SmokeScript"; exit 2
+    Red "[FAIL] SmokeScript not found: $SmokeScript"
+    Pause-And-Exit -Code 2
 }
 
 # Admin check (Program Files needs elevation)
@@ -95,7 +111,7 @@ if ($InstallDir.StartsWith("C:\Program Files") -and -not $isAdmin) {
     Red "[FAIL] InstallDir is under Program Files but PowerShell is not elevated."
     Red "       Open as Administrator: Start-Process powershell -Verb RunAs"
     Red "       Or use a non-Program-Files install dir via -InstallDir <path>."
-    exit 2
+    Pause-And-Exit -Code 2
 }
 
 Info "ServerRepo : $ServerRepo"
@@ -143,7 +159,7 @@ if ($SkipBuild) {
             ((Get-Content $buildLog -Tail 80 -Encoding utf8) -join "`n")
         Write-Host "Full build log: $buildLog"
         Write-Host "Aggregated report so far: $out"
-        exit 1
+        Pause-And-Exit -Code 1
     }
     Green "[OK] PyInstaller build done"
     Append-Section "1. PyInstaller build (OK, last 40 lines)" `
@@ -155,7 +171,7 @@ $builtExe = Join-Path $ServerRepo "dist\chayuan-server\chayuan-server.exe"
 if (-not (Test-Path $builtExe)) {
     Red "[FAIL] Built exe not found: $builtExe"
     Append-Section "1b. built exe check" "FAIL: $builtExe not found"
-    exit 1
+    Pause-And-Exit -Code 1
 }
 $buildMtime = (Get-Item $builtExe).LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
 Info "built exe: $builtExe ($buildMtime)"
@@ -197,7 +213,7 @@ $rcExit = $LASTEXITCODE
 if ($rcExit -ge 8) {
     Red "[FAIL] robocopy exit=$rcExit (full log: $rcLog)"
     Append-Section "3. robocopy (FAIL exit=$rcExit)" ((Get-Content $rcLog -Tail 60 -Encoding ascii) -join "`n")
-    exit 1
+    Pause-And-Exit -Code 1
 }
 Green "[OK] robocopy exit=$rcExit (0-7 are success)"
 $installedExe = Join-Path $InstallDir "chayuan-server.exe"
@@ -251,7 +267,7 @@ if (-not $apiUp) {
     Append-Section "4-5. server restart (FAIL: API down)" `
         ((Get-Content $rawLog -Tail 80 -Encoding utf8) -join "`n")
     Stop-Process -Id $serverPid -Force -ErrorAction SilentlyContinue
-    exit 1
+    Pause-And-Exit -Code 1
 }
 
 # Wait for embedding sidecar
@@ -336,4 +352,10 @@ Green "View / paste:"
 Green "  notepad '$out'"
 Green "  Get-Content '$out' -Encoding utf8"
 Green "================================================"
-if ($smokeRc -ne 0) { exit 1 } else { exit 0 }
+
+# ! Pause before exit. When run via `Start-Process powershell -Verb RunAs`
+# or a double-click .ps1, the host window closes immediately on exit, so
+# the user never sees the report path printed above. Pause keeps the
+# window open until user acknowledges. To skip the pause in CI / scripted
+# invocations, set $env:CHAYUAN_REBUILD_VERIFY_NOPAUSE=1.
+if ($smokeRc -ne 0) { Pause-And-Exit -Code 1 } else { Pause-And-Exit -Code 0 }
