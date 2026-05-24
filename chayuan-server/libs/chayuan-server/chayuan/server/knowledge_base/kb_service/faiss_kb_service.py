@@ -87,6 +87,27 @@ class FaissKBService(KBService):
         metadatas = [x.metadata for x in docs]
         with self.load_vector_store().acquire() as vs:
             embeddings = vs.embeddings.embed_documents(texts)
+            # 防御:embed_documents 静默返 [] / 长度不匹配是反复出现的真凶
+            # (e.g. ONNX local short-circuit 拿到 onnx/ 子目录但缺 model.onnx
+            #  → _embed_one 异常被 list comprehension 在某些 langchain
+            #  版本里吃掉,返空 list)。
+            # 不 raise 的话:zip(texts, [])=空 → add_embeddings 加 0 个 →
+            # add_file_to_db(docs_count=len(docs)=1) 仍写 SQLite → UI 显
+            # "有 1 个文档" 但向量库实际是空,search 永远 0 命中。
+            # 必须 raise + 在异常文案里把 vs.embeddings 真实 class type
+            # 暴露出来,直接告诉运维 / 用户 routing 到了哪个实现。
+            n_txt = len(texts)
+            n_emb = len(embeddings) if embeddings is not None else 0
+            if n_emb != n_txt:
+                emb_class = type(vs.embeddings).__name__
+                raise RuntimeError(
+                    f"embed_documents returned {n_emb} vectors for {n_txt} texts "
+                    f"(Embeddings class={emb_class}, model={self.embed_model!r}). "
+                    f"Silent embedding failure -- likely causes: "
+                    f"(a) ONNX local short-circuit hit but model.onnx missing; "
+                    f"(b) langchain Embeddings instance swallowed transport error; "
+                    f"(c) MODEL_PLATFORMS routing returned a no-op Embeddings."
+                )
             ids = vs.add_embeddings(
                 text_embeddings=zip(texts, embeddings), metadatas=metadatas
             )

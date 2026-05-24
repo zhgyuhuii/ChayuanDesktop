@@ -856,7 +856,17 @@ def get_Embeddings(
             from chayuan.server.embeddings.onnx_local import try_get_local_onnx_embeddings
             _onnx = try_get_local_onnx_embeddings()
             if _onnx is not None:
-                logger.debug("[get_Embeddings] 使用本地 ONNX(env CHAYUAN_ONNX_EMBED_DIR)")
+                # ! 改 INFO 级:之前 DEBUG 默认不打,导致 frozen 装机版 ONNX
+                # short-circuit 命中(自动扫到 bundled bge-m3/onnx/ 子目录)
+                # 但里面缺 model.onnx 时,_embed_one 静默返空 list, KB
+                # vector_store 写 0 向量,排查时根本看不到 "走的是 ONNX 路径"
+                # 这条线索。INFO 级别让默认日志就能看到选了哪条 embed 实现。
+                logger.info(
+                    "[get_Embeddings] 短路:使用本地 ONNX (model=%r). "
+                    "如果后续 embed_documents 返空 list, 大概率是这条路径下 "
+                    "model.onnx 缺失。",
+                    embed_model,
+                )
                 return _onnx
         except Exception as e:  # noqa: BLE001
             logger.debug("[get_Embeddings] ONNX short-circuit 探测失败,继续走 HTTP 路由: %r", e)
