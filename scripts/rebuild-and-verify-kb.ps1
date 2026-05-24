@@ -211,6 +211,37 @@ $killSummary = if ($still) {
 Info $killSummary
 Append-Section "2. stop running processes" $killSummary
 
+# ---- 2a. Kill anything listening on chayuan's well-known ports ----
+# Process-name kill (Step 2) misses chayuan-server respawned by Tauri
+# supervisor or processes started under non-standard names. Also kill by
+# port -- if anything is listening on chayuan's ports, kill it.
+# Without this, Step 4's chayuan-server spawn hits _preflight_port_check
+# WARNING "检测到即将绑定的端口已被占用,启动已中止" -> sidecars never
+# spawn -> Step 5b hangs forever waiting for 62583.
+Info "Step 2a: kill anything listening on chayuan ports (62581/62582/62583/62584/62585/8502/18380)"
+$chayuanPorts = 62581, 62582, 62583, 62584, 62585, 8502, 18380
+$portPids = Get-NetTCPConnection -LocalPort $chayuanPorts -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique
+if ($portPids) {
+    foreach ($id in $portPids) {
+        $p = Get-Process -Id $id -ErrorAction SilentlyContinue
+        Yellow "  killing PID $id ($($p.ProcessName)) holding port"
+        Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep 5
+} else {
+    Info "  no process listening on chayuan ports"
+}
+$stillBound = Get-NetTCPConnection -LocalPort $chayuanPorts -State Listen -ErrorAction SilentlyContinue
+$portSummary = if ($stillBound) {
+    "WARN: ports still bound after kill:`n" +
+    (($stillBound | Select LocalPort, OwningProcess | Format-Table -AutoSize | Out-String))
+} else {
+    "OK: all chayuan ports free"
+}
+Info $portSummary
+Append-Section "2a. ports cleared" $portSummary
+
 # ---- 2b. Clear stale runtime.json cache ----
 # Without this, chayuan-server reads runtime.json on startup and sees stale
 # "ready PID=X" entries from a previous run. After [reap] kills those PIDs,
