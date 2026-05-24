@@ -211,6 +211,36 @@ $killSummary = if ($still) {
 Info $killSummary
 Append-Section "2. stop running processes" $killSummary
 
+# ---- 2b. Clear stale runtime.json cache ----
+# Without this, chayuan-server reads runtime.json on startup and sees stale
+# "ready PID=X" entries from a previous run. After [reap] kills those PIDs,
+# auto-start STILL reports them as ready (without respawning). Net effect:
+# sidecar is dead but chayuan-server thinks it's alive -> embed_documents
+# silently fails -> 0 vectors -> 4141-byte index.faiss. Same root cause
+# debugged for hours today. Just delete the stale state files; chayuan-server
+# rebuilds them on next sidecar spawn.
+Info "Step 2b: clear stale runtime state files (force fresh sidecar spawn)"
+$staleFiles = @()
+$candidates = @(
+    "D:\nn\runtime.json",
+    "D:\nn\.chayuan_runtime.json",
+    "$env:APPDATA\chayuan\runtime.json",
+    "$env:APPDATA\chayuan\.chayuan_runtime.json"
+)
+foreach ($p in $candidates) {
+    if (Test-Path $p) {
+        $staleFiles += $p
+        Remove-Item $p -Force -ErrorAction SilentlyContinue
+    }
+}
+if ($staleFiles) {
+    Yellow "deleted stale runtime state: $($staleFiles -join '; ')"
+} else {
+    Info "no stale runtime state files found"
+}
+Append-Section "2b. cleared stale runtime state" `
+    ($(if ($staleFiles) { ($staleFiles -join "`n") } else { "(none found)" }))
+
 # ---- 3. Robocopy install dir ----
 Info "Step 3: robocopy dist -> $InstallDir"
 $rcLog = Join-Path $env:TEMP "chayuan-rebuild-verify-$ts-robocopy.log"
