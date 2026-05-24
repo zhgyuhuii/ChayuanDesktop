@@ -1,26 +1,29 @@
 /**
- * 首页底部走马灯 — 版权 + slogan 横向无限循环,点击弹"关注我们"二维码 dialog。
+ * 底部状态栏内嵌走马灯 —— 版权 / 源码授权 / slogan 横向无限循环。
  *
- * 复用 FeedbackDialog(二维码源已在 brandAssets.FOLLOW_QR_URL,不重复配置)。
+ * 用在 `AppFooter` 中间段(左侧版权静态、右侧模型服务状态点静态、
+ * 它在中间动态滚动)。点击整条弹 FeedbackDialog 出"关注我们"二维码。
  *
- * 行为:
- *   - 文案: 版权一段 + slogan 一段,中间用 · 分隔; 重复两遍拼接成 marquee track,
- *     CSS animation 持续左移,首末无缝衔接(translateX -50% 复位)
- *   - 鼠标 hover 暂停滚动
- *   - 点击整条触发 FeedbackDialog
- *   - prefers-reduced-motion 用户尊重(motion-reduce 静止显示前半段)
+ * 设计:
+ *   - 高 28px 跟 AppFooter (`h-7`) 完全贴合,无 border/padding 加成
+ *   - 文字 11px / `text-[var(--cy-text-tertiary)]`,跟 footer 默认色一致
+ *   - hover 暂停 + 文字变 secondary 提示可点
+ *   - prefers-reduced-motion 静止显示,不打扰
+ *   - track 复制两遍,CSS `chayuan-marquee` keyframes 平移 -50% 无缝
+ *
+ * 名字保留 HomeFooterMarquee 是历史原因(原本设计在 HomePage 底部);
+ * 实际现在挂在全局 footer。
  */
 
 import * as React from 'react';
 import { FeedbackDialog } from '../help/FeedbackDialog';
 
 const MARQUEE_ITEMS = [
-  '© 2026 北京智灵鸟科技中心',
   '源码授权 · 商业合作请联系我们',
   '察元 AI 助手 · 让办公场景里每个人都能用上 AI',
 ];
 
-// 把同一份 items 重复两遍,做无缝循环
+// 复制两份让 -50% 平移无缝
 const TRACK_ITEMS = [...MARQUEE_ITEMS, ...MARQUEE_ITEMS];
 
 export const HomeFooterMarquee: React.FC = () => {
@@ -37,32 +40,28 @@ export const HomeFooterMarquee: React.FC = () => {
             setOpen(true);
           }
         }}
-        aria-label="点击关注我们 — 公众号二维码"
+        aria-label="点击关注我们 —— 公众号二维码"
+        title="点击关注我们"
         className="
-          group relative z-10 cursor-pointer overflow-hidden rounded-full
-          border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]
-          px-4 py-2 text-xs text-[var(--cy-text-tertiary)]
-          hover:text-[var(--cy-text-primary)] hover:border-[var(--cy-accent)]
-          transition-colors
+          group relative h-full min-w-0 flex-1 cursor-pointer overflow-hidden
+          text-[11px] text-[var(--cy-text-tertiary)] select-none
+          hover:text-[var(--cy-text-secondary)] transition-colors
         "
       >
         <div
           className="
-            flex w-max items-center gap-8 whitespace-nowrap
-            motion-safe:animate-[chayuan-marquee_28s_linear_infinite]
+            flex h-full w-max items-center gap-6 whitespace-nowrap
+            motion-safe:animate-[chayuan-marquee_32s_linear_infinite]
             group-hover:[animation-play-state:paused]
           "
         >
           {TRACK_ITEMS.map((text, i) => (
-            <span key={i} className="inline-flex items-center gap-8">
+            <span key={i} className="inline-flex items-center gap-6">
               <span>{text}</span>
-              <span aria-hidden className="text-[var(--cy-text-quaternary)]">·</span>
+              <span aria-hidden className="opacity-50">·</span>
             </span>
           ))}
         </div>
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] opacity-60 group-hover:opacity-100">
-          关注我们 →
-        </span>
       </div>
       <FeedbackDialog open={open} onOpenChange={setOpen} />
     </>

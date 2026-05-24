@@ -25,6 +25,7 @@ import { cn } from '@chayuan/ui';
 import type { LocalRuntimeCapability, RuntimeOcrHealth } from '@chayuan/api';
 import { runtimeModels, runtimeOcr, serverCapabilityDefaults } from '@chayuan/api';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
+import { HomeFooterMarquee } from '../home/HomeFooterMarquee';
 
 interface CapabilityIndicator {
   key: LocalRuntimeCapability | 'ocr';
