@@ -63,6 +63,23 @@ if not ENTRY.is_file():
 
 hidden_modules: list = []
 hidden_modules += collect_submodules("chayuan")
+# chat.handlers 包内 8 个 mode handler 由 handlers/__init__._load_builtins 用
+# importlib.import_module(string) 动态加载,PyInstaller AST 静态扫描偶尔会漏
+# (历史 incident 2026-05-24:supervisor.py 在 PYZ 缺失 -> ModuleNotFoundError ->
+# 整个 _load_builtins 链虽然 try/except 但 kb handler 也跟着没注册 ->
+# chat 选了 KB 但 retrieve 返空 chunks)。显式列出,杜绝静态分析漏抓。
+hidden_modules += [
+    "chayuan.server.chat.handlers",
+    "chayuan.server.chat.handlers.base",
+    "chayuan.server.chat.handlers.llm",
+    "chayuan.server.chat.handlers.agent",
+    "chayuan.server.chat.handlers.kb",
+    "chayuan.server.chat.handlers.file",
+    "chayuan.server.chat.handlers.search_engine",
+    "chayuan.server.chat.handlers.multi_source",
+    "chayuan.server.chat.handlers.vision",
+    "chayuan.server.chat.handlers.supervisor",
+]
 hidden_modules += collect_submodules("langchain")
 hidden_modules += collect_submodules("langchain_core")
 hidden_modules += collect_submodules("langchain_openai")
