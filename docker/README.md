@@ -131,14 +131,44 @@ ls -la docker/data/data/knowledge_base/
 docker compose down && docker compose up -d
 ```
 
+## 登录 / 多用户切换
+
+默认是**单机匿名模式** — 装完即用，所有访问按 GUEST 共享，无需登录。
+
+切**多用户 + 登录**模式：
+
+```bash
+cp .env.example .env
+# 编辑 .env，取消注释 "模式 2" 那段：
+#   CHAYUAN_AUTH_REQUIRED=true
+#   CHAYUAN_ALLOW_REGISTRATION=false       # 内部部署关注册更安全
+#   JWT_SECRET=$(openssl rand -hex 64)     # 必须 ≥32 字节，否则随机生成，重启失效
+#   AUTH_DEFAULT_ADMIN_USERNAME=admin
+#   AUTH_DEFAULT_ADMIN_PASSWORD=改你想要的初始密码
+docker compose up -d --build
+```
+
+启用后：
+- `/chat/*` `/knowledge_base/*` `/api/*` 全部要 JWT
+- 前端首屏自动弹登录框
+- 没设 `AUTH_DEFAULT_ADMIN_PASSWORD` → 首次启动随机生成，看日志：
+  ```bash
+  docker compose logs chayuan | grep -iE "默认管理员|admin password|password="
+  ```
+- 关掉自助注册后，新用户只能 admin 在 **配置面板 (`:8502`)** 添加
+
+随时切回匿名：`.env` 改 `CHAYUAN_AUTH_REQUIRED=false`，`docker compose up -d` 重启容器。
+
 ## 安全
 
-默认 profile 是 `single-machine`、`anonymous` 鉴权，开发/局域网用 OK。**生产/公网部署**前请：
+**生产/公网部署**前清单：
 
-1. 把 nginx `listen 80` 换成 TLS + 反代你自己的 ingress
-2. 把 `CHAYUAN_AUTH` 切到 JWT，加 user 注册流程（chayuan-server 已有 SaaS 路径）
-3. `ports` 中只暴露 `:8080`（前端），**不要**暴露 `:62581 / :8502`
+1. **必须**多用户模式 (`CHAYUAN_AUTH_REQUIRED=true`)，`JWT_SECRET` 不能留空
+2. nginx `listen 80` 换成 TLS（或前置 caddy / cloudflare / 你自己的 ingress）
+3. `ports` 中只对外暴露 `:8080`（前端），**不要**直接暴露 `:62581` / `:8502` 到公网
+   —— 它们是后端 + 后台，只该走内网或绑 127.0.0.1
 4. `bundled_models` / `data` 做定期备份
+5. 关掉 `CHAYUAN_ALLOW_REGISTRATION` 避免任意人注册
 
 ## 与 desktop 安装包关系
 

@@ -63,22 +63,64 @@ def apply_single_machine() -> None:
     """
     from chayuan.settings import Settings
 
+    # ⚠ 必须先关 auto_reload,否则下面 setattr 会被下次访问
+    # Settings.basic_settings property 触发的 __init__ 重 load yaml/env/default
+    # 冲掉(2026-05-24 排查:setattr AUTH_REQUIRED=True 跑了但读还是 False,
+    # 原因是 property 每次 hit 触发 __init__ 把所有字段重置)。
+    # set_auto_reload(False) 让 cache 直接返回同一 instance 不重 init,
+    # setattr 的值保留到进程结束。
+    Settings.set_auto_reload(False)
+
     bs = Settings.basic_settings
     kbs = Settings.kb_settings
 
-    # ── 1. 鉴权:关闭 AUTH_REQUIRED;现有 deps.get_current_user 在 false 时
-    #       返游客 dict;auth middleware 同一规则。LocalUser 通过 deps 注入。
+    # ── 1. 鉴权:默认关闭 AUTH_REQUIRED(单机/桌面体验);现有 deps.get_current_user
+    #       在 false 时返游客 dict,LocalUser 通过 deps 注入。
+    #
+    #   ⚠ Docker / 多人共享部署可以**覆盖**这个默认:
+    #       CHAYUAN_AUTH_REQUIRED=true   → 强制开启 JWT 登录
+    #       CHAYUAN_AUTH_REQUIRED=false  → 强制走匿名 (跟默认一致,可省略)
+    #
+    #   解析"显式开启"的逻辑放这里 — 让 single-machine profile 也能跑多用户
+    #   场景(KB / 缓存 / 队列仍用 sqlite-vec + inproc,只切鉴权),无需再发
+    #   明一个独立 profile。
+    import os as _os
+    _auth_env = (_os.environ.get("CHAYUAN_AUTH_REQUIRED") or "").strip().lower()
+    _auth_required_explicit: bool | None
+    if _auth_env in ("1", "true", "yes", "on"):
+        _auth_required_explicit = True
+    elif _auth_env in ("0", "false", "no", "off"):
+        _auth_required_explicit = False
+    else:
+        _auth_required_explicit = None  # env 未设 → 走默认(False)
+
+    target_auth = _auth_required_explicit if _auth_required_explicit is not None else False
+
     if hasattr(bs, "AUTH_REQUIRED"):
-        if bool(getattr(bs, "AUTH_REQUIRED", False)):
-            logger.info("[single-machine] AUTH_REQUIRED True → False")
+        cur_auth = bool(getattr(bs, "AUTH_REQUIRED", False))
+        if cur_auth != target_auth:
+            logger.info(
+                "[single-machine] AUTH_REQUIRED %s → %s (env CHAYUAN_AUTH_REQUIRED=%r)",
+                cur_auth, target_auth, _auth_env or "(unset)",
+            )
         try:
-            setattr(bs, "AUTH_REQUIRED", False)
+            setattr(bs, "AUTH_REQUIRED", target_auth)
         except Exception as e:  # noqa: BLE001
             logger.warning("[single-machine] 写 AUTH_REQUIRED 失败:%s", e)
     else:
         logger.warning(
             "[single-machine] basic_settings 不含 AUTH_REQUIRED 字段;跳过"
         )
+
+    # ── 1b. 自助注册:env CHAYUAN_ALLOW_REGISTRATION=false 时关
+    _reg_env = (_os.environ.get("CHAYUAN_ALLOW_REGISTRATION") or "").strip().lower()
+    if _reg_env in ("0", "false", "no", "off"):
+        if hasattr(bs, "AUTH_ALLOW_REGISTRATION"):
+            try:
+                setattr(bs, "AUTH_ALLOW_REGISTRATION", False)
+                logger.info("[single-machine] AUTH_ALLOW_REGISTRATION → False (env)")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[single-machine] 写 AUTH_ALLOW_REGISTRATION 失败:%s", e)
 
     # ── 2. KB 默认向量库:走 sqlite-vec
     if hasattr(kbs, "DEFAULT_VS_TYPE"):
