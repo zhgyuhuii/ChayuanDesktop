@@ -36,6 +36,7 @@ import { CapabilityCardGrid } from './capabilityCards/CapabilityCardGrid';
 import { HomeFxLayer } from './homeFx/HomeFxLayer';
 import { CardAura } from './homeFx/CardAura';
 import { PartnershipBanner } from './PartnershipBanner';
+import { HomeFooterMarquee } from './HomeFooterMarquee';
 
 // ── 5 张功能入口卡定义 ──────────────────────────────────────────────
 interface CapItem {
@@ -370,6 +371,11 @@ export const HomePage: React.FC = () => {
           <QrCard label="微信赞助" src={WXPAY_QR_URL} />
         </div>
       </section>
+
+      {/* ── 8. 底部走马灯 ── 版权 + 源码授权 + slogan,点击弹"关注我们" */}
+      <div className="relative z-10 mt-2 flex justify-center">
+        <HomeFooterMarquee />
+      </div>
 
     </div>
   );

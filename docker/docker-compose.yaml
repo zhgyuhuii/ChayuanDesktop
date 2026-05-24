@@ -1,0 +1,87 @@
+# 察元 AI 单机版 Docker Compose
+# ====================================================================
+# 一个 service 同时跑 chayuan-server (Python + sidecar) + nginx
+# (前端 SPA + API 反代),浏览器开 http://<host>:8080 即用。
+#
+# 所有可变数据通过 volume 映射到本目录 (docker/) 下子目录:
+#   ./data            ← KB metadata / sqlite / 上传文件 / 日志
+#   ./bundled_models  ← chat/embedding/rerank/asr 模型 (用户自备 GGUF)
+#   ./config          ← 可选: 覆盖 *.yaml 配置 (basic_settings.yaml 等)
+#   ./logs            ← chayuan-server / nginx 日志
+#
+# 一键启动:
+#   cd docker
+#   docker compose up -d --build
+#
+# 升级:
+#   git pull
+#   docker compose up -d --build       # 重新 build image,数据保留
+#
+# 看 log:
+#   docker compose logs -f chayuan
+#
+# 进容器调试:
+#   docker compose exec chayuan bash
+#
+# 停 + 清:
+#   docker compose down                # 停容器, 数据保留
+#   docker compose down -v             # 顺带删 named volume (本配置没用,只用 bind mount)
+#
+# 注意:第一次启动需要等 sidecar 初始化 + 加载模型,约 60-180s。
+# ====================================================================
+
+services:
+  chayuan:
+    build:
+      # context = repo 根,这样 .dockerignore + chayuan-server/ + chayuan-client/
+      # 都可见。Dockerfile 路径相对 context。
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: chayuan-server:latest
+    container_name: chayuan-server
+    restart: unless-stopped
+
+    # 浏览器入口:8080 -> 容器内 nginx :80
+    # 直连 API (非必需):62581 -> chayuan-server (浏览器一般不用)
+    # config panel:8502 -> NiceGUI (可选,浏览器开 :8502 直接进)
+    ports:
+      - "8080:80"        # 前端 + API 反代  ← 主入口
+      - "62581:62581"    # 后端 API 直连 (Tauri / WPS / 三方集成用)
+      - "8502:8502"      # config panel (NiceGUI 配置面板)
+
+    # 挂载点 = compose 同目录子目录,git ignore 已配
+    volumes:
+      - ./data:/chayuan/data
+      - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
+      - ./config:/chayuan/config
+      - ./logs:/chayuan/logs
+
+    # 环境变量(也可改 .env 文件)
+    environment:
+      CHAYUAN_ROOT: /chayuan/data
+      CHAYUAN_PROFILE: single-machine
+      CHAYUAN_AUTH: anonymous
+      CHAYUAN_REDIS: disabled
+      CHAYUAN_QUEUE: inproc
+      CHAYUAN_VECTOR_STORE: sqlite-vec
+      CHAYUAN_AUTO_INSTALL_DEPS: "false"
+      CHAYUAN_ROOT_IGNORE_STATE: "1"
+      CHAYUAN_VENDOR_PLATFORM: linux-x64
+      # 想加载模型时打开,默认 false 跳过(模型自己 push 到 ./bundled_models 即可)
+      CHAYUAN_PRELOAD_ON_START: "false"
+
+    # 资源建议(单机:留给宿主机 OS / 其它进程一半 CPU + RAM)
+    # 不强制,docker 会按宿主机能力分。
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '4.0'
+    #       memory: 12g
+
+    # 健康探活(Dockerfile 也定义了,这里 compose 层覆盖一份)
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 5

@@ -111,3 +111,11 @@
     color: rgba(148, 163, 184, 0.85);
   }
 }
+
+/* 首页底部走马灯 — 横向无限循环,track 复制两份,平移 -50% 无缝接续。
+   28s 跑完一轮,放在 globals 而不是组件级,因为 Tailwind v4 的 arbitrary
+   keyframe `animate-[chayuan-marquee_...]` 需要 keyframe 全局可解析。 */
+@keyframes chayuan-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
