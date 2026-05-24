@@ -88,6 +88,14 @@ $utf8Bom = [System.Text.UTF8Encoding]::new($true)
 
 function Append-Section { param([string]$T, [string]$B)
     [System.IO.File]::AppendAllText($out, "`n## $T`n``````n$B`n```````n", $utf8Bom)
+    # Also mirror to console so the user sees everything live even when the
+    # script crashes mid-way (sections after the crash never reach .md).
+    Write-Host ""
+    Write-Host "================================================" -ForegroundColor DarkGray
+    Write-Host "## $T" -ForegroundColor Cyan
+    Write-Host "------------------------------------------------" -ForegroundColor DarkGray
+    Write-Host $B
+    Write-Host "================================================" -ForegroundColor DarkGray
 }
 
 # ---- 0. preflight ----
@@ -231,27 +239,29 @@ installed mtime: $instMtime
 robocopy log   : $rcLog
 "@
 
-# ---- 4. Start chayuan-server with explicit stderr capture (for runtime hooks) ----
-Info "Step 4: start chayuan-server (with stderr capture for runtime-hook lines)"
-$rawLog = Join-Path $env:TEMP "chayuan-rebuild-verify-$ts-rawstderr.log"
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName               = $installedExe
-$psi.Arguments              = "start -a --single-machine"
-$psi.UseShellExecute        = $false
-$psi.RedirectStandardOutput = $true
-$psi.RedirectStandardError  = $true
-$psi.CreateNoWindow         = $true
-$psi.WorkingDirectory       = (Split-Path $installedExe -Parent)
-$proc = New-Object System.Diagnostics.Process
-$proc.StartInfo = $psi
-$rawStream = [System.IO.StreamWriter]::new($rawLog, $false, [System.Text.UTF8Encoding]::new($true))
-$proc.add_OutputDataReceived({ if ($EventArgs.Data) { $rawStream.WriteLine($EventArgs.Data); $rawStream.Flush() } })
-$proc.add_ErrorDataReceived({  if ($EventArgs.Data) { $rawStream.WriteLine("[STDERR] " + $EventArgs.Data); $rawStream.Flush() } })
-$null = $proc.Start()
-$proc.BeginOutputReadLine()
-$proc.BeginErrorReadLine()
+# ---- 4. Start chayuan-server with stderr capture (PS-native, more reliable) ----
+# ! Earlier impl used ProcessStartInfo + add_OutputDataReceived. PS 5.1's
+# event handler variable binding ($EventArgs vs $Event vs $_) is finicky
+# and silently swallows exceptions; users reported the script dying after
+# Section 3 with no Section 4-7 written. Switch to Start-Process which uses
+# native PS file redirection -- handles stderr capture in a separate file,
+# but it works reliably across PS 5.1 / 7+.
+Info "Step 4: start chayuan-server (Start-Process + redirected stderr)"
+$rawOut = Join-Path $env:TEMP "chayuan-rebuild-verify-$ts-rawstdout.log"
+$rawErr = Join-Path $env:TEMP "chayuan-rebuild-verify-$ts-rawstderr.log"
+# rawLog kept for backward-compat with later Append-Section call; point at
+# stderr (runtime hooks write to sys.stderr).
+$rawLog = $rawErr
+$proc = Start-Process -FilePath $installedExe `
+                      -ArgumentList "start","-a","--single-machine" `
+                      -RedirectStandardOutput $rawOut `
+                      -RedirectStandardError  $rawErr `
+                      -WindowStyle Hidden `
+                      -PassThru
 $serverPid = $proc.Id
-Info "spawned PID=$serverPid (raw stderr -> $rawLog)"
+Info "spawned PID=$serverPid"
+Info "  stdout -> $rawOut"
+Info "  stderr -> $rawErr  (runtime hooks land here)"
 
 # Wait for API
 Info "Step 5: wait for API /runtime/diagnose ..."
