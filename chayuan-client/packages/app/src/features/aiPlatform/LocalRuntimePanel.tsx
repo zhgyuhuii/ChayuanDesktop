@@ -85,7 +85,9 @@ export const LocalRuntimePanel: React.FC = () => {
     <div className="space-y-6">
       {/* 3 个 capability cards */}
       <section className="space-y-3">
-        {(['chat', 'embedding', 'rerank', 'asr', 'image-embedding'] as LocalRuntimeCapability[]).map((cap) => (
+        {/* image-embedding 已下线(唯一依赖 PyTorch 的 sidecar 退役),
+            从渲染列表移除,label map 保留以兼容历史 status payload */}
+        {(['chat', 'embedding', 'rerank', 'asr'] as LocalRuntimeCapability[]).map((cap) => (
           <LocalRuntimeCapabilityCard
             key={cap}
             capability={cap}

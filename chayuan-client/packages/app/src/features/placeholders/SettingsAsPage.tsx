@@ -297,12 +297,13 @@ const THEME_OPTS: Array<{
 // 设置页"默认模型"分组 — 与模型广场保持单向数据流:
 // 广场配好厂商/模型 → list() 候选刷新 → 这里挑选 → setMany() 写盘 → 业务读真源。
 //
-// 显示哪几类:对应 UI 上"聊天 / 文本嵌入 / 图像嵌入 / 重排"等用户最常配置的能力;
-// 其它(t2i/t2v/tts/asr/ocr)留在 RuntimeCenter 全量面板,这里只暴露 4 类高频。
+// 显示哪几类:聊天 / 文本嵌入 / 重排 三类高频。
+// 图像嵌入(image-embedding / clip)已下线(唯一依赖 PyTorch 的 sidecar 退役,
+// 图像功能改走文档库 OCR + 文本嵌入),不再在设置页暴露。其它(t2i/t2v/tts/asr/ocr)
+// 留在 RuntimeCenter 全量面板。
 const VISIBLE_CAPS: Array<{ cap: string; label: string; hint: string }> = [
   { cap: 'chat', label: '聊天模型', hint: '用于问答 / 写作 / 多轮对话' },
   { cap: 'embedding', label: '文本向量模型', hint: '用于知识库索引和语义检索' },
-  { cap: 'clip', label: '图像向量模型', hint: '用于图片知识库和图文检索' },
   { cap: 'rerank', label: '结果重排模型', hint: '检索后再排一次,让最相关的结果排到前面' },
 ];
 
