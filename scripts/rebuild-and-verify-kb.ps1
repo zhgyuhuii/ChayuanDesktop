@@ -216,7 +216,7 @@ Append-Section "2. stop running processes" $killSummary
 # supervisor or processes started under non-standard names. Also kill by
 # port -- if anything is listening on chayuan's ports, kill it.
 # Without this, Step 4's chayuan-server spawn hits _preflight_port_check
-# WARNING "检测到即将绑定的端口已被占用,启动已中止" -> sidecars never
+# which WARN-aborts startup when ports are already bound -> sidecars never
 # spawn -> Step 5b hangs forever waiting for 62583.
 Info "Step 2a: kill anything listening on chayuan ports (62581/62582/62583/62584/62585/8502/18380)"
 $chayuanPorts = 62581, 62582, 62583, 62584, 62585, 8502, 18380
