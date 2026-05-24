@@ -120,14 +120,37 @@ Write-Host "[smoke] log file     : $LogFile"
 Write-Host "================================================"
 
 # --- 2. Spawn chayuan-server -------------------------------------------
-$env:CHAYUAN_ROOT = $Root
-$proc = Start-Process -FilePath $ExePath `
-                       -ArgumentList @("start", "-a", "--single-machine") `
-                       -RedirectStandardOutput $LogFile `
-                       -RedirectStandardError  "${LogFile}.err" `
-                       -PassThru -NoNewWindow
+# ! Start-Process with $env: assignment is unreliable for env-var propagation
+# on PS 5.1. Use ProcessStartInfo explicitly so CHAYUAN_ROOT definitely lands
+# in the child env. Without this, chayuan-server falls back to the user's
+# last `chayuan init` choice (often D:\nn or %APPDATA%\chayuan) and we end
+# up testing against the user's REAL KB store -- not an isolated temp root.
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName               = $ExePath
+$psi.Arguments              = "start -a --single-machine"
+$psi.UseShellExecute        = $false
+$psi.RedirectStandardOutput = $true
+$psi.RedirectStandardError  = $true
+$psi.CreateNoWindow         = $true
+$psi.WorkingDirectory       = $Root
+# Copy parent env, then override CHAYUAN_ROOT
+foreach ($k in [System.Environment]::GetEnvironmentVariables().Keys) {
+    if (-not $psi.EnvironmentVariables.ContainsKey($k)) {
+        $psi.EnvironmentVariables.Add($k, [System.Environment]::GetEnvironmentVariable($k))
+    }
+}
+$psi.EnvironmentVariables["CHAYUAN_ROOT"] = $Root
+$proc = New-Object System.Diagnostics.Process
+$proc.StartInfo = $psi
+$logStream = [System.IO.StreamWriter]::new($LogFile, $false, [System.Text.UTF8Encoding]::new($true))
+$proc.add_OutputDataReceived({ if ($EventArgs.Data) { $logStream.WriteLine($EventArgs.Data); $logStream.Flush() } })
+$proc.add_ErrorDataReceived({  if ($EventArgs.Data) { $logStream.WriteLine("[STDERR] " + $EventArgs.Data); $logStream.Flush() } })
+$null = $proc.Start()
+$proc.BeginOutputReadLine()
+$proc.BeginErrorReadLine()
 $ServerPid = $proc.Id
 Write-Host "[smoke] spawned chayuan-server PID=$ServerPid"
+Write-Host "[smoke] requested CHAYUAN_ROOT=$Root (env-injected)"
 
 $Fail = 0
 function Cleanup-Server {
@@ -157,6 +180,27 @@ try {
         } catch { Start-Sleep -Seconds 1 }
     }
     if (-not $apiUp) { Red "[FAIL] API never came up"; throw "api-not-up" }
+
+    # --- 3b. ACTUAL chayuan_root (in case env override didn't stick) ----
+    # chayuan-server precedence: env CHAYUAN_ROOT > last `chayuan init` choice.
+    # If our env injection failed, the server uses the user's existing root.
+    # We MUST use whatever the running server reports for on-disk checks.
+    $ActualRoot = $Root
+    try {
+        $diag = Invoke-RestMethod "http://127.0.0.1:$Port/runtime/diagnose" -TimeoutSec 5
+        $ActualRoot = $diag.data.chayuan_root
+        if ($ActualRoot -ne $Root) {
+            Yellow "[smoke] !! requested CHAYUAN_ROOT=$Root"
+            Yellow "[smoke] !! ACTUAL    chayuan_root=$ActualRoot"
+            Yellow "[smoke] !! env override DID NOT propagate to chayuan-server."
+            Yellow "[smoke] !! On-disk checks will use the actual root above."
+            Yellow "[smoke] !! Your real KB store may be polluted by this test KB '$KB'."
+        } else {
+            Write-Host "[smoke] actual chayuan_root = $ActualRoot (env override ok)"
+        }
+    } catch {
+        Yellow "[smoke] could not query /runtime/diagnose for actual root: $($_.Exception.Message)"
+    }
 
     # --- 4. Wait for embedding sidecar ----------------------------------
     Write-Host "[smoke] waiting for embedding sidecar @ 127.0.0.1:$EmbedPort ..."
@@ -291,7 +335,10 @@ try {
     }
 
     # --- 8. Vector store on-disk check ----------------------------------
-    $KbDir = Join-Path $Root "data\knowledge_base\$KB"
+    # Use $ActualRoot (what /runtime/diagnose said), not $Root, so we look
+    # in the correct place even when env injection failed.
+    $KbDir = Join-Path $ActualRoot "data\knowledge_base\$KB"
+    Write-Host "[smoke] scanning vector_store at $KbDir"
     $faiss = Get-ChildItem $KbDir -Recurse -File -Filter "*.faiss" -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($faiss) {
         Write-Host "[smoke] index.faiss = $($faiss.FullName)  ($($faiss.Length) bytes)"
@@ -301,6 +348,7 @@ try {
         }
     } else {
         Red "[FAIL] no index.faiss under $KbDir"
+        Red "       (this is the actual chayuan_root from /runtime/diagnose, so it's authoritative)"
         $Fail = 1
     }
 
@@ -319,7 +367,15 @@ try {
                 -Method POST -Body $sBody -ContentType "application/json" -TimeoutSec 30
         $arr = if ($s.value) { $s.value } elseif ($s.data) { $s.data } else { @() }
         $hits = @($arr).Count
-        $paths = ($arr | ForEach-Object { $_.metadata.retrieval_path } | Sort-Object -Unique) -join ","
+        # ! Filter null/empty -- some hits omit metadata.retrieval_path entirely
+        # (when DB fallback returns matched chunks without the routing tag).
+        # Without Where-Object {$_}, Sort-Object -Unique can return [""] which
+        # then joins to nothing -> we'd mis-report "no retrieval path engaged"
+        # even when keyword retrieval clearly did run.
+        $paths = ($arr | ForEach-Object { $_.metadata.retrieval_path } |
+                    Where-Object { $_ -and $_ -ne "" } |
+                    Sort-Object -Unique) -join ","
+        if (-not $paths) { $paths = "(none in metadata)" }
         $s | ConvertTo-Json -Depth 6 | ForEach-Object {
             if ($_.Length -gt 1500) { $_.Substring(0, 1500) + "...[truncated]" } else { $_ }
         } | Write-Host
