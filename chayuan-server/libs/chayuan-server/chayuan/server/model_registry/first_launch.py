@@ -357,7 +357,16 @@ def run_first_launch_hooks() -> FirstLaunchReport:
                 "embedding": settings.preload_embedding,
                 "rerank": settings.preload_rerank,
                 "asr": settings.preload_asr,
-                "image-embedding": settings.preload_image_embedding,
+                # image-embedding Level C 已下线(_CAP_ENGINE 里也注释了),
+                # 这里若仍尝试 reg.get('image-embedding') 会 raise
+                # ValueError('unknown capability: image-embedding'),整个
+                # 预热循环被外层 except 吞掉 + log warning,影响:
+                #   - 干扰排查(每次 first_launch 都打 noisy warning)
+                #   - 任何排在 image-embedding 之后的 cap 不会被预热
+                #     (这里 dict 序 image 在最后,目前无后续 cap 被影响,
+                #     但语义上不该 raise)
+                # 恢复图像功能时连同 _CAP_ENGINE / spec 一起放开。
+                # "image-embedding": settings.preload_image_embedding,
             }
             for cap, on in preload_map.items():
                 if on:
