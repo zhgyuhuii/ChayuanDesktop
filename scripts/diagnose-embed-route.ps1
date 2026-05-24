@@ -37,19 +37,23 @@
     Model name to send to embedding sidecar directly. Default discovered
     from sidecar /v1/models.
 
-.PARAMETER Input
+.PARAMETER TestText
     Test text. Default "deepseek apikey".
+    NOTE: param name MUST NOT be $Input -- $Input is a PowerShell automatic
+    variable (pipeline enumerator). Declaring param([string]$Input) silently
+    fails: the body JSON's input field becomes the enumerator serialized as
+    {"Current": null}, not the test string. Renamed to $TestText.
 
 .EXAMPLE
     .\scripts\diagnose-embed-route.ps1
-    .\scripts\diagnose-embed-route.ps1 -Input "what is the apikey"
+    .\scripts\diagnose-embed-route.ps1 -TestText "what is the apikey"
 #>
 param(
     [string]$SidecarBase  = "http://127.0.0.1:62581",
     [string]$EmbedSidecar = "http://127.0.0.1:62583",
     [string]$ServerModel  = "",
     [string]$SidecarModel = "",
-    [string]$Input        = "deepseek apikey"
+    [string]$TestText        = "deepseek apikey"
 )
 
 chcp 65001 > $null
@@ -79,7 +83,7 @@ function Try-Invoke {
 $ctx = Try-Invoke {
     "SidecarBase  : $SidecarBase"
     "EmbedSidecar : $EmbedSidecar"
-    "Test input   : $Input"
+    "Test input   : $TestText"
     try {
         $diag = Invoke-RestMethod "$SidecarBase/runtime/diagnose" -TimeoutSec 10
         "chayuan_root : $($diag.data.chayuan_root)"
@@ -113,12 +117,16 @@ $disc = Try-Invoke {
         $m2 = Invoke-RestMethod "$EmbedSidecar/v1/models" -TimeoutSec 10
         # llama-server returns {models:[{name,model}, ...], data:[{id,...}, ...]}
         $ids = @()
-        if ($m2.data) { $ids += ($m2.data | ForEach-Object { $_.id }) }
-        if ($m2.models) { $ids += ($m2.models | ForEach-Object { $_.model }) }
-        $ids = $ids | Where-Object { $_ } | Select-Object -Unique
+        if ($m2.data)   { $ids += @($m2.data   | ForEach-Object { $_.id }) }
+        if ($m2.models) { $ids += @($m2.models | ForEach-Object { $_.model }) }
+        # ! Force array semantics with @() wrapper. Without it, single-element
+        # pipeline outputs are unwrapped to scalars, and `$ids[0]` on a string
+        # returns the first CHARACTER (e.g. "bge-m3-Q8_0.gguf"[0] = "b").
+        # @() forces array; @($scalar) is still [string[]] of length 1.
+        $ids = @($ids | Where-Object { $_ } | Select-Object -Unique)
         foreach ($id in $ids) { "  id=$id" }
-        if (-not $script:SidecarModel -and $ids) {
-            $script:SidecarModel = $ids[0]
+        if (-not $script:SidecarModel -and $ids.Count -gt 0) {
+            $script:SidecarModel = [string]$ids[0]
             "  -> auto-pick SidecarModel = $script:SidecarModel"
         }
     } catch {
@@ -130,7 +138,7 @@ Append-Section "1. model discovery" $disc
 # ---- 2. probe chayuan-server /v1/embeddings ----
 $probeA = Try-Invoke {
     if (-not $ServerModel) { return "ServerModel unresolved, skipping probe A" }
-    $body = @{ model = $ServerModel; input = $Input } | ConvertTo-Json
+    $body = @{ model = $ServerModel; input = $TestText } | ConvertTo-Json
     "URL  : $SidecarBase/v1/embeddings"
     "Body : $body"
     ""
@@ -163,7 +171,7 @@ Append-Section "2. probe A: chayuan-server /v1/embeddings (the actual route KB u
 # ---- 3. probe embedding sidecar directly ----
 $probeB = Try-Invoke {
     if (-not $SidecarModel) { return "SidecarModel unresolved, skipping probe B" }
-    $body = @{ model = $SidecarModel; input = $Input } | ConvertTo-Json
+    $body = @{ model = $SidecarModel; input = $TestText } | ConvertTo-Json
     "URL  : $EmbedSidecar/v1/embeddings"
     "Body : $body"
     ""
@@ -197,7 +205,7 @@ Append-Section "3. probe B: embedding sidecar /v1/embeddings (direct, bypasses s
 #         first-round failure pattern: bge-m3 short name resolves to
 #         LocalAIEmbeddings which validates openai_api_key) ----
 $probeShort = Try-Invoke {
-    $body = @{ model = "bge-m3"; input = $Input } | ConvertTo-Json
+    $body = @{ model = "bge-m3"; input = $TestText } | ConvertTo-Json
     "URL  : $SidecarBase/v1/embeddings"
     "Body : $body"
     ""
@@ -219,7 +227,12 @@ Append-Section "4. probe C: short-name 'bge-m3' through chayuan-server (expect t
 
 # ---- 5. dump /v1/models full (for cross-ref) ----
 $models = Try-Invoke {
-    (Invoke-RestMethod "$SidecarBase/v1/models" -TimeoutSec 10) | ConvertTo-Json -Depth 6
+    # ! Use Invoke-WebRequest + manual UTF-8 decode to preserve Chinese
+    # platform_display_name. Invoke-RestMethod on PS 5.1 sometimes falls
+    # back to ISO-8859-1 when HTTP charset header is absent -> mojibake.
+    $wr = Invoke-WebRequest "$SidecarBase/v1/models" -TimeoutSec 10 -UseBasicParsing
+    $text = [System.Text.Encoding]::UTF8.GetString($wr.Content)
+    ($text | ConvertFrom-Json) | ConvertTo-Json -Depth 6
 }
 Append-Section "5. /v1/models full (cross-ref)" $models
 
