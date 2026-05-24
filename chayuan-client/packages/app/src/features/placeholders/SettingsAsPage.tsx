@@ -148,18 +148,7 @@ export const SettingsAsPage: React.FC = () => {
       {/* 默认模型 — 模型广场配好厂商后,这里挑哪一个用做默认 */}
       <DefaultModelsSection />
 
-      {/* 快捷工具 */}
-      <Section>
-        <Row
-          title={t('settings.aiKey')}
-          description={t('settings.aiKeyDesc')}
-          trailing={
-            <Pill tone="outline" size="sm">
-              ☆ → 唤起聊天
-            </Pill>
-          }
-        />
-      </Section>
+      {/* AI 键已下线(2026-05-24);触发链路待重做,不再在设置页暴露 */}
 
       {/* 高级(M4 占位 — 后端缺对应能力,前端开关只持久化本地偏好) */}
       <Section>

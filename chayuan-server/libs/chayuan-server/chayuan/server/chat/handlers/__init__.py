@@ -38,25 +38,32 @@ _BUILTIN_MODULES = (
 )
 
 
+_CORE_MODULES = {
+    "chayuan.server.chat.handlers.llm",
+    "chayuan.server.chat.handlers.kb",
+}
+
+
 def _load_builtins() -> None:
     """import 所有内置 handler 模块，触发其 ``register_handler``。
 
-    历史教训(2026-05-24):import 失败原来打 logger.debug,debug 级别默认
-    不输出,导致 frozen 模式下 kb handler 静默注册失败 → get_handler('kb')
-    抛 HandlerNotFound → chat retrieve 返空 chunks → 用户挂载 KB 后 0 命中。
-    排查一整天才定位。升级到 warning + 输出完整 traceback。
+    历史教训(2026-05-24):原来打 logger.debug 静默吞 import 异常,frozen 模式
+    下 PyInstaller `collect_submodules("chayuan")` 漏抓 supervisor.py,kb
+    handler 也跟着没注册,chat 选了 KB 返空 chunks 排查一整天。
 
-    ⚠ 同时打 print() 到 stdout(不走 logging 配置,绝不被任何 level 过滤)
-    —— 装机版排查时这条 marker 是判断"修法有没有真进 frozen"的依据。
+    现在的策略:
+    - 仅在 FAIL 时 print 到 stdout + logger.warning + 完整 traceback。
+    - **核心 handler(llm / kb)注册失败直接 raise**,让服务 fail-loud
+      退出,而不是 silent 降级让用户"以为能用"。这两个是日常对话的命脉,
+      缺一个等于服务半残。
+    - 其它 handler(file / search_engine / multi_source / vision / agent /
+      supervisor)失败仍只 warn,允许降级运行。
     """
-    import sys, traceback as _tb
+    import sys
+    import traceback as _tb
     for mod in _BUILTIN_MODULES:
-        sys.stdout.write(f"[_load_builtins] try   {mod}\n")
-        sys.stdout.flush()
         try:
             importlib.import_module(mod)
-            sys.stdout.write(f"[_load_builtins] OK    {mod}\n")
-            sys.stdout.flush()
         except Exception as e:  # noqa: BLE001
             sys.stdout.write(
                 f"[_load_builtins] FAIL  {mod}: {type(e).__name__}: {e}\n"
@@ -64,10 +71,17 @@ def _load_builtins() -> None:
             _tb.print_exc(file=sys.stdout)
             sys.stdout.flush()
             logger.warning(
-                "[handlers] %s 注册失败 (%s: %s) -- 这个 mode 的对话会走"
-                "空检索 fallback,问题大概率是 frozen 打包遗漏依赖。",
+                "[handlers] %s 注册失败 (%s: %s)",
                 mod, type(e).__name__, e, exc_info=True,
             )
+            if mod in _CORE_MODULES:
+                raise RuntimeError(
+                    f"core chat handler {mod!r} import failed; chayuan-server "
+                    f"refuses to start in a half-functional state. Fix the "
+                    f"underlying import (typical cause: PyInstaller "
+                    f"collect_submodules missed this module — add it to "
+                    f"chayuan-server.spec hidden_modules)."
+                ) from e
 
 
 _load_builtins()

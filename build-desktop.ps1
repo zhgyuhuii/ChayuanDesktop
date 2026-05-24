@@ -565,6 +565,25 @@ try {
     Write-Host "       手动指定: .\build-desktop.ps1 -WorkspaceRoot 'D:\path\to\chayuan-desktop'"
     exit 1
 }
+
+# 0a. 版本号自增 + 同步
+# 真源:repo 根 VERSION (X.Y.Z)。每跑一次 build,scripts/bump-version.py 把
+# patch 段 +1,同步写到 tauri.conf.json + chayuan-server/pyproject.toml。
+# CHAYUAN_BUILD_NO_BUMP=1 时只同步不递增,适合 CI 调试复刻已有版本。
+$bumpScript = Join-Path $WorkspaceRoot 'scripts\bump-version.py'
+if (Test-Path $bumpScript) {
+    $bumpArgs = @($bumpScript)
+    if ($env:CHAYUAN_BUILD_NO_BUMP -eq '1') { $bumpArgs += '--no-bump' }
+    try {
+        $BuildVersion = (& python $bumpArgs) | Select-Object -Last 1
+        Write-Host "[build-desktop] BUILD_VERSION=$BuildVersion"
+    } catch {
+        Write-Host "[build-desktop] WARN bump-version 失败: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "[build-desktop] WARN bump-version.py not found: $bumpScript" -ForegroundColor Yellow
+}
+
 $ServerDir     = Join-Path $WorkspaceRoot 'chayuan-server'
 # 真正的 Python 包(含全部第三方依赖)在 libs\chayuan-server\;
 # 根目录 chayuan-server\pyproject.toml 是 monorepo 元数据(package-mode=false,无依赖),

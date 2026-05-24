@@ -1260,8 +1260,8 @@ const PytorchRow: React.FC = () => {
  *   - 平台名由后端探测返回,前端不硬编码
  */
 const ENGINE_LABEL: Record<string, string> = {
-  'llama-server': 'llama-server(对话 / 嵌入 / 重排)',
-  'whisper-server': 'whisper-server(语音识别)',
+  'llama-server': '模型服务',
+  'whisper-server': '语音识别服务',
 };
 
 const RuntimeServicesRow: React.FC = () => {

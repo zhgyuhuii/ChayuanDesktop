@@ -68,6 +68,20 @@ set -euo pipefail
 # ── 0. 路径 + 平台识别 ────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKSPACE="$SCRIPT_DIR"
+
+# ── 0a. 版本号自增 + 同步 ──────────────────────────────────────────
+# 真源:repo 根 VERSION (X.Y.Z)。
+# 每跑一次 build,scripts/bump-version.py 把 patch 段 +1,同步写到
+# tauri.conf.json + chayuan-server/pyproject.toml。Tauri/PyInstaller 后续
+# 读到的就是新版本。--no-bump 子命令(可加 env CHAYUAN_BUILD_NO_BUMP=1
+# 触发)只同步不递增,适合 CI 调试时复刻已有版本。
+if [[ "${CHAYUAN_BUILD_NO_BUMP:-0}" == "1" ]]; then
+    BUILD_VERSION="$(python3 "$WORKSPACE/scripts/bump-version.py" --no-bump)" || true
+else
+    BUILD_VERSION="$(python3 "$WORKSPACE/scripts/bump-version.py")" || true
+fi
+echo "[build-desktop] BUILD_VERSION=$BUILD_VERSION"
+
 SERVER_DIR="$WORKSPACE/chayuan-server"
 SERVER_PKG_DIR="$SERVER_DIR/libs/chayuan-server"
 CLIENT_DIR="$WORKSPACE/chayuan-client"
