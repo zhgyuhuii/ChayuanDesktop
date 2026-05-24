@@ -87,19 +87,40 @@ class FaissKBService(KBService):
         metadatas = [x.metadata for x in docs]
         with self.load_vector_store().acquire() as vs:
             embeddings = vs.embeddings.embed_documents(texts)
-            # 防御:embed_documents 静默返 [] / 长度不匹配是反复出现的真凶
-            # (e.g. ONNX local short-circuit 拿到 onnx/ 子目录但缺 model.onnx
-            #  → _embed_one 异常被 list comprehension 在某些 langchain
-            #  版本里吃掉,返空 list)。
-            # 不 raise 的话:zip(texts, [])=空 → add_embeddings 加 0 个 →
-            # add_file_to_db(docs_count=len(docs)=1) 仍写 SQLite → UI 显
-            # "有 1 个文档" 但向量库实际是空,search 永远 0 命中。
-            # 必须 raise + 在异常文案里把 vs.embeddings 真实 class type
-            # 暴露出来,直接告诉运维 / 用户 routing 到了哪个实现。
+            # 防御 + 诊断:embed_documents silent-fail 是反复出现的真凶,
+            # 上一版只查 len 不查内容 —— 如果返 [None] 或 [[]] 等长但
+            # 是空 / 假向量,guard 漏过去 -> FAISS 静默写 0 真向量。
+            # 这版把:
+            #   1) Embeddings class 名
+            #   2) 文本数 / 返回向量数
+            #   3) 第一个向量的 dim + 前 3 个 float
+            #   4) 是否全 0(no-op embed 常见特征)
+            # 全部 logger.info,且任何形状异常立即 raise。装机版排查时
+            # 这条日志直接告诉运维 routing 到了哪个 Embeddings + 它真返
+            # 了啥;不再黑盒。
+            import logging as _logging
+            _embed_log = _logging.getLogger("chayuan.kb_service.faiss.do_add_doc")
             n_txt = len(texts)
             n_emb = len(embeddings) if embeddings is not None else 0
+            emb_class = type(vs.embeddings).__name__
+            first_dim = "?"
+            first_few = "?"
+            all_zero = "?"
+            if n_emb > 0 and embeddings[0] is not None:
+                try:
+                    first_dim = len(embeddings[0])
+                    first_few = (embeddings[0][:3] if first_dim >= 3 else embeddings[0])
+                    all_zero = all(v == 0 for v in embeddings[0]) if first_dim else "n/a"
+                except Exception:  # noqa: BLE001
+                    first_dim = "ERR"
+            _embed_log.info(
+                "[embed-probe] class=%s model=%r n_txt=%d n_emb=%d "
+                "first_dim=%s first_3=%s all_zero=%s",
+                emb_class, self.embed_model, n_txt, n_emb,
+                first_dim, first_few, all_zero,
+            )
+            # 关键断言(长度 / 第一个向量 None / 全 0)
             if n_emb != n_txt:
-                emb_class = type(vs.embeddings).__name__
                 raise RuntimeError(
                     f"embed_documents returned {n_emb} vectors for {n_txt} texts "
                     f"(Embeddings class={emb_class}, model={self.embed_model!r}). "
@@ -107,6 +128,23 @@ class FaissKBService(KBService):
                     f"(a) ONNX local short-circuit hit but model.onnx missing; "
                     f"(b) langchain Embeddings instance swallowed transport error; "
                     f"(c) MODEL_PLATFORMS routing returned a no-op Embeddings."
+                )
+            if n_emb > 0 and embeddings[0] is None:
+                raise RuntimeError(
+                    f"embed_documents returned None for first text "
+                    f"(Embeddings class={emb_class}, model={self.embed_model!r})"
+                )
+            if n_emb > 0 and first_dim == 0:
+                raise RuntimeError(
+                    f"embed_documents returned empty vector (dim=0) for first text "
+                    f"(Embeddings class={emb_class}, model={self.embed_model!r})"
+                )
+            if n_emb > 0 and all_zero is True:
+                raise RuntimeError(
+                    f"embed_documents returned ALL-ZERO vector "
+                    f"(Embeddings class={emb_class}, model={self.embed_model!r}). "
+                    f"Embedding model produced no signal -- check model name "
+                    f"forwarding to sidecar."
                 )
             ids = vs.add_embeddings(
                 text_embeddings=zip(texts, embeddings), metadatas=metadatas
