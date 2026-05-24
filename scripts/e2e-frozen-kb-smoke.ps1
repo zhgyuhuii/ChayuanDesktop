@@ -1,0 +1,322 @@
+<#
+.SYNOPSIS
+    E2E smoke test for the frozen chayuan-desktop KB pipeline on Windows.
+
+.DESCRIPTION
+    Mirror of scripts/e2e-frozen-kb-smoke.sh, native PowerShell so users
+    without Git Bash can run it.
+
+    All source ASCII / English to dodge the PS 5.1 GBK-decoding-UTF-8 .ps1
+    parse trap (see commit 942819f for the history).
+
+    Flow:
+      1. Auto-detect installed chayuan-server.exe
+      2. Spawn it pointing at an isolated $env:CHAYUAN_ROOT
+      3. Wait for /runtime/diagnose and embedding sidecar (62583)
+      4. POST /knowledge_base/create_knowledge_base
+      5. Upload a .txt fixture file via /knowledge_base/upload_docs
+      6. Assert SQLite docs_count > 0 (chunking ok)
+      7. Assert on-disk vector_store/<embed>/index.faiss > 9000 bytes
+      8. Query /knowledge_base/search_docs with the planted secret
+      9. Assert hits > 0 AND retrieval_path includes vector or hybrid
+     10. Bonus semantic-only query
+
+    Exit codes:
+      0 = PASS
+      1 = FAIL (server log tail will be printed to console)
+      2 = couldn't start (no installed binary / spawn failed)
+
+.PARAMETER Exe
+    Explicit path to chayuan-server.exe. Default: auto-detect installed app.
+
+.PARAMETER Root
+    Isolated CHAYUAN_ROOT for this test. Default: $env:TEMP\chayuan-e2e-smoke-<ts>.
+
+.PARAMETER Port
+    chayuan-server API port. Default 62581.
+
+.PARAMETER KeepServer
+    Don't kill the spawned chayuan-server at the end (for manual inspection).
+
+.EXAMPLE
+    .\scripts\e2e-frozen-kb-smoke.ps1
+    .\scripts\e2e-frozen-kb-smoke.ps1 -Exe "C:\Program Files\Chayuan\chayuan-server\chayuan-server.exe"
+    .\scripts\e2e-frozen-kb-smoke.ps1 -Root D:\tmp\chayuan-e2e -KeepServer
+#>
+param(
+    [string]$Exe = "",
+    [string]$Root = "",
+    [int]$Port = 62581,
+    [switch]$KeepServer
+)
+
+# UTF-8 console end-to-end; otherwise child stdout / Get-Content of log gets
+# GBK-decoded and asserts on Chinese in the log lines silently mis-fire.
+chcp 65001 > $null
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+$ErrorActionPreference = "Continue"  # keep going on errors; we report each step
+$EmbedPort = 62583
+
+function Red    { param([string]$m) Write-Host $m -ForegroundColor Red }
+function Green  { param([string]$m) Write-Host $m -ForegroundColor Green }
+function Yellow { param([string]$m) Write-Host $m -ForegroundColor Yellow }
+
+# ─── 1. Detect installed chayuan-server.exe ─────────────────────────────
+function Detect-Exe {
+    if ($script:Exe) {
+        if (Test-Path $script:Exe) { return $script:Exe }
+        return $null
+    }
+    $candidates = @(
+        "C:\Program Files\Chayuan\chayuan-server\chayuan-server.exe",
+        "$env:LOCALAPPDATA\Programs\Chayuan\chayuan-server\chayuan-server.exe",
+        "C:\Program Files\chayuan-test\chayuan-server\chayuan-server.exe"
+    )
+    foreach ($p in $candidates) {
+        if (Test-Path $p) { return $p }
+    }
+    return $null
+}
+
+$ExePath = Detect-Exe
+if (-not $ExePath) {
+    Red "[FAIL] No installed chayuan-server.exe found."
+    Red "       Install the desktop app first, or pass -Exe <path>."
+    exit 2
+}
+
+if (-not $Root) {
+    $Root = Join-Path $env:TEMP ("chayuan-e2e-smoke-{0}" -f (Get-Date -Format "yyyyMMddHHmmss"))
+}
+New-Item -ItemType Directory -Force -Path $Root | Out-Null
+
+$LogFile  = Join-Path $Root "smoke.log"
+$KB       = "e2e_smoke_$([System.IO.Path]::GetRandomFileName().Substring(0,8))"
+$SecretRaw = "$KB-$(Get-Random)"
+$Sha = [System.Security.Cryptography.SHA1]::Create()
+$Bytes = [System.Text.Encoding]::UTF8.GetBytes($SecretRaw)
+$Secret = ([BitConverter]::ToString($Sha.ComputeHash($Bytes)).Replace("-", "")).Substring(0, 16)
+$TestFile = Join-Path $Root "api_key.txt"
+
+@"
+Chayuan E2E frozen-KB smoke test fixture.
+
+The DeepSeek apikey value used by the verification suite is:
+sk-$Secret
+
+That secret above should be retrievable by querying the KB after upload.
+If you cannot find it via /knowledge_base/search_docs with retrieval_path
+including "vector" or "hybrid", the frozen build's KB pipeline is broken.
+"@ | Set-Content -Path $TestFile -Encoding utf8
+
+Write-Host "================================================"
+Write-Host "[smoke] exe          : $ExePath"
+Write-Host "[smoke] CHAYUAN_ROOT : $Root (isolated)"
+Write-Host "[smoke] test KB      : $KB"
+Write-Host "[smoke] secret token : sk-$Secret"
+Write-Host "[smoke] log file     : $LogFile"
+Write-Host "================================================"
+
+# ─── 2. Spawn chayuan-server ───────────────────────────────────────────
+$env:CHAYUAN_ROOT = $Root
+$proc = Start-Process -FilePath $ExePath `
+                       -ArgumentList @("start", "-a", "--single-machine") `
+                       -RedirectStandardOutput $LogFile `
+                       -RedirectStandardError  "${LogFile}.err" `
+                       -PassThru -NoNewWindow
+$ServerPid = $proc.Id
+Write-Host "[smoke] spawned chayuan-server PID=$ServerPid"
+
+$Fail = 0
+function Cleanup-Server {
+    if ($script:KeepServer) {
+        Yellow "[smoke] -KeepServer set, leaving PID=$script:ServerPid running"
+        Yellow "        Cleanup: Stop-Process -Id $script:ServerPid -Force; Remove-Item -Recurse '$script:Root'"
+        return
+    }
+    if (Get-Process -Id $script:ServerPid -ErrorAction SilentlyContinue) {
+        Write-Host "[smoke] killing server PID=$script:ServerPid"
+        Stop-Process -Id $script:ServerPid -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+}
+
+try {
+
+    # ─── 3. Wait for API ────────────────────────────────────────────────
+    Write-Host "[smoke] waiting for http://127.0.0.1:$Port/runtime/diagnose ..."
+    $apiUp = $false
+    for ($i = 1; $i -le 90; $i++) {
+        try {
+            $null = Invoke-RestMethod "http://127.0.0.1:$Port/runtime/diagnose" -TimeoutSec 2 -ErrorAction Stop
+            $apiUp = $true
+            Write-Host "[smoke] API up after ${i}s"
+            break
+        } catch { Start-Sleep -Seconds 1 }
+    }
+    if (-not $apiUp) { Red "[FAIL] API never came up"; throw "api-not-up" }
+
+    # ─── 4. Wait for embedding sidecar ──────────────────────────────────
+    Write-Host "[smoke] waiting for embedding sidecar @ 127.0.0.1:$EmbedPort ..."
+    $embedUp = $false
+    for ($i = 1; $i -le 120; $i++) {
+        try {
+            $null = Invoke-RestMethod "http://127.0.0.1:$EmbedPort/v1/models" -TimeoutSec 2 -ErrorAction Stop
+            $embedUp = $true
+            Write-Host "[smoke] embedding sidecar up after ${i}s"
+            break
+        } catch { Start-Sleep -Seconds 1 }
+    }
+    if (-not $embedUp) {
+        Red "[FAIL] embedding sidecar @ $EmbedPort never became reachable"
+        $Fail = 1
+    }
+
+    # ─── 5. Create KB ───────────────────────────────────────────────────
+    Write-Host "[smoke] POST /knowledge_base/create_knowledge_base name=$KB"
+    $body = @{
+        knowledge_base_name = $KB
+        vector_store_type   = "faiss"
+        embed_model         = "bge-m3"
+    } | ConvertTo-Json
+    $createOk = $false
+    try {
+        $r = Invoke-RestMethod "http://127.0.0.1:$Port/knowledge_base/create_knowledge_base" `
+            -Method POST -Body $body -ContentType "application/json" -TimeoutSec 30
+        Write-Host "  → $($r | ConvertTo-Json -Depth 3 -Compress)"
+        if ($r.code -eq 200) { $createOk = $true }
+    } catch {
+        Red "[FAIL] KB creation: $($_.Exception.Message)"
+    }
+    if (-not $createOk) { $Fail = 1 }
+
+    # ─── 6. Upload file ─────────────────────────────────────────────────
+    Write-Host "[smoke] POST /knowledge_base/upload_docs file=$TestFile"
+    try {
+        $form = @{
+            knowledge_base_name = $KB
+            files               = Get-Item $TestFile
+            override            = "true"
+            to_vector_store     = "true"
+        }
+        $up = Invoke-RestMethod "http://127.0.0.1:$Port/knowledge_base/upload_docs" `
+                -Method POST -Form $form -TimeoutSec 180
+        Write-Host "  → $($up | ConvertTo-Json -Depth 3 -Compress)" | Out-String | ForEach-Object { $_.Substring(0, [math]::Min(300, $_.Length)) } | Write-Host
+    } catch {
+        Red "[FAIL] upload_docs: $($_.Exception.Message)"
+        $Fail = 1
+    }
+
+    Start-Sleep -Seconds 5
+
+    # ─── 7. docs_count check ────────────────────────────────────────────
+    Write-Host "[smoke] checking list_files docs_count ..."
+    $docsCount = 0
+    try {
+        $list = Invoke-RestMethod "http://127.0.0.1:$Port/knowledge_base/list_files?knowledge_base_name=$KB" -TimeoutSec 15
+        foreach ($f in $list.data) { $docsCount += [int]($f.docs_count) }
+    } catch {
+        Red "[FAIL] list_files: $($_.Exception.Message)"
+    }
+    Write-Host "  → total docs_count = $docsCount"
+    if ($docsCount -eq 0) {
+        Red "[FAIL] docs_count == 0 (chunking failed; check unstructured / text_splitter / tiktoken)"
+        $Fail = 1
+    }
+
+    # ─── 8. Vector store on-disk check ──────────────────────────────────
+    $KbDir = Join-Path $Root "data\knowledge_base\$KB"
+    $faiss = Get-ChildItem $KbDir -Recurse -File -Filter "*.faiss" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($faiss) {
+        Write-Host "[smoke] index.faiss = $($faiss.FullName)  ($($faiss.Length) bytes)"
+        if ($faiss.Length -lt 9000) {
+            Red "[FAIL] index.faiss too small ($($faiss.Length) B) -- vector_store has no real vectors"
+            $Fail = 1
+        }
+    } else {
+        Red "[FAIL] no index.faiss under $KbDir"
+        $Fail = 1
+    }
+
+    # ─── 9. search_docs with planted secret ─────────────────────────────
+    Write-Host "[smoke] POST /knowledge_base/search_docs query='sk-$Secret'"
+    $sBody = @{
+        query               = "sk-$Secret"
+        knowledge_base_name = $KB
+        top_k               = 5
+        score_threshold     = 2.0
+    } | ConvertTo-Json
+    $hits = 0
+    $paths = "?"
+    try {
+        $s = Invoke-RestMethod "http://127.0.0.1:$Port/knowledge_base/search_docs" `
+                -Method POST -Body $sBody -ContentType "application/json" -TimeoutSec 30
+        $arr = if ($s.value) { $s.value } elseif ($s.data) { $s.data } else { @() }
+        $hits = @($arr).Count
+        $paths = ($arr | ForEach-Object { $_.metadata.retrieval_path } | Sort-Object -Unique) -join ","
+        $s | ConvertTo-Json -Depth 6 | ForEach-Object {
+            if ($_.Length -gt 1500) { $_.Substring(0, 1500) + "...[truncated]" } else { $_ }
+        } | Write-Host
+    } catch {
+        Red "[FAIL] search_docs: $($_.Exception.Message)"
+        $Fail = 1
+    }
+    Write-Host "[smoke] hits=$hits  retrieval_paths=[$paths]"
+
+    if ($hits -eq 0) {
+        Red "[FAIL] search_docs returned 0 hits for the planted secret"
+        $Fail = 1
+    } elseif ($paths -match "vector|hybrid") {
+        Green "[PASS] vector / hybrid retrieval engaged"
+    } else {
+        Yellow "[FAIL-soft] only keyword retrieval engaged (vector_store likely empty)"
+        Yellow "             paths=$paths"
+        $Fail = 1
+    }
+
+    # ─── Bonus semantic query ───────────────────────────────────────────
+    Write-Host ""
+    Write-Host "[smoke] semantic query: '查询 DeepSeek API key'"
+    $semBody = @{
+        query               = "查询 DeepSeek API key"
+        knowledge_base_name = $KB
+        top_k               = 5
+        score_threshold     = 2.0
+    } | ConvertTo-Json
+    try {
+        $sem = Invoke-RestMethod "http://127.0.0.1:$Port/knowledge_base/search_docs" `
+                -Method POST -Body $semBody -ContentType "application/json" -TimeoutSec 30
+        $semArr = if ($sem.value) { $sem.value } elseif ($sem.data) { $sem.data } else { @() }
+        $semHits = @($semArr).Count
+        $semPaths = ($semArr | ForEach-Object { $_.metadata.retrieval_path } | Sort-Object -Unique) -join ","
+        Write-Host "[smoke] semantic hits=$semHits  retrieval_paths=[$semPaths]"
+    } catch {
+        Yellow "[smoke] semantic query failed: $($_.Exception.Message)"
+    }
+
+} catch {
+    Red "[smoke] aborted: $($_.Exception.Message)"
+    $Fail = 1
+} finally {
+    Cleanup-Server
+}
+
+# ─── Summary ───────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "================================================"
+if ($Fail -eq 0) {
+    Green "[OK] E2E frozen KB smoke PASSED"
+    Green "     KB dir: $(Join-Path $Root "data\knowledge_base\$KB")"
+    Green "     server log: $LogFile"
+    exit 0
+} else {
+    Red   "[FAIL] E2E frozen KB smoke FAILED"
+    Red   "       Test root preserved: $Root"
+    Red   "       Server log tail (50 lines):"
+    if (Test-Path $LogFile) {
+        Get-Content $LogFile -Tail 50 -Encoding utf8 | ForEach-Object { Write-Host "         $_" }
+    }
+    exit 1
+}
