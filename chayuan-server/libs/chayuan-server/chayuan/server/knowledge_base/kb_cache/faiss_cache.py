@@ -10,6 +10,26 @@ from chayuan.server.knowledge_base.utils import get_vs_path
 from chayuan.server.utils import get_Embeddings, get_default_embedding
 
 
+# langchain `_euclidean_relevance_score_fn` 公式 `1 - d / sqrt(2)` 是错的 ——
+# 它假设 normalize_L2 后 d ∈ [0, sqrt(2)],但 unit vectors 实际可达 d=2
+# (完全对立),算出 relevance 是负数。as_retriever(search_type=
+# "similarity_score_threshold") 把任何 relevance < threshold 的全部过滤,
+# 导致真实 embedding 几乎所有 chunk 被清空 → 用户报"挂载知识库后 0 命中"
+# (2026-05-24 复现:bge-m3 + IndexFlatL2 + 默认 threshold=0.3 → 只有完全
+# 等同文本能命中,任何稍弱匹配的真实问题全死)。
+#
+# 对 normalize_L2 unit vectors 真正的 cosine relevance 是 1 - d² / 2,
+# clip 到 [0, 1]。这跟用户设置面板里 SCORE_THRESHOLD 默认 0.3 的语义一致
+# (0.3 ≈ cosine 相似度 30%,符合"弱相关也接受"直觉)。
+def _cosine_relevance_for_unit_l2(distance: float) -> float:
+    cosine = 1.0 - (distance * distance) / 2.0
+    if cosine < 0.0:
+        return 0.0
+    if cosine > 1.0:
+        return 1.0
+    return cosine
+
+
 # patch FAISS to include doc id in Document.metadata
 def _new_ds_search(self, search: str) -> Union[str, Document]:
     if search not in self._dict:
@@ -75,7 +95,11 @@ class _FaissPool(CachePool):
         # create an empty vector store
         embeddings = get_Embeddings(embed_model=embed_model)
         doc = Document(page_content="init", metadata={})
-        vector_store = FAISS.from_documents([doc], embeddings, normalize_L2=True)
+        vector_store = FAISS.from_documents(
+            [doc], embeddings,
+            normalize_L2=True,
+            relevance_score_fn=_cosine_relevance_for_unit_l2,
+        )
         ids = list(vector_store.docstore._dict.keys())
         vector_store.delete(ids)
         return vector_store
@@ -87,7 +111,11 @@ class _FaissPool(CachePool):
         # create an empty vector store
         embeddings = get_Embeddings(embed_model=embed_model)
         doc = Document(page_content="init", metadata={})
-        vector_store = FAISS.from_documents([doc], embeddings, normalize_L2=True)
+        vector_store = FAISS.from_documents(
+            [doc], embeddings,
+            normalize_L2=True,
+            relevance_score_fn=_cosine_relevance_for_unit_l2,
+        )
         ids = list(vector_store.docstore._dict.keys())
         vector_store.delete(ids)
         return vector_store
@@ -133,6 +161,7 @@ class KBFaissPool(_FaissPool):
                             embeddings,
                             normalize_L2=True,
                             allow_dangerous_deserialization=True,
+                            relevance_score_fn=_cosine_relevance_for_unit_l2,
                         )
                     elif create:
                         # create an empty vector store
