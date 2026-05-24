@@ -58,6 +58,14 @@ def reap_orphan_sidecars() -> int:
     必须在 server 启动、spawn 任何新 sidecar **之前**调用一次:此刻还在跑的
     这些进程必然是上一次的遗留。按进程名 / 命令行精确匹配,只杀本应用的
     sidecar,不误伤用户其它进程。psutil 不可用 / 出错时静默返回 0,不阻塞启动。
+
+    ⚠ 必须排除"本实例已起的 sidecar"。chayuan-server 用 mp.spawn 起 api-server
+    子进程,api-server child 又起 llama-server / whisper-server。这些 sidecar
+    的 PPID 是 api-server child(不是当前 reap 跑的进程 PID)。原版只跳过
+    pid == os.getpid(),会把刚才 first_launch 起的 4 个 sidecar 当孤儿杀掉,
+    然后 auto-start 报 stale "ready" 状态,UI 看着 ready 实际端口空 ——
+    用户反复报"KB 检索 0 命中"的真凶。
+    修法:遍历目标进程的 ancestor 链,任一祖先 PID 在本进程树里就跳过。
     """
     try:
         import psutil
@@ -65,19 +73,49 @@ def reap_orphan_sidecars() -> int:
         return 0
 
     me = os.getpid()
+    # 构造"本进程树" PID 集合:me + 所有后代(mp.spawn child + 它们的 child)
+    my_tree: set[int] = {me}
+    try:
+        my_proc = psutil.Process(me)
+        for child in my_proc.children(recursive=True):
+            try:
+                my_tree.add(child.pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception:  # noqa: BLE001
+        pass  # 兜底:my_tree 至少含 me,下面 ancestor check 仍能去重
+
+    def _has_my_ancestor(proc) -> bool:
+        """目标进程的祖先链上是否含本实例的任一 PID。"""
+        try:
+            for parent in proc.parents():
+                if parent.pid in my_tree:
+                    return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return False
+        except Exception:  # noqa: BLE001
+            return False
+        return False
+
     victims: list = []
     for proc in psutil.process_iter(["pid", "name", "cmdline"]):
         try:
             pid = proc.info.get("pid")
-            if pid is None or pid == me:
-                continue
+            if pid is None or pid in my_tree:
+                continue  # 本实例的 sidecar(直接孩子或孙子),不杀
             name = (proc.info.get("name") or "").lower()
             hit = any(name.startswith(p) for p in _SIDECAR_NAME_PREFIXES)
             if not hit:
                 cmd = " ".join(proc.info.get("cmdline") or [])
                 hit = any(m in cmd for m in _SIDECAR_CMDLINE_MARKERS)
-            if hit:
-                victims.append(proc)
+            if not hit:
+                continue
+            # 命中了但祖先链含本实例 PID → 本实例 spawn 的,跳过
+            # (children(recursive=True) 可能漏掉那一瞬间刚 fork 的,
+            #  这里再 ancestor check 一遍 belt + suspenders)
+            if _has_my_ancestor(proc):
+                continue
+            victims.append(proc)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
         except Exception:  # noqa: BLE001
