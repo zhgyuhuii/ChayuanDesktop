@@ -679,10 +679,15 @@ def list_voices(
     """
 
     if provider == "piper":
-        voices = [
-            {"id": "zh_CN-huayan-medium",
-             "label": "中文女声(huayan medium)", "language": "zh-CN"},
-        ]
+        # 扫 bundled + user-local 实际 .onnx 文件 + 已知 voice label 映射
+        # (男声/女声/语言)。空时给一个默认引导,前端选了会触发 auto-download。
+        voices = _scan_piper_voices()
+        if not voices:
+            voices = [
+                {"id": "zh_CN-huayan-medium",
+                 "label": "huayan · 中文女声(medium,未下载,选中后自动拉)",
+                 "language": "zh-CN"},
+            ]
     elif provider == "edge":
         voices = [
             {"id": "zh-CN-XiaoxiaoNeural",   "label": "晓晓(中文女声)", "language": "zh-CN"},
@@ -741,6 +746,139 @@ def _scan_sherpa_voices() -> List[Dict[str, Any]]:
             label = SHERPA_VOICE_LABELS.get(name, name)
             items.append({"id": name, "label": label, "language": "zh-CN"})
     return items
+
+
+def _scan_piper_voices() -> List[Dict[str, Any]]:
+    """扫描 piper voice 目录,返所有可用 voice(.onnx + .onnx.json 配对存在)。
+
+    扫两档:
+      - <CHAYUAN_ROOT>/models/bundled/tts/piper/  HF 仓库嵌套(zh/zh_CN/huayan/medium/*.onnx)
+      - <CHAYUAN_ROOT>/models/piper/              user-local 平铺(auto-download 落地点)
+
+    label 优先用 PIPER_VOICE_LABELS 映射(标注男/女/语言),缺则按 voice name
+    模板 `{locale}-{speaker}-{quality}` 自动拼。language 从 locale 前缀推断
+    (zh_CN → zh-CN)。
+    """
+
+    import os as _os
+    from pathlib import Path as _Path
+
+    candidates: List[_Path] = []
+    try:
+        from chayuan.settings import CHAYUAN_ROOT
+        candidates.append(_Path(str(CHAYUAN_ROOT)) / "models" / "bundled" / "tts" / "piper")
+        candidates.append(_Path(str(CHAYUAN_ROOT)) / "models" / "piper")
+    except Exception:  # noqa: BLE001
+        pass
+
+    seen: set = set()
+    items: List[Dict[str, Any]] = []
+    for root in candidates:
+        try:
+            if not root.is_dir():
+                continue
+            # rglob 兼容 bundled HF 嵌套结构 + user-local 平铺
+            for onnx in sorted(root.rglob("*.onnx")):
+                cfg = onnx.parent / f"{onnx.name}.json"
+                if not cfg.exists():
+                    continue
+                name = onnx.stem  # 如 zh_CN-huayan-medium
+                if name in seen:
+                    continue
+                seen.add(name)
+                parts = name.split("-")
+                locale = parts[0] if parts else ""
+                language = locale.replace("_", "-") if "_" in locale else (locale or "unknown")
+                label = PIPER_VOICE_LABELS.get(name)
+                if not label:
+                    speaker = parts[1] if len(parts) > 1 else "?"
+                    quality = parts[2] if len(parts) > 2 else "?"
+                    label = f"{speaker} ({locale}, {quality})"
+                items.append({"id": name, "label": label, "language": language})
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[/voices:piper] 扫 %s 异常: %r", root, e)
+    return items
+
+
+# rhasspy/piper-voices 常见 voice 的人类可读 label(性别/语言/质量级)。
+# 命名约定:{locale}-{speaker}-{quality},quality ∈ x_low/low/medium/high。
+# 缺映射的 voice 会按 "{speaker} ({locale}, {quality})" 模板自动拼,仍可用。
+PIPER_VOICE_LABELS: Dict[str, str] = {
+    # 中文
+    "zh_CN-huayan-medium":          "huayan · 中文女声(medium)",
+    "zh_CN-huayan-x_low":           "huayan · 中文女声(超快 x_low)",
+    # 美式英语
+    "en_US-amy-medium":             "Amy · 美式英语女声(medium)",
+    "en_US-amy-low":                "Amy · 美式英语女声(low)",
+    "en_US-ryan-high":              "Ryan · 美式英语男声(high)",
+    "en_US-ryan-medium":            "Ryan · 美式英语男声(medium)",
+    "en_US-ryan-low":               "Ryan · 美式英语男声(low)",
+    "en_US-kathleen-low":           "Kathleen · 美式英语女声(low)",
+    "en_US-lessac-medium":          "Lessac · 美式英语男声(medium)",
+    "en_US-lessac-high":            "Lessac · 美式英语男声(high)",
+    "en_US-lessac-low":             "Lessac · 美式英语男声(low)",
+    "en_US-libritts-high":          "LibriTTS · 多说话人合集(2400+,high)",
+    "en_US-libritts_r-medium":      "LibriTTS-R · 多说话人合集(medium)",
+    "en_US-arctic-medium":          "Arctic · 多说话人(medium)",
+    "en_US-hfc_female-medium":      "HFC · 美式英语女声(medium)",
+    "en_US-hfc_male-medium":        "HFC · 美式英语男声(medium)",
+    "en_US-joe-medium":             "Joe · 美式英语男声(medium)",
+    "en_US-kusal-medium":           "Kusal · 美式英语男声(medium)",
+    "en_US-l2arctic-medium":        "L2Arctic · 多说话人(medium)",
+    "en_US-norman-medium":          "Norman · 美式英语男声(medium)",
+    # 英式英语
+    "en_GB-alan-medium":            "Alan · 英式英语男声(medium)",
+    "en_GB-alan-low":               "Alan · 英式英语男声(low)",
+    "en_GB-alba-medium":            "Alba · 英式英语女声(medium)",
+    "en_GB-aru-medium":             "Aru · 英式英语男声(medium)",
+    "en_GB-cori-medium":            "Cori · 英式英语女声(medium)",
+    "en_GB-cori-high":              "Cori · 英式英语女声(high)",
+    "en_GB-jenny_dioco-medium":     "Jenny Dioco · 英式英语女声(medium)",
+    "en_GB-northern_english_male-medium": "北方英式英语男声(medium)",
+    "en_GB-semaine-medium":         "Semaine · 多说话人(medium)",
+    "en_GB-southern_english_female-low":  "南方英式英语女声(low)",
+    "en_GB-vctk-medium":            "VCTK · 多说话人合集(medium)",
+    # 日语
+    "ja_JP-test-medium":            "日语(测试 medium)",
+    # 韩语
+    "ko_KR-kss-medium":             "KSS · 韩语女声(medium)",
+    # 法语
+    "fr_FR-siwis-medium":           "Siwis · 法语女声(medium)",
+    "fr_FR-siwis-low":              "Siwis · 法语女声(low)",
+    "fr_FR-tom-medium":             "Tom · 法语男声(medium)",
+    "fr_FR-upmc-medium":            "UPMC · 多说话人(medium)",
+    # 德语
+    "de_DE-thorsten-medium":        "Thorsten · 德语男声(medium)",
+    "de_DE-thorsten-high":          "Thorsten · 德语男声(high)",
+    "de_DE-thorsten-low":           "Thorsten · 德语男声(low)",
+    "de_DE-thorsten_emotional-medium": "Thorsten · 德语男声(情感版 medium)",
+    "de_DE-eva_k-x_low":            "Eva K · 德语女声(x_low)",
+    "de_DE-karlsson-low":           "Karlsson · 德语男声(low)",
+    "de_DE-kerstin-low":            "Kerstin · 德语女声(low)",
+    # 西班牙语
+    "es_ES-mls_10246-low":          "MLS · 西班牙语男声(low)",
+    "es_ES-davefx-medium":          "DaveFX · 西班牙语男声(medium)",
+    "es_ES-sharvard-medium":        "SHarvard · 西班牙语女声(medium)",
+    "es_MX-ald-medium":             "ALD · 墨西哥西语男声(medium)",
+    "es_MX-claude-high":            "Claude · 墨西哥西语男声(high)",
+    # 意大利语
+    "it_IT-paola-medium":           "Paola · 意大利语女声(medium)",
+    "it_IT-riccardo-x_low":         "Riccardo · 意大利语男声(x_low)",
+    # 俄语
+    "ru_RU-denis-medium":           "Denis · 俄语男声(medium)",
+    "ru_RU-dmitri-medium":          "Dmitri · 俄语男声(medium)",
+    "ru_RU-irina-medium":           "Irina · 俄语女声(medium)",
+    "ru_RU-ruslan-medium":          "Ruslan · 俄语男声(medium)",
+    # 葡萄牙语
+    "pt_BR-faber-medium":           "Faber · 巴西葡语男声(medium)",
+    "pt_PT-tugão-medium":           "Tugão · 葡萄牙葡语男声(medium)",
+    # 阿拉伯语
+    "ar_JO-kareem-low":             "Kareem · 阿语男声(low)",
+    "ar_JO-kareem-medium":          "Kareem · 阿语男声(medium)",
+    # 越南语
+    "vi_VN-vais1000-medium":        "VAIS1000 · 越南语女声(medium)",
+    "vi_VN-25hours_single-low":     "25hours · 越南语女声(low)",
+}
 
 
 SHERPA_VOICE_LABELS: Dict[str, str] = {
