@@ -88,9 +88,12 @@ def synthesize(
 ) -> Optional[TtsResult]:
     """文本 → 音频文件 + cues。失败返 None。
 
-    voice_provider 推荐顺序:piper(离线) → edge(联网备选) → sherpa(M4)。
-    voice_name 可不传 — piper 走 modality 默认中文女声,edge 走 capability
-    router 解析的 tts 模型。
+    voice_provider 三档:
+      piper(默认离线,~60 MB 模型,质量足以日常)
+      edge(联网备选,微软声纹,中文音色多)
+      sherpa(M4 加,高质量 VITS ~125 MB 模型,中文 prosody 更自然)
+
+    voice_name 可不传 — 各 provider 自带默认中文女声。
     """
 
     if not text or not text.strip():
@@ -111,14 +114,70 @@ def synthesize(
         provider = "piper"
 
     if provider == "sherpa":
-        # M4 sherpa-onnx-tts sidecar 接入后填实。M1 直接回退 piper。
-        logger.info("[tts] sherpa provider 暂未实现,fallback piper(M4 升级)")
+        # M4 加:sherpa-onnx VITS 高质量本地 TTS。
+        result = _synthesize_via_sherpa(
+            text, voice_file, voice_name=voice_name,
+            voice_rate=voice_rate, voice_volume=voice_volume,
+        )
+        if result is not None:
+            return result
+        logger.warning("[tts] sherpa 路径失败,fallback piper")
         provider = "piper"
 
     # 主路径 piper(默认)
     return _synthesize_via_piper(
         text, voice_file, voice_name=voice_name,
         voice_rate=voice_rate, voice_volume=voice_volume,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# sherpa-onnx 路径(高质量本地 VITS,M4 加)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _synthesize_via_sherpa(
+    text: str,
+    voice_file: str,
+    *,
+    voice_name: Optional[str],
+    voice_rate: float,
+    voice_volume: float,
+) -> Optional[TtsResult]:
+    """走 modality.audio AudioModality.synthesize 接 "sherpa:" 前缀走第 -1 档。"""
+
+    try:
+        from chayuan.server.modality.audio import AudioModality
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[tts:sherpa] AudioModality import 失败: %r", e)
+        return None
+    am = AudioModality()
+    fmt = _ext(voice_file) or "wav"
+    voice_id = voice_name or ""
+    # 拼 "sherpa:" 前缀让 modality 走 sherpa 分支(否则会走 piper)
+    voice_arg = voice_id if voice_id.startswith("sherpa:") else f"sherpa:{voice_id}"
+    try:
+        data = am.synthesize(text, voice=voice_arg, fmt=fmt)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[tts:sherpa] synthesize 异常: %r", e)
+        return None
+    if not data:
+        return None
+    with open(voice_file, "wb") as f:
+        f.write(data)
+    duration_ms = _probe_audio_duration_ms(voice_file) or _estimate_duration_ms(text)
+    # sherpa 无 cue timestamps,跟 piper 同处理:按句号等分文本
+    cues = _equal_split_cues(text, duration_ms)
+    logger.info(
+        "[tts:sherpa] wrote %s duration_ms=%d cues=%d",
+        voice_file, duration_ms, len(cues),
+    )
+    # voice_rate / voice_volume 在 sherpa 路径上当前未生效(sherpa.generate
+    # 接 speed 参数但 modality.audio 没透传)— M4 后续再扩 modality 接口
+    # 让 speed 通到 sherpa.generate。
+    return TtsResult(
+        audio_file=voice_file, duration_ms=duration_ms,
+        cues=cues, provider="sherpa",
     )
 
 
