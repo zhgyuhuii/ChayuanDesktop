@@ -547,6 +547,40 @@ export async function vgListVoices(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// 在线素材源配置
+// ─────────────────────────────────────────────────────────────────────
+
+export interface VgSourceConfig {
+  source_name: string;
+  enabled: boolean;
+  /** masked "已配" 或 "" 或明文(reveal 时) */
+  api_key: string;
+  has_api_key: boolean;
+  config: Record<string, unknown>;
+  updated_at: string | null;
+}
+
+export async function vgListSourceConfigs(reveal = false): Promise<{ items: VgSourceConfig[] }> {
+  return rd<{ items: VgSourceConfig[] }>('/api/v1/video-generation/sources/config', {
+    method: 'GET',
+    query: { reveal },
+  });
+}
+
+export async function vgUpsertSourceConfig(args: {
+  source_name: string;
+  enabled?: boolean;
+  api_key?: string;
+  config?: Record<string, unknown>;
+}): Promise<VgSourceConfig> {
+  return rd<VgSourceConfig>('/api/v1/video-generation/sources/config', {
+    method: 'POST',
+    body: JSON.stringify(args),
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // 文件下载 + 我的视频
 // ─────────────────────────────────────────────────────────────────────
 
@@ -607,4 +641,6 @@ export const videoGeneration = {
   taskFileUrl: vgTaskFileUrl,
   listVideos: vgListVideos,
   deleteVideo: vgDeleteVideo,
+  listSourceConfigs: vgListSourceConfigs,
+  upsertSourceConfig: vgUpsertSourceConfig,
 };
