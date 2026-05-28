@@ -115,6 +115,12 @@ export interface ConversationViewProps {
   setMessagesRef?: React.MutableRefObject<
     React.Dispatch<React.SetStateAction<ChatMessage[]>> | null
   >;
+  /**
+   * 在 ChatComposer 正上方(attachments 条之上)插入自定义内容。
+   * video_generation 用它放工具栏 + "全自动"banner,而不挤在页面顶部。
+   * 默认 undefined 不渲染。
+   */
+  composerTopSlot?: React.ReactNode;
 }
 
 export const ConversationView: React.FC<ConversationViewProps> = ({
@@ -132,6 +138,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   sendMessageRef,
   extraSlot,  // R2.2 新增
   setMessagesRef,  // R3.6 新增 — 向父级暴露 setMessages 引用
+  composerTopSlot,
 }) => {
   const activeId = conversationId ?? null;
   const composer = useComposerScopedStore();
@@ -503,9 +510,14 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                 onPickImage: () => void attachments.pickImages(),
                 onPickAudio: () => void attachments.pickAudio(),
                 onScreenshot: screenshot.available ? screenshot.onScreenshot : undefined,
-                topSlot: attachments.attachments.length ? (
-                  <AttachmentBar items={attachments.attachments} onRemove={attachments.remove} />
-                ) : null,
+                topSlot: (
+                  <>
+                    {composerTopSlot}
+                    {attachments.attachments.length ? (
+                      <AttachmentBar items={attachments.attachments} onRemove={attachments.remove} />
+                    ) : null}
+                  </>
+                ),
               }
             : {})}
         />

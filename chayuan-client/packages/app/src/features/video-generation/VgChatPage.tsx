@@ -41,6 +41,7 @@ import { notifySuccess, reportError } from '../../store/errorDialog';
 import { vgComposerStore } from './store/vgComposerStore';
 import { useVgComposer } from './store/vgComposer';
 import { VgComposerToolbar } from './VgComposerToolbar';
+import { VgAutoBanner } from './VgAutoToggle';
 import { VgMessageExtras } from './VgMessageExtras';
 
 export const VgChatPage: React.FC = () => {
@@ -186,31 +187,40 @@ export const VgChatPage: React.FC = () => {
     [autoMode, goLibrary],
   );
 
-  // ── 顶部 header(批量 / 素材 / 我的视频) ────────────────────
+  // ── 顶部 header — brand 渐变背景 + 大 Video 图标,明显标记"视频生成对话" ──
   const header = (
-    <header className="flex items-center justify-between border-b border-[var(--cy-border-subtle)] px-4 py-2 text-xs">
-      <div className="inline-flex items-center gap-1.5 text-[var(--cy-text-secondary)]">
-        <MessagesSquare className="h-3.5 w-3.5" /> 视频生成 · 对话模式
+    <header className="flex items-center justify-between border-b border-[var(--cy-border-subtle)] bg-gradient-to-r from-[var(--cy-brand-50)] to-[var(--cy-surface-1)] px-4 py-2.5">
+      <div className="inline-flex items-center gap-2">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] text-white shadow-sm">
+          <VideoIcon className="h-4 w-4" />
+        </span>
+        <div className="leading-tight">
+          <div className="text-sm font-semibold text-[var(--cy-text-primary)]">视频生成 · 对话模式</div>
+          <div className="inline-flex items-center gap-1 text-[10px] text-[var(--cy-text-tertiary)]">
+            <MessagesSquare className="h-2.5 w-2.5" />
+            主题 → 脚本 → 配置 → 渲染,全程在对话内
+          </div>
+        </div>
       </div>
       <div className="flex gap-1.5">
         <button
           type="button"
           onClick={goBatch}
-          className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
+          className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
         >
           <Layers className="h-3 w-3" /> 批量
         </button>
         <button
           type="button"
           onClick={goMaterials}
-          className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
+          className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
         >
           <LibIcon className="h-3 w-3" /> 素材
         </button>
         <button
           type="button"
           onClick={goLibrary}
-          className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
+          className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
         >
           <VideoIcon className="h-3 w-3" /> 我的视频
         </button>
@@ -218,11 +228,18 @@ export const VgChatPage: React.FC = () => {
     </header>
   );
 
+  // ── Composer 正上方的紧凑工具栏 + 全自动 banner(用户必读) ────
+  const composerTop = (
+    <div className="flex flex-col gap-1.5">
+      <VgComposerToolbar />
+      <VgAutoBanner autoMode={autoMode} onChange={setAutoMode} />
+    </div>
+  );
+
   return (
     <ComposerStoreContext.Provider value={vgComposerStore}>
       <div className="flex h-full flex-col">
         {header}
-        <VgComposerToolbar autoMode={autoMode} onAutoModeChange={setAutoMode} />
         <div className="min-h-0 flex-1">
           <ConversationView
             mode="video_generation"
@@ -230,6 +247,7 @@ export const VgChatPage: React.FC = () => {
             buildRequest={buildRequest}
             onBeforeSend={onBeforeSend}
             setMessagesRef={setMessagesRef}
+            composerTopSlot={composerTop}
             extraSlot={(m) => (
               <VgMessageExtras
                 message={m}
