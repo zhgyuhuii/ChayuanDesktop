@@ -67,6 +67,17 @@ piper-tts = ">=1.2,<2.0"
 # whisper.cpp(它某些 build 不解 webm),也给 video.py 抽帧/抽音兜底。免去
 # 用户自己装系统 ffmpeg。代码层用 imageio_ffmpeg.get_ffmpeg_exe() 拿绝对路径。
 imageio-ffmpeg = ">=0.4,<1.0"
+# 视频生成模块(chayuan.server.video_generation,上游 MoneyPrinterTurbo)
+# - moviepy 2.x:视频合成主引擎(TextClip / CompositeVideoClip / 转场 / 编码)
+#   需要外部 ImageMagick 二进制做 TextClip 文字渲染 — 由 video_generation/
+#   binaries.py 启动时探测 vendor/bundled_binaries/<platform>/imagemagick/ 注入。
+#   依赖关系:numpy(已有<2.0),Pillow(PyMuPDF 间接),imageio(已有 imageio-ffmpeg
+#   会拉 imageio 主包),都已就位无新增 native 冲突。
+moviepy = "==2.1.2"
+# edge-tts 在线备选(微软 SpeechSDK 协议反代,中文音色多),纯 Python 不引入
+# .NET。本地主路径走 modality.audio 已有的 piper-tts;edge-tts 仅作"用户
+# 网络通且想要更高质量音色"的备选 — 视频生成 TTS 步骤的 "在线" tab。
+edge-tts = ">=7.2,<8.0"
 # 纯 Python 繁简转换(~280 KB),用在 ASR 路径里把 whisper.cpp 默认输出的繁体
 # 中文统一转简体 — 用户主诉求是简体笔记。无 native deps,跨平台稳。
 zhconv = ">=1.4,<2.0"
