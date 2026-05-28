@@ -36,3 +36,4 @@ from chayuan.server.modality.router.tasks import db_model as _modality_task_mode
 from chayuan.server.db.models import route_context_model  # noqa: F401
 from chayuan.server.db.models import sql_training_model  # noqa: F401
 from chayuan.server.db.models import user_model  # noqa: F401
+from chayuan.server.db.models import video_generation_model  # noqa: F401
