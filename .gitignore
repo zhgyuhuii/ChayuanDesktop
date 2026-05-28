@@ -92,6 +92,15 @@ chayuan-server/vendor/bundled_models/**/*.bin
 # 复制到这里供 tauri 把模型打进 NSIS installer。运行时构件,不入库。
 chayuan-client/apps/desktop/src-tauri/bundled_models/
 chayuan-client/apps/desktop/src-tauri/services/
+# video_generation 模块(M3):同样是 build.py sync 进来的运行时构件,只
+# 在 src-tauri 下留空目录骨架 + .gitkeep,保 Tauri dev 模式 bundle.resources
+# glob 不报"path not found"。实际资产 build 时从 vendor 拷过来。
+chayuan-client/apps/desktop/src-tauri/bundled_fonts/**
+!chayuan-client/apps/desktop/src-tauri/bundled_fonts/.gitkeep
+chayuan-client/apps/desktop/src-tauri/bundled_bgm/**
+!chayuan-client/apps/desktop/src-tauri/bundled_bgm/.gitkeep
+chayuan-client/apps/desktop/src-tauri/bundled_video_clips/**
+!chayuan-client/apps/desktop/src-tauri/bundled_video_clips/.gitkeep
 # tools/:build-desktop.ps1 把 scripts/diagnose-auto-start.ps1 同步进来,
 # Tauri 把它打成 resources/_up_/scripts/diagnose-auto-start.ps1。同样运行时构件。
 chayuan-client/apps/desktop/src-tauri/tools/
