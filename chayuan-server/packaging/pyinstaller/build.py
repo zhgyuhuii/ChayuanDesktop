@@ -92,6 +92,15 @@ DESKTOP_BIN_DIR = DESKTOP_SRC_TAURI / "binaries"  # 保留:兼容旧调用方读
 # mmap 单文件 ≥2GB 失败),改由 Tauri 的 ``bundle.resources`` 字段承载。
 # build.py 把 vendor/bundled_models/ 拷到这里,tauri.conf.json 把它打进 installer。
 DESKTOP_BUNDLED_MODELS_DIR = DESKTOP_SRC_TAURI / "bundled_models"
+# M3 加(video_generation 模块):字体 / BGM / 内置素材 + ImageMagick portable
+# 二进制都走 Tauri resources 链路,跟 bundled_models 同机制装机后落到
+# <install_dir>/{bundled_fonts,bundled_bgm,bundled_video_clips,services}/。
+# video_generation/binaries.py::_vendor_root() 装机路径探测会撞 sys.executable
+# 同级 vendor/ 找不到 → fallback 直接平铺到 install_dir(M3.D6 binaries 改造)。
+DESKTOP_BUNDLED_FONTS_DIR = DESKTOP_SRC_TAURI / "bundled_fonts"
+DESKTOP_BUNDLED_BGM_DIR = DESKTOP_SRC_TAURI / "bundled_bgm"
+DESKTOP_BUNDLED_VIDEO_CLIPS_DIR = DESKTOP_SRC_TAURI / "bundled_video_clips"
+DESKTOP_VG_SERVICES_DIR = DESKTOP_SRC_TAURI / "services"  # 内置 imagemagick/<platform>/
 # 默认 bundled 源(打包专用暂存),可被 --bundled-source / $CHAYUAN_BUILD_BUNDLED_SOURCE 覆盖
 # (典型用法:开发者用 install-bundled-models.ps1 -ChayuanRoot 把模型装到 chayuan_root,
 #  打包时指向 <chayuan_root>/models/bundled/,免去 dev/打包两份磁盘占用)。
@@ -751,6 +760,69 @@ def triple_to_vendor_subdir(triple: str) -> str:
     return _TRIPLE_TO_VENDOR_SUBDIR.get(triple, "")
 
 
+# ────────────────────────────────────────────────────────────────
+# M3.D6:video_generation 模块 bundled 资产同步
+# ────────────────────────────────────────────────────────────────
+
+
+def sync_video_generation_assets(*, target_triple: Optional[str] = None) -> None:
+    """同步 vendor/{bundled_fonts,bundled_bgm,bundled_video_clips,
+    services/imagemagick/<platform>} → src-tauri/ 对应位置,跟着 Tauri
+    resources 进 installer。
+
+    设计跟 sync_bundled_models 平行:
+    - 字体 / BGM / 内置素材是平铺目录,不按 flavor 拆,lite/full 都拷
+    - imagemagick 按 target 平台只拷一份(单平台 ~50 MB,所有平台 ~300 MB 太重)
+    - 媒体二进制不强求存在(vendor 目录可能只有 README + .gitkeep),
+      不存在则 dst 留空目录加 .gitkeep,Tauri resources 仍能 COPY 成功
+
+    幂等:每次都清旧目录,避免 flavor / target 切换残留。
+    """
+
+    items = [
+        (ROOT / "vendor" / "bundled_fonts", DESKTOP_BUNDLED_FONTS_DIR),
+        (ROOT / "vendor" / "bundled_bgm", DESKTOP_BUNDLED_BGM_DIR),
+        (ROOT / "vendor" / "bundled_video_clips", DESKTOP_BUNDLED_VIDEO_CLIPS_DIR),
+    ]
+    for src, dst in items:
+        if dst.exists():
+            shutil.rmtree(dst)
+        if src.is_dir() and any(p for p in src.iterdir() if p.name not in (".gitkeep",)):
+            shutil.copytree(src, dst, symlinks=True)
+            print(f"[build/vg] {src.name}: copied {sum(1 for _ in dst.rglob('*'))} items", flush=True)
+        else:
+            dst.mkdir(parents=True, exist_ok=True)
+            (dst / ".gitkeep").touch()
+            print(f"[build/vg] {src.name}: 源为空 → 空 dst", flush=True)
+
+    # imagemagick:按 target 平台拷一份
+    im_src_root = ROOT / "vendor" / "services" / "imagemagick"
+    im_dst_root = DESKTOP_VG_SERVICES_DIR / "imagemagick"
+    if im_dst_root.exists():
+        shutil.rmtree(im_dst_root)
+    im_dst_root.mkdir(parents=True, exist_ok=True)
+
+    if target_triple is not None:
+        subdir = triple_to_vendor_subdir(target_triple)
+        if subdir:
+            candidate = im_src_root / subdir
+            if candidate.is_dir() and any(candidate.iterdir()):
+                shutil.copytree(candidate, im_dst_root / subdir, symlinks=True)
+                # chmod +x 给 magick (非 Windows)
+                bin_name = "magick.exe" if subdir.startswith("win") else "magick"
+                bin_path = im_dst_root / subdir / bin_name
+                if bin_path.is_file() and not subdir.startswith("win"):
+                    st = bin_path.stat()
+                    bin_path.chmod(st.st_mode | 0o111)
+                print(f"[build/vg] imagemagick/{subdir}: copied", flush=True)
+            else:
+                print(
+                    f"[build/vg] ⚠ vendor/services/imagemagick/{subdir}/ 不存在或空 — "
+                    f"装机后视频字幕渲染会失败。先跑 scripts/seed-bundled-assets.py imagemagick",
+                    flush=True,
+                )
+
+
 # 不同 OS 二进制的 magic bytes(用于 cross-build 时验证文件不是被截断的占位)
 _BINARY_MAGIC: dict[str, tuple[bytes, ...]] = {
     "win-x64":         (b"MZ",),                     # PE
@@ -1297,6 +1369,7 @@ def main() -> None:
         # 跳过 PyInstaller,只同步 bundled_models + services + torch wheels。
         # build-desktop 双 flavor 模式 / sidecar 缓存命中走这条路径。
         sync_bundled_models(lite=lite, bundled_src=bundled_src, target_triple=target)
+        sync_video_generation_assets(target_triple=target)
         _do_sync_and_verify()
         return
 
@@ -1331,6 +1404,9 @@ def main() -> None:
     if not args.no_copy:
         copy_to_tauri_binaries()
         sync_bundled_models(lite=lite, bundled_src=bundled_src, target_triple=target)
+        # M3.D6:video_generation 模块的字体 / BGM / 内置素材 + 按平台
+        # ImageMagick 二进制,跟着 Tauri resources 进 installer。
+        sync_video_generation_assets(target_triple=target)
         _do_sync_and_verify()
 
 

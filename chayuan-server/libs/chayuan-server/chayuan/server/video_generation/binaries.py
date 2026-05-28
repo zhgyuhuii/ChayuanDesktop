@@ -82,10 +82,14 @@ def _vendor_root() -> Path:
     """定位 chayuan-server/vendor/ 目录。
 
     探测顺序:
-      1) 开发模式:从 ``__file__`` 向上找直到含 ``vendor/services``
+      1) 环境变量 ``CHAYUAN_VENDOR_ROOT`` 覆盖(最高优先)
+      2) 开发模式:从 ``__file__`` 向上找直到含 ``vendor/services``
          的祖父目录(monorepo `/work/chayuan-desktop/chayuan-server/vendor`)
-      2) frozen / 安装包:从 ``sys.executable`` 同级 ``vendor/`` 找
-      3) 环境变量 ``CHAYUAN_VENDOR_ROOT`` 覆盖
+      3) frozen / 安装包:从 ``sys.executable`` 同级 ``vendor/`` 找
+      4) **Tauri 装机后平铺布局**(M3 加):sys.executable 同级直接是
+         ``bundled_fonts/`` / ``bundled_bgm/`` / ``services/`` (没有
+         ``vendor/`` 包裹层 — Tauri resources 装机后直接落到 install_dir
+         顶层),把同级目录当虚拟 vendor 返回
 
     找不到返当前目录作哨兵 — 调用者通过 ``exists()`` 判定。
     """
@@ -102,12 +106,15 @@ def _vendor_root() -> Path:
         if (candidate / "services").is_dir():
             return candidate
 
-    # frozen 路径(PyInstaller):exe 同级
+    # frozen 路径(PyInstaller):exe 同级 vendor/
     try:
         exe_dir = Path(sys.executable).resolve().parent
         candidate = exe_dir / "vendor"
         if (candidate / "services").is_dir():
             return candidate
+        # Tauri 装机后平铺:exe_dir 直接含 bundled_fonts / services / ...
+        if (exe_dir / "services").is_dir() or (exe_dir / "bundled_fonts").is_dir():
+            return exe_dir
     except Exception:  # noqa: BLE001
         pass
 
