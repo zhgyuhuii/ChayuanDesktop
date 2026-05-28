@@ -566,10 +566,12 @@ class AudioPipeline:
                     fmt: str = "mp3") -> bytes:
         """文本 → 音频 bytes。失败返回空 bytes。
 
-        Fallback 链(**离线优先**):
-          1. **piper-tts(纯本地 CPU,无网也工作)** — 首选,zh_CN-huayan-medium 默认中文女声
-          2. edge-tts(微软云端,联网 + 不要 API key)
-          3. OpenAI ``/audio/speech``(联网 + 要 API key)
+        Fallback 链(**离线优先 + 高质量优先**):
+          -1. **sherpa-onnx(高质量本地 VITS,M4 加)** — voice 含 ``sherpa:`` 前
+              缀显式走这条;视频生成模块的高质量档默认开。模型 ~125 MB(vits-zh-ll)。
+          0. **piper-tts(纯本地 CPU,无网也工作)** — 默认快速档,zh_CN-huayan-medium。
+          1. edge-tts(微软云端,联网 + 不要 API key)
+          2. OpenAI ``/audio/speech``(联网 + 要 API key)
 
         ``voice`` 不传 → 走 capability_router("tts");router 也无配置时 fallback
         "zh-CN-XiaoxiaoNeural"(edge-tts 风格默认名 — piper 收到这种风格名会
@@ -583,6 +585,12 @@ class AudioPipeline:
                 voice = "zh-CN-XiaoxiaoNeural"
         if not text:
             return b""
+        # -1) sherpa-onnx(高质量本地 VITS,显式 voice="sherpa:<model_id>")
+        if isinstance(voice, str) and voice.startswith("sherpa:"):
+            sherpa_bytes = self._synthesize_via_sherpa(text, voice=voice, fmt=fmt)
+            if sherpa_bytes:
+                return sherpa_bytes
+            # 失败 fallback 到 piper
         # 0) piper-tts(离线优先)— 模型 ≤ 60 MB,装好后没网也能用
         piper_bytes = self._synthesize_via_piper(text, voice=voice, fmt=fmt)
         if piper_bytes:
@@ -802,6 +810,164 @@ class AudioPipeline:
                 name, e, name, target_dir,
             )
             return False
+
+    # ──────────────────────────────────────────────────────────────────
+    # sherpa-onnx 高质量本地 TTS(M4 加)— synthesize() 的第 -1 档
+    #
+    # 跟 piper 同 in-process 模式:`sherpa-onnx` Python wheel(纯 Python +
+    # onnxruntime)跨平台,不需要单独进程/端口。模型路径解析跟 piper 一致:
+    # CHAYUAN_ROOT/models/bundled/tts/sherpa-onnx/<voice_id>/ 或 vendor
+    # /bundled_models/tts/sherpa-onnx/<voice_id>/。
+    # ──────────────────────────────────────────────────────────────────
+
+    _SHERPA_DEFAULT_VOICE = "vits-zh-ll"
+
+    def _synthesize_via_sherpa(
+        self, text: str, *, voice: str, fmt: str,
+    ) -> Optional[bytes]:
+        """sherpa-onnx VITS 本地推理。任何环节失败/未配置返 None,由 caller
+        fallback 到 piper。
+
+        voice 接受形态:
+          - ``sherpa:vits-zh-ll`` 显式 id
+          - ``sherpa:``           空 id → 用默认 vits-zh-ll
+        """
+
+        try:
+            import sherpa_onnx  # type: ignore
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[tts:sherpa] sherpa-onnx 未装,跳过: %r", e)
+            return None
+
+        voice_id = voice[len("sherpa:"):] if voice.startswith("sherpa:") else voice
+        if not voice_id:
+            voice_id = self._SHERPA_DEFAULT_VOICE
+        voice_dir = self._resolve_sherpa_voice_dir(voice_id)
+        if not voice_dir:
+            logger.warning(
+                "[tts:sherpa] 没找到 voice %s — 检查 vendor/bundled_models/tts/"
+                "sherpa-onnx/%s/ 或跑 scripts/seed-bundled-assets.py sherpa-voice",
+                voice_id, voice_id,
+            )
+            return None
+
+        # 缓存 OfflineTts 实例:每个 voice_dir 一份,init ~1-2s 不能反复
+        if not hasattr(self, "_sherpa_tts_cache"):
+            self._sherpa_tts_cache: dict = {}
+        tts = self._sherpa_tts_cache.get(voice_dir)
+        if tts is None:
+            try:
+                tts = self._build_sherpa_tts(sherpa_onnx, voice_dir)
+                if tts is None:
+                    return None
+                self._sherpa_tts_cache[voice_dir] = tts
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[tts:sherpa] 初始化 OfflineTts 失败 %s: %r", voice_dir, e)
+                return None
+
+        try:
+            audio = tts.generate(text, sid=0, speed=1.0)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[tts:sherpa] generate 失败: %r", e)
+            return None
+
+        samples = getattr(audio, "samples", None)
+        sample_rate = int(getattr(audio, "sample_rate", 0) or 0)
+        if samples is None or sample_rate <= 0:
+            return None
+
+        # float32 [-1, 1] → 16-bit PCM WAV
+        import io
+        import wave as _wave
+        try:
+            import numpy as np  # type: ignore
+            pcm = (np.clip(np.asarray(samples, dtype="float32"), -1.0, 1.0) * 32767.0).astype("int16")
+            wav_io = io.BytesIO()
+            with _wave.open(wav_io, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(sample_rate)
+                wf.writeframes(pcm.tobytes())
+            wav_bytes = wav_io.getvalue()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[tts:sherpa] WAV 编码失败: %r", e)
+            return None
+
+        if fmt == "wav":
+            return wav_bytes
+        return self._wav_to_format(wav_bytes, fmt) or wav_bytes
+
+    def _build_sherpa_tts(self, sherpa_onnx, voice_dir: str):  # noqa: ANN001
+        """构造 OfflineTts 实例。voice_dir 必须含 model.onnx + lexicon.txt + tokens.txt。
+
+        rule_fsts(date/number/phone/new_heteronym)+ dict/ 词典都是可选 — 缺
+        了模型仍能跑,只是文本规整 / 多音字处理弱化。
+        """
+
+        import os as _os
+        model = _os.path.join(voice_dir, "model.onnx")
+        lexicon = _os.path.join(voice_dir, "lexicon.txt")
+        tokens = _os.path.join(voice_dir, "tokens.txt")
+        if not (_os.path.isfile(model) and _os.path.isfile(tokens)):
+            logger.warning("[tts:sherpa] %s 缺 model.onnx / tokens.txt", voice_dir)
+            return None
+
+        # FST 规则:有则拼,无则空(sherpa-onnx 接收分号分隔的多 fst 路径)
+        fsts: list[str] = []
+        for f in ("date.fst", "number.fst", "phone.fst", "new_heteronym.fst"):
+            p = _os.path.join(voice_dir, f)
+            if _os.path.isfile(p):
+                fsts.append(p)
+        rule_fsts = ";".join(fsts)
+        dict_dir = _os.path.join(voice_dir, "dict")
+        if not _os.path.isdir(dict_dir):
+            dict_dir = ""
+
+        vits_cfg = sherpa_onnx.OfflineTtsVitsModelConfig(
+            model=model,
+            lexicon=lexicon if _os.path.isfile(lexicon) else "",
+            tokens=tokens,
+            dict_dir=dict_dir,
+        )
+        model_cfg = sherpa_onnx.OfflineTtsModelConfig(
+            vits=vits_cfg, num_threads=2, debug=False,
+        )
+        cfg = sherpa_onnx.OfflineTtsConfig(
+            model=model_cfg,
+            rule_fsts=rule_fsts,
+            max_num_sentences=2,
+        )
+        return sherpa_onnx.OfflineTts(cfg)
+
+    def _resolve_sherpa_voice_dir(self, voice_id: str) -> Optional[str]:
+        """voice_id → 含 model.onnx 的目录路径。
+
+        查找顺序:
+          1) CHAYUAN_ROOT/models/bundled/tts/sherpa-onnx/<voice_id>/(装机 seed)
+          2) <vendor>/bundled_models/tts/sherpa-onnx/<voice_id>/(开发期 / 直拷)
+        """
+
+        import os as _os
+        try:
+            from chayuan.settings import CHAYUAN_ROOT
+            roots = [Path(CHAYUAN_ROOT) / "models" / "bundled" / "tts" / "sherpa-onnx" / voice_id]
+        except Exception:  # noqa: BLE001
+            roots = []
+
+        try:
+            here = Path(__file__).resolve()
+            for parent in here.parents:
+                vd = parent / "vendor" / "bundled_models" / "tts" / "sherpa-onnx" / voice_id
+                if vd.is_dir():
+                    roots.append(vd)
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+
+        for r in roots:
+            if (r / "model.onnx").is_file():
+                return str(r)
+        return None
 
     def _wav_to_format(self, wav_bytes: bytes, fmt: str) -> Optional[bytes]:
         """piper 输出是 WAV;TTS 路由按 fmt(mp3/ogg/wav)设 Content-Type,
