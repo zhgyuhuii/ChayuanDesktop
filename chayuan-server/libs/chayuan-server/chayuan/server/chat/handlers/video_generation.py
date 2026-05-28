@@ -113,6 +113,8 @@ class VideoGenerationHandler(BaseModeHandler):
         )
 
         # 3. 调 LLM 一次拿完整脚本(R5 改流式)
+        # 同步 llm.invoke 在 async generate_override 里直接调会卡事件循环 —
+        # 按 base.py 约定 "所有 IO 必须 async;同步操作请显式 run_in_threadpool"。
         try:
             from chayuan.server.utils import get_ChatOpenAI, get_default_llm
         except Exception as e:  # noqa: BLE001
@@ -121,13 +123,18 @@ class VideoGenerationHandler(BaseModeHandler):
         if not model:
             return {"answer": "[vg] 没拿到可用 chat 模型 — 请到模型广场配 chat capability default"}
         try:
-            llm = get_ChatOpenAI(
-                model_name=model, temperature=0.7, streaming=False,
-            )
-            msg = llm.invoke(prompt)
-            script = str(getattr(msg, "content", msg)).strip()
+            from starlette.concurrency import run_in_threadpool
+
+            def _sync_invoke() -> str:
+                llm = get_ChatOpenAI(
+                    model_name=model, temperature=0.7, streaming=False,
+                )
+                msg = llm.invoke(prompt)
+                return str(getattr(msg, "content", msg)).strip()
+
+            script = await run_in_threadpool(_sync_invoke)
         except Exception as e:  # noqa: BLE001
-            logger.warning("[vg.gen] LLM 调用失败 model=%s: %r", model, e)
+            logger.warning("[vg.gen] LLM 调用失败 model=%s: %r", model, e, exc_info=True)
             return {"answer": f"脚本生成失败:{type(e).__name__}: {e}"}
 
         # 4. 在 answer 末尾附 metadata sentinel,前端 ConversationView 解析(R2.3)

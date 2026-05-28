@@ -21,6 +21,7 @@ class ChatMode(str, Enum):
     MULTI_SOURCE = "multi_source"  # P0-4：多知识源（SQL / Mongo / ES / 多向量 KB）并行
     VISION = "vision"              # 多模态
     SUPERVISOR = "supervisor"      # T11：多 Agent 协作（researcher → writer → reviewer）
+    VIDEO_GENERATION = "video_generation"  # R1.3：视频生成 — handler.generate_override 生成脚本 + 附 [[VG_META]] sentinel
 
 
 @dataclass
