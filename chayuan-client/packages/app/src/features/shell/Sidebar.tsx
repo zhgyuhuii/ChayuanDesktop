@@ -126,8 +126,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
   const onSelectConv = (c: ConversationView) => {
     const cid = c.remote_id ?? c.id;
     setActive(cid);
-    const path = `/chat/${encodeURIComponent(cid)}`;
-    open(path, { title: c.title, icon: 'message-square' });
+    // 按 conversation.mode 分流路径,video_generation 走 VgChatPage,
+    // 否则走 ChatPage。这样点历史 video_generation 会话才能正确恢复
+    // 脚本卡片 + TtsCard + 字幕图标 + 渲染进度卡(由 ConversationView
+    // listMessages → metadata.videoMeta 还原)。
+    const isVg = c.mode === 'video_generation';
+    const path = isVg
+      ? `/video-generation/${encodeURIComponent(cid)}`
+      : `/chat/${encodeURIComponent(cid)}`;
+    open(path, { title: c.title, icon: isVg ? 'video' : 'message-square' });
     void navigate({ to: path as never });
   };
 

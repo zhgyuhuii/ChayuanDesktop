@@ -148,6 +148,7 @@ const workspaceRoutes: ReadonlyArray<{ path: string; id: string }> = [
   //   /video-generation/wizard  → 旧 wizard(legacy,兜底保留)
   //   /video-generation/materials / library → 不变
   { path: '/video-generation', id: 'video-generation' },
+  { path: '/video-generation/$conversationId', id: 'video-generation-by-id' },
   { path: '/video-generation/batch', id: 'video-generation-batch' },
   { path: '/video-generation/wizard', id: 'video-generation-wizard' },
   { path: '/video-generation/materials', id: 'video-generation-materials' },

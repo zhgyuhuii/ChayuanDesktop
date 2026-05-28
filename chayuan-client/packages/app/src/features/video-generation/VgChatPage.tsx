@@ -44,7 +44,12 @@ import { VgComposerToolbar } from './VgComposerToolbar';
 import { VgAutoBanner } from './VgAutoToggle';
 import { VgMessageExtras } from './VgMessageExtras';
 
-export const VgChatPage: React.FC = () => {
+export interface VgChatPageProps {
+  /** 由 tab.path(/video-generation/<id>)解析,null=草稿模式。 */
+  conversationId?: string | null;
+}
+
+export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null }) => {
   const navigate = useNavigate();
   const openTab = useTabsStore((s) => s.open);
   const [autoMode, setAutoMode] = React.useState(false);
@@ -242,6 +247,7 @@ export const VgChatPage: React.FC = () => {
         {header}
         <div className="min-h-0 flex-1">
           <ConversationView
+            conversationId={conversationId}
             mode="video_generation"
             placeholder="输入视频主题 / 拖文件入素材库"
             buildRequest={buildRequest}

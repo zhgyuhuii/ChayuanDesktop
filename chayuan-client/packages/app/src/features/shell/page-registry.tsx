@@ -269,8 +269,29 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
   //   /video-generation/library      我的视频
   {
     pattern: /^\/video-generation$/,
-    render: () => <VgChatPage />,
+    // 草稿模式:同 /chat 路径,conversationId={null} 让 VgChatPage 渲染空态
+    render: () => <VgChatPage conversationId={null} />,
+    onActivate: () => {
+      void import('../../store/composer').then(({ useComposerStore }) => {
+        useComposerStore.getState().setActive(null);
+      });
+    },
     defaultTitle: '视频生成',
+    defaultIcon: 'video',
+  },
+  {
+    // 历史会话:/video-generation/<convId>。Sidebar 按 conversation.mode 分流到这条
+    pattern: /^\/video-generation\/(?<id>[0-9a-fA-F-]{20,})$/,
+    render: (params) => (
+      <VgChatPage conversationId={params.id ? decodeURIComponent(params.id) : null} />
+    ),
+    onActivate: (params) => {
+      const id = params.id ? decodeURIComponent(params.id) : '';
+      if (!id) return;
+      void import('../../store/composer').then(({ useComposerStore }) => {
+        useComposerStore.getState().setActive(id);
+      });
+    },
     defaultIcon: 'video',
   },
   {
