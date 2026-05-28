@@ -99,8 +99,8 @@ export const Thread: React.FC<ThreadProps> = ({ messages, onRegenerate, onResume
               onResume={m.interrupt ? onResume : undefined}
               onEdit={(m.role === 'user' || (assistantEditable && m.role === 'assistant')) ? onEdit : undefined}
               onBranch={m.role === 'assistant' ? onBranch : undefined}
+              extraSlot={m.role === 'assistant' && extraSlot ? extraSlot(m) : undefined}
             />
-            {m.role === 'assistant' && extraSlot ? extraSlot(m) : null}
           </div>
         ))}
         {bottomSpacer > 0 && <div style={{ height: bottomSpacer }} aria-hidden />}

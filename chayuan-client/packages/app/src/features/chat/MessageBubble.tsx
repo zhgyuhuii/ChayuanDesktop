@@ -13,15 +13,18 @@ import { VoiceMessagePlayer } from './VoiceMessagePlayer';
 import { ImageCard } from './parts/ImageCard';
 import { TaskProgressPart } from './parts/TaskProgressPart';
 
+/** R3.5+: 在 actions 行之前渲染的可选 slot(video_generation 场景挂 TTS/字幕/去生成块)。
+ *  放进 MessageBubble 内部的 bubble 列里,能跟内容 bubble 对齐,actions 行自动下移。 */
 export interface MessageBubbleProps {
   message: ChatMessage;
   onRegenerate?: () => void;
   onResume?: (approved: boolean) => void;
   onEdit?: (id: string, newContent: string) => void;
+  extraSlot?: React.ReactNode;
   onBranch?: (id: string) => void;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegenerate, onResume, onEdit, onBranch }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegenerate, onResume, onEdit, onBranch, extraSlot }) => {
   const isUser = message.role === 'user';
   const [feedback, setFeedback] = React.useState<1 | -1 | null>(null);
   const [editing, setEditing] = React.useState(false);
@@ -245,6 +248,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
             </div>
           </div>
         )}
+
+        {!isUser && extraSlot ? <>{extraSlot}</> : null}
 
         {isUser && !message.streaming && onEdit && (
           <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 [.message-bubble:hover_&]:opacity-100">
