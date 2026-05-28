@@ -206,13 +206,17 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
             return _mark_complete(task_id, progress=100)
 
         # ── 5. materials ──────────────────────────────────────────
-        # M1 占位:在线下载逻辑由 steps.materials.download_videos 实现,
-        # 但还需要 task_dir 写入,以及 owner_id 关联本地素材库的检索。
-        # 完整 wiring 留 M2 端到端验收时一起完成。
         if _is_canceled(task_id):
             return _mark_canceled(task_id)
-        materials_paths: list[str] = []
-        # TODO(M2): 接 steps/materials.download_videos + store.materials.list
+        materials_paths = _resolve_materials(
+            task_id, params, video_terms,
+            audio_duration_ms=tts_result.duration_ms,
+        )
+        if not materials_paths:
+            return _mark_failed(
+                task_id,
+                "没有可用素材 — 在线源没配 API Key 也没有用户选择/本地素材",
+            )
         tasks_store.update_progress(
             task_id, progress=70, result_patch={"materials": materials_paths},
         )
@@ -220,15 +224,25 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
             return _mark_complete(task_id, progress=100)
 
         # ── 6. compose ────────────────────────────────────────────
-        # TODO(M2): 接 steps.compose.combine_videos + generate_video,
-        # 完成后 final_videos/combined_videos 写回 result + 同步 vg_videos。
         if _is_canceled(task_id):
             return _mark_canceled(task_id)
-        final_videos: list[str] = []
-        tasks_store.update_progress(
-            task_id, progress=95, result_patch={"final_videos": final_videos},
+        final_videos, combined_videos = _compose_videos(
+            task_id, params, materials_paths,
+            audio_file=tts_result.audio_file, subtitle_path=subtitle_path,
         )
+        if not final_videos:
+            return _mark_failed(task_id, "moviepy 合成失败 — 详见日志")
 
+        # 同步 vg_videos 表
+        _persist_vg_videos(task_id, params, final_videos)
+
+        tasks_store.update_progress(
+            task_id, progress=100,
+            result_patch={
+                "final_videos": final_videos,
+                "combined_videos": combined_videos,
+            },
+        )
         return _mark_complete(task_id, progress=100)
 
     except Exception as e:  # noqa: BLE001
@@ -271,3 +285,196 @@ def _resolve_audio_path(task_id: str) -> str:
 def _resolve_subtitle_path(task_id: str) -> str:
     from ._helpers import task_dir
     return os.path.join(task_dir(task_id), "subtitle.srt")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# materials 步骤 — 从用户预选 / 在线下载 / 本地素材库 三档来源拿视频
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _resolve_materials(
+    task_id: str,
+    params,
+    video_terms,
+    *,
+    audio_duration_ms: int,
+) -> list[str]:
+    """三档来源优先级:
+      1) params.video_materials(用户在 wizard step 5 显式拖选的 MaterialInfo 列表)
+      2) video_source != local → 在线下载(Pexels/Pixabay)
+      3) video_source == local 但用户没指定 → 从素材库 vg_materials 拉
+         owner_id 关联的 + bundled 全局 union(按 used_count + 随机取够时长)
+    """
+
+    from ._helpers import task_dir
+    from .schemas import VideoConcatMode
+    from .store import materials as materials_store
+    from .steps import materials as materials_step
+
+    audio_duration_s = max(1.0, audio_duration_ms / 1000.0)
+    max_clip = max(1, int(params.video_clip_duration))
+    out_dir = task_dir(task_id)
+
+    # 1) 用户预选
+    if params.video_materials:
+        paths: list[str] = []
+        for mi in params.video_materials:
+            if not mi.url:
+                continue
+            # url 既可能是 http(s) 也可能是本地路径(用户从素材库拖入)
+            if mi.url.startswith(("http://", "https://")):
+                saved = materials_step.save_video(mi.url, save_dir=out_dir)
+                if saved:
+                    paths.append(saved)
+            elif os.path.isfile(mi.url):
+                paths.append(mi.url)
+        if paths:
+            return paths
+
+    # 2) 在线源
+    if params.video_source != "local" and video_terms:
+        try:
+            return materials_step.download_videos(
+                task_id, list(video_terms),
+                source=params.video_source,
+                video_aspect=params.video_aspect,
+                video_contact_mode=VideoConcatMode(params.video_concat_mode.value),
+                audio_duration=audio_duration_s,
+                max_clip_duration=max_clip,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[runner] 在线源 %s 失败,fallback 本地: %r",
+                           params.video_source, e)
+
+    # 3) 本地素材库
+    return _pick_from_local_library(task_id, audio_duration_s, max_clip)
+
+
+def _pick_from_local_library(
+    task_id: str, audio_duration_s: float, max_clip: int,
+) -> list[str]:
+    """从 vg_materials 拉 owner_id + 全局 bundled 取够音频时长的本地素材。
+
+    M2 简版:返第一页 50 个,按 used_count 升序(平衡使用)再随机洗牌,累加
+    duration 到够 audio_duration_s 为止。M5 + 用户体验阶段可加更智能的
+    "按 tags / 文件名 ↔ video_terms 软匹配"。
+    """
+
+    import random
+    from .store import materials as materials_store
+
+    rows, _total = materials_store.list_materials(
+        owner_id=None, source=None, page=1, page_size=50,
+    )
+    if not rows:
+        return []
+    # 按 used_count 升序 + 内部洗牌 — 避免每次都拿同一批
+    rows.sort(key=lambda r: r.get("used_count") or 0)
+    random.shuffle(rows)
+    out: list[str] = []
+    accumulated_s = 0.0
+    for r in rows:
+        p = r.get("path")
+        if not p or not os.path.isfile(p):
+            continue
+        out.append(p)
+        accumulated_s += min(max_clip, (r.get("duration_ms") or 0) / 1000.0 or max_clip)
+        if accumulated_s >= audio_duration_s:
+            break
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────
+# compose 步骤 — moviepy 合成 N 份成品(video_count)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _compose_videos(
+    task_id: str,
+    params,
+    materials_paths: list[str],
+    *,
+    audio_file: str,
+    subtitle_path: str,
+) -> tuple[list[str], list[str]]:
+    """对每个 video_count 跑一次 combine_videos + generate_video,落盘到 task_dir。
+
+    返回 (final_videos[], combined_videos[]) 两个列表。失败任一份 → 跳过
+    但其它仍尝试;全失败返双空列表。
+    """
+
+    from ._helpers import task_dir
+    from .steps import compose as compose_step
+
+    out_dir = task_dir(task_id)
+    finals: list[str] = []
+    combineds: list[str] = []
+
+    for idx in range(1, max(1, int(params.video_count)) + 1):
+        combined_path = os.path.join(out_dir, f"combined-{idx}.mp4")
+        final_path = os.path.join(out_dir, f"final-{idx}.mp4")
+        try:
+            compose_step.combine_videos(
+                combined_video_path=combined_path,
+                video_paths=materials_paths,
+                audio_file=audio_file,
+                video_aspect=params.video_aspect,
+                video_concat_mode=params.video_concat_mode,
+                video_transition_mode=params.video_transition_mode,
+                max_clip_duration=max(1, int(params.video_clip_duration)),
+                threads=max(1, int(params.n_threads)),
+            )
+            compose_step.generate_video(
+                video_path=combined_path,
+                audio_path=audio_file,
+                subtitle_path=subtitle_path,
+                output_file=final_path,
+                params=params,
+            )
+            finals.append(final_path)
+            combineds.append(combined_path)
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                "[runner] compose video #%d failed: %s\n%s",
+                idx, e, traceback.format_exc(),
+            )
+    return finals, combineds
+
+
+# ─────────────────────────────────────────────────────────────────────
+# vg_videos 同步 — 成品视频进"我的视频"页索引
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _persist_vg_videos(task_id: str, params, final_videos: list[str]) -> None:
+    """每份成品写一行 vg_videos。owner_id 从 vg_tasks 倒查。"""
+
+    from .store import tasks as tasks_store
+    from .store import videos as videos_store
+
+    row = tasks_store.get_task(task_id)
+    owner_id = row.get("owner_id") if row else None
+    snap = params.model_dump(mode="json")
+
+    aspect_res = params.video_aspect.to_resolution()
+    title = (params.video_subject or "未命名视频")[:80]
+
+    for path in final_videos:
+        try:
+            size = os.path.getsize(path) if os.path.isfile(path) else 0
+        except OSError:
+            size = 0
+        try:
+            videos_store.create_video(
+                task_id=task_id,
+                title=title,
+                path=path,
+                owner_id=owner_id,
+                duration_ms=0,  # 真实时长由前端 video meta load 拿,或 M3 调 ffprobe 写回
+                width=aspect_res[0],
+                height=aspect_res[1],
+                thumbnail_path=None,
+                params_snapshot=snap,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[runner] persist vg_video failed: %r", e)
