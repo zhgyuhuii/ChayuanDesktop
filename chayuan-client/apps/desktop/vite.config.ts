@@ -59,8 +59,24 @@ export default defineConfig(({ mode }) => {
     // src-tauri/chayuan-server/_internal/{nicegui,setuptools,playwright}/**/*.html
     // 抓进来当 entry,nicegui 模板含 Jinja {{ ... }} 让 esbuild 解析报语法错。
     // 显式指定 index.html 后,vite 只用它作 entry 跟随 import 链,不再 glob。
+    //
+    // exclude: workspace 包(@chayuan/*)已经在 resolve.alias 里指到源码
+    // src/index.ts,不需要 esbuild 当 npm package 预构建。每次 dev 启动
+    // 跳过它们能省 cold-start 几秒,且避免源码改动触发依赖重新优化引发的
+    // 504 Outdated Optimize Dep / full reload 抖动。
     optimizeDeps: {
       entries: ['index.html'],
+      exclude: [
+        '@chayuan/api',
+        '@chayuan/app',
+        '@chayuan/design-tokens',
+        '@chayuan/i18n',
+        '@chayuan/observability',
+        '@chayuan/platform-shared',
+        '@chayuan/platform-tauri',
+        '@chayuan/transport',
+        '@chayuan/ui',
+      ],
     },
     envPrefix: ['VITE_', 'TAURI_ENV_'],
     build: {
