@@ -1,19 +1,19 @@
 """Video Generation 模式 — chat 输入 → 流式脚本 → metadata 字段挂载视频组件。
 
-R1.3 升级:
-- generate_override 从同步 dict(N6.c)升级到读附件文字 + 高级参数
-- 解析 state["request"].attachments,调 attachment_extractor 抽文字 append prompt
-- 末尾 emit [[VG_META]] sentinel,前端 R2.3 解析写 message.metadata.videoMeta
+历史:
+- N6.c 同步 dict 占位
+- R1.3 加附件抽文字 + 高级参数 + sentinel
+- 后续(本 commit)真流式 — generate_override_stream 用 llm.astream 逐 chunk
+  yield,前端 SSE 累积器逐字符渲染。runner 5a 优先调流式接口。
 
 注:不在 handler 里 submit_task — 用户点"去生成"才真提交。这里只产生脚本。
-R5 阶段可改成真流式 yield(需要看 chat runner 协议),当前保持同步 LLM 调用。
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, AsyncIterator, Dict, Optional, Tuple
 
 from chayuan.server.chat.handlers.base import BaseModeHandler, register_handler
 
@@ -40,120 +40,149 @@ _SCRIPT_PROMPT = """\
 """
 
 
+def _build_sentinel(vg_meta: Dict[str, Any]) -> str:
+    """构造 [[VG_META]]...[[/VG_META]] 标记 — 前端 parseAndStripVgMeta 抽出
+    videoMeta 默认值;TTS / BGM / videoAspect 可被前端后续 patchParams 覆盖。
+    """
+    payload = {
+        "videoMeta": {
+            "renderState": "idle",
+            "tts": {
+                "provider": "piper", "voice": "",
+                "rate": 1.0, "volume": 1.0,
+            },
+            "bgm": {"type": "random", "file": "", "volume": 0.2},
+            "videoAspect": vg_meta.get("aspect") or "9:16",
+        },
+    }
+    return "\n\n[[VG_META]]" + json.dumps(payload, ensure_ascii=False) + "[[/VG_META]]"
+
+
+def _prepare(state: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """从 state 抽 prompt / model / sentinel,失败返 (None, None, error_msg)。
+
+    成功: (prompt, model, sentinel)
+    失败: (None, None, "[vg] 错误说明")
+    """
+    req = state.get("request")
+    if req is None:
+        return None, None, "[vg] 缺 request 上下文"
+    subject = (getattr(req, "query", "") or "").strip()
+    if not subject:
+        return None, None, "请提供视频主题"
+
+    # 附件抽文字
+    attachment_texts: list[str] = []
+    attachments = list(getattr(req, "attachments", None) or [])
+    if attachments:
+        try:
+            from chayuan.server.video_generation.attachment_extractor import extract_text
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[vg.gen] attachment_extractor import 失败: %r", e, exc_info=True,
+            )
+            extract_text = None  # type: ignore[assignment]
+        if extract_text is not None:
+            for a in attachments:
+                path = getattr(a, "path", "") or (
+                    a.get("path") if isinstance(a, dict) else ""
+                )
+                mime = getattr(a, "mime", "") or (
+                    a.get("mime", "") if isinstance(a, dict) else ""
+                )
+                if not path:
+                    continue
+                text = extract_text(path, mime)
+                if text:
+                    attachment_texts.append(
+                        f"### 附件:{path.rsplit('/', 1)[-1]}\n{text}"
+                    )
+
+    attachments_block = (
+        "## 附件参考资料(用户上传,请整合到文案中):\n\n"
+        + "\n\n".join(attachment_texts)
+        if attachment_texts else ""
+    )
+
+    # 高级参数 from request.metadata.videoGeneration
+    meta = getattr(req, "metadata", None) or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    vg_meta = meta.get("videoGeneration") or {}
+    if not isinstance(vg_meta, dict):
+        vg_meta = {}
+    language = vg_meta.get("language", "") or "auto"
+    try:
+        paragraph_number = max(1, min(10, int(vg_meta.get("paragraphNumber") or 1)))
+    except (TypeError, ValueError):
+        paragraph_number = 1
+
+    prompt = _SCRIPT_PROMPT.format(
+        subject=subject,
+        attachments_block=attachments_block,
+        language=language,
+        paragraph_number=paragraph_number,
+    )
+
+    # 模型选择
+    try:
+        from chayuan.server.utils import get_default_llm
+    except Exception as e:  # noqa: BLE001
+        return None, None, f"[vg] LLM gateway import 失败: {e}"
+    model = vg_meta.get("model") or get_default_llm()
+    if not model:
+        return None, None, "[vg] 没拿到可用 chat 模型 — 请到模型广场配 chat capability default"
+
+    return prompt, model, _build_sentinel(vg_meta)
+
+
 class VideoGenerationHandler(BaseModeHandler):
     mode = "video_generation"
     needs_retrieval = False
 
+    def generate_override_stream(
+        self, state: Dict[str, Any],
+    ) -> Optional[AsyncIterator[str]]:
+        """runner 5a 优先调 — 返 async iterator,逐 chunk emit token SSE。"""
+        return self._stream_chunks(state)
+
+    async def _stream_chunks(self, state: Dict[str, Any]) -> AsyncIterator[str]:
+        prompt, model, info = _prepare(state)
+        if prompt is None:
+            # info 是错误消息(_prepare 失败)— 一次性 yield + sentinel 避免前端空白
+            yield info or "[vg] 准备失败"
+            yield _build_sentinel({})
+            return
+        sentinel = info  # 成功时 info 是 sentinel
+        try:
+            from chayuan.server.utils import get_ChatOpenAI
+            llm = get_ChatOpenAI(
+                model_name=model, temperature=0.7, streaming=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[vg.gen.stream] LLM 实例化失败 model=%s: %r", model, e, exc_info=True)
+            yield f"脚本生成失败:{type(e).__name__}: {e}"
+            yield sentinel or _build_sentinel({})
+            return
+
+        try:
+            async for chunk in llm.astream(prompt):
+                text = getattr(chunk, "content", None)
+                if text:
+                    yield str(text)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[vg.gen.stream] astream 失败 model=%s: %r", model, e, exc_info=True)
+            yield f"\n\n[脚本生成中断:{type(e).__name__}: {e}]"
+        yield sentinel or _build_sentinel({})
+
     async def generate_override(
         self, state: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """生成视频脚本。
-        - 抽 state["request"].query 当主题
-        - 读 state["request"].attachments 走 attachment_extractor 抽文字
-        - 高级参数(语言/段落/模型/画幅)从 state["request"].metadata.videoGeneration 读
-        - 返 {answer: 脚本 + [[VG_META]] sentinel}
-        """
-        req = state.get("request")
-        if req is None:
-            return {"answer": "[vg] 缺 request 上下文"}
-        subject = (getattr(req, "query", "") or "").strip()
-        if not subject:
-            return {"answer": "请提供视频主题"}
-
-        # 1. 附件抽文字
-        attachment_texts: list[str] = []
-        attachments = list(getattr(req, "attachments", None) or [])
-        if attachments:
-            try:
-                from chayuan.server.video_generation.attachment_extractor import extract_text
-            except Exception as e:  # noqa: BLE001
-                logger.debug("[vg.gen] attachment_extractor import 失败: %r", e)
-                extract_text = None  # type: ignore[assignment]
-            if extract_text is not None:
-                for a in attachments:
-                    # a 期望含 path + mime(后端附件对象 或 dict 都兼容)
-                    path = getattr(a, "path", "") or (
-                        a.get("path") if isinstance(a, dict) else ""
-                    )
-                    mime = getattr(a, "mime", "") or (
-                        a.get("mime", "") if isinstance(a, dict) else ""
-                    )
-                    if not path:
-                        continue
-                    text = extract_text(path, mime)
-                    if text:
-                        attachment_texts.append(
-                            f"### 附件:{path.rsplit('/', 1)[-1]}\n{text}"
-                        )
-
-        # 2. 组 prompt
-        attachments_block = (
-            "## 附件参考资料(用户上传,请整合到文案中):\n\n"
-            + "\n\n".join(attachment_texts)
-            if attachment_texts else ""
-        )
-        # 高级参数:从 state.request.metadata.videoGeneration 拿(R3 前端注入)
-        meta = getattr(req, "metadata", None) or {}
-        if not isinstance(meta, dict):
-            meta = {}
-        vg_meta = meta.get("videoGeneration") or {}
-        if not isinstance(vg_meta, dict):
-            vg_meta = {}
-        language = vg_meta.get("language", "") or "auto"
-        try:
-            paragraph_number = max(1, min(10, int(vg_meta.get("paragraphNumber") or 1)))
-        except (TypeError, ValueError):
-            paragraph_number = 1
-
-        prompt = _SCRIPT_PROMPT.format(
-            subject=subject,
-            attachments_block=attachments_block,
-            language=language,
-            paragraph_number=paragraph_number,
-        )
-
-        # 3. 调 LLM 一次拿完整脚本(R5 改流式)
-        # 同步 llm.invoke 在 async generate_override 里直接调会卡事件循环 —
-        # 按 base.py 约定 "所有 IO 必须 async;同步操作请显式 run_in_threadpool"。
-        try:
-            from chayuan.server.utils import get_ChatOpenAI, get_default_llm
-        except Exception as e:  # noqa: BLE001
-            return {"answer": f"[vg] LLM gateway import 失败: {e}"}
-        model = vg_meta.get("model") or get_default_llm()
-        if not model:
-            return {"answer": "[vg] 没拿到可用 chat 模型 — 请到模型广场配 chat capability default"}
-        try:
-            from starlette.concurrency import run_in_threadpool
-
-            def _sync_invoke() -> str:
-                llm = get_ChatOpenAI(
-                    model_name=model, temperature=0.7, streaming=False,
-                )
-                msg = llm.invoke(prompt)
-                return str(getattr(msg, "content", msg)).strip()
-
-            script = await run_in_threadpool(_sync_invoke)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("[vg.gen] LLM 调用失败 model=%s: %r", model, e, exc_info=True)
-            return {"answer": f"脚本生成失败:{type(e).__name__}: {e}"}
-
-        # 4. 在 answer 末尾附 metadata sentinel,前端 ConversationView 解析(R2.3)
-        sentinel = (
-            "\n\n[[VG_META]]"
-            + json.dumps({
-                "videoMeta": {
-                    "renderState": "idle",
-                    "tts": {
-                        "provider": "piper", "voice": "",
-                        "rate": 1.0, "volume": 1.0,
-                    },
-                    "bgm": {"type": "random", "file": "", "volume": 0.2},
-                    "videoAspect": vg_meta.get("aspect") or "9:16",
-                },
-            }, ensure_ascii=False)
-            + "[[/VG_META]]"
-        )
-        return {"answer": script + sentinel}
+        """非流式回退 — runner 流式失败时走这里。委托 stream 实现累积所有 chunks。"""
+        parts: list[str] = []
+        async for chunk in self._stream_chunks(state):
+            parts.append(chunk)
+        return {"answer": "".join(parts)}
 
 
 register_handler(VideoGenerationHandler())

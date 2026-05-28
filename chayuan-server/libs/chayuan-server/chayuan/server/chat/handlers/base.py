@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 logger = logging.getLogger("chayuan.chat.handlers.base")
 
@@ -45,6 +45,17 @@ class BaseModeHandler:
         - agent 模式可以在这里跑 ReAct，把 final answer 写进 state["answer"]
         - vision 由 dispatcher 直接旁路 OpenAI，不会进 generate
         - 其它模式继续返回 None，由 ``node_generate`` / runner 流式接管
+        """
+        return None
+
+    def generate_override_stream(
+        self, state: Dict[str, Any],
+    ) -> Optional[AsyncIterator[str]]:
+        """可选的**流式**生成覆盖；返回 None 表示走 generate_override(同步 dict)。
+
+        子类返回 async iterator,runner 会 async for + 把每个 chunk emit 成
+        token SSE。video_generation 用这条路径 — LLM 流式逐 token 出脚本,
+        最后 yield 一个 [[VG_META]]...[[/VG_META]] sentinel 给前端解析。
         """
         return None
 

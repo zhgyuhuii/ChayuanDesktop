@@ -145,33 +145,69 @@ async def run_chat_stream(req: ChatRequest) -> AsyncIterator[Dict[str, str]]:
     full_text_parts: List[str] = []
     resolved_mode = state.get("resolved_mode") or ""
 
-    # 5a) handler.generate_override 优先 — video_generation 等场景化 mode 不走 LLM 通用流式,
-    # 改由 handler 自己生成 answer(可能包含 [[VG_META]] sentinel 给前端解析)。
-    # 一次性 emit 完整答复作为 token,前端按 sentinel 抽 metadata 后照常累积显示。
+    # 5a) handler.generate_override_stream(优先) / generate_override(回退)
+    # video_generation 等场景化 mode 不走 LLM 通用流式,改由 handler 自己:
+    #   - 流式接口返 async iterator → runner 逐 chunk emit token(真流式)
+    #   - 同步接口返 dict{"answer"} → runner 一次性 emit 完整 answer
+    # 末尾通常含 [[VG_META]] sentinel 给前端 parseAndStripVgMeta 解析。
+    override_stream = None
     override_answer: Optional[str] = None
+    handler_obj = None
     if resolved_mode:
         try:
             from chayuan.server.chat.handlers import HandlerNotFound, get_handler
-            handler = get_handler(resolved_mode)
-            override = await handler.generate_override(state)
-            if override and override.get("answer"):
-                override_answer = str(override["answer"])
+            handler_obj = get_handler(resolved_mode)
         except HandlerNotFound:
-            pass
+            handler_obj = None
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[%s] get_handler 异常: %r", resolved_mode, e, exc_info=True)
+            handler_obj = None
+    if handler_obj is not None:
+        try:
+            stream_candidate = handler_obj.generate_override_stream(state)
+            if stream_candidate is not None and hasattr(stream_candidate, "__aiter__"):
+                override_stream = stream_candidate
         except Exception as e:  # noqa: BLE001
             logger.warning(
-                "[%s] handler.generate_override 异常,回退 LLM 流式: %r",
+                "[%s] generate_override_stream 异常,回退同步接口: %r",
+                resolved_mode, e, exc_info=True,
+            )
+    if override_stream is not None:
+        accum_parts: list[str] = []
+        try:
+            async for chunk in override_stream:
+                text = str(chunk)
+                if not text:
+                    continue
+                accum_parts.append(text)
+                yield make_sse("token", {"id": run_id, "delta": text})
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[%s] override_stream 迭代异常: %r", resolved_mode, e, exc_info=True,
+            )
+        answer = "".join(accum_parts)
+        state["answer"] = answer
+        state["answer_tokens"] = max(1, len(answer) // 3)
+        state["llm_model"] = (req.model or "").strip() or f"{resolved_mode}_handler"
+    elif handler_obj is not None:
+        try:
+            override = await handler_obj.generate_override(state)
+            if override and override.get("answer"):
+                override_answer = str(override["answer"])
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[%s] generate_override 异常,回退 LLM 流式: %r",
                 resolved_mode, e, exc_info=True,
             )
     if override_answer is not None:
-        # 一次性推完整 answer;前端 SSE 累积器按 delta 拼接,跟流式 token 行为一致
+        # 同步接口路径:一次性 emit 完整答复
         yield make_sse("token", {"id": run_id, "delta": override_answer})
         state["answer"] = override_answer
         state["answer_tokens"] = max(1, len(override_answer) // 3)
         state["llm_model"] = (req.model or "").strip() or f"{resolved_mode}_handler"
     try:
-        if override_answer is not None:
-            # 已由 handler 接管,跳过 LLM astream_events;触发 NameError 让外层 except 跳过
+        if override_stream is not None or override_answer is not None:
+            # 已由 handler 接管(流式或同步),跳过 LLM astream_events
             raise _SkipLlmStream()
         from chayuan.server.observability.langfuse_integration import (
             inject_into_callbacks,
