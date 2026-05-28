@@ -248,6 +248,7 @@ export const VgChatPage: React.FC = () => {
             onBeforeSend={onBeforeSend}
             setMessagesRef={setMessagesRef}
             composerTopSlot={composerTop}
+            assistantEditable
             extraSlot={(m) => (
               <VgMessageExtras
                 message={m}

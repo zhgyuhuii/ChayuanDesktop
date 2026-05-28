@@ -33,14 +33,14 @@ export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
   // 已经有 taskId(用户已提交)→ 渲染进度卡;否则渲染 TTS + 去生成
   if (vm.taskId && vm.renderState && vm.renderState !== 'idle') {
     return (
-      <div className="mt-2">
+      <div className="mt-2 max-w-[80%] mr-auto">
         <RenderProgressCard taskId={vm.taskId} />
       </div>
     );
   }
 
   return (
-    <div className="mt-2 space-y-2">
+    <div className="mt-2 max-w-[80%] mr-auto space-y-2">
       {/* 字幕图标(右上) */}
       <div className="flex justify-end">
         <button type="button" onClick={() => setSubtitleOpen(true)}

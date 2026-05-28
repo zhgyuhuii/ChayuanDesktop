@@ -11,6 +11,9 @@ export interface ThreadProps {
   /** R2.2: 在每条 assistant message bubble 渲染后追加自定义组件(video_generation
    *  等场景挂载视频专属 UI)。默认 undefined 时不影响现有 chat 渲染。 */
   extraSlot?: (message: ChatMessage) => React.ReactNode;
+  /** 默认 false 时只 user message 可编辑(避免误改 AI 答复);
+   *  video_generation 等场景脚本是核心可编辑载体,设 true 让 assistant 也能 onEdit。 */
+  assistantEditable?: boolean;
 }
 
 /**
@@ -29,7 +32,7 @@ const ESTIMATED_ROW_HEIGHT = 220;
 const OVERSCAN = 6;
 const TAIL_PIN = 24;
 
-export const Thread: React.FC<ThreadProps> = ({ messages, onRegenerate, onResume, onEdit, onBranch, extraSlot }) => {
+export const Thread: React.FC<ThreadProps> = ({ messages, onRegenerate, onResume, onEdit, onBranch, extraSlot, assistantEditable = false }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const stickRef = React.useRef(true);
   const [scrollTop, setScrollTop] = React.useState(0);
@@ -94,7 +97,7 @@ export const Thread: React.FC<ThreadProps> = ({ messages, onRegenerate, onResume
               message={m}
               onRegenerate={m.role === 'assistant' ? onRegenerate : undefined}
               onResume={m.interrupt ? onResume : undefined}
-              onEdit={m.role === 'user' ? onEdit : undefined}
+              onEdit={(m.role === 'user' || (assistantEditable && m.role === 'assistant')) ? onEdit : undefined}
               onBranch={m.role === 'assistant' ? onBranch : undefined}
             />
             {m.role === 'assistant' && extraSlot ? extraSlot(m) : null}

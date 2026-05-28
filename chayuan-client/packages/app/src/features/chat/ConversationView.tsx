@@ -121,6 +121,9 @@ export interface ConversationViewProps {
    * 默认 undefined 不渲染。
    */
   composerTopSlot?: React.ReactNode;
+  /** 默认只 user message 可编辑(避免误改 AI 答复);
+   *  video_generation 等场景脚本是核心可编辑载体,设 true 让 assistant 也能 onEdit。 */
+  assistantEditable?: boolean;
 }
 
 export const ConversationView: React.FC<ConversationViewProps> = ({
@@ -139,6 +142,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   extraSlot,  // R2.2 新增
   setMessagesRef,  // R3.6 新增 — 向父级暴露 setMessages 引用
   composerTopSlot,
+  assistantEditable = false,
 }) => {
   const activeId = conversationId ?? null;
   const composer = useComposerScopedStore();
@@ -477,6 +481,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
           onEdit={(id, newContent) => void chat.editMessage(id, newContent)}
           onBranch={(id) => void chat.branchFrom(id)}
           extraSlot={extraSlot}
+          assistantEditable={assistantEditable}
         />
       ) : convMissing ? (
         (missingSlot ?? (
