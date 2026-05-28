@@ -32,6 +32,8 @@ import { videoGeneration } from '@chayuan/api';
 import { useTabsStore } from '../../store/tabs';
 import { useVgComposer } from './store/vgComposer';
 import { VoiceStep } from './steps/VoiceStep';
+import { SubtitleEditorDialog } from './SubtitleEditorDialog';
+import { MaterialsDrawer } from './MaterialsDrawer';
 import { reportError, notifySuccess } from '../../store/errorDialog';
 
 // 消息类型(本地 — 跟 chat 协议解耦)
@@ -56,6 +58,11 @@ export const VgChatPage: React.FC = () => {
   const [sending, setSending] = React.useState(false);
   const [autoMode, setAutoMode] = React.useState(false);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  // N5:字幕编辑器 / 素材抽屉的开关
+  const [subtitleOpen, setSubtitleOpen] = React.useState(false);
+  const [materialsOpen, setMaterialsOpen] = React.useState(false);
+  // 暂存"去生成"按钮触发的脚本,等用户在 MaterialsDrawer 确认后才真提交
+  const pendingScriptRef = React.useRef<string>('');
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -139,12 +146,24 @@ export const VgChatPage: React.FC = () => {
     }
   };
 
-  const onGoGenerate = async (script: string) => {
-    // 用当前 params + 用户编辑后 script 提交 task
+  /** 点"去生成":先弹素材抽屉让用户挑(或跳过自动选),用户确认后再 submitTask */
+  const onGoGenerate = (script: string) => {
+    pendingScriptRef.current = script;
+    setMaterialsOpen(true);
+  };
+
+  /** MaterialsDrawer 用户点"确认"回调:用 vgComposer.params(含用户选的
+   *  video_materials)+ pending script 提交任务 */
+  const onMaterialsConfirmed = async () => {
+    const script = pendingScriptRef.current;
+    pendingScriptRef.current = '';
+    if (!script) return;
     setSending(true);
     try {
       const t = await videoGeneration.submitTask(
-        { ...params, video_script: script, script_source: 'manual' },
+        { ...useVgComposer.getState().params,
+          video_script: script,
+          script_source: 'manual' },
         { stop_at: 'video' },
       );
       notifySuccess(`任务已提交 ${t.task_id.slice(0, 8)}…`);
@@ -219,10 +238,19 @@ export const VgChatPage: React.FC = () => {
                 patchParams({ video_script: text });
               }}
               onGoGenerate={onGoGenerate}
+              onEditSubtitle={() => setSubtitleOpen(true)}
             />
           ))}
         </div>
       </div>
+
+      {/* N5:字幕编辑器 + 素材抽屉 */}
+      <SubtitleEditorDialog open={subtitleOpen} onOpenChange={setSubtitleOpen} />
+      <MaterialsDrawer
+        open={materialsOpen}
+        onOpenChange={setMaterialsOpen}
+        onConfirm={onMaterialsConfirmed}
+      />
 
       {/* 底部 composer */}
       <footer className="border-t border-[var(--cy-border-subtle)] pt-3">
@@ -328,7 +356,8 @@ const MessageBlock: React.FC<{
   msg: Msg;
   onScriptChange: (text: string) => void;
   onGoGenerate: (script: string) => void;
-}> = ({ msg, onScriptChange, onGoGenerate }) => {
+  onEditSubtitle: () => void;
+}> = ({ msg, onScriptChange, onGoGenerate, onEditSubtitle }) => {
   if (msg.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -374,8 +403,8 @@ const MessageBlock: React.FC<{
           />
           <button
             type="button"
-            title="编辑字幕(N5 接入 Artifact 面板)"
-            onClick={() => alert('字幕编辑 Artifact 留 N5 实现')}
+            title="编辑字幕 — 行级表格 + 拖时间 + 拆/合"
+            onClick={onEditSubtitle}
             className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-secondary)]"
           >
             <Edit3 className="h-3.5 w-3.5" />
