@@ -42,7 +42,7 @@
         font-src 'self' data:
           http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
           https:;
-        connect-src 'self'
+        connect-src 'self' blob: data:
           http://127.0.0.1:62581 http://127.0.0.1:3000
           http://localhost:* http://127.0.0.1:* http://host.docker.internal:* http://43.110.110.15:*
           ws://localhost:* ws://127.0.0.1:* ws://host.docker.internal:* ws://43.110.110.15:*

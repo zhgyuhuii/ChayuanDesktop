@@ -74,6 +74,10 @@ export function useAttachments(): {
         type: kind,
         previewUrl:
           kind === 'image' || kind === 'audio' ? URL.createObjectURL(f) : undefined,
+        // 留原始 File 引用,发送时 file.arrayBuffer() 直读(不走 fetch(blob:) 被
+        // CSP 拦)。该字段没在 composer.partialize 里 → 不入 localStorage,刷新
+        // 自动丢失,后续走 previewUrl 兜底路径。
+        file: f,
         status: 'uploading',
       }));
       for (const d of drafts) upsert(d);

@@ -357,18 +357,25 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       const modalityParams = composer.getState().modalityParams;
       // image_edit 必填参考图:把当前 attachments(image 类型)转 base64 一并发。
       // 其它非 chat 模式当前不用附件(t2i/t2v/tts);留通道一致预留。
-      // 走 fetch(previewUrl) → arrayBuffer → base64 — 老 useAttachments 没存
-      // 原 File 对象,只有 blob URL,所以走 fetch 回读一次。
+      // 优先用 a.file?.arrayBuffer() 直接从内存读 — 不依赖 CSP connect-src 放开
+      // blob:,在浏览器版/desktop webview 都稳。仅刷新后 file 丢失时(persist 不
+      // 含 file 字段)走 fetch(previewUrl) 兜底,此时仍需要 CSP 允许 blob:。
       const draftAttachments = enableAttachments ? composer.getState().attachments : [];
       // image_edit 需要图;asr 需要音频。两类都走 modality_attachments 通道,
       // 后端按附件 mime 分流到对应 connector(image_edit / asr)。
       // 普通文档(type='file')不走模态附件 — 它们是 chat 路径的 temp_kb。
       const modalityAttachments = await Promise.all(
         draftAttachments
-          .filter((a) => (a.type === 'image' || a.type === 'audio') && a.previewUrl)
+          .filter((a) => (a.type === 'image' || a.type === 'audio') && (a.file || a.previewUrl))
           .map(async (a) => {
-            const resp = await fetch(a.previewUrl!);
-            const buf = await resp.arrayBuffer();
+            let buf: ArrayBuffer;
+            if (a.file) {
+              buf = await a.file.arrayBuffer();
+            } else {
+              // 兜底:刷新后 file 引用丢失,只剩 blob URL — 仍需 CSP 允许 blob:
+              const resp = await fetch(a.previewUrl!);
+              buf = await resp.arrayBuffer();
+            }
             const b64 = arrayBufferToBase64(buf);
             const fallbackMime = a.type === 'audio' ? 'audio/wav' : 'image/png';
             return { mime: a.mime || fallbackMime, dataB64: b64, name: a.name };

@@ -22,6 +22,12 @@ export interface AttachmentDraft {
   mime: string;
   type: 'file' | 'image' | 'audio';
   previewUrl?: string;
+  /**
+   * 原始 File 引用(image_edit / asr 等模态发送时直接 file.arrayBuffer() 读字节)。
+   * 不入 partialize → 不会序列化到 localStorage,刷新即丢(走 previewUrl 兜底)。
+   * 走这条避开 `fetch(blob:previewUrl)` 被 CSP `connect-src` 拦截的问题。
+   */
+  file?: File;
   fileChatId?: string;
   remoteUrl?: string;
   status: 'pending' | 'uploading' | 'ready' | 'error';
