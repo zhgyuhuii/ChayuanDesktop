@@ -443,6 +443,13 @@ pub fn run() {
             // 真退出由托盘菜单"退出"触发(app.exit(0)),或者外部信号 / 任务管理器
             // 强杀。RunEvent::ExitRequested 仍会被走到回收 sidecar。
             if let Some(main) = app.get_webview_window("main") {
+                // 显式给 main window 设 icon — Tauri v2 在 Windows 上不会
+                // 自动从 bundle.icon 拷贝到 main window 任务栏 icon。托盘
+                // 已经 set 了(L380),这里也得给 main 显式 set 一下,否则
+                // 任务栏 / Alt-Tab 看到的是空白或默认 webview2 图标。
+                if let Some(icon) = app.default_window_icon().cloned() {
+                    let _ = main.set_icon(icon);
+                }
                 let main_for_close = main.clone();
                 main.on_window_event(move |event| {
                     if let WindowEvent::CloseRequested { api, .. } = event {
