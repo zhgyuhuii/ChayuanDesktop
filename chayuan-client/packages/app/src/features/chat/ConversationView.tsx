@@ -47,6 +47,7 @@ import { Thread } from './Thread';
 import { buildChatRequest } from './buildRequest';
 import { useAttachments } from './useAttachments';
 import { useChayuanChat } from './useChayuanChat';
+import type { ChatMessage } from './useChayuanChat';
 import { useModalitySubmit } from './useModalitySubmit';
 import { getClientConfig } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
@@ -102,6 +103,9 @@ export interface ConversationViewProps {
    * 96 题:暴露 sendMessage 给父级。Lane 把它注册到 SendRegistry 用于 fanout。
    */
   sendMessageRef?: React.MutableRefObject<((text: string) => Promise<void>) | null>;
+  /** R2.2: 在每条 assistant message bubble 渲染后追加自定义组件(video_generation
+   *  等场景挂载视频专属 UI)。默认 undefined 时不影响现有 chat 渲染。 */
+  extraSlot?: (message: ChatMessage) => React.ReactNode;
 }
 
 export const ConversationView: React.FC<ConversationViewProps> = ({
@@ -117,6 +121,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   className,
   onBeforeSend,
   sendMessageRef,
+  extraSlot,  // R2.2 新增
 }) => {
   const activeId = conversationId ?? null;
   const composer = useComposerScopedStore();
@@ -444,6 +449,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
           onResume={(approved) => void chat.resumeWithDecision({ approved })}
           onEdit={(id, newContent) => void chat.editMessage(id, newContent)}
           onBranch={(id) => void chat.branchFrom(id)}
+          extraSlot={extraSlot}
         />
       ) : convMissing ? (
         (missingSlot ?? (
