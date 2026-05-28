@@ -1148,11 +1148,11 @@ git -C /work/chayuan-desktop commit -m "feat(client/vg): R3.2 VgAspectChip + VgA
 
 ---
 
-### Task R3.2b: VgComposerToolbar — 显式露在 composer 上方的 6 chip 工具栏
+### Task R3.2b: VgComposerToolbar — 显式露在 composer 上方的工具栏 + 音频 popover
 
-用户明确要求"关键配置要在对话输入框上面显示",不藏 popover。本组件
-独立放在 ChatComposer 上方,左到右:模型 / 画幅 / 语言 / 段落 / 全自动
-/ 脚本风格(可选)。
+用户明确要求"关键配置要在对话输入框上面显示"+ "音频设置"。本组件
+独立放在 ChatComposer 上方,左到右:模型 / 画幅 / 语言 / 段落 / 🔊 音频
+chip(弹 popover) / 全自动。
 
 **Files:**
 - Create: `chayuan-client/packages/app/src/features/video-generation/VgComposerToolbar.tsx`
@@ -1214,12 +1214,279 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
           className="w-12 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1.5 py-0.5 text-center"
         />
       </div>
+      {/* 音频 — chip 弹 popover(provider/voice/rate/volume + 试听)*/}
+      <VgAudioPopover />
+      {/* 字幕 — chip 弹 popover(开关/位置/字体/字号/颜色/描边/背景)*/}
+      <VgSubtitlePopover />
       {/* 全自动 */}
       <VgAutoToggle autoMode={autoMode} onChange={onAutoModeChange} />
     </div>
   );
 };
 ```
+
+- [ ] **Step 2: 新增 VgAudioPopover.tsx — chip 弹出全局音频默认设置**
+
+```typescript
+// chayuan-client/packages/app/src/features/video-generation/VgAudioPopover.tsx
+import * as React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Volume2, Wifi, WifiOff, Play, Loader2 } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '@chayuan/ui';
+import { videoGeneration, type VgVoiceItem, type VgVoiceProvider } from '@chayuan/api';
+import { useVgComposer } from './store/vgComposer';
+import { reportError } from '../../store/errorDialog';
+
+const PROVIDERS: Array<{ id: VgVoiceProvider; offline: boolean; label: string }> = [
+  { id: 'piper',  offline: true,  label: 'piper' },
+  { id: 'edge',   offline: false, label: 'edge'  },
+  { id: 'sherpa', offline: true,  label: 'sherpa'},
+];
+
+export const VgAudioPopover: React.FC = () => {
+  const params = useVgComposer((s) => s.params);
+  const patch = useVgComposer((s) => s.patchParams);
+  const voicesQ = useQuery({
+    queryKey: ['vg.voices', params.voice_provider],
+    queryFn: () => videoGeneration.listVoices(params.voice_provider),
+    staleTime: 5 * 60 * 1000,
+  });
+  const voices: VgVoiceItem[] = voicesQ.data?.items ?? [];
+  const [previewing, setPreviewing] = React.useState(false);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const urlRef = React.useRef<string | null>(null);
+  React.useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); }, []);
+
+  const onPreview = async () => {
+    setPreviewing(true);
+    try {
+      const r = await videoGeneration.previewAudio({
+        video_script: '试听一段示例文本,听听这个音色的效果。',
+        voice_provider: params.voice_provider,
+        voice_name: params.voice_name || undefined,
+        voice_rate: params.voice_rate, voice_volume: params.voice_volume,
+      });
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      urlRef.current = URL.createObjectURL(r.blob);
+      const a = audioRef.current ?? new Audio();
+      audioRef.current = a;
+      a.src = urlRef.current;
+      await a.play();
+    } catch (e) { reportError(e as Error, '试听失败'); }
+    finally { setPreviewing(false); }
+  };
+
+  const summaryLabel = `${params.voice_provider} · ${params.voice_name || '(默认音色)'}`;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button"
+          className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 hover:border-[var(--cy-border-strong)]"
+          title="全局音频设置"
+        >
+          <Volume2 className="h-3 w-3 text-[var(--cy-brand-500)]" />
+          <span className="max-w-[10rem] truncate">{summaryLabel}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" sideOffset={6} className="w-[360px] p-3 text-xs">
+        {/* provider */}
+        <div className="mb-2">
+          <p className="mb-1 text-[var(--cy-text-tertiary)]">TTS 后端</p>
+          <div className="flex flex-wrap gap-1">
+            {PROVIDERS.map((p) => (
+              <button key={p.id} type="button"
+                onClick={() => patch({ voice_provider: p.id, voice_name: '' })}
+                className={
+                  'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ' +
+                  (params.voice_provider === p.id
+                    ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                    : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)]')
+                }
+              >
+                {p.offline ? <WifiOff className="h-3 w-3" /> : <Wifi className="h-3 w-3" />}
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {/* voice */}
+        <div className="mb-2">
+          <p className="mb-1 text-[var(--cy-text-tertiary)]">音色</p>
+          <select
+            value={params.voice_name || voices[0]?.id || ''}
+            onChange={(e) => patch({ voice_name: e.target.value })}
+            className="w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1"
+            disabled={voices.length === 0}
+          >
+            {voices.length === 0 && <option value="">(无可用音色)</option>}
+            {voices.map((v) => <option key={v.id} value={v.id}>{v.label} · {v.language}</option>)}
+          </select>
+        </div>
+        {/* rate / volume */}
+        <div className="mb-2 grid grid-cols-2 gap-3">
+          <label className="flex items-center gap-1">
+            <span className="w-7 text-[var(--cy-text-tertiary)]">语速</span>
+            <input type="range" min={0.5} max={2} step={0.05} value={params.voice_rate}
+              onChange={(e) => patch({ voice_rate: parseFloat(e.target.value) })}
+              className="flex-1 accent-[var(--cy-brand-500)]" />
+            <span className="w-10 text-right tabular-nums">{params.voice_rate.toFixed(2)}×</span>
+          </label>
+          <label className="flex items-center gap-1">
+            <span className="w-7 text-[var(--cy-text-tertiary)]">音量</span>
+            <input type="range" min={0} max={2} step={0.05} value={params.voice_volume}
+              onChange={(e) => patch({ voice_volume: parseFloat(e.target.value) })}
+              className="flex-1 accent-[var(--cy-brand-500)]" />
+            <span className="w-10 text-right tabular-nums">{Math.round(params.voice_volume * 100)}%</span>
+          </label>
+        </div>
+        {/* preview */}
+        <button type="button" onClick={onPreview} disabled={previewing}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--cy-brand-500)] py-1.5 text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
+          {previewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+          试听
+        </button>
+        <p className="mt-1.5 text-[10px] text-[var(--cy-text-tertiary)]">
+          这是全局默认。每条消息块下方 TtsCard 可单独覆盖。
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+};
+```
+
+把 VgAudioPopover import 加到 VgComposerToolbar.tsx 顶部:
+```typescript
+import { VgAudioPopover } from './VgAudioPopover';
+import { VgSubtitlePopover } from './VgSubtitlePopover';
+```
+
+- [ ] **Step 3: 新增 VgSubtitlePopover.tsx — chip 弹出全局字幕样式默认**
+
+```typescript
+// chayuan-client/packages/app/src/features/video-generation/VgSubtitlePopover.tsx
+import * as React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Type } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '@chayuan/ui';
+import { videoGeneration, type VgFontItem } from '@chayuan/api';
+import { useVgComposer } from './store/vgComposer';
+
+export const VgSubtitlePopover: React.FC = () => {
+  const params = useVgComposer((s) => s.params);
+  const patch = useVgComposer((s) => s.patchParams);
+  const fontsQ = useQuery({
+    queryKey: ['vg.fonts'],
+    queryFn: () => videoGeneration.listFonts(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const fonts: VgFontItem[] = fontsQ.data?.items ?? [];
+
+  const bgValue = typeof params.text_background_color === 'string'
+    ? 'custom'
+    : params.text_background_color ? 'on' : 'off';
+
+  const summary = params.subtitle_enabled
+    ? `${params.font_name} · ${params.font_size} · ${params.subtitle_position === 'bottom' ? '底部' : params.subtitle_position === 'top' ? '顶部' : params.subtitle_position === 'center' ? '居中' : '自定义'}`
+    : '关闭';
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button"
+          className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 hover:border-[var(--cy-border-strong)]"
+          title="全局字幕样式默认"
+        >
+          <Type className="h-3 w-3 text-[var(--cy-brand-500)]" />
+          <span className="max-w-[14rem] truncate">{summary}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" sideOffset={6} className="w-[360px] p-3 text-xs">
+        <label className="mb-2 flex items-center gap-1.5">
+          <input type="checkbox" checked={params.subtitle_enabled}
+            onChange={(e) => patch({ subtitle_enabled: e.target.checked })} />
+          启用字幕
+        </label>
+        {params.subtitle_enabled && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="mb-0.5 text-[var(--cy-text-tertiary)]">位置</p>
+                <select value={params.subtitle_position}
+                  onChange={(e) => patch({ subtitle_position: e.target.value as 'top'|'bottom'|'center'|'custom' })}
+                  className="w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1">
+                  <option value="top">顶部</option>
+                  <option value="center">居中</option>
+                  <option value="bottom">底部</option>
+                  <option value="custom">自定义</option>
+                </select>
+              </div>
+              <div>
+                <p className="mb-0.5 text-[var(--cy-text-tertiary)]">字体</p>
+                <select value={params.font_name} onChange={(e) => patch({ font_name: e.target.value })}
+                  className="w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1">
+                  {fonts.length === 0 && <option value={params.font_name}>{params.font_name}</option>}
+                  {fonts.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <p className="mb-0.5 text-[var(--cy-text-tertiary)]">字号</p>
+                <input type="number" min={20} max={200} value={params.font_size}
+                  onChange={(e) => patch({ font_size: parseInt(e.target.value, 10) || 60 })}
+                  className="w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1" />
+              </div>
+              <div>
+                <p className="mb-0.5 text-[var(--cy-text-tertiary)]">描边粗细</p>
+                <input type="number" min={0} max={10} step={0.5} value={params.stroke_width}
+                  onChange={(e) => patch({ stroke_width: parseFloat(e.target.value) || 1.5 })}
+                  className="w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1" />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <p className="mb-0.5 text-[var(--cy-text-tertiary)]">前景</p>
+                <input type="color" value={params.text_fore_color}
+                  onChange={(e) => patch({ text_fore_color: e.target.value })}
+                  className="h-6 w-full rounded border border-[var(--cy-border-subtle)]" />
+              </div>
+              <div>
+                <p className="mb-0.5 text-[var(--cy-text-tertiary)]">描边</p>
+                <input type="color" value={params.stroke_color}
+                  onChange={(e) => patch({ stroke_color: e.target.value })}
+                  className="h-6 w-full rounded border border-[var(--cy-border-subtle)]" />
+              </div>
+              <div>
+                <p className="mb-0.5 text-[var(--cy-text-tertiary)]">背景</p>
+                <select value={bgValue}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === 'on') patch({ text_background_color: true });
+                    else if (v === 'off') patch({ text_background_color: false });
+                  }}
+                  className="w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 py-0.5">
+                  <option value="on">黑底</option>
+                  <option value="off">无</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+        <p className="mt-2 text-[10px] text-[var(--cy-text-tertiary)]">
+          这是全局默认。每条任务的 SRT cue 列表(文字+时间戳)在消息块 ✎ 字幕图标 → SubtitleEditorDialog 编辑。
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+};
+```
+
+- [ ] **Step 4: typecheck**
+
+```bash
+cd /work/chayuan-desktop/chayuan-client && pnpm --filter @chayuan/app typecheck 2>&1 | tail -5
+```
+
+(若 `Popover/PopoverTrigger/PopoverContent` 命名不一致,看 @chayuan/ui 实际 exports 调整 import;若 `compact` prop 不存在于 ComposerModelPill,改用 wrap 实现)
 
 - [ ] **Step 2: typecheck**
 
@@ -1229,11 +1496,11 @@ cd /work/chayuan-desktop/chayuan-client && pnpm --filter @chayuan/app typecheck 
 
 (若 `ComposerModelPill` 没有 `compact` prop,改用现有 props 或 wrap 一下;按 typecheck 报错调)
 
-- [ ] **Step 3: 提交**
+- [ ] **Step 5: 提交**
 
 ```bash
-git -C /work/chayuan-desktop add chayuan-client/packages/app/src/features/video-generation/VgComposerToolbar.tsx
-git -C /work/chayuan-desktop commit -m "feat(client/vg): R3.2b VgComposerToolbar — 显式 6 chip 工具栏(模型/画幅/语言/段落/自动)"
+git -C /work/chayuan-desktop add chayuan-client/packages/app/src/features/video-generation/VgComposerToolbar.tsx chayuan-client/packages/app/src/features/video-generation/VgAudioPopover.tsx chayuan-client/packages/app/src/features/video-generation/VgSubtitlePopover.tsx
+git -C /work/chayuan-desktop commit -m "feat(client/vg): R3.2b VgComposerToolbar — 7 chip 工具栏(模型/画幅/语言/段落/音频/字幕/自动)"
 ```
 
 ---

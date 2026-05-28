@@ -221,8 +221,47 @@ export const VgChatPage = () => (
 | 画幅 | 3-chip 9:16/16:9/1:1 | vgComposerStore.params.video_aspect |
 | 语言 | dropdown(自动/中/英/日) | vgComposerStore.params.video_language |
 | 段落数 | inline `<input type=number>` 1-10 | vgComposerStore.params.paragraph_number |
+| **音频** | chip 弹 popover (provider chip + voice + rate/volume slider + 试听) | vgComposerStore.params.voice_* |
+| **字幕** | chip 弹 popover (开关 + 位置 + 字体 + 字号 + 前/描边色 + 描边粗细 + 背景) | vgComposerStore.params.subtitle_*, font_*, text_*, stroke_* |
 | 全自动 | ⚡ toggle | useState (VgChatPage 本地) |
-| 脚本风格(可选) | dropdown(口播/科普/营销/纪录) | vgComposerStore.params.script_style |
+
+**字幕 chip 弹出 popover**(`VgSubtitlePopover` 新组件):
+```
+[ Aa 字幕 STHeitiMedium · 60 · 底部 ▾ ]
+  ↓ 点击展开 popover (~360×320)
+┌──────────────────────────────────────────┐
+│ 启用字幕 ☑                                │
+│ 位置 [底部 ▾]   字体 [STHeitiMedium ▾]   │
+│ 字号 [60]        粗体描边 [1.5]           │
+│ 前景 ▇▇  描边 ■■   背景 [黑底 ▾]         │
+└──────────────────────────────────────────┘
+```
+
+写回到 `vgComposerStore.params` 的 `subtitle_enabled / subtitle_position
+/ font_name / font_size / text_fore_color / stroke_color / stroke_width /
+text_background_color`。这是**全局默认**,具体一条任务字幕(SrtCue 列表)
+仍可在消息块 ✎ 字幕图标的 SubtitleEditorDialog 内编辑。
+
+**音频 chip 弹出 popover**(`VgAudioPopover` 新组件,内嵌在 VgComposerToolbar):
+```
+[ 🔊 音频 piper · zh_CN-huayan-medium ▾ ]
+  ↓ 点击展开 popover (~360×260)
+┌──────────────────────────────────┐
+│ TTS 后端 [piper] [edge] [sherpa] │
+│ 音色 [中文女声 (huayan) ▾]       │
+│ 语速 ━━●━━ 1.00×    音量 ━●━ 80%│
+│ 试听文本(用最近一条 user 主题前 50 字)│
+│            [▶ 试听]               │
+└──────────────────────────────────┘
+```
+
+写回到 `vgComposerStore.params` 的 `voice_provider / voice_name /
+voice_rate / voice_volume`。新消息从 store 默认值初始化 `videoMeta.tts`,
+单条 message 仍可用消息块下方的 TtsCard 独立调整(不污染全局)。
+
+两层结构:
+- **全局默认** — Toolbar 音频 chip popover,决定新消息的 tts 初始值
+- **单条覆盖** — 消息下方 TtsCard,影响本条 message 提交时的 tts
 
 工具栏自身组件 `VgComposerToolbar.tsx`,内部独立读 vgComposerStore,跟
 ChatComposer 共享同一个 scope 实例(均在 ComposerScopedContext 下)。
