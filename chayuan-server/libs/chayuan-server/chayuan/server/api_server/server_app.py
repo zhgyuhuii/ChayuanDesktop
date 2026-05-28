@@ -45,6 +45,7 @@ from chayuan.server.api_server.cli_routes import cli_router
 from chayuan.server.api_server.openai_routes import openai_router
 from chayuan.server.api_server.server_routes import server_router
 from chayuan.server.api_server.tool_routes import tool_router
+from chayuan.server.api_server.video_generation_routes import video_generation_router
 from chayuan.server.auth.middleware import AuthMiddleware
 from chayuan.server.chat.completion import completion
 from chayuan.server.observability import (
@@ -136,6 +137,9 @@ def create_app(run_mode: str = None):
     app.include_router(runtime_router, prefix="/api")
     app.include_router(annotation_router)
     app.include_router(data_mount_router)
+    # 视频生成模块(chayuan-video-generation 集成)— 21 个 endpoint,前缀
+    # /api/v1/video-generation/*。详见 video_generation_routes.py 模块 docstring。
+    app.include_router(video_generation_router)
     # 开放平台路由（需要 App 签名鉴权，见 AppAuthMiddleware）
     app.include_router(openapi_router)
     # 开放平台 WebSocket 路由；鉴权走查询串签名，在 endpoint 内部自行校验
@@ -155,6 +159,26 @@ def create_app(run_mode: str = None):
         logging.getLogger("chayuan.ai_platform").exception(
             "register_ai_platform_routes failed; /v1/* 路由不可用，但主服务继续启动"
         )
+
+    @app.on_event("startup")
+    async def _video_generation_binaries() -> None:
+        """视频生成模块外部二进制探测 + 环境变量注入(IMAGEMAGICK_BINARY /
+        IMAGEIO_FFMPEG_EXE)。失败仅 warning,wizard 调到 TextClip 那一步
+        才真正暴露错误,启动期不阻塞。"""
+        import logging
+        log = logging.getLogger("chayuan.startup")
+        try:
+            from chayuan.server.video_generation import binaries as vg_binaries
+            state = vg_binaries.configure(strict=False)
+            if state.issues:
+                log.warning(
+                    "video_generation binaries 探测有 %d 项缺失:\n  %s",
+                    len(state.issues), "\n  ".join(state.issues),
+                )
+            else:
+                log.info("video_generation binaries OK")
+        except Exception:  # noqa: BLE001
+            log.exception("video_generation.binaries.configure failed")
 
     @app.on_event("startup")
     async def _db_migrations_and_auth_bootstrap() -> None:
