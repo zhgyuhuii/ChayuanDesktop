@@ -728,3 +728,42 @@ def delete_video(
         except OSError as e:
             logger.warning("[vg] drop_file failed: %r", e)
     return {"deleted": ok}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 7. 在线素材源 API Key 配置(R1.5 加)
+# ─────────────────────────────────────────────────────────────────────
+
+
+@video_generation_router.get(
+    "/sources/config", summary="列在线素材源配置(API Key 默认脱敏)",
+)
+def list_source_configs(
+    reveal: bool = Query(False, description="仅 admin;reveal=true 返明文 key"),
+    user: Dict[str, Any] = Depends(require_auth_enabled),
+) -> Dict[str, Any]:
+    from chayuan.server.video_generation.sources import config_store as cs
+    is_admin = bool(user.get("role") == "admin") if isinstance(user, dict) else False
+    rows = cs.list_configs(reveal=reveal and is_admin)
+    return {"items": rows}
+
+
+@video_generation_router.post(
+    "/sources/config", summary="upsert 单个在线素材源配置",
+)
+def upsert_source_config(
+    body: Dict[str, Any] = Body(..., examples=[{
+        "source_name": "pexels", "enabled": True, "api_key": "xxx",
+    }]),
+    user: Dict[str, Any] = Depends(require_auth_enabled),
+) -> Dict[str, Any]:
+    from chayuan.server.video_generation.sources import config_store as cs
+    name = (body or {}).get("source_name") or ""
+    if not name:
+        raise HTTPException(400, "source_name 必填")
+    return cs.upsert_config(
+        name,
+        enabled=body.get("enabled"),
+        api_key=body.get("api_key"),
+        config=body.get("config"),
+    )

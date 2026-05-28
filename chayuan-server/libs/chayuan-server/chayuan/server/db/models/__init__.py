@@ -37,3 +37,4 @@ from chayuan.server.db.models import route_context_model  # noqa: F401
 from chayuan.server.db.models import sql_training_model  # noqa: F401
 from chayuan.server.db.models import user_model  # noqa: F401
 from chayuan.server.db.models import video_generation_model  # noqa: F401
+from chayuan.server.video_generation.sources import config_store as _vg_sources_config_store  # noqa: F401
