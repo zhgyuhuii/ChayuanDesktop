@@ -26,9 +26,9 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Send, Loader2, Sparkles, MessagesSquare, Layers, Library, Video,
-  Edit3, Settings2, Zap,
+  Edit3, Settings2, Zap, Link2, Paperclip, X, FileText, Image as ImageIcon,
 } from 'lucide-react';
-import { videoGeneration } from '@chayuan/api';
+import { videoGeneration, type VgMaterialInfo } from '@chayuan/api';
 import { useTabsStore } from '../../store/tabs';
 import { useVgComposer } from './store/vgComposer';
 import { VoiceStep } from './steps/VoiceStep';
@@ -64,6 +64,17 @@ export const VgChatPage: React.FC = () => {
   // 暂存"去生成"按钮触发的脚本,等用户在 MaterialsDrawer 确认后才真提交
   const pendingScriptRef = React.useRef<string>('');
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  // N6:附件预览(用户拖/选的文件,上传到 vg_materials 后显示在 composer 顶部)
+  const [pendingAttachments, setPendingAttachments] = React.useState<Array<{
+    id: string; name: string; size: number; kind: 'image' | 'video' | 'other';
+    material_id?: string;  // 上传完成后写
+    uploading?: boolean;
+  }>>([]);
+  // N6:URL 输入弹出 popover
+  const [urlOpen, setUrlOpen] = React.useState(false);
+  const [urlDraft, setUrlDraft] = React.useState('');
+  const [urlLoading, setUrlLoading] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     // 新消息后滚到底
@@ -84,12 +95,80 @@ export const VgChatPage: React.FC = () => {
     void navigate({ to: '/video-generation/library' as never });
   };
 
+  // N6.b 上传附件 → vg_materials,material_id 进 pendingAttachments
+  const onPickFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    for (const f of Array.from(files)) {
+      const localId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const kind: 'image' | 'video' | 'other' =
+        f.type.startsWith('image/') ? 'image'
+        : f.type.startsWith('video/') ? 'video'
+        : 'other';
+      setPendingAttachments((a) => [
+        ...a, { id: localId, name: f.name, size: f.size, kind, uploading: true },
+      ]);
+      try {
+        const m = await videoGeneration.uploadMaterial({ file: f });
+        // 同时把素材塞进 vgComposer.params.video_materials,提交任务时一并带上
+        const existing = useVgComposer.getState().params.video_materials ?? [];
+        const item: VgMaterialInfo = {
+          provider: m.source, url: m.path, duration: Math.round(m.duration_ms / 1000),
+        };
+        patchParams({ video_materials: [...existing, item] });
+        setPendingAttachments((a) =>
+          a.map((x) => x.id === localId
+            ? { ...x, material_id: m.material_id, uploading: false }
+            : x));
+      } catch (e) {
+        setPendingAttachments((a) => a.filter((x) => x.id !== localId));
+        reportError(e as Error, '附件上传失败');
+      }
+    }
+  };
+
+  const removeAttachment = (id: string) => {
+    const a = pendingAttachments.find((x) => x.id === id);
+    setPendingAttachments((arr) => arr.filter((x) => x.id !== id));
+    // 同时把 video_materials 中对应 path 移除
+    if (a?.material_id) {
+      const existing = useVgComposer.getState().params.video_materials ?? [];
+      patchParams({
+        video_materials: existing.filter((m) => !m.url.endsWith(a.name)),
+      });
+    }
+  };
+
+  // N6.a 抽 URL 内容当主题素材(append 到 draft)
+  const onExtractUrl = async () => {
+    const u = urlDraft.trim();
+    if (!u) return;
+    setUrlLoading(true);
+    try {
+      const r = await videoGeneration.extractUrl(u);
+      const snippet = r.text.slice(0, 600);
+      setDraft((d) => (d
+        ? `${d}\n\n[来自 ${u}]\n${snippet}${r.truncated ? '\n…(已截)' : ''}`
+        : `[来自 ${u}]\n${snippet}${r.truncated ? '\n…(已截)' : ''}`));
+      notifySuccess(`已抽取 URL 内容 (${r.content_type}, ${r.text.length} 字)`);
+      setUrlOpen(false);
+      setUrlDraft('');
+    } catch (e) {
+      reportError(e as Error, 'URL 抽取失败');
+    } finally {
+      setUrlLoading(false);
+    }
+  };
+
   const onSend = async () => {
     const text = draft.trim();
     if (!text) return;
     setSending(true);
     setDraft('');
-    const userMsg: Msg = { id: newId(), role: 'user', text };
+    // 附件描述加到 user message(可选展示)
+    const attachSummary = pendingAttachments.length > 0
+      ? ` · 附 ${pendingAttachments.length} 个素材`
+      : '';
+    const userMsg: Msg = { id: newId(), role: 'user', text: text + attachSummary };
     const asstId = newId();
     const loadingMsg: Msg = { id: asstId, role: 'assistant', state: 'loading', text: '' };
     setMessages((ms) => [...ms, userMsg, loadingMsg]);
@@ -293,7 +372,36 @@ export const VgChatPage: React.FC = () => {
           </div>
         )}
 
-        <div className="relative">
+        {/* N6.b 附件预览 chip 行 */}
+        {pendingAttachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {pendingAttachments.map((a) => (
+              <span
+                key={a.id}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 py-1 text-xs text-[var(--cy-text-secondary)]"
+              >
+                {a.kind === 'image' ? <ImageIcon className="h-3 w-3" />
+                  : a.kind === 'video' ? <Video className="h-3 w-3" />
+                  : <FileText className="h-3 w-3" />}
+                <span className="max-w-[12rem] truncate" title={a.name}>{a.name}</span>
+                {a.uploading && <Loader2 className="h-3 w-3 animate-spin text-[var(--cy-text-tertiary)]" />}
+                <button type="button" onClick={() => removeAttachment(a.id)}
+                  className="text-[var(--cy-text-tertiary)] hover:text-rose-500">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div
+          className="relative"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            void onPickFiles(e.dataTransfer.files);
+          }}
+        >
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -305,7 +413,7 @@ export const VgChatPage: React.FC = () => {
             }}
             placeholder={autoMode
               ? "[全自动] 输入主题,LLM 一气呵成跑到视频..."
-              : "输入视频主题:春天的花海 / 5 分钟读懂区块链"}
+              : "输入视频主题 / 拖文件入对话(自动入素材库)/ 点 🔗 粘 URL 解析"}
             disabled={sending}
             rows={2}
             className="w-full resize-none rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-4 py-3 pr-14 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-[var(--cy-brand-500)] disabled:opacity-60"
@@ -321,7 +429,66 @@ export const VgChatPage: React.FC = () => {
           </button>
         </div>
 
+        {/* N6.a URL 输入 popover */}
+        {urlOpen && (
+          <div className="mt-2 flex items-center gap-2 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 py-1.5">
+            <Link2 className="h-3.5 w-3.5 text-[var(--cy-text-tertiary)]" />
+            <input
+              type="url"
+              autoFocus
+              value={urlDraft}
+              onChange={(e) => setUrlDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void onExtractUrl(); }}
+              placeholder="https://example.com/article 或 article.pdf"
+              disabled={urlLoading}
+              className="flex-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--cy-brand-500)] disabled:opacity-60"
+            />
+            <button
+              type="button"
+              onClick={onExtractUrl}
+              disabled={urlLoading || !urlDraft.trim()}
+              className="inline-flex items-center gap-1 rounded bg-[var(--cy-brand-500)] px-2 py-1 text-[10px] font-medium text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50"
+            >
+              {urlLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : '抽取'}
+            </button>
+            <button type="button" onClick={() => setUrlOpen(false)}
+              className="text-[var(--cy-text-tertiary)] hover:text-[var(--cy-text-secondary)]">
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*,application/pdf,text/*"
+          multiple
+          className="hidden"
+          onChange={(e) => void onPickFiles(e.target.files)}
+        />
+
         <div className="mt-2 flex items-center gap-2 text-xs">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            title="上传附件 — 自动入素材库"
+            className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
+          >
+            <Paperclip className="h-3 w-3" /> 附件
+          </button>
+          <button
+            type="button"
+            onClick={() => setUrlOpen((v) => !v)}
+            title="粘 URL 解析 — text/HTML/PDF 抽内容当主题素材"
+            className={
+              'inline-flex items-center gap-1 rounded-md border px-2 py-1 ' +
+              (urlOpen
+                ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]')
+            }
+          >
+            <Link2 className="h-3 w-3" /> URL
+          </button>
           <button
             type="button"
             onClick={() => setAdvancedOpen((v) => !v)}

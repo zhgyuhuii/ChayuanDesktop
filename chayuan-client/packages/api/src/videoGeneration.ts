@@ -258,6 +258,22 @@ export async function vgParseSrt(
   });
 }
 
+/** URL 抽取 — chat 粘 URL 当主题素材。后端走 HTML/PDF/text 三档解析。 */
+export interface VgExtractedUrl {
+  text: string;
+  content_type: 'html' | 'pdf' | 'text';
+  source_url: string;
+  truncated: boolean;
+  raw_bytes: number;
+}
+
+export async function vgExtractUrl(url: string): Promise<VgExtractedUrl> {
+  return rd<VgExtractedUrl>('/api/v1/video-generation/extract-url', {
+    method: 'POST',
+    body: { url },
+  });
+}
+
 /** 试听 — 返回 audio/wav Blob,前端用 URL.createObjectURL 喂 <audio> */
 export async function vgPreviewAudio(args: {
   video_script: string;
@@ -571,6 +587,7 @@ export const videoGeneration = {
   generateScript: vgGenerateScript,
   generateTerms: vgGenerateTerms,
   parseSrt: vgParseSrt,
+  extractUrl: vgExtractUrl,
   previewAudio: vgPreviewAudio,
   submitTask: vgSubmitTask,
   submitBatch: vgSubmitBatch,
