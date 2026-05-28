@@ -35,6 +35,7 @@ _BUILTIN_MODULES = (
     "chayuan.server.chat.handlers.multi_source",
     "chayuan.server.chat.handlers.vision",
     "chayuan.server.chat.handlers.supervisor",
+    "chayuan.server.chat.handlers.video_generation",
 )
 
 
