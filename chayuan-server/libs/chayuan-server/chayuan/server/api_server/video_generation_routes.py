@@ -91,10 +91,10 @@ def _diagnose_tts_failure(*, provider: str, voice_name: str) -> Dict[str, Any]:
                 "desktop bundle 需在 spec hiddenimports 显式加 piper.voice。"
             )
             return diag
-        # 2) voice path 解析(尝试 AudioModality 的 resolver)
+        # 2) voice path 解析(尝试 AudioPipeline 的 resolver)
         try:
-            from chayuan.server.modality.audio import AudioModality
-            am = AudioModality()
+            from chayuan.server.modality.audio import AudioPipeline
+            am = AudioPipeline()
             resolved = am._resolve_piper_voice_path(voice_name or "")
             checks["voice_path"] = resolved or "(未解析到 .onnx)"
         except Exception as e:  # noqa: BLE001
@@ -153,7 +153,7 @@ def _diagnose_tts_failure(*, provider: str, voice_name: str) -> Dict[str, Any]:
 def gen_script(
     body: VideoScriptRequest,
     model: Optional[str] = Query(None, description="可选,覆盖默认 chat 模型"),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     from chayuan.server.video_generation.steps import script as script_step
     text = script_step.generate_script(
@@ -173,7 +173,7 @@ def gen_script(
 def gen_terms(
     body: VideoTermsRequest,
     model: Optional[str] = Query(None),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     from chayuan.server.video_generation.steps import script as script_step
     terms = script_step.generate_terms(
@@ -188,7 +188,7 @@ def gen_terms(
 )
 def parse_srt(
     body: Dict[str, str] = Body(..., examples=[{"srt_text": "..."}]),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     from chayuan.server.video_generation.steps import subtitle as subtitle_step
     srt_text = (body or {}).get("srt_text") or ""
@@ -205,7 +205,7 @@ def parse_srt(
 )
 def preview_audio(
     body: AudioRequest,
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> StreamingResponse:
     """合成 → 流式返回 audio/wav bytes。失败 502。
 
@@ -272,7 +272,7 @@ def submit_task(
         pattern="^(script|terms|audio|subtitle|materials|video)$",
         description="可截断流程,wizard 单步预览用",
     ),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     row = vg_service.submit_task(
         params, owner_id=_owner_id_of(user), stop_at=stop_at,
@@ -289,7 +289,7 @@ def submit_batch(
         ...,
         description="{subjects: list[str], shared_params: VideoParams}",
     ),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     """BatchModePage 用 — 多主题列表 + 一套全局参数(语音/字幕/画幅/BGM)一
     键提交。后端循环创建 vg_task,runner ThreadPoolExecutor 自动并发跑(默
@@ -329,7 +329,7 @@ def list_tasks(
     ),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     rows, total = vg_service.list_tasks(
         owner_id=_owner_id_of(user), state=state,
@@ -343,7 +343,7 @@ def list_tasks(
 )
 def get_task(
     task_id: str = FPath(..., description="task UUID"),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     row = vg_service.get_task(task_id, owner_id=_owner_id_of(user))
     if not row:
@@ -356,7 +356,7 @@ def get_task(
 )
 def delete_task(
     task_id: str = FPath(...),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     ok = vg_service.delete_task(task_id, owner_id=_owner_id_of(user))
     if not ok:
@@ -369,7 +369,7 @@ def delete_task(
 )
 def cancel_task(
     task_id: str = FPath(...),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     ok = vg_service.cancel_task(task_id, owner_id=_owner_id_of(user))
     if not ok:
@@ -389,7 +389,7 @@ def cancel_task(
 async def task_events(
     request: Request,
     task_id: str = FPath(...),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ):
     """轮询 vg_tasks.state/progress 推送给客户端。
 
@@ -463,7 +463,7 @@ def list_materials(
     ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     rows, total = materials_store.list_materials(
         owner_id=_owner_id_of(user), source=source,
@@ -480,7 +480,7 @@ async def upload_material(
     file: UploadFile = File(...),
     name: Optional[str] = Form(None),
     tags: Optional[str] = Form(None, description="逗号分隔标签"),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     from chayuan.server.video_generation._helpers import storage_dir
     from chayuan.server.video_generation._helpers import parse_extension
@@ -520,7 +520,7 @@ async def upload_material(
 def delete_material(
     material_id: str = FPath(...),
     drop_file: bool = Query(True, description="是否一并删掉磁盘文件"),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     row = materials_store.get_material(
         material_id, owner_id=_owner_id_of(user),
@@ -549,7 +549,7 @@ def search_materials(
     source: str = Query("pexels", pattern="^(pexels|pixabay)$"),
     aspect: str = Query("9:16", pattern="^(16:9|9:16|1:1)$"),
     minimum_duration: int = Query(5, ge=1, le=120),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     from chayuan.server.video_generation.steps import materials as materials_step
     from chayuan.server.video_generation.schemas import VideoAspect
@@ -584,7 +584,7 @@ def search_materials(
     "/bgm", summary="列 BGM(内置 bundled + 用户上传合并)",
 )
 def list_bgm(
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     from chayuan.server.video_generation import binaries
     from chayuan.server.video_generation._helpers import song_dir
@@ -619,7 +619,7 @@ def list_bgm(
 )
 async def upload_bgm(
     file: UploadFile = File(...),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     from chayuan.server.video_generation._helpers import song_dir, parse_extension
     ext = parse_extension(file.filename or "")
@@ -643,7 +643,7 @@ async def upload_bgm(
     "/fonts", summary="列字体(vendor/bundled_fonts + 用户字体合并)",
 )
 def list_fonts(
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     from chayuan.server.video_generation import binaries
     from chayuan.server.video_generation._helpers import font_dir
@@ -670,7 +670,7 @@ def list_voices(
         "piper", pattern="^(piper|edge|sherpa)$",
         description="对应 voice_provider 字段",
     ),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     """M1 简版:piper 只返默认音色名;edge 返几个常用中文 voice;sherpa M4 接。
 
@@ -763,7 +763,7 @@ def serve_task_file(
     task_id: str = FPath(...),
     file_name: str = FPath(...),
     download: bool = Query(False, description="True 强制下载,False 浏览器内联预览"),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> FileResponse:
     from chayuan.server.video_generation._helpers import (
         task_dir, resolve_path_within_directory,
@@ -790,7 +790,7 @@ def serve_task_file(
 def list_videos(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     rows, total = videos_store.list_videos(
         owner_id=_owner_id_of(user), page=page, page_size=page_size,
@@ -804,7 +804,7 @@ def list_videos(
 def delete_video(
     video_id: str = FPath(...),
     drop_file: bool = Query(True),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     row = videos_store.get_video(video_id, owner_id=_owner_id_of(user))
     if not row:
@@ -830,7 +830,7 @@ def delete_video(
 )
 def list_source_configs(
     reveal: bool = Query(False, description="仅 admin;reveal=true 返明文 key"),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     from chayuan.server.video_generation.sources import config_store as cs
     is_admin = bool(user.get("role") == "admin") if isinstance(user, dict) else False
@@ -845,7 +845,7 @@ def upsert_source_config(
     body: Dict[str, Any] = Body(..., examples=[{
         "source_name": "pexels", "enabled": True, "api_key": "xxx",
     }]),
-    user: Dict[str, Any] = Depends(require_auth_enabled),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     from chayuan.server.video_generation.sources import config_store as cs
     name = (body or {}).get("source_name") or ""
