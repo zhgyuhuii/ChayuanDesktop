@@ -119,3 +119,23 @@ chayuan-server/vendor/bundled_models/**
 !chayuan-server/vendor/bundled_models/**/
 !chayuan-server/vendor/bundled_models/**/.gitkeep
 !chayuan-server/vendor/bundled_models/**/README.md
+
+# vendor/bundled_fonts / bundled_bgm / bundled_video_clips:视频生成模块
+# (M3)运行时资产。字体/媒体二进制不入仓库(体积大 + 部分许可受限),
+# 走 scripts/seed-bundled-assets.{sh,ps1} 按需拉齐;只保留目录骨架 +
+# README + .gitkeep。
+chayuan-server/vendor/bundled_fonts/**
+!chayuan-server/vendor/bundled_fonts/.gitkeep
+!chayuan-server/vendor/bundled_fonts/README.md
+chayuan-server/vendor/bundled_bgm/**
+!chayuan-server/vendor/bundled_bgm/.gitkeep
+!chayuan-server/vendor/bundled_bgm/README.md
+chayuan-server/vendor/bundled_video_clips/**
+!chayuan-server/vendor/bundled_video_clips/.gitkeep
+!chayuan-server/vendor/bundled_video_clips/README.md
+
+# vendor/services/imagemagick/<platform>/magick(.exe):moviepy TextClip
+# 字幕渲染必需,~50 MB/平台。同样不入仓库,走 seed 脚本下载到位。
+chayuan-server/vendor/services/imagemagick/**
+!chayuan-server/vendor/services/imagemagick/.gitkeep
+!chayuan-server/vendor/services/imagemagick/README.md

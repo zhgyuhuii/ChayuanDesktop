@@ -19,28 +19,30 @@ Ollama、llama.cpp、vLLM、Whisper、Piper、RapidOCR、ComfyUI ...）"放进�
 ```
 vendor/
 ├── README.md                       本文件
-├── services/                       后台基础设施（PG / Redis / MinIO ...）
+├── services/                       后台基础设施（PG / Redis / MinIO ...）+
+│   │                                video_generation 用的外部工具(ImageMagick)
 │   ├── postgres/                   ① 优先：放 docker-compose.yml；② 也可 bin/postgres
-│   │   ├── docker-compose.yml
-│   │   └── README.md               每个服务自己的下载链接 + 端口约定
 │   ├── redis/
 │   ├── minio/
 │   ├── milvus/
 │   ├── elastic/
-│   └── onlyoffice/
-└── runtimes/                       推理运行时（Ollama / llama.cpp / vLLM ...）
-    ├── ollama/bin/ollama
-    ├── llama-cpp/bin/llama-server
-    ├── vllm/                       venv 或 wheel 解压目录
-    ├── whisper-cpp/bin/whisper-server
-    ├── funasr/
-    ├── piper/bin/piper
-    ├── cosyvoice/
-    ├── rapidocr/
-    ├── paddleocr/
-    ├── comfyui/                    完整 ComfyUI 仓库
-    └── infinity/                   Infinity-Embeddings server
+│   ├── onlyoffice/
+│   ├── llama-server/<platform>/    实际 llama-server 二进制(已就位)
+│   ├── whisper-server/<platform>/  whisper.cpp ASR sidecar(已就位)
+│   └── imagemagick/<platform>/     M3 加:moviepy TextClip 文字渲染必需
+│       └── magick(.exe)            按平台 ~50MB portable 二进制
+├── runtimes/                       推理运行时(Ollama / llama.cpp / vLLM ...)
+├── bundled_models/                 出厂内置模型(chat / embedding / tts ...)
+├── bundled_fonts/                  M3 加:视频字幕字体(中文 STHeiti / 微软雅黑 等)
+├── bundled_bgm/                    M3 加:视频生成背景音乐(无版权 / CC0)
+└── bundled_video_clips/            M3 加:可选,完全离线场景的内置素材片段
 ```
+
+> M3 加的 ``bundled_fonts / bundled_bgm / bundled_video_clips`` 由
+> ``video_generation/binaries.py`` 启动时探测并注入到环境 / 索引层。
+> 都跟着 ``packaging/`` 一起打进 desktop 安装包,Docker image 通过
+> Dockerfile COPY 进入容器。git 仓库本身不收媒体二进制(.gitignore
+> 排除),开发者用 ``scripts/seed-bundled-assets.{sh,ps1}`` 一键拉齐。
 
 ## 端口约定（PortAllocator 偏好端口）
 
