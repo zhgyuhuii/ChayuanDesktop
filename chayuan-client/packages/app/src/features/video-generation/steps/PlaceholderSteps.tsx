@@ -19,14 +19,6 @@ const Placeholder: React.FC<PlaceholderProps> = ({ title, hint, todoMs }) => (
   </div>
 );
 
-export const MaterialsStep: React.FC = () => (
-  <Placeholder
-    title="Step 5 · 素材"
-    hint="三 tab:我的素材库 / 在线搜索(Pexels/Pixabay) / 上传新素材;拖拽排序"
-    todoMs="M5.B4"
-  />
-);
-
 export const BgmOutputStep: React.FC = () => (
   <Placeholder
     title="Step 6 · 配乐 + 输出"
