@@ -27,8 +27,12 @@ import { useNavigate } from '@tanstack/react-router';
 import {
   Send, Loader2, Sparkles, MessagesSquare, Layers, Library, Video,
   Edit3, Settings2, Zap, Link2, Paperclip, X, FileText, Image as ImageIcon,
+  Plus, Film, FileType,
 } from 'lucide-react';
 import { videoGeneration, type VgMaterialInfo } from '@chayuan/api';
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from '@chayuan/ui';
 import { useTabsStore } from '../../store/tabs';
 import { useVgComposer } from './store/vgComposer';
 import { VoiceStep } from './steps/VoiceStep';
@@ -75,6 +79,9 @@ export const VgChatPage: React.FC = () => {
   const [urlDraft, setUrlDraft] = React.useState('');
   const [urlLoading, setUrlLoading] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const imageInputRef = React.useRef<HTMLInputElement>(null);
+  const videoInputRef = React.useRef<HTMLInputElement>(null);
+  const pdfInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     // 新消息后滚到底
@@ -394,8 +401,34 @@ export const VgChatPage: React.FC = () => {
           </div>
         )}
 
+        {/* hidden file inputs — 按 accept 分四类,触发 onPickFiles */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*,application/pdf,text/*"
+          multiple
+          className="hidden"
+          onChange={(e) => { void onPickFiles(e.target.files); e.target.value = ''; }}
+        />
+        <input
+          ref={imageInputRef}
+          type="file" accept="image/*" multiple className="hidden"
+          onChange={(e) => { void onPickFiles(e.target.files); e.target.value = ''; }}
+        />
+        <input
+          ref={videoInputRef}
+          type="file" accept="video/*" multiple className="hidden"
+          onChange={(e) => { void onPickFiles(e.target.files); e.target.value = ''; }}
+        />
+        <input
+          ref={pdfInputRef}
+          type="file" accept="application/pdf,text/*" multiple className="hidden"
+          onChange={(e) => { void onPickFiles(e.target.files); e.target.value = ''; }}
+        />
+
+        {/* 主输入区:textarea + 内嵌左下角附件 / URL / 高级 / 自动 按钮 + 右下角发送 */}
         <div
-          className="relative"
+          className="relative rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] focus-within:ring-2 focus-within:ring-[var(--cy-brand-500)]"
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
@@ -413,23 +446,97 @@ export const VgChatPage: React.FC = () => {
             }}
             placeholder={autoMode
               ? "[全自动] 输入主题,LLM 一气呵成跑到视频..."
-              : "输入视频主题 / 拖文件入对话(自动入素材库)/ 点 🔗 粘 URL 解析"}
+              : "输入视频主题:春天的花海 / 5 分钟读懂区块链\n点 + 加图像/视频/PDF;或拖文件入对话框;点 🔗 粘 URL 解析"}
             disabled={sending}
-            rows={2}
-            className="w-full resize-none rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-4 py-3 pr-14 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-[var(--cy-brand-500)] disabled:opacity-60"
+            rows={3}
+            className="w-full resize-none bg-transparent px-4 pt-3 pb-12 text-sm leading-relaxed focus:outline-none disabled:opacity-60"
           />
+
+          {/* 左下角:[+] 选附件类型 + 🔗 URL + ⚙ 高级 + ⚡ 自动 */}
+          <div className="absolute bottom-2 left-2 flex items-center gap-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  title="添加附件 — 图像 / 视频 / PDF / 任意文件"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" sideOffset={6} className="min-w-[180px]">
+                <DropdownMenuItem onClick={() => imageInputRef.current?.click()} className="cursor-pointer text-sm">
+                  <ImageIcon className="mr-2 h-4 w-4 text-[var(--cy-brand-500)]" /> 上传图像
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => videoInputRef.current?.click()} className="cursor-pointer text-sm">
+                  <Film className="mr-2 h-4 w-4 text-rose-500" /> 上传视频
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => pdfInputRef.current?.click()} className="cursor-pointer text-sm">
+                  <FileType className="mr-2 h-4 w-4 text-amber-500" /> 上传 PDF / 文本
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => fileInputRef.current?.click()} className="cursor-pointer text-sm">
+                  <Paperclip className="mr-2 h-4 w-4 text-[var(--cy-text-tertiary)]" /> 任意类型(全部)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <button
+              type="button"
+              onClick={() => setUrlOpen((v) => !v)}
+              title="粘 URL 解析 — text/HTML/PDF 抽内容当主题素材"
+              className={
+                'inline-flex h-8 items-center gap-1 rounded-lg px-2 transition-colors ' +
+                (urlOpen
+                  ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                  : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]')
+              }
+            >
+              <Link2 className="h-4 w-4" />
+              <span className="text-xs">URL</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              title="高级参数 — 语言 / 段落数 / 画幅"
+              className={
+                'inline-flex h-8 items-center gap-1 rounded-lg px-2 transition-colors ' +
+                (advancedOpen
+                  ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                  : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]')
+              }
+            >
+              <Settings2 className="h-4 w-4" />
+              <span className="text-xs">高级</span>
+            </button>
+
+            <label className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-lg px-2 text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]">
+              <input
+                type="checkbox"
+                checked={autoMode}
+                onChange={(e) => setAutoMode(e.target.checked)}
+                className="sr-only"
+              />
+              <Zap className={'h-4 w-4 ' + (autoMode ? 'text-amber-500' : '')} />
+              <span className={'text-xs ' + (autoMode ? 'text-amber-700 font-medium' : '')}>
+                {autoMode ? '全自动 ON' : '全自动'}
+              </span>
+            </label>
+          </div>
+
+          {/* 右下角:发送按钮 */}
           <button
             type="button"
             onClick={onSend}
             disabled={sending || !draft.trim()}
             title="发送(Enter)"
-            className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--cy-brand-500)] text-white shadow transition-colors hover:bg-[var(--cy-brand-600)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="absolute bottom-2 right-2 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--cy-brand-500)] text-white shadow transition-colors hover:bg-[var(--cy-brand-600)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </button>
         </div>
 
-        {/* N6.a URL 输入 popover */}
+        {/* URL 输入 popover(URL 按钮触发) */}
         {urlOpen && (
           <div className="mt-2 flex items-center gap-2 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 py-1.5">
             <Link2 className="h-3.5 w-3.5 text-[var(--cy-text-tertiary)]" />
@@ -458,58 +565,9 @@ export const VgChatPage: React.FC = () => {
           </div>
         )}
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,video/*,application/pdf,text/*"
-          multiple
-          className="hidden"
-          onChange={(e) => void onPickFiles(e.target.files)}
-        />
-
-        <div className="mt-2 flex items-center gap-2 text-xs">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            title="上传附件 — 自动入素材库"
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
-          >
-            <Paperclip className="h-3 w-3" /> 附件
-          </button>
-          <button
-            type="button"
-            onClick={() => setUrlOpen((v) => !v)}
-            title="粘 URL 解析 — text/HTML/PDF 抽内容当主题素材"
-            className={
-              'inline-flex items-center gap-1 rounded-md border px-2 py-1 ' +
-              (urlOpen
-                ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]')
-            }
-          >
-            <Link2 className="h-3 w-3" /> URL
-          </button>
-          <button
-            type="button"
-            onClick={() => setAdvancedOpen((v) => !v)}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
-          >
-            <Settings2 className="h-3 w-3" /> 高级
-          </button>
-          <label className="inline-flex items-center gap-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoMode}
-              onChange={(e) => setAutoMode(e.target.checked)}
-              className="accent-[var(--cy-brand-500)]"
-            />
-            <Zap className={'h-3 w-3 ' + (autoMode ? 'text-amber-500' : 'text-[var(--cy-text-tertiary)]')} />
-            <span className="text-[var(--cy-text-secondary)]">全自动(跳过预览,直接跑完)</span>
-          </label>
-          <span className="ml-auto text-[var(--cy-text-tertiary)]">
-            Enter 发送 · Shift+Enter 换行
-          </span>
-        </div>
+        <p className="mt-1.5 text-[10px] text-[var(--cy-text-tertiary)]">
+          Enter 发送 · Shift+Enter 换行 · 拖文件入对话框自动入素材库
+        </p>
       </footer>
     </div>
   );
