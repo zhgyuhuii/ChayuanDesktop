@@ -19,18 +19,5 @@ const Placeholder: React.FC<PlaceholderProps> = ({ title, hint, todoMs }) => (
   </div>
 );
 
-export const BgmOutputStep: React.FC = () => (
-  <Placeholder
-    title="Step 6 · 配乐 + 输出"
-    hint="BGM 选择(内置 / 用户 / 无)+ 音量;数量、转场、拼接模式"
-    todoMs="M5.B5"
-  />
-);
-
-export const RenderStep: React.FC = () => (
-  <Placeholder
-    title="Step 7 · 渲染"
-    hint="提交任务 → SSE 实时进度圆环 → 嵌入式播放器 + 下载 / 复制参数重做"
-    todoMs="M5.B5"
-  />
-);
+/** Step 6/7 已经迁出本文件,所有 step 都进入真实组件。
+ *  保留 Placeholder 组件以防后续 step 临时占位用。 */

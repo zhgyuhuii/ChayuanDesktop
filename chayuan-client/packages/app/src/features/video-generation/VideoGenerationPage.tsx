@@ -17,9 +17,8 @@ import { ScriptStep } from './steps/ScriptStep';
 import { VoiceStep } from './steps/VoiceStep';
 import { SubtitleStep } from './steps/SubtitleStep';
 import { MaterialsStep } from './steps/MaterialsStep';
-import {
-  BgmOutputStep, RenderStep,
-} from './steps/PlaceholderSteps';
+import { BgmOutputStep } from './steps/BgmOutputStep';
+import { RenderStep } from './steps/RenderStep';
 
 const STEP_COMPONENTS: Record<VgWizardStep, React.FC> = {
   1: TopicStep,
