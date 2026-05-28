@@ -68,7 +68,7 @@ export interface MountedSource {
 
 export interface ChatRequestV2 {
   query: string;
-  mode?: '' | 'llm' | 'agent' | 'kb' | 'file' | 'search_engine' | 'multi_source' | 'vision';
+  mode?: '' | 'llm' | 'agent' | 'kb' | 'file' | 'search_engine' | 'multi_source' | 'vision' | 'video_generation';
   history?: Array<{ role: 'user' | 'assistant' | 'system' | 'tool'; content: string }>;
   stream?: boolean;
   model?: string;

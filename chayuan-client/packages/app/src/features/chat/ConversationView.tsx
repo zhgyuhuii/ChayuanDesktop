@@ -75,7 +75,7 @@ export interface ConversationViewProps {
    */
   onConversationCreated?: (id: string, title: string) => void;
   /** 显式落库 mode;不传走 selectedKbsLen>0?'kb':selectedToolsLen>0?'agent':'plain' 推断 */
-  mode?: 'kb' | 'agent' | 'plain' | 'skill';
+  mode?: 'kb' | 'agent' | 'plain' | 'skill' | 'video_generation';
   /** 顶部插槽:模型选择器 / 高级参数 / Stream 指标 etc.;不传则不渲染 header */
   headerSlot?: React.ReactNode;
   /** 消息为空时的占位 — 不传走默认欢迎屏 */
@@ -106,6 +106,15 @@ export interface ConversationViewProps {
   /** R2.2: 在每条 assistant message bubble 渲染后追加自定义组件(video_generation
    *  等场景挂载视频专属 UI)。默认 undefined 时不影响现有 chat 渲染。 */
   extraSlot?: (message: ChatMessage) => React.ReactNode;
+  /**
+   * R3.6: 把内部 useChayuanChat 的 setMessages 暴露给父级,场景化业务
+   * (video_generation 修改 message.metadata.videoMeta / 注入任务进度)
+   * 不需要重写一套 hook,直接借用本视图的消息状态机即可。
+   * 默认 undefined 时不挂任何引用,与现有行为零差异。
+   */
+  setMessagesRef?: React.MutableRefObject<
+    React.Dispatch<React.SetStateAction<ChatMessage[]>> | null
+  >;
 }
 
 export const ConversationView: React.FC<ConversationViewProps> = ({
@@ -122,6 +131,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   onBeforeSend,
   sendMessageRef,
   extraSlot,  // R2.2 新增
+  setMessagesRef,  // R3.6 新增 — 向父级暴露 setMessages 引用
 }) => {
   const activeId = conversationId ?? null;
   const composer = useComposerScopedStore();
@@ -437,6 +447,16 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       if (sendMessageRef) sendMessageRef.current = null;
     };
   }, [sendMessageRef]);
+
+  // R3.6: VgChatPage 等场景化页面需要从 extraSlot 回调里改 message.metadata,
+  // 把内部 chat.setMessages 借给父级。引用稳定;只在挂载/卸载时绑解绑。
+  React.useEffect(() => {
+    if (!setMessagesRef) return;
+    setMessagesRef.current = setChatMessages;
+    return () => {
+      if (setMessagesRef) setMessagesRef.current = null;
+    };
+  }, [setMessagesRef, setChatMessages]);
 
   return (
     <div className={`flex h-full flex-col ${className ?? ''}`}>
