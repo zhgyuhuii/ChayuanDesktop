@@ -21,9 +21,9 @@ import { useVgComposer } from '../store/vgComposer';
 import { reportError } from '../../../store/errorDialog';
 
 const PROVIDERS: Array<{ id: VgVoiceProvider; label: string; hint: string; offline: boolean }> = [
-  { id: 'piper',  label: 'piper(本地离线)', hint: 'CPU ~1× 实时,无网可用,音色偏机器',  offline: true },
+  { id: 'piper',  label: 'piper(本地快速)', hint: 'CPU ~1× 实时,无网可用,音色机器味较重',  offline: true },
   { id: 'edge',   label: 'edge(微软在线)',  hint: '联网免 Key,声音自然,300+ 多语种音色', offline: false },
-  { id: 'sherpa', label: 'sherpa(M4 接入)', hint: '高质量中文 CosyVoice/VITS,等 sidecar 上线', offline: true },
+  { id: 'sherpa', label: 'sherpa(本地高质)', hint: '高质量中文 VITS,模型 ~125 MB,需先 seed-bundled-assets.py sherpa-voice', offline: true },
 ];
 
 export const VoiceStep: React.FC = () => {
@@ -107,12 +107,11 @@ export const VoiceStep: React.FC = () => {
               type="button"
               key={p.id}
               onClick={() => patchParams({ voice_provider: p.id, voice_name: '' })}
-              disabled={p.id === 'sherpa'}
               className={
                 'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ' +
                 (params.voice_provider === p.id
                   ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                  : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)] disabled:cursor-not-allowed disabled:opacity-40')
+                  : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]')
               }
               title={p.hint}
             >
@@ -136,7 +135,7 @@ export const VoiceStep: React.FC = () => {
         ) : voices.length === 0 ? (
           <div className="text-xs text-[var(--cy-text-tertiary)]">
             {params.voice_provider === 'sherpa'
-              ? '(sherpa-onnx-tts sidecar 尚未上线,M4 接入)'
+              ? '未找到本地 sherpa voice — 跑 ``scripts/seed-bundled-assets.py sherpa-voice`` 下载模型(~125 MB)'
               : '当前后端无可用音色'}
           </div>
         ) : (

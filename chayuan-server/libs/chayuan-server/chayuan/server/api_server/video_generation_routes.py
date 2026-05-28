@@ -564,8 +564,61 @@ def list_voices(
             {"id": "en-US-GuyNeural",        "label": "Guy (US, male)",    "language": "en-US"},
         ]
     else:  # sherpa
-        voices = []  # M4 接 sidecar 后返
+        # 扫 bundled_models/tts/sherpa-onnx/ 子目录返实际可用 voice。
+        # 名称规约:目录名即 voice_id;含 model.onnx 视为可用。
+        voices = _scan_sherpa_voices()
     return {"provider": provider, "count": len(voices), "items": voices}
+
+
+def _scan_sherpa_voices() -> List[Dict[str, Any]]:
+    """扫描 sherpa-onnx voice 目录列表 — CHAYUAN_ROOT 装机 seed + 开发期
+    vendor 两档同时扫,merge 去重。
+
+    voice id 即目录名(如 ``vits-zh-ll``);label 用 SHERPA_VOICE_LABELS 映射
+    人类可读名,缺则取 id。
+    """
+
+    import os
+    candidates: List[str] = []
+    try:
+        from chayuan.settings import CHAYUAN_ROOT
+        candidates.append(os.path.join(str(CHAYUAN_ROOT), "models", "bundled", "tts", "sherpa-onnx"))
+    except Exception:  # noqa: BLE001
+        pass
+
+    here = os.path.realpath(__file__)
+    parent = here
+    for _ in range(8):
+        parent = os.path.dirname(parent)
+        cand = os.path.join(parent, "vendor", "bundled_models", "tts", "sherpa-onnx")
+        if os.path.isdir(cand):
+            candidates.append(cand)
+            break
+
+    seen: set = set()
+    items: List[Dict[str, Any]] = []
+    for root in candidates:
+        if not os.path.isdir(root):
+            continue
+        for name in sorted(os.listdir(root)):
+            if name in seen:
+                continue
+            vd = os.path.join(root, name)
+            if not os.path.isdir(vd):
+                continue
+            if not os.path.isfile(os.path.join(vd, "model.onnx")):
+                continue
+            seen.add(name)
+            label = SHERPA_VOICE_LABELS.get(name, name)
+            items.append({"id": name, "label": label, "language": "zh-CN"})
+    return items
+
+
+SHERPA_VOICE_LABELS: Dict[str, str] = {
+    "vits-zh-ll": "中文多说话人(VITS LL,高质量)",
+    "vits-zh-aishell3": "中文多说话人(AISHELL3)",
+    "vits-melo-tts-zh_en": "中文+英文(MeloTTS)",
+}
 
 
 # ─────────────────────────────────────────────────────────────────────
