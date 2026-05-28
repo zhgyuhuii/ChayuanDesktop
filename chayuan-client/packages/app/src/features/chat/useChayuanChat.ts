@@ -29,7 +29,9 @@ import {
   type MountedSource,
   type StructuredSSEEvent,
   type ResumeDecision,
+  type VgMessageMeta,
 } from '@chayuan/transport';
+import { parseAndStripVgMeta } from './parseVgMeta';
 import { Events, logEvent, logScore, startSpan, startTrace } from '@chayuan/observability';
 import { useComposerStore } from '../../store/composer';
 
@@ -117,6 +119,12 @@ export interface ChatMessage {
   taskId?: string;
   /** 与 taskId 同时下发的 capability(t2i / image_edit / t2v / tts / asr / ...)。 */
   taskCapability?: string;
+  /**
+   * 通用消息元数据。video_generation chat handler 会在 assistant message 末尾附
+   * [[VG_META]]...[[/VG_META]] sentinel;SSE 完成后 parseAndStripVgMeta 抽出并写入这里。
+   * R3 VgMessageExtras 读 message.metadata.videoMeta 渲染视频组件套。
+   */
+  metadata?: { videoMeta?: VgMessageMeta; [k: string]: unknown };
 }
 
 export interface UseChayuanChatOptions {
@@ -239,7 +247,22 @@ export function useChayuanChat(opts: UseChayuanChatOptions): {
           internalRef.current.lastFailedTraceId = traceId;
         }
       } finally {
-        setMessages((prev) => prev.map((m) => (m.id === assistantMsg.id ? { ...m, streaming: false } : m)));
+        // SSE 流结束:剥除 video_generation handler 的 [[VG_META]]...[[/VG_META]] sentinel
+        // 无 sentinel 或 JSON 解析失败时 parseAndStripVgMeta 返原文,行为零变化
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== assistantMsg.id) return m;
+            const { text, videoMeta } = parseAndStripVgMeta(m.content);
+            return {
+              ...m,
+              content: text,
+              streaming: false,
+              ...(videoMeta
+                ? { metadata: { ...(m.metadata ?? {}), videoMeta } }
+                : undefined),
+            };
+          }),
+        );
         setStreaming(false);
         setComposerStreaming(false);
         abortRef.current = null;
