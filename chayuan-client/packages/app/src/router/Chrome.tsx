@@ -74,9 +74,14 @@ export const Chrome: React.FC = () => {
       />
 
       {/* 右:TabBar + Main + 底部状态栏(全局,可在设置中关闭) */}
+      {/* min-w-0 + overflow-hidden 双保险:
+            - min-w-0 让 grid 列允许子内容收缩(不被 1fr 默认 min-content 撑爆)
+            - overflow-hidden 拦截子树任何 absolute/fixed 子元素的水平越界
+            sidebar 折叠/展开切换时 main 列宽变化,需要 grid + min-w-0 才能
+            正确收/放,否则会出现"右侧被遮"假象。 */}
       <div
         className={cn(
-          'grid min-h-0 min-w-0',
+          'grid min-h-0 min-w-0 overflow-hidden',
           showAppFooter ? 'grid-rows-[40px_1fr_28px]' : 'grid-rows-[40px_1fr]',
         )}
         data-shell="main-column"

@@ -238,14 +238,16 @@ export const HomePage: React.FC = () => {
   return (
     <div
       className={[
-        // 宽屏自适应:lg 以下保持紧凑;1280 起逐档放宽,最终在 1920+ 维持
-        // 约 1760px 内容宽,避免文字行长过 100 字符影响阅读、又能利用大屏空间。
-        // px 用 clamp 让边距随屏宽缓动 — 24px @ 1024 → 64px @ 1920。
-        'relative isolate mx-auto flex h-full flex-col overflow-y-auto',
-        'w-full max-w-5xl xl:max-w-6xl 2xl:max-w-screen-2xl min-[1800px]:max-w-[110rem]',
+        // 宽屏自适应:容器按 main 列实际宽度自适应(@container 也可,这里
+        // 保持 viewport-based 但移除过宽阈值,避免 1920+ 显示器 + sidebar
+        // 展开时容器宽度超过 main 列引发右侧"被遮"错觉。
+        // overflow-x-hidden 兜底防 fx 子元素 absolute 越界。
+        'relative isolate mx-auto flex h-full flex-col',
+        'overflow-x-hidden overflow-y-auto',
+        'w-full max-w-5xl xl:max-w-6xl 2xl:max-w-7xl',
         'gap-8 py-10',
       ].join(' ')}
-      style={{ paddingLeft: 'clamp(1.5rem, 3vw, 4rem)', paddingRight: 'clamp(1.5rem, 3vw, 4rem)' }}
+      style={{ paddingLeft: 'clamp(1.5rem, 2.5vw, 3rem)', paddingRight: 'clamp(1.5rem, 2.5vw, 3rem)' }}
     >
       {/* 特效层 — 金龙/凤凰/星空在背景层,内容卡片用 z-10 浮在上面不被遮。
           isolate 强制 HomePage 创建 stacking context,让 fx 的 z:0 严格沉到

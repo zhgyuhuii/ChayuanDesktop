@@ -38,19 +38,29 @@ import { StarrySky } from './StarrySky';
 import { Keyframes } from './Keyframes';
 
 export const HomeFxLayer: React.FC = () => {
-  const [size, setSize] = React.useState(() => ({
-    w: typeof window !== 'undefined' ? window.innerWidth : 0,
-    h: typeof window !== 'undefined' ? window.innerHeight : 0,
-  }));
+  // 自身 ref,ResizeObserver 监听容器实际可用尺寸 — 让 fx 严格限定在
+  // HomePage isolate 范围内,不越界穿到 sidebar 区域(原 fixed inset:0 +
+  // window.innerWidth 会让 dragon/phoenix 的飞行轨道按视口宽算,sidebar
+  // 切换时主页内容右侧出现"被遮"假象)。
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = React.useState({ w: 0, h: 0 });
   const [dragonKey, setDragonKey] = React.useState(0);
   const [phoenixKey, setPhoenixKey] = React.useState(0);
 
-  // —— 视口尺寸:用 window 而非 ResizeObserver,确保跟 fixed inset:0 一致
   React.useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    if (typeof window === 'undefined' || !containerRef.current) return;
+    const el = containerRef.current;
+    // 初值
+    setSize({ w: el.clientWidth, h: el.clientHeight });
+    // ResizeObserver 跟父容器实际宽高(包含 sidebar 折叠/展开 grid 重新分配)
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const cr = entry.contentRect;
+      setSize({ w: Math.round(cr.width), h: Math.round(cr.height) });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   // —— 龙首飞 4s + 凤凰首飞 28s
@@ -77,15 +87,16 @@ export const HomeFxLayer: React.FC = () => {
 
   return (
     <div
+      ref={containerRef}
       aria-hidden
       style={{
-        position: 'fixed',
+        // absolute 锚到 HomePage isolate 容器(它 position:relative);
+        // 不再 fixed 到 viewport — 避免 sidebar 区域被 fx 覆盖、内容右
+        // 侧出现"被遮"错觉。
+        position: 'absolute',
         inset: 0,
         pointerEvents: 'none',
         overflow: 'hidden',
-        // z:0 = HomePage 内嵌 isolate 上下文里的底层;卡片 relative z-10 永远
-        // 浮在上面。卡片自身的不透明背景会"挡住"经过下方的龙身/凤翼,只在
-        // 卡片之间的空隙和页面边距处看到金光闪过。
         zIndex: 0,
       }}
     >
