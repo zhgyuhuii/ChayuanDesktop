@@ -35,6 +35,10 @@ chayuan-server/vendor/services/llama-server/win-*/
 chayuan-server/vendor/services/llama-server/macos-*/
 chayuan-server/vendor/services/whisper-server/win-*/
 chayuan-server/vendor/services/whisper-server/macos-*/
+# video_generation 模块的 ImageMagick — 同样只保留 linux-x64
+chayuan-server/vendor/services/imagemagick/win-*/
+chayuan-server/vendor/services/imagemagick/macos-*/
+chayuan-server/vendor/services/imagemagick/linux-arm64/
 
 # Torch wheels(chayuan_packaging 用,Docker 直接 pip install)
 chayuan-server/vendor/torch_wheels/

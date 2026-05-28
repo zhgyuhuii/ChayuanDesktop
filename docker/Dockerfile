@@ -107,7 +107,17 @@ COPY chayuan-server/vendor/services ./chayuan-server/vendor/services
 RUN chmod +x \
         /chayuan/app/chayuan-server/vendor/services/llama-server/linux-x64/llama-server \
         /chayuan/app/chayuan-server/vendor/services/whisper-server/linux-x64/whisper-server \
-    || true
+        /chayuan/app/chayuan-server/vendor/services/imagemagick/linux-x64/magick \
+    2>/dev/null || true
+
+# ── 3b. video_generation 模块 bundled 资产 (M3) ────────────────────
+#   字体 / BGM / 内置素材 — 全部按需 COPY,不存在的目录由 Dockerfile 的
+#   RUN mkdir 兜底(让 binaries.py 启动探测时不会因目录缺失抛 Python 错)。
+#   实际媒体二进制 / 字体文件由用户在 build 前用
+#   scripts/seed-bundled-assets.py 拉齐(或手工放进 vendor/bundled_*)。
+COPY chayuan-server/vendor/bundled_fonts ./chayuan-server/vendor/bundled_fonts
+COPY chayuan-server/vendor/bundled_bgm ./chayuan-server/vendor/bundled_bgm
+COPY chayuan-server/vendor/bundled_video_clips ./chayuan-server/vendor/bundled_video_clips
 
 # ── 4. 拷前端 dist (来自 stage 1) ──────────────────────────────────
 COPY --from=web-builder /chayuan-client/apps/desktop/dist /chayuan/web

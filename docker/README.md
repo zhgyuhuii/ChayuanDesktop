@@ -106,6 +106,25 @@ ports:
 
 注意：API 端口 62581 是 chayuan-server **容器内**写死的，**只能改宿主映射端口**（左边数字）；右边 62581 不能改。
 
+## 视频生成模块准备(可选)
+
+新增的「视频生成」工作区(`/video-generation`)需要外部依赖在 build image
+前到位,否则字幕渲染会失败:
+
+```bash
+# 在 chayuan-desktop 根目录跑(国内网络加 --mirror=hf-mirror):
+python3 scripts/seed-bundled-assets.py all
+
+# 或者分项:
+python3 scripts/seed-bundled-assets.py fonts        # Noto Sans CJK ~19MB
+python3 scripts/seed-bundled-assets.py imagemagick  # 当前平台 ~33MB
+python3 scripts/seed-bundled-assets.py piper-voice  # 中文 TTS ~60MB
+```
+
+跑完会落到 `chayuan-server/vendor/bundled_fonts/` / `services/imagemagick/
+linux-x64/` / `bundled_models/tts/piper/`,Dockerfile COPY 进 image 自动
+打包。不跑 seed 也能 build 但视频合成会失败,UI 上有清晰错误提示。
+
 ## 升级
 
 ```bash
