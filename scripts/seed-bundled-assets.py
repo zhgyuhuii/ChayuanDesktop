@@ -195,6 +195,61 @@ def task_piper_voice(mirror: Optional[str]) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Task: sherpa-voice — vits-zh-ll(高质量中文 VITS,M4 主力)
+# ─────────────────────────────────────────────────────────────────────
+
+# 验证日期 2026-05-28,csukuangfj/sherpa-onnx-vits-zh-ll
+# 文件清单 + 大小已通过 HF API 实测:
+#   model.onnx          121 MB  主权重
+#   lexicon.txt         377 KB  词典
+#   tokens.txt          331 B   token 表
+#   date.fst             59 KB  日期文本规整 FST
+#   number.fst           64 KB  数字规整
+#   phone.fst            87 KB  电话号规整
+#   new_heteronym.fst    22 KB  多音字消歧
+#   G_multisperaker_latest.json  2.3 KB  meta(speakers)
+#   dict/               词典目录(若干小文件)
+_SHERPA_VOICE_REPO = "csukuangfj/sherpa-onnx-vits-zh-ll"
+_SHERPA_VOICE_FILES = [
+    "model.onnx",
+    "lexicon.txt",
+    "tokens.txt",
+    "date.fst",
+    "number.fst",
+    "phone.fst",
+    "new_heteronym.fst",
+    "G_multisperaker_latest.json",
+]
+
+
+def task_sherpa_voice(mirror: Optional[str]) -> None:
+    print("[sherpa-voice] vits-zh-ll(高质量中文 VITS, ~125 MB)")
+    target_dir = VENDOR / "bundled_models" / "tts" / "sherpa-onnx" / "vits-zh-ll"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    base = f"https://huggingface.co/{_SHERPA_VOICE_REPO}/resolve/main"
+    for fn in _SHERPA_VOICE_FILES:
+        download(apply_mirror(f"{base}/{fn}", mirror), target_dir / fn)
+    # dict/ 词典目录:HF 不能批量下,需要先列目录再逐个下
+    print("  ⬇ dict/ 词典目录(若干 .txt 文件)")
+    try:
+        import urllib.request as _ur, json as _json
+        api = f"https://huggingface.co/api/models/{_SHERPA_VOICE_REPO}/tree/main/dict"
+        with _ur.urlopen(api, timeout=30) as resp:
+            tree = _json.load(resp)
+        dict_dir = target_dir / "dict"
+        dict_dir.mkdir(exist_ok=True)
+        for it in tree:
+            if it.get("type") != "file":
+                continue
+            name = it.get("path", "").split("/")[-1]
+            if not name:
+                continue
+            download(apply_mirror(f"{base}/dict/{name}", mirror), dict_dir / name)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ⚠ dict/ 列目录失败,跳过: {e}(主权重 model.onnx 仍可工作但多音字处理弱)")
+
+
+# ─────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────
 
@@ -203,7 +258,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "task",
-        choices=["all", "fonts", "imagemagick", "piper-voice"],
+        choices=["all", "fonts", "imagemagick", "piper-voice", "sherpa-voice"],
         help="拉哪类资产",
     )
     ap.add_argument(
@@ -225,6 +280,7 @@ def main() -> int:
         task_fonts(args.mirror)
         task_imagemagick([tag])
         task_piper_voice(args.mirror)
+        task_sherpa_voice(args.mirror)
     elif args.task == "fonts":
         task_fonts(args.mirror)
     elif args.task == "imagemagick":
@@ -234,6 +290,8 @@ def main() -> int:
             task_imagemagick([tag])
     elif args.task == "piper-voice":
         task_piper_voice(args.mirror)
+    elif args.task == "sherpa-voice":
+        task_sherpa_voice(args.mirror)
 
     print("done")
     return 0
