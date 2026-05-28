@@ -238,12 +238,15 @@ export const HomePage: React.FC = () => {
   return (
     <div
       className={[
-        // 宽屏自适应:容器按 main 列实际宽度自适应(@container 也可,这里
-        // 保持 viewport-based 但移除过宽阈值,避免 1920+ 显示器 + sidebar
-        // 展开时容器宽度超过 main 列引发右侧"被遮"错觉。
-        // overflow-x-hidden 兜底防 fx 子元素 absolute 越界。
-        'relative isolate mx-auto flex h-full flex-col',
-        'overflow-x-hidden overflow-y-auto',
+        // 内容左对齐(mr-auto 而非 mx-auto)— 避免大屏 + sidebar 展开
+        // 时容器水平居中,卡片跟左侧 sidebar 之间出现过大空白(用户:
+        // "主页内容如卡片 与左侧的面板离的太远")。
+        // cy-hide-scrollbar(globals.css)隐藏视觉滚动条但保留滚动能
+        // 力 — 解决 sidebar 折叠/展开切换时 overflow-y:auto 弹滚动条
+        // 在右侧"占位 15px"造成抖动 → 视觉"右侧被遮挡"假象。
+        // overflow-x-hidden 兜底防 fx 子元素越界。
+        'relative isolate mr-auto flex h-full flex-col',
+        'overflow-x-hidden overflow-y-auto cy-hide-scrollbar',
         'w-full max-w-5xl xl:max-w-6xl 2xl:max-w-7xl',
         'gap-8 py-10',
       ].join(' ')}

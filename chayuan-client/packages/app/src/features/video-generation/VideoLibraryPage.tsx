@@ -82,7 +82,7 @@ export const VideoLibraryPage: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 px-6 py-8">
+    <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 overflow-y-auto cy-hide-scrollbar px-6 py-8">
       <header>
         <h1 className="inline-flex items-center gap-2 text-xl font-semibold text-[var(--cy-text-primary)]">
           <Video className="h-5 w-5" /> 我的视频

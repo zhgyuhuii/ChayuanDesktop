@@ -119,3 +119,43 @@
   from { transform: translateX(0); }
   to   { transform: translateX(-50%); }
 }
+
+/* ────────────────────────────────────────────────────────────────
+ * 滚动条统一样式
+ *
+ * 默认浏览器 / WebView 的滚动条宽 ~15-17px 在内容区右侧"占位",sidebar
+ * 折叠/展开切换 main 列宽时,内容是否触发滚动条会导致内容右边出现/消
+ * 失 15px 错位,视觉上像"右侧被遮挡"。
+ *
+ * 全局对策:
+ *   1. 所有 overflow:auto/scroll 元素改用细滚动条(6px 拇指,半透明)—
+ *      面积大体不影响布局,且可视化提示用户能滚动。
+ *   2. .cy-hide-scrollbar 工具类:**完全隐藏**视觉滚动条但保留滚动能力
+ *      (鼠标滚轮/键盘/手势仍可滚),用在"全屏沉浸式"页面(HomePage、
+ *      Wizard 主区等),防止视觉抖动。
+ *   3. .cy-stable-gutter 工具类:用 scrollbar-gutter: stable 让滚动条占
+ *      位永远保留,内容宽度不抖。用在需要可见滚动条但又怕抖动的列表。
+ * ──────────────────────────────────────────────────────────────── */
+
+/* 1. 全局细滚动条 — Chromium/WebKit/WebView2 */
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--cy-text-tertiary) 40%, transparent);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--cy-text-tertiary) 70%, transparent);
+}
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--cy-text-tertiary) 40%, transparent) transparent; }
+
+/* 2. 工具类:完全隐藏视觉滚动条(保留滚动能力)*/
+.cy-hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.cy-hide-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* 3. 工具类:scrollbar-gutter stable 让滚动条占位永远保留,内容宽度不
+   抖。配合 .cy-stable-gutter-both 让左右两侧都留位置(避免内容居中
+   时滚动条出现导致整体偏移)。 */
+.cy-stable-gutter { scrollbar-gutter: stable; }
+.cy-stable-gutter-both { scrollbar-gutter: stable both-edges; }

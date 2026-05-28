@@ -50,7 +50,7 @@ export const VideoGenerationPage: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-6 px-6 py-8">
+    <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-6 overflow-y-auto cy-hide-scrollbar px-6 py-8">
       {/* 顶部:标题 + 跳到素材库 / 我的视频 快捷入口 */}
       <header className="flex items-start justify-between gap-3">
         <div>

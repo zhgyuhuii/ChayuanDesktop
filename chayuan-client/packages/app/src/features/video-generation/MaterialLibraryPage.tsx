@@ -96,7 +96,7 @@ export const MaterialLibraryPage: React.FC = () => {
 
   return (
     <div
-      className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 px-6 py-8"
+      className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 overflow-y-auto cy-hide-scrollbar px-6 py-8"
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
