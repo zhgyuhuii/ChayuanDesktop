@@ -57,3 +57,79 @@ def _truncate(text: str) -> str:
 # R1.2 task 会在这里追加 _extract_image / _extract_pdf / _extract_text /
 # _extract_audio / _extract_docx 五个子函数。本 task 骨架不实现它们,
 # 调用时会因 NameError 抛 → extract_text 的 try/except 兜底返 None。
+
+
+def _extract_image(path: str) -> Optional[str]:
+    """rapidocr_onnxruntime 抽文字。"""
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[ext:image] rapidocr 未装,跳过: %r", e)
+        return None
+    ocr = RapidOCR()
+    result, _ = ocr(path)
+    if not result:
+        return ""
+    # result 是 [[box, text, score], ...]
+    lines = [r[1] for r in result if r and len(r) >= 2 and r[1]]
+    return _truncate("\n".join(lines))
+
+
+def _extract_pdf(path: str) -> Optional[str]:
+    """PyMuPDF 逐页 get_text。"""
+    try:
+        import fitz  # type: ignore[import-not-found]
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[ext:pdf] PyMuPDF 未装,跳过: %r", e)
+        return None
+    parts: list[str] = []
+    doc = fitz.open(path)
+    try:
+        for page in doc:
+            parts.append(page.get_text())
+    finally:
+        doc.close()
+    return _truncate("\n".join(p.strip() for p in parts if p.strip()))
+
+
+def _extract_text(path: str) -> Optional[str]:
+    """UTF-8 / GBK / utf-8-sig fallback。"""
+    for enc in ("utf-8", "gbk", "utf-8-sig"):
+        try:
+            with open(path, "r", encoding=enc) as f:
+                return _truncate(f.read())
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[ext:text] %s: %r", path, e)
+            return None
+    return None
+
+
+def _extract_audio(path: str) -> Optional[str]:
+    """复用 modality.audio.transcribe → whisper sidecar。"""
+    try:
+        from chayuan.server.modality.audio import AudioModality
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[ext:audio] AudioModality import 失败: %r", e)
+        return None
+    am = AudioModality()
+    text = am.transcribe(path)
+    return _truncate(text or "")
+
+
+def _extract_docx(path: str) -> Optional[str]:
+    """python-docx → 段落文本拼接;fallback unstructured。"""
+    try:
+        import docx  # type: ignore[import-not-found]
+    except Exception:
+        # fallback unstructured(已 deps)
+        try:
+            from unstructured.partition.auto import partition  # type: ignore
+            els = partition(filename=path)
+            return _truncate("\n".join(str(e) for e in els))
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[ext:docx] 全 fallback 失败: %r", e)
+            return None
+    d = docx.Document(path)
+    return _truncate("\n".join(p.text for p in d.paragraphs if p.text.strip()))
