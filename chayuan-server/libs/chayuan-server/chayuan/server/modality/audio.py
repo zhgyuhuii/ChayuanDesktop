@@ -618,10 +618,16 @@ class AudioPipeline:
                 return asyncio.run(_run())
         except Exception as e:  # noqa: BLE001
             logger.debug("edge-tts 不可用：%r", e)
-        # 2) OpenAI TTS
+        # 2) OpenAI TTS — 用 openai SDK 原生 client(client.audio.speech.create
+        # 是 SDK API)。早期错用 chayuan.server.utils.get_OpenAI:那是 LangChain
+        # 的 LLM wrapper,签名要 model_name + temperature,跟这里要的 audio API
+        # 完全不是一个东西,跑这个 fallback 时直接 TypeError 把整条链路打断。
         try:
-            from chayuan.server.utils import get_OpenAI
-            client = get_OpenAI()
+            import os as _os
+            import openai as _openai  # type: ignore[import-not-found]
+            if not _os.environ.get("OPENAI_API_KEY"):
+                raise RuntimeError("OPENAI_API_KEY 未设,跳过 OpenAI TTS fallback")
+            client = _openai.OpenAI()
             resp = client.audio.speech.create(
                 model="tts-1", voice="alloy", input=text, response_format=fmt,
             )
@@ -776,9 +782,13 @@ class AudioPipeline:
         return None
 
     def _try_download_piper_voice(self, name: str, target_dir: Path) -> bool:
-        """从 rhasspy/piper-voices HF 仓库一次性拉 voice 文件。
-        成功返 True,任何错误返 False(caller 会 fallback edge-tts)。
-        URL 模式: huggingface.co/rhasspy/piper-voices/resolve/main/{lang}/{locale}/{speaker}/{quality}/
+        """从 rhasspy/piper-voices 拉 voice 文件,成功返 True。
+
+        endpoint 走 ``CHAYUAN_HF_ENDPOINT`` env(默认 ``https://hf-mirror.com``),
+        国内默认走 hf-mirror — 按 feedback_verify_model_downloads 记忆:
+        用户国内,HF 直连不可达,hf-mirror 可达。要用上游 HF 显式
+        ``CHAYUAN_HF_ENDPOINT=https://huggingface.co``。
+        URL 模式: <endpoint>/rhasspy/piper-voices/resolve/main/{lang}/{locale}/{speaker}/{quality}/
         name 格式应为 ``{locale}-{speaker}-{quality}`` 例如 ``zh_CN-huayan-medium``。"""
         parts = name.split("-")
         if len(parts) < 3:
@@ -786,8 +796,9 @@ class AudioPipeline:
             return False
         locale, speaker, quality = parts[0], parts[1], parts[2]
         lang = locale.split("_")[0] if "_" in locale else locale
+        endpoint = os.environ.get("CHAYUAN_HF_ENDPOINT", "https://hf-mirror.com").rstrip("/")
         base = (
-            f"https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+            f"{endpoint}/rhasspy/piper-voices/resolve/main/"
             f"{lang}/{locale}/{speaker}/{quality}"
         )
         files = [
@@ -809,10 +820,10 @@ class AudioPipeline:
             return True
         except Exception as e:  # noqa: BLE001
             logger.warning(
-                "[tts:piper] 下载 %s 失败: %r — 若是离线环境,请手动从 "
-                "https://huggingface.co/rhasspy/piper-voices 下载 %s.onnx + .json "
-                "放到 %s,或设 CHAYUAN_PIPER_AUTO_DOWNLOAD=0 关闭自动下载尝试",
-                name, e, name, target_dir,
+                "[tts:piper] 下载 %s 失败(endpoint=%s): %r — 若网络不通,请手动从 "
+                "%s/rhasspy/piper-voices 下载 %s.onnx + .json 放到 %s,"
+                "或设 CHAYUAN_HF_ENDPOINT 换镜像,或 CHAYUAN_PIPER_AUTO_DOWNLOAD=0 关闭自动下载",
+                name, endpoint, e, endpoint, name, target_dir,
             )
             return False
 
