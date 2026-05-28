@@ -47,6 +47,12 @@ export const CapabilityCardGrid: React.FC<CapabilityCardGridProps> = ({
   // 稳定回调:模型列表变 / nav 变才重建,React.memo 才有效
   const onActivate = React.useCallback(
     (cap: ModalityCapability) => {
+      // t2v 走独立 wizard 而非 chat — 跟 chayuan-video-generation 集成
+      // 后的"视频生成"工作区一致。其它 cap 仍走 chat composer。
+      if (cap === 't2v') {
+        void navigate({ to: '/video-generation' as never });
+        return;
+      }
       const best = pickBestModel(byCap.get(cap));
       if (!best) return; // 防御:卡片本来该禁用,但极端竞争下兜一手
       startCapabilityChat(

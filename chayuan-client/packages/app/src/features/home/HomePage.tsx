@@ -21,7 +21,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  Library, Layers3, Pen, ScanText, Mic,
+  Library, Layers3, Pen, ScanText, Mic, Clapperboard,
   AlertCircle,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
@@ -94,6 +94,15 @@ const CAPS: ReadonlyArray<CapItem> = [
     to: '/notes/new',
     gradient: 'from-sky-50 to-cyan-100 dark:from-sky-900/30 dark:to-cyan-800/40',
     iconBg: 'bg-gradient-to-br from-sky-400 to-cyan-500',
+  },
+  {
+    id: 'video-generation',
+    icon: Clapperboard,
+    title: '视频生成',
+    subtitle: '主题 → LLM 文案 → TTS → 字幕 → 素材 → 自动合成 mp4',
+    to: '/video-generation',
+    gradient: 'from-indigo-50 to-purple-100 dark:from-indigo-900/30 dark:to-purple-800/40',
+    iconBg: 'bg-gradient-to-br from-indigo-400 to-purple-500',
   },
 ];
 
@@ -290,7 +299,7 @@ export const HomePage: React.FC = () => {
           设计:窄屏 2 列、桌面 4 列等宽并列,卡片高度统一 h-40,
           gap 略增到 5,卡内 padding p-5,左上图标 + 左下文案的固定网格,
           上下左右留白对称 — 视觉平衡感比之前 5 列(残余空隙)好。 */}
-      <div className="relative z-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="relative z-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {CAPS.map((c, i) => {
           const Icon = c.icon;
           return (
