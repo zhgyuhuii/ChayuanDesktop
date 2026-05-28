@@ -19,14 +19,6 @@ const Placeholder: React.FC<PlaceholderProps> = ({ title, hint, todoMs }) => (
   </div>
 );
 
-export const SubtitleStep: React.FC = () => (
-  <Placeholder
-    title="Step 4 · 字幕"
-    hint="行级表格编辑,拖滑块改时间,拆分/合并,可读速度警告,单行重生 TTS"
-    todoMs="M5.B3"
-  />
-);
-
 export const MaterialsStep: React.FC = () => (
   <Placeholder
     title="Step 5 · 素材"

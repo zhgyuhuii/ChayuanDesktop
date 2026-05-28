@@ -15,8 +15,9 @@ import { useVgComposer, VG_WIZARD_STEPS, type VgWizardStep } from './store/vgCom
 import { TopicStep } from './steps/TopicStep';
 import { ScriptStep } from './steps/ScriptStep';
 import { VoiceStep } from './steps/VoiceStep';
+import { SubtitleStep } from './steps/SubtitleStep';
 import {
-  SubtitleStep, MaterialsStep, BgmOutputStep, RenderStep,
+  MaterialsStep, BgmOutputStep, RenderStep,
 } from './steps/PlaceholderSteps';
 
 const STEP_COMPONENTS: Record<VgWizardStep, React.FC> = {
