@@ -14,8 +14,9 @@ import { useTabsStore } from '../../store/tabs';
 import { useVgComposer, VG_WIZARD_STEPS, type VgWizardStep } from './store/vgComposer';
 import { TopicStep } from './steps/TopicStep';
 import { ScriptStep } from './steps/ScriptStep';
+import { VoiceStep } from './steps/VoiceStep';
 import {
-  VoiceStep, SubtitleStep, MaterialsStep, BgmOutputStep, RenderStep,
+  SubtitleStep, MaterialsStep, BgmOutputStep, RenderStep,
 } from './steps/PlaceholderSteps';
 
 const STEP_COMPONENTS: Record<VgWizardStep, React.FC> = {

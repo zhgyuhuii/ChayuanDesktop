@@ -19,14 +19,6 @@ const Placeholder: React.FC<PlaceholderProps> = ({ title, hint, todoMs }) => (
   </div>
 );
 
-export const VoiceStep: React.FC = () => (
-  <Placeholder
-    title="Step 3 · 语音"
-    hint="选 TTS provider(piper 离线 / edge 在线)、声音、语速、音量;有试听按钮"
-    todoMs="M5.B2"
-  />
-);
-
 export const SubtitleStep: React.FC = () => (
   <Placeholder
     title="Step 4 · 字幕"
