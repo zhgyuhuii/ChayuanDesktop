@@ -61,6 +61,87 @@ def _owner_id_of(user: Dict[str, Any]) -> Optional[int]:
     return int(uid)
 
 
+def _diagnose_tts_failure(*, provider: str, voice_name: str) -> Dict[str, Any]:
+    """preview_audio 返 None 时主动诊断 — 把每一档可能原因塞进 502 detail。
+
+    synthesize 内部每档失败都 logger.warning,但 client 拿不到 log。
+    本 helper 同步检查 piper 包是否能 import / voice 路径是否解析 /
+    bundled+user-local 目录是否存在,让前端"试听失败"对话框直接看到根因
+    (例如 piper-tts 未装 vs voice .onnx 缺文件 — 两种修法完全不同)。
+    """
+    diag: Dict[str, Any] = {
+        "code": "tts_synthesize_failed",
+        "provider": provider,
+        "voice_name": voice_name or "(空,会用默认)",
+        "checks": {},
+        "hint": "",
+    }
+    checks: Dict[str, Any] = diag["checks"]
+
+    if provider == "piper":
+        # 1) piper 包 import
+        try:
+            import piper.voice as _pv  # type: ignore  # noqa: F401
+            checks["piper_import"] = "ok"
+        except Exception as e:  # noqa: BLE001
+            checks["piper_import"] = f"FAIL: {type(e).__name__}: {e}"
+            diag["hint"] = (
+                "piper-tts 包未装或 PyInstaller bundle 漏抓。"
+                "查看 server log 完整 stack;dev 环境 `pip install piper-tts`,"
+                "desktop bundle 需在 spec hiddenimports 显式加 piper.voice。"
+            )
+            return diag
+        # 2) voice path 解析(尝试 AudioModality 的 resolver)
+        try:
+            from chayuan.server.modality.audio import AudioModality
+            am = AudioModality()
+            resolved = am._resolve_piper_voice_path(voice_name or "")
+            checks["voice_path"] = resolved or "(未解析到 .onnx)"
+        except Exception as e:  # noqa: BLE001
+            checks["voice_path"] = f"resolver FAIL: {type(e).__name__}: {e}"
+            resolved = None
+        # 3) 检查 CHAYUAN_ROOT bundled / user-local 目录
+        try:
+            from chayuan.settings import CHAYUAN_ROOT
+            bundled = CHAYUAN_ROOT / "models" / "bundled" / "tts" / "piper"
+            userloc = CHAYUAN_ROOT / "models" / "piper"
+            checks["bundled_dir"] = (
+                f"{bundled} (exists={bundled.is_dir()})"
+            )
+            checks["user_local_dir"] = (
+                f"{userloc} (exists={userloc.is_dir()})"
+            )
+            if bundled.is_dir():
+                onnxs = sorted(str(p.relative_to(bundled)) for p in bundled.rglob("*.onnx"))[:5]
+                checks["bundled_onnx_sample"] = onnxs or "(no .onnx files)"
+        except Exception as e:  # noqa: BLE001
+            checks["chayuan_root_probe"] = f"FAIL: {type(e).__name__}: {e}"
+        if not resolved:
+            diag["hint"] = (
+                "piper 包能 import,但 voice 模型 .onnx 文件未找到。"
+                "请下载 piper voice(rhasspy/piper-voices,zh_CN-huayan-medium 推荐)"
+                "放到 user_local_dir,或开 CHAYUAN_PIPER_AUTO_DOWNLOAD=1 让 server 自动拉。"
+            )
+        else:
+            diag["hint"] = (
+                "voice 文件能找到但合成失败 — 多半 PiperVoice.load 或 synthesize_wav 异常。"
+                "查 server log 完整 stack;可能是 onnx runtime 版本不兼容或文本字符问题。"
+            )
+    elif provider == "edge":
+        diag["hint"] = (
+            "edge-tts 联网失败常见原因:网络不可达 / proxy / Microsoft 端服务异常。"
+            "可改用 piper(离线)。"
+        )
+    elif provider == "sherpa":
+        diag["hint"] = (
+            "sherpa-onnx 失败常见原因:VITS model 未下载或路径未配。"
+            "查 /api/v1/video-generation/voices?provider=sherpa 看可用 voice。"
+        )
+    else:
+        diag["hint"] = f"未知 provider={provider!r},应为 piper/edge/sherpa 之一"
+    return diag
+
+
 # ─────────────────────────────────────────────────────────────────────
 # 1. 脚本 / 关键词 / 字幕解析
 # ─────────────────────────────────────────────────────────────────────
@@ -149,7 +230,16 @@ def preview_audio(
             voice_rate=body.voice_rate, voice_volume=body.voice_volume,
         )
         if not result:
-            raise HTTPException(502, "TTS 合成失败")
+            # CLAUDE.md "修 bug 前的强制纪律" — 502 不能 catch-all 吞细节。
+            # synthesize 已把每一档失败 warning 进 server log,但客户端拿不到。
+            # 主动跑一次诊断回灌到 detail,让 client / 试听对话框直接看到根因。
+            raise HTTPException(
+                status_code=502,
+                detail=_diagnose_tts_failure(
+                    provider=body.voice_provider,
+                    voice_name=body.voice_name or "",
+                ),
+            )
         with open(result.audio_file, "rb") as f:
             data = f.read()
     finally:

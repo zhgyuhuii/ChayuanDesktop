@@ -651,7 +651,12 @@ class AudioPipeline:
         try:
             from piper.voice import PiperVoice  # type: ignore
         except Exception as e:  # noqa: BLE001
-            logger.debug("[tts:piper] piper-tts 未装,跳过: %r", e)
+            # CLAUDE.md feedback_no_silent_import_debug: 关键 loader import
+            # 失败必须 warning+exc_info,不能 debug 静默吞 — bundled desktop 上
+            # piper-tts 可能因 PyInstaller collect_submodules 漏抓而完全 import 不到。
+            logger.warning(
+                "[tts:piper] piper-tts 未装/import 失败,跳过: %r", e, exc_info=True,
+            )
             return None
         model_path = self._resolve_piper_voice_path(voice)
         if not model_path:
