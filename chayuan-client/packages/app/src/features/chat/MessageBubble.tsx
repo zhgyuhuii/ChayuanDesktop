@@ -264,6 +264,14 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
 
         {!isUser && !message.streaming && (
           <div className="flex items-center gap-1 opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-100 [.message-bubble:hover_&]:opacity-100">
+            {/* assistant 编辑按钮 — 仅当父级显式传 onEdit(video_generation 等场景
+                Thread.assistantEditable=true)才显示。点开切到 editing UI(L121),
+                textarea 编辑路径已经不区分 user/assistant,直接复用。 */}
+            {onEdit && (
+              <Button variant="ghost" size="icon" onClick={() => setEditing(true)} aria-label="编辑脚本">
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            )}
             <Button variant="ghost" size="icon" onClick={onCopy} aria-label="复制">
               <Copy className="h-3.5 w-3.5" />
             </Button>
