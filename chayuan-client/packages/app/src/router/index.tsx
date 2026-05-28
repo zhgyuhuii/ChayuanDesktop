@@ -142,8 +142,14 @@ const workspaceRoutes: ReadonlyArray<{ path: string; id: string }> = [
   { path: '/notes/new', id: 'notes-new' },
   { path: '/image-to-text', id: 'image-to-text' },
   { path: '/audio-to-text', id: 'audio-to-text' },
-  // 视频生成模块 — 集成 chayuan-video-generation 的 wizard + 两个 library 页
+  // 视频生成模块(重设计后):
+  //   /video-generation         → Chat 模式(主入口,占位中,N2-N5 填实)
+  //   /video-generation/batch   → 批量任务(wizard 改造,统一参数 + 多主题并发)
+  //   /video-generation/wizard  → 旧 wizard(legacy,兜底保留)
+  //   /video-generation/materials / library → 不变
   { path: '/video-generation', id: 'video-generation' },
+  { path: '/video-generation/batch', id: 'video-generation-batch' },
+  { path: '/video-generation/wizard', id: 'video-generation-wizard' },
   { path: '/video-generation/materials', id: 'video-generation-materials' },
   { path: '/video-generation/library', id: 'video-generation-library' },
   // 在线办公占位页 /online/<feature> — 必须在此登记,否则 navigate() 经

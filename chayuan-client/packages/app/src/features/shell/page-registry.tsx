@@ -78,7 +78,13 @@ const ImageToTextPage = React.lazy(() =>
 const AudioToTextPage = React.lazy(() =>
   import('../audioToText/AudioToTextPage').then((m) => ({ default: m.AudioToTextPage })),
 );
-// 视频生成模块(chayuan-video-generation 集成)
+// 视频生成模块(chayuan-video-generation 集成)— 重设计后路由分流
+const VgChatPage = React.lazy(() =>
+  import('../video-generation/VgChatPage').then((m) => ({ default: m.VgChatPage })),
+);
+const VgBatchModePage = React.lazy(() =>
+  import('../video-generation/BatchModePage').then((m) => ({ default: m.BatchModePage })),
+);
 const VideoGenerationPage = React.lazy(() =>
   import('../video-generation/VideoGenerationPage').then((m) => ({ default: m.VideoGenerationPage })),
 );
@@ -255,11 +261,28 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     defaultTitle: '音转文',
     defaultIcon: 'mic',
   },
-  // 视频生成 — 三个一级路径,wizard 默认进 /video-generation
+  // 视频生成 — 重设计后五个路径:
+  //   /video-generation              对话式主入口(Chat 模式,占位中)
+  //   /video-generation/batch        批量任务(wizard 改造)
+  //   /video-generation/wizard       旧 wizard(legacy)
+  //   /video-generation/materials    素材库
+  //   /video-generation/library      我的视频
   {
     pattern: /^\/video-generation$/,
-    render: () => <VideoGenerationPage />,
+    render: () => <VgChatPage />,
     defaultTitle: '视频生成',
+    defaultIcon: 'video',
+  },
+  {
+    pattern: /^\/video-generation\/batch$/,
+    render: () => <VgBatchModePage />,
+    defaultTitle: '批量生成',
+    defaultIcon: 'layers',
+  },
+  {
+    pattern: /^\/video-generation\/wizard$/,
+    render: () => <VideoGenerationPage />,
+    defaultTitle: '视频生成(旧版)',
     defaultIcon: 'video',
   },
   {

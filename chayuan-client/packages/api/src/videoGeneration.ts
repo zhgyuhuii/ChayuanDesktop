@@ -311,6 +311,23 @@ export async function vgSubmitTask(
   });
 }
 
+/** 批量提交:N 个主题共享 shared_params,后端并发跑 — BatchModePage 用。 */
+export interface VgBatchSubmitResponse {
+  submitted: number;
+  skipped: number;
+  tasks: VgTask[];
+}
+
+export async function vgSubmitBatch(args: {
+  subjects: string[];
+  shared_params: VgVideoParams;
+}): Promise<VgBatchSubmitResponse> {
+  return rd<VgBatchSubmitResponse>('/api/v1/video-generation/tasks/batch', {
+    method: 'POST',
+    body: args,
+  });
+}
+
 export async function vgListTasks(args: {
   state?: VgTaskState;
   page?: number;
@@ -556,6 +573,7 @@ export const videoGeneration = {
   parseSrt: vgParseSrt,
   previewAudio: vgPreviewAudio,
   submitTask: vgSubmitTask,
+  submitBatch: vgSubmitBatch,
   listTasks: vgListTasks,
   getTask: vgGetTask,
   deleteTask: vgDeleteTask,
