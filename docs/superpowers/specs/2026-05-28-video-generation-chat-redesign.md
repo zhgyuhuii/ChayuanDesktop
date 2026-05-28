@@ -186,20 +186,50 @@ export const VgChatPage = () => (
         mode="video_generation"
         extraSlot={(m) => <VgMessageExtras message={m} />}
       />
+      {/* 关键配置工具栏 — 显式露在 composer 上方,不藏 popover */}
+      <VgComposerToolbar />
       <ChatComposer
         mode="video_generation"
         onSend={handleSend}
         showKnowledgePicker={false}      // 视频生成不挂 KB
         showRetrievalControls={false}
-        leadingControls={<VgAspectChip />} // 9:16/16:9/1:1
       />
     </div>
   </ComposerScopedContext.Provider>
 );
 ```
 
-`VgAspectChip` 是新增控件,跟 chat 模式的 retrieval pill 同位。
 `onSend` 走 chat 协议发送 `mode='video_generation'` 请求,SSE 进 ConversationView。
+
+#### B.4 VgComposerToolbar(新增,在 ChatComposer 上方一行)
+
+用户明确要求"关键配置要在对话输入框上面显示",不藏 popover。
+工具栏从左到右 chip 化展示:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ [模型 deepseek-v4 ▾] [画幅 9:16] [语言 中文 ▾]              │
+│ [段落 1] [全自动 ⚡] [脚本风格 知识科普 ▾]                  │
+└─────────────────────────────────────────────────────────────┘
+[ChatComposer textarea + 附件/URL 按钮 + 发送]
+```
+
+字段绑定:
+| 字段 | UI | 写回位置 |
+|---|---|---|
+| 模型 | ComposerModelPill(复用,与 ChatPage 同款) | vgComposerStore.modelId |
+| 画幅 | 3-chip 9:16/16:9/1:1 | vgComposerStore.params.video_aspect |
+| 语言 | dropdown(自动/中/英/日) | vgComposerStore.params.video_language |
+| 段落数 | inline `<input type=number>` 1-10 | vgComposerStore.params.paragraph_number |
+| 全自动 | ⚡ toggle | useState (VgChatPage 本地) |
+| 脚本风格(可选) | dropdown(口播/科普/营销/纪录) | vgComposerStore.params.script_style |
+
+工具栏自身组件 `VgComposerToolbar.tsx`,内部独立读 vgComposerStore,跟
+ChatComposer 共享同一个 scope 实例(均在 ComposerScopedContext 下)。
+
+注:模型选择 chip 用 `ComposerModelPill`(features/composer 现有,跟
+ChatPage 模型选择同款 UI),scope 实例隔离让 vg 跟 chat 各自记忆上次
+选的模型不互相覆盖。
 
 ### C. VgMessageExtras 组件(消息块下方追加)
 
@@ -262,7 +292,7 @@ ChatComposer leadingControls 旁边加 `<VgAutoToggle />` ⚡ 按钮:
 |---|---|---|
 | R1 | 后端 attachment_extractor(rapidocr/PyMuPDF/whisper dispatch) + handler 升级流式 + yt-dlp connector | 1.5d |
 | R2 | ChatMessage.metadata.videoMeta(packages/transport 类型 + ConversationView extraSlot 接入) | 1d |
-| R3 | VgChatPage 重写:createComposerStore + ChatComposer + ConversationView + VgMessageExtras 组件套 | 2d |
+| R3 | VgChatPage 重写:createComposerStore + ChatComposer + ConversationView + **VgComposerToolbar(6 chip 显式工具栏)**+ VgMessageExtras 组件套 | 2.5d |
 | R4 | MaterialsBgmOutputDialog 整合(单 Dialog 三 section + 在线源配置弹窗) | 1d |
 | R5 | 多任务订阅 + 在线源 endpoint(/sources/config + GET 列表) + 联调 + 旧 VgChatPage(N4-N8)删除 | 1.5d |
 | **合计** | | **7 天** |

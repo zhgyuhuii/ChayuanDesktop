@@ -1148,6 +1148,96 @@ git -C /work/chayuan-desktop commit -m "feat(client/vg): R3.2 VgAspectChip + VgA
 
 ---
 
+### Task R3.2b: VgComposerToolbar — 显式露在 composer 上方的 6 chip 工具栏
+
+用户明确要求"关键配置要在对话输入框上面显示",不藏 popover。本组件
+独立放在 ChatComposer 上方,左到右:模型 / 画幅 / 语言 / 段落 / 全自动
+/ 脚本风格(可选)。
+
+**Files:**
+- Create: `chayuan-client/packages/app/src/features/video-generation/VgComposerToolbar.tsx`
+
+- [ ] **Step 1: 写组件**
+
+```typescript
+// chayuan-client/packages/app/src/features/video-generation/VgComposerToolbar.tsx
+import * as React from 'react';
+import { ComposerModelPill } from '../composer/ComposerModelPill';
+import { VgAspectChip } from './VgAspectChip';
+import { VgAutoToggle } from './VgAutoToggle';
+import { useVgComposer } from './store/vgComposer';
+
+export interface VgComposerToolbarProps {
+  autoMode: boolean;
+  onAutoModeChange: (v: boolean) => void;
+}
+
+export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
+  autoMode, onAutoModeChange,
+}) => {
+  const params = useVgComposer((s) => s.params);
+  const patch = useVgComposer((s) => s.patchParams);
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 py-1.5 text-xs">
+      {/* 模型选择 — 复用 ChatPage 同款 pill。scope 实例隔离让 vg 跟 chat 各自记忆 */}
+      <div className="inline-flex items-center gap-1">
+        <span className="text-[var(--cy-text-tertiary)]">模型</span>
+        <ComposerModelPill compact />
+      </div>
+      {/* 画幅 */}
+      <div className="inline-flex items-center gap-1">
+        <span className="text-[var(--cy-text-tertiary)]">画幅</span>
+        <VgAspectChip />
+      </div>
+      {/* 语言 */}
+      <div className="inline-flex items-center gap-1">
+        <span className="text-[var(--cy-text-tertiary)]">语言</span>
+        <select
+          value={params.video_language}
+          onChange={(e) => patch({ video_language: e.target.value })}
+          className="rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1.5 py-0.5"
+        >
+          <option value="">自动</option>
+          <option value="zh-CN">中文</option>
+          <option value="en-US">英文</option>
+          <option value="ja-JP">日文</option>
+        </select>
+      </div>
+      {/* 段落数 */}
+      <div className="inline-flex items-center gap-1">
+        <span className="text-[var(--cy-text-tertiary)]">段落</span>
+        <input
+          type="number" min={1} max={10} value={params.paragraph_number}
+          onChange={(e) => patch({
+            paragraph_number: Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)),
+          })}
+          className="w-12 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1.5 py-0.5 text-center"
+        />
+      </div>
+      {/* 全自动 */}
+      <VgAutoToggle autoMode={autoMode} onChange={onAutoModeChange} />
+    </div>
+  );
+};
+```
+
+- [ ] **Step 2: typecheck**
+
+```bash
+cd /work/chayuan-desktop/chayuan-client && pnpm --filter @chayuan/app typecheck 2>&1 | tail -3
+```
+
+(若 `ComposerModelPill` 没有 `compact` prop,改用现有 props 或 wrap 一下;按 typecheck 报错调)
+
+- [ ] **Step 3: 提交**
+
+```bash
+git -C /work/chayuan-desktop add chayuan-client/packages/app/src/features/video-generation/VgComposerToolbar.tsx
+git -C /work/chayuan-desktop commit -m "feat(client/vg): R3.2b VgComposerToolbar — 显式 6 chip 工具栏(模型/画幅/语言/段落/自动)"
+```
+
+---
+
 ### Task R3.3: TtsCard 紧凑布局
 
 **Files:**
@@ -1546,8 +1636,7 @@ import { ConversationView } from '../chat/ConversationView';
 import { useChayuanChat } from '../chat/useChayuanChat';
 import { useTabsStore } from '../../store/tabs';
 import { vgComposerStore } from './store/vgComposerStore';
-import { VgAspectChip } from './VgAspectChip';
-import { VgAutoToggle } from './VgAutoToggle';
+import { VgComposerToolbar } from './VgComposerToolbar';
 import { VgMessageExtras } from './VgMessageExtras';
 import { videoGeneration } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
@@ -1640,6 +1729,8 @@ export const VgChatPage: React.FC = () => {
             )}
           />
         </div>
+        {/* 关键配置工具栏 — 显式露在 composer 上方,不藏 popover */}
+        <VgComposerToolbar autoMode={autoMode} onAutoModeChange={setAutoMode} />
         {/* Composer(复用 ChatComposer)*/}
         <div className="border-t border-[var(--cy-border-subtle)]">
           <ChatComposer
@@ -1662,7 +1753,6 @@ export const VgChatPage: React.FC = () => {
               }
               await chat.sendMessage(text);
             }}
-            leadingControls={<><VgAspectChip /><VgAutoToggle autoMode={autoMode} onChange={setAutoMode} /></>}
             showKnowledgePicker={false}
             showRetrievalControls={false}
             placeholder="输入视频主题 / 拖文件入素材库 / 粘 URL 解析"
