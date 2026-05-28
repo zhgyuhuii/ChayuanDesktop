@@ -137,8 +137,11 @@
  *      位永远保留,内容宽度不抖。用在需要可见滚动条但又怕抖动的列表。
  * ──────────────────────────────────────────────────────────────── */
 
-/* 1. 全局细滚动条 — Chromium/WebKit/WebView2 */
-*::-webkit-scrollbar { width: 6px; height: 6px; }
+/* 1. 全局细滚动条 — Chromium/WebKit/WebView2(2026-05-28:再次加固防
+ *    sidebar 切换时滚动条占位/不占位 15px 引发的视觉抖动)。
+ *    overlay 模式(滚动条覆盖在内容上不占位)Chromium 已实验性支持,
+ *    overlay 不被识别时浏览器降级为 auto,保持安全。 */
+*::-webkit-scrollbar { width: 0px; height: 0px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--cy-text-tertiary) 40%, transparent);
@@ -148,7 +151,9 @@
   background: color-mix(in srgb, var(--cy-text-tertiary) 70%, transparent);
 }
 /* Firefox */
-* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--cy-text-tertiary) 40%, transparent) transparent; }
+* { scrollbar-width: none; scrollbar-color: color-mix(in srgb, var(--cy-text-tertiary) 40%, transparent) transparent; }
+/* 让浏览器倾向用 overlay 滚动条不占位(Chrome 121+ experimental, 其它降级 auto)*/
+html, body { overflow: overlay; }
 
 /* 2. 工具类:完全隐藏视觉滚动条(保留滚动能力)*/
 .cy-hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
