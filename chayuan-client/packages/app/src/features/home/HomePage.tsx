@@ -36,7 +36,6 @@ import { CapabilityCardGrid } from './capabilityCards/CapabilityCardGrid';
 import { HomeFxLayer } from './homeFx/HomeFxLayer';
 import { CardAura } from './homeFx/CardAura';
 import { PartnershipBanner } from './PartnershipBanner';
-import { HomeFooterMarquee } from './HomeFooterMarquee';
 
 // ── 5 张功能入口卡定义 ──────────────────────────────────────────────
 interface CapItem {
@@ -228,7 +227,17 @@ export const HomePage: React.FC = () => {
   }, [flushPending, queueChunk]);
 
   return (
-    <div className="relative isolate mx-auto flex h-full max-w-5xl flex-col gap-8 px-6 py-10 overflow-y-auto">
+    <div
+      className={[
+        // 宽屏自适应:lg 以下保持紧凑;1280 起逐档放宽,最终在 1920+ 维持
+        // 约 1760px 内容宽,避免文字行长过 100 字符影响阅读、又能利用大屏空间。
+        // px 用 clamp 让边距随屏宽缓动 — 24px @ 1024 → 64px @ 1920。
+        'relative isolate mx-auto flex h-full flex-col overflow-y-auto',
+        'w-full max-w-5xl xl:max-w-6xl 2xl:max-w-screen-2xl min-[1800px]:max-w-[110rem]',
+        'gap-8 py-10',
+      ].join(' ')}
+      style={{ paddingLeft: 'clamp(1.5rem, 3vw, 4rem)', paddingRight: 'clamp(1.5rem, 3vw, 4rem)' }}
+    >
       {/* 特效层 — 金龙/凤凰/星空在背景层,内容卡片用 z-10 浮在上面不被遮。
           isolate 强制 HomePage 创建 stacking context,让 fx 的 z:0 严格沉到
           本页内容下方,不会跑到 sidebar/header 之上。 */}
@@ -328,8 +337,9 @@ export const HomePage: React.FC = () => {
           一次播放,流完即静止;不再循环换文案,避免视觉闪烁。
           固定 min-h-[5rem] 让气泡高度不随文字增长抖动。
           2026-05-20 从顶部下移到此 — 让上方 5 个工具卡 + CapabilityCardGrid
-          首屏即可见,产品介绍作为补充信息靠后展示。 */}
-      <div className="relative z-10 flex max-w-3xl items-start gap-3">
+          首屏即可见,产品介绍作为补充信息靠后展示。
+          max-w 在宽屏上略放宽(3xl→4xl),但仍约束行长保证阅读舒适。 */}
+      <div className="relative z-10 flex max-w-3xl 2xl:max-w-4xl items-start gap-3">
         <div
           className="h-7 w-7 shrink-0 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] flex items-center justify-center text-[11px] font-semibold text-white shadow-sm"
           style={{ animation: 'cy-badge-halo 3.6s 1.2s ease-in-out infinite' }}
@@ -371,11 +381,6 @@ export const HomePage: React.FC = () => {
           <QrCard label="微信赞助" src={WXPAY_QR_URL} />
         </div>
       </section>
-
-      {/* ── 8. 底部走马灯 ── 版权 + 源码授权 + slogan,点击弹"关注我们" */}
-      <div className="relative z-10 mt-2 flex justify-center">
-        <HomeFooterMarquee />
-      </div>
 
     </div>
   );

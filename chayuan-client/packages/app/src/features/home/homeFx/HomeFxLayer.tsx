@@ -168,19 +168,40 @@ const LIGHT_SWEEP_KEYFRAMES = `
 `;
 
 // ──────────────────────────────────────────────────────────────
-// 背景金色微粒 — 12 颗,从屏幕底部缓缓上升
+// 背景金色微粒 — 数量随视口宽度伸缩(每 ~140px 屏宽一颗,夹在 [10, 36]),
+// 4K 屏不会显得稀疏,小窗也不会过密。屏宽变化时 100ms debounce 重算。
 // ──────────────────────────────────────────────────────────────
 
+function computeParticleCount(): number {
+  if (typeof window === 'undefined') return 12;
+  return Math.max(10, Math.min(36, Math.round(window.innerWidth / 140)));
+}
+
 const AmbientParticles: React.FC = React.memo(() => {
+  const [count, setCount] = React.useState<number>(() => computeParticleCount());
+  React.useEffect(() => {
+    let t: number | null = null;
+    const onResize = () => {
+      if (t != null) window.clearTimeout(t);
+      t = window.setTimeout(() => setCount(computeParticleCount()), 100);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (t != null) window.clearTimeout(t);
+    };
+  }, []);
+
   const particles = React.useMemo(
     () =>
-      Array.from({ length: 12 }, (_, i) => ({
-        left: `${5 + ((i * 8.3) % 90)}%`,
+      Array.from({ length: count }, (_, i) => ({
+        // 均匀铺满 5%~95% 屏宽,而非按 mod 8.3% 重复落点 — 宽屏更分散
+        left: `${5 + (i / Math.max(count - 1, 1)) * 90}%`,
         size: 3 + (i % 3) * 1.5,
-        delay: `${i * 1.6}s`,
+        delay: `${(i * 1.6) % 18}s`,
         duration: `${22 + (i % 4) * 4}s`,
       })),
-    [],
+    [count],
   );
 
   return (

@@ -214,8 +214,8 @@ export const AppFooter: React.FC = () => {
         'text-[11px] text-[var(--cy-text-tertiary)] select-none',
       )}
     >
-      {/* 左:版权 + 主站 */}
-      <div className="flex min-w-0 items-center gap-1.5 truncate">
+      {/* 左:版权 + 主站(静态) */}
+      <div className="flex shrink-0 items-center gap-1.5">
         <span>北京智灵鸟科技中心 出品</span>
         <span aria-hidden="true" className="text-[var(--cy-text-tertiary)] opacity-60">·</span>
         <a
@@ -232,7 +232,10 @@ export const AppFooter: React.FC = () => {
         </a>
       </div>
 
-      {/* 右:6 个 capability 状态点 */}
+      {/* 中:动态走马灯 — 源码授权 / slogan,点击弹"关注我们" */}
+      <HomeFooterMarquee />
+
+      {/* 右:capability 状态点(静态) */}
       <div className="flex shrink-0 items-center gap-3">
         {INDICATORS.map((ind) => {
           // 三态优先级(按用户口径 "完全不可用=既没启动模型服务又没配默认模型"):

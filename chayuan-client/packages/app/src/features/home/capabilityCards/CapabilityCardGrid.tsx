@@ -92,14 +92,15 @@ export const CapabilityCardGrid: React.FC<CapabilityCardGridProps> = ({
         </div>
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* 7 张卡。窄屏 2、lg 4(2 行 4+3)、2xl 起 7(单行)— 大屏避免 4+3 留单行尾巴。 */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
         {isLoading && !isFetched ? (
           // 骨架 — 不阻塞首屏,等 react-query 跑完自动替换
           Array.from({ length: HOME_CAPABILITY_CARDS.length }).map((_, i) => (
             <div
               // biome-ignore lint/suspicious/noArrayIndexKey: 骨架卡固定数量,顺序稳定
               key={`skel-${i}`}
-              className="h-36 animate-pulse rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]"
+              className="h-36 2xl:h-32 animate-pulse rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]"
             />
           ))
         ) : (

@@ -111,9 +111,35 @@ function generateGalaxyStars(count: number, seed: number): Star[] {
   return out;
 }
 
+// 默认 180 主星 + 130 银河星按 ~1440x900 viewport 校准;按面积线性缩放,
+// 4K 屏(≈ 4 倍面积)夹到 1.8 倍上限避免 DOM 节点爆炸。窄屏 (laptop) 不减
+// — 文艺感比性能优先,星数本身不重,且都是 absolute pos 不进 layout。
+function computeStarScale(): number {
+  if (typeof window === 'undefined') return 1;
+  const area = window.innerWidth * window.innerHeight;
+  const ref = 1440 * 900;
+  return Math.max(1, Math.min(1.8, Math.sqrt(area / ref)));
+}
+
 export const StarrySky: React.FC = React.memo(() => {
-  const mainStars = React.useMemo(() => generateMainStars(180, 42), []);
-  const galaxyStars = React.useMemo(() => generateGalaxyStars(130, 7), []);
+  const [scale, setScale] = React.useState<number>(() => computeStarScale());
+  React.useEffect(() => {
+    let t: number | null = null;
+    const onResize = () => {
+      if (t != null) window.clearTimeout(t);
+      t = window.setTimeout(() => setScale(computeStarScale()), 150);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (t != null) window.clearTimeout(t);
+    };
+  }, []);
+
+  const mainCount = Math.round(180 * scale);
+  const galaxyCount = Math.round(130 * scale);
+  const mainStars = React.useMemo(() => generateMainStars(mainCount, 42), [mainCount]);
+  const galaxyStars = React.useMemo(() => generateGalaxyStars(galaxyCount, 7), [galaxyCount]);
 
   return (
     <div
