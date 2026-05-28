@@ -1,0 +1,575 @@
+/**
+ * 视频生成模块 API 客户端。
+ *
+ * 对应后端 `chayuan/server/api_server/video_generation_routes.py`,
+ * 21 个 endpoint 全部覆盖。挂在 `/api/v1/video-generation/*`。
+ *
+ * SSE 进度通道走自实现 reader(同 home.introStream 套路),非 EventSource
+ * 是因为 Tauri 桌面要走 PAL.net.fetch 统一 fetch 路径(跨 origin)。
+ */
+
+import { getPlatform } from '@chayuan/platform-shared';
+import { request, getClientConfig } from './client';
+import { getAccessToken } from './auth-store';
+
+// ─────────────────────────────────────────────────────────────────────
+// 类型 — 跟后端 schemas.py 对齐
+// ─────────────────────────────────────────────────────────────────────
+
+export type VgScriptSource = 'ai' | 'manual' | 'srt';
+export type VgVideoAspect = '16:9' | '9:16' | '1:1';
+export type VgConcatMode = 'random' | 'sequential';
+export type VgTransitionMode = '' | 'Shuffle' | 'FadeIn' | 'FadeOut' | 'SlideIn' | 'SlideOut';
+export type VgVoiceProvider = 'piper' | 'edge' | 'sherpa';
+export type VgVideoSource = 'local' | 'pexels' | 'pixabay';
+export type VgBgmType = 'none' | 'random' | 'file';
+export type VgSubtitlePosition = 'top' | 'bottom' | 'center' | 'custom';
+export type VgTaskState =
+  | 'pending'
+  | 'processing'
+  | 'complete'
+  | 'failed'
+  | 'canceled';
+export type VgStopAt =
+  | 'script'
+  | 'terms'
+  | 'audio'
+  | 'subtitle'
+  | 'materials'
+  | 'video';
+
+export interface VgSrtCue {
+  index: number;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+}
+
+export interface VgMaterialInfo {
+  provider: string;
+  url: string;
+  duration: number;
+}
+
+/** 后端 VideoParams 全字段;前端 vgComposer store 字段一一对应 */
+export interface VgVideoParams {
+  video_subject: string;
+  video_language: string;
+  script_source: VgScriptSource;
+  video_script: string;
+  srt_cues?: VgSrtCue[] | null;
+  paragraph_number: number;
+  video_terms?: string | string[] | null;
+  video_aspect: VgVideoAspect;
+  video_concat_mode: VgConcatMode;
+  video_transition_mode: VgTransitionMode;
+  video_clip_duration: number;
+  video_count: number;
+  video_source: VgVideoSource;
+  video_materials?: VgMaterialInfo[] | null;
+  custom_audio_file?: string | null;
+  voice_name: string;
+  voice_volume: number;
+  voice_rate: number;
+  voice_provider: VgVoiceProvider;
+  bgm_type: VgBgmType;
+  bgm_file: string;
+  bgm_volume: number;
+  subtitle_enabled: boolean;
+  subtitle_position: VgSubtitlePosition;
+  custom_position: number;
+  font_name: string;
+  font_size: number;
+  text_fore_color: string;
+  text_background_color: boolean | string;
+  stroke_color: string;
+  stroke_width: number;
+  n_threads: number;
+}
+
+export interface VgTaskResultPartial {
+  script?: string;
+  terms?: string[];
+  audio_file?: string;
+  audio_duration_ms?: number;
+  tts_provider?: string;
+  subtitle_path?: string;
+  materials?: string[];
+  final_videos?: string[];
+  combined_videos?: string[];
+  [k: string]: unknown;
+}
+
+export interface VgTask {
+  task_id: string;
+  owner_id: number | null;
+  state: VgTaskState;
+  progress: number;
+  stop_at: VgStopAt;
+  params: VgVideoParams;
+  result: VgTaskResultPartial;
+  error: string | null;
+  created_at: number | null;
+  updated_at: number | null;
+}
+
+export interface VgListResponse<T> {
+  total: number;
+  items: T[];
+  page: number;
+  page_size: number;
+}
+
+export interface VgMaterial {
+  material_id: string;
+  owner_id: number | null;
+  source: 'upload' | 'pexels' | 'pixabay' | 'bundled';
+  name: string;
+  path: string;
+  mime: string;
+  size: number;
+  duration_ms: number;
+  width: number;
+  height: number;
+  thumbnail_path: string | null;
+  tags: string[];
+  used_count: number;
+  created_at: number | null;
+}
+
+export interface VgVideo {
+  video_id: string;
+  task_id: string;
+  owner_id: number | null;
+  title: string;
+  path: string;
+  duration_ms: number;
+  width: number;
+  height: number;
+  thumbnail_path: string | null;
+  params_snapshot: Partial<VgVideoParams>;
+  created_at: number | null;
+}
+
+export interface VgBgmItem {
+  name: string;
+  path: string;
+  source: 'bundled' | 'upload';
+  size: number;
+}
+
+export interface VgFontItem {
+  name: string;
+  source: 'bundled' | 'user';
+}
+
+export interface VgVoiceItem {
+  id: string;
+  label: string;
+  language: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 默认参数 — vgComposer store 初始化用
+// ─────────────────────────────────────────────────────────────────────
+
+export const VG_DEFAULT_PARAMS: VgVideoParams = {
+  video_subject: '',
+  video_language: '',
+  script_source: 'ai',
+  video_script: '',
+  srt_cues: null,
+  paragraph_number: 1,
+  video_terms: null,
+  video_aspect: '9:16',
+  video_concat_mode: 'random',
+  video_transition_mode: '',
+  video_clip_duration: 5,
+  video_count: 1,
+  video_source: 'local',
+  video_materials: null,
+  custom_audio_file: null,
+  voice_name: '',
+  voice_volume: 1.0,
+  voice_rate: 1.0,
+  voice_provider: 'piper',
+  bgm_type: 'random',
+  bgm_file: '',
+  bgm_volume: 0.2,
+  subtitle_enabled: true,
+  subtitle_position: 'bottom',
+  custom_position: 70.0,
+  font_name: 'STHeitiMedium.ttc',
+  font_size: 60,
+  text_fore_color: '#FFFFFF',
+  text_background_color: true,
+  stroke_color: '#000000',
+  stroke_width: 1.5,
+  n_threads: 2,
+};
+
+/**
+ * 内部 helper:对 `request<T>` 做一次解包,函数体只关心 data。
+ * 别在 videoGeneration.ts 外面用 — 其它包统一用 request<T>.data 风格。
+ */
+async function rd<T>(...args: Parameters<typeof request>): Promise<T> {
+  const r = await request<T>(...args);
+  return r.data;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// LLM 辅助
+// ─────────────────────────────────────────────────────────────────────
+
+export async function vgGenerateScript(args: {
+  video_subject: string;
+  video_language?: string;
+  paragraph_number?: number;
+  model?: string;
+}): Promise<{ video_script: string }> {
+  const { model, ...body } = args;
+  return rd<{ video_script: string }>('/api/v1/video-generation/script', {
+    method: 'POST',
+    body,
+    query: model ? { model } : undefined,
+  });
+}
+
+export async function vgGenerateTerms(args: {
+  video_subject: string;
+  video_script: string;
+  amount?: number;
+  model?: string;
+}): Promise<{ video_terms: string[] }> {
+  const { model, ...body } = args;
+  return rd<{ video_terms: string[] }>('/api/v1/video-generation/terms', {
+    method: 'POST',
+    body,
+    query: model ? { model } : undefined,
+  });
+}
+
+export async function vgParseSrt(
+  srt_text: string,
+): Promise<{ count: number; cues: VgSrtCue[] }> {
+  return rd<{ count: number; cues: VgSrtCue[] }>('/api/v1/video-generation/subtitle/parse', {
+    method: 'POST',
+    body: { srt_text },
+  });
+}
+
+/** 试听 — 返回 audio/wav Blob,前端用 URL.createObjectURL 喂 <audio> */
+export async function vgPreviewAudio(args: {
+  video_script: string;
+  voice_provider?: VgVoiceProvider;
+  voice_name?: string;
+  voice_rate?: number;
+  voice_volume?: number;
+}): Promise<{ blob: Blob; durationMs: number; provider: string }> {
+  const cfg = getClientConfig();
+  const url = `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/video-generation/preview-audio`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if ((cfg.authMode ?? 'bearer') === 'bearer') {
+    const tok = await getAccessToken();
+    if (tok) headers.Authorization = `Bearer ${tok}`;
+  }
+  const res = await getPlatform().net.fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      video_script: args.video_script,
+      voice_provider: args.voice_provider ?? 'piper',
+      voice_name: args.voice_name ?? '',
+      voice_rate: args.voice_rate ?? 1.0,
+      voice_volume: args.voice_volume ?? 1.0,
+    }),
+    credentials: cfg.authMode === 'cookie' ? 'include' : 'same-origin',
+  } as RequestInit);
+  if (!res.ok) {
+    throw new Error(`preview-audio HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  return {
+    blob,
+    durationMs: Number(res.headers.get('X-Audio-Duration-Ms') || 0) || 0,
+    provider: res.headers.get('X-Tts-Provider') || 'unknown',
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 任务 CRUD
+// ─────────────────────────────────────────────────────────────────────
+
+export async function vgSubmitTask(
+  params: VgVideoParams,
+  opts: { stop_at?: VgStopAt } = {},
+): Promise<VgTask> {
+  return rd<VgTask>('/api/v1/video-generation/tasks', {
+    method: 'POST',
+    body: params,
+    query: { stop_at: opts.stop_at ?? 'video' },
+  });
+}
+
+export async function vgListTasks(args: {
+  state?: VgTaskState;
+  page?: number;
+  page_size?: number;
+} = {}): Promise<VgListResponse<VgTask>> {
+  return rd<VgListResponse<VgTask>>('/api/v1/video-generation/tasks', {
+    method: 'GET',
+    query: {
+      state: args.state,
+      page: args.page ?? 1,
+      page_size: args.page_size ?? 20,
+    },
+  });
+}
+
+export async function vgGetTask(taskId: string): Promise<VgTask> {
+  return rd<VgTask>(`/api/v1/video-generation/tasks/${encodeURIComponent(taskId)}`);
+}
+
+export async function vgDeleteTask(taskId: string): Promise<{ deleted: boolean }> {
+  return rd<{ deleted: boolean }>(`/api/v1/video-generation/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function vgCancelTask(taskId: string): Promise<{ canceled: boolean }> {
+  return rd<{ canceled: boolean }>(
+    `/api/v1/video-generation/tasks/${encodeURIComponent(taskId)}/cancel`,
+    { method: 'POST' },
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// SSE 进度
+// ─────────────────────────────────────────────────────────────────────
+
+export interface VgTaskEventHandlers {
+  /** 初始全量快照 / 后续 update 都通过这个回调,前端按需 diff */
+  onTask(task: VgTask): void;
+  onDone?(): void;
+  onError?(err: Error): void;
+}
+
+export async function vgSubscribeTaskEvents(
+  taskId: string,
+  handlers: VgTaskEventHandlers,
+  opts: { signal?: AbortSignal } = {},
+): Promise<void> {
+  const cfg = getClientConfig();
+  const url = `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/video-generation/tasks/${encodeURIComponent(taskId)}/events`;
+  const headers: Record<string, string> = { Accept: 'text/event-stream' };
+  if ((cfg.authMode ?? 'bearer') === 'bearer') {
+    const tok = await getAccessToken();
+    if (tok) headers.Authorization = `Bearer ${tok}`;
+  }
+  const res = await getPlatform().net.fetch(url, {
+    method: 'GET',
+    headers,
+    signal: opts.signal,
+    credentials: cfg.authMode === 'cookie' ? 'include' : 'same-origin',
+  } as RequestInit);
+  if (!res.ok || !res.body) {
+    throw new Error(`vg.tasks.events HTTP ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  try {
+    while (true) {
+      if (opts.signal?.aborted) return;
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let sepIdx: number;
+      // eslint-disable-next-line no-cond-assign
+      while (
+        (sepIdx = (() => {
+          const a = buf.indexOf('\n\n');
+          const b = buf.indexOf('\r\n\r\n');
+          if (a === -1) return b;
+          if (b === -1) return a;
+          return Math.min(a, b);
+        })()) !== -1
+      ) {
+        const isCRLF = buf.startsWith('\r\n\r\n', sepIdx);
+        const frame = buf.slice(0, sepIdx);
+        buf = buf.slice(sepIdx + (isCRLF ? 4 : 2));
+        let event = 'message';
+        const dataLines: string[] = [];
+        for (const rawLine of frame.split(/\r?\n/)) {
+          if (!rawLine || rawLine.startsWith(':')) continue;
+          const colon = rawLine.indexOf(':');
+          const field = colon === -1 ? rawLine : rawLine.slice(0, colon);
+          let val = colon === -1 ? '' : rawLine.slice(colon + 1);
+          if (val.startsWith(' ')) val = val.slice(1);
+          if (field === 'event') event = val;
+          else if (field === 'data') dataLines.push(val);
+        }
+        if (dataLines.length === 0) continue;
+        const dataStr = dataLines.join('\n');
+        if (event === 'task.snapshot' || event === 'task.update') {
+          try {
+            handlers.onTask(JSON.parse(dataStr) as VgTask);
+          } catch (e) {
+            handlers.onError?.(e as Error);
+          }
+        } else if (event === 'ping') {
+          // 心跳,忽略
+        }
+      }
+    }
+    handlers.onDone?.();
+  } finally {
+    try { reader.releaseLock(); } catch { /* ignore */ }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 素材库
+// ─────────────────────────────────────────────────────────────────────
+
+export async function vgListMaterials(args: {
+  source?: 'upload' | 'pexels' | 'pixabay' | 'bundled';
+  page?: number;
+  page_size?: number;
+} = {}): Promise<VgListResponse<VgMaterial>> {
+  return rd<VgListResponse<VgMaterial>>('/api/v1/video-generation/materials', {
+    method: 'GET',
+    query: {
+      source: args.source,
+      page: args.page ?? 1,
+      page_size: args.page_size ?? 50,
+    },
+  });
+}
+
+export async function vgUploadMaterial(args: {
+  file: File;
+  name?: string;
+  tags?: string;
+}): Promise<VgMaterial> {
+  const fd = new FormData();
+  fd.append('file', args.file);
+  if (args.name) fd.append('name', args.name);
+  if (args.tags) fd.append('tags', args.tags);
+  return rd<VgMaterial>('/api/v1/video-generation/materials', {
+    method: 'POST',
+    body: fd,
+  });
+}
+
+export async function vgDeleteMaterial(
+  materialId: string,
+  opts: { drop_file?: boolean } = {},
+): Promise<{ deleted: boolean }> {
+  return rd<{ deleted: boolean }>(
+    `/api/v1/video-generation/materials/${encodeURIComponent(materialId)}`,
+    { method: 'DELETE', query: { drop_file: opts.drop_file ?? true } },
+  );
+}
+
+export async function vgSearchMaterials(args: {
+  q: string;
+  source?: 'pexels' | 'pixabay';
+  aspect?: VgVideoAspect;
+  minimum_duration?: number;
+}): Promise<{ count: number; items: VgMaterialInfo[] }> {
+  return rd<{ count: number; items: VgMaterialInfo[] }>('/api/v1/video-generation/materials/search', {
+    method: 'GET',
+    query: {
+      q: args.q,
+      source: args.source ?? 'pexels',
+      aspect: args.aspect ?? '9:16',
+      minimum_duration: args.minimum_duration ?? 5,
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// BGM / 字体 / 声音
+// ─────────────────────────────────────────────────────────────────────
+
+export async function vgListBgm(): Promise<{ count: number; items: VgBgmItem[] }> {
+  return rd<{ count: number; items: VgBgmItem[] }>('/api/v1/video-generation/bgm');
+}
+
+export async function vgUploadBgm(file: File): Promise<{ name: string; path: string; size: number }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  return rd<{ name: string; path: string; size: number }>('/api/v1/video-generation/bgm', { method: 'POST', body: fd });
+}
+
+export async function vgListFonts(): Promise<{ count: number; items: VgFontItem[] }> {
+  return rd<{ count: number; items: VgFontItem[] }>('/api/v1/video-generation/fonts');
+}
+
+export async function vgListVoices(
+  provider: VgVoiceProvider = 'piper',
+): Promise<{ provider: VgVoiceProvider; count: number; items: VgVoiceItem[] }> {
+  return rd<{ provider: VgVoiceProvider; count: number; items: VgVoiceItem[] }>('/api/v1/video-generation/voices', { query: { provider } });
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 文件下载 + 我的视频
+// ─────────────────────────────────────────────────────────────────────
+
+/** 拼接任务产物文件 URL — 浏览器/Video 标签直接用,会带 Authorization
+ *  header 是不可能的,所以 path-style 同源场景才安全;Tauri 桌面侧由
+ *  cookie/JWT proxy 兼容。 */
+export function vgTaskFileUrl(taskId: string, fileName: string, download = false): string {
+  const cfg = getClientConfig();
+  const u = `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/video-generation/files/${encodeURIComponent(taskId)}/${encodeURIComponent(fileName)}`;
+  return download ? `${u}?download=true` : u;
+}
+
+export async function vgListVideos(args: {
+  page?: number;
+  page_size?: number;
+} = {}): Promise<VgListResponse<VgVideo>> {
+  return rd<VgListResponse<VgVideo>>('/api/v1/video-generation/videos', {
+    method: 'GET',
+    query: { page: args.page ?? 1, page_size: args.page_size ?? 50 },
+  });
+}
+
+export async function vgDeleteVideo(
+  videoId: string,
+  opts: { drop_file?: boolean } = {},
+): Promise<{ deleted: boolean }> {
+  return rd<{ deleted: boolean }>(
+    `/api/v1/video-generation/videos/${encodeURIComponent(videoId)}`,
+    { method: 'DELETE', query: { drop_file: opts.drop_file ?? true } },
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 命名空间聚合
+// ─────────────────────────────────────────────────────────────────────
+
+export const videoGeneration = {
+  generateScript: vgGenerateScript,
+  generateTerms: vgGenerateTerms,
+  parseSrt: vgParseSrt,
+  previewAudio: vgPreviewAudio,
+  submitTask: vgSubmitTask,
+  listTasks: vgListTasks,
+  getTask: vgGetTask,
+  deleteTask: vgDeleteTask,
+  cancelTask: vgCancelTask,
+  subscribeTaskEvents: vgSubscribeTaskEvents,
+  listMaterials: vgListMaterials,
+  uploadMaterial: vgUploadMaterial,
+  deleteMaterial: vgDeleteMaterial,
+  searchMaterials: vgSearchMaterials,
+  listBgm: vgListBgm,
+  uploadBgm: vgUploadBgm,
+  listFonts: vgListFonts,
+  listVoices: vgListVoices,
+  taskFileUrl: vgTaskFileUrl,
+  listVideos: vgListVideos,
+  deleteVideo: vgDeleteVideo,
+};
