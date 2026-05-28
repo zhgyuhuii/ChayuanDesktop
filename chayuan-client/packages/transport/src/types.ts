@@ -128,3 +128,36 @@ export type ResumeDecision = {
   approved: boolean;
   patch?: Record<string, unknown>;
 };
+
+// ─────────────────────────────────────────────────────────────────────
+// 视频生成模块 chat 消息扩展(R2.1)
+//
+// chat 协议消息 .metadata 字段挂载视频专属数据。MessageBubble 渲染
+// 时通过 VgMessageExtras 检测后追加 TtsCard / 字幕图标 / 去生成按钮 /
+// 渲染进度卡等组件。详见 docs/superpowers/specs/2026-05-28-*.md
+// ─────────────────────────────────────────────────────────────────────
+
+export type VgRenderState = 'idle' | 'submitting' | 'running' | 'complete' | 'failed';
+
+export interface VgScriptCue {
+  index: number;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+}
+
+export interface VgMessageMeta {
+  taskId?: string;
+  scriptCues?: VgScriptCue[];
+  tts?: {
+    provider: 'piper' | 'edge' | 'sherpa';
+    voice: string;
+    rate: number;
+    volume: number;
+  };
+  materials?: Array<{ provider: string; url: string; duration: number }>;
+  bgm?: { type: 'none' | 'random' | 'file'; file: string; volume: number };
+  renderState?: VgRenderState;
+  finalVideos?: string[];
+  videoAspect?: '16:9' | '9:16' | '1:1';
+}
