@@ -45,6 +45,44 @@ def submit_task(
     return row
 
 
+def submit_batch_tasks(
+    subjects: List[str],
+    shared_params: VideoParams,
+    *,
+    owner_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """N 个主题共享 shared_params 一键并发提交,每个主题独立 vg_task。
+
+    BatchModePage 用 — 用户输入多个主题 + 一套全局参数 → 后端循环 submit。
+    runner ThreadPoolExecutor(workers=4 默认)自动并发跑,各 task 独立 SSE
+    通道,前端 N 个进度条独立订阅。
+
+    shared_params.video_subject 会被各 subject 覆盖;其它字段(语音/字幕/
+    画幅/BGM)统一共享。script_source 自动锁 'ai'(批量场景必走全自动)。
+    """
+
+    if not subjects:
+        return []
+    out: List[Dict[str, Any]] = []
+    for s in subjects:
+        s = (s or "").strip()
+        if not s:
+            continue
+        # 拷贝 shared_params 然后覆盖 video_subject + 锁 ai 模式
+        p = shared_params.model_copy(update={
+            "video_subject": s,
+            "script_source": "ai",  # type: ignore[arg-type]
+        })
+        row = tasks_store.create_task(params=p, owner_id=owner_id, stop_at="video")
+        runner.enqueue(row["task_id"], p, stop_at="video")
+        out.append(row)
+    logger.info(
+        "[service] submit_batch_tasks owner=%s count=%d (of %d input subjects)",
+        owner_id, len(out), len(subjects),
+    )
+    return out
+
+
 def cancel_task(
     task_id: str, *, owner_id: Optional[int] = None,
 ) -> bool:

@@ -190,6 +190,45 @@ def submit_task(
     return row
 
 
+@video_generation_router.post(
+    "/tasks/batch", summary="批量提交:N 个主题共享一套参数,并发跑",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def submit_batch(
+    body: Dict[str, Any] = Body(
+        ...,
+        description="{subjects: list[str], shared_params: VideoParams}",
+    ),
+    user: Dict[str, Any] = Depends(require_auth_enabled),
+) -> Dict[str, Any]:
+    """BatchModePage 用 — 多主题列表 + 一套全局参数(语音/字幕/画幅/BGM)一
+    键提交。后端循环创建 vg_task,runner ThreadPoolExecutor 自动并发跑(默
+    认 4 worker,env CHAYUAN_VG_RUNNER_WORKERS override)。
+
+    script_source 自动锁 'ai'(批量场景全自动 — LLM 生成各主题脚本)。
+    """
+
+    subjects = body.get("subjects") or []
+    if not isinstance(subjects, list) or not subjects:
+        raise HTTPException(400, "subjects 必填,数组形态")
+    shared_raw = body.get("shared_params") or {}
+    try:
+        shared_params = VideoParams.model_validate(shared_raw)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"shared_params 校验失败: {e}") from e
+
+    rows = vg_service.submit_batch_tasks(
+        [str(s) for s in subjects],
+        shared_params,
+        owner_id=_owner_id_of(user),
+    )
+    return {
+        "submitted": len(rows),
+        "skipped": len(subjects) - len(rows),
+        "tasks": rows,
+    }
+
+
 @video_generation_router.get(
     "/tasks", summary="列任务(分页)",
 )

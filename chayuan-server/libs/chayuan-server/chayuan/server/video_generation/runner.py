@@ -37,7 +37,9 @@ logger = logging.getLogger("chayuan.video_generation.runner")
 # ─────────────────────────────────────────────────────────────────────
 
 
-_WORKERS = max(1, int(os.environ.get("CHAYUAN_VG_RUNNER_WORKERS", "2")))
+# 默认 4 worker(原 2)— 用户多任务并发(batch / 多 chat 会话)是常态;
+# moviepy CPU 绑定,实际并发数受机器 vCPU 限制,env 仍可 override。
+_WORKERS = max(1, int(os.environ.get("CHAYUAN_VG_RUNNER_WORKERS", "4")))
 _executor: Optional[ThreadPoolExecutor] = None
 _executor_lock = threading.Lock()
 _canceled: set[str] = set()
