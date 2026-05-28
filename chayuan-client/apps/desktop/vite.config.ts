@@ -42,6 +42,25 @@ export default defineConfig(({ mode }) => {
       port: 1420,
       strictPort: true,
       host: process.env.TAURI_DEV_HOST || false,
+      // 阻断 file watcher 进 src-tauri:Rust 编译产物 + PyInstaller 打的
+      // chayuan-server bundle 都在那下面,nicegui Jinja 模板 / playwright /
+      // setuptools fixture html 全是非 JS 内容,被 watcher 触发 HMR 会让
+      // esbuild 反复尝试解析 → 报 "Expected identifier but found {"。
+      watch: {
+        ignored: [
+          '**/src-tauri/target/**',
+          '**/src-tauri/chayuan-server/**',
+          '**/src-tauri/bundled_models/**',
+          '**/src-tauri/gen/**',
+        ],
+      },
+    },
+    // 锁死 optimizeDeps 入口扫描范围 — 默认会 glob root 下 **/*.html,把
+    // src-tauri/chayuan-server/_internal/{nicegui,setuptools,playwright}/**/*.html
+    // 抓进来当 entry,nicegui 模板含 Jinja {{ ... }} 让 esbuild 解析报语法错。
+    // 显式指定 index.html 后,vite 只用它作 entry 跟随 import 链,不再 glob。
+    optimizeDeps: {
+      entries: ['index.html'],
     },
     envPrefix: ['VITE_', 'TAURI_ENV_'],
     build: {
