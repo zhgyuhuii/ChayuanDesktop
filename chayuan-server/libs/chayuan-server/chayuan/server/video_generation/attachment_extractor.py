@@ -109,11 +109,14 @@ def _extract_text(path: str) -> Optional[str]:
 def _extract_audio(path: str) -> Optional[str]:
     """复用 modality.audio.transcribe → whisper sidecar。"""
     try:
-        from chayuan.server.modality.audio import AudioModality
+        from chayuan.server.modality.audio import AudioPipeline
     except Exception as e:  # noqa: BLE001
-        logger.debug("[ext:audio] AudioModality import 失败: %r", e)
+        # CLAUDE.md feedback_no_silent_import_debug: 关键 loader import 失败
+        # 不能 debug 静默吞,必须 warning+exc_info — 否则 frozen/dev 都
+        # 看不到根因(本次 502 就是这种 silent import 浪费排查时间)
+        logger.warning("[ext:audio] AudioPipeline import 失败: %r", e, exc_info=True)
         return None
-    am = AudioModality()
+    am = AudioPipeline()
     text = am.transcribe(path)
     return _truncate(text or "")
 

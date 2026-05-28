@@ -4,7 +4,7 @@
 TTS 路径),按本项目"全链路离线可用 + 复用现有 modality.audio"原则精简:
 
 主路径(M1):
-    voice_provider="piper"   走 chayuan.server.modality.audio.AudioModality
+    voice_provider="piper"   走 chayuan.server.modality.audio.AudioPipeline
                               .synthesize → 拿 wav/mp3 bytes,写盘 + 等分
                               文本产 cues。无网可用。
 
@@ -144,14 +144,14 @@ def _synthesize_via_sherpa(
     voice_rate: float,
     voice_volume: float,
 ) -> Optional[TtsResult]:
-    """走 modality.audio AudioModality.synthesize 接 "sherpa:" 前缀走第 -1 档。"""
+    """走 modality.audio AudioPipeline.synthesize 接 "sherpa:" 前缀走第 -1 档。"""
 
     try:
-        from chayuan.server.modality.audio import AudioModality
+        from chayuan.server.modality.audio import AudioPipeline
     except Exception as e:  # noqa: BLE001
-        logger.warning("[tts:sherpa] AudioModality import 失败: %r", e)
+        logger.warning("[tts:sherpa] AudioPipeline import 失败: %r", e)
         return None
-    am = AudioModality()
+    am = AudioPipeline()
     fmt = _ext(voice_file) or "wav"
     voice_id = voice_name or ""
     # 拼 "sherpa:" 前缀让 modality 走 sherpa 分支(否则会走 piper)
@@ -194,14 +194,14 @@ def _synthesize_via_piper(
     voice_rate: float,
     voice_volume: float,
 ) -> Optional[TtsResult]:
-    """复用 chayuan.server.modality.audio.AudioModality 已有 piper-tts 实现。"""
+    """复用 chayuan.server.modality.audio.AudioPipeline 已有 piper-tts 实现。"""
 
     try:
-        from chayuan.server.modality.audio import AudioModality
+        from chayuan.server.modality.audio import AudioPipeline
     except Exception as e:  # noqa: BLE001
-        logger.warning("[tts:piper] AudioModality import 失败: %r", e)
+        logger.warning("[tts:piper] AudioPipeline import 失败: %r", e)
         return None
-    am = AudioModality()
+    am = AudioPipeline()
     fmt = _ext(voice_file) or "wav"
     try:
         data = am.synthesize(text, voice=voice_name or "", fmt=fmt)
