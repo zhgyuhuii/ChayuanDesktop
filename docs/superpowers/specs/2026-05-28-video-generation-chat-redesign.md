@@ -368,3 +368,26 @@ ChatComposer leadingControls 旁边加 `<VgAutoToggle />` ⚡ 按钮:
 所有 9 个决策都基于"真复用 + 借鉴 ChatGPT/Sora 体验 + 模块化"原则,
 排斥"自实现 mini X"的反模式。CLAUDE.md 新加的"大功能 / 重构前
 brainstorming 强制纪律"+ "真复用判定标准"规则将守护后续维护。
+
+
+---
+
+## 实施记录(2026-05-28)
+
+- **R1** 后端 attachment_extractor + handler 升级 + yt-dlp + sources_config: 完成
+- **R2** ChatMessage.metadata.videoMeta + ConversationView extraSlot + sentinel 解析: 完成
+- **R3** VgChatPage 重写(ChatComposer + ConversationView + scope + 组件套): 完成
+  - R3.6 中 useChayuanChat 没加 patchMessageMetadata/injectAssistantMessage,改走 ConversationView setMessagesRef + ChatRequestV2.mode='video_generation' 路径
+- **R4** MaterialsBgmOutputDialog 单 Dialog 三 section + OnlineSourceChips: 完成
+- **R5.1** UI 手动联调: 留给用户在 desktop 内验证
+- **R5.2** 退役 N5 MaterialsDrawer: 完成
+- **R5.3** VgChatPage smoke test: 完成
+- **R5.4** spec 收尾 + 最终推送: 本 commit
+
+### 剩余 followups(非 plan 范围,后续 task)
+
+- chat handler 真流式(R1 同步 LLM 调用,需看 chat runner 协议升级 SSE chunk yield)
+- 在线源 connector 真接入(目前 Pexels/Pixabay 走 video_source enum,Unsplash/YouTube Data API/Vimeo 后端 source connector 未实现)
+- yt-dlp 真 download endpoint 接 vg_materials(R1.4 注册 connector,但没串到 wizard 的"添加在线 URL"动作)
+- URL 抽取按钮在 ChatComposer leadingControls slot 注入(目前用户粘 URL 文本走默认 chat path,没有专门 UX)
+- 拖文件入素材库(N6.b 路径)走 ChatComposer 标准 attachment;若用户要"直接进 vg_materials",需要在拖拽层接 vg upload endpoint
