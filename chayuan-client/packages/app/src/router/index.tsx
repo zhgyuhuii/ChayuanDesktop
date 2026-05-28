@@ -142,6 +142,10 @@ const workspaceRoutes: ReadonlyArray<{ path: string; id: string }> = [
   { path: '/notes/new', id: 'notes-new' },
   { path: '/image-to-text', id: 'image-to-text' },
   { path: '/audio-to-text', id: 'audio-to-text' },
+  // 视频生成模块 — 集成 chayuan-video-generation 的 wizard + 两个 library 页
+  { path: '/video-generation', id: 'video-generation' },
+  { path: '/video-generation/materials', id: 'video-generation-materials' },
+  { path: '/video-generation/library', id: 'video-generation-library' },
   // 在线办公占位页 /online/<feature> — 必须在此登记,否则 navigate() 经
   // TanStack Router 找不到路由会 404「页面不存在」;真正渲染走 page-registry。
   { path: '/online/$feature', id: 'online-feature' },

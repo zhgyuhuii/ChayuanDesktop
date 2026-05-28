@@ -78,6 +78,16 @@ const ImageToTextPage = React.lazy(() =>
 const AudioToTextPage = React.lazy(() =>
   import('../audioToText/AudioToTextPage').then((m) => ({ default: m.AudioToTextPage })),
 );
+// 视频生成模块(chayuan-video-generation 集成)
+const VideoGenerationPage = React.lazy(() =>
+  import('../video-generation/VideoGenerationPage').then((m) => ({ default: m.VideoGenerationPage })),
+);
+const VgMaterialLibraryPage = React.lazy(() =>
+  import('../video-generation/MaterialLibraryPage').then((m) => ({ default: m.MaterialLibraryPage })),
+);
+const VgVideoLibraryPage = React.lazy(() =>
+  import('../video-generation/VideoLibraryPage').then((m) => ({ default: m.VideoLibraryPage })),
+);
 // 在线办公功能占位页 —— 单机版不支持的「察元办公 / 智能空间 / 应用中心 /
 // 我的待办 / 训练数据中心」点击后进此页,按 feature key 参数化做流式介绍。
 const OnlineFeaturePage = React.lazy(() =>
@@ -244,6 +254,25 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     render: () => <AudioToTextPage />,
     defaultTitle: '音转文',
     defaultIcon: 'mic',
+  },
+  // 视频生成 — 三个一级路径,wizard 默认进 /video-generation
+  {
+    pattern: /^\/video-generation$/,
+    render: () => <VideoGenerationPage />,
+    defaultTitle: '视频生成',
+    defaultIcon: 'video',
+  },
+  {
+    pattern: /^\/video-generation\/materials$/,
+    render: () => <VgMaterialLibraryPage />,
+    defaultTitle: '素材库',
+    defaultIcon: 'library',
+  },
+  {
+    pattern: /^\/video-generation\/library$/,
+    render: () => <VgVideoLibraryPage />,
+    defaultTitle: '我的视频',
+    defaultIcon: 'video',
   },
   {
     // 在线办公功能占位页:/online/<feature>(office / space / market / tasks / annotation)
