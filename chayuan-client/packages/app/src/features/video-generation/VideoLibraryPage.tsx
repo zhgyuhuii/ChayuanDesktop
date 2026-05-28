@@ -17,6 +17,7 @@ import {
 } from '@chayuan/api';
 import { useTabsStore } from '../../store/tabs';
 import { useVgComposer } from './store/vgComposer';
+import { InProgressTasksPanel } from './InProgressTasksPanel';
 import { reportError } from '../../store/errorDialog';
 
 type Bucket = 'today' | 'this-week' | 'this-month' | 'older';
@@ -91,6 +92,9 @@ export const VideoLibraryPage: React.FC = () => {
           已合成的成品按时间分组,可在线播放 / 下载 / 复制参数重做
         </p>
       </header>
+
+      {/* N7:进行中任务聚合面板 — 多 SSE 并发显示进度条,完成自动消失 */}
+      <InProgressTasksPanel />
 
       {q.isLoading && <p className="text-sm text-[var(--cy-text-tertiary)]">加载中…</p>}
       {q.isError && (
