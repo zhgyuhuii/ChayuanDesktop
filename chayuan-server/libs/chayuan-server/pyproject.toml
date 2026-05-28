@@ -84,6 +84,9 @@ moviepy = "==2.1.2"
 # .NET。本地主路径走 modality.audio 已有的 piper-tts;edge-tts 仅作"用户
 # 网络通且想要更高质量音色"的备选 — 视频生成 TTS 步骤的 "在线" tab。
 edge-tts = ">=7.2,<8.0"
+# yt-dlp:通用 URL 视频抓取(YouTube/bilibili/抖音/西瓜/Twitter ... 1000+ 站点)。
+# 视频生成"在线素材"tab 的通用 fallback 链。法律风险用户自负(UI 显眼提示)。
+yt-dlp = "*"
 # 纯 Python 繁简转换(~280 KB),用在 ASR 路径里把 whisper.cpp 默认输出的繁体
 # 中文统一转简体 — 用户主诉求是简体笔记。无 native deps,跨平台稳。
 zhconv = ">=1.4,<2.0"
