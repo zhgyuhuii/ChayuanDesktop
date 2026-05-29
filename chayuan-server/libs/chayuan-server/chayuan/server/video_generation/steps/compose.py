@@ -325,6 +325,87 @@ def _build_edl_render_plan(timeline, video_aspect, *, source_resolver):
     return plan
 
 
+def render_from_edl(
+    timeline,
+    audio_file: str,
+    subtitle_path: str,
+    output_file: str,
+    params,
+    *,
+    source_resolver,
+    threads: int = 2,
+) -> str:
+    """按 EDL 渲染:裁剪每段 -> 规整到画幅 -> ffmpeg concat -> 叠音频+字幕。
+
+    时长策略:总长 > 音频 -> generate_video 用音频长截断(沿用现有);
+    < 音频 -> 末段定格补足到音频长。
+    """
+    aspect = VideoAspect(params.video_aspect)
+    video_width, video_height = aspect.to_resolution()
+    output_dir = os.path.dirname(output_file)
+
+    plan = _build_edl_render_plan(timeline, params.video_aspect, source_resolver=source_resolver)
+    if not plan:
+        raise RuntimeError("EDL 没有可渲染的视频片段(video 轨为空或素材解析失败)")
+
+    audio_clip = AudioFileClip(audio_file)
+    try:
+        audio_duration = audio_clip.duration
+    finally:
+        close_clip(audio_clip)
+
+    clip_files: list[str] = []
+    total = 0.0
+    for i, p in enumerate(plan):
+        clip = _open_video_clip_quietly(p["path"])
+        try:
+            src_dur = clip.duration
+            start_s = min(p["start_s"], max(0.0, src_dur - 0.1))
+            end_s = p["end_s"] if p["end_s"] is not None else src_dur
+            end_s = min(end_s, src_dur)
+            if end_s <= start_s:
+                end_s = min(start_s + 1.0, src_dur)
+            seg = clip.subclipped(start_s, end_s).resized(new_size=(video_width, video_height))
+            seg_path = os.path.join(output_dir, f"edl-seg-{i}.mp4")
+            seg.write_videofile(seg_path, logger=None, fps=fps, codec=video_codec)
+            clip_files.append(seg_path)
+            total += (end_s - start_s)
+        finally:
+            close_clip(clip)
+
+    if clip_files and total < audio_duration - 0.2:
+        try:
+            last = _open_video_clip_quietly(clip_files[-1])
+            try:
+                freeze_dur = audio_duration - total
+                last_dur = last.duration
+                freeze_start = max(0.0, last_dur - 0.05)
+                freeze_end = last_dur
+                frame = (
+                    last.subclipped(freeze_start, freeze_end)
+                    .with_duration(freeze_dur)
+                    .resized(new_size=(video_width, video_height))
+                )
+                freeze_path = os.path.join(output_dir, "edl-freeze.mp4")
+                frame.write_videofile(freeze_path, logger=None, fps=fps, codec=video_codec)
+                clip_files.append(freeze_path)
+            finally:
+                close_clip(last)
+        except Exception as exc:
+            logger.warning("[edl] 末段定格补足失败,跳过(将以现有片段长度交付): %s", exc)
+
+    combined_path = os.path.join(output_dir, "edl-combined.mp4")
+    concat_video_clips_with_ffmpeg(clip_files, combined_path, threads=threads, output_dir=output_dir)
+    generate_video(
+        video_path=combined_path,
+        audio_path=audio_file,
+        subtitle_path=subtitle_path,
+        output_file=output_file,
+        params=params,
+    )
+    return output_file
+
+
 def combine_videos(
     combined_video_path: str,
     video_paths: List[str],
