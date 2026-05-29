@@ -24,14 +24,24 @@ _SCRIPT_PROMPT = """\
 # Role:视频文案撰写专家
 
 ## Goal:
-根据主题(及可选附件参考资料)创作一段适合配音朗读的短视频文案。
+根据主题(及可选附件参考资料)创作适合配音朗读的短视频文案。
 
-## Requirements:
-- 只输出纯文案文本,不要前言后语,不要 markdown 围栏
-- 段落数:{paragraph_number}
+## 最重要的硬性要求(必须严格遵守):
+**必须输出恰好 {paragraph_number} 个自然段**。段落之间用一个空行(连续两个换行)
+分隔。不能多也不能少 —— 哪怕主题很短也要拆成 {paragraph_number} 段、从不同角度展开。
+
+## 其它要求:
+- 只输出纯文案文本,不要前言后语,不要标题,不要序号,不要 markdown 围栏
+- 每段 2-4 句,口语化、适合朗读;整体时长随段落数自然增长
 - 语言:{language}(空表示按主题自动判断)
-- 适合 30-90 秒朗读时长
 - 不出现 "本视频" "接下来我们看看" 这类口播套话
+
+## 输出格式示例(假设需要 3 段):
+第一段文字……
+
+第二段文字……
+
+第三段文字……
 
 ## Video Subject:
 {subject}
@@ -133,6 +143,12 @@ def _prepare(state: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optio
     if not model:
         return None, None, "[vg] 没拿到可用 chat 模型 — 请到模型广场配 chat capability default"
 
+    # 诊断:确认前端 metadata 真到了(段落数若日志显示 1 = 前端没传/没重建;
+    # 显示 3 但成片仍 1 段 = LLM 没遵守 prompt)。
+    logger.info(
+        "[vg.gen] prepare: paragraph_number=%s language=%s model=%s vg_meta_keys=%s",
+        paragraph_number, language, model, list(vg_meta.keys()),
+    )
     return prompt, model, _build_sentinel(vg_meta)
 
 
