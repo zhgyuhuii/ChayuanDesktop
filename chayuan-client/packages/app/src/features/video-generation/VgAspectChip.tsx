@@ -48,9 +48,9 @@ export const VgAspectChip: React.FC = () => {
 // ── VgOutputSettings:画幅 + 视频输出参数(toolbar 画幅设置面板) ──────────
 
 const ASPECT_OPTIONS: Array<{ v: '16:9' | '9:16' | '1:1'; label: string; box: string }> = [
-  { v: '9:16', label: '竖屏 9:16', box: 'h-5 w-[14px]' },
-  { v: '16:9', label: '横屏 16:9', box: 'h-[14px] w-5' },
-  { v: '1:1',  label: '方形 1:1',  box: 'h-4 w-4' },
+  { v: '9:16', label: '竖屏 9:16', box: 'h-3.5 w-[10px]' },
+  { v: '16:9', label: '横屏 16:9', box: 'h-[10px] w-3.5' },
+  { v: '1:1',  label: '方形 1:1',  box: 'h-3 w-3' },
 ];
 const COUNT_OPTIONS = [1, 2, 3, 5] as const;
 const CLIP_OPTIONS = [3, 5, 8, 10] as const;
@@ -79,13 +79,19 @@ export const VgOutputSettings: React.FC = () => {
   const params = useVgComposer((s) => s.params);
   const patch = useVgComposer((s) => s.patchParams);
 
+  const selectCls = cn(
+    'h-6 rounded-md border border-[var(--cy-border-subtle)]',
+    'bg-[var(--cy-surface-1)] px-1 text-[10px] text-[var(--cy-text-primary)]',
+    'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
+  );
+
   return (
     <div
       role="toolbar"
       aria-label="画幅设置"
-      className="flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]"
+      className="flex flex-wrap items-center gap-x-1 gap-y-1 text-[11px] text-[var(--cy-text-secondary)]"
     >
-      {/* 画幅 — 可视比例块 */}
+      {/* 画幅 — 可视比例块,只显比例文字省宽 */}
       <span className="opacity-60">画幅</span>
       <div className="flex items-center gap-0.5">
         {ASPECT_OPTIONS.map((a) => (
@@ -104,66 +110,41 @@ export const VgOutputSettings: React.FC = () => {
                 params.video_aspect === a.v ? 'border-white bg-white/30' : 'border-current opacity-60',
               )}
             />
-            {a.label}
+            {a.v}
           </button>
         ))}
       </div>
 
-      <span className="mx-1 opacity-30">·</span>
+      {/* 个数 — 下拉省宽 */}
+      <span className="ml-1.5 opacity-60">个数</span>
+      <select value={params.video_count}
+        onChange={(e) => patch({ video_count: parseInt(e.target.value, 10) || 1 })}
+        className={selectCls}>
+        {COUNT_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+      </select>
 
-      {/* 生成个数 */}
-      <span className="opacity-60">生成个数</span>
-      <div className="flex items-center gap-0.5">
-        {COUNT_OPTIONS.map((n) => (
-          <button key={n} type="button" onClick={() => patch({ video_count: n })}
-            aria-pressed={params.video_count === n} className={chipCls(params.video_count === n)}>
-            {n}
-          </button>
-        ))}
-      </div>
-
-      <span className="mx-1 opacity-30">·</span>
-
-      {/* 单段时长 */}
-      <span className="opacity-60">单段(s)</span>
-      <div className="flex items-center gap-0.5">
-        {CLIP_OPTIONS.map((s) => (
-          <button key={s} type="button" onClick={() => patch({ video_clip_duration: s })}
-            aria-pressed={params.video_clip_duration === s} className={chipCls(params.video_clip_duration === s)}>
-            {s}
-          </button>
-        ))}
-      </div>
-
-      <span className="mx-1 opacity-30">·</span>
+      {/* 时长 */}
+      <span className="ml-1.5 opacity-60">时长</span>
+      <select value={params.video_clip_duration}
+        onChange={(e) => patch({ video_clip_duration: parseInt(e.target.value, 10) || 5 })}
+        className={selectCls} title="单段最长(秒)">
+        {CLIP_OPTIONS.map((s) => <option key={s} value={s}>{s}s</option>)}
+      </select>
 
       {/* 拼接 */}
-      <span className="opacity-60">拼接</span>
-      <div className="flex items-center gap-0.5">
-        {CONCAT_OPTIONS.map((c) => (
-          <button key={c.v} type="button" onClick={() => patch({ video_concat_mode: c.v })}
-            aria-pressed={params.video_concat_mode === c.v} className={chipCls(params.video_concat_mode === c.v)}>
-            {c.label}
-          </button>
-        ))}
-      </div>
-
-      <span className="mx-1 opacity-30">·</span>
+      <span className="ml-1.5 opacity-60">拼接</span>
+      <select value={params.video_concat_mode}
+        onChange={(e) => patch({ video_concat_mode: e.target.value as VgConcatMode })}
+        className={selectCls}>
+        {CONCAT_OPTIONS.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
+      </select>
 
       {/* 转场 */}
-      <span className="opacity-60">转场</span>
-      <select
-        value={params.video_transition_mode}
+      <span className="ml-1.5 opacity-60">转场</span>
+      <select value={params.video_transition_mode}
         onChange={(e) => patch({ video_transition_mode: e.target.value as VgTransitionMode })}
-        className={cn(
-          'h-6 rounded-md border border-[var(--cy-border-subtle)]',
-          'bg-[var(--cy-surface-1)] px-1.5 text-[10px] text-[var(--cy-text-primary)]',
-          'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
-        )}
-      >
-        {TRANSITIONS.map((t) => (
-          <option key={t.v || 'none'} value={t.v}>{t.label}</option>
-        ))}
+        className={selectCls}>
+        {TRANSITIONS.map((t) => <option key={t.v || 'none'} value={t.v}>{t.label}</option>)}
       </select>
     </div>
   );
