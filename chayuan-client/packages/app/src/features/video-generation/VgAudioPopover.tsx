@@ -39,11 +39,22 @@ export const VgSpeechSettings: React.FC = () => {
     queryFn: () => videoGeneration.listVoices(params.voice_provider),
     staleTime: 5 * 60 * 1000,
   });
-  // 按 toolbar 选的语言过滤音色;选「自动」(空)显示全部。
-  // 过滤后为空(如 piper 没该语言离线音色)→ fallback 全部 + 提示,避免下拉空。
+  // 按 toolbar 选的语言过滤音色;选「自动」(空)显示全部。放宽匹配以给更多音色:
+  //   - 精确同语言(zh-CN)
+  //   - 同语族(zh-* 港台也算中文,en-* 英语都算)
+  //   - 多语种音色(*Multilingual*,微软这些能流利说任意语言,质量高)
+  // 过滤后为空(如 piper 无该语言离线音色)→ fallback 全部 + 提示,避免下拉空。
   const allVoices: VgVoiceItem[] = voicesQ.data?.items ?? [];
   const lang = params.video_language;
-  const matched = lang ? allVoices.filter((v) => v.language === lang) : allVoices;
+  const langFamily = lang.split('-')[0];
+  const matched = lang
+    ? allVoices.filter(
+        (v) =>
+          v.language === lang ||
+          v.language.split('-')[0] === langFamily ||
+          /multilingual/i.test(v.id),
+      )
+    : allVoices;
   const noMatch = !!lang && matched.length === 0 && allVoices.length > 0;
   const voices = noMatch ? allVoices : matched;
 
