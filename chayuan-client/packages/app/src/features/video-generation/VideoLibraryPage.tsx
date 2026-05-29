@@ -19,6 +19,7 @@ import { useTabsStore } from '../../store/tabs';
 import { useVgComposer } from './store/vgComposer';
 import { InProgressTasksPanel } from './InProgressTasksPanel';
 import { reportError } from '../../store/errorDialog';
+import { confirmDialog } from '../../store/confirmDialog';
 
 type Bucket = 'today' | 'this-week' | 'this-month' | 'older';
 const BUCKET_LABEL: Record<Bucket, string> = {
@@ -123,7 +124,7 @@ export const VideoLibraryPage: React.FC = () => {
                   v={v}
                   onCopyRedo={() => onCopyAndRedo(v)}
                   onDelete={async () => {
-                    if (!window.confirm(`删除「${v.title || '未命名视频'}」?磁盘文件会一并清掉。`)) return;
+                    if (!(await confirmDialog(`删除「${v.title || '未命名视频'}」?磁盘文件会一并清掉。`, { danger: true }))) return;
                     try { await deleteMut.mutateAsync(v.video_id); } catch (e) { reportError(e as Error); }
                   }}
                 />

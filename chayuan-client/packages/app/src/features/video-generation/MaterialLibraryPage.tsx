@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { videoGeneration, type VgMaterial } from '@chayuan/api';
 import { reportError, notifySuccess } from '../../store/errorDialog';
+import { confirmDialog } from '../../store/confirmDialog';
 
 type View = 'grid' | 'list';
 type Source = 'all' | 'upload' | 'bundled' | 'pexels' | 'pixabay';
@@ -76,7 +77,7 @@ export const MaterialLibraryPage: React.FC = () => {
 
   const onDeleteSelected = async () => {
     if (selectedIds.size === 0) return;
-    if (!window.confirm(`确认删除 ${selectedIds.size} 个素材?磁盘文件会一并清掉。`)) return;
+    if (!(await confirmDialog(`确认删除 ${selectedIds.size} 个素材?磁盘文件会一并清掉。`, { danger: true }))) return;
     for (const id of selectedIds) {
       try { await deleteMut.mutateAsync(id); } catch (e) { reportError(e as Error); }
     }
@@ -267,7 +268,7 @@ export const MaterialLibraryPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!window.confirm(`删除 ${m.name}?`)) return;
+                      if (!(await confirmDialog(`删除 ${m.name}?`, { danger: true }))) return;
                       try {
                         await deleteMut.mutateAsync(m.material_id);
                       } catch (e) { reportError(e as Error); }

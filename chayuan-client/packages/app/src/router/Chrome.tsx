@@ -40,6 +40,7 @@ import { ArtifactPanel } from '../features/artifact/ArtifactPanel';
 import { CommandPaletteRoot } from '../features/cmdk/CommandPalette';
 import { useDesktopIntegrations } from '../features/desktop/useDesktopIntegrations';
 import { ErrorDialogRoot } from '../features/shell/ErrorDialog';
+import { ConfirmRoot } from '../store/confirmDialog';
 import { ImageEmbedderInstallDialog } from '../features/aiPlatform/ImageEmbedderInstallDialog';
 import { useAuthStore } from '../store/auth';
 import { useLoginModalStore } from '../store/loginModal';
@@ -136,6 +137,7 @@ export const Chrome: React.FC = () => {
       <ArtifactPanel />
       <CommandPaletteRoot />
       <ErrorDialogRoot />
+      <ConfirmRoot />
       <DetachedToolbar />
       <ImageEmbedderInstallDialog />
     </div>
