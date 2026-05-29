@@ -80,3 +80,28 @@ it('appendClipFromMaterial: atIndex inserts', () => {
   const t = appendClipFromMaterial(base, { url: 'http://e/x.mp4', kind: 'video' }, 0);
   expect(t.tracks[0]!.clips!.map((c) => c.source)).toEqual([{ url: 'http://e/x.mp4' }, { path: '/a.mp4' }]);
 });
+
+import { replaceClipSource, appendAudioClip } from './timelineEdit';
+
+it('replaceClipSource swaps source, keeps timing', () => {
+  const t = { version: 1, duration_ms: 0, tracks: [{ id: 'v', kind: 'video' as const, clips: [
+    { id: 'a', source: { path: '/a.mp4' }, track_start_ms: 0, in_ms: 500, out_ms: 4000 },
+  ] }] };
+  const r = replaceClipSource(t, 'a', { material_id: 'm9' });
+  const c = r.tracks[0]!.clips!.find((x) => x.id === 'a')!;
+  expect(c.source).toEqual({ material_id: 'm9' });
+  expect(c.in_ms).toBe(500);
+  expect(c.out_ms).toBe(4000);
+});
+
+it('appendAudioClip adds to audio track at end', () => {
+  const t = { version: 1, duration_ms: 0, tracks: [{ id: 'v', kind: 'video' as const, clips: [] }] };
+  const r = appendAudioClip(t, { materialId: 'snd1', kind: 'audio', durationMs: 3000 });
+  const atr = r.tracks.find((x) => x.kind === 'audio')!;
+  expect(atr.clips).toHaveLength(1);
+  expect(atr.clips![0]!.source).toEqual({ material_id: 'snd1' });
+  expect(atr.clips![0]!.out_ms).toBe(3000);
+  const r2 = appendAudioClip(r, { url: 'http://e/s2.mp3', kind: 'audio', durationMs: 2000 });
+  const atr2 = r2.tracks.find((x) => x.kind === 'audio')!;
+  expect(atr2.clips![1]!.track_start_ms).toBe(3000);
+});

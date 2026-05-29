@@ -75,7 +75,7 @@ export const VG_MATERIAL_DND_MIME = 'application/x-vg-material';
 export interface DraggedMaterial {
   materialId?: string;
   url?: string;
-  kind: 'video' | 'image';
+  kind: 'video' | 'image' | 'audio';
   durationMs?: number;
 }
 
@@ -100,4 +100,42 @@ export function appendClipFromMaterial(
   const at = atIndex == null ? clips.length : Math.max(0, Math.min(atIndex, clips.length));
   clips.splice(at, 0, clip);
   return recomputeStarts(withVideoClips(t, clips));
+}
+
+/** 替换 clip 的素材源,保留 in/out/时长/位置。 */
+export function replaceClipSource(
+  t: VgTimeline,
+  clipId: string,
+  source: { material_id?: string; url?: string },
+): VgTimeline {
+  const tracks = (t.tracks || []).map((tr) => ({
+    ...tr,
+    clips: (tr.clips || []).map((c) => (c.id === clipId ? { ...c, source } : c)),
+  }));
+  return { ...t, tracks };
+}
+
+/** 往 audio 轨追加一个插入音频 clip(顺序排在该轨末尾;无 audio 轨则建)。 */
+export function appendAudioClip(t: VgTimeline, m: DraggedMaterial, atIndex?: number): VgTimeline {
+  const tracks = [...(t.tracks || [])];
+  let ai = tracks.findIndex((tr) => tr.kind === 'audio');
+  if (ai < 0) { tracks.push({ id: 'a', kind: 'audio', clips: [] }); ai = tracks.length - 1; }
+  const clips = [...(tracks[ai]!.clips || [])];
+  const dur = m.durationMs && m.durationMs > 0 ? Math.round(m.durationMs) : 0;
+  const last = clips[clips.length - 1];
+  const start = last
+    ? last.track_start_ms + (last.out_ms && last.out_ms > 0 ? last.out_ms : (last.duration_ms || 0))
+    : 0;
+  const clip: VgTimelineClip = {
+    id: `a${Date.now()}${Math.floor(Math.random() * 1000)}`,
+    source: m.materialId ? { material_id: m.materialId } : { url: m.url ?? '' },
+    track_start_ms: start,
+    in_ms: 0,
+    out_ms: dur,
+    duration_ms: dur,
+  };
+  const at = atIndex == null ? clips.length : Math.max(0, Math.min(atIndex, clips.length));
+  clips.splice(at, 0, clip);
+  tracks[ai] = { ...tracks[ai]!, clips };
+  return { ...t, tracks };
 }
