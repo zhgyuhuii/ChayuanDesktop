@@ -186,3 +186,140 @@ def extract_url(url: str) -> dict:
         "truncated": truncated,
         "raw_bytes": len(body),
     }
+
+
+# ---------------------------------------------------------------------------
+# 多媒体提取 — extract_media / _parse_media_from_html
+# ---------------------------------------------------------------------------
+
+from urllib.parse import urljoin  # noqa: E402
+
+_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+_VIDEO_EXTS = (".mp4", ".webm", ".mov", ".m4v", ".mkv")
+
+
+def _kind_of(url: str) -> str:
+    low = url.split("?")[0].lower()
+    if low.endswith(_VIDEO_EXTS):
+        return "video"
+    if low.endswith(_IMAGE_EXTS):
+        return "image"
+    return "image"  # 默认按图处理(og:image 等无扩展名场景)
+
+
+class _MediaHTMLParser(HTMLParser):
+    """抽 <img src>/<video src>/<source src>/og:image/og:video 的媒体 URL。"""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.raw: list[tuple[str, str]] = []  # (url, forced_kind|"")
+
+    def handle_starttag(self, tag, attrs):  # noqa: ANN001
+        d = dict(attrs)
+        t = tag.lower()
+        if t == "img" and d.get("src"):
+            self.raw.append((d["src"], "image"))
+        elif t in ("video", "source") and d.get("src"):
+            self.raw.append((d["src"], "video"))
+        elif t == "meta":
+            prop = (d.get("property") or d.get("name") or "").lower()
+            content = d.get("content") or ""
+            if content and prop in ("og:image", "twitter:image"):
+                self.raw.append((content, "image"))
+            elif content and prop in ("og:video", "og:video:url"):
+                self.raw.append((content, "video"))
+
+
+def _parse_media_from_html(body: bytes, base_url: str, encoding):  # noqa: ANN001
+    enc = (encoding or "utf-8").strip() or "utf-8"
+    try:
+        html = body.decode(enc, errors="replace")
+    except LookupError:
+        html = body.decode("utf-8", errors="replace")
+    parser = _MediaHTMLParser()
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[extract_media] HTML parse 失败: %r", e)
+    out: list[dict] = []
+    seen: set[str] = set()
+    for src, forced in parser.raw:
+        if not src or src.startswith("data:"):
+            continue
+        absolute = urljoin(base_url, src.strip())
+        if not absolute.startswith(("http://", "https://")):
+            continue
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        out.append({"url": absolute, "kind": forced or _kind_of(absolute)})
+    return out
+
+
+def extract_media(url: str, max_items: int = 60) -> dict:
+    """URL → {items:[{url,kind,thumb,title}], source_url}.
+
+    先 yt-dlp 探测(视频平台,可含 playlist);非平台或 yt-dlp 不可用则回退
+    抓 HTML 解析 <img>/<video>/og:*。失败抛 ValueError 给路由转 4xx。
+    """
+    if not url or not url.strip():
+        raise ValueError("URL 不能为空")
+    url = url.strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise ValueError("仅支持 http(s) URL")
+
+    # 1. yt-dlp 探测(不下载,只 extract_info)
+    try:
+        import yt_dlp  # type: ignore[import-not-found]
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
+            info = ydl.extract_info(url, download=False)
+        entries = info.get("entries") if isinstance(info, dict) else None
+        vids = entries if entries else ([info] if info else [])
+        items = []
+        for e in vids:
+            if not e:
+                continue
+            page = e.get("webpage_url") or e.get("original_url") or e.get("url") or url
+            items.append({
+                "url": page,
+                "kind": "video",
+                "thumb": e.get("thumbnail") or "",
+                "title": e.get("title") or "",
+                "via": "ytdlp",
+            })
+        if items:
+            return {"items": items[:max_items], "source_url": url}
+    except Exception as e:  # noqa: BLE001
+        logger.info("[extract_media] yt-dlp 未命中(%r),回退 HTML 抓取", e)
+
+    # 2. HTML 抓取
+    try:
+        resp = requests.get(
+            url, timeout=_FETCH_TIMEOUT_S, stream=True,
+            headers={"User-Agent": "chayuan-video-generation/1.0"},
+        )
+    except requests.RequestException as e:
+        raise ValueError(f"抓取失败: {e}") from e
+    try:
+        if resp.status_code >= 400:
+            raise ValueError(f"HTTP {resp.status_code}")
+        ct = (resp.headers.get("Content-Type") or "").lower()
+        body = b""
+        for chunk in resp.iter_content(chunk_size=1 << 16):
+            if chunk:
+                body += chunk
+                if len(body) > _MAX_FETCH_BYTES:
+                    break
+    finally:
+        try:
+            resp.close()
+        except Exception:  # noqa: BLE001
+            pass
+    if "html" not in ct and "xml" not in ct:
+        raise ValueError(f"该 URL 不是网页也非视频平台({ct or '未知类型'}),无法提取媒体")
+    items = [{**m, "thumb": m["url"] if m["kind"] == "image" else "", "title": "", "via": "html"}
+             for m in _parse_media_from_html(body, url, resp.encoding)]
+    if not items:
+        raise ValueError("该页面未发现可提取的图片/视频")
+    return {"items": items[:max_items], "source_url": url}
