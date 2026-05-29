@@ -121,7 +121,8 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
         return prev;
       });
       if (!snapshot) return;
-      const vm = snapshot.metadata?.videoMeta ?? {};
+      // 注:不再读 snapshot.metadata.videoMeta —— tts/bgm/画幅 全部以 base.*
+      // (vgComposer 实时参数)为准,videoMeta 里那几个是脚本生成时冻结的 sentinel。
       const script = (snapshot.content ?? '').trim();
       const base = useVgComposer.getState().params;
       const params = {
@@ -142,7 +143,11 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
         bgm_type: base.bgm_type,
         bgm_file: base.bgm_file,
         bgm_volume: base.bgm_volume,
-        video_aspect: (vm.videoAspect ?? base.video_aspect) as typeof base.video_aspect,
+        // 画幅同 tts/bgm:base.video_aspect 是工具栏 VgAspectChip 实时写入的真源,
+        // vm.videoAspect 是脚本生成那一刻冻进消息的快照(且后端缺值会兜底 "9:16")。
+        // 若用户先生成脚本、之后才改画幅,用 vm.videoAspect 会拿到旧的 9:16 覆盖 1:1。
+        // 直接用 base.* 才反映用户当前选择。
+        video_aspect: base.video_aspect,
       };
       try {
         const t = await videoGeneration.submitTask(params, { stop_at: 'video' });
