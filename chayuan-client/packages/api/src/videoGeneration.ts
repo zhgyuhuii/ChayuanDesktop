@@ -517,16 +517,56 @@ export async function vgSearchMaterials(args: {
   source?: 'pexels' | 'pixabay';
   aspect?: VgVideoAspect;
   minimum_duration?: number;
-}): Promise<{ count: number; items: VgMaterialInfo[] }> {
-  return rd<{ count: number; items: VgMaterialInfo[] }>('/api/v1/video-generation/materials/search', {
+  auto_translate?: boolean;
+}): Promise<{ count: number; items: VgMaterialInfo[]; query?: string; translated_query?: string | null }> {
+  return rd<{ count: number; items: VgMaterialInfo[]; query?: string; translated_query?: string | null }>('/api/v1/video-generation/materials/search', {
     method: 'GET',
     query: {
       q: args.q,
       source: args.source ?? 'pexels',
       aspect: args.aspect ?? '9:16',
       minimum_duration: args.minimum_duration ?? 5,
+      auto_translate: args.auto_translate ?? true,
     },
   });
+}
+
+export interface VgMediaItem {
+  url: string;
+  kind: 'image' | 'video';
+  thumb?: string;
+  title?: string;
+  via?: string;
+}
+export interface VgExtractedMedia {
+  items: VgMediaItem[];
+  source_url: string;
+}
+
+export async function vgExtractMedia(url: string): Promise<VgExtractedMedia> {
+  return rd<VgExtractedMedia>('/api/v1/video-generation/materials/extract-media', {
+    method: 'GET',
+    query: { url },
+  });
+}
+
+/** 下载远程媒体落库,返回新建 VgMaterial。 */
+export async function vgIngestMedia(args: {
+  url: string;
+  kind: 'image' | 'video';
+  source?: string;
+}): Promise<VgMaterial> {
+  return rd<VgMaterial>('/api/v1/video-generation/materials/ingest', {
+    method: 'POST',
+    body: { url: args.url, kind: args.kind, source: args.source ?? 'online' },
+  });
+}
+
+/** BGM 试听/下载 URL。 */
+export function vgBgmFileUrl(name: string, download = false): string {
+  const cfg = getClientConfig();
+  const u = `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/video-generation/bgm/${encodeURIComponent(name)}/file`;
+  return download ? `${u}?download=true` : u;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -663,6 +703,9 @@ export const videoGeneration = {
   uploadMaterial: vgUploadMaterial,
   deleteMaterial: vgDeleteMaterial,
   searchMaterials: vgSearchMaterials,
+  extractMedia: vgExtractMedia,
+  ingestMedia: vgIngestMedia,
+  bgmFileUrl: vgBgmFileUrl,
   listBgm: vgListBgm,
   uploadBgm: vgUploadBgm,
   listFonts: vgListFonts,
