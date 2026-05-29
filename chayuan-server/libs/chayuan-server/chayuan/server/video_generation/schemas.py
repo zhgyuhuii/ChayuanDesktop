@@ -121,6 +121,11 @@ class TimelineClip(BaseModel):
     out_ms: int = Field(default=0, ge=0)            # 源素材裁剪出点(0 表示到素材末尾)
     transition: str = "none"                        # none/fade/slide(P4)
     volume: float = 1.0                             # 音频轨用
+    # 画中画(P5c-2):0-1 归一坐标/缩放 + 层级。主轨 clip 不填 = 铺满底层。
+    x: float = 0.0
+    y: float = 0.0
+    scale: float = 1.0
+    z: int = 0
 
 
 class TimelineTrack(BaseModel):
@@ -128,6 +133,8 @@ class TimelineTrack(BaseModel):
     kind: str = "video"                             # video / audio / subtitle
     clips: List[TimelineClip] = Field(default_factory=list)
     cues: List[SrtCue] = Field(default_factory=list)  # subtitle 轨复用 SrtCue
+    removable: bool = False                          # 用户添加的轨可删;默认轨 False(P5c-2)
+    label: str = ""
 
 
 class Timeline(BaseModel):

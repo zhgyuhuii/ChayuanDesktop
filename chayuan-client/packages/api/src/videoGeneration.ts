@@ -66,12 +66,18 @@ export interface VgTimelineClip {
   transition?: 'none' | 'fade' | 'slide';
   volume?: number;
   duration_ms?: number;       // 前端编辑用的有效时长;后端只用 in/out
+  x?: number;                 // 画中画 0-1 归一位置/缩放/层级(P5c-2)
+  y?: number;
+  scale?: number;
+  z?: number;
 }
 export interface VgTimelineTrack {
   id: string;
   kind: 'video' | 'audio' | 'subtitle';
   clips?: VgTimelineClip[];
   cues?: VgSrtCue[];
+  removable?: boolean;        // 用户添加的轨可删(P5c-2)
+  label?: string;
 }
 export interface VgTimeline {
   version?: number;
