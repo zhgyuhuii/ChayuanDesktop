@@ -18,6 +18,7 @@ import shutil
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import runner
+from ._helpers import task_dir
 from .schemas import ScriptSource, VgTaskState, VideoParams
 from .store import tasks as tasks_store
 
@@ -136,9 +137,11 @@ def retry_task(task_id: str, *, owner_id: Optional[int] = None) -> bool:
 
 
 def finalize_task(
-    task_id: str, timeline: Dict[str, Any], *, owner_id: Optional[int] = None,
+    task_id: str, timeline: Dict[str, Any], *,
+    owner_id: Optional[int] = None,
+    subtitle_cues: Optional[list] = None,
 ) -> bool:
-    """草稿收尾:校验草稿持有 audio/subtitle/materials,设 timeline,只跑 compose。"""
+    """草稿收尾:校验草稿持有 audio/subtitle,设 timeline,(可选)用编辑字幕写 srt,只跑 compose。"""
     row = tasks_store.get_task(task_id, owner_id=owner_id)
     if not row:
         return False
@@ -157,6 +160,16 @@ def finalize_task(
     if not vclips:
         logger.warning("[service] finalize_task %s 视频轨为空,拒绝", task_id)
         return False
+    # 编辑后的字幕 cues → 写 edited.srt 覆盖草稿 srt(P5b)
+    if subtitle_cues:
+        try:
+            from .steps.compose import cues_to_srt
+            edited = os.path.join(task_dir(task_id, create=True), "edited.srt")
+            with open(edited, "w", encoding="utf-8") as f:
+                f.write(cues_to_srt(subtitle_cues))
+            subtitle_path = edited
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[service] finalize_task %s 写 edited.srt 失败,用草稿 srt: %r", task_id, e)
     try:
         params = VideoParams.model_validate(row.get("params") or {})
         from .schemas import Timeline
@@ -164,9 +177,10 @@ def finalize_task(
     except Exception as e:  # noqa: BLE001
         logger.warning("[service] finalize_task %s params/timeline 解析失败: %r", task_id, e)
         return False
-    tasks_store.update_progress(task_id, state=VgTaskState.pending.value, progress=70)
+    # 草稿收尾 → 升 stop_at=video,正常出现在「视频任务」并显渲染进度
+    tasks_store.update_progress(task_id, state=VgTaskState.pending.value, progress=70, stop_at="video")
     runner.enqueue_finalize(task_id, params, audio_file=audio_file, subtitle_path=subtitle_path)
-    logger.info("[service] finalize_task %s 入队 compose-only", task_id)
+    logger.info("[service] finalize_task %s 入队 compose-only (cues=%s)", task_id, bool(subtitle_cues))
     return True
 
 

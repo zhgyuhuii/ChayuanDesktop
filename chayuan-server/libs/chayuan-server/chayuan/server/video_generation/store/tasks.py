@@ -117,6 +117,7 @@ def update_progress(
     progress: Optional[int] = None,
     result_patch: Optional[Dict[str, Any]] = None,
     error: Optional[str] = None,
+    stop_at: Optional[str] = None,
 ) -> bool:
     """局部更新任务态。result_patch 是 dict,会 merge 进现有 result_json。
 
@@ -129,6 +130,8 @@ def update_progress(
 
     if state is not None:
         row.state = state
+    if stop_at is not None:
+        row.stop_at = stop_at
     if progress is not None:
         row.progress = max(0, min(100, int(progress)))
 
