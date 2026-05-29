@@ -679,29 +679,49 @@ def list_voices(
     """
 
     if provider == "piper":
-        # 扫 bundled + user-local 实际 .onnx 文件 + 已知 voice label 映射
-        # (男声/女声/语言)。空时给一个默认引导,前端选了会触发 auto-download。
-        voices = _scan_piper_voices()
-        if not voices:
-            voices = [
-                {"id": "zh_CN-huayan-medium",
-                 "label": "huayan · 中文女声(medium,未下载,选中后自动拉)",
-                 "language": "zh-CN"},
-            ]
+        # 本地已下载 ∪ 已知目录(PIPER_VOICE_LABELS)。已知但未下载的标
+        # downloaded=False,前端选中后 preview/synthesize 触发 auto-download
+        # (hf-mirror 已就绪)。这样下拉永远不空,而且能选很多音色。
+        voices = _list_piper_voices()
     elif provider == "edge":
-        voices = [
-            {"id": "zh-CN-XiaoxiaoNeural",   "label": "晓晓(中文女声)", "language": "zh-CN"},
-            {"id": "zh-CN-YunxiNeural",      "label": "云希(中文男声)", "language": "zh-CN"},
-            {"id": "zh-CN-YunjianNeural",    "label": "云健(中文男声)", "language": "zh-CN"},
-            {"id": "zh-CN-XiaoyiNeural",     "label": "晓伊(中文女声)", "language": "zh-CN"},
-            {"id": "en-US-AriaNeural",       "label": "Aria (US, female)", "language": "en-US"},
-            {"id": "en-US-GuyNeural",        "label": "Guy (US, male)",    "language": "en-US"},
-        ]
+        # 从上游移植的完整 edge 音色目录(331 个,纯协议联网不需要 key)。
+        # 中文音色排前。edge 不需要本地文件,直接全列。
+        from chayuan.server.video_generation.edge_voices import EDGE_VOICES
+        voices = list(EDGE_VOICES)
     else:  # sherpa
         # 扫 bundled_models/tts/sherpa-onnx/ 子目录返实际可用 voice。
         # 名称规约:目录名即 voice_id;含 model.onnx 视为可用。
         voices = _scan_sherpa_voices()
     return {"provider": provider, "count": len(voices), "items": voices}
+
+
+def _list_piper_voices() -> List[Dict[str, Any]]:
+    """piper 音色下拉 = 本地已下载 ∪ 已知目录(PIPER_VOICE_LABELS)。
+
+    - 本地扫到的 voice:downloaded=True,排前
+    - 已知但未下载的:downloaded=False,label 带"(未下载,选中自动拉)"
+    每项加 ``downloaded`` bool 字段,前端可选地给未下载项标个云朵图标。
+    """
+    local = _scan_piper_voices()
+    local_ids = {v["id"] for v in local}
+    for v in local:
+        v["downloaded"] = True
+    extra: List[Dict[str, Any]] = []
+    for vid, label in PIPER_VOICE_LABELS.items():
+        if vid in local_ids:
+            continue
+        parts = vid.split("-")
+        locale = parts[0] if parts else ""
+        language = locale.replace("_", "-") if "_" in locale else (locale or "unknown")
+        extra.append({
+            "id": vid,
+            "label": f"{label}(未下载,选中自动拉)",
+            "language": language,
+            "downloaded": False,
+        })
+    # 已下载排前;未下载里中文(zh_)优先
+    extra.sort(key=lambda x: (not x["id"].startswith("zh_"), x["id"]))
+    return local + extra
 
 
 def _scan_sherpa_voices() -> List[Dict[str, Any]]:
