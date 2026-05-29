@@ -73,6 +73,29 @@ _VG_KEYS = {
 }
 
 
+# api_key 类配置键 → vg_sources_config 表里的 source_name。
+# 用户在「素材设置」面板录入的 key 存这张表(/sources/config),合成时也得从这读。
+_KEY_TO_SOURCE = {
+    "pexels_api_keys": "pexels",
+    "pixabay_api_keys": "pixabay",
+}
+
+
+def _key_from_sources_config(cfg_key: str) -> Optional[str]:
+    """从 vg_sources_config 表读对应源的 api_key(用户 UI 录入的)。失败返 None。"""
+    source = _KEY_TO_SOURCE.get(cfg_key)
+    if not source:
+        return None
+    try:
+        from chayuan.server.video_generation.sources import config_store
+        cfg = config_store.get_config(source, reveal=True)  # type: ignore[call-arg]
+        if cfg and cfg.get("api_key"):
+            return str(cfg["api_key"]).strip() or None
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 class _AppProxy:
     """模拟上游 ``config.app`` dict 行为(get/dict-like)。"""
 
@@ -83,12 +106,16 @@ class _AppProxy:
             return default
         env_name, fallback_default, conv = spec
         raw = _get_env(env_name)
-        if raw is None or raw == "":
-            return fallback_default if default is None else default
-        try:
-            return conv(raw)
-        except Exception:  # noqa: BLE001
-            return fallback_default if default is None else default
+        if raw is not None and raw != "":
+            try:
+                return conv(raw)
+            except Exception:  # noqa: BLE001
+                pass
+        # ENV 未配 → 回落到 vg_sources_config 表(素材设置面板录入的 key)
+        db_key = _key_from_sources_config(key)
+        if db_key:
+            return db_key
+        return fallback_default if default is None else default
 
     def __contains__(self, key: str) -> bool:
         return key in _VG_KEYS
