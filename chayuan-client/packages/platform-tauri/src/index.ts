@@ -344,6 +344,15 @@ const tauriFs: FsApi = {
     await writeTextFile(path, content);
   },
 
+  async saveBinary(name, data) {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const { writeFile } = await import('@tauri-apps/plugin-fs');
+    const path = await save({ defaultPath: name });
+    if (!path) return; // 用户取消保存对话框
+    const bytes = new Uint8Array(await data.arrayBuffer());
+    await writeFile(path, bytes);
+  },
+
   async readDropped(event: DragEvent): Promise<File[]> {
     // Tauri 也透传标准 DataTransfer，复用 web 实现
     const list: File[] = [];

@@ -49,7 +49,7 @@ beforeEach(() => {
       // 测试桩与 PAL.db.query 的范型签名差异;运行时数据形状一致,这里强转。
       query: db.query as unknown as <T = unknown>(sql: string) => Promise<T[]>,
     },
-    fs: { pickFiles: async () => [], saveText: async () => undefined, readDropped: async () => [] },
+    fs: { pickFiles: async () => [], saveText: async () => undefined, saveBinary: async () => undefined, readDropped: async () => [] },
     net: { fetch: globalThis.fetch, sse: globalThis.fetch },
     clipboard: { readText: async () => '', writeText: async () => undefined },
     notify: { show: async () => undefined },

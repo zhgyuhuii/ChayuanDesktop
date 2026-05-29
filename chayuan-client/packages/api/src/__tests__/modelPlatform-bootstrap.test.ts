@@ -62,6 +62,7 @@ beforeEach(() => {
     fs: {
       pickFiles: async () => [],
       saveText: async () => undefined,
+      saveBinary: async () => undefined,
       readDropped: async () => [],
     },
     net: { fetch: fakeFetch, sse: fakeFetch },

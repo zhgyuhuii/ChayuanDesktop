@@ -293,6 +293,29 @@ const webFs: FsApi = {
     URL.revokeObjectURL(url);
   },
 
+  async saveBinary(name, data) {
+    const w = window as unknown as { showSaveFilePicker?: (opts: any) => Promise<any> };
+    if (w.showSaveFilePicker) {
+      try {
+        const handle = await w.showSaveFilePicker({ suggestedName: name });
+        const stream = await handle.createWritable();
+        await stream.write(data);
+        await stream.close();
+        return;
+      } catch {
+        /* fallthrough to anchor download */
+      }
+    }
+    const url = URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
   async readDropped(event: DragEvent): Promise<File[]> {
     const list: File[] = [];
     if (event.dataTransfer?.items) {

@@ -614,15 +614,16 @@ def _persist_vg_videos(task_id: str, params, final_videos: list[str]) -> None:
     snap = params.model_dump(mode="json")
 
     aspect_res = params.video_aspect.to_resolution()
-    # 标题:主题(对话模式可能空)→ 退化用脚本首句 → 兜底"视频";一律附生成时间。
+    # 标题:高度概括的短名(不是把整段输入当名字)——取主题/脚本首句的第一个
+    # 句段、截到 ~14 字;空则兜底"视频"。附生成时间。
     import datetime as _dt
-    base_name = (params.video_subject or "").strip()
-    if not base_name and params.video_script:
-        first_line = next(
-            (ln.strip() for ln in str(params.video_script).splitlines() if ln.strip()), "",
-        )
-        base_name = first_line[:30]
-    base_name = (base_name or "视频")[:40]
+    import re as _re
+    raw = (params.video_subject or "").strip()
+    if not raw and params.video_script:
+        raw = next((ln.strip() for ln in str(params.video_script).splitlines() if ln.strip()), "")
+    # 第一个句末/分隔标点前的内容当概括
+    head = _re.split(r"[。!?！?,，、;；:\.\n]", raw, maxsplit=1)[0].strip() if raw else ""
+    base_name = (head or raw or "视频")[:14]
     title = f"{base_name} · {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
     for path in final_videos:

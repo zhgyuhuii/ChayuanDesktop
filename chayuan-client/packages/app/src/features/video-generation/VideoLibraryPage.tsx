@@ -7,6 +7,7 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
+import { getPlatform } from '@chayuan/platform-shared';
 import { Video, Download, RefreshCw, Trash2 } from 'lucide-react';
 import {
   videoGeneration,
@@ -145,18 +146,14 @@ const VideoCard: React.FC<{
   const playUrl = vgTaskFileUrl(v.task_id, name, false);
   const [downloading, setDownloading] = React.useState(false);
   // Tauri webview 里 <a download> 不触发下载 → fetch 成 blob 后程序化 anchor 点击。
+  // 保存用的友好文件名 = 概括标题(去非法字符),而非磁盘上的 final-0.mp4
+  const dlName = `${(v.title || '视频').replace(/[\\/:*?"<>|·]/g, '_').replace(/\s+/g, '_').slice(0, 40)}.mp4`;
   const onDownload = async () => {
     setDownloading(true);
     try {
       const { blob } = await videoGeneration.downloadTaskFile(v.task_id, name);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      // 走平台抽象:Tauri 弹原生「保存位置」对话框 + 写文件;web 用 showSaveFilePicker/anchor。
+      await getPlatform().fs.saveBinary(dlName, blob);
     } catch (e) {
       reportError(e as Error, '下载失败');
     } finally {

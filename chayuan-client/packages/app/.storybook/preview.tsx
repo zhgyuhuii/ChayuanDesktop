@@ -16,6 +16,7 @@ const stubPlatform: Platform = {
   fs: {
     pickFiles: async () => [],
     saveText: async () => undefined,
+    saveBinary: async () => undefined,
     readDropped: async () => [],
   },
   net: { fetch: globalThis.fetch.bind(globalThis), sse: globalThis.fetch.bind(globalThis) },

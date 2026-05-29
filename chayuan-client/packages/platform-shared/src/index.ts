@@ -67,6 +67,9 @@ export interface FsApi {
    * Tauri 端用 readDir 自实现,同样填 webkitRelativePath 以保持调用方零分支。 */
   pickDirectory?(): Promise<File[]>;
   saveText(name: string, content: string): Promise<void>;
+  /** 保存二进制(视频/图片等)— 弹原生「保存位置」对话框。
+   *  web: File System Access API,fallback anchor 下载;Tauri: plugin-dialog save + plugin-fs writeFile。 */
+  saveBinary(name: string, data: Blob): Promise<void>;
   /** 从 DragEvent 中提取文件；统一 desktop / web 行为 */
   readDropped(event: DragEvent): Promise<File[]>;
 }

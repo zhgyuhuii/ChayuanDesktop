@@ -25,7 +25,7 @@ beforeEach(() => {
     runtime: { appName: 'test', appVersion: '0.0.0', release: 'test@0', defaultApiBase: '' },
     secure: memSecure,
     db: { exec: async () => undefined, query: async () => [] },
-    fs: { pickFiles: async () => [], saveText: async () => undefined, readDropped: async () => [] },
+    fs: { pickFiles: async () => [], saveText: async () => undefined, saveBinary: async () => undefined, readDropped: async () => [] },
     net: { fetch: globalThis.fetch, sse: globalThis.fetch },
     clipboard: { readText: async () => '', writeText: async () => undefined },
     notify: { show: async () => undefined },
