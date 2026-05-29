@@ -143,7 +143,26 @@ const VideoCard: React.FC<{
 }> = ({ v, onCopyRedo, onDelete }) => {
   const name = v.path.split(/[\\/]/).pop() || `${v.video_id}.mp4`;
   const playUrl = vgTaskFileUrl(v.task_id, name, false);
-  const dlUrl = vgTaskFileUrl(v.task_id, name, true);
+  const [downloading, setDownloading] = React.useState(false);
+  // Tauri webview 里 <a download> 不触发下载 → fetch 成 blob 后程序化 anchor 点击。
+  const onDownload = async () => {
+    setDownloading(true);
+    try {
+      const { blob } = await videoGeneration.downloadTaskFile(v.task_id, name);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      reportError(e as Error, '下载失败');
+    } finally {
+      setDownloading(false);
+    }
+  };
   return (
     <li className="overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]">
       <video
@@ -163,13 +182,14 @@ const VideoCard: React.FC<{
           {v.created_at ? ` · ${new Date(v.created_at).toLocaleString()}` : ''}
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <a
-            href={dlUrl}
-            download
-            className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[10px] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
+          <button
+            type="button"
+            onClick={() => void onDownload()}
+            disabled={downloading}
+            className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[10px] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)] disabled:opacity-50"
           >
-            <Download className="h-3 w-3" /> 下载
-          </a>
+            <Download className="h-3 w-3" /> {downloading ? '下载中…' : '下载'}
+          </button>
           <button
             type="button"
             onClick={onCopyRedo}

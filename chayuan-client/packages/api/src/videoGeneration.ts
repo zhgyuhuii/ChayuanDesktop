@@ -379,6 +379,25 @@ export async function vgPreviewEdl(args: {
   return { blob };
 }
 
+/** 下载成品文件为 Blob —— Tauri webview 里 `<a download>` 不触发下载,
+ *  必须 fetch 成 blob 后用 createObjectURL + 程序化 anchor 点击。带鉴权头。 */
+export async function vgDownloadTaskFile(taskId: string, fileName: string): Promise<{ blob: Blob }> {
+  const cfg = getClientConfig();
+  const url = `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/video-generation/files/${encodeURIComponent(taskId)}/${encodeURIComponent(fileName)}?download=true`;
+  const headers: Record<string, string> = {};
+  if ((cfg.authMode ?? 'bearer') === 'bearer') {
+    const tok = await getAccessToken();
+    if (tok) headers.Authorization = `Bearer ${tok}`;
+  }
+  const res = await getPlatform().net.fetch(url, {
+    method: 'GET',
+    headers,
+    credentials: cfg.authMode === 'cookie' ? 'include' : 'same-origin',
+  } as RequestInit);
+  if (!res.ok) throw new Error(`download HTTP ${res.status}`);
+  return { blob: await res.blob() };
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // 任务 CRUD
 // ─────────────────────────────────────────────────────────────────────
@@ -773,6 +792,7 @@ export const videoGeneration = {
   listVoices: vgListVoices,
   downloadVoice: vgDownloadVoice,
   taskFileUrl: vgTaskFileUrl,
+  downloadTaskFile: vgDownloadTaskFile,
   materialFileUrl: vgMaterialFileUrl,
   listVideos: vgListVideos,
   deleteVideo: vgDeleteVideo,
