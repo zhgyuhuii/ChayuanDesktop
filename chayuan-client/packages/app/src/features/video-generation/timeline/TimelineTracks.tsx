@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Film, Mic, Captions, Music } from 'lucide-react';
+import { Film, Mic, Captions, Music, Music2 } from 'lucide-react';
 import type { VgTimeline } from '@chayuan/api';
 import type { SrtCue } from './srtParse';
 import { msToPx } from './timelineScale';
@@ -8,6 +8,7 @@ import { Playhead } from './Playhead';
 import { TrackHeader, TRACK_H } from './TrackHeader';
 import { VgTimeline as VideoTrack } from './VgTimeline';
 import { AudioWaveTrack } from './AudioWaveTrack';
+import { AudioInsertTrack } from './AudioInsertTrack';
 import { SubtitleCueTrack } from './SubtitleCueTrack';
 import { BgmTrack } from './BgmTrack';
 import { VG_MATERIAL_DND_MIME, type DraggedMaterial } from './timelineEdit';
@@ -35,9 +36,12 @@ export const TimelineTracks: React.FC<{
   onSeekMs: (ms: number) => void;
   onTimelineChange: (t: VgTimeline) => void;
   onDropMaterial?: (m: DraggedMaterial) => void;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial }) => {
+  onDropAudio?: (m: DraggedMaterial) => void;
+  onCuesChange?: (cues: SrtCue[]) => void;
+  onReplaceClip?: (clipId: string) => void;
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
-  const lanesH = TRACK_H * 4;
+  const lanesH = TRACK_H * 5;
   const videoEmpty = !timeline.tracks?.some((t) => t.kind === 'video' && (t.clips?.length ?? 0) > 0);
 
   return (
@@ -47,6 +51,7 @@ export const TimelineTracks: React.FC<{
         <div style={{ height: RULER_H }} className="border-b border-[var(--cy-border-subtle)]" />
         <TrackHeader label="视频" icon={<Film className="h-3 w-3" />} />
         <TrackHeader label="旁白" icon={<Mic className="h-3 w-3" />} />
+        <TrackHeader label="音频" icon={<Music2 className="h-3 w-3" />} />
         <TrackHeader label="音乐" icon={<Music className="h-3 w-3" />} />
         <TrackHeader label="字幕" icon={<Captions className="h-3 w-3" />} />
       </div>
@@ -68,12 +73,24 @@ export const TimelineTracks: React.FC<{
             >
               <VgTimelineDropHint show={videoEmpty} />
               <VideoTrack timeline={timeline} editable videoTrackOnly pxPerSec={pxPerSec}
-                thumbUrlOf={thumbUrlOf} onChange={onTimelineChange} />
+                thumbUrlOf={thumbUrlOf} onChange={onTimelineChange} onReplaceClip={onReplaceClip} />
             </div>
             <AudioWaveTrack peaks={peaks} contentWidthPx={contentWidthPx} loading={peaksLoading} />
+            {/* 插入音频轨(drop 音频素材) */}
+            <div style={{ height: TRACK_H }} className="relative border-b border-[var(--cy-border-subtle)]"
+              onDragOver={(e) => { if (e.dataTransfer.types.includes(VG_MATERIAL_DND_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
+              onDrop={(e) => {
+                const raw = e.dataTransfer.getData(VG_MATERIAL_DND_MIME);
+                if (!raw) return;
+                e.preventDefault();
+                try { const m = JSON.parse(raw) as DraggedMaterial; if (m.kind === 'audio') onDropAudio?.(m); } catch { /* 忽略 */ }
+              }}>
+              <AudioInsertTrack timeline={timeline} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx} />
+            </div>
             <BgmTrack bgmName={bgmName} contentWidthPx={contentWidthPx} />
-            <SubtitleCueTrack cues={cues} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx} />
-            {/* 播放头贯穿四轨 */}
+            <SubtitleCueTrack cues={cues} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx}
+              editable onCuesChange={onCuesChange} />
+            {/* 播放头贯穿五轨 */}
             <Playhead playheadMs={playheadMs} pxPerSec={pxPerSec} heightPx={lanesH} durationMs={durationMs} onSeekMs={onSeekMs} />
           </div>
         </div>
