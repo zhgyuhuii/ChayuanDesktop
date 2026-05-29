@@ -309,6 +309,13 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
                 onMetaChange={onMetaChange}
                 onSubmit={onSubmit}
                 onRegenerate={() => regenerateRef.current?.()}
+                onGoEdit={(script) => {
+                  const st = useVgComposer.getState();
+                  st.setScriptSlot('manual', script);
+                  st.setScriptSource('manual');
+                  st.resetDraft();
+                  goTimeline();
+                }}
               />
             )}
           />

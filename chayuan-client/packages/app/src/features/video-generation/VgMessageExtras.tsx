@@ -13,7 +13,7 @@
  */
 import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Edit3, Sparkles, RefreshCw, Play, Loader2 } from 'lucide-react';
+import { Edit3, Sparkles, RefreshCw, Play, Loader2, Film } from 'lucide-react';
 import { videoGeneration, type VgVoiceItem } from '@chayuan/api';
 import { RenderProgressCard } from './RenderProgressCard';
 import { SubtitleEditorDialog } from './SubtitleEditorDialog';
@@ -39,10 +39,12 @@ export interface VgMessageExtrasProps {
   onSubmit: (messageId: string) => Promise<void>;
   /** 重新生成脚本(删最后一条 assistant + 用上条主题重发)。 */
   onRegenerate?: () => void;
+  /** 去编辑合成:把本条脚本带进时间轴编辑器(父级 VgChatPage 实现)。 */
+  onGoEdit?: (script: string) => void;
 }
 
 export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
-  message, onMetaChange, onSubmit, onRegenerate,
+  message, onMetaChange, onSubmit, onRegenerate, onGoEdit,
 }) => {
   const vm = message.metadata?.videoMeta;
   const params = useVgComposer((s) => s.params);
@@ -178,11 +180,18 @@ export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
       <button type="button" onClick={() => setSubtitleOpen(true)} title="编辑字幕" className={btnCls}>
         <Edit3 className="h-3 w-3" /> 字幕
       </button>
-      {/* 去生成视频 */}
+      {/* 自动生成视频(全自动 submitTask) */}
       <button type="button" onClick={() => setDrawerOpen(true)}
         className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 text-xs font-medium text-white shadow">
-        <Sparkles className="h-3.5 w-3.5" /> 去生成视频
+        <Sparkles className="h-3.5 w-3.5" /> 自动生成视频
       </button>
+      {/* 去编辑合成(进时间轴手动编辑) */}
+      {onGoEdit && (
+        <button type="button" onClick={() => onGoEdit(message.content || '')}
+          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[var(--cy-border-strong)] bg-[var(--cy-surface-base)] px-3 text-xs font-medium text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
+          <Film className="h-3.5 w-3.5" /> 去编辑合成
+        </button>
+      )}
 
       {/* 弹窗 */}
       <SubtitleEditorDialog
