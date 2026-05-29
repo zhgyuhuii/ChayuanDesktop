@@ -351,6 +351,34 @@ export async function vgPreviewAudio(args: {
   };
 }
 
+/** 时间轴代理预览 — 返回 video/mp4 Blob,前端用 URL.createObjectURL 喂 <video> */
+export async function vgPreviewEdl(args: {
+  timeline: VgTimeline;
+  aspect?: VgVideoAspect;
+}): Promise<{ blob: Blob }> {
+  const cfg = getClientConfig();
+  const url = `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/video-generation/preview-edl`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if ((cfg.authMode ?? 'bearer') === 'bearer') {
+    const tok = await getAccessToken();
+    if (tok) headers.Authorization = `Bearer ${tok}`;
+  }
+  const res = await getPlatform().net.fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      timeline: args.timeline,
+      aspect: args.aspect ?? '9:16',
+    }),
+    credentials: cfg.authMode === 'cookie' ? 'include' : 'same-origin',
+  } as RequestInit);
+  if (!res.ok) {
+    throw new Error(`preview-edl HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  return { blob };
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // 任务 CRUD
 // ─────────────────────────────────────────────────────────────────────
@@ -724,6 +752,7 @@ export const videoGeneration = {
   parseSrt: vgParseSrt,
   extractUrl: vgExtractUrl,
   previewAudio: vgPreviewAudio,
+  previewEdl: vgPreviewEdl,
   submitTask: vgSubmitTask,
   submitBatch: vgSubmitBatch,
   listTasks: vgListTasks,
