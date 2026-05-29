@@ -9,6 +9,7 @@ import { PreviewPlayer } from './timeline/PreviewPlayer';
 import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
+import { appendClipFromMaterial, type DraggedMaterial } from './timeline/timelineEdit';
 import { totalDurationMs, fitPxPerSec } from './timeline/timelineScale';
 import { parseSrt, type SrtCue } from './timeline/srtParse';
 import { reportError, notifySuccess } from '../../store/errorDialog';
@@ -46,7 +47,7 @@ export const VgTimelineEditorPage: React.FC = () => {
     (async () => {
       patchDraft({ state: 'generating', scriptHash: curHash, error: undefined });
       try {
-        const t = await videoGeneration.submitTask(params, { stop_at: 'materials' });
+        const t = await videoGeneration.submitTask(params, { stop_at: 'subtitle' });
         if (aborted) return;
         patchDraft({ taskId: t.task_id });
       } catch (e) {
@@ -68,12 +69,11 @@ export const VgTimelineEditorPage: React.FC = () => {
         const res = t.result ?? {};
         const audioFull = String(res.audio_file ?? '');
         const subFull = String(res.subtitle_path ?? '');
-        const mats = (res.materials as string[] | undefined) ?? [];
         patchDraft({
           state: 'ready',
           audioFileName: audioFull ? audioFull.split(/[\\/]/).pop()! : null,
           subtitleFileName: subFull ? subFull.split(/[\\/]/).pop()! : null,
-          materials: mats.map((_m, i) => ({ idx: i, durationMs: 0 })),
+          materials: [], // P5a:素材手动拖入,草稿不再自动下素材
         });
       } else if (t.state === 'failed' || t.state === 'canceled') {
         patchDraft({ state: 'failed', error: t.error ?? '草稿生成失败' });
@@ -114,8 +114,15 @@ export const VgTimelineEditorPage: React.FC = () => {
   }, [durationMs > 0]);
 
   const onTimelineChange = (t: VgTimeline) => { patchParams({ timeline: t }); setProxyStale(true); };
-  const thumbUrlOf = (i: number) =>
-    (draft.taskId && draft.state === 'ready' ? videoGeneration.thumbUrl(draft.taskId, i, 0) : null);
+  // 缩略图按 clip 的 source 解析:material_id → 素材缩略图;url(http)→ 暂无。
+  const videoClips = (timeline.tracks ?? []).find((t) => t.kind === 'video')?.clips ?? [];
+  const thumbUrlOf = (i: number) => {
+    const src = videoClips[i]?.source;
+    return src?.material_id ? videoGeneration.materialThumbUrl(src.material_id) : null;
+  };
+  const onDropMaterial = (m: DraggedMaterial) => {
+    onTimelineChange(appendClipFromMaterial(timeline, m));
+  };
 
   // ── 提交:finalize 草稿(复用 audio/subtitle,只 compose) ──
   const onSubmit = async () => {
@@ -180,6 +187,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           timeline={timeline} durationMs={durationMs} pxPerSec={pxPerSec} playheadMs={playheadMs}
           peaks={peaks} peaksLoading={draft.state === 'generating'} cues={cues} bgmName={bgmName}
           thumbUrlOf={thumbUrlOf}
+          onDropMaterial={onDropMaterial}
           onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
           onTimelineChange={onTimelineChange}
         />
