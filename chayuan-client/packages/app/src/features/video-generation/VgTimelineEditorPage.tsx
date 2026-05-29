@@ -158,7 +158,7 @@ export const VgTimelineEditorPage: React.FC = () => {
     const dm: DraggedMaterial = { materialId: m.material_id, kind: track === 'audio' ? 'audio' : mimeKind(m.mime), durationMs: m.duration_ms || undefined };
     onTimelineChange(track === 'audio' ? appendAudioClip(timeline, dm) : appendClipFromMaterial(timeline, dm));
   };
-  const onLaneContextMenu = (e: React.MouseEvent, track: 'video' | 'audio', clipId?: string) =>
+  const onLaneContextMenu = (e: React.MouseEvent, track: 'video' | 'audio' | 'subtitle', clipId?: string) =>
     setMenuCtx({ x: e.clientX, y: e.clientY, track, clipId });
   const doUploadLocal = (track: 'video' | 'audio') => { uploadTrackRef.current = track; fileInputRef.current?.click(); };
   const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -285,10 +285,17 @@ export const VgTimelineEditorPage: React.FC = () => {
       {/* 轨道右键菜单 */}
       {menuCtx && (
         <TrackContextMenu ctx={menuCtx}
-          onUploadLocal={() => doUploadLocal(menuCtx.track)}
-          onAddFromLibrary={() => setLibPickTrack(menuCtx.track)}
+          onUploadLocal={() => doUploadLocal(menuCtx.track === 'audio' ? 'audio' : 'video')}
+          onAddFromLibrary={() => setLibPickTrack(menuCtx.track === 'audio' ? 'audio' : 'video')}
           onPreview={() => (menuCtx.track === 'audio' ? doPreviewAudioTrack() : doPreviewNarration())}
-          onDeleteClip={(id) => onTimelineChange(deleteAnyClip(timeline, id))}
+          onDeleteClip={(id) => {
+            if (menuCtx.track === 'subtitle') {
+              const idx = Number(id);
+              setCues((prev) => prev.filter((_, i) => i !== idx));
+            } else {
+              onTimelineChange(deleteAnyClip(timeline, id));
+            }
+          }}
           onClose={() => setMenuCtx(null)} />
       )}
       {/* 替换素材弹层 */}

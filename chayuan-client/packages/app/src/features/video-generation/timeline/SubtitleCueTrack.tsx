@@ -10,7 +10,8 @@ export const SubtitleCueTrack: React.FC<{
   contentWidthPx: number;
   editable?: boolean;
   onCuesChange?: (cues: SrtCue[]) => void;
-}> = ({ cues, pxPerSec, contentWidthPx, editable, onCuesChange }) => {
+  onCueContextMenu?: (e: React.MouseEvent, index: number) => void;
+}> = ({ cues, pxPerSec, contentWidthPx, editable, onCuesChange, onCueContextMenu }) => {
   const [editingIdx, setEditingIdx] = React.useState<number | null>(null);
 
   const startDrag = (e: React.PointerEvent, i: number, edge: 'start' | 'end') => {
@@ -42,7 +43,8 @@ export const SubtitleCueTrack: React.FC<{
           style={{ left: msToPx(c.startMs, pxPerSec), width: Math.max(8, msToPx(c.endMs - c.startMs, pxPerSec)) }}
           className="absolute top-1.5 flex h-8 items-center overflow-hidden rounded border border-amber-300 bg-amber-50 px-1 text-[9px] text-amber-800"
           title={c.text}
-          onDoubleClick={() => editable && setEditingIdx(i)}>
+          onDoubleClick={() => editable && setEditingIdx(i)}
+          onContextMenu={(e) => { if (onCueContextMenu) { e.preventDefault(); onCueContextMenu(e, i); } }}>
           {editingIdx === i ? (
             <input autoFocus defaultValue={c.text}
               onClick={(e) => e.stopPropagation()}

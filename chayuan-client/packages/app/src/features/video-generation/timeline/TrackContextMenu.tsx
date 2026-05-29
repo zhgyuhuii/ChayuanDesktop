@@ -4,7 +4,7 @@ import { Upload, Library, Play, Trash2 } from 'lucide-react';
 export interface TrackMenuCtx {
   x: number;
   y: number;
-  track: 'video' | 'audio';
+  track: 'video' | 'audio' | 'subtitle';
   clipId?: string;
 }
 
@@ -31,18 +31,22 @@ export const TrackContextMenu: React.FC<{
       style={{ left: ctx.x, top: ctx.y }}
       onClick={(e) => e.stopPropagation()}
     >
-      <button type="button" className={item} onClick={() => { onUploadLocal(); onClose(); }}>
-        <Upload className="h-3.5 w-3.5" /> 从本地上传
-      </button>
-      <button type="button" className={item} onClick={() => { onAddFromLibrary(); onClose(); }}>
-        <Library className="h-3.5 w-3.5" /> 从素材库添加
-      </button>
-      <button type="button" className={item} onClick={() => { onPreview(); onClose(); }}>
-        <Play className="h-3.5 w-3.5" /> 试听本轨
-      </button>
+      {ctx.track !== 'subtitle' && (
+        <>
+          <button type="button" className={item} onClick={() => { onUploadLocal(); onClose(); }}>
+            <Upload className="h-3.5 w-3.5" /> 从本地上传
+          </button>
+          <button type="button" className={item} onClick={() => { onAddFromLibrary(); onClose(); }}>
+            <Library className="h-3.5 w-3.5" /> 从素材库添加
+          </button>
+          <button type="button" className={item} onClick={() => { onPreview(); onClose(); }}>
+            <Play className="h-3.5 w-3.5" /> 试听本轨
+          </button>
+        </>
+      )}
       {ctx.clipId && (
         <button type="button" className={`${item} text-rose-600 hover:bg-rose-50`} onClick={() => { onDeleteClip(ctx.clipId!); onClose(); }}>
-          <Trash2 className="h-3.5 w-3.5" /> 删除此片段
+          <Trash2 className="h-3.5 w-3.5" /> {ctx.track === 'subtitle' ? '删除此字幕' : '删除此片段'}
         </button>
       )}
     </div>

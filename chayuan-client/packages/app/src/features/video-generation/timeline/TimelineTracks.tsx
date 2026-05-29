@@ -39,7 +39,7 @@ export const TimelineTracks: React.FC<{
   onDropAudio?: (m: DraggedMaterial) => void;
   onCuesChange?: (cues: SrtCue[]) => void;
   onReplaceClip?: (clipId: string) => void;
-  onLaneContextMenu?: (e: React.MouseEvent, track: 'video' | 'audio', clipId?: string) => void;
+  onLaneContextMenu?: (e: React.MouseEvent, track: 'video' | 'audio' | 'subtitle', clipId?: string) => void;
   onEditSubtitle?: () => void;
 }> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, onEditSubtitle }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
@@ -98,7 +98,8 @@ export const TimelineTracks: React.FC<{
             </div>
             <BgmTrack bgmName={bgmName} contentWidthPx={contentWidthPx} />
             <SubtitleCueTrack cues={cues} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx}
-              editable onCuesChange={onCuesChange} />
+              editable onCuesChange={onCuesChange}
+              onCueContextMenu={(e, idx) => onLaneContextMenu?.(e, 'subtitle', String(idx))} />
             {/* 播放头贯穿五轨 */}
             <Playhead playheadMs={playheadMs} pxPerSec={pxPerSec} heightPx={lanesH} durationMs={durationMs} onSeekMs={onSeekMs} />
           </div>
