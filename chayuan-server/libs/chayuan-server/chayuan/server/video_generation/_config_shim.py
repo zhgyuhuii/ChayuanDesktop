@@ -134,5 +134,23 @@ class _VgConfig:
         self.app = _AppProxy()
         self.config_file = "<chayuan-server Settings,无 toml 文件>"
 
+    @property
+    def proxy(self):
+        """上游 ``config.proxy``:requests 的 proxies 参数(dict 或 None)。
+
+        上游来自 config.toml ``[proxy]`` 段。本项目默认 None —— ``requests``
+        收到 ``proxies=None`` 会自动读取 HTTP_PROXY / HTTPS_PROXY 环境变量,
+        所以单机版用户配了系统代理也能走通。若要显式指定,设
+        ``CHAYUAN_VG_HTTP_PROXY`` / ``CHAYUAN_VG_HTTPS_PROXY``。
+        """
+        http = _get_env("CHAYUAN_VG_HTTP_PROXY")
+        https = _get_env("CHAYUAN_VG_HTTPS_PROXY")
+        proxies = {}
+        if http:
+            proxies["http"] = http
+        if https:
+            proxies["https"] = https
+        return proxies or None
+
 
 vg_config = _VgConfig()
