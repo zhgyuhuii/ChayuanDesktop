@@ -15,10 +15,11 @@
 
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import {
   Plus, Trash2, Layers, Sparkles, Loader2, MessagesSquare, Library, Video,
 } from 'lucide-react';
-import { videoGeneration } from '@chayuan/api';
+import { videoGeneration, models, type RawModelItem } from '@chayuan/api';
 import { useTabsStore } from '../../store/tabs';
 import { useVgComposer } from './store/vgComposer';
 import { BgmOutputStep } from './steps/BgmOutputStep';
@@ -30,6 +31,19 @@ export const BatchModePage: React.FC = () => {
   const navigate = useNavigate();
   const openTab = useTabsStore((s) => s.open);
   const params = useVgComposer((s) => s.params);
+  const patchParams = useVgComposer((s) => s.patchParams);
+
+  // 脚本模型列表(/v1/models 的 llm 类)。批量必须显式带 model,否则后端
+  // generate_script 回落到未配的 chat 默认(glm4-chat)→ 脚本生成失败。
+  const modelsQ = useQuery({ queryKey: ['v1.models'], queryFn: () => models.list(), staleTime: 5 * 60 * 1000 });
+  const llmModels: RawModelItem[] = (modelsQ.data ?? []).filter((m) => !m.model_type || m.model_type === 'llm');
+  React.useEffect(() => {
+    if (!params.model && llmModels.length > 0) {
+      const m = llmModels[0]!;
+      patchParams({ model: m.platform_name ? `${m.platform_name}::${m.id}` : m.id });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [llmModels.length]);
 
   // 多主题列表(本页独有状态;不进 vgComposer.persist 避免下次顶着上次主题)
   const [subjects, setSubjects] = React.useState<string[]>(['']);
@@ -147,13 +161,27 @@ export const BatchModePage: React.FC = () => {
         </ul>
       </section>
 
-      {/* 2. 统一参数:画幅 / 语言 / 段落数 复用 TopicStep(video_subject 字段被批量
-              主题覆盖,这里只用它的语言/段落/画幅 controls) */}
+      {/* 2. 统一参数:脚本模型 + 语言 / 段落 / 画幅 */}
       <section>
         <h2 className="mb-2 text-sm font-semibold text-[var(--cy-text-primary)]">
-          统一参数 — 语言 / 段落 / 画幅
+          统一参数 — 脚本模型 / 语言 / 段落 / 画幅
         </h2>
-        <div className="rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-4">
+        <div className="rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-4 space-y-3">
+          {/* 脚本模型 — 必须选,否则后端回落到未配的默认模型(glm4-chat)导致脚本生成失败 */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-[var(--cy-text-tertiary)]">脚本模型</span>
+            <select
+              value={params.model ?? ''}
+              onChange={(e) => patchParams({ model: e.target.value || null })}
+              className="h-8 min-w-[16em] rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs"
+            >
+              {llmModels.length === 0 && <option value="">{modelsQ.isLoading ? '加载中…' : '无可用模型'}</option>}
+              {llmModels.map((m) => {
+                const enc = m.platform_name ? `${m.platform_name}::${m.id}` : m.id;
+                return <option key={enc} value={enc}>{(m.platform_display_name || m.platform_name || '') + ' · ' + m.id}</option>;
+              })}
+            </select>
+          </div>
           <TopicStep hideSubject />
         </div>
       </section>
