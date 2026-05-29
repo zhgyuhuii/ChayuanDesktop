@@ -139,3 +139,19 @@ export function appendAudioClip(t: VgTimeline, m: DraggedMaterial, atIndex?: num
   tracks[ai] = { ...tracks[ai]!, clips };
   return { ...t, tracks };
 }
+
+/** 删除任意轨上的某 clip(视频轨删后重算 starts;其它轨保留各 clip 位置)。 */
+export function deleteAnyClip(t: VgTimeline, clipId: string): VgTimeline {
+  const tracks = (t.tracks || []).map((tr) => {
+    if (!(tr.clips || []).some((c) => c.id === clipId)) return tr;
+    const clips = (tr.clips || []).filter((c) => c.id !== clipId);
+    if (tr.kind === 'video') {
+      // 视频轨紧贴拼接:重算 starts
+      let cursor = 0;
+      const next = clips.map((c) => { const nc = { ...c, track_start_ms: cursor }; cursor += clipDurMs(c); return nc; });
+      return { ...tr, clips: next };
+    }
+    return { ...tr, clips };
+  });
+  return { ...t, tracks };
+}

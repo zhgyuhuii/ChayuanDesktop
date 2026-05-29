@@ -9,7 +9,9 @@ import { PreviewPlayer } from './timeline/PreviewPlayer';
 import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
-import { appendClipFromMaterial, appendAudioClip, replaceClipSource, type DraggedMaterial } from './timeline/timelineEdit';
+import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, type DraggedMaterial } from './timeline/timelineEdit';
+import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
+import { playAudioTimeline } from './timeline/audioPreview';
 import { totalDurationMs, rulerDurationMs, fitPxPerSec } from './timeline/timelineScale';
 import { parseSrt, type SrtCue } from './timeline/srtParse';
 import { reportError, notifySuccess } from '../../store/errorDialog';
@@ -129,6 +131,51 @@ export const VgTimelineEditorPage: React.FC = () => {
   const [replacingClipId, setReplacingClipId] = React.useState<string | null>(null);
   const onReplaceClip = (clipId: string) => setReplacingClipId(clipId);
 
+  // ── 右键菜单 / 试听 / 上传 / 库添加 / 删除 ──
+  const [menuCtx, setMenuCtx] = React.useState<TrackMenuCtx | null>(null);
+  const [libPickTrack, setLibPickTrack] = React.useState<'video' | 'audio' | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const uploadTrackRef = React.useRef<'video' | 'audio'>('video');
+  const previewStopRef = React.useRef<(() => void) | null>(null);
+  React.useEffect(() => () => { previewStopRef.current?.(); }, []);
+
+  const mimeKind = (mime?: string): 'video' | 'image' | 'audio' =>
+    (mime || '').startsWith('image') ? 'image' : (mime || '').startsWith('audio') ? 'audio' : 'video';
+  const addMaterialToTrack = (track: 'video' | 'audio', m: { material_id: string; mime?: string; duration_ms?: number }) => {
+    const dm: DraggedMaterial = { materialId: m.material_id, kind: track === 'audio' ? 'audio' : mimeKind(m.mime), durationMs: m.duration_ms || undefined };
+    onTimelineChange(track === 'audio' ? appendAudioClip(timeline, dm) : appendClipFromMaterial(timeline, dm));
+  };
+  const onLaneContextMenu = (e: React.MouseEvent, track: 'video' | 'audio', clipId?: string) =>
+    setMenuCtx({ x: e.clientX, y: e.clientY, track, clipId });
+  const doUploadLocal = (track: 'video' | 'audio') => { uploadTrackRef.current = track; fileInputRef.current?.click(); };
+  const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const m = await videoGeneration.uploadMaterial({ file });
+      addMaterialToTrack(uploadTrackRef.current, m);
+    } catch (err) { reportError(err as Error, '上传失败'); }
+  };
+  const stopPreview = () => { previewStopRef.current?.(); previewStopRef.current = null; };
+  const doPreviewNarration = () => {
+    if (previewStopRef.current) return stopPreview();
+    if (!draft.taskId || !draft.audioFileName) { reportError(new Error('旁白尚未生成')); return; }
+    previewStopRef.current = playAudioTimeline(
+      [{ url: videoGeneration.taskFileUrl(draft.taskId, draft.audioFileName), startMs: 0 }],
+      () => { previewStopRef.current = null; });
+  };
+  const doPreviewAudioTrack = () => {
+    if (previewStopRef.current) return stopPreview();
+    const clips = (timeline.tracks ?? []).find((t) => t.kind === 'audio')?.clips ?? [];
+    const items = clips.map((c) => ({
+      url: c.source.material_id ? videoGeneration.materialFileUrl(c.source.material_id) : (c.source.url ?? ''),
+      startMs: c.track_start_ms,
+    })).filter((it) => it.url);
+    if (items.length === 0) { reportError(new Error('音频轨为空')); return; }
+    previewStopRef.current = playAudioTimeline(items, () => { previewStopRef.current = null; });
+  };
+
   // ── 提交:finalize 草稿(复用 audio/subtitle,只 compose) ──
   const onSubmit = async () => {
     if (draft.state !== 'ready' || !draft.taskId) { reportError(new Error('草稿尚未就绪,稍候再试')); return; }
@@ -196,19 +243,42 @@ export const VgTimelineEditorPage: React.FC = () => {
           onCuesChange={setCues}
           onReplaceClip={onReplaceClip}
           onDropMaterial={onDropMaterial}
+          onLaneContextMenu={onLaneContextMenu}
+          onPreviewNarration={doPreviewNarration}
+          onPreviewAudio={doPreviewAudioTrack}
           onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
           onTimelineChange={onTimelineChange}
         />
       </div>
+      {/* 隐藏文件输入(右键「从本地上传」) */}
+      <input ref={fileInputRef} type="file" accept="video/*,image/*,audio/*" className="hidden" onChange={(e) => void onFilePicked(e)} />
+      {/* 轨道右键菜单 */}
+      {menuCtx && (
+        <TrackContextMenu ctx={menuCtx}
+          onUploadLocal={() => doUploadLocal(menuCtx.track)}
+          onAddFromLibrary={() => setLibPickTrack(menuCtx.track)}
+          onPreview={() => (menuCtx.track === 'audio' ? doPreviewAudioTrack() : doPreviewNarration())}
+          onDeleteClip={(id) => onTimelineChange(deleteAnyClip(timeline, id))}
+          onClose={() => setMenuCtx(null)} />
+      )}
       {/* 替换素材弹层 */}
       {replacingClipId && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-6" onClick={() => setReplacingClipId(null)}>
           <div className="max-h-[80vh] w-[min(720px,92vw)] overflow-y-auto cy-hide-scrollbar rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-3" onClick={(e) => e.stopPropagation()}>
             <p className="mb-2 text-sm font-semibold text-[var(--cy-text-primary)]">选择替换素材(我的素材库)</p>
-            <ReplacePicker onPick={(src) => {
-              onTimelineChange(replaceClipSource(timeline, replacingClipId, src));
+            <ReplacePicker onPick={(m) => {
+              onTimelineChange(replaceClipSource(timeline, replacingClipId, { material_id: m.material_id }));
               setReplacingClipId(null);
             }} />
+          </div>
+        </div>
+      )}
+      {/* 从素材库添加到轨道 */}
+      {libPickTrack && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-6" onClick={() => setLibPickTrack(null)}>
+          <div className="max-h-[80vh] w-[min(720px,92vw)] overflow-y-auto cy-hide-scrollbar rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-3" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-2 text-sm font-semibold text-[var(--cy-text-primary)]">从素材库添加到{libPickTrack === 'audio' ? '音频' : '视频'}轨</p>
+            <ReplacePicker onPick={(m) => { addMaterialToTrack(libPickTrack, m); setLibPickTrack(null); }} />
           </div>
         </div>
       )}
@@ -216,7 +286,7 @@ export const VgTimelineEditorPage: React.FC = () => {
   );
 };
 
-const ReplacePicker: React.FC<{ onPick: (src: { material_id?: string; url?: string }) => void }> = ({ onPick }) => {
+const ReplacePicker: React.FC<{ onPick: (m: { material_id: string; mime?: string; duration_ms?: number; name: string }) => void }> = ({ onPick }) => {
   const q = useQuery({ queryKey: ['vg.materials.replace'], queryFn: () => videoGeneration.listMaterials({ page: 1, page_size: 60 }) });
   const items = q.data?.items ?? [];
   if (q.isLoading) return <p className="text-xs text-[var(--cy-text-tertiary)]">加载中…</p>;
@@ -225,7 +295,7 @@ const ReplacePicker: React.FC<{ onPick: (src: { material_id?: string; url?: stri
     <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
       {items.map((m) => (
         <li key={m.material_id}>
-          <button type="button" onClick={() => onPick({ material_id: m.material_id })}
+          <button type="button" onClick={() => onPick(m)}
             className="block w-full overflow-hidden rounded-lg border border-[var(--cy-border-subtle)] hover:border-[var(--cy-brand-500)]">
             <img src={videoGeneration.materialThumbUrl(m.material_id)} alt={m.name} className="aspect-video w-full object-cover" loading="lazy" />
             <span className="block truncate px-1 py-0.5 text-[10px] text-[var(--cy-text-secondary)]">{m.name}</span>

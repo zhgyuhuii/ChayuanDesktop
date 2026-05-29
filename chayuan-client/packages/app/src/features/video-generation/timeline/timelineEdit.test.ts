@@ -105,3 +105,15 @@ it('appendAudioClip adds to audio track at end', () => {
   const atr2 = r2.tracks.find((x) => x.kind === 'audio')!;
   expect(atr2.clips![1]!.track_start_ms).toBe(3000);
 });
+
+import { deleteAnyClip } from './timelineEdit';
+
+it('deleteAnyClip removes from audio track too', () => {
+  const t = { version: 1, duration_ms: 0, tracks: [
+    { id: 'v', kind: 'video' as const, clips: [{ id: 'a', source: { path: '/a.mp4' }, track_start_ms: 0, in_ms: 0, out_ms: 3000 }] },
+    { id: 'au', kind: 'audio' as const, clips: [{ id: 's1', source: { url: 'x' }, track_start_ms: 0, in_ms: 0, out_ms: 2000 }] },
+  ] };
+  const r = deleteAnyClip(t, 's1');
+  expect(r.tracks.find((x) => x.kind === 'audio')!.clips).toHaveLength(0);
+  expect(r.tracks.find((x) => x.kind === 'video')!.clips).toHaveLength(1);
+});

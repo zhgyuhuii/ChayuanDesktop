@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Film, Mic, Captions, Music, Music2 } from 'lucide-react';
+import { Film, Mic, Captions, Music, Music2, Play, Pencil } from 'lucide-react';
 import type { VgTimeline } from '@chayuan/api';
 import type { SrtCue } from './srtParse';
 import { msToPx } from './timelineScale';
@@ -39,10 +39,15 @@ export const TimelineTracks: React.FC<{
   onDropAudio?: (m: DraggedMaterial) => void;
   onCuesChange?: (cues: SrtCue[]) => void;
   onReplaceClip?: (clipId: string) => void;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip }) => {
+  onLaneContextMenu?: (e: React.MouseEvent, track: 'video' | 'audio', clipId?: string) => void;
+  onPreviewNarration?: () => void;
+  onPreviewAudio?: () => void;
+  onEditSubtitle?: () => void;
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, onPreviewNarration, onPreviewAudio, onEditSubtitle }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   const lanesH = TRACK_H * 5;
   const videoEmpty = !timeline.tracks?.some((t) => t.kind === 'video' && (t.clips?.length ?? 0) > 0);
+  const hdrBtn = 'inline-flex h-5 w-5 items-center justify-center rounded text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]';
 
   return (
     <div className="flex rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
@@ -50,10 +55,13 @@ export const TimelineTracks: React.FC<{
       <div className="shrink-0 border-r border-[var(--cy-border-subtle)]" style={{ width: HEADER_W }}>
         <div style={{ height: RULER_H }} className="border-b border-[var(--cy-border-subtle)]" />
         <TrackHeader label="视频" icon={<Film className="h-3 w-3" />} />
-        <TrackHeader label="旁白" icon={<Mic className="h-3 w-3" />} />
-        <TrackHeader label="音频" icon={<Music2 className="h-3 w-3" />} />
+        <TrackHeader label="旁白" icon={<Mic className="h-3 w-3" />}
+          action={onPreviewNarration && <button type="button" className={hdrBtn} title="试听旁白" onClick={onPreviewNarration}><Play className="h-3 w-3" /></button>} />
+        <TrackHeader label="音频" icon={<Music2 className="h-3 w-3" />}
+          action={onPreviewAudio && <button type="button" className={hdrBtn} title="试听插入音频" onClick={onPreviewAudio}><Play className="h-3 w-3" /></button>} />
         <TrackHeader label="音乐" icon={<Music className="h-3 w-3" />} />
-        <TrackHeader label="字幕" icon={<Captions className="h-3 w-3" />} />
+        <TrackHeader label="字幕" icon={<Captions className="h-3 w-3" />}
+          action={onEditSubtitle && <button type="button" className={hdrBtn} title="整体编辑字幕" onClick={onEditSubtitle}><Pencil className="h-3 w-3" /></button>} />
       </div>
       {/* 右:单横向滚动容器(ruler + lanes + playhead 共享坐标系) */}
       <div className="relative flex-1 overflow-x-auto cy-hide-scrollbar">
@@ -63,6 +71,7 @@ export const TimelineTracks: React.FC<{
             {/* 视频轨(可编辑 + 缩略图 + 拖素材入轨) */}
             <div style={{ height: TRACK_H }}
               className="relative border-b border-[var(--cy-border-subtle)]"
+              onContextMenu={(e) => { if (onLaneContextMenu) { e.preventDefault(); onLaneContextMenu(e, 'video'); } }}
               onDragOver={(e) => { if (e.dataTransfer.types.includes(VG_MATERIAL_DND_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
               onDrop={(e) => {
                 const raw = e.dataTransfer.getData(VG_MATERIAL_DND_MIME);
@@ -73,11 +82,13 @@ export const TimelineTracks: React.FC<{
             >
               <VgTimelineDropHint show={videoEmpty} />
               <VideoTrack timeline={timeline} editable videoTrackOnly pxPerSec={pxPerSec}
-                thumbUrlOf={thumbUrlOf} onChange={onTimelineChange} onReplaceClip={onReplaceClip} />
+                thumbUrlOf={thumbUrlOf} onChange={onTimelineChange} onReplaceClip={onReplaceClip}
+                onClipContextMenu={(e, clipId) => onLaneContextMenu?.(e, 'video', clipId)} />
             </div>
             <AudioWaveTrack peaks={peaks} contentWidthPx={contentWidthPx} loading={peaksLoading} />
             {/* 插入音频轨(drop 音频素材) */}
             <div style={{ height: TRACK_H }} className="relative border-b border-[var(--cy-border-subtle)]"
+              onContextMenu={(e) => { if (onLaneContextMenu) { e.preventDefault(); onLaneContextMenu(e, 'audio'); } }}
               onDragOver={(e) => { if (e.dataTransfer.types.includes(VG_MATERIAL_DND_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
               onDrop={(e) => {
                 const raw = e.dataTransfer.getData(VG_MATERIAL_DND_MIME);
@@ -85,7 +96,8 @@ export const TimelineTracks: React.FC<{
                 e.preventDefault();
                 try { const m = JSON.parse(raw) as DraggedMaterial; if (m.kind === 'audio') onDropAudio?.(m); } catch { /* 忽略 */ }
               }}>
-              <AudioInsertTrack timeline={timeline} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx} />
+              <AudioInsertTrack timeline={timeline} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx}
+                onClipContextMenu={(e, clipId) => onLaneContextMenu?.(e, 'audio', clipId)} />
             </div>
             <BgmTrack bgmName={bgmName} contentWidthPx={contentWidthPx} />
             <SubtitleCueTrack cues={cues} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx}

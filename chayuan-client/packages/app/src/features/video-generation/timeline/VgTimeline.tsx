@@ -20,7 +20,9 @@ export const VgTimeline: React.FC<{
   videoTrackOnly?: boolean;
   /** 选中 clip 点「替换」回调(P5b);不传则不显替换按钮。 */
   onReplaceClip?: (clipId: string) => void;
-}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, videoTrackOnly, onReplaceClip }) => {
+  /** clip 右键回调(P5b 右键菜单)。 */
+  onClipContextMenu?: (e: React.MouseEvent, clipId: string) => void;
+}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, videoTrackOnly, onReplaceClip, onClipContextMenu }) => {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const pps = pxPerSec ?? PX_PER_SEC;
   const videoTrack = (timeline.tracks || []).find((t) => t.kind === 'video');
@@ -79,6 +81,7 @@ export const VgTimeline: React.FC<{
                 role="button"
                 tabIndex={0}
                 onClick={() => (editable ? setSelectedId(s.id) : onClipClick?.(s.id))}
+                onContextMenu={(e) => { if (onClipContextMenu) { e.preventDefault(); onClipContextMenu(e, s.id); } }}
                 onKeyDown={(e) => { if (e.key === 'Enter') (editable ? setSelectedId(s.id) : onClipClick?.(s.id)); }}
                 style={{
                   left: s.leftPx, width: s.widthPx,
