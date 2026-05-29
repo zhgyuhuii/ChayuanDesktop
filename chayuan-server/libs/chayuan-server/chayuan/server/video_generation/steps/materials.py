@@ -245,6 +245,39 @@ def save_video(video_url: str, save_dir: str = "") -> str:
     return ""
 
 
+def save_image(image_url: str, save_dir: str = "") -> str:
+    """下载图像到 save_dir,返回本地路径;失败返回 ""。"""
+    if not save_dir:
+        save_dir = utils.storage_dir("cache_videos")
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    url_without_query = image_url.split("?")[0]
+    ext = os.path.splitext(url_without_query)[1].lower() or ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"):
+        ext = ".jpg"
+    img_id = f"img-{utils.md5(url_without_query)}"
+    img_path = f"{save_dir}/{img_id}{ext}"
+    if os.path.exists(img_path) and os.path.getsize(img_path) > 0:
+        return img_path
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+    }
+    try:
+        content = requests.get(
+            image_url, headers=headers, proxies=config.proxy,
+            verify=_get_tls_verify(), timeout=(30, 120),
+        ).content
+        with open(img_path, "wb") as f:
+            f.write(content)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"download image failed: {image_url} => {e}")
+        return ""
+    if os.path.exists(img_path) and os.path.getsize(img_path) > 0:
+        return img_path
+    return ""
+
+
 def download_videos(
     task_id: str,
     search_terms: List[str],

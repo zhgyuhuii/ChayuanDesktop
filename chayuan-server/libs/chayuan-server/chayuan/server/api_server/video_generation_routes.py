@@ -575,6 +575,65 @@ def search_materials(
     }
 
 
+@video_generation_router.get(
+    "/materials/extract-media",
+    summary="从链接提取多个媒体(网页 img/video + 视频平台)",
+)
+def extract_media_route(
+    url: str = Query(..., min_length=4, max_length=2048),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    from chayuan.server.video_generation.url_extractor import extract_media
+    try:
+        return extract_media(url)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[vg] extract-media 异常: %r", e)
+        raise HTTPException(502, f"提取失败: {e}") from e
+
+
+@video_generation_router.post(
+    "/materials/ingest",
+    summary="把远程媒体(在线搜索/链接结果)下载落地并登记进素材库",
+    status_code=status.HTTP_201_CREATED,
+)
+def ingest_material(
+    body: Dict[str, Any] = Body(...),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    """body: {url:str, kind:'video'|'image', source:str}. 返回新建的 VgMaterial。"""
+    from chayuan.server.video_generation.steps import materials as materials_step
+    from chayuan.server.video_generation._helpers import storage_dir
+
+    url = str(body.get("url") or "").strip()
+    kind = str(body.get("kind") or "video").strip()
+    source = str(body.get("source") or "online").strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "url 必须是 http(s)")
+
+    mat_dir = storage_dir("materials", create=True)
+    if kind == "image":
+        path = materials_step.save_image(url, save_dir=mat_dir)
+        mime = "image/jpeg"
+    else:
+        path = materials_step.save_video(url, save_dir=mat_dir)
+        mime = "video/mp4"
+    if not path or not os.path.isfile(path):
+        raise HTTPException(502, "下载失败或文件无效")
+
+    row = materials_store.create_material(
+        source=source,
+        name=os.path.basename(path),
+        path=path,
+        owner_id=_owner_id_of(user),
+        mime=mime,
+        size=os.path.getsize(path),
+        tags=["online", source],
+    )
+    return row
+
+
 # ─────────────────────────────────────────────────────────────────────
 # 5. BGM / 字体 / 声音
 # ─────────────────────────────────────────────────────────────────────
