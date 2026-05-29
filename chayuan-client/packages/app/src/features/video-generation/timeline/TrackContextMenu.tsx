@@ -18,10 +18,20 @@ export const TrackContextMenu: React.FC<{
   onClose: () => void;
 }> = ({ ctx, onUploadLocal, onAddFromLibrary, onPreview, onDeleteClip, onClose }) => {
   React.useEffect(() => {
+    // 只在左键点击 / Esc 关闭。不监听 contextmenu —— 否则"再次右键"会与新菜单打开抢
+    // 同一事件(先 set 新 ctx 又被关闭监听 set null),导致第 2 次起右键菜单出不来。
+    // 延迟一帧注册,避免捕获到打开本菜单的这次 click/contextmenu。
     const close = () => onClose();
-    window.addEventListener('click', close);
-    window.addEventListener('contextmenu', close);
-    return () => { window.removeEventListener('click', close); window.removeEventListener('contextmenu', close); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const id = window.setTimeout(() => {
+      window.addEventListener('click', close);
+      window.addEventListener('keydown', onKey);
+    }, 0);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
   }, [onClose]);
 
   const item = 'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]';
