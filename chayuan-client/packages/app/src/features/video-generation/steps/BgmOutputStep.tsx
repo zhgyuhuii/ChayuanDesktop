@@ -12,6 +12,7 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   videoGeneration,
+  vgBgmFileUrl,
   type VgBgmItem,
   type VgFontItem,
 } from '@chayuan/api';
@@ -69,6 +70,10 @@ export const BgmOutputStep: React.FC = () => {
               ))}
             </select>
           )}
+          {params.bgm_type === 'file' && (() => {
+            const sel = bgmItems.find((b) => b.path === params.bgm_file);
+            return sel ? <audio src={vgBgmFileUrl(sel.name)} controls className="h-8" /> : null;
+          })()}
         </div>
         {params.bgm_type !== 'none' && (
           <div className="mt-2">

@@ -82,7 +82,7 @@ export const BatchModePage: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-6 overflow-y-auto cy-hide-scrollbar px-6 py-8">
+    <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-4 overflow-y-auto cy-hide-scrollbar px-6 py-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="inline-flex items-center gap-2 text-xl font-semibold text-[var(--cy-text-primary)]">

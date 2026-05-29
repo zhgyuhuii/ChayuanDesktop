@@ -42,7 +42,15 @@ export const VoiceStep: React.FC = () => {
     queryFn: () => videoGeneration.listVoices(params.voice_provider),
     staleTime: 5 * 60 * 1000,
   });
-  const voices: VgVoiceItem[] = voicesQ.data?.items ?? [];
+  // 音色按当前语言过滤(同对话模式 VgMessageExtras 规则):同语言 / 同语族 /
+  // multilingual 音色保留;过滤后为空则回退全量,避免下拉空白。
+  const allVoices: VgVoiceItem[] = voicesQ.data?.items ?? [];
+  const lang = params.video_language;
+  const fam = lang.split('-')[0];
+  const matched = lang
+    ? allVoices.filter((v) => v.language === lang || v.language.split('-')[0] === fam || /multilingual/i.test(v.id))
+    : allVoices;
+  const voices = matched.length > 0 ? matched : allVoices;
 
   // ── 试听 ────────────────────────────────────────────────────
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
