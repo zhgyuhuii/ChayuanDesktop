@@ -33,7 +33,7 @@ import * as React from 'react';
 import { CHAYUAN_LOGO_URL } from '../../lib/brandAssets';
 import { useComposerS, useComposerScopedStore } from '../../store/composer';
 import { useArtifactSync } from '../artifact/useArtifactSync';
-import { ChatComposer } from '../composer/ChatComposer';
+import { ChatComposer, type ChatComposerProps } from '../composer/ChatComposer';
 import { useChatScreenshot } from '../composer/useChatScreenshot';
 import {
   appendMessage,
@@ -124,6 +124,8 @@ export interface ConversationViewProps {
   /** 默认只 user message 可编辑(避免误改 AI 答复);
    *  video_generation 等场景脚本是核心可编辑载体,设 true 让 assistant 也能 onEdit。 */
   assistantEditable?: boolean;
+  /** 透传给内部 ChatComposer 的模型 pill props(video_generation 用 chatOnly 收窄)。 */
+  modelPillProps?: ChatComposerProps['modelPillProps'];
 }
 
 export const ConversationView: React.FC<ConversationViewProps> = ({
@@ -143,6 +145,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   setMessagesRef,  // R3.6 新增 — 向父级暴露 setMessages 引用
   composerTopSlot,
   assistantEditable = false,
+  modelPillProps,
 }) => {
   const activeId = conversationId ?? null;
   const composer = useComposerScopedStore();
@@ -509,6 +512,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
           }}
           placeholder={placeholder}
           showRetrievalControls={mode === 'kb'}
+          {...(modelPillProps ? { modelPillProps } : {})}
           {...(enableAttachments
             ? {
                 onPickFile: () => void attachments.pickFiles(),

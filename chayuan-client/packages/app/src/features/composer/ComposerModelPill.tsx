@@ -62,6 +62,12 @@ export interface ComposerModelPillProps {
   contentClassName?: string;
   side?: 'top' | 'right' | 'bottom' | 'left';
   iconOnly?: boolean;
+  /**
+   * 强制只列对话类模型(chat/vl),过滤掉 t2i/tts/asr/t2v/image_edit。
+   * video_generation 对话模式用 —— 那里模型只用来生成脚本,选非对话模型无意义。
+   * 跟 kbBound 一样会触发"当前非对话模型 → 自动切第一个对话模型"防呆。
+   */
+  chatOnly?: boolean;
 }
 
 export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
@@ -69,14 +75,17 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   contentClassName,
   side = 'bottom',
   iconOnly = false,
+  chatOnly = false,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const modelId = useComposerS((s) => s.modelId);
   const platformName = useComposerS((s) => s.platformName);
   const setModel = useComposerS((s) => s.setModel);
-  // 绑定了知识库 → 知识问答必走 LLM 链路,模型选择收窄到对话类(chat/vl)
+  // 绑定了知识库 → 知识问答必走 LLM 链路,模型选择收窄到对话类(chat/vl)。
+  // chatOnly prop 也收窄(video_generation 脚本生成)。两者任一为真即只列对话模型。
   const kbBound = useComposerS((s) => s.selectedKuIds.length > 0);
+  const onlyChat = kbBound || chatOnly;
   const [open, setOpen] = React.useState(false);
 
   // 单机/桌面版关闭 check_access:每个不可达厂商会触发 OpenAI client 4 次重试
@@ -127,12 +136,16 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   React.useEffect(() => {
     if (!modelId || modelsWithLocal.length === 0) return;
     if (!current) {
-      const first = modelsWithLocal.find((m) => m.available !== false) ?? modelsWithLocal[0];
+      // onlyChat 时默认落在第一个可用对话模型(否则可能默认选到 tts/t2i)
+      const pickable = onlyChat
+        ? modelsWithLocal.filter((m) => isChatCapability(inferCapability(m)))
+        : modelsWithLocal;
+      const first = pickable.find((m) => m.available !== false) ?? pickable[0];
       if (first) {
         setModel(first.id, first.platform_name);
       }
     }
-  }, [modelId, modelsWithLocal, current, setModel]);
+  }, [modelId, modelsWithLocal, current, setModel, onlyChat]);
 
   // KB 防呆(反向场景):绑定知识库时,当前模型必须是对话类。用户若先选了非
   // 对话模型(asr/tts/t2i…)再绑 KB,或持久化恢复出"非对话模型 + KB"的组合,
@@ -140,13 +153,13 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   // ModelNotConfigured / 404。正向场景(KB 已绑时再选模型)由下拉的
   // allowCapabilities 过滤兜住,用户根本选不到非对话模型。
   React.useEffect(() => {
-    if (!kbBound || !current) return;
+    if (!onlyChat || !current) return;
     if (isChatCapability(inferCapability(current))) return;
     const fallback = modelsWithLocal.find(
       (m) => m.available !== false && isChatCapability(inferCapability(m)),
     );
     if (fallback) setModel(fallback.id, fallback.platform_name);
-  }, [kbBound, current, modelsWithLocal, setModel]);
+  }, [onlyChat, current, modelsWithLocal, setModel]);
 
   const currentLogo = resolveLogo(current?.platform_name, current?.id);
   // pill 上显示用 displayLabel(本地模型短化:Qwen3-4B-Instruct-2507 而不是
@@ -189,7 +202,7 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
           models={modelsWithLocal}
           currentId={modelId}
           currentPlatform={platformName}
-          allowCapabilities={kbBound ? CHAT_CAPABILITIES : undefined}
+          allowCapabilities={onlyChat ? CHAT_CAPABILITIES : undefined}
           resolveLogo={resolveLogo}
           emptyLabel={t('chat.noModelAvailable')}
           emptyAction={

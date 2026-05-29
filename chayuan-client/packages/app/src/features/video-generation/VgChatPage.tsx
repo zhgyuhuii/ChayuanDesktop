@@ -250,6 +250,7 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
             onBeforeSend={onBeforeSend}
             setMessagesRef={setMessagesRef}
             composerTopSlot={composerTop}
+            modelPillProps={{ chatOnly: true }}
             assistantEditable
             extraSlot={(m) => (
               <VgMessageExtras
