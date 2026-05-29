@@ -10,6 +10,8 @@ import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
 import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, type DraggedMaterial } from './timeline/timelineEdit';
+import { addTrack, removeTrack, setClipTransform } from './timeline/timelineTracks';
+import { PipOverlay } from './timeline/PipOverlay';
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
 import { ScriptGenDialog } from './timeline/ScriptGenDialog';
 import { SubtitleBulkEditor } from './timeline/SubtitleBulkEditor';
@@ -142,11 +144,13 @@ export const VgTimelineEditorPage: React.FC = () => {
     const src = videoClips[i]?.source;
     return src?.material_id ? videoGeneration.materialThumbUrl(src.material_id) : null;
   };
-  const onDropMaterial = (m: DraggedMaterial) => {
+  const onDropMaterial = (m: DraggedMaterial, trackId?: string) => {
     if (m.kind === 'audio') return; // 音频走音频轨
-    onTimelineChange(appendClipFromMaterial(timeline, m));
+    onTimelineChange(appendClipFromMaterial(timeline, m, undefined, trackId));
   };
-  const onDropAudio = (m: DraggedMaterial) => { onTimelineChange(appendAudioClip(timeline, m)); };
+  const onDropAudio = (m: DraggedMaterial, trackId?: string) => { onTimelineChange(appendAudioClip(timeline, m, undefined, trackId)); };
+  const [selectedTrackId, setSelectedTrackId] = React.useState<string | null>(null);
+  const onSetTransform = (clipId: string, tf: { x?: number; y?: number; scale?: number }) => onTimelineChange(setClipTransform(timeline, clipId, tf));
   const [replacingClipId, setReplacingClipId] = React.useState<string | null>(null);
   const onReplaceClip = (clipId: string) => setReplacingClipId(clipId);
 
@@ -164,8 +168,8 @@ export const VgTimelineEditorPage: React.FC = () => {
     const dm: DraggedMaterial = { materialId: m.material_id, kind: track === 'audio' ? 'audio' : mimeKind(m.mime), durationMs: m.duration_ms || undefined };
     onTimelineChange(track === 'audio' ? appendAudioClip(timeline, dm) : appendClipFromMaterial(timeline, dm));
   };
-  const onLaneContextMenu = (e: React.MouseEvent, track: 'video' | 'audio' | 'subtitle', clipId?: string) =>
-    setMenuCtx({ x: e.clientX, y: e.clientY, track, clipId });
+  const onLaneContextMenu = (e: React.MouseEvent, track: 'video' | 'audio' | 'subtitle', clipId?: string, trackId?: string, removable?: boolean) =>
+    setMenuCtx({ x: e.clientX, y: e.clientY, track, clipId, trackId, removable });
   const doUploadLocal = (track: 'video' | 'audio') => { uploadTrackRef.current = track; fileInputRef.current?.click(); };
   const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -241,6 +245,7 @@ export const VgTimelineEditorPage: React.FC = () => {
             onTimeMs={(ms) => setPlayheadMs(ms)}
             onPlayingChange={setPlaying}
             onFreshGenerated={() => setProxyStale(false)}
+            overlay={<PipOverlay timeline={timeline} playheadMs={playheadMs} onTransform={onSetTransform} />}
           />
         </div>
       </div>
@@ -301,6 +306,8 @@ export const VgTimelineEditorPage: React.FC = () => {
           onDropMaterial={onDropMaterial}
           onLaneContextMenu={onLaneContextMenu}
           onEditSubtitle={() => setSubtitleEditorOpen(true)}
+          selectedTrackId={selectedTrackId}
+          onSelectTrack={setSelectedTrackId}
           onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
           onTimelineChange={onTimelineChange}
         />
@@ -313,6 +320,9 @@ export const VgTimelineEditorPage: React.FC = () => {
           onUploadLocal={() => doUploadLocal(menuCtx.track === 'audio' ? 'audio' : 'video')}
           onAddFromLibrary={() => setLibPickTrack(menuCtx.track === 'audio' ? 'audio' : 'video')}
           onPreview={() => (menuCtx.track === 'audio' ? doPreviewAudioTrack() : doPreviewNarration())}
+          onAddVideoTrack={() => onTimelineChange(addTrack(timeline, 'video'))}
+          onAddAudioTrack={() => onTimelineChange(addTrack(timeline, 'audio'))}
+          onRemoveTrack={(tid) => onTimelineChange(removeTrack(timeline, tid))}
           onDeleteClip={(id) => {
             if (menuCtx.track === 'subtitle') {
               const idx = Number(id);
