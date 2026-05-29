@@ -12,15 +12,17 @@
 import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Library, Search, Upload, X, CheckCircle2, Loader2, AlertCircle,
+  Library, Search, Upload, X, CheckCircle2, Loader2, AlertCircle, Trash2, Eye,
 } from 'lucide-react';
 import {
   videoGeneration,
+  vgMaterialFileUrl,
   type VgMaterial,
   type VgMaterialInfo,
 } from '@chayuan/api';
 import { useVgComposer } from '../store/vgComposer';
 import { reportError } from '../../../store/errorDialog';
+import { confirmDialog } from '../../../store/confirmDialog';
 
 type Tab = 'mine' | 'online' | 'upload';
 
@@ -121,11 +123,17 @@ const MineTab: React.FC<{
   selected: VgMaterialInfo[];
   onToggle: (item: VgMaterialInfo) => void;
   qc: ReturnType<typeof useQueryClient>;
-}> = ({ selected, onToggle }) => {
+}> = ({ selected, onToggle, qc }) => {
+  const [preview, setPreview] = React.useState<VgMaterial | null>(null);
   const q = useQuery({
     queryKey: ['vg.materials', { page: 1, page_size: 50 }],
     queryFn: () => videoGeneration.listMaterials({ page: 1, page_size: 50 }),
     staleTime: 30_000,
+  });
+  const delMut = useMutation({
+    mutationFn: (id: string) => videoGeneration.deleteMaterial(id, { drop_file: true }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['vg.materials'] }); },
+    onError: (e) => reportError(e as Error, '删除素材失败'),
   });
 
   if (q.isLoading) return <div className="text-xs text-[var(--cy-text-tertiary)]">加载中…</div>;
@@ -140,47 +148,81 @@ const MineTab: React.FC<{
   if (items.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-8 text-center text-sm text-[var(--cy-text-secondary)]">
-        素材库为空 — 切到「上传新素材」或「在线搜索」获取素材
+        素材库为空 — 切到「上传新素材」/「在线搜索」/「从链接」获取素材
       </div>
     );
   }
+  const isImg = (m: VgMaterial) => (m.mime || '').startsWith('image');
+  const isAudio = (m: VgMaterial) => (m.mime || '').startsWith('audio');
   return (
-    <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {items.map((m: VgMaterial) => {
-        const url = m.path; // 后端走本地路径,合成时直接 fs.read
-        const item: VgMaterialInfo = { provider: m.source, url, duration: Math.round(m.duration_ms / 1000) };
-        const chosen = selected.some((s) => s.url === url);
-        return (
-          <li key={m.material_id}>
-            <button
-              type="button"
-              onClick={() => onToggle(item)}
+    <>
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {items.map((m: VgMaterial) => {
+          const url = m.path;
+          const item: VgMaterialInfo = { provider: m.source, url, duration: Math.round(m.duration_ms / 1000) };
+          const chosen = selected.some((s) => s.url === url);
+          const fileUrl = vgMaterialFileUrl(m.material_id);
+          return (
+            <li key={m.material_id}
               className={
-                'group relative w-full overflow-hidden rounded-xl border text-left transition-colors ' +
-                (chosen
-                  ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
-                  : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')
+                'group relative overflow-hidden rounded-xl border transition-colors ' +
+                (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
+                        : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')
               }
             >
-              <div className="aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center text-xs text-[var(--cy-text-tertiary)]">
-                {m.thumbnail_path ? '(缩略图)' : '(无缩略图)'}
-              </div>
-              <div className="p-2.5">
-                <p className="truncate text-xs font-medium text-[var(--cy-text-primary)]">{m.name}</p>
-                <p className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]">
-                  {m.source} · {fmtSize(m.size)}
-                </p>
-              </div>
+              <button type="button" onClick={() => onToggle(item)} className="block w-full text-left">
+                <div className="aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden">
+                  {isImg(m) ? (
+                    <img src={fileUrl} alt={m.name} className="h-full w-full object-cover" loading="lazy" />
+                  ) : isAudio(m) ? (
+                    <span className="text-2xl">🎵</span>
+                  ) : (
+                    <video src={fileUrl} preload="metadata" muted className="h-full w-full object-cover" />
+                  )}
+                </div>
+                <div className="p-2.5">
+                  <p className="truncate text-xs font-medium text-[var(--cy-text-primary)]">{m.name}</p>
+                  <p className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]">{m.source} · {fmtSize(m.size)}</p>
+                </div>
+              </button>
               {chosen && (
-                <span className="absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
+                <span className="pointer-events-none absolute left-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </span>
               )}
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+              <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <button type="button" title="预览" onClick={() => setPreview(m)}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded bg-black/55 text-white hover:bg-black/75">
+                  <Eye className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" title="删除"
+                  onClick={async () => {
+                    if (!(await confirmDialog(`删除素材「${m.name}」?磁盘文件会一并清掉。`, { danger: true }))) return;
+                    await delMut.mutateAsync(m.material_id);
+                  }}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded bg-rose-600/85 text-white hover:bg-rose-600">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {preview && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-6"
+          onClick={() => setPreview(null)}>
+          <div className="max-h-[85vh] max-w-[85vw]" onClick={(e) => e.stopPropagation()}>
+            {isImg(preview) ? (
+              <img src={vgMaterialFileUrl(preview.material_id)} alt={preview.name} className="max-h-[85vh] max-w-[85vw] rounded-lg" />
+            ) : isAudio(preview) ? (
+              <audio src={vgMaterialFileUrl(preview.material_id)} controls autoPlay className="w-[80vw] max-w-xl" />
+            ) : (
+              <video src={vgMaterialFileUrl(preview.material_id)} controls autoPlay className="max-h-[85vh] max-w-[85vw] rounded-lg" />
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
