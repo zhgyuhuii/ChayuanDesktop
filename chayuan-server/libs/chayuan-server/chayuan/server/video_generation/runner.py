@@ -250,10 +250,14 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
         # ── 6. compose ────────────────────────────────────────────
         if _is_canceled(task_id):
             return _mark_canceled(task_id)
-        final_videos, combined_videos = _compose_videos(
-            task_id, params, materials_paths,
-            audio_file=tts_result.audio_file, subtitle_path=subtitle_path,
-        )
+        if _use_edl(params):
+            final_videos = [_compose_via_edl(task_id, params, tts_result.audio_file, subtitle_path)]
+            combined_videos = []
+        else:
+            final_videos, combined_videos = _compose_videos(
+                task_id, params, materials_paths,
+                audio_file=tts_result.audio_file, subtitle_path=subtitle_path,
+            )
         if not final_videos:
             return _mark_failed(task_id, "moviepy 合成失败 — 详见日志")
 
@@ -544,6 +548,47 @@ def _compose_videos(
                 idx, e, traceback.format_exc(),
             )
     return finals, combineds
+
+
+def _use_edl(params) -> bool:
+    """有 timeline 且至少一条 video 轨有 clip 才走 EDL 渲染;否则走自动路径。"""
+    tl = getattr(params, "timeline", None)
+    if tl is None:
+        return False
+    for t in (tl.tracks or []):
+        if t.kind == "video" and t.clips:
+            return True
+    return False
+
+
+def _compose_via_edl(task_id: str, params, audio_file: str, subtitle_path: str) -> str:
+    """EDL 渲染单份成品,返回 final 路径。source 解析:material_id->库路径 /
+    url->下载到 task_dir / path->直通。"""
+    from ._helpers import task_dir
+    from .steps import compose as compose_step
+    from .steps import materials as materials_step
+    from .store import materials as materials_store
+
+    out_dir = task_dir(task_id)
+
+    def _resolve(source: dict) -> str:
+        mid = source.get("material_id")
+        if mid:
+            try:
+                row = materials_store.get_material(mid)
+            except Exception:  # noqa: BLE001
+                row = None
+            return (row or {}).get("path") or ""
+        url = source.get("url") or ""
+        if url.startswith(("http://", "https://")):
+            return materials_step.save_video(url, save_dir=out_dir) or ""
+        return source.get("path") or ""
+
+    final_path = os.path.join(out_dir, "final-0.mp4")
+    return compose_step.render_from_edl(
+        params.timeline, audio_file, subtitle_path, final_path, params,
+        source_resolver=_resolve, threads=max(1, int(params.n_threads)),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────

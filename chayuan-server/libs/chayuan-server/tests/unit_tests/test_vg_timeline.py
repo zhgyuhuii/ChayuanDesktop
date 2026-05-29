@@ -94,3 +94,16 @@ def test_edl_render_plan_skips_empty_source_and_zero_out():
     plan = _build_edl_render_plan(tl, VideoAspect.portrait, source_resolver=_src_resolver)
     assert [p["clip_id"] for p in plan] == ["ok"]
     assert plan[0]["end_s"] is None
+
+
+from chayuan.server.video_generation.runner import _use_edl
+
+
+def test_use_edl_branch():
+    assert _use_edl(VideoParams(video_subject="x")) is False
+    tl = Timeline(tracks=[TimelineTrack(id="v", kind="video", clips=[
+        TimelineClip(id="c1", source={"path": "/a.mp4"}, track_start_ms=0, out_ms=3000),
+    ])])
+    assert _use_edl(VideoParams(video_subject="x", timeline=tl)) is True
+    empty = Timeline(tracks=[TimelineTrack(id="v", kind="video", clips=[])])
+    assert _use_edl(VideoParams(video_subject="x", timeline=empty)) is False
