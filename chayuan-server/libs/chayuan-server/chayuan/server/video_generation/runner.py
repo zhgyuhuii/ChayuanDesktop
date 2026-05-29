@@ -158,10 +158,20 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
         if _is_canceled(task_id):
             return _mark_canceled(task_id)
         video_terms: list[str] = []
-        if params.video_source != "local" and params.script_source.value == "ai":
+        # 在线源(pexels/pixabay)就需要搜索关键词 —— 跟脚本来源无关。
+        # 旧逻辑限 script_source=='ai',但对话流"去生成"提交的是 manual,
+        # 导致 video_terms 永远空 → _resolve_materials 在线分支被跳过 → 回退本地。
+        # 已有 video_subject 优先,空则从脚本里抽关键词。
+        if params.video_source != "local":
+            subject = (params.video_subject or "").strip() or video_script[:80]
             video_terms = _script_step.generate_terms(
-                params.video_subject, video_script, amount=5,
+                subject, video_script, amount=5,
             )
+            if not video_terms:
+                logger.warning(
+                    "[runner] 在线源 %s 但 generate_terms 返空 — 在线搜索将被跳过,"
+                    "检查 chat 模型是否可用 / 脚本是否为空", params.video_source,
+                )
         tasks_store.update_progress(
             task_id, progress=20, result_patch={"terms": video_terms},
         )
