@@ -336,7 +336,7 @@ def _resolve_materials(
     # 2) 在线源
     if params.video_source != "local" and video_terms:
         try:
-            return materials_step.download_videos(
+            paths = materials_step.download_videos(
                 task_id, list(video_terms),
                 source=params.video_source,
                 video_aspect=params.video_aspect,
@@ -344,12 +344,70 @@ def _resolve_materials(
                 audio_duration=audio_duration_s,
                 max_clip_duration=max_clip,
             )
+            # 下载到的在线片段持久化进素材库,库里「网络/pexels」可浏览+复用(best-effort)
+            _persist_online_materials(task_id, params.video_source, paths)
+            return paths
         except Exception as e:  # noqa: BLE001
             logger.warning("[runner] 在线源 %s 失败,fallback 本地: %r",
                            params.video_source, e)
 
     # 3) 本地素材库
     return _pick_from_local_library(task_id, audio_duration_s, max_clip)
+
+
+def _persist_online_materials(task_id: str, source: str, paths: list) -> None:
+    """把在线下载的片段复制到持久素材目录 + 登记 vg_materials,供库里浏览/复用。
+
+    best-effort:任何失败只 warning,绝不影响本次生成。去重按文件名(Pexels/
+    Pixabay 文件名含 video id,稳定)—— 目标已存在则跳过复制和登记。
+    owner_id 从 vg_tasks 倒查(跟当前任务归属一致)。
+    """
+    import os
+    import shutil
+
+    try:
+        from . import service as vg_service
+        from ._helpers import storage_dir
+        from .store import materials as materials_store
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[persist-online] import 失败,跳过: %r", e)
+        return
+
+    try:
+        row = vg_service.get_task(task_id)
+        owner_id = row.get("owner_id") if row else None
+    except Exception:  # noqa: BLE001
+        owner_id = None
+
+    try:
+        mat_dir = storage_dir("materials", create=True)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[persist-online] 素材目录不可用,跳过: %r", e)
+        return
+
+    for p in paths or []:
+        try:
+            if not p or not os.path.isfile(p):
+                continue
+            base = os.path.basename(p)
+            # 文件名带源前缀,避免不同源同名冲突;含 video id 天然去重
+            dest_name = f"{source}_{base}"
+            dest = os.path.join(mat_dir, dest_name)
+            if os.path.isfile(dest) and os.path.getsize(dest) > 0:
+                continue  # 已在库里(之前下过同一片段)→ 跳过
+            shutil.copy2(p, dest)
+            size = os.path.getsize(dest)
+            materials_store.create_material(
+                source=source,
+                name=dest_name,
+                path=dest,
+                owner_id=owner_id,
+                mime="video/mp4",
+                size=size,
+                tags=["online", source],
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[persist-online] 持久化 %s 失败(忽略): %r", p, e)
 
 
 def _pick_from_local_library(
