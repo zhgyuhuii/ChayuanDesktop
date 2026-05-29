@@ -1,14 +1,16 @@
 import * as React from 'react';
-import { Upload, Library, Play, Trash2 } from 'lucide-react';
+import { Upload, Library, Play, Trash2, Plus } from 'lucide-react';
 
 export interface TrackMenuCtx {
   x: number;
   y: number;
   track: 'video' | 'audio' | 'subtitle';
   clipId?: string;
+  trackId?: string;
+  removable?: boolean;
 }
 
-/** 轨道右键菜单:从本地上传 / 从素材库添加 / 试听 / 删除(仅 clip 上)。 */
+/** 轨道右键菜单:上传/库添加/试听/删除 clip;加视频/音频轨;删除可删轨。 */
 export const TrackContextMenu: React.FC<{
   ctx: TrackMenuCtx;
   onUploadLocal: () => void;
@@ -16,7 +18,10 @@ export const TrackContextMenu: React.FC<{
   onPreview: () => void;
   onDeleteClip: (clipId: string) => void;
   onClose: () => void;
-}> = ({ ctx, onUploadLocal, onAddFromLibrary, onPreview, onDeleteClip, onClose }) => {
+  onAddVideoTrack?: () => void;
+  onAddAudioTrack?: () => void;
+  onRemoveTrack?: (trackId: string) => void;
+}> = ({ ctx, onUploadLocal, onAddFromLibrary, onPreview, onDeleteClip, onClose, onAddVideoTrack, onAddAudioTrack, onRemoveTrack }) => {
   React.useEffect(() => {
     // 只在左键点击 / Esc 关闭。不监听 contextmenu —— 否则"再次右键"会与新菜单打开抢
     // 同一事件(先 set 新 ctx 又被关闭监听 set null),导致第 2 次起右键菜单出不来。
@@ -52,6 +57,18 @@ export const TrackContextMenu: React.FC<{
           <button type="button" className={item} onClick={() => { onPreview(); onClose(); }}>
             <Play className="h-3.5 w-3.5" /> 试听本轨
           </button>
+          <div className="my-1 border-t border-[var(--cy-border-subtle)]" />
+          <button type="button" className={item} onClick={() => { onAddVideoTrack?.(); onClose(); }}>
+            <Plus className="h-3.5 w-3.5" /> 添加视频轨
+          </button>
+          <button type="button" className={item} onClick={() => { onAddAudioTrack?.(); onClose(); }}>
+            <Plus className="h-3.5 w-3.5" /> 添加音频轨
+          </button>
+          {ctx.removable && ctx.trackId && (
+            <button type="button" className={`${item} text-rose-600 hover:bg-rose-50`} onClick={() => { onRemoveTrack?.(ctx.trackId!); onClose(); }}>
+              <Trash2 className="h-3.5 w-3.5" /> 删除此轨
+            </button>
+          )}
         </>
       )}
       {ctx.clipId && (
