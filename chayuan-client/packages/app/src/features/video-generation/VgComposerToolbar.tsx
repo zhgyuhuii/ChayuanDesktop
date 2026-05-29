@@ -9,11 +9,12 @@
  * 模型不在这里(ChatComposer 自带 ComposerModelPill)。
  */
 import * as React from 'react';
-import { Ratio, Volume2, Type, Zap, ChevronDown } from 'lucide-react';
+import { Ratio, Volume2, Type, Zap, ChevronDown, Film } from 'lucide-react';
 import { cn } from '@chayuan/ui';
 import { VgOutputSettings } from './VgAspectChip';
 import { VgSpeechSettings } from './VgAudioPopover';
 import { VgSubtitleSettings } from './VgSubtitlePopover';
+import { OnlineSourceChips } from './sections/OnlineSourceChips';
 import { useVgComposer } from './store/vgComposer';
 
 export interface VgComposerToolbarProps {
@@ -21,7 +22,7 @@ export interface VgComposerToolbarProps {
   onAutoModeChange: (v: boolean) => void;
 }
 
-type Panel = 'aspect' | 'speech' | 'subtitle' | null;
+type Panel = 'aspect' | 'speech' | 'subtitle' | 'material' | null;
 
 const triggerCls = (active: boolean) =>
   cn(
@@ -48,17 +49,23 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
         <div className="border-b border-[var(--cy-border-subtle)] px-3 py-2">
           {open === 'aspect' ? <VgOutputSettings />
             : open === 'speech' ? <VgSpeechSettings />
-            : <VgSubtitleSettings />}
+            : open === 'subtitle' ? <VgSubtitleSettings />
+            : (
+              <OnlineSourceChips
+                selected={params.video_source}
+                onSelect={(name) => {
+                  // pexels/pixabay 直接映到 video_source;其它源仅配 Key,后端
+                  // source connector 接入后再开放选用(跟 MaterialsSection 一致)
+                  if (name === 'pexels' || name === 'pixabay') {
+                    patch({ video_source: name });
+                  }
+                }}
+              />
+            )}
         </div>
       )}
-      {/* chip 行 */}
+      {/* chip 行 — 顺序:语言 → 段落 → 语音 → 字幕 → 画幅 → 素材 →(右)全自动 */}
       <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 text-xs">
-        {/* 画幅设置 trigger */}
-        <button type="button" onClick={() => toggle('aspect')} className={triggerCls(open === 'aspect')}>
-          <Ratio className="h-3 w-3 text-[var(--cy-brand-500)]" />
-          画幅设置
-          <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'aspect' && 'rotate-180')} />
-        </button>
         <div className="inline-flex items-center gap-1">
           <span className="text-[var(--cy-text-tertiary)]">语言</span>
           <select
@@ -99,6 +106,20 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
           <Type className="h-3 w-3 text-[var(--cy-brand-500)]" />
           字幕设置
           <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'subtitle' && 'rotate-180')} />
+        </button>
+
+        {/* 画幅设置 trigger */}
+        <button type="button" onClick={() => toggle('aspect')} className={triggerCls(open === 'aspect')}>
+          <Ratio className="h-3 w-3 text-[var(--cy-brand-500)]" />
+          画幅设置
+          <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'aspect' && 'rotate-180')} />
+        </button>
+
+        {/* 素材设置 trigger — 配 Pexels/Pixabay 等在线源 API Key */}
+        <button type="button" onClick={() => toggle('material')} className={triggerCls(open === 'material')}>
+          <Film className="h-3 w-3 text-[var(--cy-brand-500)]" />
+          素材设置
+          <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'material' && 'rotate-180')} />
         </button>
 
         {/* 全自动 — 末尾 toggle chip */}
