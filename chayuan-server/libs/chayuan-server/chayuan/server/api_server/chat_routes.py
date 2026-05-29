@@ -168,6 +168,7 @@ async def chatgraph_endpoint(
     conversation_id: str = Body(""),
     governance_enabled: bool = Body(True),
     deep_think: bool = Body(False, description="深度思考开关 — 按模型族注入 enable_thinking / thinking 等参数"),
+    metadata: Dict = Body(default_factory=dict, description="模式专属附加参数;video_generation 用 metadata.videoGeneration={language,paragraphNumber,aspect,model}"),
     request: Request = None,
     user=Depends(require_auth_enabled()),
 ):
@@ -212,6 +213,7 @@ async def chatgraph_endpoint(
         request_id=str(getattr(request.state, "request_id", "")) if request else "",
         governance_enabled=bool(governance_enabled),
         deep_think=bool(deep_think),
+        metadata=dict(metadata or {}),
     )
 
     if stream:

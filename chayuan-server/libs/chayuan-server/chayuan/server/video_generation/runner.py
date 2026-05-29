@@ -250,6 +250,13 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
         # ── 6. compose ────────────────────────────────────────────
         if _is_canceled(task_id):
             return _mark_canceled(task_id)
+        # compose 是 moviepy CPU 绑定,30s 视频可能跑 1-3 分钟且无细粒度进度。
+        # 先把进度推到 75% + 标记"合成中",避免前端误判 70% 卡死。
+        tasks_store.update_progress(
+            task_id, progress=75,
+            result_patch={"stage": "compose", "stage_hint": "正在合成视频(CPU 渲染,可能需要 1-3 分钟)"},
+        )
+        logger.info("[runner] task %s 进入 compose(materials=%d)", task_id, len(materials_paths))
         if _use_edl(params):
             final_videos = [_compose_via_edl(task_id, params, tts_result.audio_file, subtitle_path)]
             combined_videos = []

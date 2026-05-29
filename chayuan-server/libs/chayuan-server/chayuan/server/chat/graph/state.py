@@ -71,6 +71,10 @@ class ChatRequest:
     # ChatComposer 顶部的 ✨ 深度思考开关 — 启用时按模型族注入 enable_thinking / thinking
     # 等上游推理参数(详见 chayuan.server.chat.deep_think.compute_deep_think_kwargs)
     deep_think: bool = False
+    # 模式专属附加参数(前端 metadata 透传)。video_generation 用
+    # metadata["videoGeneration"] = {language, paragraphNumber, aspect, model} 让脚本
+    # handler 拿到段落数等;不透传则各默认(段落数恒为 1 的根因)。
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class ChatState(TypedDict, total=False):
