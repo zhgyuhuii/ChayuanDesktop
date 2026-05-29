@@ -540,6 +540,25 @@ def delete_material(
     return {"deleted": ok}
 
 
+def _maybe_translate_query(q: str, auto_translate: bool) -> str:
+    """非 ASCII(含中文)且开启时,用 generate_terms 转英文取首词;否则原样返回。
+
+    Pexels/Pixabay stock 库是英文标签索引,中文 query 命中率近 0。
+    """
+    if not auto_translate:
+        return q
+    if q.isascii():
+        return q
+    try:
+        from chayuan.server.video_generation.steps import script as script_step
+        terms = script_step.generate_terms(q, q, amount=1)
+        if terms and isinstance(terms, list) and terms[0].strip():
+            return terms[0].strip()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[vg] search 英文化失败,用原词: %r", e)
+    return q
+
+
 @video_generation_router.get(
     "/materials/search",
     summary="在线搜素材(Pexels/Pixabay)— 需配 API Key",
@@ -549,25 +568,28 @@ def search_materials(
     source: str = Query("pexels", pattern="^(pexels|pixabay)$"),
     aspect: str = Query("9:16", pattern="^(16:9|9:16|1:1)$"),
     minimum_duration: int = Query(5, ge=1, le=120),
+    auto_translate: bool = Query(True, description="非英文 query 自动转英文再搜"),
     user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     from chayuan.server.video_generation.steps import materials as materials_step
     from chayuan.server.video_generation.schemas import VideoAspect
+    effective_q = _maybe_translate_query(q, auto_translate)
     try:
         fn = (
             materials_step.search_videos_pexels if source == "pexels"
             else materials_step.search_videos_pixabay
         )
         items = fn(
-            search_term=q,
+            search_term=effective_q,
             minimum_duration=minimum_duration,
             video_aspect=VideoAspect(aspect),
         )
     except ValueError as e:
-        # API Key 未配
         raise HTTPException(412, str(e)) from e
     return {
         "count": len(items),
+        "query": q,
+        "translated_query": effective_q if effective_q != q else None,
         "items": [
             {"provider": it.provider, "url": it.url, "duration": it.duration}
             for it in items
