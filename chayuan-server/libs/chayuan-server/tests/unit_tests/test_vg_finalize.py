@@ -28,7 +28,9 @@ def test_finalize_task_enqueues_compose_only(monkeypatch):
     enq = mock.Mock()
     monkeypatch.setattr(service.runner, "enqueue_finalize", enq)
 
-    ok = service.finalize_task("draft-1", {"version": 1, "duration_ms": 0, "tracks": []}, owner_id=1)
+    tl = {"version": 1, "duration_ms": 0, "tracks": [{"id": "v", "kind": "video", "clips": [
+        {"id": "x", "source": {"url": "http://e/x.mp4"}, "track_start_ms": 0, "in_ms": 0, "out_ms": 0}]}]}
+    ok = service.finalize_task("draft-1", tl, owner_id=1)
     assert ok is True
     enq.assert_called_once()
     args, kwargs = enq.call_args
@@ -60,3 +62,23 @@ def test_run_finalize_does_not_call_tts(monkeypatch):
     params = VideoParams(video_subject="t", video_script="hi")
     runner._run_finalize("draft-1", params, audio_file="/d/a.mp3", subtitle_path="/d/s.srt")
     composed.assert_called_once()
+
+
+def test_finalize_relaxed_no_materials_but_timeline_has_clip(monkeypatch):
+    row = _draft_row()
+    row["result"] = {"audio_file": "/d/a.mp3", "subtitle_path": "/d/s.srt"}  # 无 materials
+    monkeypatch.setattr(service.tasks_store, "get_task", lambda *a, **k: row)
+    monkeypatch.setattr(service.tasks_store, "update_progress", lambda *a, **k: True)
+    monkeypatch.setattr(service.runner, "enqueue_finalize", lambda *a, **k: None)
+    tl = {"version": 1, "tracks": [{"id": "v", "kind": "video", "clips": [
+        {"id": "x", "source": {"url": "http://e/x.mp4"}, "track_start_ms": 0, "in_ms": 0, "out_ms": 0},
+    ]}]}
+    assert service.finalize_task("draft-1", tl, owner_id=1) is True
+
+
+def test_finalize_rejects_empty_video_track(monkeypatch):
+    row = _draft_row()
+    row["result"] = {"audio_file": "/d/a.mp3", "subtitle_path": "/d/s.srt"}
+    monkeypatch.setattr(service.tasks_store, "get_task", lambda *a, **k: row)
+    tl = {"version": 1, "tracks": [{"id": "v", "kind": "video", "clips": []}]}
+    assert service.finalize_task("draft-1", tl, owner_id=1) is False

@@ -145,8 +145,17 @@ def finalize_task(
     result = row.get("result") or {}
     audio_file = result.get("audio_file")
     subtitle_path = result.get("subtitle_path")
-    if not audio_file or not subtitle_path or not result.get("materials"):
-        logger.warning("[service] finalize_task %s 草稿缺 audio/subtitle/materials", task_id)
+    if not audio_file or not subtitle_path:
+        logger.warning("[service] finalize_task %s 草稿缺 audio/subtitle", task_id)
+        return False
+    # 素材来自用户手拖的 EDL(P5a),不再要求草稿自动下的 materials;
+    # 但视频轨必须有 clip,否则没东西可渲染。
+    vclips = [
+        c for tr in (timeline.get("tracks") or []) if tr.get("kind") == "video"
+        for c in (tr.get("clips") or [])
+    ]
+    if not vclips:
+        logger.warning("[service] finalize_task %s 视频轨为空,拒绝", task_id)
         return False
     try:
         params = VideoParams.model_validate(row.get("params") or {})
