@@ -24,3 +24,9 @@
     store/        sqlite CRUD:tasks/materials/videos
     resources/    fonts/bgm 索引 + 内置素材库
 """
+
+# 导入即给 moviepy 打 ffmpeg 输出解析兼容补丁(新 ffmpeg 的无冒号 side-data 行)。
+# 放在包 __init__ 保证主进程与 multiprocessing 子进程(各自重 import 本包)都生效。
+from ._moviepy_compat import apply_moviepy_compat_patches as _apply_moviepy_compat_patches
+
+_apply_moviepy_compat_patches()
