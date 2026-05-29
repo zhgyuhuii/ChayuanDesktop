@@ -362,9 +362,10 @@ def get_task(
 )
 def delete_task(
     task_id: str = FPath(...),
+    drop_file: bool = Query(True, description="是否删磁盘文件;清理任务列表保留成片时传 false"),
     user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
-    ok = vg_service.delete_task(task_id, owner_id=_owner_id_of(user))
+    ok = vg_service.delete_task(task_id, owner_id=_owner_id_of(user), drop_files=drop_file)
     if not ok:
         raise HTTPException(404, "task not found")
     return {"deleted": True}

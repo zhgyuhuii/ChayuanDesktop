@@ -18,7 +18,7 @@ import {
 } from '@chayuan/api';
 import { useTabsStore } from '../../store/tabs';
 import { useVgComposer } from './store/vgComposer';
-import { InProgressTasksPanel } from './InProgressTasksPanel';
+import { VgTaskListPanel } from './VgTaskListPanel';
 import { reportError } from '../../store/errorDialog';
 import { confirmDialog } from '../../store/confirmDialog';
 
@@ -56,6 +56,27 @@ export const VideoLibraryPage: React.FC = () => {
 
   const items = q.data?.items ?? [];
   const [viewMode, setViewMode] = React.useState<'card' | 'list'>('card');
+  const [tab, setTab] = React.useState<'videos' | 'tasks'>('videos');
+  const [selectedVideoId, setSelectedVideoId] = React.useState<string | null>(null);
+  const cardRefs = React.useRef<Record<string, HTMLLIElement | null>>({});
+
+  // 从「视频任务」tab 点「查看视频」→ 切到 videos tab + 滚动到 + 选中对应成片
+  const onViewVideo = React.useCallback((taskId: string) => {
+    const vid = (q.data?.items ?? []).find((v) => v.task_id === taskId);
+    setTab('videos');
+    if (vid) setSelectedVideoId(vid.video_id);
+  }, [q.data]);
+
+  React.useEffect(() => {
+    if (tab !== 'videos' || !selectedVideoId) return;
+    const el = cardRefs.current[selectedVideoId];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const t = setTimeout(() => setSelectedVideoId(null), 2500); // 2.5s 后撤高亮
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [tab, selectedVideoId, items.length]);
 
   // 按时间分组
   const grouped = React.useMemo(() => {
@@ -96,58 +117,76 @@ export const VideoLibraryPage: React.FC = () => {
             已合成的成品按时间分组,可在线播放 / 下载 / 复制参数重做
           </p>
         </div>
-        {/* 视图切换:卡片 / 列表 */}
-        <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-[var(--cy-border-subtle)]">
-          <button type="button" onClick={() => setViewMode('card')} title="卡片视图"
-            className={'inline-flex h-8 w-8 items-center justify-center ' + (viewMode === 'card' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
-            <LayoutGrid className="h-4 w-4" />
-          </button>
-          <button type="button" onClick={() => setViewMode('list')} title="列表视图"
-            className={'inline-flex h-8 w-8 items-center justify-center border-l border-[var(--cy-border-subtle)] ' + (viewMode === 'list' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
-            <ListIcon className="h-4 w-4" />
-          </button>
-        </div>
+        {/* 视图切换:卡片 / 列表(仅「我的视频」tab) */}
+        {tab === 'videos' && (
+          <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-[var(--cy-border-subtle)]">
+            <button type="button" onClick={() => setViewMode('card')} title="卡片视图"
+              className={'inline-flex h-8 w-8 items-center justify-center ' + (viewMode === 'card' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={() => setViewMode('list')} title="列表视图"
+              className={'inline-flex h-8 w-8 items-center justify-center border-l border-[var(--cy-border-subtle)] ' + (viewMode === 'list' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
+              <ListIcon className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </header>
 
-      {/* N7:进行中任务聚合面板 — 多 SSE 并发显示进度条,完成自动消失 */}
-      <InProgressTasksPanel />
-
-      {q.isLoading && <p className="text-sm text-[var(--cy-text-tertiary)]">加载中…</p>}
-      {q.isError && (
-        <p className="text-xs text-rose-700">加载失败:{(q.error as Error).message}</p>
-      )}
-      {items.length === 0 && q.isFetched && (
-        <div className="rounded-xl border-2 border-dashed border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-10 text-center">
-          <p className="text-sm text-[var(--cy-text-secondary)]">还没有成品</p>
-          <p className="mt-1 text-xs text-[var(--cy-text-tertiary)]">
-            到「视频生成」走完 wizard 7 步,这里就会有内容
-          </p>
-        </div>
-      )}
-
-      {(['today', 'this-week', 'this-month', 'older'] as Bucket[])
-        .filter((b) => grouped[b].length > 0)
-        .map((bucket) => (
-          <section key={bucket}>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--cy-text-tertiary)]">
-              {BUCKET_LABEL[bucket]} · {grouped[bucket].length}
-            </h2>
-            <ul className={viewMode === 'card' ? 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3' : 'flex flex-col gap-1.5'}>
-              {grouped[bucket].map((v) => (
-                <VideoCard
-                  key={v.video_id}
-                  v={v}
-                  mode={viewMode}
-                  onCopyRedo={() => onCopyAndRedo(v)}
-                  onDelete={async () => {
-                    if (!(await confirmDialog(`删除「${v.title || '未命名视频'}」?磁盘文件会一并清掉。`, { danger: true }))) return;
-                    try { await deleteMut.mutateAsync(v.video_id); } catch (e) { reportError(e as Error); }
-                  }}
-                />
-              ))}
-            </ul>
-          </section>
+      {/* Tab 切换:我的视频 / 视频任务 */}
+      <div className="flex gap-1 border-b border-[var(--cy-border-subtle)]">
+        {(['videos', 'tasks'] as const).map((tb) => (
+          <button key={tb} type="button" onClick={() => setTab(tb)}
+            className={'-mb-px border-b-2 px-3 py-1.5 text-sm font-medium transition-colors ' +
+              (tab === tb ? 'border-[var(--cy-brand-500)] text-[var(--cy-brand-700)]' : 'border-transparent text-[var(--cy-text-tertiary)] hover:text-[var(--cy-text-secondary)]')}>
+            {tb === 'videos' ? '我的视频' : '视频任务'}
+          </button>
         ))}
+      </div>
+
+      {tab === 'tasks' ? (
+        <VgTaskListPanel onViewVideo={onViewVideo} />
+      ) : (
+        <>
+          {q.isLoading && <p className="text-sm text-[var(--cy-text-tertiary)]">加载中…</p>}
+          {q.isError && (
+            <p className="text-xs text-rose-700">加载失败:{(q.error as Error).message}</p>
+          )}
+          {items.length === 0 && q.isFetched && (
+            <div className="rounded-xl border-2 border-dashed border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-10 text-center">
+              <p className="text-sm text-[var(--cy-text-secondary)]">还没有成品</p>
+              <p className="mt-1 text-xs text-[var(--cy-text-tertiary)]">
+                到「视频生成」生成,或在「视频任务」tab 看进度
+              </p>
+            </div>
+          )}
+
+          {(['today', 'this-week', 'this-month', 'older'] as Bucket[])
+            .filter((b) => grouped[b].length > 0)
+            .map((bucket) => (
+              <section key={bucket}>
+                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--cy-text-tertiary)]">
+                  {BUCKET_LABEL[bucket]} · {grouped[bucket].length}
+                </h2>
+                <ul className={viewMode === 'card' ? 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3' : 'flex flex-col gap-1.5'}>
+                  {grouped[bucket].map((v) => (
+                    <VideoCard
+                      key={v.video_id}
+                      v={v}
+                      mode={viewMode}
+                      selected={selectedVideoId === v.video_id}
+                      cardRef={(el) => { cardRefs.current[v.video_id] = el; }}
+                      onCopyRedo={() => onCopyAndRedo(v)}
+                      onDelete={async () => {
+                        if (!(await confirmDialog(`删除「${v.title || '未命名视频'}」?磁盘文件会一并清掉。`, { danger: true }))) return;
+                        try { await deleteMut.mutateAsync(v.video_id); } catch (e) { reportError(e as Error); }
+                      }}
+                    />
+                  ))}
+                </ul>
+              </section>
+            ))}
+        </>
+      )}
     </div>
   );
 };
@@ -155,9 +194,11 @@ export const VideoLibraryPage: React.FC = () => {
 const VideoCard: React.FC<{
   v: VgVideo;
   mode?: 'card' | 'list';
+  selected?: boolean;
+  cardRef?: (el: HTMLLIElement | null) => void;
   onCopyRedo: () => void;
   onDelete: () => void;
-}> = ({ v, mode = 'card', onCopyRedo, onDelete }) => {
+}> = ({ v, mode = 'card', selected = false, cardRef, onCopyRedo, onDelete }) => {
   const name = v.path.split(/[\\/]/).pop() || `${v.video_id}.mp4`;
   const playUrl = vgTaskFileUrl(v.task_id, name, false);
   const [downloading, setDownloading] = React.useState(false);
@@ -183,7 +224,7 @@ const VideoCard: React.FC<{
   // 列表视图:紧凑一行,点播放展开内嵌播放器
   if (mode === 'list') {
     return (
-      <li className="rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]">
+      <li ref={cardRef} className={'rounded-lg border bg-[var(--cy-surface-base)] ' + (selected ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/40' : 'border-[var(--cy-border-subtle)]')}>
         <div className="flex items-center gap-2 px-3 py-2">
           <button type="button" onClick={() => setExpanded((x) => !x)} title="播放/收起"
             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)] hover:bg-[var(--cy-brand-100)]">
@@ -212,7 +253,7 @@ const VideoCard: React.FC<{
   }
 
   return (
-    <li className="overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]">
+    <li ref={cardRef} className={'overflow-hidden rounded-xl border bg-[var(--cy-surface-base)] ' + (selected ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/40' : 'border-[var(--cy-border-subtle)]')}>
       <video
         src={playUrl}
         controls

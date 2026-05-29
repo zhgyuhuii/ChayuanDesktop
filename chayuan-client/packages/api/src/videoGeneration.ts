@@ -450,9 +450,13 @@ export async function vgGetTask(taskId: string): Promise<VgTask> {
   return rd<VgTask>(`/api/v1/video-generation/tasks/${encodeURIComponent(taskId)}`);
 }
 
-export async function vgDeleteTask(taskId: string): Promise<{ deleted: boolean }> {
+export async function vgDeleteTask(
+  taskId: string,
+  opts: { drop_file?: boolean } = {},
+): Promise<{ deleted: boolean }> {
   return rd<{ deleted: boolean }>(`/api/v1/video-generation/tasks/${encodeURIComponent(taskId)}`, {
     method: 'DELETE',
+    query: { drop_file: opts.drop_file ?? true },
   });
 }
 
