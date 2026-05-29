@@ -47,3 +47,36 @@ it('setClipIn shifts in, keeps min duration', () => {
   expect(c.in_ms).toBe(2000);
   expect(c.out_ms).toBeGreaterThan(2000);
 });
+
+import { appendClipFromMaterial } from './timelineEdit';
+
+it('appendClipFromMaterial: image default 3000ms, video default 5000ms', () => {
+  const empty = { version: 1, duration_ms: 0, tracks: [{ id: 'v', kind: 'video' as const, clips: [] }] };
+  const t1 = appendClipFromMaterial(empty, { materialId: 'm1', kind: 'image' });
+  const c1 = t1.tracks[0]!.clips![0]!;
+  expect(c1.source).toEqual({ material_id: 'm1' });
+  expect(c1.out_ms).toBe(3000);
+  const t2 = appendClipFromMaterial(empty, { url: 'http://e/v.mp4', kind: 'video' });
+  const c2 = t2.tracks[0]!.clips![0]!;
+  expect(c2.source).toEqual({ url: 'http://e/v.mp4' });
+  expect(c2.out_ms).toBe(0);
+});
+
+it('appendClipFromMaterial: explicit durationMs wins, appends + recomputes starts', () => {
+  const base = { version: 1, duration_ms: 0, tracks: [{ id: 'v', kind: 'video' as const, clips: [
+    { id: 'a', source: { path: '/a.mp4' }, track_start_ms: 0, in_ms: 0, out_ms: 4000 },
+  ] }] };
+  const t = appendClipFromMaterial(base, { materialId: 'm2', kind: 'image', durationMs: 2000 });
+  const clips = t.tracks[0]!.clips!;
+  expect(clips).toHaveLength(2);
+  expect(clips[1]!.out_ms).toBe(2000);
+  expect(clips[1]!.track_start_ms).toBe(4000);
+});
+
+it('appendClipFromMaterial: atIndex inserts', () => {
+  const base = { version: 1, duration_ms: 0, tracks: [{ id: 'v', kind: 'video' as const, clips: [
+    { id: 'a', source: { path: '/a.mp4' }, track_start_ms: 0, in_ms: 0, out_ms: 4000 },
+  ] }] };
+  const t = appendClipFromMaterial(base, { url: 'http://e/x.mp4', kind: 'video' }, 0);
+  expect(t.tracks[0]!.clips!.map((c) => c.source)).toEqual([{ url: 'http://e/x.mp4' }, { path: '/a.mp4' }]);
+});

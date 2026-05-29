@@ -68,3 +68,36 @@ export function setClipIn(t: VgTimeline, clipId: string, inMs: number): VgTimeli
   });
   return recomputeStarts(withVideoClips(t, clips));
 }
+
+/** 拖拽 dataTransfer 的 MIME 与 payload 类型(MaterialsStep 写 / TimelineTracks 读)。 */
+export const VG_MATERIAL_DND_MIME = 'application/x-vg-material';
+
+export interface DraggedMaterial {
+  materialId?: string;
+  url?: string;
+  kind: 'video' | 'image';
+  durationMs?: number;
+}
+
+/** 从拖入素材生成一个视频轨 clip,插入到 atIndex(默认末尾),重算 starts。 */
+export function appendClipFromMaterial(
+  t: VgTimeline,
+  m: DraggedMaterial,
+  atIndex?: number,
+): VgTimeline {
+  const clips = [...videoClips(t)];
+  const dur = m.durationMs && m.durationMs > 0
+    ? Math.round(m.durationMs)
+    : (m.kind === 'image' ? 3000 : 0); // 图像默认 3s;视频 0=整段
+  const clip: VgTimelineClip = {
+    id: `c${Date.now()}${Math.floor(Math.random() * 1000)}`,
+    source: m.materialId ? { material_id: m.materialId } : { url: m.url ?? '' },
+    track_start_ms: 0,
+    in_ms: 0,
+    out_ms: dur,
+    duration_ms: m.kind === 'image' ? (dur || 3000) : (m.durationMs || 0),
+  };
+  const at = atIndex == null ? clips.length : Math.max(0, Math.min(atIndex, clips.length));
+  clips.splice(at, 0, clip);
+  return recomputeStarts(withVideoClips(t, clips));
+}
