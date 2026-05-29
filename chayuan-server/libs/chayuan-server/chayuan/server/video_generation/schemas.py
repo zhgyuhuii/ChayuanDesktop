@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import pydantic
 from pydantic import BaseModel, Field
@@ -111,6 +111,32 @@ class SrtCue(BaseModel):
     text: str = ""
 
 
+class TimelineClip(BaseModel):
+    """时间轴上的一段素材引用(EDL clip)。"""
+    id: str
+    # source 三选一:material_id(库)/ path(本地)/ url(在线),按此优先级解析
+    source: Dict[str, str] = Field(default_factory=dict)
+    track_start_ms: int = Field(default=0, ge=0)   # 在轨道上的起点
+    in_ms: int = Field(default=0, ge=0)             # 源素材裁剪入点
+    out_ms: int = Field(default=0, ge=0)            # 源素材裁剪出点(0 表示到素材末尾)
+    transition: str = "none"                        # none/fade/slide(P4)
+    volume: float = 1.0                             # 音频轨用
+
+
+class TimelineTrack(BaseModel):
+    id: str
+    kind: str = "video"                             # video / audio / subtitle
+    clips: List[TimelineClip] = Field(default_factory=list)
+    cues: List[SrtCue] = Field(default_factory=list)  # subtitle 轨复用 SrtCue
+
+
+class Timeline(BaseModel):
+    """用户编辑的剪辑决策表(EDL)。runner 有它就精确照渲,否则走自动路径。"""
+    version: int = 1
+    duration_ms: int = Field(default=0, ge=0)
+    tracks: List[TimelineTrack] = Field(default_factory=list)
+
+
 # ─────────────────────────────────────────────────────────────────────
 # 主请求模型 — Wizard 各步骤参数聚合
 # ─────────────────────────────────────────────────────────────────────
@@ -142,6 +168,9 @@ class VideoParams(BaseModel):
     # 脚本/关键词 LLM 用哪个模型(跟随对话框选的 chat 模型;空则走默认能力路由)。
     # 格式与 chat 一致:`<platform>::<id>` 或裸 id。
     model: Optional[str] = None
+
+    # 时间轴编辑器(EDL);非空时 runner 按它精确渲染,空则自动拟合(向后兼容)。
+    timeline: Optional[Timeline] = None
 
     # ── 画幅 + 拼接 ──────────────────────────────────────
     video_aspect: VideoAspect = VideoAspect.portrait
