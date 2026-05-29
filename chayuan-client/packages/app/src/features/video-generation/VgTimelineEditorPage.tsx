@@ -12,6 +12,8 @@ import { buildTimelineFromMaterials } from './timeline/buildTimeline';
 import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, type DraggedMaterial } from './timeline/timelineEdit';
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
 import { ScriptGenDialog } from './timeline/ScriptGenDialog';
+import { SubtitleBulkEditor } from './timeline/SubtitleBulkEditor';
+import { rebuildCuesFromLines } from './timeline/subtitleEdit';
 import { playAudioTimeline } from './timeline/audioPreview';
 import { totalDurationMs, rulerDurationMs, fitPxPerSec } from './timeline/timelineScale';
 import { parseSrt, type SrtCue } from './timeline/srtParse';
@@ -43,6 +45,7 @@ export const VgTimelineEditorPage: React.FC = () => {
   const canGen = (params.video_script || '').trim().length > 0
     || (params.script_source === 'ai' && (params.video_subject || '').trim().length > 0);
   const [scriptGenOpen, setScriptGenOpen] = React.useState(false);
+  const [subtitleEditorOpen, setSubtitleEditorOpen] = React.useState(false);
   const submitScriptGen = (v: { subject: string; model: string | null; paragraph: number; language: string }) => {
     patchParams({ video_subject: v.subject, model: v.model ?? undefined, paragraph_number: v.paragraph, video_language: v.language, script_source: 'ai', video_script: '' });
     useVgComposer.getState().resetDraft();
@@ -272,6 +275,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           onReplaceClip={onReplaceClip}
           onDropMaterial={onDropMaterial}
           onLaneContextMenu={onLaneContextMenu}
+          onEditSubtitle={() => setSubtitleEditorOpen(true)}
           onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
           onTimelineChange={onTimelineChange}
         />
@@ -307,6 +311,17 @@ export const VgTimelineEditorPage: React.FC = () => {
             <ReplacePicker onPick={(m) => { addMaterialToTrack(libPickTrack, m); setLibPickTrack(null); }} />
           </div>
         </div>
+      )}
+      {/* 字幕整体编辑框 */}
+      {subtitleEditorOpen && (
+        <SubtitleBulkEditor cues={cues}
+          onSave={(lines) => { setCues(rebuildCuesFromLines(cues, lines, contentMs)); setSubtitleEditorOpen(false); }}
+          onRegenAudio={(t) => {
+            const st = useVgComposer.getState();
+            st.setScriptSlot('manual', t); st.setScriptSource('manual'); st.resetDraft();
+            setSubtitleEditorOpen(false);
+          }}
+          onClose={() => setSubtitleEditorOpen(false)} />
       )}
       {/* 生成脚本表单(自包含) */}
       {scriptGenOpen && (
