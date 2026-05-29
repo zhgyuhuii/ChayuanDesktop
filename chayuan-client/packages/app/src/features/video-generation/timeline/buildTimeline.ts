@@ -18,6 +18,8 @@ export function buildTimelineFromMaterials(
         track_start_ms: cursorMs,
         in_ms: 0,
         out_ms: 0,
+        // 纯前端编辑用:整段时(out_ms=0)给 clipDurMs 提供展示时长。后端 schema 忽略未知字段。
+        duration_ms: durMs,
       };
       cursorMs += durMs;
       return clip;
