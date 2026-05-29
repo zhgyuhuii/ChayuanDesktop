@@ -1520,7 +1520,10 @@ def finalize_task(
     timeline = body.get("timeline")
     if not isinstance(timeline, dict):
         raise HTTPException(422, "body.timeline 必填(Timeline 对象)")
-    ok = vg_service.finalize_task(task_id, timeline, owner_id=_owner_id_of(user))
+    subtitle_cues = body.get("subtitle_cues")
+    if subtitle_cues is not None and not isinstance(subtitle_cues, list):
+        raise HTTPException(422, "subtitle_cues 必须是数组")
+    ok = vg_service.finalize_task(task_id, timeline, owner_id=_owner_id_of(user), subtitle_cues=subtitle_cues)
     if not ok:
         raise HTTPException(400, "finalize 失败:草稿不存在或缺 audio/subtitle/materials")
     row = vg_service.get_task(task_id, owner_id=_owner_id_of(user))
