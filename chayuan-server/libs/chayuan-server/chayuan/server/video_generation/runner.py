@@ -562,7 +562,16 @@ def _persist_vg_videos(task_id: str, params, final_videos: list[str]) -> None:
     snap = params.model_dump(mode="json")
 
     aspect_res = params.video_aspect.to_resolution()
-    title = (params.video_subject or "未命名视频")[:80]
+    # 标题:主题(对话模式可能空)→ 退化用脚本首句 → 兜底"视频";一律附生成时间。
+    import datetime as _dt
+    base_name = (params.video_subject or "").strip()
+    if not base_name and params.video_script:
+        first_line = next(
+            (ln.strip() for ln in str(params.video_script).splitlines() if ln.strip()), "",
+        )
+        base_name = first_line[:30]
+    base_name = (base_name or "视频")[:40]
+    title = f"{base_name} · {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
     for path in final_videos:
         try:

@@ -12,7 +12,7 @@
 import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Library, Search, Upload, X, CheckCircle2, Loader2, AlertCircle, Trash2, Eye, Link2,
+  Library, Search, Upload, X, CheckCircle2, Loader2, AlertCircle, Trash2, Eye, Link2, Play,
 } from 'lucide-react';
 import {
   videoGeneration,
@@ -246,6 +246,7 @@ const OnlineTab: React.FC<{
   const [error, setError] = React.useState<string | null>(null);
   const [searching, setSearching] = React.useState(false);
   const [ingesting, setIngesting] = React.useState<string | null>(null);
+  const [preview, setPreview] = React.useState<string | null>(null);
 
   const onSearch = React.useCallback(async () => {
     if (!keyword.trim()) return;
@@ -324,9 +325,18 @@ const OnlineTab: React.FC<{
                   (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
                           : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
                 <button type="button" onClick={() => onToggle(item)} className="block w-full text-left">
-                  <div className="aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center text-xs text-[var(--cy-text-tertiary)]">
-                    {item.provider} · {item.duration}s
+                  <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden text-xs text-[var(--cy-text-tertiary)]">
+                    {item.image ? (
+                      <img src={item.image} alt="" className="h-full w-full object-cover" loading="lazy" />
+                    ) : (
+                      <span>{item.provider} · {item.duration}s</span>
+                    )}
+                    <span className="absolute bottom-1 right-1 rounded bg-black/55 px-1 text-[9px] text-white">{item.duration}s</span>
                   </div>
+                </button>
+                <button type="button" title="预览" onClick={() => setPreview(item.url)}
+                  className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/75">
+                  <Play className="h-3.5 w-3.5" />
                 </button>
                 <div className="flex items-center justify-between gap-1 p-2">
                   <span className="truncate text-[10px] text-[var(--cy-text-tertiary)]">{item.url.split('/').pop()}</span>
@@ -345,6 +355,14 @@ const OnlineTab: React.FC<{
             );
           })}
         </ul>
+      )}
+
+      {preview && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-6"
+          onClick={() => setPreview(null)}>
+          <video src={preview} controls autoPlay onClick={(e) => e.stopPropagation()}
+            className="max-h-[85vh] max-w-[85vw] rounded-lg bg-black" />
+        </div>
       )}
     </div>
   );

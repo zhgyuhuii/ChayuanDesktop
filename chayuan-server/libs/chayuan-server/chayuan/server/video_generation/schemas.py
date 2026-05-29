@@ -95,6 +95,7 @@ class MaterialInfo:
     provider: str = "pexels"
     url: str = ""
     duration: int = 0
+    image: str = ""  # 预览缩略图 URL(pexels v["image"] / pixabay vimeo 缩略图)
 
 
 class SrtCue(BaseModel):

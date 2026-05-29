@@ -49,6 +49,8 @@ export interface VgMaterialInfo {
   provider: string;
   url: string;
   duration: number;
+  /** 在线搜索结果的预览缩略图 URL(本地素材为空)。 */
+  image?: string;
 }
 
 /** 后端 VideoParams 全字段;前端 vgComposer store 字段一一对应 */

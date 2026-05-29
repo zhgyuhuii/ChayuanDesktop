@@ -120,6 +120,7 @@ def search_videos_pexels(
                     item.provider = "pexels"
                     item.url = video["link"]
                     item.duration = duration
+                    item.image = v.get("image", "")  # 预览帧缩略图
                     video_items.append(item)
                     break
         return video_items
@@ -176,6 +177,9 @@ def search_videos_pixabay(
                     item.provider = "pixabay"
                     item.url = video["url"]
                     item.duration = duration
+                    # pixabay 视频托管在 vimeo,picture_id 拼缩略图 URL
+                    pid = str(v.get("picture_id", "")).strip()
+                    item.image = f"https://i.vimeocdn.com/video/{pid}_640x360.jpg" if pid else ""
                     video_items.append(item)
                     break
         return video_items

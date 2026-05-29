@@ -106,8 +106,14 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
       if (!setMessages) return;
       // 先快照当前 message 内容,异步提交期间用户不会再改它
       let snapshot: ChatMessage | undefined;
+      let subject = '';
       setMessages((prev) => {
-        snapshot = prev.find((m) => m.id === messageId);
+        const idx = prev.findIndex((m) => m.id === messageId);
+        snapshot = idx >= 0 ? prev[idx] : undefined;
+        // 主题 = 该 assistant 脚本前最近一条 user 消息(用于自动命名视频)
+        for (let i = idx - 1; i >= 0; i -= 1) {
+          if (prev[i]?.role === 'user') { subject = (prev[i]?.content || '').trim(); break; }
+        }
         return prev;
       });
       if (!snapshot) return;
@@ -116,13 +122,17 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
       const base = useVgComposer.getState().params;
       const params = {
         ...base,
+        video_subject: base.video_subject || subject,
         video_script: script || base.video_script,
         script_source: 'manual' as const,
         model: resolveVgChatModel() || base.model || undefined,
-        voice_provider: vm.tts?.provider ?? base.voice_provider,
-        voice_name: vm.tts?.voice ?? base.voice_name,
-        voice_rate: vm.tts?.rate ?? base.voice_rate,
-        voice_volume: vm.tts?.volume ?? base.voice_volume,
+        // 音色/语速/音量已全局统一存 vgComposer.params(工具栏「语音设置」与消息块下
+        // 同一份)。不能再用 vm.tts —— 它是 sentinel 默认值(provider 恒为 piper),
+        // 会把用户选的 edge/sherpa 覆盖掉。直接用 base.*。
+        voice_provider: base.voice_provider,
+        voice_name: base.voice_name,
+        voice_rate: base.voice_rate,
+        voice_volume: base.voice_volume,
         bgm_type: vm.bgm?.type ?? base.bgm_type,
         bgm_file: vm.bgm?.file ?? base.bgm_file,
         bgm_volume: vm.bgm?.volume ?? base.bgm_volume,

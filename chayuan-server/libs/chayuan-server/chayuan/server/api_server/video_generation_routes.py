@@ -591,7 +591,8 @@ def search_materials(
         "query": q,
         "translated_query": effective_q if effective_q != q else None,
         "items": [
-            {"provider": it.provider, "url": it.url, "duration": it.duration}
+            {"provider": it.provider, "url": it.url, "duration": it.duration,
+             "image": getattr(it, "image", "")}
             for it in items
         ],
     }
