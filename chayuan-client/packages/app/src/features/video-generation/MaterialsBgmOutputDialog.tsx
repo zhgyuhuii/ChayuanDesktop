@@ -10,7 +10,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogFo
 import { X, Sparkles } from 'lucide-react';
 import { MaterialsSection } from './sections/MaterialsSection';
 import { BgmSection } from './sections/BgmSection';
-import { OutputSection } from './sections/OutputSection';
 
 export interface MaterialsBgmOutputDialogProps {
   open: boolean;
@@ -32,7 +31,6 @@ export const MaterialsBgmOutputDialog: React.FC<MaterialsBgmOutputDialogProps> =
       <div className="min-h-0 flex-1 overflow-y-auto cy-hide-scrollbar p-4 space-y-6">
         <MaterialsSection />
         <BgmSection />
-        <OutputSection />
       </div>
       <DialogFooter className="border-t border-[var(--cy-border-subtle)] px-4 py-3">
         <DialogClose className="rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-1.5 text-sm hover:border-[var(--cy-border-strong)]">
