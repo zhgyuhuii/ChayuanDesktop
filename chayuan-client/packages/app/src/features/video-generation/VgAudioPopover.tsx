@@ -1,16 +1,16 @@
 /**
- * Toolbar 🔊 音频 chip — 弹 popover 配置全局默认 TTS。
+ * 语音设置 — 内联参数条(对齐 composer/TtsVoiceParamBar 视觉:h-6 / text-[10px] /
+ * `·` 分隔 / ink-700 高亮 chip / 单行可换行)。
  *
- * 两层结构:
- *   - 本 popover:全局默认,写 vgComposer.params.voice_*
- *   - 单条消息覆盖:assistant message 下方 TtsCard(R3.3)
+ * 由 VgComposerToolbar 在"语音设置"chip 展开时内联渲染。写全局默认
+ * vgComposer.params.voice_*;单条消息覆盖走 message 下方 TtsCard。
  *
- * 试听用固定示例文本,跟 message 下方 TtsCard 的 previewText(脚本前 50 字)不同。
+ * 导出 VgSpeechSettings(原 VgAudioPopover 改名;弹窗 → 内联)。
  */
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Volume2, Wifi, WifiOff, Play, Loader2 } from 'lucide-react';
-import { Popover, PopoverTrigger, PopoverContent } from '@chayuan/ui';
+import { Wifi, WifiOff, Play, Loader2 } from 'lucide-react';
+import { cn } from '@chayuan/ui';
 import { videoGeneration, type VgVoiceItem, type VgVoiceProvider } from '@chayuan/api';
 import { useVgComposer } from './store/vgComposer';
 import { reportError } from '../../store/errorDialog';
@@ -21,7 +21,22 @@ const PROVIDERS: Array<{ id: VgVoiceProvider; offline: boolean; label: string }>
   { id: 'sherpa', offline: true,  label: 'sherpa' },
 ];
 
-export const VgAudioPopover: React.FC = () => {
+const RATE_OPTIONS = [0.75, 1.0, 1.25, 1.5] as const;
+const VOLUME_OPTIONS: Array<{ v: number; label: string }> = [
+  { v: 0.8, label: '80%' },
+  { v: 1.0, label: '100%' },
+  { v: 1.2, label: '120%' },
+];
+
+const chipCls = (active: boolean) =>
+  cn(
+    'inline-flex h-6 items-center rounded-md px-1.5 text-[10px] transition-colors',
+    active
+      ? 'bg-[var(--cy-ink-700)] text-white'
+      : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]',
+  );
+
+export const VgSpeechSettings: React.FC = () => {
   const params = useVgComposer((s) => s.params);
   const patch = useVgComposer((s) => s.patchParams);
   const voicesQ = useQuery({
@@ -58,95 +73,99 @@ export const VgAudioPopover: React.FC = () => {
     }
   };
 
-  const summaryLabel = `${params.voice_provider} · ${params.voice_name || '(默认音色)'}`;
-
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs hover:border-[var(--cy-border-strong)]"
-          title="全局音频设置"
-        >
-          <Volume2 className="h-3 w-3 text-[var(--cy-brand-500)]" />
-          <span className="max-w-[10rem] truncate">{summaryLabel}</span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" sideOffset={6} className="w-[360px] p-3 text-xs">
-        <div className="mb-2">
-          <p className="mb-1 text-[var(--cy-text-tertiary)]">TTS 后端</p>
-          <div className="flex flex-wrap gap-1">
-            {PROVIDERS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => patch({ voice_provider: p.id, voice_name: '' })}
-                className={
-                  'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ' +
-                  (params.voice_provider === p.id
-                    ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                    : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)]')
-                }
-              >
-                {p.offline ? <WifiOff className="h-3 w-3" /> : <Wifi className="h-3 w-3" />}
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="mb-2">
-          <p className="mb-1 text-[var(--cy-text-tertiary)]">音色</p>
-          <select
-            value={params.voice_name || voices[0]?.id || ''}
-            onChange={(e) => patch({ voice_name: e.target.value })}
-            className="w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1"
-            disabled={voices.length === 0}
+    <div
+      role="toolbar"
+      aria-label="语音设置"
+      className="flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]"
+    >
+      {/* 后端 */}
+      <span className="opacity-60">后端</span>
+      <div className="flex items-center gap-0.5">
+        {PROVIDERS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => patch({ voice_provider: p.id, voice_name: '' })}
+            aria-pressed={params.voice_provider === p.id}
+            className={cn(chipCls(params.voice_provider === p.id), 'gap-1')}
           >
-            {voices.length === 0 && <option value="">(无可用音色)</option>}
-            {voices.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label} · {v.language}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="mb-2 grid grid-cols-2 gap-3">
-          <label className="flex items-center gap-1">
-            <span className="w-7 text-[var(--cy-text-tertiary)]">语速</span>
-            <input
-              type="range"
-              min={0.5} max={2} step={0.05}
-              value={params.voice_rate}
-              onChange={(e) => patch({ voice_rate: parseFloat(e.target.value) })}
-              className="flex-1 accent-[var(--cy-brand-500)]"
-            />
-            <span className="w-10 text-right tabular-nums">{params.voice_rate.toFixed(2)}&times;</span>
-          </label>
-          <label className="flex items-center gap-1">
-            <span className="w-7 text-[var(--cy-text-tertiary)]">音量</span>
-            <input
-              type="range"
-              min={0} max={2} step={0.05}
-              value={params.voice_volume}
-              onChange={(e) => patch({ voice_volume: parseFloat(e.target.value) })}
-              className="flex-1 accent-[var(--cy-brand-500)]"
-            />
-            <span className="w-10 text-right tabular-nums">{Math.round(params.voice_volume * 100)}%</span>
-          </label>
-        </div>
-        <button
-          type="button"
-          onClick={onPreview}
-          disabled={previewing}
-          className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--cy-brand-500)] py-1.5 text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50"
-        >
-          {previewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-          试听
-        </button>
-        <p className="mt-1.5 text-[10px] text-[var(--cy-text-tertiary)]">
-          这是全局默认。每条消息块下方 TtsCard 可单独覆盖。
-        </p>
-      </PopoverContent>
-    </Popover>
+            {p.offline ? <WifiOff className="h-3 w-3" /> : <Wifi className="h-3 w-3" />}
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      <span className="mx-1 opacity-30">·</span>
+
+      {/* 音色 select */}
+      <span className="opacity-60">音色</span>
+      <select
+        value={params.voice_name || voices[0]?.id || ''}
+        onChange={(e) => patch({ voice_name: e.target.value })}
+        disabled={voices.length === 0}
+        className={cn(
+          'h-6 max-w-[14rem] rounded-md border border-[var(--cy-border-subtle)]',
+          'bg-[var(--cy-surface-1)] px-1.5 text-[10px] text-[var(--cy-text-primary)]',
+          'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
+        )}
+      >
+        {voices.length === 0 && <option value="">(无可用音色)</option>}
+        {voices.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.label}
+          </option>
+        ))}
+      </select>
+
+      <span className="mx-1 opacity-30">·</span>
+
+      {/* 语速 chips */}
+      <span className="opacity-60">语速</span>
+      <div className="flex items-center gap-0.5">
+        {RATE_OPTIONS.map((value) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => patch({ voice_rate: value })}
+            aria-pressed={Math.abs(params.voice_rate - value) < 1e-3}
+            className={chipCls(Math.abs(params.voice_rate - value) < 1e-3)}
+          >
+            {value.toFixed(2).replace(/\.?0+$/, '')}×
+          </button>
+        ))}
+      </div>
+
+      <span className="mx-1 opacity-30">·</span>
+
+      {/* 音量 chips */}
+      <span className="opacity-60">音量</span>
+      <div className="flex items-center gap-0.5">
+        {VOLUME_OPTIONS.map(({ v, label }) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => patch({ voice_volume: v })}
+            aria-pressed={Math.abs(params.voice_volume - v) < 1e-3}
+            className={chipCls(Math.abs(params.voice_volume - v) < 1e-3)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <span className="mx-1 opacity-30">·</span>
+
+      {/* 试听 */}
+      <button
+        type="button"
+        onClick={onPreview}
+        disabled={previewing}
+        className="inline-flex h-6 items-center gap-1 rounded-md bg-[var(--cy-brand-500)] px-2 text-[10px] text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50"
+      >
+        {previewing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+        试听
+      </button>
+    </div>
   );
 };

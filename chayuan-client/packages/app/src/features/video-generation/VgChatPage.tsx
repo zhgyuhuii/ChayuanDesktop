@@ -41,7 +41,6 @@ import { notifySuccess, reportError } from '../../store/errorDialog';
 import { vgComposerStore } from './store/vgComposerStore';
 import { useVgComposer } from './store/vgComposer';
 import { VgComposerToolbar } from './VgComposerToolbar';
-import { VgAutoBanner } from './VgAutoToggle';
 import { VgMessageExtras } from './VgMessageExtras';
 
 export interface VgChatPageProps {
@@ -233,12 +232,9 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
     </header>
   );
 
-  // ── Composer 正上方的紧凑工具栏 + 全自动 banner(用户必读) ────
+  // ── Composer 正上方的精致工具栏(画幅/语言/段落/语音设置/字幕设置/全自动) ──
   const composerTop = (
-    <div className="flex flex-col gap-1.5">
-      <VgComposerToolbar />
-      <VgAutoBanner autoMode={autoMode} onChange={setAutoMode} />
-    </div>
+    <VgComposerToolbar autoMode={autoMode} onAutoModeChange={setAutoMode} />
   );
 
   return (
