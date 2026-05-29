@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Replace } from 'lucide-react';
 import type { VgTimeline as VgTimelineData } from '@chayuan/api';
 import { clipDurMs, deleteClip, reorderClip, setClipDuration, setClipIn } from './timelineEdit';
 
@@ -18,7 +18,9 @@ export const VgTimeline: React.FC<{
   thumbUrlOf?: (clipIndex: number) => string | null;
   /** 只渲染 video 轨(P4a 多轨时音频/字幕轨独立组件;默认 false 维持 P2/P3 三占位轨)。 */
   videoTrackOnly?: boolean;
-}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, videoTrackOnly }) => {
+  /** 选中 clip 点「替换」回调(P5b);不传则不显替换按钮。 */
+  onReplaceClip?: (clipId: string) => void;
+}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, videoTrackOnly, onReplaceClip }) => {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const pps = pxPerSec ?? PX_PER_SEC;
   const videoTrack = (timeline.tracks || []).find((t) => t.kind === 'video');
@@ -121,6 +123,12 @@ export const VgTimeline: React.FC<{
                       className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-30" title="右移">
                       <ChevronRight className="h-3.5 w-3.5" />
                     </button>
+                    {onReplaceClip && (
+                      <button type="button" onClick={(e) => { e.stopPropagation(); onReplaceClip(s.id); }}
+                        className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]" title="替换素材">
+                        <Replace className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedId(null); onChange(deleteClip(timeline, s.id)); }}
                       className="inline-flex h-5 w-5 items-center justify-center rounded text-rose-600 hover:bg-rose-50" title="删除片段">
                       <Trash2 className="h-3.5 w-3.5" />
