@@ -23,6 +23,13 @@ import {
 import { useVgComposer } from '../store/vgComposer';
 import { reportError } from '../../../store/errorDialog';
 import { confirmDialog } from '../../../store/confirmDialog';
+import { VG_MATERIAL_DND_MIME, type DraggedMaterial } from '../timeline/timelineEdit';
+
+/** 把素材拖拽 payload 写进 dataTransfer(时间轴视频轨 drop 区读)。 */
+function setDragData(e: React.DragEvent, m: DraggedMaterial) {
+  e.dataTransfer.setData(VG_MATERIAL_DND_MIME, JSON.stringify(m));
+  e.dataTransfer.effectAllowed = 'copy';
+}
 
 type Tab = 'mine' | 'online' | 'link' | 'upload';
 
@@ -167,6 +174,12 @@ const MineTab: React.FC<{
           const fileUrl = vgMaterialFileUrl(m.material_id);
           return (
             <li key={m.material_id}
+              draggable
+              onDragStart={(e) => setDragData(e, {
+                materialId: m.material_id,
+                kind: isImg(m) ? 'image' : 'video',
+                durationMs: m.duration_ms || undefined,
+              })}
               className={
                 'group relative overflow-hidden rounded-xl border transition-colors ' +
                 (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
@@ -321,6 +334,12 @@ const OnlineTab: React.FC<{
             const chosen = selected.some((s) => s.url === item.url);
             return (
               <li key={`${item.url}-${i}`}
+                draggable
+                onDragStart={(e) => setDragData(e, {
+                  url: item.url,
+                  kind: /\.(jpg|jpeg|png|webp|bmp|gif)(\?|$)/i.test(item.url) ? 'image' : 'video',
+                  durationMs: item.duration ? item.duration * 1000 : undefined,
+                })}
                 className={'group relative overflow-hidden rounded-xl border transition-colors ' +
                   (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
                           : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
