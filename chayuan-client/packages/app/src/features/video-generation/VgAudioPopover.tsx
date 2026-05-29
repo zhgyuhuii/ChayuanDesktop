@@ -142,7 +142,7 @@ export const VgSpeechSettings: React.FC = () => {
         value={params.voice_rate}
         onChange={(e) => patch({ voice_rate: parseFloat(e.target.value) })}
         className={cn(
-          'h-6 w-[8em] rounded-md border border-[var(--cy-border-subtle)]',
+          'h-6 w-[6em] rounded-md border border-[var(--cy-border-subtle)]',
           'bg-[var(--cy-surface-1)] pl-1.5 pr-5 text-[10px] text-[var(--cy-text-primary)]',
           'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
         )}
