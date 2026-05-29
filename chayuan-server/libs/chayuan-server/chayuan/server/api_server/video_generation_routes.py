@@ -1356,6 +1356,59 @@ def serve_material_file(
     return FileResponse(path, media_type=media_type, headers=headers)
 
 
+@video_generation_router.post(
+    "/preview-edl", summary="时间轴低清代理预览(仅画面轨拼接)",
+)
+def preview_edl(
+    body: Dict[str, Any] = Body(...),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> FileResponse:
+    import hashlib
+    import json as _json
+    from chayuan.server.video_generation.schemas import Timeline, VideoAspect
+    from chayuan.server.video_generation.steps import compose as compose_step
+    from chayuan.server.video_generation.steps import materials as materials_step
+    from chayuan.server.video_generation._helpers import storage_dir
+
+    raw_tl = body.get("timeline") or {}
+    aspect = str(body.get("aspect") or "9:16")
+    try:
+        timeline = Timeline.model_validate(raw_tl)
+        VideoAspect(aspect)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"timeline/aspect 非法: {e}") from e
+
+    cache_dir = storage_dir("preview", create=True)
+    key = hashlib.md5(
+        (aspect + _json.dumps(raw_tl, sort_keys=True, ensure_ascii=False)).encode("utf-8")
+    ).hexdigest()
+    out_path = os.path.join(cache_dir, f"proxy-{key}.mp4")
+
+    if not (os.path.isfile(out_path) and os.path.getsize(out_path) > 0):
+        def _resolve(source: dict) -> str:
+            mid = source.get("material_id")
+            if mid:
+                try:
+                    row = materials_store.get_material(mid)
+                except Exception:  # noqa: BLE001
+                    row = None
+                return (row or {}).get("path") or ""
+            url = source.get("url") or ""
+            if url.startswith(("http://", "https://")):
+                return materials_step.save_video(url, save_dir=cache_dir) or ""
+            return source.get("path") or ""
+
+        try:
+            compose_step.render_proxy_from_timeline(
+                timeline, aspect, out_path, source_resolver=_resolve,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[vg] preview-edl 失败: %r", e)
+            raise HTTPException(502, f"预览渲染失败: {e}") from e
+
+    return FileResponse(out_path, media_type="video/mp4")
+
+
 @video_generation_router.get(
     "/videos", summary="列我的成品视频(我的视频页用)",
 )
