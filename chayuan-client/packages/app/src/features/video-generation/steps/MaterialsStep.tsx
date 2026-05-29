@@ -46,7 +46,7 @@ function fmtSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export const MaterialsStep: React.FC = () => {
+export const MaterialsStep: React.FC<{ view?: 'card' | 'list' }> = ({ view = 'card' }) => {
   const [tab, setTab] = React.useState<Tab>('mine');
   const params = useVgComposer((s) => s.params);
   const patchParams = useVgComposer((s) => s.patchParams);
@@ -114,10 +114,10 @@ export const MaterialsStep: React.FC = () => {
       </div>
 
       {tab === 'mine' && (
-        <MineTab selected={selected} onToggle={toggleSelect} qc={qc} />
+        <MineTab selected={selected} onToggle={toggleSelect} qc={qc} view={view} />
       )}
       {tab === 'online' && (
-        <OnlineTab selected={selected} onToggle={toggleSelect} aspect={params.video_aspect} qc={qc} />
+        <OnlineTab selected={selected} onToggle={toggleSelect} aspect={params.video_aspect} qc={qc} view={view} />
       )}
       {tab === 'link' && <LinkTab qc={qc} />}
       {tab === 'upload' && <UploadTab qc={qc} />}
@@ -133,7 +133,8 @@ const MineTab: React.FC<{
   selected: VgMaterialInfo[];
   onToggle: (item: VgMaterialInfo) => void;
   qc: ReturnType<typeof useQueryClient>;
-}> = ({ selected, onToggle, qc }) => {
+  view?: 'card' | 'list';
+}> = ({ selected, onToggle, qc, view = 'card' }) => {
   const [preview, setPreview] = React.useState<VgMaterial | null>(null);
   const q = useQuery({
     queryKey: ['vg.materials', { page: 1, page_size: 50 }],
@@ -164,22 +165,50 @@ const MineTab: React.FC<{
   }
   const isImg = (m: VgMaterial) => (m.mime || '').startsWith('image');
   const isAudio = (m: VgMaterial) => (m.mime || '').startsWith('audio');
+  const fmtFmt = (m: VgMaterial) => (m.mime || '').split('/').pop() || (isImg(m) ? 'image' : isAudio(m) ? 'audio' : 'video');
+  const thumb = (m: VgMaterial, fileUrl: string, small = false) => (
+    isImg(m) ? <img src={fileUrl} alt={m.name} draggable={false} className="h-full w-full object-cover" loading="lazy" />
+    : isAudio(m) ? <span className={small ? 'text-base' : 'text-2xl'}>🎵</span>
+    : <video src={fileUrl} preload="metadata" muted draggable={false} className="h-full w-full object-cover" />
+  );
   return (
     <>
-      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      <ul className={view === 'list' ? 'flex flex-col gap-1' : 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4'}>
         {items.map((m: VgMaterial) => {
           const url = m.path;
           const item: VgMaterialInfo = { provider: m.source, url, duration: Math.round(m.duration_ms / 1000) };
           const chosen = selected.some((s) => s.url === url);
           const fileUrl = vgMaterialFileUrl(m.material_id);
+          const dragProps = {
+            draggable: true,
+            onDragStart: (e: React.DragEvent) => setDragData(e, {
+              materialId: m.material_id,
+              kind: (isImg(m) ? 'image' : isAudio(m) ? 'audio' : 'video') as 'video' | 'image' | 'audio',
+              durationMs: m.duration_ms || undefined,
+            }),
+          };
+          if (view === 'list') {
+            return (
+              <li key={m.material_id} {...dragProps}
+                className={'group flex items-center gap-2 rounded-lg border p-1 text-left transition-colors ' +
+                  (chosen ? 'border-[var(--cy-brand-500)]' : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
+                <button type="button" onClick={() => onToggle(item)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                  <span className="flex h-9 w-14 shrink-0 items-center justify-center overflow-hidden rounded bg-[var(--cy-surface-2)]">{thumb(m, fileUrl, true)}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs text-[var(--cy-text-primary)]">{m.name}</span>
+                    <span className="block text-[10px] text-[var(--cy-text-tertiary)]">{Math.round((m.duration_ms || 0) / 1000)}s · {fmtFmt(m)} · {fmtSize(m.size)}</span>
+                  </span>
+                </button>
+                <button type="button" title="删除"
+                  onClick={async () => { if (!(await confirmDialog(`删除素材「${m.name}」?磁盘文件会一并清掉。`, { danger: true }))) return; await delMut.mutateAsync(m.material_id); }}
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-rose-600 opacity-0 hover:bg-rose-50 group-hover:opacity-100">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            );
+          }
           return (
-            <li key={m.material_id}
-              draggable
-              onDragStart={(e) => setDragData(e, {
-                materialId: m.material_id,
-                kind: isImg(m) ? 'image' : isAudio(m) ? 'audio' : 'video',
-                durationMs: m.duration_ms || undefined,
-              })}
+            <li key={m.material_id} {...dragProps}
               className={
                 'group relative overflow-hidden rounded-xl border transition-colors ' +
                 (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
@@ -187,18 +216,10 @@ const MineTab: React.FC<{
               }
             >
               <button type="button" onClick={() => onToggle(item)} className="block w-full text-left">
-                <div className="aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden">
-                  {isImg(m) ? (
-                    <img src={fileUrl} alt={m.name} draggable={false} className="h-full w-full object-cover" loading="lazy" />
-                  ) : isAudio(m) ? (
-                    <span className="text-2xl">🎵</span>
-                  ) : (
-                    <video src={fileUrl} preload="metadata" muted draggable={false} className="h-full w-full object-cover" />
-                  )}
-                </div>
-                <div className="p-2.5">
-                  <p className="truncate text-xs font-medium text-[var(--cy-text-primary)]">{m.name}</p>
-                  <p className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]">{m.source} · {fmtSize(m.size)}</p>
+                <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden">
+                  {thumb(m, fileUrl)}
+                  {/* 卡片默认不显名,悬停才浮出 */}
+                  <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/55 px-1 py-0.5 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">{m.name}</span>
                 </div>
               </button>
               {chosen && (
@@ -251,7 +272,9 @@ const OnlineTab: React.FC<{
   onToggle: (item: VgMaterialInfo) => void;
   aspect: '16:9' | '9:16' | '1:1';
   qc: ReturnType<typeof useQueryClient>;
-}> = ({ selected, onToggle, aspect, qc }) => {
+  view?: 'card' | 'list';
+}> = ({ selected, onToggle, aspect, qc, view = 'card' }) => {
+  void view; // 在线搜索结果保持卡片视图;列表视图主要服务「我的素材」
   const [source, setSource] = React.useState<'pexels' | 'pixabay'>('pexels');
   const [keyword, setKeyword] = React.useState('');
   const [results, setResults] = React.useState<VgMaterialInfo[]>([]);

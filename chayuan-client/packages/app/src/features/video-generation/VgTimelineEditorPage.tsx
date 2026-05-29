@@ -38,6 +38,12 @@ export const VgTimelineEditorPage: React.FC = () => {
   const [peaks, setPeaks] = React.useState<number[]>([]);
   const [cues, setCues] = React.useState<SrtCue[]>([]);
   const [submitting, setSubmitting] = React.useState(false);
+  const [poolW, setPoolW] = React.useState<number>(() => {
+    const v = typeof localStorage !== 'undefined' ? Number(localStorage.getItem('cy.vg.mediapool.w')) : 0;
+    return v >= 160 && v <= 560 ? v : 288;
+  });
+  const poolWRef = React.useRef(poolW);
+  React.useEffect(() => { poolWRef.current = poolW; }, [poolW]);
 
   const timeline = params.timeline ?? buildTimelineFromMaterials(params.video_materials ?? []);
   const curHash = scriptHashOf(params);
@@ -206,9 +212,28 @@ export const VgTimelineEditorPage: React.FC = () => {
 
   return (
     <div ref={containerRef} className="flex h-full w-full flex-col">
-      {/* 上半:素材库 + 预览 */}
+      {/* 上半:素材库 + 可拖分隔条 + 预览 */}
       <div className="flex min-h-0 flex-1">
-        <MediaPoolPanel />
+        <MediaPoolPanel width={poolW} />
+        <div
+          title="拖动调整素材库宽度"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            const startX = e.clientX; const startW = poolWRef.current;
+            const move = (ev: PointerEvent) => {
+              const w = Math.max(160, Math.min(560, startW + (ev.clientX - startX)));
+              poolWRef.current = w; setPoolW(w);
+            };
+            const up = () => {
+              window.removeEventListener('pointermove', move);
+              window.removeEventListener('pointerup', up);
+              try { localStorage.setItem('cy.vg.mediapool.w', String(poolWRef.current)); } catch { /* noop */ }
+            };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+          }}
+          className="w-1 shrink-0 cursor-ew-resize bg-[var(--cy-border-subtle)] hover:bg-[var(--cy-brand-400)]"
+        />
         <div className="min-h-0 flex-1 p-3">
           <PreviewPlayer
             timeline={timeline} aspect={params.video_aspect}
