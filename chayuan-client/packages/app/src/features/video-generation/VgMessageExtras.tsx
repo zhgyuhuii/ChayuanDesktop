@@ -4,23 +4,39 @@
  *
  * 状态:
  *   - vm.taskId && vm.renderState !== 'idle' → RenderProgressCard(任务已提交)
- *   - 否则                                    → 字幕图标 + TtsCard + 去生成按钮
+ *   - 否则 → 单行:[音色 · 语速 · 音量(全局)] [试听] [重新生成] [字幕] [去生成视频]
+ *
+ * 音色/语速/音量全局统一 —— 直接读写 vgComposer.params(跟工具栏「语音设置」
+ * 同一份状态),不再每条消息存独立 tts(原 TtsCard 移除)。音色按 toolbar
+ * 选的语言自动筛选;后端 provider(piper/edge/sherpa)在工具栏「语音设置」选,
+ * 这里不重复。
  */
 import * as React from 'react';
-import { Edit3, Sparkles, RefreshCw } from 'lucide-react';
-import { TtsCard } from './TtsCard';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Edit3, Sparkles, RefreshCw, Play, Loader2 } from 'lucide-react';
+import { videoGeneration, type VgVoiceItem } from '@chayuan/api';
 import { RenderProgressCard } from './RenderProgressCard';
 import { SubtitleEditorDialog } from './SubtitleEditorDialog';
 import { MaterialsBgmOutputDialog } from './MaterialsBgmOutputDialog';
+import { useVgComposer } from './store/vgComposer';
+import { reportError } from '../../store/errorDialog';
 import type { ChatMessage } from '../chat/useChayuanChat';
+
+const RATE_OPTIONS = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0] as const;
+const VOLUME_OPTIONS = [0.8, 1.0, 1.2] as const;
+
+const selectCls =
+  'h-7 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1.5 text-xs text-[var(--cy-text-primary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none';
+const btnCls =
+  'inline-flex h-7 items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]';
 
 export interface VgMessageExtrasProps {
   message: ChatMessage;
-  /** 父级 (VgChatPage) 提供 — 用户改 tts/bgm/cues 时 patch metadata 到 message */
+  /** 父级 (VgChatPage) 提供 — 改 cues 等 patch metadata 到 message */
   onMetaChange: (messageId: string, patch: Record<string, unknown>) => void;
   /** 用户点"去生成"后,VgChatPage 调 submitTask + 把 taskId 写回 metadata.taskId */
   onSubmit: (messageId: string) => Promise<void>;
-  /** 重新生成脚本(删最后一条 assistant + 用上条主题重发,经 buildRequest 仍走 video_generation)。 */
+  /** 重新生成脚本(删最后一条 assistant + 用上条主题重发)。 */
   onRegenerate?: () => void;
 }
 
@@ -28,48 +44,110 @@ export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
   message, onMetaChange, onSubmit, onRegenerate,
 }) => {
   const vm = message.metadata?.videoMeta;
+  const params = useVgComposer((s) => s.params);
+  const patch = useVgComposer((s) => s.patchParams);
   const [subtitleOpen, setSubtitleOpen] = React.useState(false);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [previewing, setPreviewing] = React.useState(false);
+  const qc = useQueryClient();
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const urlRef = React.useRef<string | null>(null);
+  React.useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); }, []);
+
+  // 全局音色:按当前 provider 取列表,按 toolbar 语言筛选(同 VgSpeechSettings 规则)
+  const voicesQ = useQuery({
+    queryKey: ['vg.voices', params.voice_provider],
+    queryFn: () => videoGeneration.listVoices(params.voice_provider),
+    staleTime: 5 * 60 * 1000,
+  });
+  const allVoices: VgVoiceItem[] = voicesQ.data?.items ?? [];
+  const lang = params.video_language;
+  const fam = lang.split('-')[0];
+  const matched = lang
+    ? allVoices.filter((v) => v.language === lang || v.language.split('-')[0] === fam || /multilingual/i.test(v.id))
+    : allVoices;
+  const voices = matched.length > 0 ? matched : allVoices;
+
+  const onPreview = React.useCallback(async () => {
+    setPreviewing(true);
+    try {
+      const r = await videoGeneration.previewAudio({
+        video_script: (message.content || '试听示例文本').slice(0, 50),
+        voice_provider: params.voice_provider,
+        voice_name: params.voice_name || undefined,
+        voice_rate: params.voice_rate,
+        voice_volume: params.voice_volume,
+      });
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      urlRef.current = URL.createObjectURL(r.blob);
+      const a = audioRef.current ?? new Audio();
+      audioRef.current = a;
+      a.src = urlRef.current;
+      await a.play();
+    } catch (e) {
+      reportError(e as Error, '试听失败');
+    } finally {
+      setPreviewing(false);
+    }
+  }, [message.content, params.voice_provider, params.voice_name, params.voice_rate, params.voice_volume]);
+
   if (!vm) return null;
 
-  // 已经有 taskId(用户已提交)→ 渲染进度卡;否则渲染 TTS + 去生成
+  // 已提交 → 进度卡
   if (vm.taskId && vm.renderState && vm.renderState !== 'idle') {
     return <RenderProgressCard taskId={vm.taskId} />;
   }
 
   return (
-    <div className="space-y-2">
-      {/* 右上操作:重新生成脚本 + 编辑字幕 */}
-      <div className="flex justify-end gap-1.5">
-        {onRegenerate && (
-          <button type="button" onClick={onRegenerate}
-            title="重新生成脚本(用同一主题再跑一次)"
-            className="inline-flex h-7 items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]">
-            <RefreshCw className="h-3 w-3" /> 重新生成
-          </button>
-        )}
-        <button type="button" onClick={() => setSubtitleOpen(true)}
-          title="编辑字幕"
-          className="inline-flex h-7 items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]">
-          <Edit3 className="h-3 w-3" /> 字幕
+    <div className="flex flex-wrap items-center gap-2">
+      {/* 全局音色(按语言筛选) */}
+      <select
+        value={params.voice_name || voices[0]?.id || ''}
+        onChange={(e) => {
+          patch({ voice_name: e.target.value });
+          void qc.invalidateQueries({ queryKey: ['vg.voices', params.voice_provider] });
+        }}
+        disabled={voices.length === 0}
+        title={voices.find((v) => v.id === (params.voice_name || voices[0]?.id))?.label ?? '音色'}
+        className={`${selectCls} w-[10em]`}
+      >
+        {voices.length === 0 && <option value="">(无音色)</option>}
+        {voices.map((v) => <option key={v.id} value={v.id} title={v.label}>{v.label}</option>)}
+      </select>
+      {/* 语速 */}
+      <select value={params.voice_rate}
+        onChange={(e) => patch({ voice_rate: parseFloat(e.target.value) })}
+        className={`${selectCls} w-[5em]`} title="语速">
+        {RATE_OPTIONS.map((v) => <option key={v} value={v}>{v.toFixed(2).replace(/\.?0+$/, '')}×</option>)}
+      </select>
+      {/* 音量 */}
+      <select value={params.voice_volume}
+        onChange={(e) => patch({ voice_volume: parseFloat(e.target.value) })}
+        className={`${selectCls} w-[5em]`} title="音量">
+        {VOLUME_OPTIONS.map((v) => <option key={v} value={v}>{Math.round(v * 100)}%</option>)}
+      </select>
+
+      {/* 试听 */}
+      <button type="button" onClick={() => void onPreview()} disabled={previewing} className={btnCls}>
+        {previewing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />} 试听
+      </button>
+      {/* 重新生成 */}
+      {onRegenerate && (
+        <button type="button" onClick={onRegenerate} title="重新生成脚本" className={btnCls}>
+          <RefreshCw className="h-3 w-3" /> 重新生成
         </button>
-      </div>
-      {/* TTS 卡 */}
-      {vm.tts && (
-        <TtsCard
-          tts={vm.tts}
-          onChange={(next) => onMetaChange(message.id, { tts: next })}
-          previewText={message.content?.slice(0, 50) || ''}
-        />
       )}
-      {/* 去生成按钮 */}
-      <div className="flex justify-end">
-        <button type="button" onClick={() => setDrawerOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 py-1.5 text-sm font-medium text-white shadow">
-          <Sparkles className="h-4 w-4" /> 去生成视频
-        </button>
-      </div>
-      {/* 弹窗 — 字幕编辑器接当前 message 的脚本 + cues;改完写回 videoMeta.scriptCues */}
+      {/* 字幕 */}
+      <button type="button" onClick={() => setSubtitleOpen(true)} title="编辑字幕" className={btnCls}>
+        <Edit3 className="h-3 w-3" /> 字幕
+      </button>
+      {/* 去生成视频 */}
+      <button type="button" onClick={() => setDrawerOpen(true)}
+        className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 text-xs font-medium text-white shadow">
+        <Sparkles className="h-3.5 w-3.5" /> 去生成视频
+      </button>
+
+      {/* 弹窗 */}
       <SubtitleEditorDialog
         open={subtitleOpen}
         onOpenChange={setSubtitleOpen}
