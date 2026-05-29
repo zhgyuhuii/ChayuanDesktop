@@ -11,6 +11,7 @@ import { TimelineTracks } from './timeline/TimelineTracks';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
 import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, type DraggedMaterial } from './timeline/timelineEdit';
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
+import { ScriptGenDialog } from './timeline/ScriptGenDialog';
 import { playAudioTimeline } from './timeline/audioPreview';
 import { totalDurationMs, rulerDurationMs, fitPxPerSec } from './timeline/timelineScale';
 import { parseSrt, type SrtCue } from './timeline/srtParse';
@@ -38,7 +39,15 @@ export const VgTimelineEditorPage: React.FC = () => {
 
   const timeline = params.timeline ?? buildTimelineFromMaterials(params.video_materials ?? []);
   const curHash = scriptHashOf(params);
-  const hasScript = (params.video_script || '').trim().length > 0;
+  // 可生成:有手写脚本,或 ai 模式 + 有主题(页内「生成脚本」表单填的)
+  const canGen = (params.video_script || '').trim().length > 0
+    || (params.script_source === 'ai' && (params.video_subject || '').trim().length > 0);
+  const [scriptGenOpen, setScriptGenOpen] = React.useState(false);
+  const submitScriptGen = (v: { subject: string; model: string | null; paragraph: number; language: string }) => {
+    patchParams({ video_subject: v.subject, model: v.model ?? undefined, paragraph_number: v.paragraph, video_language: v.language, script_source: 'ai', video_script: '' });
+    useVgComposer.getState().resetDraft();
+    setScriptGenOpen(false);
+  };
 
   // 提交一次草稿生成(stop_at=subtitle:只旁白+字幕,不下素材)。手动按钮 + 自动都用。
   const startDraftGen = React.useCallback(async () => {
@@ -55,7 +64,7 @@ export const VgTimelineEditorPage: React.FC = () => {
   // ── 进页面 / 脚本变 → 自动生成旁白+字幕 ──
   // 仅当 hash 命中(当前脚本已 ready 或正在生成)才跳过;否则(idle/failed/旧 hash 卡 generating)重发。
   React.useEffect(() => {
-    if (!hasScript) return;
+    if (!canGen) return;
     if (draft.scriptHash === curHash && (draft.state === 'ready' || draft.state === 'generating')) return;
     void startDraftGen();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -211,12 +220,12 @@ export const VgTimelineEditorPage: React.FC = () => {
       <TransportBar playing={playing} currentMs={playheadMs} durationMs={contentMs} pxPerSec={pxPerSec}
         onPlayPause={() => setPlaying((v) => !v)} onZoom={setPxPerSec} />
       {/* 草稿状态条 */}
-      {!hasScript && (
+      {!canGen && (
         <div className="flex items-center gap-2 bg-[var(--cy-surface-1)] px-3 py-1.5 text-xs text-[var(--cy-text-tertiary)]">
           还没有脚本 —— 先在「对话」生成脚本后点「去编辑合成」进入,旁白会按语音配置自动生成。
         </div>
       )}
-      {hasScript && draft.state === 'idle' && (
+      {canGen && draft.state === 'idle' && (
         <div className="flex items-center gap-2 bg-[var(--cy-surface-1)] px-3 py-1.5 text-xs text-[var(--cy-text-secondary)]">
           旁白未生成。
           <button type="button" onClick={() => void startDraftGen()}
@@ -245,6 +254,10 @@ export const VgTimelineEditorPage: React.FC = () => {
           <h2 className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--cy-text-primary)]">
             <Film className="h-4 w-4" /> 时间轴
           </h2>
+          <button type="button" onClick={() => setScriptGenOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--cy-border-strong)] px-3 text-xs text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
+            <Sparkles className="h-3.5 w-3.5" /> 生成脚本
+          </button>
           <button type="button" onClick={() => void onSubmit()} disabled={submitting || draft.state !== 'ready'}
             className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 text-xs font-medium text-white shadow disabled:opacity-50">
             {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} 提交合成
@@ -294,6 +307,13 @@ export const VgTimelineEditorPage: React.FC = () => {
             <ReplacePicker onPick={(m) => { addMaterialToTrack(libPickTrack, m); setLibPickTrack(null); }} />
           </div>
         </div>
+      )}
+      {/* 生成脚本表单(自包含) */}
+      {scriptGenOpen && (
+        <ScriptGenDialog
+          initial={{ subject: params.video_subject || '', model: params.model ?? null, paragraph: params.paragraph_number || 1, language: params.video_language || '' }}
+          onSubmit={submitScriptGen}
+          onClose={() => setScriptGenOpen(false)} />
       )}
     </div>
   );
