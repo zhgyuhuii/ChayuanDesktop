@@ -83,8 +83,8 @@ export const VgSubtitleSettings: React.FC = () => {
             onChange={(e) => patch({ font_name: e.target.value })}
             title={fonts.find((f) => f.name === params.font_name)?.label ?? params.font_name}
             className={cn(
-              'h-6 w-[6em] rounded-md border border-[var(--cy-border-subtle)]',
-              'bg-[var(--cy-surface-1)] px-1.5 text-[10px] text-[var(--cy-text-primary)]',
+              'h-6 w-[12em] rounded-md border border-[var(--cy-border-subtle)]',
+              'bg-[var(--cy-surface-1)] pl-1.5 pr-5 text-[10px] text-[var(--cy-text-primary)]',
               'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
             )}
           >
@@ -110,8 +110,8 @@ export const VgSubtitleSettings: React.FC = () => {
             }}
             list="vg-fontsize-presets"
             className={cn(
-              'h-6 w-[3.5em] rounded-md border border-[var(--cy-border-subtle)]',
-              'bg-[var(--cy-surface-1)] px-1.5 text-[10px] text-[var(--cy-text-primary)]',
+              'h-6 w-[7em] rounded-md border border-[var(--cy-border-subtle)]',
+              'bg-[var(--cy-surface-1)] pl-1.5 pr-1 text-[10px] text-[var(--cy-text-primary)]',
               'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
             )}
           />
