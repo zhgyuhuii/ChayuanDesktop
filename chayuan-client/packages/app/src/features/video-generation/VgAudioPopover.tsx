@@ -121,7 +121,14 @@ export const VgSpeechSettings: React.FC = () => {
           'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
         )}
       >
-        {voices.length === 0 && <option value="">(无可用音色)</option>}
+        {voices.length === 0 && (
+          <option value="">
+            {voicesQ.isLoading ? '加载中…'
+              : params.voice_provider === 'sherpa' ? '(无 sherpa 模型,去模型广场下载)'
+              : params.voice_provider === 'edge' ? '(空 — 请重启后端)'
+              : '(无可用音色)'}
+          </option>
+        )}
         {voices.map((v) => (
           <option key={v.id} value={v.id} title={v.label}>
             {v.label}

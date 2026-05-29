@@ -39,6 +39,16 @@ export const VgSubtitleSettings: React.FC = () => {
   const fonts: VgFontItem[] = fontsQ.data?.items ?? [];
   const bgOn = params.text_background_color === true;
 
+  // 字体走系统字体(/fonts 扫 OS 字体目录,不打包,免体积+授权风险)。
+  // 当前 font_name 不在列表里(如默认 STHeitiMedium.ttc 在本机不存在)→
+  // 自动选第一个可用字体,避免卡在不存在的字体导致合成失败。
+  React.useEffect(() => {
+    if (fonts.length === 0) return;
+    if (fonts.some((f) => f.name === params.font_name)) return;
+    patch({ font_name: fonts[0]!.name });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fonts.length]);
+
   return (
     <div
       role="toolbar"
@@ -88,7 +98,11 @@ export const VgSubtitleSettings: React.FC = () => {
               'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
             )}
           >
-            {fonts.length === 0 && <option value={params.font_name}>{params.font_name}</option>}
+            {fonts.length === 0 && (
+              <option value={params.font_name}>
+                {fontsQ.isLoading ? '加载中…' : '(无字体 — 请重启后端扫系统字体)'}
+              </option>
+            )}
             {fonts.map((f) => (
               <option key={f.name} value={f.name} title={f.label ?? f.name}>
                 {(f.label ?? f.name) + (f.source === 'system' ? ' · 系统' : '')}
