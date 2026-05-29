@@ -150,4 +150,5 @@ export default {
   },
   theme: { light: 'Hell', dark: 'Dunkel', system: 'System' },
   language: { system: 'System folgen', zhCN: 'Chinesisch (Vereinfacht)', en: 'Englisch', ko: 'Koreanisch', ja: 'Japanisch', de: 'Deutsch', fr: 'Französisch' },
+  videoGen: { transition: { none: 'Keine', shuffle: 'Zufällig', fadeIn: 'Einblenden', fadeOut: 'Ausblenden', slideIn: 'Einschieben', slideOut: 'Ausschieben' } },
 };

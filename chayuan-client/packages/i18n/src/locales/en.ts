@@ -278,4 +278,9 @@ export default {
     de: 'German',
     fr: 'French',
   },
+  videoGen: {
+    transition: {
+      none: 'None', shuffle: 'Shuffle', fadeIn: 'Fade in', fadeOut: 'Fade out', slideIn: 'Slide in', slideOut: 'Slide out',
+    },
+  },
 };

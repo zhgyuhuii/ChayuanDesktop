@@ -319,4 +319,9 @@ export default {
     de: 'Deutsch',
     fr: 'Français',
   },
+  videoGen: {
+    transition: {
+      none: '无', shuffle: '随机', fadeIn: '淡入', fadeOut: '淡出', slideIn: '滑入', slideOut: '滑出',
+    },
+  },
 };

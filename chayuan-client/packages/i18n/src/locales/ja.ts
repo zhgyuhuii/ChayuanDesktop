@@ -150,4 +150,5 @@ export default {
   },
   theme: { light: 'ライト', dark: 'ダーク', system: 'システム' },
   language: { system: 'システムに従う', zhCN: '中国語（簡体）', en: 'English', ko: '한국어', ja: '日本語', de: 'Deutsch', fr: 'Français' },
+  videoGen: { transition: { none: 'なし', shuffle: 'シャッフル', fadeIn: 'フェードイン', fadeOut: 'フェードアウト', slideIn: 'スライドイン', slideOut: 'スライドアウト' } },
 };

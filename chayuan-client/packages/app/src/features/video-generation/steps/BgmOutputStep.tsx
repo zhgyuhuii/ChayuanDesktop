@@ -15,6 +15,13 @@ import {
   type VgFontItem,
 } from '@chayuan/api';
 import { useVgComposer } from '../store/vgComposer';
+import { useTranslation } from '../../../i18n';
+
+// 转场 enum → i18n key(显示按系统语言,值仍发后端 enum)
+const TRANSITIONS: ReadonlyArray<readonly [string, string]> = [
+  ['', 'none'], ['Shuffle', 'shuffle'], ['FadeIn', 'fadeIn'],
+  ['FadeOut', 'fadeOut'], ['SlideIn', 'slideIn'], ['SlideOut', 'slideOut'],
+];
 
 const sel =
   'h-8 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--cy-brand-500)]';
@@ -23,6 +30,7 @@ const fieldLbl = 'flex flex-col gap-0.5 text-[10px] text-[var(--cy-text-tertiary
 export const BgmOutputStep: React.FC = () => {
   const params = useVgComposer((s) => s.params);
   const patchParams = useVgComposer((s) => s.patchParams);
+  const { t } = useTranslation();
 
   const bgmQ = useQuery({
     queryKey: ['vg.bgm'],
@@ -209,12 +217,9 @@ export const BgmOutputStep: React.FC = () => {
               value={params.video_transition_mode}
               onChange={(e) => patchParams({ video_transition_mode: e.target.value as '' | 'Shuffle' | 'FadeIn' | 'FadeOut' | 'SlideIn' | 'SlideOut' })}
             >
-              <option value="">无</option>
-              <option value="Shuffle">Shuffle</option>
-              <option value="FadeIn">FadeIn</option>
-              <option value="FadeOut">FadeOut</option>
-              <option value="SlideIn">SlideIn</option>
-              <option value="SlideOut">SlideOut</option>
+              {TRANSITIONS.map(([v, k]) => (
+                <option key={k} value={v}>{t(`videoGen.transition.${k}`)}</option>
+              ))}
             </select>
           </label>
         </div>

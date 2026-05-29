@@ -13,6 +13,7 @@ import * as React from 'react';
 import { cn } from '@chayuan/ui';
 import type { VgTransitionMode, VgConcatMode } from '@chayuan/api';
 import { useVgComposer } from './store/vgComposer';
+import { useTranslation } from '../../i18n';
 
 const ASPECTS = [
   { v: '9:16' as const, label: '竖' },
@@ -58,13 +59,14 @@ const CONCAT_OPTIONS: Array<{ v: VgConcatMode; label: string }> = [
   { v: 'random', label: '随机' },
   { v: 'sequential', label: '顺序' },
 ];
-const TRANSITIONS: Array<{ v: VgTransitionMode; label: string }> = [
-  { v: '', label: '无' },
-  { v: 'FadeIn', label: '淡入' },
-  { v: 'FadeOut', label: '淡出' },
-  { v: 'SlideIn', label: '滑入' },
-  { v: 'SlideOut', label: '滑出' },
-  { v: 'Shuffle', label: '随机' },
+// 转场 enum → i18n key(显示按系统语言;值仍发后端 enum)
+const TRANSITIONS: Array<{ v: VgTransitionMode; k: string }> = [
+  { v: '', k: 'none' },
+  { v: 'FadeIn', k: 'fadeIn' },
+  { v: 'FadeOut', k: 'fadeOut' },
+  { v: 'SlideIn', k: 'slideIn' },
+  { v: 'SlideOut', k: 'slideOut' },
+  { v: 'Shuffle', k: 'shuffle' },
 ];
 
 const chipCls = (active: boolean) =>
@@ -78,6 +80,7 @@ const chipCls = (active: boolean) =>
 export const VgOutputSettings: React.FC = () => {
   const params = useVgComposer((s) => s.params);
   const patch = useVgComposer((s) => s.patchParams);
+  const { t } = useTranslation();
 
   const selectCls = cn(
     'h-6 rounded-md border border-[var(--cy-border-subtle)]',
@@ -144,7 +147,7 @@ export const VgOutputSettings: React.FC = () => {
       <select value={params.video_transition_mode}
         onChange={(e) => patch({ video_transition_mode: e.target.value as VgTransitionMode })}
         className={selectCls}>
-        {TRANSITIONS.map((t) => <option key={t.v || 'none'} value={t.v}>{t.label}</option>)}
+        {TRANSITIONS.map((o) => <option key={o.k} value={o.v}>{t(`videoGen.transition.${o.k}`)}</option>)}
       </select>
     </div>
   );

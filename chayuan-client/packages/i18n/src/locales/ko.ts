@@ -150,4 +150,5 @@ export default {
   },
   theme: { light: '라이트', dark: '다크', system: '시스템' },
   language: { system: '시스템 따르기', zhCN: '중국어 (간체)', en: 'English', ko: '한국어', ja: '日本語', de: 'Deutsch', fr: 'Français' },
+  videoGen: { transition: { none: '없음', shuffle: '셔플', fadeIn: '페이드 인', fadeOut: '페이드 아웃', slideIn: '슬라이드 인', slideOut: '슬라이드 아웃' } },
 };

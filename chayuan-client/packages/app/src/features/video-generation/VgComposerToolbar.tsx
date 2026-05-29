@@ -99,21 +99,21 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
         {/* 语音设置 trigger */}
         <button type="button" onClick={() => toggle('speech')} className={triggerCls(open === 'speech')}>
           <Volume2 className="h-3 w-3 text-[var(--cy-brand-500)]" />
-          语音设置
+          语音
           <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'speech' && 'rotate-180')} />
         </button>
 
         {/* 字幕设置 trigger */}
         <button type="button" onClick={() => toggle('subtitle')} className={triggerCls(open === 'subtitle')}>
           <Type className="h-3 w-3 text-[var(--cy-brand-500)]" />
-          字幕设置
+          字幕
           <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'subtitle' && 'rotate-180')} />
         </button>
 
         {/* 画幅设置 trigger */}
         <button type="button" onClick={() => toggle('aspect')} className={triggerCls(open === 'aspect')}>
           <Ratio className="h-3 w-3 text-[var(--cy-brand-500)]" />
-          画幅设置
+          画幅
           <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'aspect' && 'rotate-180')} />
         </button>
 
@@ -128,12 +128,12 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
         <button
           type="button"
           onClick={() => toggle('material')}
-          title="在线源 Key(Pexels/Pixabay 等 API 密钥)"
-          aria-label="在线源 Key"
+          title="源(Pexels/Pixabay 等在线源 API 密钥)"
+          aria-label="源"
           className={cn(triggerCls(open === 'material'), 'group px-1.5')}
         >
           <Settings2 className="h-3.5 w-3.5 text-[var(--cy-brand-500)]" />
-          <span className="hidden group-hover:inline">在线源 Key</span>
+          <span className="hidden group-hover:inline">源</span>
           <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'material' && 'rotate-180')} />
         </button>
 
