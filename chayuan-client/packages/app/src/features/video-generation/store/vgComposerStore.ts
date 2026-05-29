@@ -20,3 +20,14 @@ import { createComposerStore } from '../../../store/composer';
 
 export const vgComposerStore: ReturnType<typeof createComposerStore> =
   createComposerStore('video-generation');
+
+/**
+ * 解析对话框当前选中的 chat 模型(脚本/关键词 LLM 都跟随它)。
+ * 格式与 buildChatRequest 一致:platformName 给定时编码为 `<platform>::<id>`。
+ * 空 modelId 返回 ''(调用方应回退后端默认能力路由)。
+ */
+export function resolveVgChatModel(): string {
+  const s = vgComposerStore.getState();
+  if (!s.modelId) return '';
+  return s.platformName ? `${s.platformName}::${s.modelId}` : s.modelId;
+}

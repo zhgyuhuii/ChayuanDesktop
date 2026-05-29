@@ -138,6 +138,10 @@ class VideoParams(BaseModel):
     # ── 关键词(materials 步驱动 — ai 模式时由 LLM 算,其它模式按文本算) ──
     video_terms: Optional[Union[str, List[str]]] = None
 
+    # 脚本/关键词 LLM 用哪个模型(跟随对话框选的 chat 模型;空则走默认能力路由)。
+    # 格式与 chat 一致:`<platform>::<id>` 或裸 id。
+    model: Optional[str] = None
+
     # ── 画幅 + 拼接 ──────────────────────────────────────
     video_aspect: VideoAspect = VideoAspect.portrait
     video_concat_mode: VideoConcatMode = VideoConcatMode.random

@@ -19,6 +19,7 @@ import { RenderProgressCard } from './RenderProgressCard';
 import { SubtitleEditorDialog } from './SubtitleEditorDialog';
 import { MaterialsBgmOutputDialog } from './MaterialsBgmOutputDialog';
 import { useVgComposer } from './store/vgComposer';
+import { resolveVgChatModel } from './store/vgComposerStore';
 import { reportError } from '../../store/errorDialog';
 import type { ChatMessage } from '../chat/useChayuanChat';
 
@@ -53,6 +54,25 @@ export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
   React.useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); }, []);
+
+  // 脚本流式结束后自动生成在线搜索关键词 —— 进「去生成」配置页时即已存在(可再编辑)。
+  // 每条消息只触发一次;已有关键词则不覆盖(避免清掉用户手改的)。
+  const termsGenRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!message.content || message.streaming) return;
+    if (termsGenRef.current === message.id) return;
+    termsGenRef.current = message.id;
+    const cur = useVgComposer.getState().params.video_terms;
+    const hasTerms = Array.isArray(cur) ? cur.length > 0 : !!cur;
+    if (hasTerms) return;
+    const p = useVgComposer.getState().params;
+    const subj = (p.video_subject || message.content.slice(0, 80)).trim();
+    void videoGeneration
+      .generateTerms({ video_subject: subj, video_script: message.content, model: resolveVgChatModel() || undefined })
+      .then((r) => { if (r.video_terms?.length) patch({ video_terms: r.video_terms }); })
+      .catch(() => { /* 静默:用户仍可在弹框「自动生成」或手动填 */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message.id, message.streaming, message.content]);
 
   // 全局音色:按当前 provider 取列表,按 toolbar 语言筛选(同 VgSpeechSettings 规则)
   const voicesQ = useQuery({

@@ -60,6 +60,8 @@ export interface VgVideoParams {
   srt_cues?: VgSrtCue[] | null;
   paragraph_number: number;
   video_terms?: string | string[] | null;
+  /** 脚本/关键词 LLM 用哪个模型(跟随对话框选的 chat 模型;空走后端默认)。 */
+  model?: string | null;
   video_aspect: VgVideoAspect;
   video_concat_mode: VgConcatMode;
   video_transition_mode: VgTransitionMode;

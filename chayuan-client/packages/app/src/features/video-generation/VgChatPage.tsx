@@ -38,7 +38,7 @@ import { ComposerStoreContext } from '../../store/composer';
 import { useTabsStore } from '../../store/tabs';
 import { notifySuccess, reportError } from '../../store/errorDialog';
 
-import { vgComposerStore } from './store/vgComposerStore';
+import { vgComposerStore, resolveVgChatModel } from './store/vgComposerStore';
 import { useVgComposer } from './store/vgComposer';
 import { VgComposerToolbar } from './VgComposerToolbar';
 import { VgMessageExtras } from './VgMessageExtras';
@@ -118,6 +118,7 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
         ...base,
         video_script: script || base.video_script,
         script_source: 'manual' as const,
+        model: resolveVgChatModel() || base.model || undefined,
         voice_provider: vm.tts?.provider ?? base.voice_provider,
         voice_name: vm.tts?.voice ?? base.voice_name,
         voice_rate: vm.tts?.rate ?? base.voice_rate,
@@ -190,7 +191,7 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
       if (!autoMode) return false;
       const subj = text.trim();
       if (!subj) return false;
-      const params = { ...useVgComposer.getState().params, video_subject: subj, script_source: 'ai' as const };
+      const params = { ...useVgComposer.getState().params, video_subject: subj, script_source: 'ai' as const, model: resolveVgChatModel() || undefined };
       try {
         const t = await videoGeneration.submitTask(params, { stop_at: 'video' });
         notifySuccess(

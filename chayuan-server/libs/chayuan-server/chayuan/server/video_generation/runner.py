@@ -143,6 +143,7 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
                 params.video_subject,
                 language=params.video_language,
                 paragraph_number=params.paragraph_number,
+                model=params.model or None,
             )
         else:
             # manual / srt 模式 — script 由用户提供
@@ -179,6 +180,7 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
                 subject = (params.video_subject or "").strip() or video_script[:80]
                 video_terms = _script_step.generate_terms(
                     subject, video_script, amount=5,
+                    model=params.model or None,
                 )
                 if not video_terms:
                     logger.warning(

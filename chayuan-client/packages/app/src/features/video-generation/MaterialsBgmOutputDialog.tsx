@@ -13,6 +13,7 @@ import { videoGeneration } from '@chayuan/api';
 import { MaterialsSection } from './sections/MaterialsSection';
 import { BgmSection } from './sections/BgmSection';
 import { useVgComposer } from './store/vgComposer';
+import { resolveVgChatModel } from './store/vgComposerStore';
 import { reportError } from '../../store/errorDialog';
 
 export interface MaterialsBgmOutputDialogProps {
@@ -40,7 +41,10 @@ const TermsField: React.FC<{ script: string }> = ({ script }) => {
     setGen(true);
     try {
       const subj = (params.video_subject || script.slice(0, 80)).trim();
-      const r = await videoGeneration.generateTerms({ video_subject: subj, video_script: script });
+      const r = await videoGeneration.generateTerms({
+        video_subject: subj, video_script: script,
+        model: resolveVgChatModel() || undefined,
+      });
       patch({ video_terms: r.video_terms });
     } catch (e) {
       reportError(e as Error, '生成关键词失败');
