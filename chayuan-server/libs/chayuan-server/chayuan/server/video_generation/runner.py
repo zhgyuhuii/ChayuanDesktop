@@ -93,6 +93,13 @@ def cancel(task_id: str) -> bool:
     fut = _active_futures.get(task_id)
     if fut and not fut.running():
         fut.cancel()
+    # 立刻把任务态写 canceled —— 运行中的 worker 在 compose 等长步骤里不会及时
+    # 到边界,UI 会一直显示 processing 像"取消不了"。先翻状态给即时反馈;worker
+    # 后续到边界 / compose 后的取消检查会跳过落库,不会把 canceled 覆盖回 complete。
+    try:
+        tasks_store.update_progress(task_id, state=VgTaskState.canceled.value)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[runner] cancel 立即写态失败(忽略): %r", e)
     return True
 
 
@@ -267,6 +274,11 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
             )
         if not final_videos:
             return _mark_failed(task_id, "moviepy 合成失败 — 详见日志")
+
+        # compose 是长任务(moviepy 不可中断);渲染完后若期间用户已取消,
+        # 不落库、不标 complete,尊重取消(避免"取消了还是出片/状态翻回 complete")。
+        if _is_canceled(task_id):
+            return _mark_canceled(task_id)
 
         # 同步 vg_videos 表
         _persist_vg_videos(task_id, params, final_videos)
