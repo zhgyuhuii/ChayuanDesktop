@@ -28,3 +28,16 @@ const ts = (ms: number): string => {
 export function cuesToSrt(cues: SrtCue[]): string {
   return cues.map((c, i) => `${i + 1}\n${ts(c.startMs)} --> ${ts(c.endMs)}\n${(c.text ?? '').trim()}\n`).join('\n');
 }
+
+/** 用整体编辑的文本行重建 cues:行数与原 cue 数相同→保留各自时间只换文字;
+ *  不同→在 [0,totalMs] 均匀分配。空行忽略。 */
+export function rebuildCuesFromLines(cues: SrtCue[], lines: string[], totalMs: number): SrtCue[] {
+  const texts = lines.map((l) => l.trim()).filter((l) => l.length > 0);
+  if (texts.length === cues.length) {
+    return cues.map((c, i) => ({ ...c, text: texts[i]! }));
+  }
+  const n = texts.length;
+  if (n === 0) return [];
+  const span = Math.max(1000, totalMs) / n;
+  return texts.map((t, i) => ({ startMs: Math.round(i * span), endMs: Math.round((i + 1) * span), text: t }));
+}
