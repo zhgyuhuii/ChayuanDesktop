@@ -8,7 +8,7 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { getPlatform } from '@chayuan/platform-shared';
-import { Video, Download, RefreshCw, Trash2, LayoutGrid, List as ListIcon, Play } from 'lucide-react';
+import { Video, Download, RefreshCw, Trash2, LayoutGrid, List as ListIcon, Play, FileText, Captions, X } from 'lucide-react';
 import {
   videoGeneration,
   vgTaskFileUrl,
@@ -191,6 +191,59 @@ export const VideoLibraryPage: React.FC = () => {
   );
 };
 
+/** 视频卡的「脚本」「字幕」两个图标按钮 + 内容查看浮层。卡片/列表两处复用。 */
+const ScriptSubtitleButtons: React.FC<{ v: VgVideo }> = ({ v }) => {
+  const [open, setOpen] = React.useState<'script' | 'subtitle' | null>(null);
+  const [subtitle, setSubtitle] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const script = (v.params_snapshot?.video_script || '').trim();
+
+  const openSubtitle = async () => {
+    setOpen('subtitle');
+    if (subtitle !== null) return;
+    setLoading(true);
+    try {
+      const { blob } = await videoGeneration.downloadTaskFile(v.task_id, 'subtitle.srt');
+      setSubtitle((await blob.text()).trim() || '(空字幕)');
+    } catch {
+      setSubtitle('(无字幕文件)');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const iconBtn = 'inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[10px] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]';
+  const content = open === 'script' ? (script || '(无脚本)') : (loading ? '加载中…' : (subtitle ?? ''));
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen('script')} className={iconBtn} title="查看脚本">
+        <FileText className="h-3 w-3" /> 脚本
+      </button>
+      <button type="button" onClick={() => void openSubtitle()} className={iconBtn} title="查看字幕">
+        <Captions className="h-3 w-3" /> 字幕
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-6" onClick={() => setOpen(null)}>
+          <div className="flex max-h-[80vh] w-[min(640px,90vw)] flex-col rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-[var(--cy-border-subtle)] px-4 py-2.5">
+              <h3 className="text-sm font-semibold text-[var(--cy-text-primary)]">
+                {open === 'script' ? '脚本' : '字幕'} · {v.title || '未命名视频'}
+              </h3>
+              <button type="button" onClick={() => setOpen(null)} className="inline-flex h-7 w-7 items-center justify-center rounded hover:bg-[var(--cy-surface-2)]">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <pre className="min-h-0 flex-1 overflow-y-auto cy-hide-scrollbar whitespace-pre-wrap break-words px-4 py-3 text-xs leading-relaxed text-[var(--cy-text-secondary)]">
+              {content}
+            </pre>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
 const VideoCard: React.FC<{
   v: VgVideo;
   mode?: 'card' | 'list';
@@ -240,6 +293,7 @@ const VideoCard: React.FC<{
           <button type="button" onClick={onCopyRedo} className={iconBtn} title="用参数重做">
             <RefreshCw className="h-3 w-3" /> 重做
           </button>
+          <ScriptSubtitleButtons v={v} />
           <button type="button" onClick={onDelete} className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] text-rose-700 hover:border-rose-300" title="删除">
             <Trash2 className="h-3 w-3" />
           </button>
@@ -286,6 +340,7 @@ const VideoCard: React.FC<{
           >
             <RefreshCw className="h-3 w-3" /> 用参数重做
           </button>
+          <ScriptSubtitleButtons v={v} />
           <button
             type="button"
             onClick={onDelete}
