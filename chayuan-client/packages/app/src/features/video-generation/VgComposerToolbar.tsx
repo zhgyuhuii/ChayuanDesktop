@@ -9,9 +9,9 @@
  * 模型不在这里(ChatComposer 自带 ComposerModelPill)。
  */
 import * as React from 'react';
-import { Volume2, Type, Zap, ChevronDown } from 'lucide-react';
+import { Ratio, Volume2, Type, Zap, ChevronDown } from 'lucide-react';
 import { cn } from '@chayuan/ui';
-import { VgAspectChip } from './VgAspectChip';
+import { VgOutputSettings } from './VgAspectChip';
 import { VgSpeechSettings } from './VgAudioPopover';
 import { VgSubtitleSettings } from './VgSubtitlePopover';
 import { useVgComposer } from './store/vgComposer';
@@ -21,7 +21,7 @@ export interface VgComposerToolbarProps {
   onAutoModeChange: (v: boolean) => void;
 }
 
-type Panel = 'speech' | 'subtitle' | null;
+type Panel = 'aspect' | 'speech' | 'subtitle' | null;
 
 const triggerCls = (active: boolean) =>
   cn(
@@ -46,15 +46,19 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
           向上展开不会把输入框往下挤) */}
       {open && (
         <div className="border-b border-[var(--cy-border-subtle)] px-3 py-2">
-          {open === 'speech' ? <VgSpeechSettings /> : <VgSubtitleSettings />}
+          {open === 'aspect' ? <VgOutputSettings />
+            : open === 'speech' ? <VgSpeechSettings />
+            : <VgSubtitleSettings />}
         </div>
       )}
       {/* chip 行 */}
       <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 text-xs">
-        <div className="inline-flex items-center gap-1">
-          <span className="text-[var(--cy-text-tertiary)]">画幅</span>
-          <VgAspectChip />
-        </div>
+        {/* 画幅设置 trigger */}
+        <button type="button" onClick={() => toggle('aspect')} className={triggerCls(open === 'aspect')}>
+          <Ratio className="h-3 w-3 text-[var(--cy-brand-500)]" />
+          画幅设置
+          <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'aspect' && 'rotate-180')} />
+        </button>
         <div className="inline-flex items-center gap-1">
           <span className="text-[var(--cy-text-tertiary)]">语言</span>
           <select
