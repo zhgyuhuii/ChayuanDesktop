@@ -36,7 +36,9 @@ export const VgTaskListPanel: React.FC<{
     staleTime: 5_000,
     refetchInterval: 5_000,
   });
-  const tasks = q.data?.items ?? [];
+  // 只显示完整生成任务;stop_at!=video 是时间轴草稿(stop_at=subtitle),不污染列表。
+  // finalize 后草稿会被升为 stop_at=video,正常显示渲染进度。
+  const tasks = (q.data?.items ?? []).filter((t) => t.stop_at === 'video');
 
   const grouped = React.useMemo(() => {
     const g: Record<Group, VgTask[]> = { running: [], failed: [], done: [] };
