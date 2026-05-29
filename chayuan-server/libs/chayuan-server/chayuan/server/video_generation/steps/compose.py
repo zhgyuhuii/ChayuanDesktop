@@ -353,6 +353,32 @@ def _build_edl_render_plan(timeline, video_aspect, *, source_resolver):
     return plan
 
 
+def _build_pip_layers(timeline, *, source_resolver) -> list:
+    """第 2+ 条 video 轨的 clips → PIP 层 [{path,x,y,scale,z,start_s,dur,is_image}],按 z 升序。"""
+    video_tracks = [t for t in (timeline.tracks or []) if t.kind == "video"]
+    layers: list = []
+    for tr in video_tracks[1:]:  # 跳过主轨
+        for c in tr.clips:
+            path = (source_resolver(c.source) or "").strip()
+            if not path:
+                logger.warning("[pip] clip %s 解析为空,跳过: %r", c.id, c.source)
+                continue
+            is_image = path.lower().rsplit(".", 1)[-1] in ("jpg", "jpeg", "png", "webp", "bmp", "gif")
+            dur = (c.out_ms / 1000.0) if (c.out_ms and c.out_ms > 0) else (3.0 if is_image else None)
+            layers.append({
+                "path": path,
+                "x": float(getattr(c, "x", 0.0) or 0.0),
+                "y": float(getattr(c, "y", 0.0) or 0.0),
+                "scale": float(getattr(c, "scale", 0.4) or 0.4),
+                "z": int(getattr(c, "z", 0) or 0),
+                "start_s": max(0.0, c.track_start_ms / 1000.0),
+                "dur": dur,
+                "is_image": is_image,
+            })
+    layers.sort(key=lambda ly: ly["z"])
+    return layers
+
+
 def _build_extra_audios(timeline, *, source_resolver) -> list:
     """抽 timeline 的 audio 轨 clips → [{path, start_s, volume}],解析为空的跳过。"""
     out: list = []
@@ -488,8 +514,37 @@ def render_from_edl(
 
     combined_path = os.path.join(output_dir, "edl-combined.mp4")
     concat_video_clips_with_ffmpeg(clip_files, combined_path, threads=threads, output_dir=output_dir)
+
+    # 多视频层画中画(P5c-2):第 2+ 视频轨按 x/y/scale/z 叠在主轨之上
+    base_for_compose = combined_path
+    pip_layers = _build_pip_layers(timeline, source_resolver=source_resolver)
+    if pip_layers:
+        try:
+            base_clip = _open_video_clip_quietly(combined_path)
+            overlays = []
+            for ly in pip_layers:
+                w = int(video_width * max(0.05, min(1.0, ly["scale"])))
+                if ly["is_image"]:
+                    oc = ImageClip(ly["path"]).with_duration(ly["dur"] or base_clip.duration)
+                else:
+                    oc = _open_video_clip_quietly(ly["path"])
+                    if ly["dur"]:
+                        oc = oc.subclipped(0, min(ly["dur"], oc.duration))
+                oc = oc.resized(width=w).with_position((ly["x"], ly["y"]), relative=True).with_start(ly["start_s"])
+                overlays.append(oc)
+            comp = CompositeVideoClip([base_clip, *overlays])
+            pip_path = os.path.join(output_dir, "edl-pip.mp4")
+            comp.write_videofile(pip_path, logger=None, fps=fps, codec=video_codec)
+            for oc in overlays:
+                close_clip(oc)
+            close_clip(base_clip)
+            close_clip(comp)
+            base_for_compose = pip_path
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[pip] 分层合成失败,退回主轨: %s", exc)
+
     generate_video(
-        video_path=combined_path,
+        video_path=base_for_compose,
         audio_path=audio_file,
         subtitle_path=subtitle_path,
         output_file=output_file,
@@ -537,7 +592,35 @@ def render_proxy_from_timeline(
         finally:
             close_clip(clip)
 
-    concat_video_clips_with_ffmpeg(clip_files, output_file, threads=threads, output_dir=output_dir)
+    # 主轨 concat;若有 PIP 层(第 2+ 视频轨)再分层合成(低清预览也显真实画中画)
+    pip_layers = _build_pip_layers(timeline, source_resolver=source_resolver)
+    if not pip_layers:
+        concat_video_clips_with_ffmpeg(clip_files, output_file, threads=threads, output_dir=output_dir)
+        return output_file
+    combined_path = os.path.join(output_dir, "proxy-combined.mp4")
+    concat_video_clips_with_ffmpeg(clip_files, combined_path, threads=threads, output_dir=output_dir)
+    try:
+        base_clip = _open_video_clip_quietly(combined_path)
+        overlays = []
+        for ly in pip_layers:
+            ow = max(2, int(pw * max(0.05, min(1.0, ly["scale"]))))
+            if ly["is_image"]:
+                oc = ImageClip(ly["path"]).with_duration(ly["dur"] or base_clip.duration)
+            else:
+                oc = _open_video_clip_quietly(ly["path"])
+                if ly["dur"]:
+                    oc = oc.subclipped(0, min(ly["dur"], oc.duration))
+            oc = oc.resized(width=ow).with_position((ly["x"], ly["y"]), relative=True).with_start(ly["start_s"])
+            overlays.append(oc)
+        comp = CompositeVideoClip([base_clip, *overlays])
+        comp.write_videofile(output_file, logger=None, fps=15, codec=video_codec)
+        for oc in overlays:
+            close_clip(oc)
+        close_clip(base_clip)
+        close_clip(comp)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[pip] proxy 分层合成失败,退回主轨: %s", exc)
+        shutil.move(combined_path, output_file)
     return output_file
 
 
