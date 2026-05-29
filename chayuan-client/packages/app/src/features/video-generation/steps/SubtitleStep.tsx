@@ -60,15 +60,39 @@ function deriveCuesFromScript(text: string, totalMs: number): VgSrtCue[] {
   return out;
 }
 
-export const SubtitleStep: React.FC = () => {
-  const cues = useVgComposer((s) => s.params.srt_cues) ?? [];
-  const setSrtCues = useVgComposer((s) => s.setSrtCues);
+export interface SubtitleStepProps {
+  /**
+   * override 模式(chat-redesign):cues 由父级(VgMessageExtras → message.metadata.
+   * videoMeta.scriptCues)提供,不读 vgComposer 全局 store。三个 override 一起传:
+   *   - scriptOverride:当前 message 的脚本(用来"用脚本初始化字幕")
+   *   - cuesOverride:当前 message 的 cues
+   *   - onCuesOverride:写回 cues 的回调
+   * 全不传时退回 wizard 旧行为(读写 vgComposer.params.srt_cues + scriptSlots)。
+   */
+  scriptOverride?: string;
+  cuesOverride?: VgSrtCue[] | null;
+  onCuesOverride?: (cues: VgSrtCue[]) => void;
+}
+
+export const SubtitleStep: React.FC<SubtitleStepProps> = ({
+  scriptOverride,
+  cuesOverride,
+  onCuesOverride,
+}) => {
+  const storeCues = useVgComposer((s) => s.params.srt_cues) ?? [];
+  const storeSetSrtCues = useVgComposer((s) => s.setSrtCues);
   const scriptSource = useVgComposer((s) => s.params.script_source);
   const slots = useVgComposer((s) => s.scriptSlots);
   const setParams = useVgComposer((s) => s.patchParams);
 
-  const currentScript =
-    scriptSource === 'ai' ? slots.ai
+  // override 模式:cues / setter / script 都走父级;否则走全局 store
+  const overriding = typeof onCuesOverride === 'function';
+  const cues = overriding ? (cuesOverride ?? []) : storeCues;
+  const setSrtCues = overriding ? onCuesOverride! : storeSetSrtCues;
+
+  const currentScript = overriding
+    ? (scriptOverride ?? '')
+    : scriptSource === 'ai' ? slots.ai
     : scriptSource === 'manual' ? slots.manual
     : '';
 
@@ -78,9 +102,9 @@ export const SubtitleStep: React.FC = () => {
     const en = (currentScript.match(/[A-Za-z]+/g) || []).length;
     const totalMs = Math.max(1000, Math.round((cn / 3.5 + en / 3) * 1000));
     setSrtCues(deriveCuesFromScript(currentScript, totalMs));
-    // 自动转 srt 模式让任务提交时走 cues 路径
-    setParams({ script_source: 'srt' });
-  }, [currentScript, setSrtCues, setParams]);
+    // wizard 模式下顺便转 srt 模式让任务提交走 cues;override 模式不碰全局 store
+    if (!overriding) setParams({ script_source: 'srt' });
+  }, [currentScript, setSrtCues, setParams, overriding]);
 
   const patchCue = React.useCallback((idx: number, patch: Partial<VgSrtCue>) => {
     const next = cues.map((c, i) => (i === idx ? { ...c, ...patch } : c));

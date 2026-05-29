@@ -13,15 +13,21 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose,
 } from '@chayuan/ui';
 import { X, FileText } from 'lucide-react';
+import type { VgSrtCue } from '@chayuan/api';
 import { SubtitleStep } from './steps/SubtitleStep';
 
 export interface SubtitleEditorDialogProps {
   open: boolean;
   onOpenChange(o: boolean): void;
+  /** chat-redesign:当前 message 的脚本 + cues + 写回回调。
+   *  不传时 SubtitleStep 退回 wizard 旧行为(读写全局 vgComposer)。 */
+  script?: string;
+  cues?: VgSrtCue[] | null;
+  onCuesChange?: (cues: VgSrtCue[]) => void;
 }
 
 export const SubtitleEditorDialog: React.FC<SubtitleEditorDialogProps> = ({
-  open, onOpenChange,
+  open, onOpenChange, script, cues, onCuesChange,
 }) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -37,7 +43,11 @@ export const SubtitleEditorDialog: React.FC<SubtitleEditorDialogProps> = ({
           </DialogClose>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto cy-hide-scrollbar p-4">
-          <SubtitleStep />
+          <SubtitleStep
+            scriptOverride={script}
+            cuesOverride={cues}
+            onCuesOverride={onCuesChange}
+          />
         </div>
       </DialogContent>
     </Dialog>

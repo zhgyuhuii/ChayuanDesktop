@@ -60,8 +60,14 @@ export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
           <Sparkles className="h-4 w-4" /> 去生成视频
         </button>
       </div>
-      {/* 弹窗 */}
-      <SubtitleEditorDialog open={subtitleOpen} onOpenChange={setSubtitleOpen} />
+      {/* 弹窗 — 字幕编辑器接当前 message 的脚本 + cues;改完写回 videoMeta.scriptCues */}
+      <SubtitleEditorDialog
+        open={subtitleOpen}
+        onOpenChange={setSubtitleOpen}
+        script={message.content || ''}
+        cues={vm.scriptCues ?? null}
+        onCuesChange={(next) => onMetaChange(message.id, { scriptCues: next })}
+      />
       <MaterialsBgmOutputDialog
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
