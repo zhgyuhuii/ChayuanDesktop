@@ -1,12 +1,10 @@
 /**
- * Step 6 · 配乐 + 输出参数。
+ * Step 6 · 配乐 + 输出参数(紧凑版)。
  *
- * - BGM:无 / 随机 / 指定文件(下拉 from /bgm 内置+用户上传合并)+ 音量
- * - 字幕样式:开关 + 位置 + 字体 + 字号 + 颜色 + 描边
- * - 渲染参数:数量(1-5 同主题多份)+ 转场 + 拼接模式 + 单段最长时长
- *
- * 设计:不做实时预览(留 B5 RenderStep 那一步用真合成的视频带字幕看效果),
- * 这一步只配参数 + 简单数值显示。
+ * - BGM:无 / 随机 / 指定(下拉)+ 音量(内联滑块)+ 试听 — 同一行
+ * - 字幕样式:启用开关 + 位置/字体/字号/颜色/描边/背景 — 窄控件一行排布;
+ *   字体下拉显示 family 名并按该字体预览(option style fontFamily)
+ * - 渲染参数:数量 / 单段最长 / 拼接 / 转场 — 一行
  */
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -17,6 +15,10 @@ import {
   type VgFontItem,
 } from '@chayuan/api';
 import { useVgComposer } from '../store/vgComposer';
+
+const sel =
+  'h-8 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--cy-brand-500)]';
+const fieldLbl = 'flex flex-col gap-0.5 text-[10px] text-[var(--cy-text-tertiary)]';
 
 export const BgmOutputStep: React.FC = () => {
   const params = useVgComposer((s) => s.params);
@@ -34,12 +36,14 @@ export const BgmOutputStep: React.FC = () => {
   });
   const bgmItems: VgBgmItem[] = bgmQ.data?.items ?? [];
   const fontItems: VgFontItem[] = fontsQ.data?.items ?? [];
+  const selectedBgm = bgmItems.find((b) => b.path === params.bgm_file);
+  const selectedFont = fontItems.find((f) => f.name === params.font_name);
 
   return (
-    <div className="space-y-5">
-      {/* BGM */}
+    <div className="space-y-4">
+      {/* 背景音乐 — 一行 */}
       <section>
-        <h3 className="mb-2 text-sm font-semibold text-[var(--cy-text-primary)]">背景音乐</h3>
+        <h3 className="mb-1.5 text-sm font-semibold text-[var(--cy-text-primary)]">背景音乐</h3>
         <div className="flex flex-wrap items-center gap-2">
           {(['none', 'random', 'file'] as const).map((t) => (
             <button
@@ -47,56 +51,50 @@ export const BgmOutputStep: React.FC = () => {
               key={t}
               onClick={() => patchParams({ bgm_type: t })}
               className={
-                'rounded-full border px-3 py-1.5 text-xs transition-colors ' +
+                'rounded-full border px-3 py-1 text-xs transition-colors ' +
                 (params.bgm_type === t
                   ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
                   : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]')
               }
             >
-              {t === 'none' ? '无' : t === 'random' ? '随机' : '指定文件'}
+              {t === 'none' ? '无' : t === 'random' ? '随机' : '指定'}
             </button>
           ))}
           {params.bgm_type === 'file' && (
             <select
-              className="min-w-[14rem] rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1.5 text-xs"
+              className={`${sel} w-[14em]`}
               value={params.bgm_file}
               onChange={(e) => patchParams({ bgm_file: e.target.value })}
             >
               <option value="">(选择 BGM)</option>
               {bgmItems.map((b) => (
-                <option key={b.path} value={b.path}>
-                  {b.name} · {b.source}
-                </option>
+                <option key={b.path} value={b.path}>{b.name} · {b.source}</option>
               ))}
             </select>
           )}
-          {params.bgm_type === 'file' && (() => {
-            const sel = bgmItems.find((b) => b.path === params.bgm_file);
-            return sel ? <audio src={vgBgmFileUrl(sel.name)} controls className="h-8" /> : null;
-          })()}
+          {/* 音量内联滑块 — 放在试听前 */}
+          {params.bgm_type !== 'none' && (
+            <span className="inline-flex items-center gap-1 text-xs text-[var(--cy-text-tertiary)]">
+              音量
+              <input
+                type="range" min={0} max={1} step={0.05}
+                value={params.bgm_volume}
+                onChange={(e) => patchParams({ bgm_volume: parseFloat(e.target.value) })}
+                className="w-20 accent-[var(--cy-brand-500)]"
+                title={`${Math.round(params.bgm_volume * 100)}%`}
+              />
+              <span className="w-9 text-right tabular-nums">{Math.round(params.bgm_volume * 100)}%</span>
+            </span>
+          )}
+          {params.bgm_type === 'file' && selectedBgm && (
+            <audio src={vgBgmFileUrl(selectedBgm.name)} controls className="h-8" />
+          )}
         </div>
-        {params.bgm_type !== 'none' && (
-          <div className="mt-2">
-            <label className="flex items-center justify-between text-xs text-[var(--cy-text-tertiary)]">
-              BGM 音量
-              <span>{Math.round(params.bgm_volume * 100)}%</span>
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={params.bgm_volume}
-              onChange={(e) => patchParams({ bgm_volume: parseFloat(e.target.value) })}
-              className="mt-1 w-full max-w-md accent-[var(--cy-brand-500)]"
-            />
-          </div>
-        )}
       </section>
 
-      {/* 字幕样式 */}
+      {/* 字幕样式 — 紧凑窄控件一行 */}
       <section>
-        <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--cy-text-primary)]">
+        <h3 className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-[var(--cy-text-primary)]">
           字幕样式
           <label className="flex items-center gap-1 text-xs font-normal text-[var(--cy-text-secondary)]">
             <input
@@ -104,15 +102,14 @@ export const BgmOutputStep: React.FC = () => {
               checked={params.subtitle_enabled}
               onChange={(e) => patchParams({ subtitle_enabled: e.target.checked })}
             />
-            启用字幕
+            启用
           </label>
         </h3>
         {params.subtitle_enabled && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div>
-              <label className="block text-xs text-[var(--cy-text-tertiary)]">位置</label>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className={fieldLbl}>位置
               <select
-                className="mt-1 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs"
+                className={`${sel} w-[5em]`}
                 value={params.subtitle_position}
                 onChange={(e) => patchParams({ subtitle_position: e.target.value as 'top' | 'bottom' | 'center' | 'custom' })}
               >
@@ -121,122 +118,94 @@ export const BgmOutputStep: React.FC = () => {
                 <option value="bottom">底部</option>
                 <option value="custom">自定义</option>
               </select>
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--cy-text-tertiary)]">字体</label>
+            </label>
+            <label className={fieldLbl}>字体
               <select
-                className="mt-1 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs"
+                className={`${sel} w-[11em]`}
                 value={params.font_name}
                 onChange={(e) => patchParams({ font_name: e.target.value })}
+                style={{ fontFamily: selectedFont?.family || undefined }}
+                title={selectedFont?.label || params.font_name}
               >
                 {fontItems.length === 0 && <option value={params.font_name}>{params.font_name}</option>}
                 {fontItems.map((f) => (
-                  <option key={f.name} value={f.name}>{f.name} · {f.source}</option>
+                  <option key={f.name} value={f.name} style={{ fontFamily: f.family || undefined }}>
+                    {f.label || f.name}
+                  </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--cy-text-tertiary)]">字号</label>
+            </label>
+            <label className={fieldLbl}>字号
               <input
-                type="number"
-                min={20}
-                max={200}
+                type="number" min={20} max={200}
                 value={params.font_size}
                 onChange={(e) => patchParams({ font_size: parseInt(e.target.value, 10) || 60 })}
-                className="mt-1 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs"
+                className={`${sel} w-[4.5em]`}
               />
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--cy-text-tertiary)]">前景色</label>
-              <input
-                type="color"
-                value={params.text_fore_color}
+            </label>
+            <label className={fieldLbl}>前景
+              <input type="color" value={params.text_fore_color}
                 onChange={(e) => patchParams({ text_fore_color: e.target.value })}
-                className="mt-1 h-7 w-full rounded border border-[var(--cy-border-subtle)]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--cy-text-tertiary)]">描边色</label>
-              <input
-                type="color"
-                value={params.stroke_color}
+                className="h-8 w-9 rounded border border-[var(--cy-border-subtle)]" />
+            </label>
+            <label className={fieldLbl}>描边
+              <input type="color" value={params.stroke_color}
                 onChange={(e) => patchParams({ stroke_color: e.target.value })}
-                className="mt-1 h-7 w-full rounded border border-[var(--cy-border-subtle)]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--cy-text-tertiary)]">描边宽度</label>
-              <input
-                type="number"
-                min={0}
-                max={10}
-                step={0.5}
+                className="h-8 w-9 rounded border border-[var(--cy-border-subtle)]" />
+            </label>
+            <label className={fieldLbl}>描边宽
+              <input type="number" min={0} max={10} step={0.5}
                 value={params.stroke_width}
                 onChange={(e) => patchParams({ stroke_width: parseFloat(e.target.value) || 1.5 })}
-                className="mt-1 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--cy-text-tertiary)]">背景</label>
+                className={`${sel} w-[4.5em]`} />
+            </label>
+            <label className={fieldLbl}>背景
               <select
-                className="mt-1 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs"
+                className={`${sel} w-[5.5em]`}
                 value={typeof params.text_background_color === 'string' ? 'custom' : params.text_background_color ? 'on' : 'off'}
                 onChange={(e) => {
                   const v = e.target.value;
                   if (v === 'on') patchParams({ text_background_color: true });
                   else if (v === 'off') patchParams({ text_background_color: false });
-                  // 'custom' 时不动 — 用户用色板/写自己的字符串
                 }}
               >
                 <option value="on">黑底</option>
-                <option value="off">无背景</option>
+                <option value="off">无</option>
               </select>
-            </div>
+            </label>
           </div>
         )}
       </section>
 
-      {/* 渲染参数 */}
+      {/* 渲染参数 — 一行 */}
       <section>
-        <h3 className="mb-2 text-sm font-semibold text-[var(--cy-text-primary)]">渲染参数</h3>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div>
-            <label className="block text-xs text-[var(--cy-text-tertiary)]">视频数量</label>
-            <input
-              type="number"
-              min={1}
-              max={5}
+        <h3 className="mb-1.5 text-sm font-semibold text-[var(--cy-text-primary)]">渲染参数</h3>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className={fieldLbl}>视频数量
+            <input type="number" min={1} max={5}
               value={params.video_count}
               onChange={(e) => patchParams({ video_count: parseInt(e.target.value, 10) || 1 })}
-              className="mt-1 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-[var(--cy-text-tertiary)]">单段最长 (s)</label>
-            <input
-              type="number"
-              min={1}
-              max={60}
+              className={`${sel} w-[4.5em]`} />
+          </label>
+          <label className={fieldLbl}>单段最长(s)
+            <input type="number" min={1} max={60}
               value={params.video_clip_duration}
               onChange={(e) => patchParams({ video_clip_duration: parseInt(e.target.value, 10) || 5 })}
-              className="mt-1 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-[var(--cy-text-tertiary)]">拼接顺序</label>
+              className={`${sel} w-[5em]`} />
+          </label>
+          <label className={fieldLbl}>拼接
             <select
-              className="mt-1 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs"
+              className={`${sel} w-[5.5em]`}
               value={params.video_concat_mode}
               onChange={(e) => patchParams({ video_concat_mode: e.target.value as 'random' | 'sequential' })}
             >
               <option value="random">随机</option>
               <option value="sequential">顺序</option>
             </select>
-          </div>
-          <div>
-            <label className="block text-xs text-[var(--cy-text-tertiary)]">转场</label>
+          </label>
+          <label className={fieldLbl}>转场
             <select
-              className="mt-1 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs"
+              className={`${sel} w-[6.5em]`}
               value={params.video_transition_mode}
               onChange={(e) => patchParams({ video_transition_mode: e.target.value as '' | 'Shuffle' | 'FadeIn' | 'FadeOut' | 'SlideIn' | 'SlideOut' })}
             >
@@ -247,7 +216,7 @@ export const BgmOutputStep: React.FC = () => {
               <option value="SlideIn">SlideIn</option>
               <option value="SlideOut">SlideOut</option>
             </select>
-          </div>
+          </label>
         </div>
       </section>
     </div>

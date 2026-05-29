@@ -102,131 +102,86 @@ export const VoiceStep: React.FC = () => {
     }
   }, [playing, previewText, params.voice_provider, params.voice_name, params.voice_rate, params.voice_volume, previewUrl]);
 
+  const selCls =
+    'h-8 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--cy-brand-500)]';
+
   return (
-    <div className="space-y-5">
-      {/* provider chip */}
-      <div>
-        <label className="mb-2 block text-sm font-medium text-[var(--cy-text-primary)]">
-          TTS 后端
-        </label>
-        <div className="flex flex-wrap gap-2">
-          {PROVIDERS.map((p) => (
-            <button
-              type="button"
-              key={p.id}
-              onClick={() => patchParams({ voice_provider: p.id, voice_name: '' })}
-              className={
-                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors ' +
-                (params.voice_provider === p.id
-                  ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                  : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]')
-              }
-              title={p.hint}
-            >
-              {p.offline ? <WifiOff className="h-3 w-3" /> : <Wifi className="h-3 w-3" />}
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <p className="mt-1.5 text-xs text-[var(--cy-text-tertiary)]">
-          {PROVIDERS.find((p) => p.id === params.voice_provider)?.hint}
-        </p>
-      </div>
-
-      {/* 音色 */}
-      <div>
-        <label className="mb-2 block text-sm font-medium text-[var(--cy-text-primary)]">
-          音色
-        </label>
-        {voicesQ.isLoading ? (
-          <div className="text-xs text-[var(--cy-text-tertiary)]">加载音色列表…</div>
-        ) : voices.length === 0 ? (
-          <div className="text-xs text-[var(--cy-text-tertiary)]">
-            {params.voice_provider === 'sherpa'
-              ? '未找到本地 sherpa voice — 跑 ``scripts/seed-bundled-assets.py sherpa-voice`` 下载模型(~125 MB)'
-              : '当前后端无可用音色'}
-          </div>
-        ) : (
-          <select
-            className="w-full max-w-md rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--cy-brand-500)]"
-            value={params.voice_name || voices[0]?.id || ''}
-            onChange={(e) => patchParams({ voice_name: e.target.value })}
-          >
-            {voices.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label} · {v.language}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
-
-      {/* rate / volume slider */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label className="mb-1.5 flex items-center justify-between text-sm font-medium text-[var(--cy-text-primary)]">
-            语速
-            <span className="text-xs font-normal text-[var(--cy-text-tertiary)]">
-              {params.voice_rate.toFixed(2)}×
-            </span>
-          </label>
-          <input
-            type="range"
-            min={0.5}
-            max={2.0}
-            step={0.05}
-            value={params.voice_rate}
-            onChange={(e) => patchParams({ voice_rate: parseFloat(e.target.value) })}
-            className="w-full accent-[var(--cy-brand-500)]"
-          />
-        </div>
-        <div>
-          <label className="mb-1.5 flex items-center justify-between text-sm font-medium text-[var(--cy-text-primary)]">
-            音量
-            <span className="text-xs font-normal text-[var(--cy-text-tertiary)]">
-              {Math.round(params.voice_volume * 100)}%
-            </span>
-          </label>
-          <input
-            type="range"
-            min={0.0}
-            max={2.0}
-            step={0.05}
-            value={params.voice_volume}
-            onChange={(e) => patchParams({ voice_volume: parseFloat(e.target.value) })}
-            className="w-full accent-[var(--cy-brand-500)]"
-          />
-        </div>
-      </div>
-
-      {/* 试听 */}
-      <div className="rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-4">
-        <div className="flex items-center gap-3">
+    <div className="space-y-2">
+      {/* 单行:provider · 音色 · 语速 · 音量 · 试听 */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* provider chip(紧凑) */}
+        {PROVIDERS.map((p) => (
           <button
             type="button"
-            onClick={onPreview}
-            disabled={previewing}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--cy-brand-500)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--cy-brand-600)] disabled:cursor-not-allowed disabled:opacity-50"
+            key={p.id}
+            onClick={() => patchParams({ voice_provider: p.id, voice_name: '' })}
+            title={p.hint}
+            className={
+              'inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition-colors ' +
+              (params.voice_provider === p.id
+                ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]')
+            }
           >
-            {previewing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : playing ? (
-              <Square className="h-4 w-4" />
-            ) : (
-              <Play className="h-4 w-4" />
-            )}
-            {previewing ? '合成中…' : playing ? '停止' : '试听'}
+            {p.offline ? <WifiOff className="h-3 w-3" /> : <Wifi className="h-3 w-3" />}
+            {p.id}
           </button>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs text-[var(--cy-text-secondary)]">
-              试听文本(≤ 50 字):{previewText}
-            </p>
-            <p className="mt-0.5 text-[10px] text-[var(--cy-text-tertiary)]">
-              试听只用前 50 字,正式合成时用完整脚本
-            </p>
-          </div>
-        </div>
+        ))}
+
+        {/* 音色(按语言过滤) */}
+        <select
+          className={`${selCls} w-[13em]`}
+          value={params.voice_name || voices[0]?.id || ''}
+          onChange={(e) => patchParams({ voice_name: e.target.value })}
+          disabled={voices.length === 0}
+          title={voices.length === 0 ? '当前后端无可用音色' : '音色'}
+        >
+          {voices.length === 0 && <option value="">{voicesQ.isLoading ? '加载中…' : '无音色'}</option>}
+          {voices.map((v) => (
+            <option key={v.id} value={v.id}>{v.label} · {v.language}</option>
+          ))}
+        </select>
+
+        {/* 语速 */}
+        <select
+          className={`${selCls} w-[5.5em]`}
+          value={params.voice_rate}
+          onChange={(e) => patchParams({ voice_rate: parseFloat(e.target.value) })}
+          title="语速"
+        >
+          {[0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0].map((r) => (
+            <option key={r} value={r}>{r.toFixed(2).replace(/\.?0+$/, '')}×</option>
+          ))}
+        </select>
+
+        {/* 音量 — 滑块上下/左右拖调 */}
+        <span className="inline-flex items-center gap-1 text-xs text-[var(--cy-text-tertiary)]">
+          音量
+          <input
+            type="range" min={0} max={2} step={0.05}
+            value={params.voice_volume}
+            onChange={(e) => patchParams({ voice_volume: parseFloat(e.target.value) })}
+            className="w-20 accent-[var(--cy-brand-500)]"
+            title={`${Math.round(params.voice_volume * 100)}%`}
+          />
+          <span className="w-9 text-right tabular-nums">{Math.round(params.voice_volume * 100)}%</span>
+        </span>
+
+        {/* 试听 */}
+        <button
+          type="button"
+          onClick={onPreview}
+          disabled={previewing}
+          className="inline-flex h-8 items-center gap-1 rounded-lg bg-[var(--cy-brand-500)] px-3 text-xs font-medium text-white hover:bg-[var(--cy-brand-600)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {previewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            : playing ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+          {previewing ? '合成中' : playing ? '停止' : '试听'}
+        </button>
       </div>
+      <p className="text-[10px] text-[var(--cy-text-tertiary)]">
+        {PROVIDERS.find((p) => p.id === params.voice_provider)?.hint} · 试听用前 50 字
+      </p>
     </div>
   );
 };
