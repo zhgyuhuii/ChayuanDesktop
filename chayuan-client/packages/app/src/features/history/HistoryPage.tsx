@@ -107,8 +107,13 @@ export const HistoryPage: React.FC = () => {
   const onSelect = (c: ConversationView) => {
     const id = c.remote_id ?? c.id;
     setActive(id);
-    const path = `/chat/${encodeURIComponent(id)}`;
-    open(path, { title: c.title, icon: 'message-square' });
+    // 按会话类型路由:视频生成会话回 /video-generation/<id>(才能还原 VG 工具栏/
+    // 去生成/videoMeta);否则普通聊天 /chat/<id>。之前一律 /chat → VG 状态丢失。
+    const isVg = (c.mode as string) === 'video_generation';
+    const path = isVg
+      ? `/video-generation/${encodeURIComponent(id)}`
+      : `/chat/${encodeURIComponent(id)}`;
+    open(path, { title: c.title, icon: isVg ? 'video' : 'message-square' });
     void navigate({ to: path as never });
   };
 
