@@ -38,25 +38,26 @@ export const VgTimelineEditorPage: React.FC = () => {
 
   const timeline = params.timeline ?? buildTimelineFromMaterials(params.video_materials ?? []);
   const curHash = scriptHashOf(params);
+  const hasScript = (params.video_script || '').trim().length > 0;
 
-  // ── 草稿编排:进页面 / 脚本变 → 自动生成(stop_at=materials) ──
+  // 提交一次草稿生成(stop_at=subtitle:只旁白+字幕,不下素材)。手动按钮 + 自动都用。
+  const startDraftGen = React.useCallback(async () => {
+    patchDraft({ state: 'generating', scriptHash: curHash, error: undefined, taskId: null });
+    try {
+      const t = await videoGeneration.submitTask(params, { stop_at: 'subtitle' });
+      patchDraft({ taskId: t.task_id });
+    } catch (e) {
+      patchDraft({ state: 'failed', error: (e as Error).message });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curHash]);
+
+  // ── 进页面 / 脚本变 → 自动生成旁白+字幕 ──
+  // 仅当 hash 命中(当前脚本已 ready 或正在生成)才跳过;否则(idle/failed/旧 hash 卡 generating)重发。
   React.useEffect(() => {
-    const hasScript = (params.video_script || '').trim().length > 0;
     if (!hasScript) return;
-    if (draft.state === 'generating') return;
-    if (draft.state === 'ready' && draft.scriptHash === curHash) return; // 缓存命中
-    let aborted = false;
-    (async () => {
-      patchDraft({ state: 'generating', scriptHash: curHash, error: undefined });
-      try {
-        const t = await videoGeneration.submitTask(params, { stop_at: 'subtitle' });
-        if (aborted) return;
-        patchDraft({ taskId: t.task_id });
-      } catch (e) {
-        if (!aborted) patchDraft({ state: 'failed', error: (e as Error).message });
-      }
-    })();
-    return () => { aborted = true; };
+    if (draft.scriptHash === curHash && (draft.state === 'ready' || draft.state === 'generating')) return;
+    void startDraftGen();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curHash]);
 
@@ -210,9 +211,23 @@ export const VgTimelineEditorPage: React.FC = () => {
       <TransportBar playing={playing} currentMs={playheadMs} durationMs={contentMs} pxPerSec={pxPerSec}
         onPlayPause={() => setPlaying((v) => !v)} onZoom={setPxPerSec} />
       {/* 草稿状态条 */}
+      {!hasScript && (
+        <div className="flex items-center gap-2 bg-[var(--cy-surface-1)] px-3 py-1.5 text-xs text-[var(--cy-text-tertiary)]">
+          还没有脚本 —— 先在「对话」生成脚本后点「去编辑合成」进入,旁白会按语音配置自动生成。
+        </div>
+      )}
+      {hasScript && draft.state === 'idle' && (
+        <div className="flex items-center gap-2 bg-[var(--cy-surface-1)] px-3 py-1.5 text-xs text-[var(--cy-text-secondary)]">
+          旁白未生成。
+          <button type="button" onClick={() => void startDraftGen()}
+            className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-strong)] px-2 py-0.5 hover:bg-[var(--cy-surface-2)]">
+            <RefreshCw className="h-3 w-3" /> 生成旁白
+          </button>
+        </div>
+      )}
       {draft.state === 'generating' && (
         <div className="flex items-center gap-2 bg-[var(--cy-surface-1)] px-3 py-1.5 text-xs text-[var(--cy-text-secondary)]">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在预生成旁白 / 字幕 / 素材…
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在按语音配置生成旁白 + 字幕…
         </div>
       )}
       {draft.state === 'failed' && (
@@ -244,8 +259,6 @@ export const VgTimelineEditorPage: React.FC = () => {
           onReplaceClip={onReplaceClip}
           onDropMaterial={onDropMaterial}
           onLaneContextMenu={onLaneContextMenu}
-          onPreviewNarration={doPreviewNarration}
-          onPreviewAudio={doPreviewAudioTrack}
           onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
           onTimelineChange={onTimelineChange}
         />

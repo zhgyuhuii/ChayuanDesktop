@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Film, Mic, Captions, Music, Music2, Play, Pencil } from 'lucide-react';
+import { Film, Mic, Captions, Music, Music2, Pencil } from 'lucide-react';
 import type { VgTimeline } from '@chayuan/api';
 import type { SrtCue } from './srtParse';
 import { msToPx } from './timelineScale';
@@ -40,10 +40,8 @@ export const TimelineTracks: React.FC<{
   onCuesChange?: (cues: SrtCue[]) => void;
   onReplaceClip?: (clipId: string) => void;
   onLaneContextMenu?: (e: React.MouseEvent, track: 'video' | 'audio', clipId?: string) => void;
-  onPreviewNarration?: () => void;
-  onPreviewAudio?: () => void;
   onEditSubtitle?: () => void;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, onPreviewNarration, onPreviewAudio, onEditSubtitle }) => {
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, onEditSubtitle }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   const lanesH = TRACK_H * 5;
   const videoEmpty = !timeline.tracks?.some((t) => t.kind === 'video' && (t.clips?.length ?? 0) > 0);
@@ -55,11 +53,10 @@ export const TimelineTracks: React.FC<{
       <div className="shrink-0 border-r border-[var(--cy-border-subtle)]" style={{ width: HEADER_W }}>
         <div style={{ height: RULER_H }} className="border-b border-[var(--cy-border-subtle)]" />
         <TrackHeader label="视频" icon={<Film className="h-3 w-3" />} />
-        <TrackHeader label="旁白" icon={<Mic className="h-3 w-3" />}
-          action={onPreviewNarration && <button type="button" className={hdrBtn} title="试听旁白" onClick={onPreviewNarration}><Play className="h-3 w-3" /></button>} />
-        <TrackHeader label="音频" icon={<Music2 className="h-3 w-3" />}
-          action={onPreviewAudio && <button type="button" className={hdrBtn} title="试听插入音频" onClick={onPreviewAudio}><Play className="h-3 w-3" /></button>} />
+        <TrackHeader label="旁白" icon={<Mic className="h-3 w-3" />} />
+        <TrackHeader label="音频" icon={<Music2 className="h-3 w-3" />} />
         <TrackHeader label="音乐" icon={<Music className="h-3 w-3" />} />
+        {/* 字幕轨头「编辑」按钮:整体编辑字幕(试听已移到右键菜单) */}
         <TrackHeader label="字幕" icon={<Captions className="h-3 w-3" />}
           action={onEditSubtitle && <button type="button" className={hdrBtn} title="整体编辑字幕" onClick={onEditSubtitle}><Pencil className="h-3 w-3" /></button>} />
       </div>
