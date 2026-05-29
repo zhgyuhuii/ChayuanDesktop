@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -163,15 +164,27 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
         # 导致 video_terms 永远空 → _resolve_materials 在线分支被跳过 → 回退本地。
         # 已有 video_subject 优先,空则从脚本里抽关键词。
         if params.video_source != "local":
-            subject = (params.video_subject or "").strip() or video_script[:80]
-            video_terms = _script_step.generate_terms(
-                subject, video_script, amount=5,
-            )
-            if not video_terms:
-                logger.warning(
-                    "[runner] 在线源 %s 但 generate_terms 返空 — 在线搜索将被跳过,"
-                    "检查 chat 模型是否可用 / 脚本是否为空", params.video_source,
+            # 优先用用户填/编辑的关键词(对齐上游 task.py:38);空了才 LLM 生成。
+            # 之前漏了这步 → 用户编辑的关键词被覆盖 + LLM 失败时无退路。
+            user_terms = params.video_terms
+            if isinstance(user_terms, str):
+                user_terms = [t.strip() for t in re.split(r"[,，\n]", user_terms) if t.strip()]
+            elif isinstance(user_terms, list):
+                user_terms = [str(t).strip() for t in user_terms if str(t).strip()]
+            else:
+                user_terms = []
+            if user_terms:
+                video_terms = user_terms
+            else:
+                subject = (params.video_subject or "").strip() or video_script[:80]
+                video_terms = _script_step.generate_terms(
+                    subject, video_script, amount=5,
                 )
+                if not video_terms:
+                    logger.warning(
+                        "[runner] 在线源 %s 但 generate_terms 返空 — 在线搜索将被跳过,"
+                        "检查 chat 模型是否可用 / 脚本是否为空", params.video_source,
+                    )
         tasks_store.update_progress(
             task_id, progress=20, result_patch={"terms": video_terms},
         )

@@ -158,6 +158,7 @@ export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
       <MaterialsBgmOutputDialog
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
+        script={message.content || ''}
         onConfirm={async () => {
           setDrawerOpen(false);
           await onSubmit(message.id);

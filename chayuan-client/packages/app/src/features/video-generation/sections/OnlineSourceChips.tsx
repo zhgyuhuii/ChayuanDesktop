@@ -75,6 +75,11 @@ export const OnlineSourceChips: React.FC<{
         <div className="rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-xs">
           <p className="mb-1.5">
             为 <b>{editing}</b> 设置 API Key:
+            {cfgByName.get(editing)?.has_api_key && (
+              <span className="ml-1 text-emerald-600">
+                已配置(出于安全不回显;留空保存=保持不变,填写则覆盖)
+              </span>
+            )}
           </p>
           <div className="flex items-start gap-2">
             <textarea
@@ -88,7 +93,13 @@ export const OnlineSourceChips: React.FC<{
             <button
               type="button"
               onClick={async () => {
-                await mut.mutateAsync({ source_name: editing, enabled: true, api_key: keyDraft });
+                const trimmed = keyDraft.trim();
+                // 出于安全不回显已存 key;留空 = 保持原 key 不变(不传 api_key,
+                // 否则后端会把已配的 key 清空)。填了才覆盖。
+                await mut.mutateAsync({
+                  source_name: editing, enabled: true,
+                  ...(trimmed ? { api_key: trimmed } : {}),
+                });
                 setEditing(null);
               }}
               className="rounded bg-[var(--cy-brand-500)] px-2 py-1 font-medium text-white hover:bg-[var(--cy-brand-600)]"
