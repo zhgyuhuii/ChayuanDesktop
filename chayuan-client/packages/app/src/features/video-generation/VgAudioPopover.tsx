@@ -22,11 +22,6 @@ const PROVIDERS: Array<{ id: VgVoiceProvider; offline: boolean; label: string }>
 ];
 
 const RATE_OPTIONS = [0.75, 1.0, 1.25, 1.5] as const;
-const VOLUME_OPTIONS: Array<{ v: number; label: string }> = [
-  { v: 0.8, label: '80%' },
-  { v: 1.0, label: '100%' },
-  { v: 1.2, label: '120%' },
-];
 
 const chipCls = (active: boolean) =>
   cn(
@@ -113,66 +108,67 @@ export const VgSpeechSettings: React.FC = () => {
 
       <span className="mx-1 opacity-30">·</span>
 
-      {/* 音色 select */}
+      {/* 音色 select — 限宽 ~5 字,鼠标悬停 title 显示全名 */}
       <span className="opacity-60">音色</span>
       <select
         value={params.voice_name || voices[0]?.id || ''}
         onChange={(e) => patch({ voice_name: e.target.value })}
         disabled={voices.length === 0}
+        title={voices.find((v) => v.id === (params.voice_name || voices[0]?.id))?.label ?? '音色'}
         className={cn(
-          'h-6 max-w-[14rem] rounded-md border border-[var(--cy-border-subtle)]',
+          'h-6 w-[5em] rounded-md border border-[var(--cy-border-subtle)]',
           'bg-[var(--cy-surface-1)] px-1.5 text-[10px] text-[var(--cy-text-primary)]',
           'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
         )}
       >
         {voices.length === 0 && <option value="">(无可用音色)</option>}
         {voices.map((v) => (
-          <option key={v.id} value={v.id}>
+          <option key={v.id} value={v.id} title={v.label}>
             {v.label}
           </option>
         ))}
       </select>
       {noMatch && (
         <span className="text-[10px] text-amber-600" title="当前后端无该语言音色">
-          无该语言音色,已列全部(可换 edge 后端)
+          无该语言音色,已列全部(可换 edge)
         </span>
       )}
 
       <span className="mx-1 opacity-30">·</span>
 
-      {/* 语速 chips */}
+      {/* 语速 — 下拉,限宽 */}
       <span className="opacity-60">语速</span>
-      <div className="flex items-center gap-0.5">
+      <select
+        value={params.voice_rate}
+        onChange={(e) => patch({ voice_rate: parseFloat(e.target.value) })}
+        className={cn(
+          'h-6 w-[4em] rounded-md border border-[var(--cy-border-subtle)]',
+          'bg-[var(--cy-surface-1)] px-1 text-[10px] text-[var(--cy-text-primary)]',
+          'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
+        )}
+      >
         {RATE_OPTIONS.map((value) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => patch({ voice_rate: value })}
-            aria-pressed={Math.abs(params.voice_rate - value) < 1e-3}
-            className={chipCls(Math.abs(params.voice_rate - value) < 1e-3)}
-          >
+          <option key={value} value={value}>
             {value.toFixed(2).replace(/\.?0+$/, '')}×
-          </button>
+          </option>
         ))}
-      </div>
+      </select>
 
       <span className="mx-1 opacity-30">·</span>
 
-      {/* 音量 chips */}
+      {/* 音量 — 滑块 */}
       <span className="opacity-60">音量</span>
-      <div className="flex items-center gap-0.5">
-        {VOLUME_OPTIONS.map(({ v, label }) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => patch({ voice_volume: v })}
-            aria-pressed={Math.abs(params.voice_volume - v) < 1e-3}
-            className={chipCls(Math.abs(params.voice_volume - v) < 1e-3)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <input
+        type="range"
+        min={0} max={2} step={0.1}
+        value={params.voice_volume}
+        onChange={(e) => patch({ voice_volume: parseFloat(e.target.value) })}
+        title={`音量 ${Math.round(params.voice_volume * 100)}%`}
+        className="h-1 w-16 accent-[var(--cy-brand-500)]"
+      />
+      <span className="w-8 text-[10px] tabular-nums text-[var(--cy-text-tertiary)]">
+        {Math.round(params.voice_volume * 100)}%
+      </span>
 
       <span className="mx-1 opacity-30">·</span>
 
