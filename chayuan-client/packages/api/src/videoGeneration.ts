@@ -786,6 +786,13 @@ export function vgThumbUrl(taskId: string, src: number, t = 0): string {
   return `${base}/api/v1/video-generation/files/${encodeURIComponent(taskId)}/thumb?src=${src}&t=${t}`;
 }
 
+/** 素材首帧缩略图 URL(时间轴视频 clip 背景;图像素材返回原图)。 */
+export function vgMaterialThumbUrl(materialId: string): string {
+  const cfg = getClientConfig();
+  const base = (cfg.baseURL || '').replace(/\/+$/, '');
+  return `${base}/api/v1/video-generation/materials/${encodeURIComponent(materialId)}/thumb`;
+}
+
 export async function vgListVideos(args: {
   page?: number;
   page_size?: number;
@@ -843,6 +850,7 @@ export const videoGeneration = {
   finalizeDraft: vgFinalizeDraft,
   fetchAudioPeaks: vgFetchAudioPeaks,
   thumbUrl: vgThumbUrl,
+  materialThumbUrl: vgMaterialThumbUrl,
   listVideos: vgListVideos,
   deleteVideo: vgDeleteVideo,
   listSourceConfigs: vgListSourceConfigs,
