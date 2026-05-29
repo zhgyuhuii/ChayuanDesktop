@@ -11,25 +11,28 @@
 import * as React from 'react';
 import { useVgComposer } from '../store/vgComposer';
 
-export const TopicStep: React.FC = () => {
+export const TopicStep: React.FC<{ hideSubject?: boolean }> = ({ hideSubject = false }) => {
   const params = useVgComposer((s) => s.params);
   const patchParams = useVgComposer((s) => s.patchParams);
 
   return (
     <div className="space-y-4">
-      <div>
-        <label className="mb-1 block text-sm font-medium text-[var(--cy-text-primary)]">
-          视频主题
-          <span className="ml-1 text-[var(--cy-text-tertiary)] text-xs">(AI 模式必填)</span>
-        </label>
-        <input
-          type="text"
-          className="w-full rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--cy-brand-500)]"
-          placeholder="例:春天的花海 / 5 分钟读懂区块链"
-          value={params.video_subject}
-          onChange={(e) => patchParams({ video_subject: e.target.value })}
-        />
-      </div>
+      {/* 批量模式下主题由上方「主题列表」逐行提供,这里隐藏单一主题输入框 */}
+      {!hideSubject && (
+        <div>
+          <label className="mb-1 block text-sm font-medium text-[var(--cy-text-primary)]">
+            视频主题
+            <span className="ml-1 text-[var(--cy-text-tertiary)] text-xs">(AI 模式必填)</span>
+          </label>
+          <input
+            type="text"
+            className="w-full rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--cy-brand-500)]"
+            placeholder="例:春天的花海 / 5 分钟读懂区块链"
+            value={params.video_subject}
+            onChange={(e) => patchParams({ video_subject: e.target.value })}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div>

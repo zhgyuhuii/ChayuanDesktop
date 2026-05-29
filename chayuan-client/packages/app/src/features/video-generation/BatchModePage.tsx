@@ -151,13 +151,10 @@ export const BatchModePage: React.FC = () => {
               主题覆盖,这里只用它的语言/段落/画幅 controls) */}
       <section>
         <h2 className="mb-2 text-sm font-semibold text-[var(--cy-text-primary)]">
-          统一参数 — 选题
+          统一参数 — 语言 / 段落 / 画幅
         </h2>
         <div className="rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-4">
-          <TopicStep />
-          <p className="mt-2 text-[10px] text-[var(--cy-text-tertiary)]">
-            ↑ 主题字段在批量模式下被忽略,以上方列表为准
-          </p>
+          <TopicStep hideSubject />
         </div>
       </section>
 
