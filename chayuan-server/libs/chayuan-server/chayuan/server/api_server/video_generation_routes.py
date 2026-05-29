@@ -1223,6 +1223,32 @@ def serve_task_file(
 
 
 @video_generation_router.get(
+    "/materials/{material_id}/file",
+    summary="素材文件流式(卡片预览 / 下载)— 图/视频/音频",
+)
+def serve_material_file(
+    material_id: str = FPath(...),
+    download: bool = Query(False, description="True 强制下载,False 内联预览"),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> FileResponse:
+    """按 material_id 流式返回素材文件,前端 <img>/<video>/<audio> 预览用。
+
+    path 来自 DB(非用户输入,无遍历风险),仅校验归属 + 文件存在。
+    """
+    row = materials_store.get_material(material_id, owner_id=_owner_id_of(user))
+    if not row:
+        raise HTTPException(404, "material not found")
+    path = row.get("path") or ""
+    if not path or not os.path.isfile(path):
+        raise HTTPException(404, f"material file missing on disk: {path}")
+    headers: Dict[str, str] = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{os.path.basename(path)}"'
+    media_type = row.get("mime") or None
+    return FileResponse(path, media_type=media_type, headers=headers)
+
+
+@video_generation_router.get(
     "/videos", summary="列我的成品视频(我的视频页用)",
 )
 def list_videos(

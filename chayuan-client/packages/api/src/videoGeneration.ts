@@ -615,6 +615,13 @@ export function vgTaskFileUrl(taskId: string, fileName: string, download = false
   return download ? `${u}?download=true` : u;
 }
 
+/** 素材文件 URL(卡片预览 img/video/audio src)。 */
+export function vgMaterialFileUrl(materialId: string, download = false): string {
+  const cfg = getClientConfig();
+  const u = `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/video-generation/materials/${encodeURIComponent(materialId)}/file`;
+  return download ? `${u}?download=true` : u;
+}
+
 export async function vgListVideos(args: {
   page?: number;
   page_size?: number;
@@ -662,6 +669,7 @@ export const videoGeneration = {
   listVoices: vgListVoices,
   downloadVoice: vgDownloadVoice,
   taskFileUrl: vgTaskFileUrl,
+  materialFileUrl: vgMaterialFileUrl,
   listVideos: vgListVideos,
   deleteVideo: vgDeleteVideo,
   listSourceConfigs: vgListSourceConfigs,

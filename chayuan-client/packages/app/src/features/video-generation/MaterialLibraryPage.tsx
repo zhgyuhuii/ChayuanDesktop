@@ -122,7 +122,7 @@ export const MaterialLibraryPage: React.FC = () => {
         <input
           ref={uploadInputRef}
           type="file"
-          accept="video/*,image/*"
+          accept="video/*,image/*,audio/*"
           multiple
           className="hidden"
           onChange={(e) => void onPick(e.target.files)}
@@ -302,9 +302,7 @@ const MaterialGridCard: React.FC<{
           : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')
       }
     >
-      <div className="aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center text-xs text-[var(--cy-text-tertiary)]">
-        {m.thumbnail_path ? '(缩略图)' : `${m.mime || 'video'}`}
-      </div>
+      <MaterialPreview m={m} />
       <div className="p-2.5">
         <p className="truncate text-xs font-medium text-[var(--cy-text-primary)]">{m.name}</p>
         <p className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]">
@@ -318,3 +316,42 @@ const MaterialGridCard: React.FC<{
     </button>
   </li>
 );
+
+/** 素材预览 — 按 mime 渲染 图/视频/音频。点击卡片用于选中,预览本身不抢点击。 */
+const MaterialPreview: React.FC<{ m: VgMaterial }> = ({ m }) => {
+  const url = videoGeneration.materialFileUrl(m.material_id);
+  const mime = (m.mime || '').toLowerCase();
+  const isImg = mime.startsWith('image/');
+  const isVideo = mime.startsWith('video/') || (!mime && /\.(mp4|mov|webm|mkv)$/i.test(m.name));
+  const isAudio = mime.startsWith('audio/') || (!mime && /\.(mp3|wav|m4a|ogg|opus)$/i.test(m.name));
+
+  if (isImg) {
+    return (
+      <div className="aspect-video w-full overflow-hidden bg-[var(--cy-surface-2)]">
+        <img src={url} alt={m.name} loading="lazy" className="h-full w-full object-cover" />
+      </div>
+    );
+  }
+  if (isVideo) {
+    // 点 video controls 时阻止冒泡,避免误触卡片选中
+    return (
+      <div className="aspect-video w-full bg-black" onClick={(e) => e.stopPropagation()}>
+        <video src={url} controls preload="metadata" className="h-full w-full object-contain" />
+      </div>
+    );
+  }
+  if (isAudio) {
+    return (
+      <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-[var(--cy-surface-2)] p-3"
+        onClick={(e) => e.stopPropagation()}>
+        <span className="text-[10px] text-[var(--cy-text-tertiary)]">🎵 {mime || '音频'}</span>
+        <audio src={url} controls className="w-full" />
+      </div>
+    );
+  }
+  return (
+    <div className="aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center text-xs text-[var(--cy-text-tertiary)]">
+      {mime || '文件'}
+    </div>
+  );
+};
