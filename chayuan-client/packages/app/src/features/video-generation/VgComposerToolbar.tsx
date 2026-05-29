@@ -9,12 +9,13 @@
  * 模型不在这里(ChatComposer 自带 ComposerModelPill)。
  */
 import * as React from 'react';
-import { Ratio, Volume2, Type, Zap, ChevronDown, Film } from 'lucide-react';
+import { Ratio, Volume2, Type, Zap, ChevronDown, Music, Settings2 } from 'lucide-react';
 import { cn } from '@chayuan/ui';
 import { VgOutputSettings } from './VgAspectChip';
 import { VgSpeechSettings } from './VgAudioPopover';
 import { VgSubtitleSettings } from './VgSubtitlePopover';
 import { OnlineSourceChips } from './sections/OnlineSourceChips';
+import { BgmSection } from './sections/BgmSection';
 import { useVgComposer } from './store/vgComposer';
 
 export interface VgComposerToolbarProps {
@@ -22,7 +23,7 @@ export interface VgComposerToolbarProps {
   onAutoModeChange: (v: boolean) => void;
 }
 
-type Panel = 'aspect' | 'speech' | 'subtitle' | 'material' | null;
+type Panel = 'aspect' | 'speech' | 'subtitle' | 'bgm' | 'material' | null;
 
 const triggerCls = (active: boolean) =>
   cn(
@@ -50,6 +51,7 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
           {open === 'aspect' ? <VgOutputSettings />
             : open === 'speech' ? <VgSpeechSettings />
             : open === 'subtitle' ? <VgSubtitleSettings />
+            : open === 'bgm' ? <BgmSection />
             : (
               <OnlineSourceChips
                 selected={params.video_source}
@@ -115,10 +117,23 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
           <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'aspect' && 'rotate-180')} />
         </button>
 
-        {/* 素材设置 trigger — 配 Pexels/Pixabay 等在线源 API Key */}
-        <button type="button" onClick={() => toggle('material')} className={triggerCls(open === 'material')}>
-          <Film className="h-3 w-3 text-[var(--cy-brand-500)]" />
-          素材设置
+        {/* 背景音乐 trigger — 关键设置,放在素材源之前 */}
+        <button type="button" onClick={() => toggle('bgm')} className={triggerCls(open === 'bgm')}>
+          <Music className="h-3 w-3 text-[var(--cy-brand-500)]" />
+          背景音乐
+          <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'bgm' && 'rotate-180')} />
+        </button>
+
+        {/* 在线源 Key — 仅齿轮图标,hover 显名(次要设置,配 Pexels/Pixabay 等 API Key) */}
+        <button
+          type="button"
+          onClick={() => toggle('material')}
+          title="在线源 Key(Pexels/Pixabay 等 API 密钥)"
+          aria-label="在线源 Key"
+          className={cn(triggerCls(open === 'material'), 'group px-1.5')}
+        >
+          <Settings2 className="h-3.5 w-3.5 text-[var(--cy-brand-500)]" />
+          <span className="hidden group-hover:inline">在线源 Key</span>
           <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'material' && 'rotate-180')} />
         </button>
 
