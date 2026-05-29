@@ -76,20 +76,21 @@ export const VgSubtitleSettings: React.FC = () => {
 
           <span className="mx-1 opacity-30">·</span>
 
-          {/* 字体 select */}
+          {/* 字体 select — 限宽 ~6 字,悬停 title 显全名 */}
           <span className="opacity-60">字体</span>
           <select
             value={params.font_name}
             onChange={(e) => patch({ font_name: e.target.value })}
+            title={fonts.find((f) => f.name === params.font_name)?.label ?? params.font_name}
             className={cn(
-              'h-6 max-w-[12rem] rounded-md border border-[var(--cy-border-subtle)]',
+              'h-6 w-[6em] rounded-md border border-[var(--cy-border-subtle)]',
               'bg-[var(--cy-surface-1)] px-1.5 text-[10px] text-[var(--cy-text-primary)]',
               'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
             )}
           >
             {fonts.length === 0 && <option value={params.font_name}>{params.font_name}</option>}
             {fonts.map((f) => (
-              <option key={f.name} value={f.name}>
+              <option key={f.name} value={f.name} title={f.label ?? f.name}>
                 {(f.label ?? f.name) + (f.source === 'system' ? ' · 系统' : '')}
               </option>
             ))}
@@ -97,21 +98,28 @@ export const VgSubtitleSettings: React.FC = () => {
 
           <span className="mx-1 opacity-30">·</span>
 
-          {/* 字号 chips */}
+          {/* 字号 — 可自定义输入(数字框)+ 常用值 datalist 提示 */}
           <span className="opacity-60">字号</span>
-          <div className="flex items-center gap-0.5">
+          <input
+            type="number"
+            min={12} max={300}
+            value={params.font_size}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              if (!Number.isNaN(n)) patch({ font_size: Math.max(12, Math.min(300, n)) });
+            }}
+            list="vg-fontsize-presets"
+            className={cn(
+              'h-6 w-[3.5em] rounded-md border border-[var(--cy-border-subtle)]',
+              'bg-[var(--cy-surface-1)] px-1.5 text-[10px] text-[var(--cy-text-primary)]',
+              'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
+            )}
+          />
+          <datalist id="vg-fontsize-presets">
             {SIZE_OPTIONS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => patch({ font_size: s })}
-                aria-pressed={params.font_size === s}
-                className={chipCls(params.font_size === s)}
-              >
-                {s}
-              </button>
+              <option key={s} value={s} />
             ))}
-          </div>
+          </datalist>
 
           <span className="mx-1 opacity-30">·</span>
 
