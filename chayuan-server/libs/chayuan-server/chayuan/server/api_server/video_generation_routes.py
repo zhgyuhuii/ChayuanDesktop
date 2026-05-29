@@ -879,6 +879,59 @@ def list_voices(
     return {"provider": provider, "count": len(voices), "items": voices}
 
 
+@video_generation_router.post(
+    "/voices/download", summary="按需下载 piper 音色到本地(显式触发,带成功/失败)",
+)
+def download_voice(
+    body: Dict[str, str] = Body(..., examples=[{"provider": "piper", "voice_name": "en_US-amy-medium"}]),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    """前端选中未下载 piper 音色时调用 — 同步下载 + 返结果,让用户看到进度/失败,
+    不再像懒下载那样悄悄回退默认音色。
+
+    edge / sherpa 不走这里:edge 在线无需下载;sherpa 是整模型(走 seed 脚本)。
+    """
+    provider = (body or {}).get("provider") or "piper"
+    name = ((body or {}).get("voice_name") or "").strip()
+    if provider != "piper":
+        return {"downloaded": True, "skipped": f"{provider} 无需下载"}
+    if not name or name.startswith("zh_CN-huayan"):
+        # huayan 是默认,通常已 bundled / 已存在;空名直接当成功
+        pass
+    try:
+        from chayuan.server.modality.audio import AudioPipeline
+        from chayuan.settings import CHAYUAN_ROOT
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"import 失败: {e}")
+
+    ap = AudioPipeline()
+    piper_dir = CHAYUAN_ROOT / "models" / "piper"
+    onnx = piper_dir / f"{name}.onnx"
+    cfg = piper_dir / f"{name}.onnx.json"
+
+    # 已 bundled 或已下载 → 直接成功
+    if ap._find_bundled_piper_voice(name) or (onnx.exists() and cfg.exists()):
+        return {"downloaded": True, "voice_name": name, "cached": True}
+
+    ok = False
+    try:
+        ok = ap._try_download_piper_voice(name, piper_dir)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[voices/download] %s 异常: %r", name, e, exc_info=True)
+        ok = False
+    if ok and onnx.exists() and cfg.exists():
+        return {"downloaded": True, "voice_name": name}
+    raise HTTPException(
+        status_code=502,
+        detail={
+            "code": "piper_voice_download_failed",
+            "voice_name": name,
+            "hint": "下载失败 — 网络不通或 hf-mirror 无此 voice。可设 "
+                    "CHAYUAN_HF_ENDPOINT 换源,或手动放到 models/piper/。",
+        },
+    )
+
+
 def _list_piper_voices() -> List[Dict[str, Any]]:
     """piper 音色下拉 = 本地已下载 ∪ 已知目录(PIPER_VOICE_LABELS)。
 

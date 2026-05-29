@@ -172,6 +172,8 @@ export interface VgVoiceItem {
   id: string;
   label: string;
   language: string;
+  /** piper 专用:该音色是否已下载本地;false 时前端选中触发下载。 */
+  downloaded?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -551,6 +553,21 @@ export async function vgListVoices(
   return rd<{ provider: VgVoiceProvider; count: number; items: VgVoiceItem[] }>('/api/v1/video-generation/voices', { query: { provider } });
 }
 
+/** 显式下载 piper 音色到本地;成功 {downloaded:true},失败抛(detail 含 hint)。 */
+export async function vgDownloadVoice(
+  provider: VgVoiceProvider,
+  voiceName: string,
+): Promise<{ downloaded: boolean; voice_name?: string; cached?: boolean }> {
+  return rd<{ downloaded: boolean; voice_name?: string; cached?: boolean }>(
+    '/api/v1/video-generation/voices/download',
+    {
+      method: 'POST',
+      body: JSON.stringify({ provider, voice_name: voiceName }),
+      headers: { 'Content-Type': 'application/json' },
+    },
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // 在线素材源配置
 // ─────────────────────────────────────────────────────────────────────
@@ -643,6 +660,7 @@ export const videoGeneration = {
   uploadBgm: vgUploadBgm,
   listFonts: vgListFonts,
   listVoices: vgListVoices,
+  downloadVoice: vgDownloadVoice,
   taskFileUrl: vgTaskFileUrl,
   listVideos: vgListVideos,
   deleteVideo: vgDeleteVideo,

@@ -8,7 +8,7 @@
  * 导出 VgSpeechSettings(原 VgAudioPopover 改名;弹窗 → 内联)。
  */
 import * as React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Wifi, WifiOff, Play, Loader2 } from 'lucide-react';
 import { cn } from '@chayuan/ui';
 import { videoGeneration, type VgVoiceItem, type VgVoiceProvider } from '@chayuan/api';
@@ -65,6 +65,30 @@ export const VgSpeechSettings: React.FC = () => {
     patch({ voice_name: voices[0]!.id });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, params.voice_provider, allVoices.length]);
+
+  // piper 选中未下载音色 → 显式下载 + 状态(下载中/失败),不再悄悄回退默认
+  const qc = useQueryClient();
+  const [dlState, setDlState] = React.useState<'idle' | 'downloading' | 'failed'>('idle');
+  const onSelectVoice = React.useCallback(
+    async (id: string) => {
+      patch({ voice_name: id });
+      const item = allVoices.find((v) => v.id === id);
+      if (params.voice_provider !== 'piper' || !item || item.downloaded !== false) {
+        setDlState('idle');
+        return;
+      }
+      setDlState('downloading');
+      try {
+        await videoGeneration.downloadVoice('piper', id);
+        setDlState('idle');
+        // 刷新音色列表(downloaded 状态更新)
+        void qc.invalidateQueries({ queryKey: ['vg.voices', 'piper'] });
+      } catch {
+        setDlState('failed');
+      }
+    },
+    [allVoices, params.voice_provider, patch, qc],
+  );
 
   const [previewing, setPreviewing] = React.useState(false);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
@@ -123,8 +147,8 @@ export const VgSpeechSettings: React.FC = () => {
       <span className="opacity-60">音色</span>
       <select
         value={params.voice_name || voices[0]?.id || ''}
-        onChange={(e) => patch({ voice_name: e.target.value })}
-        disabled={voices.length === 0}
+        onChange={(e) => void onSelectVoice(e.target.value)}
+        disabled={voices.length === 0 || dlState === 'downloading'}
         title={voices.find((v) => v.id === (params.voice_name || voices[0]?.id))?.label ?? '音色'}
         className={cn(
           'h-6 w-[10em] rounded-md border border-[var(--cy-border-subtle)]',
@@ -149,6 +173,16 @@ export const VgSpeechSettings: React.FC = () => {
       {noMatch && (
         <span className="text-[10px] text-amber-600" title="当前后端无该语言音色">
           无该语言音色,已列全部(可换 edge)
+        </span>
+      )}
+      {dlState === 'downloading' && (
+        <span className="inline-flex items-center gap-1 text-[10px] text-[var(--cy-brand-600)]">
+          <Loader2 className="h-3 w-3 animate-spin" /> 下载音色中…
+        </span>
+      )}
+      {dlState === 'failed' && (
+        <span className="text-[10px] text-rose-600" title="下载失败,可换 edge 或检查网络">
+          下载失败(可换 edge)
         </span>
       )}
 
