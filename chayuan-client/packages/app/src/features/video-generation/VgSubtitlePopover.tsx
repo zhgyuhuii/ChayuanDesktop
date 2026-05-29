@@ -104,8 +104,14 @@ export const VgSubtitleSettings: React.FC = () => {
               </option>
             )}
             {fonts.map((f) => (
-              <option key={f.name} value={f.name} title={f.label ?? f.name}>
-                {(f.label ?? f.name) + (f.source === 'system' ? ' · 系统' : '')}
+              <option
+                key={f.name}
+                value={f.name}
+                title={f.label ?? f.name}
+                // 用字体自身样式渲染选项名(family 读到时);webview2/Chromium 支持
+                style={f.family ? { fontFamily: `"${f.family}"` } : undefined}
+              >
+                {f.label ?? f.name}
               </option>
             ))}
           </select>

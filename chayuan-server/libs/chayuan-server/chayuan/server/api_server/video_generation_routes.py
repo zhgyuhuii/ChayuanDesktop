@@ -649,19 +649,23 @@ def list_fonts(
     from chayuan.server.video_generation._helpers import font_dir
 
     items: List[Dict[str, Any]] = []
-    # bundled / user:name=裸文件名,compose 拼字体目录
+    # bundled / user:name=裸文件名,compose 拼字体目录;family 读 name 表本地化名
     bundled = binaries.get_fonts_dir()
     if bundled and os.path.isdir(bundled):
         for f in sorted(os.listdir(bundled)):
             if f.lower().endswith((".ttc", ".ttf", ".otf")):
-                items.append({"name": f, "label": f, "source": "bundled"})
+                fam = _font_family(os.path.join(bundled, f))
+                items.append({"name": f, "label": fam or f, "family": fam, "source": "bundled"})
     user_dir = font_dir()
     if os.path.isdir(user_dir):
         for f in sorted(os.listdir(user_dir)):
             if f.lower().endswith((".ttc", ".ttf", ".otf")):
-                items.append({"name": f, "label": f, "source": "user"})
-    # system:name=绝对路径(compose 直接用),label=文件名。按文件名去重。
+                fam = _font_family(os.path.join(user_dir, f))
+                items.append({"name": f, "label": fam or f, "family": fam, "source": "user"})
+    # system:name=绝对路径(compose 直接用),label=family 名(读不到回退文件名)
     items.extend(_scan_system_fonts(seen={i["name"].lower() for i in items}))
+    # 按显示名排序(family 优先)
+    items.sort(key=lambda x: (x.get("label") or x["name"]).lower())
     return {"count": len(items), "items": items}
 
 
@@ -708,15 +712,138 @@ def _scan_system_fonts(seen: set) -> List[Dict[str, Any]]:
                     if key in seen_names:
                         continue
                     seen_names.add(key)
+                    full = os.path.join(root, f)
+                    fam = _font_family(full)
                     out.append({
-                        "name": os.path.join(root, f),
-                        "label": f,
+                        "name": full,
+                        "label": fam or f,
+                        "family": fam,
                         "source": "system",
                     })
         except OSError:
             continue
-    out.sort(key=lambda x: x["label"].lower())
+    out.sort(key=lambda x: (x.get("label") or x["name"]).lower())
     return out
+
+
+# 字体 family 名缓存:key=(abspath, mtime) → family str(或 None)。
+# 只读字体 name 表(几 KB),不加载整个字体;mtime 变了才重解析。
+_FONT_FAMILY_CACHE: Dict[tuple, Optional[str]] = {}
+
+# 系统语言对应的 OpenType langID(Windows 平台 platformID=3),优先取该语言名。
+# 简体中文 0x0804;繁体 0x0404;英文 0x0409。按系统 locale 推首选,fallback 英文。
+def _preferred_lang_ids() -> List[int]:
+    import locale
+    ids: List[int] = []
+    try:
+        loc = (locale.getdefaultlocale()[0] or "").lower()
+    except Exception:  # noqa: BLE001
+        loc = ""
+    if loc.startswith("zh_cn") or loc.startswith("zh-cn") or loc == "zh":
+        ids = [0x0804, 0x0404]
+    elif loc.startswith("zh"):
+        ids = [0x0404, 0x0804]
+    # 任何中文环境都优先中文名;最后兜英文
+    ids.append(0x0409)
+    return ids
+
+
+def _read_name_table_family(path: str) -> Optional[str]:
+    """读 TTF/TTC/OTF 的 sfnt `name` 表,返字体 family 名(优先系统语言本地化名)。
+
+    自实现轻量 sfnt 解析(不依赖 fontTools):
+      - .ttc 取第一个子字体的 table 目录
+      - 找 'name' 表 → 遍历 NameRecord,挑 nameID=1(family)
+      - 平台优先 Windows(platformID=3,UTF-16BE),langID 按系统语言优先
+    任何异常 → None(caller fallback 文件名)。
+    """
+    import struct
+
+    try:
+        with open(path, "rb") as fp:
+            data = fp.read()
+    except OSError:
+        return None
+    if len(data) < 12:
+        return None
+
+    def _font_offset() -> int:
+        if data[:4] == b"ttcf":  # TrueType Collection:取第一个子字体偏移
+            (num,) = struct.unpack(">I", data[8:12])
+            if num >= 1:
+                (off,) = struct.unpack(">I", data[12:16])
+                return off
+        return 0
+
+    try:
+        base = _font_offset()
+        (num_tables,) = struct.unpack(">H", data[base + 4: base + 6])
+        name_off = name_len = 0
+        rec = base + 12
+        for _ in range(num_tables):
+            tag = data[rec: rec + 4]
+            if tag == b"name":
+                (name_off,) = struct.unpack(">I", data[rec + 8: rec + 12])
+                (name_len,) = struct.unpack(">I", data[rec + 12: rec + 16])
+                break
+            rec += 16
+        if not name_off:
+            return None
+
+        (count,) = struct.unpack(">H", data[name_off + 2: name_off + 4])
+        (str_off,) = struct.unpack(">H", data[name_off + 4: name_off + 6])
+        strings_base = name_off + str_off
+
+        prefer = _preferred_lang_ids()
+        # 候选:nameID=1(family),按 (平台/语言优先级) 打分挑最佳
+        best: Optional[str] = None
+        best_score = -1
+        rp = name_off + 6
+        for _ in range(count):
+            plat, enc, lang, nid, slen, soff = struct.unpack(
+                ">HHHHHH", data[rp: rp + 12]
+            )
+            rp += 12
+            if nid != 1:  # 只要 family
+                continue
+            raw = data[strings_base + soff: strings_base + soff + slen]
+            try:
+                if plat in (0, 3):  # Unicode / Windows → UTF-16BE
+                    text = raw.decode("utf-16-be", "ignore").strip()
+                elif plat == 1:  # Mac → latin1 近似(中文 Mac 名少见,够兜底)
+                    text = raw.decode("latin-1", "ignore").strip()
+                else:
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            if not text:
+                continue
+            # 打分:Windows 平台 + 命中首选语言分最高
+            score = 0
+            if plat == 3:
+                score += 10
+            if lang in prefer:
+                score += (len(prefer) - prefer.index(lang)) * 5
+            if score > best_score:
+                best_score = score
+                best = text
+        return best
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _font_family(path: str) -> Optional[str]:
+    """带 mtime 缓存的字体 family 名。"""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    key = (path, mtime)
+    if key in _FONT_FAMILY_CACHE:
+        return _FONT_FAMILY_CACHE[key]
+    fam = _read_name_table_family(path)
+    _FONT_FAMILY_CACHE[key] = fam
+    return fam
 
 
 @video_generation_router.get(

@@ -161,8 +161,10 @@ export interface VgBgmItem {
 export interface VgFontItem {
   /** bundled/user 为裸文件名;system 为绝对路径(compose 直接用)。 */
   name: string;
-  /** 显示名(文件名);缺省回退 name。 */
+  /** 显示名(字体 family 名,读不到回退文件名)。 */
   label?: string;
+  /** 字体 family 名(读 sfnt name 表,按系统语言本地化);可空。用于按该字体样式渲染选项。 */
+  family?: string | null;
   source: 'bundled' | 'user' | 'system';
 }
 
