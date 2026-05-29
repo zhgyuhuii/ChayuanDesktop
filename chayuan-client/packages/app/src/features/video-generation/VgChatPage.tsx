@@ -270,6 +270,11 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
             composerTopSlot={composerTop}
             modelPillProps={{ chatOnly: true }}
             assistantEditable
+            onAssistantEdit={(id, content) =>
+              setMessagesRef.current?.((prev) =>
+                prev.map((m) => (m.id === id ? { ...m, content } : m)),
+              )
+            }
             extraSlot={(m) => (
               <VgMessageExtras
                 message={m}

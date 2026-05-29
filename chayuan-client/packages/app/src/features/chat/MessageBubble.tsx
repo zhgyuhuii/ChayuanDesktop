@@ -134,7 +134,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
                   if (draft.trim() && draft !== message.content) onEdit?.(message.id, draft);
                 }}
               >
-                保存并重发
+                {isUser ? '保存并重发' : '保存'}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setDraft(message.content); }}>
                 取消

@@ -124,6 +124,9 @@ export interface ConversationViewProps {
   /** 默认只 user message 可编辑(避免误改 AI 答复);
    *  video_generation 等场景脚本是核心可编辑载体,设 true 让 assistant 也能 onEdit。 */
   assistantEditable?: boolean;
+  /** assistant 消息编辑时"原地保存"回调(不重发)。video_generation 编辑脚本用 —
+   *  不传则 assistant 编辑走默认 editMessage(截断重发)。 */
+  onAssistantEdit?: (id: string, content: string) => void;
   /** 透传给内部 ChatComposer 的模型 pill props(video_generation 用 chatOnly 收窄)。 */
   modelPillProps?: ChatComposerProps['modelPillProps'];
   /** 把内部 chat.regenerate 暴露给父级(video_generation 在消息块下放"重新生成")。 */
@@ -147,6 +150,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   setMessagesRef,  // R3.6 新增 — 向父级暴露 setMessages 引用
   composerTopSlot,
   assistantEditable = false,
+  onAssistantEdit,
   modelPillProps,
   regenerateRef,
 }) => {
@@ -495,7 +499,15 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
           messages={chat.messages}
           onRegenerate={chat.regenerate}
           onResume={(approved) => void chat.resumeWithDecision({ approved })}
-          onEdit={(id, newContent) => void chat.editMessage(id, newContent)}
+          onEdit={(id, newContent) => {
+            // assistant 脚本编辑 → 原地保存(不重发);user 仍走截断重发。
+            const msg = chat.messages.find((m) => m.id === id);
+            if (msg?.role === 'assistant' && onAssistantEdit) {
+              onAssistantEdit(id, newContent);
+              return;
+            }
+            void chat.editMessage(id, newContent);
+          }}
           onBranch={(id) => void chat.branchFrom(id)}
           extraSlot={extraSlot}
           assistantEditable={assistantEditable}

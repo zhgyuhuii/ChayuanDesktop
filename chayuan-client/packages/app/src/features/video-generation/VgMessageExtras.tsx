@@ -113,9 +113,26 @@ export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
 
   if (!vm) return null;
 
-  // 已提交 → 进度卡
+  // 已提交 → 进度卡 + 「重新生成视频」(重开配置弹框,改完再提交一次)
   if (vm.taskId && vm.renderState && vm.renderState !== 'idle') {
-    return <RenderProgressCard taskId={vm.taskId} />;
+    return (
+      <div className="space-y-2">
+        <RenderProgressCard taskId={vm.taskId} />
+        <button type="button" onClick={() => setDrawerOpen(true)}
+          className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 text-xs font-medium text-white shadow">
+          <RefreshCw className="h-3.5 w-3.5" /> 重新生成视频
+        </button>
+        <MaterialsBgmOutputDialog
+          open={drawerOpen}
+          onOpenChange={setDrawerOpen}
+          script={message.content || ''}
+          onConfirm={async () => {
+            setDrawerOpen(false);
+            await onSubmit(message.id);
+          }}
+        />
+      </div>
+    );
   }
 
   return (
