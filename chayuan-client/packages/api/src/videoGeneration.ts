@@ -53,6 +53,31 @@ export interface VgMaterialInfo {
   image?: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// 时间轴 EDL 类型 — 对应后端 VideoTimeline / TimelineTrack / TimelineClip
+// ─────────────────────────────────────────────────────────────────────
+
+export interface VgTimelineClip {
+  id: string;
+  source: { material_id?: string; path?: string; url?: string };
+  track_start_ms: number;
+  in_ms?: number;
+  out_ms?: number;            // 0 = 到素材末尾
+  transition?: 'none' | 'fade' | 'slide';
+  volume?: number;
+}
+export interface VgTimelineTrack {
+  id: string;
+  kind: 'video' | 'audio' | 'subtitle';
+  clips?: VgTimelineClip[];
+  cues?: VgSrtCue[];
+}
+export interface VgTimeline {
+  version?: number;
+  duration_ms?: number;
+  tracks: VgTimelineTrack[];
+}
+
 /** 后端 VideoParams 全字段;前端 vgComposer store 字段一一对应 */
 export interface VgVideoParams {
   video_subject: string;
@@ -64,6 +89,8 @@ export interface VgVideoParams {
   video_terms?: string | string[] | null;
   /** 脚本/关键词 LLM 用哪个模型(跟随对话框选的 chat 模型;空走后端默认)。 */
   model?: string | null;
+  /** 时间轴 EDL;非空时后端按它精确渲染(P1 后端已支持)。 */
+  timeline?: VgTimeline | null;
   video_aspect: VgVideoAspect;
   video_concat_mode: VgConcatMode;
   video_transition_mode: VgTransitionMode;
@@ -192,6 +219,7 @@ export const VG_DEFAULT_PARAMS: VgVideoParams = {
   srt_cues: null,
   paragraph_number: 1,
   video_terms: null,
+  timeline: null,
   video_aspect: '9:16',
   video_concat_mode: 'random',
   video_transition_mode: '',
