@@ -1502,3 +1502,72 @@ def upsert_source_config(
         api_key=body.get("api_key"),
         config=body.get("config"),
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 7. 时间轴 P4a — finalize 草稿 / 波形 / 缩略图
+# ─────────────────────────────────────────────────────────────────────
+
+
+@video_generation_router.post(
+    "/tasks/{task_id}/finalize", summary="草稿收尾:用编辑后的时间轴只跑 compose",
+)
+def finalize_task(
+    task_id: str = FPath(...),
+    body: Dict[str, Any] = Body(...),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> JSONResponse:
+    timeline = body.get("timeline")
+    if not isinstance(timeline, dict):
+        raise HTTPException(422, "body.timeline 必填(Timeline 对象)")
+    ok = vg_service.finalize_task(task_id, timeline, owner_id=_owner_id_of(user))
+    if not ok:
+        raise HTTPException(400, "finalize 失败:草稿不存在或缺 audio/subtitle/materials")
+    row = vg_service.get_task(task_id, owner_id=_owner_id_of(user))
+    return JSONResponse(row or {"task_id": task_id})
+
+
+@video_generation_router.get(
+    "/files/{task_id}/audio-peaks", summary="旁白音频波形峰值(时间轴音频轨)",
+)
+def task_audio_peaks(
+    task_id: str = FPath(...),
+    n: int = Query(600, ge=16, le=4000),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> JSONResponse:
+    from chayuan.server.video_generation._helpers import task_dir
+    from chayuan.server.video_generation.steps import media_probe
+
+    row = vg_service.get_task(task_id, owner_id=_owner_id_of(user))
+    if not row:
+        raise HTTPException(404, "task not found")
+    audio_file = (row.get("result") or {}).get("audio_file")
+    if not audio_file or not os.path.isfile(audio_file):
+        raise HTTPException(404, "audio not ready")
+    data = media_probe.cached_peaks(audio_file, task_dir(task_id, create=True), n=n)
+    return JSONResponse(data)
+
+
+@video_generation_router.get(
+    "/files/{task_id}/thumb", summary="素材首帧缩略图(时间轴视频轨)",
+)
+def task_thumbnail(
+    task_id: str = FPath(...),
+    src: int = Query(0, ge=0, description="materials 下标"),
+    t: float = Query(0.0, ge=0.0, description="抽帧秒"),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> FileResponse:
+    from chayuan.server.video_generation._helpers import task_dir
+    from chayuan.server.video_generation.steps import media_probe
+
+    row = vg_service.get_task(task_id, owner_id=_owner_id_of(user))
+    if not row:
+        raise HTTPException(404, "task not found")
+    mats = (row.get("result") or {}).get("materials") or []
+    if src >= len(mats):
+        raise HTTPException(404, "material index out of range")
+    out = os.path.join(task_dir(task_id, create=True), f"thumb_{src}_{int(t)}.jpg")
+    got = media_probe.extract_thumbnail(mats[src], out, t)
+    if not got:
+        raise HTTPException(502, "thumbnail extract failed")
+    return FileResponse(got, media_type="image/jpeg")
