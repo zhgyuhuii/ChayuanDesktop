@@ -335,11 +335,18 @@ def _build_edl_render_plan(timeline, video_aspect, *, source_resolver):
         if not path:
             logger.warning("[edl] clip %s source 解析为空,跳过: %r", c.id, c.source)
             continue
+        is_image = path.lower().rsplit(".", 1)[-1] in ("jpg", "jpeg", "png", "webp", "bmp", "gif")
+        if is_image:
+            # 图像无"素材末尾",out_ms>0 用其作时长,否则默认 3s
+            end_s = (c.out_ms / 1000.0) if c.out_ms and c.out_ms > 0 else 3.0
+        else:
+            end_s = (c.out_ms / 1000.0) if c.out_ms and c.out_ms > c.in_ms else None
         plan.append({
             "clip_id": c.id,
             "path": path,
             "start_s": max(0.0, c.in_ms / 1000.0),
-            "end_s": (c.out_ms / 1000.0) if c.out_ms and c.out_ms > c.in_ms else None,
+            "end_s": end_s,
+            "is_image": is_image,
             "target_w": target_w,
             "target_h": target_h,
         })
@@ -378,6 +385,18 @@ def render_from_edl(
     clip_files: list[str] = []
     total = 0.0
     for i, p in enumerate(plan):
+        if p.get("is_image"):
+            dur = p["end_s"] if p["end_s"] is not None else 3.0
+            seg_path = os.path.join(output_dir, f"edl-seg-{i}.mp4")
+            try:
+                img = ImageClip(p["path"]).with_duration(dur).resized(new_size=(video_width, video_height))
+                img.write_videofile(seg_path, logger=None, fps=fps, codec=video_codec)
+                close_clip(img)
+                clip_files.append(seg_path)
+                total += dur
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[edl] 图像 clip 渲染失败,跳过 %s: %s", p["path"], exc)
+            continue
         clip = _open_video_clip_quietly(p["path"])
         try:
             src_dur = clip.duration
