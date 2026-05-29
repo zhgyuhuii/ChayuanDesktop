@@ -763,11 +763,21 @@ export interface VgAudioPeaks {
   duration_ms: number;
 }
 
-/** 草稿收尾:用编辑后的时间轴只跑 compose,返回更新后的 task。 */
-export async function vgFinalizeDraft(taskId: string, timeline: VgTimeline): Promise<VgTask> {
+export interface VgSubtitleCue {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
+/** 草稿收尾:用编辑后的时间轴(+可选编辑字幕)只跑 compose,返回更新后的 task。 */
+export async function vgFinalizeDraft(
+  taskId: string,
+  timeline: VgTimeline,
+  subtitleCues?: VgSubtitleCue[],
+): Promise<VgTask> {
   return rd<VgTask>(`/api/v1/video-generation/tasks/${encodeURIComponent(taskId)}/finalize`, {
     method: 'POST',
-    body: { timeline },
+    body: subtitleCues ? { timeline, subtitle_cues: subtitleCues } : { timeline },
   });
 }
 
