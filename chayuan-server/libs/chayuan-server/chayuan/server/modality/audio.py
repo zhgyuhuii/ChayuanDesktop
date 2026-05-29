@@ -846,16 +846,25 @@ class AudioPipeline:
 
         voice 接受形态:
           - ``sherpa:vits-zh-ll`` 显式 id
+          - ``sherpa:vits-zh-aishell3#42`` 多说话人模型 + speaker-id(第 42 个音色)
           - ``sherpa:``           空 id → 用默认 vits-zh-ll
         """
 
         try:
             import sherpa_onnx  # type: ignore
         except Exception as e:  # noqa: BLE001
-            logger.debug("[tts:sherpa] sherpa-onnx 未装,跳过: %r", e)
+            logger.warning("[tts:sherpa] sherpa-onnx 未装,跳过: %r", e, exc_info=True)
             return None
 
         voice_id = voice[len("sherpa:"):] if voice.startswith("sherpa:") else voice
+        # 多说话人:``<model>#<sid>`` 取 speaker-id;无 # 默认 sid=0
+        sid = 0
+        if "#" in voice_id:
+            voice_id, _sid_str = voice_id.rsplit("#", 1)
+            try:
+                sid = max(0, int(_sid_str))
+            except (TypeError, ValueError):
+                sid = 0
         if not voice_id:
             voice_id = self._SHERPA_DEFAULT_VOICE
         voice_dir = self._resolve_sherpa_voice_dir(voice_id)
@@ -881,10 +890,14 @@ class AudioPipeline:
                 logger.warning("[tts:sherpa] 初始化 OfflineTts 失败 %s: %r", voice_dir, e)
                 return None
 
+        # 多说话人模型:sid 越界则 clamp 到合法范围
+        num_spk = int(getattr(tts, "num_speakers", 1) or 1)
+        if sid >= num_spk:
+            sid = 0
         try:
-            audio = tts.generate(text, sid=0, speed=1.0)
+            audio = tts.generate(text, sid=sid, speed=1.0)
         except Exception as e:  # noqa: BLE001
-            logger.warning("[tts:sherpa] generate 失败: %r", e)
+            logger.warning("[tts:sherpa] generate 失败 sid=%d: %r", sid, e)
             return None
 
         samples = getattr(audio, "samples", None)

@@ -948,8 +948,51 @@ def _scan_sherpa_voices() -> List[Dict[str, Any]]:
                 continue
             seen.add(name)
             label = SHERPA_VOICE_LABELS.get(name, name)
-            items.append({"id": name, "label": label, "language": "zh-CN"})
+            # 多说话人模型:展开成 <model>#<sid> 每个说话人一条(如 aishell3 174 个)
+            n_spk = _sherpa_num_speakers(vd)
+            if n_spk and n_spk > 1:
+                for sid in range(n_spk):
+                    items.append({
+                        "id": f"{name}#{sid}",
+                        "label": f"{label} · 音色 {sid + 1}",
+                        "language": "zh-CN",
+                    })
+            else:
+                items.append({"id": name, "label": label, "language": "zh-CN"})
     return items
+
+
+def _sherpa_num_speakers(voice_dir: str) -> int:
+    """读 sherpa 模型说话人数(多说话人 VITS 才 >1)。
+
+    优先读 model.onnx 旁的 num_speakers(部分模型 meta 单独存);否则用
+    AudioPipeline 构建(缓存)的 OfflineTts.num_speakers。任何失败返 1
+    (退化成单音色,不阻塞列表)。
+    """
+    # 1) 旁路文件 num_speakers(若 seed 时写了)
+    try:
+        meta = os.path.join(voice_dir, "num_speakers")
+        if os.path.isfile(meta):
+            with open(meta, "r", encoding="utf-8") as f:
+                return max(1, int(f.read().strip()))
+    except Exception:  # noqa: BLE001
+        pass
+    # 2) 实例化模型读 num_speakers(AudioPipeline 内部缓存,二次调用不重建)
+    try:
+        from chayuan.server.modality.audio import AudioPipeline
+        import sherpa_onnx  # noqa: F401  确认包在
+        ap = AudioPipeline()
+        if not hasattr(ap, "_sherpa_tts_cache"):
+            ap._sherpa_tts_cache = {}
+        tts = ap._sherpa_tts_cache.get(voice_dir)
+        if tts is None:
+            tts = ap._build_sherpa_tts(sherpa_onnx, voice_dir)
+            if tts is not None:
+                ap._sherpa_tts_cache[voice_dir] = tts
+        return int(getattr(tts, "num_speakers", 1) or 1) if tts is not None else 1
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[/voices:sherpa] num_speakers 读取失败 %s: %r", voice_dir, e)
+        return 1
 
 
 def _scan_piper_voices() -> List[Dict[str, Any]]:
