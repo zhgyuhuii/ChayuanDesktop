@@ -22,6 +22,37 @@ import {
   type VgVideoParams,
 } from '@chayuan/api';
 
+/** 时间轴预生成草稿素材项。 */
+export interface VgTimelineDraftMaterial {
+  idx: number;
+  durationMs: number;
+}
+
+/** 时间轴预生成草稿(会话级,非 persist):stop_at=materials 产物的缓存。 */
+export interface VgTimelineDraft {
+  taskId: string | null;
+  scriptHash: string;
+  state: 'idle' | 'generating' | 'ready' | 'failed';
+  audioFileName: string | null;
+  subtitleFileName: string | null;
+  audioDurationMs: number;
+  materials: VgTimelineDraftMaterial[];
+  error?: string;
+}
+
+const EMPTY_DRAFT: VgTimelineDraft = {
+  taskId: null, scriptHash: '', state: 'idle',
+  audioFileName: null, subtitleFileName: null, audioDurationMs: 0, materials: [],
+};
+
+/** 草稿失效指纹:仅脚本/语音/BGM/语言/段落 —— 画幅/timeline/素材排列不计入。 */
+export function scriptHashOf(p: VgVideoParams): string {
+  return JSON.stringify([
+    p.video_script, p.voice_provider, p.voice_name, p.voice_rate, p.voice_volume,
+    p.bgm_type, p.bgm_file, p.video_language, p.paragraph_number,
+  ]);
+}
+
 /** Wizard 当前 step;1-based,跟前端进度条 step 数对齐。 */
 export type VgWizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
@@ -49,6 +80,8 @@ interface VgComposerState {
   };
   /** 当前活动任务 id — 渲染步骤的 SSE 订阅锚点,刷新页面会清空(非 persist) */
   activeTaskId: string | null;
+  /** 时间轴预生成草稿(会话级,非 persist) */
+  timelineDraft: VgTimelineDraft;
 
   // ── actions ────────────────────────────────────────────────
   setStep(step: VgWizardStep): void;
@@ -65,6 +98,9 @@ interface VgComposerState {
   /** SRT 解析成功后写入 cues(同时保留 srt slot 原文便于回看) */
   setSrtCues(cues: VgSrtCue[]): void;
   setActiveTaskId(id: string | null): void;
+  setDraft(d: VgTimelineDraft): void;
+  patchDraft(patch: Partial<VgTimelineDraft>): void;
+  resetDraft(): void;
 }
 
 const PERSIST_KEY = 'cy.vgComposer';
@@ -76,6 +112,7 @@ export const useVgComposer = create<VgComposerState>()(
       params: { ...VG_DEFAULT_PARAMS },
       scriptSlots: { ai: '', manual: '', srt: '' },
       activeTaskId: null,
+      timelineDraft: EMPTY_DRAFT,
 
       setStep: (step) => set({ step }),
       next: () =>
@@ -123,6 +160,9 @@ export const useVgComposer = create<VgComposerState>()(
         set((s) => ({ params: { ...s.params, srt_cues: cues } })),
 
       setActiveTaskId: (id) => set({ activeTaskId: id }),
+      setDraft: (d) => set({ timelineDraft: d }),
+      patchDraft: (patch) => set((s) => ({ timelineDraft: { ...s.timelineDraft, ...patch } })),
+      resetDraft: () => set({ timelineDraft: EMPTY_DRAFT }),
     }),
     {
       name: PERSIST_KEY,
