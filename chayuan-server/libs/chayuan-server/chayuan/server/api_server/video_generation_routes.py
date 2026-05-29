@@ -331,6 +331,12 @@ def list_tasks(
     page_size: int = Query(20, ge=1, le=100),
     user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
+    # 先清理服务重启遗留的僵尸任务(processing 但无 worker)→ failed(可重试),
+    # 避免「我的视频」一直显示卡死的进行中任务。
+    try:
+        vg_service.reconcile_orphaned()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[vg] reconcile_orphaned 失败(忽略): %r", e)
     rows, total = vg_service.list_tasks(
         owner_id=_owner_id_of(user), state=state,
         page=page, page_size=page_size,
@@ -375,6 +381,19 @@ def cancel_task(
     if not ok:
         raise HTTPException(404, "task not found or not owned by user")
     return {"canceled": True}
+
+
+@video_generation_router.post(
+    "/tasks/{task_id}/retry", summary="重试/继续任务(失败/取消/重启中断都可)",
+)
+def retry_task(
+    task_id: str = FPath(...),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    ok = vg_service.retry_task(task_id, owner_id=_owner_id_of(user))
+    if not ok:
+        raise HTTPException(404, "task not found / params 无效")
+    return {"retried": True}
 
 
 # ─────────────────────────────────────────────────────────────────────

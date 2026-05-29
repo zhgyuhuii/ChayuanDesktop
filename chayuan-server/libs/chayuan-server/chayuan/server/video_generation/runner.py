@@ -77,6 +77,9 @@ def shutdown() -> None:
 def enqueue(task_id: str, params: VideoParams, *, stop_at: str = "video") -> Future:
     """提交任务到线程池。任务态 row 应该已经由 service.submit_task 写过。"""
 
+    # 重试场景:清掉上一轮可能残留的取消标记,否则新一轮会被立刻判取消。
+    with _canceled_lock:
+        _canceled.discard(task_id)
     future = _get_executor().submit(_run_pipeline, task_id, params, stop_at)
     _active_futures[task_id] = future
     future.add_done_callback(lambda _f: _active_futures.pop(task_id, None))

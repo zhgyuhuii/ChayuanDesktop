@@ -18,7 +18,7 @@ import shutil
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import runner
-from .schemas import ScriptSource, VideoParams
+from .schemas import ScriptSource, VgTaskState, VideoParams
 from .store import tasks as tasks_store
 
 logger = logging.getLogger("chayuan.video_generation.service")
@@ -96,6 +96,43 @@ def cancel_task(
         if not row:
             return False
     return runner.cancel(task_id)
+
+
+def reconcile_orphaned() -> int:
+    """僵尸任务清理:state=pending/processing 但不在 runner 活跃 future 里
+    (= 服务重启丢了 worker,任务永远卡 processing)→ 标 failed(可重试)。
+    返回清理数。列表 endpoint 每次调,保证打开「我的视频」时不残留卡死任务。"""
+    cleaned = 0
+    for st in ("pending", "processing"):
+        rows, _ = tasks_store.list_tasks(state=st, page=1, page_size=500)
+        for r in rows:
+            tid = r["task_id"]
+            if tid in runner._active_futures:  # noqa: SLF001 — 同包内访问
+                continue
+            tasks_store.update_progress(
+                tid, state=VgTaskState.failed.value, error="服务重启,任务已中断(可点重试继续)",
+            )
+            cleaned += 1
+    if cleaned:
+        logger.info("[service] reconcile_orphaned cleaned=%d", cleaned)
+    return cleaned
+
+
+def retry_task(task_id: str, *, owner_id: Optional[int] = None) -> bool:
+    """重试/继续:用存的 params 重新入队(从头跑)。失败/取消/中断的任务都能重试。"""
+    row = tasks_store.get_task(task_id, owner_id=owner_id)
+    if not row:
+        return False
+    try:
+        params = VideoParams.model_validate(row.get("params") or {})
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[service] retry_task %s params 解析失败: %r", task_id, e)
+        return False
+    stop_at = row.get("stop_at") or "video"
+    tasks_store.update_progress(task_id, state=VgTaskState.pending.value, progress=0)
+    runner.enqueue(task_id, params, stop_at=stop_at)  # enqueue 内部会清掉旧的取消标记
+    logger.info("[service] retry_task %s stop_at=%s", task_id, stop_at)
+    return True
 
 
 def get_task(

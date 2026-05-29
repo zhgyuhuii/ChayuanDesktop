@@ -15,7 +15,7 @@
 
 import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, Square, Loader2, AlertTriangle, CircleCheck } from 'lucide-react';
+import { Activity, Square, Loader2, AlertTriangle, CircleCheck, RefreshCw } from 'lucide-react';
 import {
   videoGeneration,
   type VgTask,
@@ -62,10 +62,21 @@ export const InProgressTasksPanel: React.FC = () => {
     staleTime: 30_000,
     refetchInterval: 30_000,
   });
+  // 失败任务(含服务重启中断被 reconcile 成 failed 的)也拉进来,显示「重试」入口。
+  const failedQ = useQuery({
+    queryKey: ['vg.tasks', { state: 'failed', page: 1, page_size: 20 }],
+    queryFn: () => videoGeneration.listTasks({ state: 'failed', page: 1, page_size: 20 }),
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
 
-  // 合并两个 state 的 tasks;按 created_at 倒序
+  // 合并 pending + processing + failed;按 created_at 倒序
   const tasks = React.useMemo<VgTask[]>(() => {
-    const all = [...(pendingQ.data?.items ?? []), ...(processingQ.data?.items ?? [])];
+    const all = [
+      ...(pendingQ.data?.items ?? []),
+      ...(processingQ.data?.items ?? []),
+      ...(failedQ.data?.items ?? []),
+    ];
     // 去重(刷新瞬间可能跨 state)
     const seen = new Set<string>();
     const out: VgTask[] = [];
@@ -77,7 +88,7 @@ export const InProgressTasksPanel: React.FC = () => {
     }
     out.sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
     return out;
-  }, [pendingQ.data, processingQ.data]);
+  }, [pendingQ.data, processingQ.data, failedQ.data]);
 
   // 单行完成时父级回调 — invalidate 视频列表 + 重拉任务集合
   const onTaskTerminal = React.useCallback(() => {
@@ -143,14 +154,15 @@ const TaskProgressRow: React.FC<{
     return () => ctl.abort();
   }, [taskId]);
 
-  // 进入终态时 5s 后从列表移除(给用户看一眼成功/失败提示)
+  // 进入终态:complete/canceled 5s 后移除;failed 保留(让用户能点重试),不自动消失。
   React.useEffect(() => {
     const s = task.state;
-    if (s === 'complete' || s === 'failed' || s === 'canceled') {
+    if (s === 'complete' || s === 'canceled') {
       onTerminal(task.task_id);
       const t = setTimeout(() => setHidden(true), 5000);
       return () => clearTimeout(t);
     }
+    if (s === 'failed') onTerminal(task.task_id);
     return undefined;
   }, [task.state, task.task_id, onTerminal]);
 
@@ -161,6 +173,14 @@ const TaskProgressRow: React.FC<{
       await videoGeneration.cancelTask(taskId);
     } catch (e) {
       reportError(e as Error, '取消任务失败');
+    }
+  };
+
+  const onRetry = async () => {
+    try {
+      await videoGeneration.retryTask(taskId);
+    } catch (e) {
+      reportError(e as Error, '重试任务失败');
     }
   };
 
@@ -209,6 +229,16 @@ const TaskProgressRow: React.FC<{
                   className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1.5 py-0.5 text-[10px] text-[var(--cy-text-secondary)] hover:border-rose-300 hover:text-rose-600"
                 >
                   <Square className="h-2.5 w-2.5" /> 取消
+                </button>
+              )}
+              {(task.state === 'failed' || task.state === 'canceled') && (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  title="重试 / 继续生成"
+                  className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1.5 py-0.5 text-[10px] text-[var(--cy-text-secondary)] hover:border-[var(--cy-brand-400)] hover:text-[var(--cy-brand-600)]"
+                >
+                  <RefreshCw className="h-2.5 w-2.5" /> 重试
                 </button>
               )}
             </div>

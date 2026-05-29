@@ -462,6 +462,14 @@ export async function vgCancelTask(taskId: string): Promise<{ canceled: boolean 
   );
 }
 
+/** 重试/继续任务(失败/取消/服务重启中断都可)。 */
+export async function vgRetryTask(taskId: string): Promise<{ retried: boolean }> {
+  return rd<{ retried: boolean }>(
+    `/api/v1/video-generation/tasks/${encodeURIComponent(taskId)}/retry`,
+    { method: 'POST' },
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // SSE 进度
 // ─────────────────────────────────────────────────────────────────────
@@ -778,6 +786,7 @@ export const videoGeneration = {
   getTask: vgGetTask,
   deleteTask: vgDeleteTask,
   cancelTask: vgCancelTask,
+  retryTask: vgRetryTask,
   subscribeTaskEvents: vgSubscribeTaskEvents,
   listMaterials: vgListMaterials,
   uploadMaterial: vgUploadMaterial,
