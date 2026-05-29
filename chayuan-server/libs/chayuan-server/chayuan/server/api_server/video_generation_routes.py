@@ -694,6 +694,32 @@ def list_bgm(
     return {"count": len(items), "items": items}
 
 
+@video_generation_router.get(
+    "/bgm/{name}/file", summary="BGM 文件流式(试听/下载)",
+)
+def serve_bgm_file(
+    name: str = FPath(..., max_length=255),
+    download: bool = Query(False),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> FileResponse:
+    from chayuan.server.video_generation import binaries
+    from chayuan.server.video_generation._helpers import song_dir
+
+    base = os.path.basename(name)  # 去路径分量,防遍历
+    candidates: List[str] = []
+    bundled = binaries.get_bgm_dir()
+    if bundled:
+        candidates.append(os.path.join(bundled, base))
+    candidates.append(os.path.join(song_dir(), base))
+    for p in candidates:
+        if os.path.isfile(p):
+            headers: Dict[str, str] = {}
+            if download:
+                headers["Content-Disposition"] = f'attachment; filename="{base}"'
+            return FileResponse(p, headers=headers)
+    raise HTTPException(404, f"BGM not found: {base}")
+
+
 @video_generation_router.post(
     "/bgm", summary="上传 BGM 文件",
     status_code=status.HTTP_201_CREATED,
