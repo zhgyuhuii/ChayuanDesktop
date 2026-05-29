@@ -18,7 +18,7 @@ import shutil
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import runner
-from .schemas import VideoParams
+from .schemas import ScriptSource, VideoParams
 from .store import tasks as tasks_store
 
 logger = logging.getLogger("chayuan.video_generation.service")
@@ -68,10 +68,12 @@ def submit_batch_tasks(
         s = (s or "").strip()
         if not s:
             continue
-        # 拷贝 shared_params 然后覆盖 video_subject + 锁 ai 模式
+        # 拷贝 shared_params 然后覆盖 video_subject + 锁 ai 模式。
+        # model_copy(update=...) 不做校验/强转 → 必须传 ScriptSource 枚举本身,
+        # 传字符串 "ai" 会让 script_source 变裸 str,runner 调 .value 崩。
         p = shared_params.model_copy(update={
             "video_subject": s,
-            "script_source": "ai",  # type: ignore[arg-type]
+            "script_source": ScriptSource.ai,
         })
         row = tasks_store.create_task(params=p, owner_id=owner_id, stop_at="video")
         runner.enqueue(row["task_id"], p, stop_at="video")
