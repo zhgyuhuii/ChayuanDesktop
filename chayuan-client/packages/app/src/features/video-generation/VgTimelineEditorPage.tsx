@@ -9,7 +9,7 @@ import { PreviewPlayer } from './timeline/PreviewPlayer';
 import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
-import { appendClipFromMaterial, type DraggedMaterial } from './timeline/timelineEdit';
+import { appendClipFromMaterial, appendAudioClip, replaceClipSource, type DraggedMaterial } from './timeline/timelineEdit';
 import { totalDurationMs, fitPxPerSec } from './timeline/timelineScale';
 import { parseSrt, type SrtCue } from './timeline/srtParse';
 import { reportError, notifySuccess } from '../../store/errorDialog';
@@ -121,15 +121,19 @@ export const VgTimelineEditorPage: React.FC = () => {
     return src?.material_id ? videoGeneration.materialThumbUrl(src.material_id) : null;
   };
   const onDropMaterial = (m: DraggedMaterial) => {
+    if (m.kind === 'audio') return; // 音频走音频轨
     onTimelineChange(appendClipFromMaterial(timeline, m));
   };
+  const onDropAudio = (m: DraggedMaterial) => { onTimelineChange(appendAudioClip(timeline, m)); };
+  const [replacingClipId, setReplacingClipId] = React.useState<string | null>(null);
+  const onReplaceClip = (clipId: string) => setReplacingClipId(clipId);
 
   // ── 提交:finalize 草稿(复用 audio/subtitle,只 compose) ──
   const onSubmit = async () => {
     if (draft.state !== 'ready' || !draft.taskId) { reportError(new Error('草稿尚未就绪,稍候再试')); return; }
     setSubmitting(true);
     try {
-      await videoGeneration.finalizeDraft(draft.taskId, timeline);
+      await videoGeneration.finalizeDraft(draft.taskId, timeline, cues.length ? cues : undefined);
       notifySuccess('已提交合成', '前往「我的视频」看进度');
       openTab('/video-generation/library', { title: '我的视频', icon: 'video' });
       void navigate({ to: '/video-generation/library' as never });
@@ -187,12 +191,47 @@ export const VgTimelineEditorPage: React.FC = () => {
           timeline={timeline} durationMs={durationMs} pxPerSec={pxPerSec} playheadMs={playheadMs}
           peaks={peaks} peaksLoading={draft.state === 'generating'} cues={cues} bgmName={bgmName}
           thumbUrlOf={thumbUrlOf}
+          onDropAudio={onDropAudio}
+          onCuesChange={setCues}
+          onReplaceClip={onReplaceClip}
           onDropMaterial={onDropMaterial}
           onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
           onTimelineChange={onTimelineChange}
         />
       </div>
+      {/* 替换素材弹层 */}
+      {replacingClipId && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-6" onClick={() => setReplacingClipId(null)}>
+          <div className="max-h-[80vh] w-[min(720px,92vw)] overflow-y-auto cy-hide-scrollbar rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-3" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-2 text-sm font-semibold text-[var(--cy-text-primary)]">选择替换素材(我的素材库)</p>
+            <ReplacePicker onPick={(src) => {
+              onTimelineChange(replaceClipSource(timeline, replacingClipId, src));
+              setReplacingClipId(null);
+            }} />
+          </div>
+        </div>
+      )}
     </div>
+  );
+};
+
+const ReplacePicker: React.FC<{ onPick: (src: { material_id?: string; url?: string }) => void }> = ({ onPick }) => {
+  const q = useQuery({ queryKey: ['vg.materials.replace'], queryFn: () => videoGeneration.listMaterials({ page: 1, page_size: 60 }) });
+  const items = q.data?.items ?? [];
+  if (q.isLoading) return <p className="text-xs text-[var(--cy-text-tertiary)]">加载中…</p>;
+  if (items.length === 0) return <p className="text-xs text-[var(--cy-text-tertiary)]">素材库为空,先到「素材库」添加</p>;
+  return (
+    <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+      {items.map((m) => (
+        <li key={m.material_id}>
+          <button type="button" onClick={() => onPick({ material_id: m.material_id })}
+            className="block w-full overflow-hidden rounded-lg border border-[var(--cy-border-subtle)] hover:border-[var(--cy-brand-500)]">
+            <img src={videoGeneration.materialThumbUrl(m.material_id)} alt={m.name} className="aspect-video w-full object-cover" loading="lazy" />
+            <span className="block truncate px-1 py-0.5 text-[10px] text-[var(--cy-text-secondary)]">{m.name}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 };
 

@@ -177,7 +177,7 @@ const MineTab: React.FC<{
               draggable
               onDragStart={(e) => setDragData(e, {
                 materialId: m.material_id,
-                kind: isImg(m) ? 'image' : 'video',
+                kind: isImg(m) ? 'image' : isAudio(m) ? 'audio' : 'video',
                 durationMs: m.duration_ms || undefined,
               })}
               className={
