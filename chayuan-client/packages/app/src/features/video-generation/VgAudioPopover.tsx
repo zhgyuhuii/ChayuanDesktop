@@ -21,7 +21,7 @@ const PROVIDERS: Array<{ id: VgVoiceProvider; offline: boolean; label: string }>
   { id: 'sherpa', offline: true,  label: 'sherpa' },
 ];
 
-const RATE_OPTIONS = [0.75, 1.0, 1.25, 1.5] as const;
+const RATE_OPTIONS = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0] as const;
 
 const chipCls = (active: boolean) =>
   cn(
@@ -116,8 +116,8 @@ export const VgSpeechSettings: React.FC = () => {
         disabled={voices.length === 0}
         title={voices.find((v) => v.id === (params.voice_name || voices[0]?.id))?.label ?? '音色'}
         className={cn(
-          'h-6 w-[5em] rounded-md border border-[var(--cy-border-subtle)]',
-          'bg-[var(--cy-surface-1)] px-1.5 text-[10px] text-[var(--cy-text-primary)]',
+          'h-6 w-[10em] rounded-md border border-[var(--cy-border-subtle)]',
+          'bg-[var(--cy-surface-1)] pl-1.5 pr-5 text-[10px] text-[var(--cy-text-primary)]',
           'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
         )}
       >
@@ -142,8 +142,8 @@ export const VgSpeechSettings: React.FC = () => {
         value={params.voice_rate}
         onChange={(e) => patch({ voice_rate: parseFloat(e.target.value) })}
         className={cn(
-          'h-6 w-[4em] rounded-md border border-[var(--cy-border-subtle)]',
-          'bg-[var(--cy-surface-1)] px-1 text-[10px] text-[var(--cy-text-primary)]',
+          'h-6 w-[8em] rounded-md border border-[var(--cy-border-subtle)]',
+          'bg-[var(--cy-surface-1)] pl-1.5 pr-5 text-[10px] text-[var(--cy-text-primary)]',
           'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
         )}
       >
