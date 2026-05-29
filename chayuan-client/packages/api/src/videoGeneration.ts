@@ -159,8 +159,11 @@ export interface VgBgmItem {
 }
 
 export interface VgFontItem {
+  /** bundled/user 为裸文件名;system 为绝对路径(compose 直接用)。 */
   name: string;
-  source: 'bundled' | 'user';
+  /** 显示名(文件名);缺省回退 name。 */
+  label?: string;
+  source: 'bundled' | 'user' | 'system';
 }
 
 export interface VgVoiceItem {

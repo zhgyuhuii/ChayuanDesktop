@@ -44,7 +44,22 @@ export const VgSpeechSettings: React.FC = () => {
     queryFn: () => videoGeneration.listVoices(params.voice_provider),
     staleTime: 5 * 60 * 1000,
   });
-  const voices: VgVoiceItem[] = voicesQ.data?.items ?? [];
+  // 按 toolbar 选的语言过滤音色;选「自动」(空)显示全部。
+  // 过滤后为空(如 piper 没该语言离线音色)→ fallback 全部 + 提示,避免下拉空。
+  const allVoices: VgVoiceItem[] = voicesQ.data?.items ?? [];
+  const lang = params.video_language;
+  const matched = lang ? allVoices.filter((v) => v.language === lang) : allVoices;
+  const noMatch = !!lang && matched.length === 0 && allVoices.length > 0;
+  const voices = noMatch ? allVoices : matched;
+
+  // 当前选中音色不在过滤后列表里 → 自动切到第一个匹配音色(语言切换时纠偏)
+  React.useEffect(() => {
+    if (voices.length === 0) return;
+    if (voices.some((v) => v.id === params.voice_name)) return;
+    patch({ voice_name: voices[0]!.id });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang, params.voice_provider, allVoices.length]);
+
   const [previewing, setPreviewing] = React.useState(false);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
@@ -117,6 +132,11 @@ export const VgSpeechSettings: React.FC = () => {
           </option>
         ))}
       </select>
+      {noMatch && (
+        <span className="text-[10px] text-amber-600" title="当前后端无该语言音色">
+          无该语言音色,已列全部(可换 edge 后端)
+        </span>
+      )}
 
       <span className="mx-1 opacity-30">·</span>
 

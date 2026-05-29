@@ -89,7 +89,9 @@ export const VgSubtitleSettings: React.FC = () => {
           >
             {fonts.length === 0 && <option value={params.font_name}>{params.font_name}</option>}
             {fonts.map((f) => (
-              <option key={f.name} value={f.name}>{f.name}</option>
+              <option key={f.name} value={f.name}>
+                {(f.label ?? f.name) + (f.source === 'system' ? ' · 系统' : '')}
+              </option>
             ))}
           </select>
 

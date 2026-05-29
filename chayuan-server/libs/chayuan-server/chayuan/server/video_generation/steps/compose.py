@@ -550,7 +550,13 @@ def generate_video(
     if params.subtitle_enabled:
         if not params.font_name:
             params.font_name = "STHeitiMedium.ttc"
-        font_path = os.path.join(utils.font_dir(), params.font_name)
+        # font_name 可能是:
+        #   - 裸文件名(bundled/user 字体)→ 拼字体目录
+        #   - 绝对路径(系统字体,/fonts?source=system 返回的)→ 直接用
+        if os.path.isabs(params.font_name) and os.path.isfile(params.font_name):
+            font_path = params.font_name
+        else:
+            font_path = os.path.join(utils.font_dir(), params.font_name)
         if os.name == "nt":
             font_path = font_path.replace("\\", "/")
 

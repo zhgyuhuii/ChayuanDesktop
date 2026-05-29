@@ -649,17 +649,74 @@ def list_fonts(
     from chayuan.server.video_generation._helpers import font_dir
 
     items: List[Dict[str, Any]] = []
+    # bundled / user:name=裸文件名,compose 拼字体目录
     bundled = binaries.get_fonts_dir()
     if bundled and os.path.isdir(bundled):
         for f in sorted(os.listdir(bundled)):
             if f.lower().endswith((".ttc", ".ttf", ".otf")):
-                items.append({"name": f, "source": "bundled"})
+                items.append({"name": f, "label": f, "source": "bundled"})
     user_dir = font_dir()
     if os.path.isdir(user_dir):
         for f in sorted(os.listdir(user_dir)):
             if f.lower().endswith((".ttc", ".ttf", ".otf")):
-                items.append({"name": f, "source": "user"})
+                items.append({"name": f, "label": f, "source": "user"})
+    # system:name=绝对路径(compose 直接用),label=文件名。按文件名去重。
+    items.extend(_scan_system_fonts(seen={i["name"].lower() for i in items}))
     return {"count": len(items), "items": items}
+
+
+def _scan_system_fonts(seen: set) -> List[Dict[str, Any]]:
+    """扫操作系统字体目录,返 [{name:<绝对路径>, label:<文件名>, source:'system'}]。
+
+    compose.py 的字体解析对绝对路径直接使用(不拼字体目录),所以系统字体的
+    name 用绝对路径。按文件名(小写)去重,避免同名重复。
+    """
+    import sys
+
+    dirs: List[str] = []
+    if sys.platform.startswith("win"):
+        win = os.environ.get("WINDIR", r"C:\Windows")
+        dirs.append(os.path.join(win, "Fonts"))
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            dirs.append(os.path.join(local, "Microsoft", "Windows", "Fonts"))
+    elif sys.platform == "darwin":
+        dirs += [
+            "/System/Library/Fonts",
+            "/Library/Fonts",
+            os.path.expanduser("~/Library/Fonts"),
+        ]
+    else:  # linux / 其它
+        dirs += [
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            os.path.expanduser("~/.fonts"),
+            os.path.expanduser("~/.local/share/fonts"),
+        ]
+
+    out: List[Dict[str, Any]] = []
+    seen_names = set(seen)
+    for d in dirs:
+        if not d or not os.path.isdir(d):
+            continue
+        try:
+            for root, _dirs, files in os.walk(d):
+                for f in files:
+                    if not f.lower().endswith((".ttc", ".ttf", ".otf")):
+                        continue
+                    key = f.lower()
+                    if key in seen_names:
+                        continue
+                    seen_names.add(key)
+                    out.append({
+                        "name": os.path.join(root, f),
+                        "label": f,
+                        "source": "system",
+                    })
+        except OSError:
+            continue
+    out.sort(key=lambda x: x["label"].lower())
+    return out
 
 
 @video_generation_router.get(
