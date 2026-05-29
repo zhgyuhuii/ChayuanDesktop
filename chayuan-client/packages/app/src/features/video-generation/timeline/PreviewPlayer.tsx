@@ -19,7 +19,9 @@ export const PreviewPlayer: React.FC<{
   onTimeMs: (ms: number) => void;
   onPlayingChange: (playing: boolean) => void;
   onFreshGenerated: () => void;
-}> = ({ timeline, aspect, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated }) => {
+  /** PIP 编辑浮层(P5c-2),叠在预览画面上。 */
+  overlay?: React.ReactNode;
+}> = ({ timeline, aspect, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, overlay }) => {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
   const [url, setUrl] = React.useState<string | null>(null);
@@ -62,18 +64,22 @@ export const PreviewPlayer: React.FC<{
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl bg-black/90 p-2">
-      {url ? (
-        <video
-          ref={videoRef}
-          src={url}
-          className="max-h-full max-w-full rounded"
-          onTimeUpdate={(e) => onTimeMs(e.currentTarget.currentTime * 1000)}
-          onPlay={() => onPlayingChange(true)}
-          onPause={() => onPlayingChange(false)}
-        />
-      ) : (
-        <div className="text-xs text-white/60">点「生成预览」查看画面</div>
-      )}
+      <div className="relative flex max-h-full max-w-full items-center justify-center">
+        {url ? (
+          <video
+            ref={videoRef}
+            src={url}
+            className="max-h-full max-w-full rounded"
+            onTimeUpdate={(e) => onTimeMs(e.currentTarget.currentTime * 1000)}
+            onPlay={() => onPlayingChange(true)}
+            onPause={() => onPlayingChange(false)}
+          />
+        ) : (
+          <div className="text-xs text-white/60">点「生成预览」查看画面</div>
+        )}
+        {/* PIP 编辑浮层覆盖在画面上(无 PIP 时为空) */}
+        {overlay}
+      </div>
       {(stale || !url) && (
         <button type="button" onClick={() => void generate()} disabled={loading}
           className="inline-flex items-center gap-1 rounded-lg bg-[var(--cy-brand-500)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
