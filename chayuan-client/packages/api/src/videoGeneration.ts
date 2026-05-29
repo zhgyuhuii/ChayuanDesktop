@@ -754,6 +754,38 @@ export function vgMaterialFileUrl(materialId: string, download = false): string 
   return download ? `${u}?download=true` : u;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// 时间轴 P4a — finalize 草稿 / 波形 / 缩略图
+// ─────────────────────────────────────────────────────────────────────
+
+export interface VgAudioPeaks {
+  peaks: number[];
+  duration_ms: number;
+}
+
+/** 草稿收尾:用编辑后的时间轴只跑 compose,返回更新后的 task。 */
+export async function vgFinalizeDraft(taskId: string, timeline: VgTimeline): Promise<VgTask> {
+  return rd<VgTask>(`/api/v1/video-generation/tasks/${encodeURIComponent(taskId)}/finalize`, {
+    method: 'POST',
+    body: { timeline },
+  });
+}
+
+/** 旁白波形峰值(音频轨)。 */
+export async function vgFetchAudioPeaks(taskId: string, n = 600): Promise<VgAudioPeaks> {
+  return rd<VgAudioPeaks>(
+    `/api/v1/video-generation/files/${encodeURIComponent(taskId)}/audio-peaks`,
+    { query: { n } },
+  );
+}
+
+/** 素材首帧缩略图 URL(<img src>)。 */
+export function vgThumbUrl(taskId: string, src: number, t = 0): string {
+  const cfg = getClientConfig();
+  const base = (cfg.baseURL || '').replace(/\/+$/, '');
+  return `${base}/api/v1/video-generation/files/${encodeURIComponent(taskId)}/thumb?src=${src}&t=${t}`;
+}
+
 export async function vgListVideos(args: {
   page?: number;
   page_size?: number;
@@ -808,6 +840,9 @@ export const videoGeneration = {
   taskFileUrl: vgTaskFileUrl,
   downloadTaskFile: vgDownloadTaskFile,
   materialFileUrl: vgMaterialFileUrl,
+  finalizeDraft: vgFinalizeDraft,
+  fetchAudioPeaks: vgFetchAudioPeaks,
+  thumbUrl: vgThumbUrl,
   listVideos: vgListVideos,
   deleteVideo: vgDeleteVideo,
   listSourceConfigs: vgListSourceConfigs,
