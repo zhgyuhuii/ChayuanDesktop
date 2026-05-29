@@ -133,9 +133,11 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
         voice_name: base.voice_name,
         voice_rate: base.voice_rate,
         voice_volume: base.voice_volume,
-        bgm_type: vm.bgm?.type ?? base.bgm_type,
-        bgm_file: vm.bgm?.file ?? base.bgm_file,
-        bgm_volume: vm.bgm?.volume ?? base.bgm_volume,
+        // BGM 同音色:已全局化存 vgComposer.params(弹框 BgmSection 写 base)。
+        // vm.bgm 是 sentinel 默认(type 恒 random),会覆盖用户选的指定 BGM → 直接用 base.*。
+        bgm_type: base.bgm_type,
+        bgm_file: base.bgm_file,
+        bgm_volume: base.bgm_volume,
         video_aspect: (vm.videoAspect ?? base.video_aspect) as typeof base.video_aspect,
       };
       try {

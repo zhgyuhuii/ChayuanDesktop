@@ -255,38 +255,59 @@ def delete_files(files: List[str] | str):
         except Exception as e:
             logger.debug(f"failed to delete file {file}: {str(e)}")
 
+def _bgm_search_dirs() -> list:
+    """BGM 候选目录:vendor 内置(binaries.get_bgm_dir)+ 用户上传(song_dir)。
+
+    之前只看 song_dir → 入仓的 29 首内置 BGM(在 vendor/bundled_bgm)永远扫不到,
+    random/指定都拿不到文件 → BGM 没合成进视频。这里把两处都纳入。
+    """
+    dirs: list = []
+    try:
+        from chayuan.server.video_generation import binaries
+        bundled = binaries.get_bgm_dir()
+        if bundled and os.path.isdir(bundled):
+            dirs.append(bundled)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"resolve bundled bgm dir failed: {e}")
+    try:
+        sd = utils.song_dir()
+        if sd and os.path.isdir(sd):
+            dirs.append(sd)
+    except Exception:  # noqa: BLE001
+        pass
+    return dirs
+
+
 def get_bgm_file(bgm_type: str = "random", bgm_file: str = ""):
     if not bgm_type:
         return ""
 
+    search_dirs = _bgm_search_dirs()
+
     if bgm_file:
-        song_dir = utils.song_dir()
-        try:
-            resolved_bgm_file = _resolve_path_within_directory(
-                song_dir, bgm_file
-            )
-        except ValueError as exc:
-            # API 请求里的 bgm_file 来自用户输入，不能直接把任意绝对路径交给
-            # MoviePy 打开。这里强制限制到 resource/songs 目录，阻止读取
-            # /etc/passwd、配置文件、密钥等非背景音乐文件。
-            logger.warning(
-                f"reject unsafe bgm file: {bgm_file}, song_dir: {song_dir}, error: {str(exc)}"
-            )
-            return ""
-
-        if not resolved_bgm_file.lower().endswith(_BGM_EXTENSIONS):
-            logger.warning(f"reject unsupported bgm file extension: {resolved_bgm_file}")
-            return ""
-
-        return resolved_bgm_file
+        # bgm_file 可能是 list_bgm 给的内置/上传绝对路径,或裸文件名。安全:
+        # 只接受 real-path 落在某个允许目录内、扩展名合法、文件存在的。
+        base = os.path.basename(bgm_file)
+        candidates = [bgm_file] if os.path.isabs(bgm_file) else []
+        candidates += [os.path.join(d, base) for d in search_dirs]
+        for d in search_dirs:
+            for cand in candidates:
+                try:
+                    resolved = _resolve_path_within_directory(d, cand)
+                except ValueError:
+                    continue
+                if resolved.lower().endswith(_BGM_EXTENSIONS) and os.path.isfile(resolved):
+                    return resolved
+        logger.warning(f"reject/notfound bgm file: {bgm_file}, dirs: {search_dirs}")
+        return ""
 
     if bgm_type == "random":
-        suffix = "*.mp3"
-        song_dir = utils.song_dir()
-        files = glob.glob(os.path.join(song_dir, suffix))
-        # 当背景音乐目录为空时，直接回退为“不使用 BGM”，避免 random.choice([]) 抛异常。
+        files: list = []
+        for d in search_dirs:
+            files += glob.glob(os.path.join(d, "*.mp3"))
+        # 目录为空时回退“不使用 BGM”,避免 random.choice([]) 抛异常。
         if not files:
-            logger.warning(f"no bgm files found in song directory: {song_dir}")
+            logger.warning(f"no bgm files found in {search_dirs}")
             return ""
         return random.choice(files)
 
