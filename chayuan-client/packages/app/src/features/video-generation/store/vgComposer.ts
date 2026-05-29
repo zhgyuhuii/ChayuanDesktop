@@ -48,7 +48,7 @@ const EMPTY_DRAFT: VgTimelineDraft = {
 /** 草稿失效指纹:仅脚本/语音/BGM/语言/段落 —— 画幅/timeline/素材排列不计入。 */
 export function scriptHashOf(p: VgVideoParams): string {
   return JSON.stringify([
-    p.video_script, p.voice_provider, p.voice_name, p.voice_rate, p.voice_volume,
+    p.video_subject, p.video_script, p.voice_provider, p.voice_name, p.voice_rate, p.voice_volume,
     p.bgm_type, p.bgm_file, p.video_language, p.paragraph_number,
   ]);
 }
