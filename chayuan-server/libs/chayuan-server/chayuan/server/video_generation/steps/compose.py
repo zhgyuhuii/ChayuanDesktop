@@ -427,6 +427,48 @@ def render_from_edl(
     return output_file
 
 
+def render_proxy_from_timeline(
+    timeline,
+    video_aspect,
+    output_file: str,
+    *,
+    source_resolver,
+    scale: float = 0.5,
+    threads: int = 2,
+) -> str:
+    """低清「仅画面轨」代理预览:按 EDL 顺序裁剪+缩放到 scale 倍分辨率 ->
+    ffmpeg concat。无音轨/字幕,出片快,给时间轴页快速看素材顺序/时长。"""
+    aspect = VideoAspect(video_aspect)
+    w, h = aspect.to_resolution()
+    pw = max(2, int(w * scale) // 2 * 2)
+    ph = max(2, int(h * scale) // 2 * 2)
+    output_dir = os.path.dirname(output_file)
+
+    plan = _build_edl_render_plan(timeline, video_aspect, source_resolver=source_resolver)
+    if not plan:
+        raise RuntimeError("时间轴没有可预览的视频片段")
+
+    clip_files: list = []
+    for i, p in enumerate(plan):
+        clip = _open_video_clip_quietly(p["path"])
+        try:
+            src_dur = clip.duration
+            start_s = min(p["start_s"], max(0.0, src_dur - 0.1))
+            end_s = p["end_s"] if p["end_s"] is not None else src_dur
+            end_s = min(end_s, src_dur)
+            if end_s <= start_s:
+                end_s = min(start_s + 1.0, src_dur)
+            seg = clip.subclipped(start_s, end_s).resized(new_size=(pw, ph))
+            seg_path = os.path.join(output_dir, f"proxy-seg-{i}.mp4")
+            seg.write_videofile(seg_path, logger=None, fps=15, codec=video_codec)
+            clip_files.append(seg_path)
+        finally:
+            close_clip(clip)
+
+    concat_video_clips_with_ffmpeg(clip_files, output_file, threads=threads, output_dir=output_dir)
+    return output_file
+
+
 def combine_videos(
     combined_video_path: str,
     video_paths: List[str],
