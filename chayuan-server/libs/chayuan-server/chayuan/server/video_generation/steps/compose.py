@@ -353,6 +353,42 @@ def _build_edl_render_plan(timeline, video_aspect, *, source_resolver):
     return plan
 
 
+def _build_extra_audios(timeline, *, source_resolver) -> list:
+    """抽 timeline 的 audio 轨 clips → [{path, start_s, volume}],解析为空的跳过。"""
+    out: list = []
+    for tr in (timeline.tracks or []):
+        if tr.kind != "audio":
+            continue
+        for c in tr.clips:
+            path = (source_resolver(c.source) or "").strip()
+            if not path:
+                logger.warning("[edl] 插入音频 clip %s 解析为空,跳过: %r", c.id, c.source)
+                continue
+            out.append({
+                "path": path,
+                "start_s": max(0.0, c.track_start_ms / 1000.0),
+                "volume": float(getattr(c, "volume", None) or 1.0),
+            })
+    return out
+
+
+def cues_to_srt(cues: list) -> str:
+    """[{startMs,endMs,text}] -> SRT 文本(编辑后字幕回传 compose 用)。"""
+    def _ts(ms) -> str:
+        ms = max(0, int(ms or 0))
+        h, ms = divmod(ms, 3600000)
+        m, ms = divmod(ms, 60000)
+        s, ms = divmod(ms, 1000)
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+    lines = []
+    for i, c in enumerate(cues, 1):
+        lines.append(str(i))
+        lines.append(f"{_ts(c.get('startMs', 0))} --> {_ts(c.get('endMs', 0))}")
+        lines.append(str(c.get("text", "")).strip())
+        lines.append("")
+    return "\n".join(lines)
+
+
 def render_from_edl(
     timeline,
     audio_file: str,
@@ -442,6 +478,7 @@ def render_from_edl(
         subtitle_path=subtitle_path,
         output_file=output_file,
         params=params,
+        extra_audios=_build_extra_audios(timeline, source_resolver=source_resolver),
     )
     return output_file
 
@@ -726,6 +763,7 @@ def generate_video(
     subtitle_path: str,
     output_file: str,
     params: VideoParams,
+    extra_audios: list | None = None,
 ):
     aspect = VideoAspect(params.video_aspect)
     video_width, video_height = aspect.to_resolution()
@@ -854,6 +892,16 @@ def generate_video(
             audio_clip = CompositeAudioClip([audio_clip, bgm_clip])
         except Exception as e:
             logger.error(f"failed to add bgm: {str(e)}")
+
+    # 插入音频轨(P5b):每条按 start_s 定位混入
+    for ea in (extra_audios or []):
+        try:
+            ea_clip = AudioFileClip(ea["path"]).with_effects(
+                [afx.MultiplyVolume(float(ea.get("volume", 1.0)))]
+            ).with_start(float(ea.get("start_s", 0.0)))
+            audio_clip = CompositeAudioClip([audio_clip, ea_clip])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[compose] 插入音频混音失败,跳过 %s: %s", ea.get("path"), exc)
 
     video_clip = video_clip.with_audio(audio_clip)
     # 显式沿用输入音频的采样率；如果取不到，再回退到 MoviePy 默认的 44100Hz。
