@@ -42,6 +42,13 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
 
   return (
     <div className="rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
+      {/* 展开区 — 内联参数条,在 chip 行**上方**展开(toolbar 贴着输入框,
+          向上展开不会把输入框往下挤) */}
+      {open && (
+        <div className="border-b border-[var(--cy-border-subtle)] px-3 py-2">
+          {open === 'speech' ? <VgSpeechSettings /> : <VgSubtitleSettings />}
+        </div>
+      )}
       {/* chip 行 */}
       <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 text-xs">
         <div className="inline-flex items-center gap-1">
@@ -107,13 +114,6 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
           {autoMode ? '全自动 开' : '全自动'}
         </button>
       </div>
-
-      {/* 展开区 — 内联参数条 */}
-      {open && (
-        <div className="border-t border-[var(--cy-border-subtle)] px-3 py-2">
-          {open === 'speech' ? <VgSpeechSettings /> : <VgSubtitleSettings />}
-        </div>
-      )}
     </div>
   );
 };
