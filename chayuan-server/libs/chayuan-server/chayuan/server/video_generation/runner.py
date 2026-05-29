@@ -614,6 +614,45 @@ def _compose_via_edl(task_id: str, params, audio_file: str, subtitle_path: str) 
 
 
 # ─────────────────────────────────────────────────────────────────────
+# finalize — 草稿(stop_at=materials)只跑 compose 收尾,复用已生成产物
+# ─────────────────────────────────────────────────────────────────────
+
+
+def enqueue_finalize(task_id: str, params, *, audio_file: str, subtitle_path: str) -> Future:
+    """把草稿任务的 compose-only 收尾入队(复用已生成 audio/subtitle/materials)。"""
+    with _canceled_lock:
+        _canceled.discard(task_id)
+    future = _get_executor().submit(
+        _run_finalize, task_id, params, audio_file, subtitle_path,
+    )
+    _active_futures[task_id] = future
+    future.add_done_callback(lambda _f: _active_futures.pop(task_id, None))
+    return future
+
+
+def _run_finalize(task_id: str, params, audio_file: str, subtitle_path: str) -> None:
+    """只跑 compose(EDL):用草稿已生成的 audio/subtitle + 编辑后的 params.timeline。"""
+    try:
+        if _is_canceled(task_id):
+            return _mark_canceled(task_id)
+        tasks_store.update_progress(
+            task_id, state=VgTaskState.processing.value, progress=75,
+            result_patch={"stage": "compose", "stage_hint": "正在合成视频(CPU 渲染,可能需要 1-3 分钟)"},
+        )
+        final_path = _compose_via_edl(task_id, params, audio_file, subtitle_path)
+        if not final_path:
+            return _mark_failed(task_id, "moviepy 合成失败 — 详见日志")
+        if _is_canceled(task_id):
+            return _mark_canceled(task_id)
+        _persist_vg_videos(task_id, params, [final_path])
+        _mark_complete(task_id, progress=100)
+        logger.info("[runner] finalize 完成 task=%s", task_id)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("[runner] finalize 异常 task=%s", task_id)
+        _mark_failed(task_id, f"{type(e).__name__}: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────
 # vg_videos 同步 — 成品视频进"我的视频"页索引
 # ─────────────────────────────────────────────────────────────────────
 

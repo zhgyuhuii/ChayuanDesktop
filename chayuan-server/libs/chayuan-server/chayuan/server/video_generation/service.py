@@ -135,6 +135,32 @@ def retry_task(task_id: str, *, owner_id: Optional[int] = None) -> bool:
     return True
 
 
+def finalize_task(
+    task_id: str, timeline: Dict[str, Any], *, owner_id: Optional[int] = None,
+) -> bool:
+    """草稿收尾:校验草稿持有 audio/subtitle/materials,设 timeline,只跑 compose。"""
+    row = tasks_store.get_task(task_id, owner_id=owner_id)
+    if not row:
+        return False
+    result = row.get("result") or {}
+    audio_file = result.get("audio_file")
+    subtitle_path = result.get("subtitle_path")
+    if not audio_file or not subtitle_path or not result.get("materials"):
+        logger.warning("[service] finalize_task %s 草稿缺 audio/subtitle/materials", task_id)
+        return False
+    try:
+        params = VideoParams.model_validate(row.get("params") or {})
+        from .schemas import Timeline
+        params.timeline = Timeline.model_validate(timeline)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[service] finalize_task %s params/timeline 解析失败: %r", task_id, e)
+        return False
+    tasks_store.update_progress(task_id, state=VgTaskState.pending.value, progress=70)
+    runner.enqueue_finalize(task_id, params, audio_file=audio_file, subtitle_path=subtitle_path)
+    logger.info("[service] finalize_task %s 入队 compose-only", task_id)
+    return True
+
+
 def get_task(
     task_id: str, *, owner_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
