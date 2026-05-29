@@ -293,6 +293,38 @@ def get_bgm_file(bgm_type: str = "random", bgm_file: str = ""):
     return ""
 
 
+def _build_edl_render_plan(timeline, video_aspect, *, source_resolver):
+    """把 EDL 的 video 轨解析成有序渲染计划(纯函数,便于单测)。
+
+    返回 list[dict]:{clip_id, path, start_s, end_s(None=到末尾), target_w, target_h}。
+    - 取第一条 kind=='video' 的轨(P1 单视频轨)。
+    - 按 track_start_ms 升序。
+    - source 经 source_resolver(material_id/path/url -> 本地路径);解析空则跳过。
+    - in_ms/out_ms -> 秒;out_ms==0 视为"到素材末尾"(end_s=None)。
+    """
+    aspect = VideoAspect(video_aspect)
+    target_w, target_h = aspect.to_resolution()
+    video_tracks = [t for t in (timeline.tracks or []) if t.kind == "video"]
+    if not video_tracks:
+        return []
+    clips = sorted(video_tracks[0].clips, key=lambda c: c.track_start_ms)
+    plan = []
+    for c in clips:
+        path = (source_resolver(c.source) or "").strip()
+        if not path:
+            logger.warning("[edl] clip %s source 解析为空,跳过: %r", c.id, c.source)
+            continue
+        plan.append({
+            "clip_id": c.id,
+            "path": path,
+            "start_s": max(0.0, c.in_ms / 1000.0),
+            "end_s": (c.out_ms / 1000.0) if c.out_ms and c.out_ms > c.in_ms else None,
+            "target_w": target_w,
+            "target_h": target_h,
+        })
+    return plan
+
+
 def combine_videos(
     combined_video_path: str,
     video_paths: List[str],
