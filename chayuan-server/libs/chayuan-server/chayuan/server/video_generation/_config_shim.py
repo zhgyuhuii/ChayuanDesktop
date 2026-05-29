@@ -27,8 +27,12 @@ shim:
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 from typing import Any, List, Optional
+
+logger = logging.getLogger("chayuan.video_generation.config_shim")
 
 
 def _get_env(name: str, default: Any = None) -> Any:
@@ -81,19 +85,26 @@ _KEY_TO_SOURCE = {
 }
 
 
-def _key_from_sources_config(cfg_key: str) -> Optional[str]:
-    """从 vg_sources_config 表读对应源的 api_key(用户 UI 录入的)。失败返 None。"""
+def _keys_from_sources_config(cfg_key: str) -> List[str]:
+    """从 vg_sources_config 表读对应源的 api_key,支持多 key(逗号/换行分隔,轮换用)。
+
+    返回 key 列表(可能空)。失败不再静默吞 —— 记 warning+exc_info,
+    否则"配了 key 却报没配"这类问题永远查不到真因(见血泪纪律)。
+    """
     source = _KEY_TO_SOURCE.get(cfg_key)
     if not source:
-        return None
+        return []
     try:
         from chayuan.server.video_generation.sources import config_store
         cfg = config_store.get_config(source, reveal=True)  # type: ignore[call-arg]
-        if cfg and cfg.get("api_key"):
-            return str(cfg["api_key"]).strip() or None
     except Exception:  # noqa: BLE001
-        return None
-    return None
+        logger.warning(
+            "[vg_config] 读取在线源 %s 的 api_key 失败(vg_sources_config)",
+            source, exc_info=True,
+        )
+        return []
+    raw = (cfg or {}).get("api_key") or ""
+    return [k.strip() for k in re.split(r"[,\n]", str(raw)) if k.strip()]
 
 
 class _AppProxy:
@@ -111,10 +122,11 @@ class _AppProxy:
                 return conv(raw)
             except Exception:  # noqa: BLE001
                 pass
-        # ENV 未配 → 回落到 vg_sources_config 表(素材设置面板录入的 key)
-        db_key = _key_from_sources_config(key)
-        if db_key:
-            return db_key
+        # ENV 未配 → 回落到 vg_sources_config 表(素材设置面板录入的 key)。
+        # 多 key 时返回 list,get_api_key 会轮换(对齐上游 pexels_api_keys 列表)。
+        db_keys = _keys_from_sources_config(key)
+        if db_keys:
+            return db_keys if len(db_keys) > 1 else db_keys[0]
         return fallback_default if default is None else default
 
     def __contains__(self, key: str) -> bool:

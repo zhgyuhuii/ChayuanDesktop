@@ -76,14 +76,14 @@ export const OnlineSourceChips: React.FC<{
           <p className="mb-1.5">
             为 <b>{editing}</b> 设置 API Key:
           </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="password"
+          <div className="flex items-start gap-2">
+            <textarea
               autoFocus
+              rows={2}
               value={keyDraft}
               onChange={(e) => setKeyDraft(e.target.value)}
-              placeholder="API Key / Access Token"
-              className="flex-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1"
+              placeholder="API Key — 可填多个(每行一个 / 逗号分隔),合成时自动轮换"
+              className="flex-1 resize-y rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 font-mono"
             />
             <button
               type="button"
@@ -104,7 +104,8 @@ export const OnlineSourceChips: React.FC<{
             </button>
           </div>
           <p className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]">
-            存储在 sqlite，仅本机访问。{editing === 'ytdlp' && '注：yt-dlp 不需要 Key。'}
+            存储在 sqlite，仅本机访问。多个 Key 会被轮换调用(对齐原项目)。
+            {editing === 'ytdlp' && '注：yt-dlp 不需要 Key。'}
           </p>
         </div>
       )}

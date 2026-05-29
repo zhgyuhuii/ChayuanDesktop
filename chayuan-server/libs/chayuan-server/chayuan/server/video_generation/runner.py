@@ -225,10 +225,7 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
             audio_duration_ms=tts_result.duration_ms,
         )
         if not materials_paths:
-            return _mark_failed(
-                task_id,
-                "没有可用素材 — 在线源没配 API Key 也没有用户选择/本地素材",
-            )
+            return _mark_failed(task_id, _materials_failure_reason(params, video_terms))
         tasks_store.update_progress(
             task_id, progress=70, result_patch={"materials": materials_paths},
         )
@@ -302,6 +299,29 @@ def _resolve_subtitle_path(task_id: str) -> str:
 # ─────────────────────────────────────────────────────────────────────
 # materials 步骤 — 从用户预选 / 在线下载 / 本地素材库 三档来源拿视频
 # ─────────────────────────────────────────────────────────────────────
+
+
+def _materials_failure_reason(params, video_terms) -> str:
+    """素材解析返空时,给出可区分真因的报错(不再固定甩"没配 Key")。"""
+    src = params.video_source
+    if src == "local":
+        return ("本地素材库为空 — 请上传素材,或切到在线源(Pexels/Pixabay)"
+                "并在「素材设置」配置 API Key")
+    # 在线源:实际探测 key 是否读得到
+    key_map = {"pexels": "pexels_api_keys", "pixabay": "pixabay_api_keys"}
+    try:
+        from ._config_shim import vg_config
+        has_key = bool(vg_config.app.get(key_map.get(src, "")))
+    except Exception:  # noqa: BLE001
+        has_key = False
+    if not has_key:
+        return (f"在线源 {src} 未读到 API Key — 请在「素材设置」配置;"
+                f"若已配置仍报此错,多半是服务端未重启使配置/修复生效,请重启后端")
+    if not video_terms:
+        return (f"在线源 {src} 已配 Key,但搜索关键词为空 — "
+                f"检查脚本是否为空 / chat 模型是否可用")
+    return (f"在线源 {src} 已配 Key 且有关键词,但未搜到/下载到素材 — "
+            f"可能网络不通或关键词无结果,详见服务端日志")
 
 
 def _resolve_materials(
