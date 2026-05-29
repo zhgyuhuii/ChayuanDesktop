@@ -22,7 +22,23 @@ function videoSumMs(t: VgTimeline): number {
   return clips.reduce((acc, c) => acc + clipDurMs(c), 0);
 }
 
-/** 时间轴画布总时长 = max(旁白音频时长, 视频片段总长)。 */
+/** 插入音频轨最右 clip 的结束(track_start + clipDurMs);无则 0。 */
+function audioTrackEndMs(t: VgTimeline): number {
+  const clips = (t.tracks || []).find((tr) => tr.kind === 'audio')?.clips ?? [];
+  return clips.reduce((acc, c) => Math.max(acc, c.track_start_ms + clipDurMs(c)), 0);
+}
+
+/** 合成内容总时长 = max(旁白音频时长, 视频片段总长, 插入音频末尾)。
+ *  与后端 _timeline_audio_end_s 口径一致(含旁白取最右,不截断)。 */
 export function totalDurationMs(t: VgTimeline, audioDurationMs: number): number {
-  return Math.max(audioDurationMs || 0, videoSumMs(t));
+  return Math.max(audioDurationMs || 0, videoSumMs(t), audioTrackEndMs(t));
+}
+
+/** 标尺富余:画布向后延伸的额外时长,让用户能把元素放到当前内容之后。 */
+export const RULER_HEADROOM_MS = 15000;
+const RULER_MIN_MS = 60000;
+
+/** 标尺/画布展示时长 = max(内容末尾+富余, 最小 60s)。内容增长则画布跟着向后延伸。 */
+export function rulerDurationMs(contentMs: number): number {
+  return Math.max(RULER_MIN_MS, contentMs + RULER_HEADROOM_MS);
 }

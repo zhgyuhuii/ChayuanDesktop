@@ -10,7 +10,7 @@ import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
 import { appendClipFromMaterial, appendAudioClip, replaceClipSource, type DraggedMaterial } from './timeline/timelineEdit';
-import { totalDurationMs, fitPxPerSec } from './timeline/timelineScale';
+import { totalDurationMs, rulerDurationMs, fitPxPerSec } from './timeline/timelineScale';
 import { parseSrt, type SrtCue } from './timeline/srtParse';
 import { reportError, notifySuccess } from '../../store/errorDialog';
 import { useTabsStore } from '../../store/tabs';
@@ -102,16 +102,17 @@ export const VgTimelineEditorPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.state, draft.taskId]);
 
-  const durationMs = totalDurationMs(timeline, draft.audioDurationMs);
+  const contentMs = totalDurationMs(timeline, draft.audioDurationMs); // 实际成片时长(传输栏显示)
+  const durationMs = rulerDurationMs(contentMs); // 标尺/画布展示时长(向后留富余,可放更多元素)
 
-  // 容器宽变化时 fit 一次(durationMs 首次 > 0)
+  // 容器宽变化时 fit 一次(内容时长首次 > 0;按内容铺满,富余部分横向滚)
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   React.useEffect(() => {
-    if (containerRef.current && durationMs > 0) {
-      setPxPerSec(fitPxPerSec(durationMs, containerRef.current.clientWidth - 80));
+    if (containerRef.current && contentMs > 0) {
+      setPxPerSec(fitPxPerSec(contentMs, containerRef.current.clientWidth - 80));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [durationMs > 0]);
+  }, [contentMs > 0]);
 
   const onTimelineChange = (t: VgTimeline) => { patchParams({ timeline: t }); setProxyStale(true); };
   // 缩略图按 clip 的 source 解析:material_id → 素材缩略图;url(http)→ 暂无。
@@ -159,7 +160,7 @@ export const VgTimelineEditorPage: React.FC = () => {
         </div>
       </div>
       {/* transport */}
-      <TransportBar playing={playing} currentMs={playheadMs} durationMs={durationMs} pxPerSec={pxPerSec}
+      <TransportBar playing={playing} currentMs={playheadMs} durationMs={contentMs} pxPerSec={pxPerSec}
         onPlayPause={() => setPlaying((v) => !v)} onZoom={setPxPerSec} />
       {/* 草稿状态条 */}
       {draft.state === 'generating' && (
