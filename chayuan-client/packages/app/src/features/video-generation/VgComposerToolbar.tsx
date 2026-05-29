@@ -40,12 +40,6 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
   const [open, setOpen] = React.useState<Panel>(null);
   const toggle = (p: Panel) => setOpen((cur) => (cur === p ? null : p));
 
-  // chip 上的当前值摘要
-  const speechSummary = `${params.voice_provider} · ${params.voice_name || '默认音色'}`;
-  const subtitleSummary = params.subtitle_enabled
-    ? `${params.font_name} ${params.font_size}`
-    : '关闭';
-
   return (
     <div className="rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
       {/* chip 行 */}
@@ -85,16 +79,14 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
         {/* 语音设置 trigger */}
         <button type="button" onClick={() => toggle('speech')} className={triggerCls(open === 'speech')}>
           <Volume2 className="h-3 w-3 text-[var(--cy-brand-500)]" />
-          <span className="text-[var(--cy-text-tertiary)]">语音设置</span>
-          <span className="max-w-[10rem] truncate">{speechSummary}</span>
+          语音设置
           <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'speech' && 'rotate-180')} />
         </button>
 
         {/* 字幕设置 trigger */}
         <button type="button" onClick={() => toggle('subtitle')} className={triggerCls(open === 'subtitle')}>
           <Type className="h-3 w-3 text-[var(--cy-brand-500)]" />
-          <span className="text-[var(--cy-text-tertiary)]">字幕设置</span>
-          <span className="max-w-[10rem] truncate">{subtitleSummary}</span>
+          字幕设置
           <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'subtitle' && 'rotate-180')} />
         </button>
 
