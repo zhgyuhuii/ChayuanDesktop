@@ -12,7 +12,7 @@
 import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Library, Search, Upload, X, CheckCircle2, Loader2, AlertCircle, Trash2, Eye,
+  Library, Search, Upload, X, CheckCircle2, Loader2, AlertCircle, Trash2, Eye, Link2,
 } from 'lucide-react';
 import {
   videoGeneration,
@@ -24,11 +24,12 @@ import { useVgComposer } from '../store/vgComposer';
 import { reportError } from '../../../store/errorDialog';
 import { confirmDialog } from '../../../store/confirmDialog';
 
-type Tab = 'mine' | 'online' | 'upload';
+type Tab = 'mine' | 'online' | 'link' | 'upload';
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'mine', label: '我的素材', icon: Library },
   { id: 'online', label: '在线搜索', icon: Search },
+  { id: 'link', label: '从链接', icon: Link2 },
   { id: 'upload', label: '上传新素材', icon: Upload },
 ];
 
@@ -47,9 +48,10 @@ export const MaterialsStep: React.FC = () => {
 
   // 切到 local 模式自动:用户进了素材步骤,确保 video_source=local 让后端走本地路径
   React.useEffect(() => {
-    if (tab === 'online' && params.video_source === 'local') {
+    const onlineLike = tab === 'online' || tab === 'link';
+    if (onlineLike && params.video_source === 'local') {
       patchParams({ video_source: 'pexels' });
-    } else if (tab !== 'online' && params.video_source !== 'local') {
+    } else if (!onlineLike && params.video_source !== 'local') {
       patchParams({ video_source: 'local' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -110,6 +112,7 @@ export const MaterialsStep: React.FC = () => {
       {tab === 'online' && (
         <OnlineTab selected={selected} onToggle={toggleSelect} aspect={params.video_aspect} qc={qc} />
       )}
+      {tab === 'link' && <LinkTab qc={qc} />}
       {tab === 'upload' && <UploadTab qc={qc} />}
     </div>
   );
@@ -342,6 +345,119 @@ const OnlineTab: React.FC<{
             );
           })}
         </ul>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// 从链接提取多媒体
+// ─────────────────────────────────────────────────────────────────────
+
+const LinkTab: React.FC<{ qc: ReturnType<typeof useQueryClient> }> = ({ qc }) => {
+  const [url, setUrl] = React.useState('');
+  const [items, setItems] = React.useState<import('@chayuan/api').VgMediaItem[]>([]);
+  const [picked, setPicked] = React.useState<Set<string>>(new Set());
+  const [error, setError] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [ingesting, setIngesting] = React.useState(false);
+
+  const onExtract = React.useCallback(async () => {
+    if (!url.trim()) return;
+    setLoading(true); setError(null); setItems([]); setPicked(new Set());
+    try {
+      const r = await videoGeneration.extractMedia(url.trim());
+      setItems(r.items);
+      if (r.items.length === 0) setError('该链接未发现可提取的图片/视频');
+    } catch (e) {
+      setError((e as Error).message || '提取失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [url]);
+
+  const toggle = (u: string) => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(u)) next.delete(u); else next.add(u);
+      return next;
+    });
+  };
+
+  const onIngestPicked = React.useCallback(async () => {
+    if (picked.size === 0) return;
+    setIngesting(true);
+    try {
+      for (const u of picked) {
+        const it = items.find((x) => x.url === u);
+        if (!it) continue;
+        try {
+          await videoGeneration.ingestMedia({ url: it.url, kind: it.kind, source: 'url' });
+        } catch (e) {
+          reportError(e as Error, `加入失败:${it.url}`);
+        }
+      }
+      await qc.invalidateQueries({ queryKey: ['vg.materials'] });
+      setPicked(new Set());
+    } finally {
+      setIngesting(false);
+    }
+  }, [picked, items, qc]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input type="text" value={url} onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') onExtract(); }}
+          placeholder="粘贴网页 / 视频平台链接 — 提取页面里的图片和视频"
+          className="min-w-[16rem] flex-1 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--cy-brand-500)]" />
+        <button type="button" onClick={onExtract} disabled={loading || !url.trim()}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--cy-brand-500)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--cy-brand-600)] disabled:cursor-not-allowed disabled:opacity-50">
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />} 提取
+        </button>
+      </div>
+      <p className="text-[10px] text-[var(--cy-text-tertiary)]">⚠ 仅限 CC0/自有素材,版权风险用户自负</p>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" /><span>{error}</span>
+        </div>
+      )}
+
+      {items.length > 0 && (
+        <>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-[var(--cy-text-tertiary)]">找到 {items.length} 个媒体 · 已选 {picked.size}</span>
+            <button type="button" onClick={onIngestPicked} disabled={picked.size === 0 || ingesting}
+              className="inline-flex items-center gap-1 rounded-lg bg-[var(--cy-brand-500)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
+              {ingesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} 批量加入素材库
+            </button>
+          </div>
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {items.map((it, i) => {
+              const chosen = picked.has(it.url);
+              return (
+                <li key={`${it.url}-${i}`}>
+                  <button type="button" onClick={() => toggle(it.url)}
+                    className={'group relative w-full overflow-hidden rounded-xl border text-left transition-colors ' +
+                      (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
+                              : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
+                    <div className="aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden text-xs text-[var(--cy-text-tertiary)]">
+                      {it.thumb ? <img src={it.thumb} alt="" className="h-full w-full object-cover" loading="lazy" />
+                                : (it.kind === 'video' ? '🎬 视频' : '🖼 图片')}
+                    </div>
+                    <p className="truncate p-2 text-[10px] text-[var(--cy-text-tertiary)]">{it.title || it.url.split('/').pop()}</p>
+                    {chosen && (
+                      <span className="absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
     </div>
   );
