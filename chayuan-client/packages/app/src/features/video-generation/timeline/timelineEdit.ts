@@ -79,17 +79,19 @@ export interface DraggedMaterial {
   durationMs?: number;
 }
 
-/** 从拖入素材生成一个视频轨 clip,插入到 atIndex(默认末尾),重算 starts。 */
+/** 从拖入素材生成一个视频轨 clip,插入到 atIndex(默认末尾),重算 starts。
+ *  trackId 指定目标视频轨(P5c-2 PIP 附加轨);不传 = 主视频轨(第一条)。
+ *  附加轨(非第一条)新 clip 默认带 PIP transform(右上角小窗),便于直接看到画中画。 */
 export function appendClipFromMaterial(
   t: VgTimeline,
   m: DraggedMaterial,
   atIndex?: number,
+  trackId?: string,
 ): VgTimeline {
-  const clips = [...videoClips(t)];
   const dur = m.durationMs && m.durationMs > 0
     ? Math.round(m.durationMs)
     : (m.kind === 'image' ? 3000 : 0); // 图像默认 3s;视频 0=整段
-  const clip: VgTimelineClip = {
+  const baseClip: VgTimelineClip = {
     id: `c${Date.now()}${Math.floor(Math.random() * 1000)}`,
     source: m.materialId ? { material_id: m.materialId } : { url: m.url ?? '' },
     track_start_ms: 0,
@@ -97,9 +99,26 @@ export function appendClipFromMaterial(
     out_ms: dur,
     duration_ms: m.kind === 'image' ? (dur || 3000) : (m.durationMs || 0),
   };
-  const at = atIndex == null ? clips.length : Math.max(0, Math.min(atIndex, clips.length));
-  clips.splice(at, 0, clip);
-  return recomputeStarts(withVideoClips(t, clips));
+
+  const tracks = t.tracks || [];
+  const firstVideoIdx = tracks.findIndex((tr) => tr.kind === 'video');
+  const isMain = trackId == null || tracks[firstVideoIdx]?.id === trackId;
+  if (isMain) {
+    const clips = [...videoClips(t)];
+    const at = atIndex == null ? clips.length : Math.max(0, Math.min(atIndex, clips.length));
+    clips.splice(at, 0, baseClip);
+    return recomputeStarts(withVideoClips(t, clips));
+  }
+  // 附加视频轨(PIP):顺序排在该轨末尾 + 默认 PIP transform
+  const next = tracks.map((tr) => {
+    if (tr.id !== trackId) return tr;
+    const clips = [...(tr.clips || [])];
+    const last = clips[clips.length - 1];
+    const start = last ? last.track_start_ms + clipDurMs(last) : 0;
+    clips.push({ ...baseClip, track_start_ms: start, x: 0.55, y: 0.05, scale: 0.4, z: clips.length + 1 });
+    return { ...tr, clips };
+  });
+  return { ...t, tracks: next };
 }
 
 /** 替换 clip 的素材源,保留 in/out/时长/位置。 */
@@ -115,10 +134,13 @@ export function replaceClipSource(
   return { ...t, tracks };
 }
 
-/** 往 audio 轨追加一个插入音频 clip(顺序排在该轨末尾;无 audio 轨则建)。 */
-export function appendAudioClip(t: VgTimeline, m: DraggedMaterial, atIndex?: number): VgTimeline {
+/** 往 audio 轨追加一个插入音频 clip(顺序排在该轨末尾)。
+ *  trackId 指定目标音频轨(P5c-2 多音频轨);不传 = 第一条 audio 轨,无则新建。 */
+export function appendAudioClip(t: VgTimeline, m: DraggedMaterial, atIndex?: number, trackId?: string): VgTimeline {
   const tracks = [...(t.tracks || [])];
-  let ai = tracks.findIndex((tr) => tr.kind === 'audio');
+  let ai = trackId
+    ? tracks.findIndex((tr) => tr.id === trackId && tr.kind === 'audio')
+    : tracks.findIndex((tr) => tr.kind === 'audio');
   if (ai < 0) { tracks.push({ id: 'a', kind: 'audio', clips: [] }); ai = tracks.length - 1; }
   const clips = [...(tracks[ai]!.clips || [])];
   const dur = m.durationMs && m.durationMs > 0 ? Math.round(m.durationMs) : 0;

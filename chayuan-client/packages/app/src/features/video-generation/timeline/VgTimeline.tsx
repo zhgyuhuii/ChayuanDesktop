@@ -22,10 +22,14 @@ export const VgTimeline: React.FC<{
   onReplaceClip?: (clipId: string) => void;
   /** clip 右键回调(P5b 右键菜单)。 */
   onClipContextMenu?: (e: React.MouseEvent, clipId: string) => void;
-}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, videoTrackOnly, onReplaceClip, onClipContextMenu }) => {
+  /** 指定渲染哪条视频轨(P5c-2 多视频轨);不传 = 第一条 video 轨。 */
+  trackId?: string;
+}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, videoTrackOnly, onReplaceClip, onClipContextMenu, trackId }) => {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const pps = pxPerSec ?? PX_PER_SEC;
-  const videoTrack = (timeline.tracks || []).find((t) => t.kind === 'video');
+  const videoTrack = trackId
+    ? (timeline.tracks || []).find((t) => t.id === trackId)
+    : (timeline.tracks || []).find((t) => t.kind === 'video');
   const clips = videoTrack?.clips ?? [];
 
   // editable 下用 clipDurMs(out-in / duration_ms)算宽,编辑后更准;

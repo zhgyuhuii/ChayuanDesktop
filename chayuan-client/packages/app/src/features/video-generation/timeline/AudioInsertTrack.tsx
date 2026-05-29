@@ -11,8 +11,11 @@ export const AudioInsertTrack: React.FC<{
   pxPerSec: number;
   contentWidthPx: number;
   onClipContextMenu?: (e: React.MouseEvent, clipId: string) => void;
-}> = ({ timeline, pxPerSec, contentWidthPx, onClipContextMenu }) => {
-  const clips = (timeline.tracks || []).find((t) => t.kind === 'audio')?.clips ?? [];
+  trackId?: string;
+}> = ({ timeline, pxPerSec, contentWidthPx, onClipContextMenu, trackId }) => {
+  const clips = (trackId
+    ? (timeline.tracks || []).find((t) => t.id === trackId)
+    : (timeline.tracks || []).find((t) => t.kind === 'audio'))?.clips ?? [];
   return (
     <div className="relative border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]"
       style={{ height: TRACK_H, width: contentWidthPx }}>
