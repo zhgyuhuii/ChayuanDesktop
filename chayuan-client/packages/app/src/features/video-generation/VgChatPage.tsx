@@ -28,7 +28,7 @@
  */
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Layers, Library as LibIcon, MessagesSquare, Video as VideoIcon } from 'lucide-react';
+import { Film, Layers, Library as LibIcon, MessagesSquare, Video as VideoIcon } from 'lucide-react';
 
 import { videoGeneration } from '@chayuan/api';
 import type { ChatMessage } from '../chat/useChayuanChat';
@@ -65,6 +65,10 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
   const goBatch = React.useCallback(() => {
     openTab('/video-generation/batch', { title: '批量生成', icon: 'layers' });
     void navigate({ to: '/video-generation/batch' as never });
+  }, [openTab, navigate]);
+  const goTimeline = React.useCallback(() => {
+    openTab('/video-generation/timeline', { title: '时间轴编辑', icon: 'film' });
+    void navigate({ to: '/video-generation/timeline' as never });
   }, [openTab, navigate]);
   const goMaterials = React.useCallback(() => {
     openTab('/video-generation/materials', { title: '素材库', icon: 'library' });
@@ -242,6 +246,13 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
           className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
         >
           <Layers className="h-3 w-3" /> 批量
+        </button>
+        <button
+          type="button"
+          onClick={goTimeline}
+          className="inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
+        >
+          <Film className="h-3 w-3" /> 时间轴
         </button>
         <button
           type="button"

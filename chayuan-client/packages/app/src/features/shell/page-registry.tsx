@@ -85,6 +85,9 @@ const VgChatPage = React.lazy(() =>
 const VgBatchModePage = React.lazy(() =>
   import('../video-generation/BatchModePage').then((m) => ({ default: m.BatchModePage })),
 );
+const VgTimelineEditorPage = React.lazy(() =>
+  import('../video-generation/VgTimelineEditorPage').then((m) => ({ default: m.VgTimelineEditorPage })),
+);
 const VideoGenerationPage = React.lazy(() =>
   import('../video-generation/VideoGenerationPage').then((m) => ({ default: m.VideoGenerationPage })),
 );
@@ -299,6 +302,12 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     render: () => <VgBatchModePage />,
     defaultTitle: '批量生成',
     defaultIcon: 'layers',
+  },
+  {
+    pattern: /^\/video-generation\/timeline$/,
+    render: () => <VgTimelineEditorPage />,
+    defaultTitle: '时间轴编辑',
+    defaultIcon: 'film',
   },
   {
     pattern: /^\/video-generation\/wizard$/,

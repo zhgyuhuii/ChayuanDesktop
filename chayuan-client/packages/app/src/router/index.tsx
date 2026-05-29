@@ -150,6 +150,7 @@ const workspaceRoutes: ReadonlyArray<{ path: string; id: string }> = [
   { path: '/video-generation', id: 'video-generation' },
   { path: '/video-generation/$conversationId', id: 'video-generation-by-id' },
   { path: '/video-generation/batch', id: 'video-generation-batch' },
+  { path: '/video-generation/timeline', id: 'video-generation-timeline' },
   { path: '/video-generation/wizard', id: 'video-generation-wizard' },
   { path: '/video-generation/materials', id: 'video-generation-materials' },
   { path: '/video-generation/library', id: 'video-generation-library' },
