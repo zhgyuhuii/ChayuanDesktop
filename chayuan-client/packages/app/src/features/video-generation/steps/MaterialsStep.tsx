@@ -189,11 +189,11 @@ const MineTab: React.FC<{
               <button type="button" onClick={() => onToggle(item)} className="block w-full text-left">
                 <div className="aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden">
                   {isImg(m) ? (
-                    <img src={fileUrl} alt={m.name} className="h-full w-full object-cover" loading="lazy" />
+                    <img src={fileUrl} alt={m.name} draggable={false} className="h-full w-full object-cover" loading="lazy" />
                   ) : isAudio(m) ? (
                     <span className="text-2xl">🎵</span>
                   ) : (
-                    <video src={fileUrl} preload="metadata" muted className="h-full w-full object-cover" />
+                    <video src={fileUrl} preload="metadata" muted draggable={false} className="h-full w-full object-cover" />
                   )}
                 </div>
                 <div className="p-2.5">
@@ -346,7 +346,7 @@ const OnlineTab: React.FC<{
                 <button type="button" onClick={() => onToggle(item)} className="block w-full text-left">
                   <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden text-xs text-[var(--cy-text-tertiary)]">
                     {item.image ? (
-                      <img src={item.image} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      <img src={item.image} alt="" draggable={false} className="h-full w-full object-cover" loading="lazy" />
                     ) : (
                       <span>{item.provider} · {item.duration}s</span>
                     )}
