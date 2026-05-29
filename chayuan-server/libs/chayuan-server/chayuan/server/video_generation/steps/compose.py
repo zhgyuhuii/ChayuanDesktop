@@ -372,6 +372,20 @@ def _build_extra_audios(timeline, *, source_resolver) -> list:
     return out
 
 
+def _timeline_audio_end_s(timeline) -> float:
+    """插入音频轨最右 clip 的结束秒(track_start + 时长);无则 0。"""
+    end = 0.0
+    for tr in (timeline.tracks or []):
+        if tr.kind != "audio":
+            continue
+        for c in tr.clips:
+            # 后端 TimelineClip 只有 out_ms(整段=0 时长未知,不计入延伸);
+            # 前端 appendAudioClip 已把 out_ms 设为素材时长。
+            dur = c.out_ms if (c.out_ms and c.out_ms > 0) else 0
+            end = max(end, (c.track_start_ms + dur) / 1000.0)
+    return end
+
+
 def cues_to_srt(cues: list) -> str:
     """[{startMs,endMs,text}] -> SRT 文本(编辑后字幕回传 compose 用)。"""
     def _ts(ms) -> str:
@@ -449,11 +463,13 @@ def render_from_edl(
         finally:
             close_clip(clip)
 
-    if clip_files and total < audio_duration - 0.2:
+    # 合成总时长 = max(视频末尾, 旁白末尾, 插入音频末尾)(用户选定:含旁白取最右,不截断)
+    target_dur = max(audio_duration, _timeline_audio_end_s(timeline))
+    if clip_files and total < target_dur - 0.2:
         try:
             last = _open_video_clip_quietly(clip_files[-1])
             try:
-                freeze_dur = audio_duration - total
+                freeze_dur = target_dur - total
                 last_dur = last.duration
                 freeze_start = max(0.0, last_dur - 0.05)
                 freeze_end = last_dur

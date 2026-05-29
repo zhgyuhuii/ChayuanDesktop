@@ -48,3 +48,20 @@ def test_extra_audios_skips_unresolved():
 def test_extra_audios_empty_when_no_audio_track():
     tl = Timeline.model_validate({"version": 1, "tracks": [{"id": "v", "kind": "video", "clips": []}]})
     assert _build_extra_audios(tl, source_resolver=lambda s: s.get("path", "")) == []
+
+
+def test_timeline_audio_end_s():
+    from chayuan.server.video_generation.steps.compose import _timeline_audio_end_s
+    tl = _tl([
+        {"id": "x", "source": {"path": "/m/x.mp3"}, "track_start_ms": 2000, "in_ms": 0, "out_ms": 3000},
+        {"id": "y", "source": {"path": "/m/y.wav"}, "track_start_ms": 8000, "in_ms": 0, "out_ms": 4000},
+    ])
+    # max(2000+3000, 8000+4000) = 12000ms -> 12.0s
+    assert _timeline_audio_end_s(tl) == 12.0
+
+
+def test_timeline_audio_end_s_zero_when_empty():
+    from chayuan.server.video_generation.steps.compose import _timeline_audio_end_s
+    from chayuan.server.video_generation.schemas import Timeline
+    tl = Timeline.model_validate({"version": 1, "tracks": [{"id": "v", "kind": "video", "clips": []}]})
+    assert _timeline_audio_end_s(tl) == 0.0
