@@ -1571,3 +1571,31 @@ def task_thumbnail(
     if not got:
         raise HTTPException(502, "thumbnail extract failed")
     return FileResponse(got, media_type="image/jpeg")
+
+
+@video_generation_router.get(
+    "/materials/{material_id}/thumb", summary="素材首帧缩略图(时间轴视频 clip)",
+)
+def material_thumbnail(
+    material_id: str = FPath(...),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> FileResponse:
+    from chayuan.server.video_generation._helpers import storage_dir
+    from chayuan.server.video_generation.steps import media_probe
+
+    row = materials_store.get_material(material_id, owner_id=_owner_id_of(user))
+    if not row:
+        raise HTTPException(404, "material not found")
+    path = row.get("path") or ""
+    if not path or not os.path.isfile(path):
+        raise HTTPException(404, "material file missing on disk")
+    mime = row.get("mime") or ""
+    # 图像素材直接返回原图(它本身就是缩略图来源)
+    if mime.startswith("image"):
+        return FileResponse(path, media_type=mime)
+    cache_dir = storage_dir("thumbs", create=True)
+    out = os.path.join(cache_dir, f"mat-{material_id}.jpg")
+    got = media_probe.extract_thumbnail(path, out, 0.0)
+    if not got:
+        raise HTTPException(502, "thumbnail extract failed")
+    return FileResponse(got, media_type="image/jpeg")
