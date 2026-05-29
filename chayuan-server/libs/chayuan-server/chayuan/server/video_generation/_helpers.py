@@ -19,9 +19,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 
 def resolve_path_within_directory(
@@ -74,6 +75,36 @@ def md5_for_file(file_path: str, chunk_size: int = 1 << 20) -> Optional[str]:
         for block in iter(lambda: f.read(chunk_size), b""):
             h.update(block)
     return h.hexdigest()
+
+
+def md5(text: str) -> str:
+    """字符串 MD5 hex(上游 utils.md5)。素材下载用 URL 算稳定文件名。"""
+    return hashlib.md5(str(text).encode("utf-8")).hexdigest()
+
+
+def to_json(obj: Any) -> str:
+    """对象 → JSON 字符串(上游 utils.to_json),递归处理自定义对象 / bytes。
+
+    materials.download_videos 出错日志、get_api_key 报错都用它;之前 _helpers
+    漏了这个函数 → 下载异常处理时自身又抛 AttributeError,掩盖真因 + 中断整批下载。
+    """
+    def _serialize(o: Any) -> Any:
+        if isinstance(o, (int, float, bool, str)) or o is None:
+            return o
+        if isinstance(o, bytes):
+            return "*** binary data ***"
+        if isinstance(o, dict):
+            return {k: _serialize(v) for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            return [_serialize(i) for i in o]
+        if hasattr(o, "__dict__"):
+            return _serialize(vars(o))
+        return None
+
+    try:
+        return json.dumps(_serialize(obj), ensure_ascii=False, indent=2)
+    except Exception:  # noqa: BLE001
+        return str(obj)
 
 
 # ─────────────────────────────────────────────────────────────────────
