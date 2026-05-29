@@ -37,6 +37,16 @@ export const BatchModePage: React.FC = () => {
   // generate_script 回落到未配的 chat 默认(glm4-chat)→ 脚本生成失败。
   const modelsQ = useQuery({ queryKey: ['v1.models'], queryFn: () => models.list(), staleTime: 5 * 60 * 1000 });
   const llmModels: RawModelItem[] = (modelsQ.data ?? []).filter((m) => !m.model_type || m.model_type === 'llm');
+  // 按厂商(platform)分组,与对话框模型下拉一致
+  const modelGroups = React.useMemo<Array<[string, RawModelItem[]]>>(() => {
+    const g = new Map<string, RawModelItem[]>();
+    for (const m of llmModels) {
+      const k = m.platform_display_name || m.platform_name || '其它';
+      if (!g.has(k)) g.set(k, []);
+      g.get(k)!.push(m);
+    }
+    return [...g.entries()];
+  }, [llmModels]);
   React.useEffect(() => {
     if (!params.model && llmModels.length > 0) {
       const m = llmModels[0]!;
@@ -176,10 +186,14 @@ export const BatchModePage: React.FC = () => {
               className="h-8 min-w-[16em] rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs"
             >
               {llmModels.length === 0 && <option value="">{modelsQ.isLoading ? '加载中…' : '无可用模型'}</option>}
-              {llmModels.map((m) => {
-                const enc = m.platform_name ? `${m.platform_name}::${m.id}` : m.id;
-                return <option key={enc} value={enc}>{(m.platform_display_name || m.platform_name || '') + ' · ' + m.id}</option>;
-              })}
+              {modelGroups.map(([plat, ms]) => (
+                <optgroup key={plat} label={plat}>
+                  {ms.map((m) => {
+                    const enc = m.platform_name ? `${m.platform_name}::${m.id}` : m.id;
+                    return <option key={enc} value={enc}>{m.id}</option>;
+                  })}
+                </optgroup>
+              ))}
             </select>
           </div>
           <TopicStep hideSubject />

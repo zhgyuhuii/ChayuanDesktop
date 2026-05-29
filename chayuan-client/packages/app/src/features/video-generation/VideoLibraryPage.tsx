@@ -8,7 +8,7 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { getPlatform } from '@chayuan/platform-shared';
-import { Video, Download, RefreshCw, Trash2 } from 'lucide-react';
+import { Video, Download, RefreshCw, Trash2, LayoutGrid, List as ListIcon, Play } from 'lucide-react';
 import {
   videoGeneration,
   vgTaskFileUrl,
@@ -55,6 +55,7 @@ export const VideoLibraryPage: React.FC = () => {
   });
 
   const items = q.data?.items ?? [];
+  const [viewMode, setViewMode] = React.useState<'card' | 'list'>('card');
 
   // 按时间分组
   const grouped = React.useMemo(() => {
@@ -86,13 +87,26 @@ export const VideoLibraryPage: React.FC = () => {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 overflow-y-auto cy-hide-scrollbar px-6 py-8">
-      <header>
-        <h1 className="inline-flex items-center gap-2 text-xl font-semibold text-[var(--cy-text-primary)]">
-          <Video className="h-5 w-5" /> 我的视频
-        </h1>
-        <p className="mt-1 text-sm text-[var(--cy-text-tertiary)]">
-          已合成的成品按时间分组,可在线播放 / 下载 / 复制参数重做
-        </p>
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="inline-flex items-center gap-2 text-xl font-semibold text-[var(--cy-text-primary)]">
+            <Video className="h-5 w-5" /> 我的视频
+          </h1>
+          <p className="mt-1 text-sm text-[var(--cy-text-tertiary)]">
+            已合成的成品按时间分组,可在线播放 / 下载 / 复制参数重做
+          </p>
+        </div>
+        {/* 视图切换:卡片 / 列表 */}
+        <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-[var(--cy-border-subtle)]">
+          <button type="button" onClick={() => setViewMode('card')} title="卡片视图"
+            className={'inline-flex h-8 w-8 items-center justify-center ' + (viewMode === 'card' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+          <button type="button" onClick={() => setViewMode('list')} title="列表视图"
+            className={'inline-flex h-8 w-8 items-center justify-center border-l border-[var(--cy-border-subtle)] ' + (viewMode === 'list' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
+            <ListIcon className="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
       {/* N7:进行中任务聚合面板 — 多 SSE 并发显示进度条,完成自动消失 */}
@@ -118,11 +132,12 @@ export const VideoLibraryPage: React.FC = () => {
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--cy-text-tertiary)]">
               {BUCKET_LABEL[bucket]} · {grouped[bucket].length}
             </h2>
-            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <ul className={viewMode === 'card' ? 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3' : 'flex flex-col gap-1.5'}>
               {grouped[bucket].map((v) => (
                 <VideoCard
                   key={v.video_id}
                   v={v}
+                  mode={viewMode}
                   onCopyRedo={() => onCopyAndRedo(v)}
                   onDelete={async () => {
                     if (!(await confirmDialog(`删除「${v.title || '未命名视频'}」?磁盘文件会一并清掉。`, { danger: true }))) return;
@@ -139,12 +154,14 @@ export const VideoLibraryPage: React.FC = () => {
 
 const VideoCard: React.FC<{
   v: VgVideo;
+  mode?: 'card' | 'list';
   onCopyRedo: () => void;
   onDelete: () => void;
-}> = ({ v, onCopyRedo, onDelete }) => {
+}> = ({ v, mode = 'card', onCopyRedo, onDelete }) => {
   const name = v.path.split(/[\\/]/).pop() || `${v.video_id}.mp4`;
   const playUrl = vgTaskFileUrl(v.task_id, name, false);
   const [downloading, setDownloading] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(false);
   // Tauri webview 里 <a download> 不触发下载 → fetch 成 blob 后程序化 anchor 点击。
   // 保存用的友好文件名 = 概括标题(去非法字符),而非磁盘上的 final-0.mp4
   const dlName = `${(v.title || '视频').replace(/[\\/:*?"<>|·]/g, '_').replace(/\s+/g, '_').slice(0, 40)}.mp4`;
@@ -160,6 +177,40 @@ const VideoCard: React.FC<{
       setDownloading(false);
     }
   };
+  const meta = `${v.width || '?'}×${v.height || '?'}${v.duration_ms ? ` · ${Math.round(v.duration_ms / 1000)}s` : ''}${v.created_at ? ` · ${new Date(v.created_at).toLocaleString()}` : ''}`;
+  const iconBtn = 'inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[10px] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)] disabled:opacity-50';
+
+  // 列表视图:紧凑一行,点播放展开内嵌播放器
+  if (mode === 'list') {
+    return (
+      <li className="rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]">
+        <div className="flex items-center gap-2 px-3 py-2">
+          <button type="button" onClick={() => setExpanded((x) => !x)} title="播放/收起"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)] hover:bg-[var(--cy-brand-100)]">
+            <Play className="h-3.5 w-3.5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-[var(--cy-text-primary)]" title={v.title || '未命名视频'}>{v.title || '未命名视频'}</p>
+            <p className="truncate text-[10px] text-[var(--cy-text-tertiary)]">{meta}</p>
+          </div>
+          <button type="button" onClick={() => void onDownload()} disabled={downloading} className={iconBtn} title="下载">
+            <Download className="h-3 w-3" /> {downloading ? '…' : '下载'}
+          </button>
+          <button type="button" onClick={onCopyRedo} className={iconBtn} title="用参数重做">
+            <RefreshCw className="h-3 w-3" /> 重做
+          </button>
+          <button type="button" onClick={onDelete} className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] text-rose-700 hover:border-rose-300" title="删除">
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+        {expanded && (
+          <video src={playUrl} controls autoPlay preload="metadata" className="w-full bg-black"
+            style={{ maxHeight: '40vh' }} />
+        )}
+      </li>
+    );
+  }
+
   return (
     <li className="overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]">
       <video
