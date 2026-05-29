@@ -114,6 +114,12 @@ export interface ChatRequestV2 {
    *   - 其它模型:noop,后端日志 INFO
    */
   deep_think?: boolean;
+  /**
+   * 模式专属附加参数,后端 request_dto.metadata 透传给对应 handler。
+   * 视频生成对话用 `metadata.videoGeneration = { language, paragraphNumber, aspect, model }`
+   * 让脚本生成 handler 拿到段落数/语言/画幅等(否则后端只能默认 1 段)。
+   */
+  metadata?: Record<string, unknown>;
 }
 
 export interface SendOptions {

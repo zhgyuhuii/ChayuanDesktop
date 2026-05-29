@@ -164,7 +164,21 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
     ({ messages, query }) => {
       const composer = vgComposerStore.getState();
       const req = buildChatRequest(query, messages, composer);
-      return { ...req, mode: 'video_generation' };
+      // 把视频参数透传给后端脚本 handler(段落数/语言/画幅/模型)。
+      // 缺这块时 vg_meta 永远空,handler paragraph_number 默认 1 → 只生成 1 段。
+      const p = useVgComposer.getState().params;
+      return {
+        ...req,
+        mode: 'video_generation',
+        metadata: {
+          videoGeneration: {
+            language: p.video_language,
+            paragraphNumber: p.paragraph_number,
+            aspect: p.video_aspect,
+            model: req.model,
+          },
+        },
+      };
     },
     [],
   );
