@@ -129,11 +129,10 @@ export const VgComposerToolbar: React.FC<VgComposerToolbarProps> = ({
           type="button"
           onClick={() => toggle('material')}
           title="源(Pexels/Pixabay 等在线源 API 密钥)"
-          aria-label="源"
-          className={cn(triggerCls(open === 'material'), 'group px-1.5')}
+          className={triggerCls(open === 'material')}
         >
-          <Settings2 className="h-3.5 w-3.5 text-[var(--cy-brand-500)]" />
-          <span className="hidden group-hover:inline">源</span>
+          <Settings2 className="h-3 w-3 text-[var(--cy-brand-500)]" />
+          源
           <ChevronDown className={cn('h-3 w-3 transition-transform', open === 'material' && 'rotate-180')} />
         </button>
 

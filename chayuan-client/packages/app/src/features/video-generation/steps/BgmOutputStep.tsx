@@ -14,8 +14,45 @@ import {
   type VgBgmItem,
   type VgFontItem,
 } from '@chayuan/api';
+import { Volume2 } from 'lucide-react';
 import { useVgComposer } from '../store/vgComposer';
 import { useTranslation } from '../../../i18n';
+
+/** 音量控件:图标 + 点击弹出纵向滑块(比一条横滑块更紧凑不另类)。 */
+const VolumePopover: React.FC<{ value: number; max?: number; onChange: (v: number) => void }> = ({
+  value, max = 1, onChange,
+}) => {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  const pct = Math.round((value / max) * 100);
+  return (
+    <div ref={ref} className="relative inline-flex">
+      <button type="button" onClick={() => setOpen((v) => !v)} title={`音量 ${pct}%`}
+        className="inline-flex h-8 items-center gap-1 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]">
+        <Volume2 className="h-3.5 w-3.5" />
+        <span className="tabular-nums">{pct}%</span>
+      </button>
+      {open && (
+        <div className="absolute bottom-full left-1/2 z-50 mb-1 -translate-x-1/2 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-3 shadow-lg">
+          <div className="flex h-28 w-6 items-center justify-center">
+            <input
+              type="range" min={0} max={max} step={0.05} value={value}
+              onChange={(e) => onChange(parseFloat(e.target.value))}
+              className="w-24 -rotate-90 accent-[var(--cy-brand-500)]"
+            />
+          </div>
+          <div className="mt-1 text-center text-[10px] tabular-nums text-[var(--cy-text-tertiary)]">{pct}%</div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // 转场 enum → i18n key(显示按系统语言,值仍发后端 enum)
 const TRANSITIONS: ReadonlyArray<readonly [string, string]> = [
@@ -80,19 +117,9 @@ export const BgmOutputStep: React.FC = () => {
               ))}
             </select>
           )}
-          {/* 音量内联滑块 — 放在试听前 */}
+          {/* 音量 — 图标按钮,点击弹出纵向滑块(放在试听前) */}
           {params.bgm_type !== 'none' && (
-            <span className="inline-flex items-center gap-1 text-xs text-[var(--cy-text-tertiary)]">
-              音量
-              <input
-                type="range" min={0} max={1} step={0.05}
-                value={params.bgm_volume}
-                onChange={(e) => patchParams({ bgm_volume: parseFloat(e.target.value) })}
-                className="w-20 accent-[var(--cy-brand-500)]"
-                title={`${Math.round(params.bgm_volume * 100)}%`}
-              />
-              <span className="w-9 text-right tabular-nums">{Math.round(params.bgm_volume * 100)}%</span>
-            </span>
+            <VolumePopover value={params.bgm_volume} onChange={(v) => patchParams({ bgm_volume: v })} />
           )}
           {params.bgm_type === 'file' && selectedBgm && (
             <audio src={vgBgmFileUrl(selectedBgm.name)} controls className="h-8" />
