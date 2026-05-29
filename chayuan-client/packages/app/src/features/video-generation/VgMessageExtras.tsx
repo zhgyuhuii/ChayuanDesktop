@@ -7,7 +7,7 @@
  *   - 否则                                    → 字幕图标 + TtsCard + 去生成按钮
  */
 import * as React from 'react';
-import { Edit3, Sparkles } from 'lucide-react';
+import { Edit3, Sparkles, RefreshCw } from 'lucide-react';
 import { TtsCard } from './TtsCard';
 import { RenderProgressCard } from './RenderProgressCard';
 import { SubtitleEditorDialog } from './SubtitleEditorDialog';
@@ -20,10 +20,12 @@ export interface VgMessageExtrasProps {
   onMetaChange: (messageId: string, patch: Record<string, unknown>) => void;
   /** 用户点"去生成"后,VgChatPage 调 submitTask + 把 taskId 写回 metadata.taskId */
   onSubmit: (messageId: string) => Promise<void>;
+  /** 重新生成脚本(删最后一条 assistant + 用上条主题重发,经 buildRequest 仍走 video_generation)。 */
+  onRegenerate?: () => void;
 }
 
 export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
-  message, onMetaChange, onSubmit,
+  message, onMetaChange, onSubmit, onRegenerate,
 }) => {
   const vm = message.metadata?.videoMeta;
   const [subtitleOpen, setSubtitleOpen] = React.useState(false);
@@ -37,8 +39,15 @@ export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
 
   return (
     <div className="space-y-2">
-      {/* 字幕图标(右上) */}
-      <div className="flex justify-end">
+      {/* 右上操作:重新生成脚本 + 编辑字幕 */}
+      <div className="flex justify-end gap-1.5">
+        {onRegenerate && (
+          <button type="button" onClick={onRegenerate}
+            title="重新生成脚本(用同一主题再跑一次)"
+            className="inline-flex h-7 items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]">
+            <RefreshCw className="h-3 w-3" /> 重新生成
+          </button>
+        )}
         <button type="button" onClick={() => setSubtitleOpen(true)}
           title="编辑字幕"
           className="inline-flex h-7 items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]">

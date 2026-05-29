@@ -58,6 +58,8 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
   const setMessagesRef = React.useRef<
     React.Dispatch<React.SetStateAction<ChatMessage[]>> | null
   >(null);
+  // ConversationView 暴露的 chat.regenerate — VgMessageExtras "重新生成" 用
+  const regenerateRef = React.useRef<(() => void) | null>(null);
 
   // ── 顶部导航跳转 ─────────────────────────────────────────────
   const goBatch = React.useCallback(() => {
@@ -249,6 +251,7 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
             buildRequest={buildRequest}
             onBeforeSend={onBeforeSend}
             setMessagesRef={setMessagesRef}
+            regenerateRef={regenerateRef}
             composerTopSlot={composerTop}
             modelPillProps={{ chatOnly: true }}
             assistantEditable
@@ -257,6 +260,7 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
                 message={m}
                 onMetaChange={onMetaChange}
                 onSubmit={onSubmit}
+                onRegenerate={() => regenerateRef.current?.()}
               />
             )}
           />

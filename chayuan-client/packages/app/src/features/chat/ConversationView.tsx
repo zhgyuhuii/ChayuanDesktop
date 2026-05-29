@@ -126,6 +126,8 @@ export interface ConversationViewProps {
   assistantEditable?: boolean;
   /** 透传给内部 ChatComposer 的模型 pill props(video_generation 用 chatOnly 收窄)。 */
   modelPillProps?: ChatComposerProps['modelPillProps'];
+  /** 把内部 chat.regenerate 暴露给父级(video_generation 在消息块下放"重新生成")。 */
+  regenerateRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 export const ConversationView: React.FC<ConversationViewProps> = ({
@@ -146,6 +148,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   composerTopSlot,
   assistantEditable = false,
   modelPillProps,
+  regenerateRef,
 }) => {
   const activeId = conversationId ?? null;
   const composer = useComposerScopedStore();
@@ -461,6 +464,17 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       if (sendMessageRef) sendMessageRef.current = null;
     };
   }, [sendMessageRef]);
+
+  // 把 chat.regenerate 暴露给父级(video_generation 在消息块下放"重新生成")
+  const regenRef = React.useRef(chat.regenerate);
+  regenRef.current = chat.regenerate;
+  React.useEffect(() => {
+    if (!regenerateRef) return;
+    regenerateRef.current = () => void regenRef.current();
+    return () => {
+      if (regenerateRef) regenerateRef.current = null;
+    };
+  }, [regenerateRef]);
 
   // R3.6: VgChatPage 等场景化页面需要从 extraSlot 回调里改 message.metadata,
   // 把内部 chat.setMessages 借给父级。引用稳定;只在挂载/卸载时绑解绑。
