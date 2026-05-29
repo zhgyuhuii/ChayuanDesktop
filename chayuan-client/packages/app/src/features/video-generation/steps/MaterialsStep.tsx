@@ -108,7 +108,7 @@ export const MaterialsStep: React.FC = () => {
         <MineTab selected={selected} onToggle={toggleSelect} qc={qc} />
       )}
       {tab === 'online' && (
-        <OnlineTab selected={selected} onToggle={toggleSelect} aspect={params.video_aspect} />
+        <OnlineTab selected={selected} onToggle={toggleSelect} aspect={params.video_aspect} qc={qc} />
       )}
       {tab === 'upload' && <UploadTab qc={qc} />}
     </div>
@@ -234,26 +234,30 @@ const OnlineTab: React.FC<{
   selected: VgMaterialInfo[];
   onToggle: (item: VgMaterialInfo) => void;
   aspect: '16:9' | '9:16' | '1:1';
-}> = ({ selected, onToggle, aspect }) => {
+  qc: ReturnType<typeof useQueryClient>;
+}> = ({ selected, onToggle, aspect, qc }) => {
   const [source, setSource] = React.useState<'pexels' | 'pixabay'>('pexels');
   const [keyword, setKeyword] = React.useState('');
   const [results, setResults] = React.useState<VgMaterialInfo[]>([]);
+  const [translated, setTranslated] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [searching, setSearching] = React.useState(false);
+  const [ingesting, setIngesting] = React.useState<string | null>(null);
 
   const onSearch = React.useCallback(async () => {
     if (!keyword.trim()) return;
     setSearching(true);
     setError(null);
+    setTranslated(null);
     try {
-      const r = await videoGeneration.searchMaterials({
-        q: keyword, source, aspect, minimum_duration: 5,
-      });
+      const r = await videoGeneration.searchMaterials({ q: keyword, source, aspect, minimum_duration: 5 });
       setResults(r.items);
+      setTranslated(r.translated_query ?? null);
+      if (r.items.length === 0) setError('未搜到结果 — 换个关键词试试');
     } catch (e) {
-      const err = e as Error & { status?: number };
-      if (err.message.includes('412') || err.message.includes('API') || /key/i.test(err.message)) {
-        setError(`${source.toUpperCase()} API Key 未配置 — 请到「设置 → 外部服务」配 ${source}_api_keys`);
+      const err = e as Error;
+      if (err.message.includes('412') || /key/i.test(err.message)) {
+        setError(`${source.toUpperCase()} API Key 未配置 — 请在对话输入框上方「素材设置」里配置`);
       } else {
         setError(err.message || '搜索失败');
       }
@@ -263,49 +267,47 @@ const OnlineTab: React.FC<{
     }
   }, [keyword, source, aspect]);
 
+  const onIngest = React.useCallback(async (url: string) => {
+    setIngesting(url);
+    try {
+      await videoGeneration.ingestMedia({ url, kind: 'video', source });
+      await qc.invalidateQueries({ queryKey: ['vg.materials'] });
+    } catch (e) {
+      reportError(e as Error, '加入素材库失败');
+    } finally {
+      setIngesting(null);
+    }
+  }, [source, qc]);
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex gap-1.5">
           {(['pexels', 'pixabay'] as const).map((s) => (
-            <button
-              type="button"
-              key={s}
-              onClick={() => setSource(s)}
-              className={
-                'rounded-md border px-2 py-1 text-xs ' +
-                (source === s
-                  ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                  : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)]')
-              }
-            >
+            <button type="button" key={s} onClick={() => setSource(s)}
+              className={'rounded-md border px-2 py-1 text-xs ' +
+                (source === s ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                              : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)]')}>
               {s}
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+        <input type="text" value={keyword} onChange={(e) => setKeyword(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') onSearch(); }}
-          placeholder="英文关键词 — e.g. spring flower / blue sky"
-          className="min-w-[14rem] flex-1 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--cy-brand-500)]"
-        />
-        <button
-          type="button"
-          onClick={onSearch}
-          disabled={searching || !keyword.trim()}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--cy-brand-500)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--cy-brand-600)] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-          搜索
+          placeholder="任意语言关键词 — 中文会自动转英文再搜"
+          className="min-w-[14rem] flex-1 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--cy-brand-500)]" />
+        <button type="button" onClick={onSearch} disabled={searching || !keyword.trim()}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--cy-brand-500)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--cy-brand-600)] disabled:cursor-not-allowed disabled:opacity-50">
+          {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />} 搜索
         </button>
       </div>
 
+      {translated && (
+        <p className="text-[11px] text-[var(--cy-text-tertiary)]">已转换为英文关键词:<span className="font-medium text-[var(--cy-text-secondary)]">{translated}</span></p>
+      )}
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-          <span>{error}</span>
+          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" /><span>{error}</span>
         </div>
       )}
 
@@ -314,27 +316,28 @@ const OnlineTab: React.FC<{
           {results.map((item, i) => {
             const chosen = selected.some((s) => s.url === item.url);
             return (
-              <li key={`${item.url}-${i}`}>
-                <button
-                  type="button"
-                  onClick={() => onToggle(item)}
-                  className={
-                    'group relative w-full overflow-hidden rounded-xl border text-left transition-colors ' +
-                    (chosen
-                      ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
-                      : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')
-                  }
-                >
+              <li key={`${item.url}-${i}`}
+                className={'group relative overflow-hidden rounded-xl border transition-colors ' +
+                  (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
+                          : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
+                <button type="button" onClick={() => onToggle(item)} className="block w-full text-left">
                   <div className="aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center text-xs text-[var(--cy-text-tertiary)]">
                     {item.provider} · {item.duration}s
                   </div>
-                  <p className="truncate p-2 text-[10px] text-[var(--cy-text-tertiary)]">{item.url}</p>
-                  {chosen && (
-                    <span className="absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                    </span>
-                  )}
                 </button>
+                <div className="flex items-center justify-between gap-1 p-2">
+                  <span className="truncate text-[10px] text-[var(--cy-text-tertiary)]">{item.url.split('/').pop()}</span>
+                  <button type="button" disabled={ingesting === item.url}
+                    onClick={() => onIngest(item.url)}
+                    className="shrink-0 rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-[10px] hover:border-[var(--cy-brand-500)] disabled:opacity-50">
+                    {ingesting === item.url ? '…' : '加入素材库'}
+                  </button>
+                </div>
+                {chosen && (
+                  <span className="pointer-events-none absolute left-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </span>
+                )}
               </li>
             );
           })}
