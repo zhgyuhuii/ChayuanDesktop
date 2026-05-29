@@ -65,6 +65,7 @@ export interface VgTimelineClip {
   out_ms?: number;            // 0 = 到素材末尾
   transition?: 'none' | 'fade' | 'slide';
   volume?: number;
+  duration_ms?: number;       // 前端编辑用的有效时长;后端只用 in/out
 }
 export interface VgTimelineTrack {
   id: string;

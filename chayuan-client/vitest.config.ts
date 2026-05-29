@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['packages/**/__tests__/**/*.test.{ts,tsx}'],
+    include: ['packages/**/__tests__/**/*.test.{ts,tsx}', 'packages/**/*.test.{ts,tsx}'],
     globals: false,
     reporters: 'default',
   },
