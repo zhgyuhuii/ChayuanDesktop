@@ -145,6 +145,27 @@ def voice_clones_dir(*, create: bool = False) -> str:
     return storage_dir("voice_clones", create=create)
 
 
+def digital_human_dir(*, create: bool = False) -> str:
+    """数字人用户数据根 ``<CHAYUAN_ROOT>/data/digital_human``(预设 + 上传形象)。"""
+    d = _chayuan_root() / "data" / "digital_human"
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+
+
+def dh_avatars_dir(*, create: bool = False) -> str:
+    """用户上传形象目录 ``.../data/digital_human/avatars``。"""
+    d = _chayuan_root() / "data" / "digital_human" / "avatars"
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+
+
+def dh_presets_path() -> str:
+    """数字人预设清单 ``.../data/digital_human/presets.json``。"""
+    return str(_chayuan_root() / "data" / "digital_human" / "presets.json")
+
+
 def task_dir(task_id: str, *, create: bool = True) -> str:
     """``<CHAYUAN_ROOT>/video_generation/storage/tasks/<task_id>/``。"""
 
