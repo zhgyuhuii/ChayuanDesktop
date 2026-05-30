@@ -29,6 +29,16 @@ logger = logging.getLogger("chayuan.video_generation.url_extractor")
 _FETCH_TIMEOUT_S = 15
 _MAX_FETCH_BYTES = 8 * 1024 * 1024  # 8 MB
 
+# 真实浏览器 UA + Accept 头:很多站(如 aigei.com)对非浏览器 UA 直接 400/403 反爬。
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+
 # 抽取后再截到这个上限给 LLM 当上下文 — 避免 token 爆
 _MAX_OUT_CHARS = 20_000
 
@@ -132,7 +142,7 @@ def extract_url(url: str) -> dict:
         # stream=True 让我们能在头部 Content-Length 大于上限时及时关闭
         resp = requests.get(
             url, timeout=_FETCH_TIMEOUT_S, stream=True,
-            headers={"User-Agent": "chayuan-video-generation/1.0"},
+            headers=_BROWSER_HEADERS,
         )
     except requests.RequestException as e:
         raise ValueError(f"抓取失败: {e}") from e
@@ -297,7 +307,7 @@ def extract_media(url: str, max_items: int = 60) -> dict:
     try:
         resp = requests.get(
             url, timeout=_FETCH_TIMEOUT_S, stream=True,
-            headers={"User-Agent": "chayuan-video-generation/1.0"},
+            headers=_BROWSER_HEADERS,
         )
     except requests.RequestException as e:
         raise ValueError(f"抓取失败: {e}") from e

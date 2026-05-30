@@ -107,6 +107,10 @@ hidden_modules += collect_submodules("sqlite_vec")
 # huggingface_hub:install_job 在线下载 bundled_models 时 import,
 # 动态用 hf_hub_download / snapshot_download,静态分析挖不到子模块。
 hidden_modules += collect_submodules("huggingface_hub")
+# yt-dlp:从链接提取视频(url_extractor.extract_media 惰性 import)。它的 1000+ extractor
+# 全靠运行时动态加载,且只在函数内 import,PyInstaller 静态分析连顶层包都挖不到 →
+# frozen 里 ModuleNotFoundError('yt_dlp')。必须显式收集整个包(含 extractor 子模块)。
+hidden_modules += collect_submodules("yt_dlp")
 
 # tiktoken 在 ``encoding_for_model`` 里 ``importlib.import_module`` 加载 ext;
 # PyInstaller 静态分析挖不到,显式列出。
