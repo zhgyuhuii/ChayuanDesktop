@@ -862,7 +862,10 @@ class AudioPipeline:
         try:
             handle = getattr(self, "_voxcpm_handle", None)
             if handle is None:
-                handle = VoxCPM.from_pretrained("openbmb/VoxCPM-0.5B")
+                # 自包含优先:先找打包/装机 seed 的本地模型目录,offline 直接加载;
+                # 找不到才回退 HF repo id(需联网,full 版不应走到这)。
+                model_ref = self._resolve_voxcpm_model_dir() or "openbmb/VoxCPM-0.5B"
+                handle = VoxCPM.from_pretrained(model_ref)
                 self._voxcpm_handle = handle
             arr = handle.generate(text=text, prompt_speech_path=prompt or None)
             import numpy as np  # type: ignore
@@ -886,6 +889,34 @@ class AudioPipeline:
         except Exception as e:  # noqa: BLE001
             logger.warning("[tts:voxcpm] 合成失败: %r", e, exc_info=True)
             return None
+
+    def _resolve_voxcpm_model_dir(self) -> Optional[str]:
+        """VoxCPM-0.5B 本地模型目录(含 config.json)→ from_pretrained 直接 offline 加载。
+
+        查找顺序(与 sherpa 同):
+          1) CHAYUAN_ROOT/models/bundled/tts/voxcpm/VoxCPM-0.5B/(装机 seed)
+          2) <vendor>/bundled_models/tts/voxcpm/VoxCPM-0.5B/(开发期 / 直拷)
+        都没有 → None,caller 回退 HF repo id。
+        """
+        roots: list[Path] = []
+        try:
+            from chayuan.settings import CHAYUAN_ROOT
+            roots.append(Path(CHAYUAN_ROOT) / "models" / "bundled" / "tts" / "voxcpm" / "VoxCPM-0.5B")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            here = Path(__file__).resolve()
+            for parent in here.parents:
+                vd = parent / "vendor" / "bundled_models" / "tts" / "voxcpm" / "VoxCPM-0.5B"
+                if vd.is_dir():
+                    roots.append(vd)
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+        for r in roots:
+            if (r / "config.json").is_file():
+                return str(r)
+        return None
 
     def _synthesize_via_sherpa(
         self, text: str, *, voice: str, fmt: str,

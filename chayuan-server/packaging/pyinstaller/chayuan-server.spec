@@ -624,6 +624,10 @@ for big in (
     "fitz",
     "rapidocr_onnxruntime",
     "onnxruntime",
+    # voxcpm:音色克隆 TTS(modality.audio._synthesize_via_voxcpm in-proc 推理)。
+    # 包很小,模型(VoxCPM-0.5B)走 vendor/bundled_models,不在这里。collect_all
+    # 把 voxcpm 的非 .py 资源(默认 config / asset)一并带上;瘦构建无包则跳过。
+    "voxcpm",
     # pip:运行时 ``-m pip install`` 需要 pip 自带的 vendored 资源
     # (_vendor/certifi/cacert.pem 等)。collect_submodules 已加进 hiddenimports,
     # 这里 collect_all 把 datas/binaries 一并带上。setuptools 同理(装 wheel 时用)。
