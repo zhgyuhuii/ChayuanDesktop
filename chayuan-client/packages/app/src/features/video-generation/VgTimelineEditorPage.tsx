@@ -10,7 +10,7 @@ import { PreviewPlayer } from './timeline/PreviewPlayer';
 import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
-import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, type DraggedMaterial } from './timeline/timelineEdit';
+import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, type DraggedMaterial } from './timeline/timelineEdit';
 import { addTrack, removeTrack, setClipTransform, reorderVideoTrack } from './timeline/trackOps';
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
 import { ScriptGenDialog } from './timeline/ScriptGenDialog';
@@ -81,7 +81,8 @@ export const VgTimelineEditorPage: React.FC = () => {
   const startDraftGen = React.useCallback(async () => {
     patchDraft({ state: 'generating', scriptHash: curHash, error: undefined, taskId: null });
     try {
-      const t = await videoGeneration.submitTask(params, { stop_at: 'subtitle' });
+      const submitP = { ...params, timeline: params.timeline ? roundTimeline(params.timeline) : params.timeline };
+      const t = await videoGeneration.submitTask(submitP, { stop_at: 'subtitle' });
       patchDraft({ taskId: t.task_id });
     } catch (e) {
       patchDraft({ state: 'failed', error: (e as Error).message });
@@ -94,7 +95,7 @@ export const VgTimelineEditorPage: React.FC = () => {
   // 合成语音:用显式 next 避开 patchParams 异步导致的闭包旧值,按当前音频设置生成旁白+字幕
   const onSynthesizeScript = async (script: string) => {
     patchParams({ video_script: script, script_source: 'manual', video_subject: '' });
-    const next = { ...params, video_script: script, script_source: 'manual' as const, video_subject: '' };
+    const next = { ...params, video_script: script, script_source: 'manual' as const, video_subject: '', timeline: params.timeline ? roundTimeline(params.timeline) : params.timeline };
     const hash = scriptHashOf(next);
     patchDraft({ state: 'generating', scriptHash: hash, error: undefined, taskId: null });
     try {
@@ -209,7 +210,8 @@ export const VgTimelineEditorPage: React.FC = () => {
   // 画幅改变 → 预览过期(重新生成才按新画幅)
   React.useEffect(() => { setProxyStale(true); }, [params.video_aspect, params.video_width, params.video_height]);
 
-  const onTimelineChange = (t: VgTimeline) => { patchParams({ timeline: t }); setProxyStale(true); };
+  // 写入前取整(防小数 out_ms/track_start_ms 触发后端 422,见 roundTimeline)
+  const onTimelineChange = (t: VgTimeline) => { patchParams({ timeline: roundTimeline(t) }); setProxyStale(true); };
   // 缩略图按 clip 的 source 解析:material_id → 素材缩略图;url(http)→ 暂无。
   const videoClips = (timeline.tracks ?? []).find((t) => t.kind === 'video')?.clips ?? [];
   const thumbUrlOf = (i: number) => {
@@ -302,7 +304,7 @@ export const VgTimelineEditorPage: React.FC = () => {
     if (draft.state !== 'ready' || !draft.taskId) { reportError(new Error('草稿尚未就绪,稍候再试')); return; }
     setSubmitting(true);
     try {
-      await videoGeneration.finalizeDraft(draft.taskId, timeline, cues.length ? cues : undefined);
+      await videoGeneration.finalizeDraft(draft.taskId, roundTimeline(timeline), cues.length ? cues : undefined);
       notifySuccess('已提交合成', '前往「我的视频」看进度');
       openTab('/video-generation/library', { title: '我的视频', icon: 'video' });
       void navigate({ to: '/video-generation/library' as never });

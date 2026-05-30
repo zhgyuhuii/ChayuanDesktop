@@ -2,6 +2,30 @@ import type { VgTimeline, VgTimelineClip } from '@chayuan/api';
 
 const MIN_DUR = 200;
 
+/**
+ * 把 timeline 里所有「后端为整数」的字段取整,避免小数 out_ms/track_start_ms/duration_ms
+ * 触发后端 422(TimelineClip.out_ms 等是 int)。x/y/scale 是 float 保留。
+ * 小数来源举例:图像 clip 填充时长 = contentMs - start,而 contentMs 含 audioDurationMs 可能是小数。
+ */
+export function roundTimeline(t: VgTimeline): VgTimeline {
+  const r = (v: number | undefined | null) => (v == null ? v : Math.round(v));
+  return {
+    ...t,
+    duration_ms: Math.round(t.duration_ms || 0),
+    tracks: (t.tracks || []).map((tr) => ({
+      ...tr,
+      clips: (tr.clips || []).map((c) => ({
+        ...c,
+        track_start_ms: Math.round(c.track_start_ms || 0),
+        in_ms: r(c.in_ms) as number | undefined,
+        out_ms: r(c.out_ms) as number | undefined,
+        duration_ms: r(c.duration_ms) as number | undefined,
+        z: r(c.z) as number | undefined,
+      })),
+    })),
+  };
+}
+
 /** clip 有效时长(ms):优先 out-in;否则 duration_ms;再否则 1000。 */
 export function clipDurMs(c: VgTimelineClip): number {
   const inMs = c.in_ms ?? 0;
