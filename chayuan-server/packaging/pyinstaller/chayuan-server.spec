@@ -628,6 +628,11 @@ for big in (
     # 包很小,模型(VoxCPM-0.5B)走 vendor/bundled_models,不在这里。collect_all
     # 把 voxcpm 的非 .py 资源(默认 config / asset)一并带上;瘦构建无包则跳过。
     "voxcpm",
+    # 数字人 Wav2Lip:torch 已在(克隆引入);音频处理(librosa)+ 科学计算(scipy)
+    # 的动态子模块需显式收集。Wav2Lip 权重随 vendor/bundled_models/digital_human/
+    # 走 Tauri resources(同 voxcpm,不进 PyInstaller datas)。
+    "librosa",
+    "scipy",
     # pip:运行时 ``-m pip install`` 需要 pip 自带的 vendored 资源
     # (_vendor/certifi/cacert.pem 等)。collect_submodules 已加进 hiddenimports,
     # 这里 collect_all 把 datas/binaries 一并带上。setuptools 同理(装 wheel 时用)。
