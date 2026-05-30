@@ -108,19 +108,31 @@ export async function dhDeleteAvatar(name: string): Promise<{ deleted: boolean }
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Products
+// ─────────────────────────────────────────────────────────────────────
+
+export async function dhUploadProduct(file: File): Promise<{ ref: string; name: string }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  return rd<{ ref: string; name: string }>('/api/v1/digital-human/products', {
+    method: 'POST',
+    body: fd,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Generate
 // ─────────────────────────────────────────────────────────────────────
 
 export async function dhGenerate(
   preset_id: string,
   text: string,
-  width = 720,
-  height = 1280,
+  opts?: { product_image?: string; template?: 'none' | 'corner' | 'bg' | 'side'; width?: number; height?: number },
 ): Promise<{ task_id: string }> {
   return rd<{ task_id: string }>('/api/v1/digital-human/generate', {
     method: 'POST',
-    body: { preset_id, text },
-    query: { width, height },
+    query: { width: opts?.width ?? 720, height: opts?.height ?? 1280 },
+    body: { preset_id, text, product_image: opts?.product_image, template: opts?.template ?? 'none' },
   });
 }
 
@@ -150,6 +162,7 @@ export const digitalHuman = {
   listAvatars: dhListAvatars,
   uploadAvatar: dhUploadAvatar,
   deleteAvatar: dhDeleteAvatar,
+  uploadProduct: dhUploadProduct,
   generate: dhGenerate,
   taskStatus: dhTaskStatus,
   taskFileUrl: dhTaskFileUrl,
