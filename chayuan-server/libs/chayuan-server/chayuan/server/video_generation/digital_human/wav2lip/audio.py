@@ -97,7 +97,9 @@ def _linear_to_mel(spectogram):
 
 def _build_mel_basis():
     assert hp.fmax <= hp.sample_rate // 2
-    return librosa.filters.mel(hp.sample_rate, hp.n_fft, n_mels=hp.num_mels,
+    # librosa 0.10+ 把 mel() 改成关键字-only(sr/n_fft 不能再位置传)→ 官方 Wav2Lip
+    # 老写法 ``mel(sr, n_fft, ...)`` 会 TypeError。这里改成全关键字,兼容新旧 librosa。
+    return librosa.filters.mel(sr=hp.sample_rate, n_fft=hp.n_fft, n_mels=hp.num_mels,
                                fmin=hp.fmin, fmax=hp.fmax)
 
 def _amp_to_db(x):
