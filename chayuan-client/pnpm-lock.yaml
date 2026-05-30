@@ -176,9 +176,6 @@ importers:
       '@chayuan/i18n':
         specifier: workspace:*
         version: link:../i18n
-      '@chayuan/license':
-        specifier: workspace:*
-        version: link:../license
       '@chayuan/observability':
         specifier: workspace:*
         version: link:../observability
@@ -319,19 +316,6 @@ importers:
       react:
         specifier: ^19.0.0
         version: 19.2.5
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-
-  packages/license:
-    dependencies:
-      '@noble/curves':
-        specifier: ^2.2.0
-        version: 2.2.0
-      '@noble/hashes':
-        specifier: ^2.2.0
-        version: 2.2.0
-    devDependencies:
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -1337,14 +1321,6 @@ packages:
     peerDependencies:
       '@types/react': '>=16'
       react: '>=16'
-
-  '@noble/curves@2.2.0':
-    resolution: {integrity: sha512-T/BoHgFXirb0ENSPBquzX0rcjXeM6Lo892a2jlYJkqk83LqZx0l1Of7DzlKJ6jkpvMrkHSnAcgb5JegL8SeIkQ==}
-    engines: {node: '>= 20.19.0'}
-
-  '@noble/hashes@2.2.0':
-    resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
-    engines: {node: '>= 20.19.0'}
 
   '@nodable/entities@2.1.0':
     resolution: {integrity: sha512-nyT7T3nbMyBI/lvr6L5TyWbFJAI9FTgVRakNoBqCD+PmID8DzFrrNdLLtHMwMszOtqZa8PAOV24ZqDnQrhQINA==}
@@ -6209,12 +6185,6 @@ snapshots:
       '@types/mdx': 2.0.13
       '@types/react': 19.2.14
       react: 19.2.5
-
-  '@noble/curves@2.2.0':
-    dependencies:
-      '@noble/hashes': 2.2.0
-
-  '@noble/hashes@2.2.0': {}
 
   '@nodable/entities@2.1.0': {}
 

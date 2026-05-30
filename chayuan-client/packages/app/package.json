@@ -25,7 +25,6 @@
   "dependencies": {
     "@chayuan/api": "workspace:*",
     "@chayuan/i18n": "workspace:*",
-    "@chayuan/license": "workspace:*",
     "@chayuan/observability": "workspace:*",
     "@chayuan/platform-shared": "workspace:*",
     "@chayuan/transport": "workspace:*",
