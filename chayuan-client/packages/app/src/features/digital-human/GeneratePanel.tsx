@@ -26,6 +26,9 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[] }> = ({ pre
   // template state (only relevant when productRef is set)
   const [template, setTemplate] = React.useState<Template>('corner');
 
+  // matte (green-screen keying) — only relevant when productRef is set
+  const [matte, setMatte] = React.useState(false);
+
   React.useEffect(() => { if (!pid && presets[0]) setPid(presets[0].id); }, [presets, pid]);
 
   const handleProductFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,6 +52,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[] }> = ({ pre
   const removeProduct = () => {
     setProductRef(null);
     setProductName(null);
+    setMatte(false);
   };
 
   const gen = async () => {
@@ -57,7 +61,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[] }> = ({ pre
       const r = await digitalHuman.generate(
         pid,
         text,
-        productRef ? { product_image: productRef, template } : undefined,
+        productRef ? { product_image: productRef, template, matte } : undefined,
       );
       setTaskId(r.task_id);
     } catch (e) { reportError(e as Error, '数字人生成失败'); }
@@ -120,6 +124,20 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[] }> = ({ pre
             </button>
           ))}
         </div>
+      )}
+
+      {/* Matte toggle — only shown when a product image is selected */}
+      {productRef && (
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={matte}
+            onChange={(e) => setMatte(e.target.checked)}
+            className="h-4 w-4 accent-[var(--cy-brand-500)]"
+          />
+          <span className="text-sm text-[var(--cy-text-primary)]">绿幕抠像</span>
+          <span className="text-xs text-[var(--cy-text-tertiary)]">人像需绿幕底最佳</span>
+        </label>
       )}
 
       <button onClick={() => void gen()} disabled={!pid || !text.trim() || busy}

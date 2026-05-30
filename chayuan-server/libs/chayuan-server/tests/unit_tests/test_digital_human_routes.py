@@ -49,3 +49,13 @@ def test_generate_passes_product(monkeypatch, tmp_path):
                json={"preset_id": "p1", "text": "hi", "product_image": "product:p.png", "template": "corner"})
     assert r.status_code == 200 and r.json()["task_id"] == "tid9"
     assert seen.get("product_ref") == "product:p.png" and seen.get("template") == "corner"
+
+
+def test_generate_passes_matte(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path)
+    seen = {}
+    monkeypatch.setattr(dh_jobs, "submit", lambda **k: seen.update(k) or "tidM")
+    r = c.post("/api/v1/digital-human/generate",
+               json={"preset_id": "p1", "text": "hi", "product_image": "product:p.png",
+                     "template": "bg", "matte": True})
+    assert r.status_code == 200 and seen.get("matte") is True

@@ -105,7 +105,8 @@ def generate(body: DhGenerateRequest,
              user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
     tid = dh_jobs.submit(preset_id=body.preset_id, text=body.text,
                          width=width, height=height,
-                         product_ref=body.product_image, template=body.template)
+                         product_ref=body.product_image, template=body.template,
+                         matte=body.matte)
     return {"task_id": tid}
 
 

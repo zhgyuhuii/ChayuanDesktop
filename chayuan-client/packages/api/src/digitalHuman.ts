@@ -127,12 +127,12 @@ export async function dhUploadProduct(file: File): Promise<{ ref: string; name: 
 export async function dhGenerate(
   preset_id: string,
   text: string,
-  opts?: { product_image?: string; template?: 'none' | 'corner' | 'bg' | 'side'; width?: number; height?: number },
+  opts?: { product_image?: string; template?: 'none' | 'corner' | 'bg' | 'side'; matte?: boolean; width?: number; height?: number },
 ): Promise<{ task_id: string }> {
   return rd<{ task_id: string }>('/api/v1/digital-human/generate', {
     method: 'POST',
     query: { width: opts?.width ?? 720, height: opts?.height ?? 1280 },
-    body: { preset_id, text, product_image: opts?.product_image, template: opts?.template ?? 'none' },
+    body: { preset_id, text, product_image: opts?.product_image, template: opts?.template ?? 'none', matte: opts?.matte ?? false },
   });
 }
 
