@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Sparkles, Film, AlertTriangle, RefreshCw, ChevronDown, ChevronUp, Eye, EyeOff, FileText } from 'lucide-react';
+import { Loader2, Sparkles, Film, AlertTriangle, RefreshCw, ChevronDown, ChevronUp, Eye, EyeOff, FileText, Volume2, Type, Music } from 'lucide-react';
 import { VgAspectPicker } from './VgAspectPicker';
 import { videoGeneration, type VgTimeline } from '@chayuan/api';
 import { useVgComposer, scriptHashOf } from './store/vgComposer';
@@ -15,6 +15,9 @@ import { addTrack, removeTrack, setClipTransform, reorderVideoTrack } from './ti
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
 import { ScriptGenDialog } from './timeline/ScriptGenDialog';
 import { ScriptEditorDialog } from './timeline/ScriptEditorDialog';
+import { VgSpeechSettings } from './VgAudioPopover';
+import { VgSubtitleSettings } from './VgSubtitlePopover';
+import { BgmSection } from './sections/BgmSection';
 import { SubtitleBulkEditor } from './timeline/SubtitleBulkEditor';
 import { rebuildCuesFromLines } from './timeline/subtitleEdit';
 import { playAudioTimeline } from './timeline/audioPreview';
@@ -64,6 +67,8 @@ export const VgTimelineEditorPage: React.FC = () => {
     || (params.script_source === 'ai' && (params.video_subject || '').trim().length > 0);
   const [scriptGenOpen, setScriptGenOpen] = React.useState(false);
   const [scriptEditOpen, setScriptEditOpen] = React.useState(false);
+  // #18/#19:编辑器内联设置面板(复用会话同款 语音/字幕/背景音乐 section)
+  const [settingsPanel, setSettingsPanel] = React.useState<'speech' | 'subtitle' | 'bgm' | null>(null);
   const [subtitleEditorOpen, setSubtitleEditorOpen] = React.useState(false);
   const submitScriptGen = (v: { subject: string; model: string | null; paragraph: number; language: string }) => {
     patchParams({ video_subject: v.subject, model: v.model ?? undefined, paragraph_number: v.paragraph, video_language: v.language, script_source: 'ai', video_script: '' });
@@ -398,6 +403,31 @@ export const VgTimelineEditorPage: React.FC = () => {
             {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} 提交合成
           </button>
         </div>
+        {/* #18/#19 设置条:语音 / 字幕 / 背景音乐(复用会话同款组件,写全局 params) */}
+        {!timelineCollapsed && (
+          <div className="mb-2 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
+            <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 text-xs">
+              {([['speech', '语音', Volume2], ['subtitle', '字幕', Type], ['bgm', '背景音乐', Music]] as const).map(([k, label, Icon]) => (
+                <button key={k} type="button" onClick={() => setSettingsPanel((c) => (c === k ? null : k))}
+                  className={'inline-flex h-7 items-center gap-1 rounded-md border px-2 transition-colors ' +
+                    (settingsPanel === k
+                      ? 'border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                      : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]')}>
+                  <Icon className="h-3 w-3 text-[var(--cy-brand-500)]" /> {label}
+                  <ChevronDown className={'h-3 w-3 transition-transform ' + (settingsPanel === k ? 'rotate-180' : '')} />
+                </button>
+              ))}
+              <span className="text-[10px] text-[var(--cy-text-tertiary)]">配置语音后点「编辑脚本/生成脚本」即按此合成旁白+字幕</span>
+            </div>
+            {settingsPanel && (
+              <div className="border-t border-[var(--cy-border-subtle)] px-3 py-2">
+                {settingsPanel === 'speech' ? <VgSpeechSettings />
+                  : settingsPanel === 'subtitle' ? <VgSubtitleSettings />
+                  : <BgmSection />}
+              </div>
+            )}
+          </div>
+        )}
         {!timelineCollapsed && (
         <div className="min-h-0 flex-1 overflow-y-auto cy-hide-scrollbar">
         <TimelineTracks
