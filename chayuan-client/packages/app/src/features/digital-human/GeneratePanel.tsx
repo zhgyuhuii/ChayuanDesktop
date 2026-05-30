@@ -1,4 +1,6 @@
 import * as React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { digitalHuman } from '@chayuan/api';
 import type { DigitalHumanPreset } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
@@ -11,11 +13,20 @@ const TEMPLATE_LABELS: Record<Template, string> = {
   side: '左侧出镜',
 };
 
+type EngineId = 'wav2lip' | 'sadtalker' | 'musetalk';
+
+const DEFAULT_ENGINES: Array<{ id: EngineId; label: string; kind: 'cpu' | 'gpu'; installed: boolean }> = [
+  { id: 'wav2lip', label: 'Wav2Lip', kind: 'cpu', installed: true },
+];
+
 export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[] }> = ({ presets }) => {
   const [pid, setPid] = React.useState('');
   const [text, setText] = React.useState('');
   const [taskId, setTaskId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+
+  // engine state
+  const [engine, setEngine] = React.useState<EngineId>('wav2lip');
 
   // product image state
   const [productRef, setProductRef] = React.useState<string | null>(null);
@@ -28,6 +39,13 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[] }> = ({ pre
 
   // matte (green-screen keying) — only relevant when productRef is set
   const [matte, setMatte] = React.useState(false);
+
+  const navigate = useNavigate();
+
+  const enginesQ = useQuery({ queryKey: ['dh.engines'], queryFn: digitalHuman.listEngines });
+  const engines = enginesQ.data?.items ?? DEFAULT_ENGINES;
+
+  const engineInstalled = engines.find((e) => e.id === engine)?.installed ?? (engine === 'wav2lip');
 
   React.useEffect(() => { if (!pid && presets[0]) setPid(presets[0].id); }, [presets, pid]);
 
@@ -58,11 +76,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[] }> = ({ pre
   const gen = async () => {
     setBusy(true);
     try {
-      const r = await digitalHuman.generate(
-        pid,
-        text,
-        productRef ? { product_image: productRef, template, matte } : undefined,
-      );
+      const opts = { engine, ...(productRef ? { product_image: productRef, template, matte } : {}) };
+      const r = await digitalHuman.generate(pid, text, opts);
       setTaskId(r.task_id);
     } catch (e) { reportError(e as Error, '数字人生成失败'); }
     finally { setBusy(false); }
@@ -73,6 +88,36 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[] }> = ({ pre
 
   return (
     <div className="space-y-3">
+      {/* Engine picker row */}
+      <div>
+        <div className="mb-1 text-xs text-[var(--cy-text-tertiary)]">画质引擎</div>
+        <div className="flex flex-wrap gap-2">
+          {engines.map((e) => (
+            <button
+              key={e.id}
+              onClick={() => setEngine(e.id as EngineId)}
+              className={`h-8 rounded-md px-3 text-sm ${engine === e.id
+                ? 'bg-[var(--cy-ink-700)] text-white'
+                : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]'}`}>
+              {e.label}
+              {!e.installed && (
+                <span className="ml-1 text-xs text-[var(--cy-text-tertiary)]">· 未安装</span>
+              )}
+            </button>
+          ))}
+        </div>
+        {!engineInstalled && (
+          <div className="mt-1 flex items-center gap-2 text-sm text-[var(--cy-text-secondary)]">
+            <span>该引擎运行时未安装（需 GPU）。</span>
+            <button
+              onClick={() => void navigate({ to: '/marketplace' as never })}
+              className="text-[var(--cy-brand-500)] hover:underline">
+              去模型广场安装
+            </button>
+          </div>
+        )}
+      </div>
+
       <select value={pid} onChange={(e) => setPid(e.target.value)}
         className="h-8 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)]">
         {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -140,7 +185,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[] }> = ({ pre
         </label>
       )}
 
-      <button onClick={() => void gen()} disabled={!pid || !text.trim() || busy}
+      <button onClick={() => void gen()} disabled={!pid || !text.trim() || busy || !engineInstalled}
         className="inline-flex h-8 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
         生成数字人视频
       </button>
