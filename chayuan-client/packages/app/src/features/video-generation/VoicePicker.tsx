@@ -19,6 +19,8 @@ import { Wifi, WifiOff, Play, Loader2, Mic, Square, Upload, Trash2 } from 'lucid
 import { cn } from '@chayuan/ui';
 import { videoGeneration, type VgVoiceProvider } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
+import { confirmDialog } from '../../store/confirmDialog';
+import { promptDialog } from '../../store/promptDialog';
 
 export interface VoicePickerValue {
   voice_provider: VgVoiceProvider;
@@ -152,7 +154,9 @@ export const VoicePicker: React.FC<{
 
   const registerClone = React.useCallback(
     async (blob: Blob, defaultName: string) => {
-      const name = window.prompt('给这个克隆音色起个名字', defaultName);
+      // Tauri webview 禁用 window.prompt(返 null)→ 必须用跨端 promptDialog,
+      // 否则桌面版"录音/上传克隆音色"起名这步静默中断,克隆根本建不出来。
+      const name = await promptDialog('给这个克隆音色起个名字', { defaultValue: defaultName, title: '克隆音色命名' });
       if (!name || !name.trim()) return;
       setCloneBusy(true);
       try {
@@ -198,7 +202,7 @@ export const VoicePicker: React.FC<{
   const onDeleteClone = async () => {
     const cur = value.voice_name;
     if (!cur || !cur.startsWith('clone:')) return;
-    if (!window.confirm('删除这个克隆音色?不可恢复。')) return;
+    if (!(await confirmDialog('删除这个克隆音色?不可恢复。', { danger: true }))) return;
     setCloneBusy(true);
     try {
       await videoGeneration.deleteCloneVoice(cur.slice('clone:'.length));

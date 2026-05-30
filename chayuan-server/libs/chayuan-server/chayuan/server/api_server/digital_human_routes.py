@@ -63,6 +63,17 @@ def list_avatars(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict
     return {"count": len(items), "items": items}
 
 
+@digital_human_router.get("/avatars/file")
+def avatar_file(ref: str,
+                user: Dict[str, Any] = Depends(require_auth_enabled())) -> FileResponse:
+    """按 avatar_ref(``bundled:<f>`` / ``user:<f>``)返形象文件,供预设卡片缩略图。
+    ref 含冒号 → 用 query 参数(不进路径段)。"""
+    p = store.resolve_avatar_path(ref)
+    if not p or not os.path.isfile(p):
+        raise HTTPException(404, "形象文件不存在")
+    return FileResponse(p)
+
+
 @digital_human_router.get("/engines")
 def list_engines(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
     items = dh_engine.list_engines()

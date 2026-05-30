@@ -41,6 +41,7 @@ import { CommandPaletteRoot } from '../features/cmdk/CommandPalette';
 import { useDesktopIntegrations } from '../features/desktop/useDesktopIntegrations';
 import { ErrorDialogRoot } from '../features/shell/ErrorDialog';
 import { ConfirmRoot } from '../store/confirmDialog';
+import { PromptRoot } from '../store/promptDialog';
 import { ImageEmbedderInstallDialog } from '../features/aiPlatform/ImageEmbedderInstallDialog';
 import { useAuthStore } from '../store/auth';
 import { useLoginModalStore } from '../store/loginModal';
@@ -138,6 +139,7 @@ export const Chrome: React.FC = () => {
       <CommandPaletteRoot />
       <ErrorDialogRoot />
       <ConfirmRoot />
+      <PromptRoot />
       <DetachedToolbar />
       <ImageEmbedderInstallDialog />
     </div>

@@ -8,6 +8,7 @@ import { Pencil, Trash2, Plus, Loader2 } from 'lucide-react';
 import { cn } from '@chayuan/ui';
 import { digitalHuman, type DigitalHumanPreset } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
+import { confirmDialog } from '../../store/confirmDialog';
 import { PresetEditor } from './PresetEditor';
 
 interface PresetListProps {
@@ -20,7 +21,7 @@ export const PresetList: React.FC<PresetListProps> = ({ presets, onChanged }) =>
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
 
   const onDelete = async (p: DigitalHumanPreset) => {
-    if (!window.confirm(`删除数字人"${p.name}"?不可恢复。`)) return;
+    if (!(await confirmDialog(`删除数字人"${p.name}"?不可恢复。`, { danger: true }))) return;
     setDeletingId(p.id);
     try {
       await digitalHuman.deletePreset(p.id);
@@ -52,6 +53,16 @@ export const PresetList: React.FC<PresetListProps> = ({ presets, onChanged }) =>
             'bg-[var(--cy-surface-1)] p-3 text-[var(--cy-text-primary)]',
           )}
         >
+          {/* 缩略图:图像形象用 <img>,视频形象用 <video> 首帧 */}
+          <div className="aspect-video w-full overflow-hidden rounded-md bg-[var(--cy-surface-2)]">
+            {p.avatar_kind === 'image' ? (
+              <img src={digitalHuman.avatarFileUrl(p.avatar_ref)} alt={p.name} draggable={false}
+                className="h-full w-full object-cover" loading="lazy" />
+            ) : (
+              <video src={digitalHuman.avatarFileUrl(p.avatar_ref)} muted preload="metadata" draggable={false}
+                className="h-full w-full object-cover" />
+            )}
+          </div>
           <span className="truncate text-sm font-medium" title={p.name}>{p.name}</span>
           <span className="truncate text-[10px] text-[var(--cy-text-tertiary)]" title={p.voice_name || p.voice_provider}>
             {p.voice_name || p.voice_provider}

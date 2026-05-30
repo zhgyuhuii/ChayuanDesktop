@@ -181,6 +181,12 @@ export function dhTaskFileUrl(tid: string): string {
   return `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/digital-human/tasks/${encodeURIComponent(tid)}/file`;
 }
 
+/** 形象文件 URL(按 avatar_ref)— 预设卡片缩略图用 <img>/<video> 直接引。 */
+export function dhAvatarFileUrl(ref: string): string {
+  const cfg = getClientConfig();
+  return `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/digital-human/avatars/file?ref=${encodeURIComponent(ref)}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // 命名空间聚合
 // ─────────────────────────────────────────────────────────────────────
@@ -198,4 +204,5 @@ export const digitalHuman = {
   generate: dhGenerate,
   taskStatus: dhTaskStatus,
   taskFileUrl: dhTaskFileUrl,
+  avatarFileUrl: dhAvatarFileUrl,
 };
