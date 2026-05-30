@@ -92,7 +92,7 @@ export const VgTimeline: React.FC<{
                   backgroundImage: thumbUrlOf?.(s.idx) ? `url(${thumbUrlOf(s.idx)})` : undefined,
                   backgroundSize: 'cover', backgroundPosition: 'center',
                 }}
-                className={`absolute top-3 h-8 cursor-pointer overflow-hidden rounded border text-[10px] ${
+                className={`absolute top-2 h-8 cursor-pointer overflow-hidden rounded border text-[10px] ${
                   selected
                     ? 'z-20 border-[var(--cy-brand-600)] ring-2 ring-[var(--cy-brand-400)]'
                     : 'border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)] hover:bg-[var(--cy-brand-100)]'

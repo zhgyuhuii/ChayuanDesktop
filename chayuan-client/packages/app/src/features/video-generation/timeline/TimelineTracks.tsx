@@ -32,11 +32,12 @@ export const TimelineTracks: React.FC<{
   onDropAudio?: (m: DraggedMaterial, trackId?: string) => void;
   onCuesChange?: (cues: SrtCue[]) => void;
   onReplaceClip?: (clipId: string) => void;
-  onLaneContextMenu?: (e: React.MouseEvent, track: 'video' | 'audio' | 'subtitle', clipId?: string, trackId?: string, removable?: boolean) => void;
+  onLaneContextMenu?: (e: React.MouseEvent, track: 'video' | 'audio' | 'subtitle' | 'narration', clipId?: string, trackId?: string, removable?: boolean) => void;
   onEditSubtitle?: () => void;
   selectedTrackId?: string | null;
   onSelectTrack?: (trackId: string) => void;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, onEditSubtitle, selectedTrackId, onSelectTrack }) => {
+  onReorderVideoTrack?: (trackId: string, dir: 'up' | 'down') => void;
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, onEditSubtitle, selectedTrackId, onSelectTrack, onReorderVideoTrack }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const audioTracks = (timeline.tracks || []).filter((t) => t.kind === 'audio');
@@ -46,6 +47,18 @@ export const TimelineTracks: React.FC<{
   const hdrBtn = 'inline-flex h-5 w-5 items-center justify-center rounded text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]';
   const selCls = (id?: string) => (id && id === selectedTrackId ? ' ring-2 ring-inset ring-[var(--cy-brand-400)]' : '');
   const dragOver = (e: React.DragEvent) => { if (e.dataTransfer.types.includes(VG_MATERIAL_DND_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } };
+  // 轨道头竖直拖动 → 每越过一格 TRACK_H 触发一次上/下移
+  const startHeaderDrag = (e: React.PointerEvent, trackId: string) => {
+    if (!onReorderVideoTrack) return;
+    e.preventDefault();
+    let baseY = e.clientY;
+    const move = (ev: PointerEvent) => {
+      const dy = ev.clientY - baseY;
+      if (Math.abs(dy) >= TRACK_H) { onReorderVideoTrack(trackId, dy < 0 ? 'up' : 'down'); baseY = ev.clientY; }
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
 
   return (
     <div className="flex rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
@@ -53,11 +66,16 @@ export const TimelineTracks: React.FC<{
       <div className="shrink-0 border-r border-[var(--cy-border-subtle)]" style={{ width: HEADER_W }}>
         <div style={{ height: RULER_H }} className="border-b border-[var(--cy-border-subtle)]" />
         {videoTracks.map((tr, i) => (
-          <div key={tr.id} className={selCls(tr.id)} onClick={() => onSelectTrack?.(tr.id)}>
+          <div key={tr.id} className={`${selCls(tr.id)} ${onReorderVideoTrack && videoTracks.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
+            onClick={() => onSelectTrack?.(tr.id)}
+            onPointerDown={(e) => { if (videoTracks.length > 1) startHeaderDrag(e, tr.id); }}
+            title={videoTracks.length > 1 ? '上下拖动调整图层顺序(越靠上越上层)' : undefined}>
             <TrackHeader label={i === 0 ? '视频' : (tr.label || `视频 ${i + 1}`)} icon={<Film className="h-3 w-3" />} />
           </div>
         ))}
-        <TrackHeader label="旁白" icon={<Mic className="h-3 w-3" />} />
+        <div onContextMenu={(e) => { if (onLaneContextMenu) { e.preventDefault(); onLaneContextMenu(e, 'narration'); } }}>
+          <TrackHeader label="旁白" icon={<Mic className="h-3 w-3" />} />
+        </div>
         {audioLanes.map((tr, i) => (
           <div key={tr?.id ?? `a${i}`} className={selCls(tr?.id)} onClick={() => tr && onSelectTrack?.(tr.id)}>
             <TrackHeader label={tr?.label || (i === 0 ? '音频' : `音频 ${i + 1}`)} icon={<Music2 className="h-3 w-3" />} />
@@ -97,7 +115,9 @@ export const TimelineTracks: React.FC<{
                 </div>
               );
             })}
-            <AudioWaveTrack peaks={peaks} contentWidthPx={contentWidthPx} loading={peaksLoading} />
+            <div onContextMenu={(e) => { if (onLaneContextMenu) { e.preventDefault(); onLaneContextMenu(e, 'narration'); } }}>
+              <AudioWaveTrack peaks={peaks} contentWidthPx={contentWidthPx} loading={peaksLoading} />
+            </div>
             {/* 插入音频轨们 */}
             {audioLanes.map((tr, i) => (
               <div key={tr?.id ?? `a${i}`} style={{ height: TRACK_H }}

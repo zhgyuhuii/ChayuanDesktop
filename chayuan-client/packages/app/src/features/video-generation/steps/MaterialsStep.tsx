@@ -136,6 +136,15 @@ const MineTab: React.FC<{
   view?: 'card' | 'list';
 }> = ({ selected, onToggle, qc, view = 'card' }) => {
   const [preview, setPreview] = React.useState<VgMaterial | null>(null);
+  const [menu, setMenu] = React.useState<{ x: number; y: number; m: VgMaterial } | null>(null);
+  React.useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(null); };
+    // 延迟注册,避免本次右键事件立刻关掉菜单
+    const t = setTimeout(() => { window.addEventListener('click', close); window.addEventListener('keydown', onKey); }, 0);
+    return () => { clearTimeout(t); window.removeEventListener('click', close); window.removeEventListener('keydown', onKey); };
+  }, [menu]);
   const q = useQuery({
     queryKey: ['vg.materials', { page: 1, page_size: 50 }],
     queryFn: () => videoGeneration.listMaterials({ page: 1, page_size: 50 }),
@@ -190,6 +199,7 @@ const MineTab: React.FC<{
           if (view === 'list') {
             return (
               <li key={m.material_id} {...dragProps}
+                onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, m }); }}
                 className={'group flex items-center gap-2 rounded-lg border p-1 text-left transition-colors ' +
                   (chosen ? 'border-[var(--cy-brand-500)]' : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
                 <button type="button" onClick={() => onToggle(item)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
@@ -199,16 +209,12 @@ const MineTab: React.FC<{
                     <span className="block text-[10px] text-[var(--cy-text-tertiary)]">{Math.round((m.duration_ms || 0) / 1000)}s · {fmtFmt(m)} · {fmtSize(m.size)}</span>
                   </span>
                 </button>
-                <button type="button" title="删除"
-                  onClick={async () => { if (!(await confirmDialog(`删除素材「${m.name}」?磁盘文件会一并清掉。`, { danger: true }))) return; await delMut.mutateAsync(m.material_id); }}
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-rose-600 opacity-0 hover:bg-rose-50 group-hover:opacity-100">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
               </li>
             );
           }
           return (
             <li key={m.material_id} {...dragProps}
+              onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, m }); }}
               className={
                 'group relative overflow-hidden rounded-xl border transition-colors ' +
                 (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
@@ -227,24 +233,28 @@ const MineTab: React.FC<{
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </span>
               )}
-              <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                <button type="button" title="预览" onClick={() => setPreview(m)}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded bg-black/55 text-white hover:bg-black/75">
-                  <Eye className="h-3.5 w-3.5" />
-                </button>
-                <button type="button" title="删除"
-                  onClick={async () => {
-                    if (!(await confirmDialog(`删除素材「${m.name}」?磁盘文件会一并清掉。`, { danger: true }))) return;
-                    await delMut.mutateAsync(m.material_id);
-                  }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded bg-rose-600/85 text-white hover:bg-rose-600">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
             </li>
           );
         })}
       </ul>
+      {menu && (
+        <div className="fixed z-[210] min-w-[120px] overflow-hidden rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] py-1 text-xs shadow-lg"
+          style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
+          <button type="button" onClick={() => { setPreview(menu.m); setMenu(null); }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
+            <Eye className="h-3.5 w-3.5" /> 预览
+          </button>
+          <button type="button"
+            onClick={async () => {
+              const m = menu.m; setMenu(null);
+              if (!(await confirmDialog(`删除素材「${m.name}」?磁盘文件会一并清掉。`, { danger: true }))) return;
+              await delMut.mutateAsync(m.material_id);
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50">
+            <Trash2 className="h-3.5 w-3.5" /> 删除
+          </button>
+        </div>
+      )}
       {preview && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-6"
           onClick={() => setPreview(null)}>

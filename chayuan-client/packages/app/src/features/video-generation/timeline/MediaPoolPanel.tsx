@@ -2,14 +2,15 @@ import * as React from 'react';
 import { ChevronLeft, ChevronRight, Library, LayoutGrid, List as ListIcon } from 'lucide-react';
 import { MaterialsStep } from '../steps/MaterialsStep';
 
-export const MediaPoolPanel: React.FC<{ width?: number }> = ({ width = 288 }) => {
+export const MediaPoolPanel: React.FC<{ width?: number; fill?: boolean }> = ({ width = 288, fill = false }) => {
   const [open, setOpen] = React.useState(true);
   const [view, setView] = React.useState<'card' | 'list'>(() =>
     (typeof localStorage !== 'undefined' && localStorage.getItem('cy.vg.pool.view') === 'list') ? 'list' : 'card');
   const setV = (v: 'card' | 'list') => { setView(v); try { localStorage.setItem('cy.vg.pool.view', v); } catch { /* noop */ } };
 
   return (
-    <div className="flex shrink-0 flex-col border-r border-[var(--cy-border-subtle)]" style={{ width: open ? width : 36 }}>
+    <div className={`flex flex-col border-r border-[var(--cy-border-subtle)] ${fill && open ? 'min-w-0 flex-1' : 'shrink-0'}`}
+      style={fill && open ? undefined : { width: open ? width : 36 }}>
       <button type="button" onClick={() => setOpen((v) => !v)}
         className="flex h-8 items-center gap-1 border-b border-[var(--cy-border-subtle)] px-2 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
         {open ? <ChevronLeft className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}

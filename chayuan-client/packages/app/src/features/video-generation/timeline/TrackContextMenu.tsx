@@ -1,16 +1,17 @@
 import * as React from 'react';
-import { Upload, Library, Play, Trash2, Plus } from 'lucide-react';
+import { Upload, Library, Play, Trash2, Plus, RefreshCw } from 'lucide-react';
 
 export interface TrackMenuCtx {
   x: number;
   y: number;
-  track: 'video' | 'audio' | 'subtitle';
+  track: 'video' | 'audio' | 'subtitle' | 'narration';
   clipId?: string;
   trackId?: string;
   removable?: boolean;
 }
 
-/** 轨道右键菜单:上传/库添加/试听/删除 clip;加视频/音频轨;删除可删轨。 */
+/** 轨道右键菜单:上传/库添加/试听/删除 clip;加视频/音频轨;删除可删轨。
+ *  narration(旁白)轨为自动生成,只给「试听旁白 / 重新生成旁白」。 */
 export const TrackContextMenu: React.FC<{
   ctx: TrackMenuCtx;
   onUploadLocal: () => void;
@@ -21,7 +22,8 @@ export const TrackContextMenu: React.FC<{
   onAddVideoTrack?: () => void;
   onAddAudioTrack?: () => void;
   onRemoveTrack?: (trackId: string) => void;
-}> = ({ ctx, onUploadLocal, onAddFromLibrary, onPreview, onDeleteClip, onClose, onAddVideoTrack, onAddAudioTrack, onRemoveTrack }) => {
+  onRegenNarration?: () => void;
+}> = ({ ctx, onUploadLocal, onAddFromLibrary, onPreview, onDeleteClip, onClose, onAddVideoTrack, onAddAudioTrack, onRemoveTrack, onRegenNarration }) => {
   React.useEffect(() => {
     // 只在左键点击 / Esc 关闭。不监听 contextmenu —— 否则"再次右键"会与新菜单打开抢
     // 同一事件(先 set 新 ctx 又被关闭监听 set null),导致第 2 次起右键菜单出不来。
@@ -46,7 +48,17 @@ export const TrackContextMenu: React.FC<{
       style={{ left: ctx.x, top: ctx.y }}
       onClick={(e) => e.stopPropagation()}
     >
-      {ctx.track !== 'subtitle' && (
+      {ctx.track === 'narration' && (
+        <>
+          <button type="button" className={item} onClick={() => { onPreview(); onClose(); }}>
+            <Play className="h-3.5 w-3.5" /> 试听旁白
+          </button>
+          <button type="button" className={item} onClick={() => { onRegenNarration?.(); onClose(); }}>
+            <RefreshCw className="h-3.5 w-3.5" /> 重新生成旁白
+          </button>
+        </>
+      )}
+      {ctx.track !== 'subtitle' && ctx.track !== 'narration' && (
         <>
           <button type="button" className={item} onClick={() => { onUploadLocal(); onClose(); }}>
             <Upload className="h-3.5 w-3.5" /> 从本地上传

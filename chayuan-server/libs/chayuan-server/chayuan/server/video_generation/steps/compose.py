@@ -354,10 +354,15 @@ def _build_edl_render_plan(timeline, video_aspect, *, source_resolver):
 
 
 def _build_pip_layers(timeline, *, source_resolver) -> list:
-    """第 2+ 条 video 轨的 clips → PIP 层 [{path,x,y,scale,z,start_s,dur,is_image}],按 z 升序。"""
+    """第 2+ 条 video 轨的 clips → PIP 层 [{path,x,y,scale,z,start_s,dur,is_image}]。
+
+    层级 = 轨道顺序:轨道列表里越靠前(索引小)= 越上层(遮盖靠后),与前端实时画布
+    一致。返回顺序已排好,供 CompositeVideoClip([base, *overlays]) 直接叠(列表越靠后越上层),
+    所以靠前的 PIP 轨排在列表末尾。
+    """
     video_tracks = [t for t in (timeline.tracks or []) if t.kind == "video"]
     layers: list = []
-    for tr in video_tracks[1:]:  # 跳过主轨
+    for ti, tr in enumerate(video_tracks[1:]):  # 跳过主轨;ti=0 为第一条 PIP 轨
         for c in tr.clips:
             path = (source_resolver(c.source) or "").strip()
             if not path:
@@ -370,12 +375,13 @@ def _build_pip_layers(timeline, *, source_resolver) -> list:
                 "x": float(getattr(c, "x", 0.0) or 0.0),
                 "y": float(getattr(c, "y", 0.0) or 0.0),
                 "scale": float(getattr(c, "scale", 0.4) or 0.4),
-                "z": int(getattr(c, "z", 0) or 0),
+                "z": ti,  # 轨道索引派生:小 = 上层
                 "start_s": max(0.0, c.track_start_ms / 1000.0),
                 "dur": dur,
                 "is_image": is_image,
             })
-    layers.sort(key=lambda ly: ly["z"])
+    # ti 小的(上层)要排到列表末尾 → 降序
+    layers.sort(key=lambda ly: ly["z"], reverse=True)
     return layers
 
 
