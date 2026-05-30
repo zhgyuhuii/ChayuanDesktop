@@ -22,6 +22,7 @@ export * from './digitalHuman';
 export * from './fixtures/skills';
 export * from './localRuntime';
 export * from './diagnose';
+export * from './license';
 export {
   modality,
   type OcrResult,
