@@ -140,8 +140,13 @@ def finalize_task(
     task_id: str, timeline: Dict[str, Any], *,
     owner_id: Optional[int] = None,
     subtitle_cues: Optional[list] = None,
+    dims: Optional[Dict[str, Any]] = None,
 ) -> bool:
-    """草稿收尾:校验草稿持有 audio/subtitle,设 timeline,(可选)用编辑字幕写 srt,只跑 compose。"""
+    """草稿收尾:校验草稿持有 audio/subtitle,设 timeline,(可选)用编辑字幕写 srt,只跑 compose。
+
+    dims(可选):``{video_aspect, video_width, video_height}`` —— 用户在预览里改了
+    画幅/精确尺寸后透传过来,覆盖草稿任务的原始尺寸,使成片按最终选择渲染。
+    """
     row = tasks_store.get_task(task_id, owner_id=owner_id)
     if not row:
         return False
@@ -171,7 +176,13 @@ def finalize_task(
         except Exception as e:  # noqa: BLE001
             logger.warning("[service] finalize_task %s 写 edited.srt 失败,用草稿 srt: %r", task_id, e)
     try:
-        params = VideoParams.model_validate(row.get("params") or {})
+        raw_params = dict(row.get("params") or {})
+        # 用户最终选择的画幅/尺寸覆盖草稿原始尺寸(精确预览已按新尺寸,成片也要一致)
+        if dims:
+            for k in ("video_aspect", "video_width", "video_height"):
+                if dims.get(k) is not None:
+                    raw_params[k] = dims[k]
+        params = VideoParams.model_validate(raw_params)
         from .schemas import Timeline
         params.timeline = Timeline.model_validate(timeline)
     except Exception as e:  # noqa: BLE001

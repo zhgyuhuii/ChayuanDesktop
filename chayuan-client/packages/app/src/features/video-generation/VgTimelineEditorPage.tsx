@@ -334,7 +334,11 @@ export const VgTimelineEditorPage: React.FC = () => {
     if (draft.state !== 'ready' || !draft.taskId) { reportError(new Error('草稿尚未就绪,稍候再试')); return; }
     setSubmitting(true);
     try {
-      await videoGeneration.finalizeDraft(draft.taskId, roundTimeline(timeline), cues.length ? cues : undefined);
+      // 透传当前画幅/精确尺寸,使成片按预览左上角的最终选择渲染(否则用草稿原始尺寸)
+      await videoGeneration.finalizeDraft(
+        draft.taskId, roundTimeline(timeline), cues.length ? cues : undefined,
+        { video_aspect: params.video_aspect, video_width: params.video_width, video_height: params.video_height },
+      );
       notifySuccess('已提交合成', '前往「我的视频」看进度');
       openTab('/video-generation/library', { title: '我的视频', icon: 'video' });
       void navigate({ to: '/video-generation/library' as never });

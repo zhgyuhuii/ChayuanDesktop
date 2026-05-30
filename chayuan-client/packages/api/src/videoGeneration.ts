@@ -819,15 +819,24 @@ export interface VgSubtitleCue {
   text: string;
 }
 
-/** 草稿收尾:用编辑后的时间轴(+可选编辑字幕)只跑 compose,返回更新后的 task。 */
+/** 草稿收尾:用编辑后的时间轴(+可选编辑字幕)只跑 compose,返回更新后的 task。
+ *
+ * dims:用户在预览里改了画幅/精确尺寸后透传,覆盖草稿任务的原始尺寸,使成片按
+ * 最终选择渲染(否则精确预览(代理)对、生成的视频却仍是旧尺寸)。 */
 export async function vgFinalizeDraft(
   taskId: string,
   timeline: VgTimeline,
   subtitleCues?: VgSubtitleCue[],
+  dims?: { video_aspect?: VgVideoAspect; video_width?: number | null; video_height?: number | null },
 ): Promise<VgTask> {
+  const body: Record<string, unknown> = { timeline };
+  if (subtitleCues) body.subtitle_cues = subtitleCues;
+  if (dims?.video_aspect != null) body.video_aspect = dims.video_aspect;
+  if (dims?.video_width != null) body.video_width = dims.video_width;
+  if (dims?.video_height != null) body.video_height = dims.video_height;
   return rd<VgTask>(`/api/v1/video-generation/tasks/${encodeURIComponent(taskId)}/finalize`, {
     method: 'POST',
-    body: subtitleCues ? { timeline, subtitle_cues: subtitleCues } : { timeline },
+    body,
   });
 }
 

@@ -1719,7 +1719,18 @@ def finalize_task(
     subtitle_cues = body.get("subtitle_cues")
     if subtitle_cues is not None and not isinstance(subtitle_cues, list):
         raise HTTPException(422, "subtitle_cues 必须是数组")
-    ok = vg_service.finalize_task(task_id, timeline, owner_id=_owner_id_of(user), subtitle_cues=subtitle_cues)
+    # 画幅尺寸 override:用户在预览左上角改了画幅/精确尺寸后,草稿任务的原始 params
+    # 还是旧尺寸 —— 这里把当前尺寸透传给 finalize,让成片按用户最终选择渲染(否则
+    # 精确预览(代理)对、生成的视频却仍是旧尺寸)。都可选,缺省沿用草稿原 params。
+    dims = {
+        k: body.get(k)
+        for k in ("video_aspect", "video_width", "video_height")
+        if body.get(k) is not None
+    }
+    ok = vg_service.finalize_task(
+        task_id, timeline, owner_id=_owner_id_of(user),
+        subtitle_cues=subtitle_cues, dims=dims or None,
+    )
     if not ok:
         raise HTTPException(400, "finalize 失败:草稿不存在或缺 audio/subtitle/materials")
     row = vg_service.get_task(task_id, owner_id=_owner_id_of(user))
