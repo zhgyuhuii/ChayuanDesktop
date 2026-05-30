@@ -1,26 +1,14 @@
 # Source: Rudrabha/Wav2Lip (https://github.com/Rudrabha/Wav2Lip)
 # License: research-only; 商用前需法务确认或换商用许可模型
-"""Wav2Lip minimal inference entry-point.
+"""Wav2Lip inference entry-point (adapted from official inference.py).
 
 Public contract (called by engine.py):
 
     handle = load_models(weights_dir: str)
     out    = run(*, handle, face, audio, out_path, out_size, on_progress=None)
 
-All heavy imports (torch, cv2, numpy, librosa) are deferred inside functions
-so this module imports cleanly on a machine without those libraries.
-
-Mel-spectrogram hyperparameters faithfully match the official Wav2Lip audio.py:
-  sample_rate   = 16000
-  n_mels        = 80
-  hop_length    = 200   (12.5 ms @16kHz)
-  win_length    = 800   (50  ms @16kHz)
-  n_fft         = 800
-  fmin          = 55
-  fmax          = 7600
-  mel_step_size = 16    (frames per audio chunk fed to the network)
-
-Face crop size matches the official inference: 96x96.
+All heavy imports (torch, cv2, numpy, librosa, and from .) are deferred inside
+functions so this module imports cleanly on a machine without those libraries.
 """
 from __future__ import annotations
 
@@ -32,45 +20,26 @@ from typing import Callable, Optional, Tuple
 
 logger = logging.getLogger("chayuan.dh.wav2lip.infer")
 
-# ---- Mel hparams (official audio.py) ----------------------------------------
-_SR           = 16000
-_N_MELS       = 80
-_HOP          = 200
-_WIN          = 800
-_N_FFT        = 800
-_FMIN         = 55
-_FMAX         = 7600
-_MEL_STEP     = 16    # mel frames per chunk fed to the network
-
-# Face crop size used by the official inference
-_FACE_SIZE    = 96
-
-# Fps assumed for the output video (overridden by source video fps when available)
-_DEFAULT_FPS  = 25.0
-
-# ---- Internal model handle --------------------------------------------------
-
-class _Handle:
-    """Opaque handle holding loaded models, device, and weights path."""
-
-    def __init__(self, wav2lip_net, s3fd_net, device: str):
-        self.wav2lip_net = wav2lip_net
-        self.s3fd_net    = s3fd_net
-        self.device      = device
+_DEFAULT_FPS = 25.0
+_MEL_STEP_SIZE = 16
+_IMG_SIZE = 96
 
 
-# ---- Public API -------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
-def load_models(weights_dir: str) -> _Handle:
-    """Load wav2lip_gan.pth + s3fd-619a316812.pth from *weights_dir*.
+def load_models(weights_dir: str) -> dict:
+    """Load wav2lip_gan.pth + s3fd weights from *weights_dir*.
 
-    Returns an opaque *handle* for reuse across calls.  Raises FileNotFoundError
-    if the weight files are absent.
+    Returns an opaque handle dict (model, detector, device).
+    Raises FileNotFoundError if weight files are absent.
     """
     import torch
+    from .models import Wav2Lip
+    from . import face_detection
 
-    # Validate weight files
-    w2l_path  = os.path.join(weights_dir, "wav2lip_gan.pth")
+    w2l_path = os.path.join(weights_dir, "wav2lip_gan.pth")
     s3fd_path = os.path.join(weights_dir, "s3fd-619a316812.pth")
     if not os.path.isfile(w2l_path):
         raise FileNotFoundError(f"Wav2Lip weights not found: {w2l_path}")
@@ -80,29 +49,36 @@ def load_models(weights_dir: str) -> _Handle:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info("Wav2Lip: loading models on device=%s", device)
 
-    # Load Wav2Lip generator
-    from .models import build_wav2lip_model
-    wav2lip_net = build_wav2lip_model()
-    checkpoint  = torch.load(w2l_path, map_location=device)
-    # Official checkpoint saves the state_dict under key "state_dict"
-    state_dict  = checkpoint.get("state_dict", checkpoint)
-    # Strip "module." prefix if saved with DataParallel
-    cleaned = {k.replace("module.", ""): v for k, v in state_dict.items()}
-    wav2lip_net.load_state_dict(cleaned)
-    wav2lip_net.eval()
-    wav2lip_net.to(device)
+    # Load Wav2Lip generator (official checkpoint format)
+    model = Wav2Lip()
+    checkpoint = torch.load(w2l_path, map_location=device)
+    s = checkpoint.get("state_dict", checkpoint)
+    new_s = {k.replace("module.", ""): v for k, v in s.items()}
+    model.load_state_dict(new_s)
+    model = model.to(device)
+    model.eval()
 
-    # Load S3FD face detector
-    from .face_detect import load_s3fd
-    s3fd_net = load_s3fd(s3fd_path, device)
+    # Load S3FD face detector — pass local path so it never hits the network
+    detector = face_detection.FaceAlignment(
+        face_detection.LandmarksType._2D,
+        flip_input=False,
+        device=device,
+        face_detector="sfd",
+    )
+    # Override the default weight path to our bundled file
+    detector.face_detector.face_detector.load_state_dict(
+        torch.load(s3fd_path, map_location=device)
+    )
+    detector.face_detector.face_detector.to(device)
+    detector.face_detector.face_detector.eval()
 
-    logger.info("Wav2Lip: models loaded successfully")
-    return _Handle(wav2lip_net, s3fd_net, device)
+    logger.info("Wav2Lip: models loaded")
+    return {"model": model, "detector": detector, "device": device}
 
 
 def run(
     *,
-    handle: _Handle,
+    handle: dict,
     face: str,
     audio: str,
     out_path: str,
@@ -113,9 +89,9 @@ def run(
 
     Parameters
     ----------
-    handle    : opaque object returned by :func:`load_models`
+    handle    : opaque dict returned by :func:`load_models`
     face      : path to an image (single frame loop) or video file
-    audio     : path to a WAV file (any sample rate; resampled to 16kHz)
+    audio     : path to a WAV file (16 kHz preferred; other rates resampled)
     out_path  : destination mp4 file path
     out_size  : (width, height) of the output video
     on_progress : optional callback(int 0..100)
@@ -126,87 +102,155 @@ def run(
     """
     import numpy as np
     import cv2
+    import torch
+    from . import audio as wav2lip_audio
+
+    model = handle["model"]
+    detector = handle["detector"]
+    device = handle["device"]
 
     _prog(on_progress, 0)
 
     # ------------------------------------------------------------------
-    # 1. Read face frames
+    # 1. Read face frames (official style)
     # ------------------------------------------------------------------
-    frames, fps = _read_face(face)
-    if len(frames) == 0:
-        raise RuntimeError("未检测到人脸,请换正脸形象 (source is empty)")
+    img_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    ext = Path(face).suffix.lower()
+    if ext in img_exts:
+        full_frames = [cv2.imread(face)]
+        fps = _DEFAULT_FPS
+        static = True
+    else:
+        video_stream = cv2.VideoCapture(face)
+        fps = video_stream.get(cv2.CAP_PROP_FPS) or _DEFAULT_FPS
+        full_frames = []
+        while True:
+            still_reading, frame = video_stream.read()
+            if not still_reading:
+                video_stream.release()
+                break
+            full_frames.append(frame)
+        static = False
+
+    if not full_frames or full_frames[0] is None:
+        raise RuntimeError("未检测到人脸,请换正脸形象 (cannot read face source)")
 
     _prog(on_progress, 5)
 
     # ------------------------------------------------------------------
-    # 2. Face detection on every frame → crop lower-half regions
+    # 2. Load audio and build mel chunks (official approach)
     # ------------------------------------------------------------------
-    from .face_detect import detect_faces
+    wav = wav2lip_audio.load_wav(audio, 16000)
+    mel = wav2lip_audio.melspectrogram(wav)
 
-    face_det_results = []  # list of (bbox, padded_face_crop, coords) per frame
-    total_frames = len(frames)
-    for fi, frame in enumerate(frames):
-        bboxes = detect_faces(handle.s3fd_net, frame, handle.device)
-        if not bboxes:
-            raise RuntimeError(
-                "未检测到人脸,请换正脸形象 "
-                f"(frame {fi} out of {total_frames} has no face)"
-            )
-        x1, y1, x2, y2, _score = bboxes[0]
-        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-        # Pad lower-half of face (Wav2Lip convention: mask lower half when feeding)
-        y1_lower = y1 + (y2 - y1) // 2
-        coords = (x1, y1_lower, x2, y2)
-        crop = _crop_and_resize(frame, coords, _FACE_SIZE)
-        face_det_results.append((coords, crop, frame.copy()))
+    if np.isnan(mel.reshape(-1)).sum() > 0:
+        raise ValueError(
+            "Mel 含 NaN — 音频可能全静音,请检查 WAV 文件"
+        )
 
-        prog_frac = 5 + int(25 * fi / total_frames)
-        _prog(on_progress, prog_frac)
+    mel_chunks = []
+    mel_idx_multiplier = 80.0 / fps
+    i = 0
+    while True:
+        start_idx = int(i * mel_idx_multiplier)
+        if start_idx + _MEL_STEP_SIZE > len(mel[0]):
+            mel_chunks.append(mel[:, len(mel[0]) - _MEL_STEP_SIZE :])
+            break
+        mel_chunks.append(mel[:, start_idx : start_idx + _MEL_STEP_SIZE])
+        i += 1
 
-    _prog(on_progress, 30)
-
-    # ------------------------------------------------------------------
-    # 3. Build mel spectrogram chunks
-    # ------------------------------------------------------------------
-    mel_chunks = _build_mel_chunks(audio, fps)
-    if len(mel_chunks) == 0:
+    if not mel_chunks:
         raise RuntimeError("音频太短或无法解码,请换有效 WAV 文件")
 
+    _prog(on_progress, 15)
+
+    # Trim / loop face frames to match mel chunks (official behaviour)
+    full_frames = full_frames[: len(mel_chunks)]
+
+    # ------------------------------------------------------------------
+    # 3. Face detection (official datagen approach)
+    # ------------------------------------------------------------------
+    face_det_results = _face_detect(full_frames, detector, static)
     _prog(on_progress, 40)
 
     # ------------------------------------------------------------------
-    # 4. Loop frames to match mel chunks (official inference behaviour)
+    # 4. Batch inference (official datagen + model forward)
     # ------------------------------------------------------------------
-    n_chunks = len(mel_chunks)
-    # Extend or loop face frames to match number of mel chunks
-    if total_frames < n_chunks:
-        # Loop
-        reps = (n_chunks // total_frames) + 1
-        face_det_results = (face_det_results * reps)[:n_chunks]
-    else:
-        face_det_results = face_det_results[:n_chunks]
+    batch_size = 128
+    gen_frames = []
+    gen_coords = []
 
-    _prog(on_progress, 42)
+    img_batch_buf, mel_batch_buf = [], []
+    frame_buf, coord_buf = [], []
 
-    # ------------------------------------------------------------------
-    # 5. Inference: batch inference for efficiency
-    # ------------------------------------------------------------------
-    gen_frames = _batch_inference(
-        handle, face_det_results, mel_chunks, on_progress, start=42, end=90
-    )
+    for i, m in enumerate(mel_chunks):
+        idx = 0 if static else (i % len(full_frames))
+        frame_to_save = full_frames[idx].copy()
+        face_crop, coords = face_det_results[idx]
+
+        face_crop = cv2.resize(face_crop, (_IMG_SIZE, _IMG_SIZE))
+
+        img_batch_buf.append(face_crop)
+        mel_batch_buf.append(m)
+        frame_buf.append(frame_to_save)
+        coord_buf.append(coords)
+
+        if len(img_batch_buf) >= batch_size:
+            img_b, mel_b, frames_b, coords_b = _flush_batch(
+                img_batch_buf, mel_batch_buf, frame_buf, coord_buf,
+                model, device
+            )
+            gen_frames.extend(frames_b)
+            gen_coords.extend(coords_b)
+            img_batch_buf, mel_batch_buf, frame_buf, coord_buf = [], [], [], []
+
+        prog = 40 + int(50 * (i + 1) / len(mel_chunks))
+        _prog(on_progress, prog)
+
+    if img_batch_buf:
+        img_b, mel_b, frames_b, coords_b = _flush_batch(
+            img_batch_buf, mel_batch_buf, frame_buf, coord_buf,
+            model, device
+        )
+        gen_frames.extend(frames_b)
+        gen_coords.extend(coords_b)
+
     _prog(on_progress, 90)
 
     # ------------------------------------------------------------------
-    # 6. Compose output video via ffmpeg
+    # 5. Write output video (official: raw avi then mux audio)
     # ------------------------------------------------------------------
     out_w, out_h = out_size
-    _write_video(gen_frames, audio, out_path, fps, out_w, out_h)
-    _prog(on_progress, 100)
+    frame_h, frame_w = full_frames[0].shape[:-1]
+    tmp_avi = out_path + ".tmp_result.avi"
+    try:
+        out_writer = cv2.VideoWriter(
+            tmp_avi,
+            cv2.VideoWriter_fourcc(*"DIVX"),
+            fps,
+            (frame_w, frame_h),
+        )
+        for frame in gen_frames:
+            out_writer.write(frame)
+        out_writer.release()
 
+        if not os.path.isfile(tmp_avi):
+            raise RuntimeError("cv2.VideoWriter 未生成 AVI 文件")
+
+        _mux_audio(tmp_avi, audio, out_path, out_w, out_h, fps)
+    finally:
+        try:
+            os.remove(tmp_avi)
+        except OSError:
+            pass
+
+    _prog(on_progress, 100)
     return out_path
 
 
-# ---- Helpers ----------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 def _prog(cb: Optional[Callable[[int], None]], v: int) -> None:
     if cb is not None:
@@ -216,236 +260,128 @@ def _prog(cb: Optional[Callable[[int], None]], v: int) -> None:
             pass
 
 
-def _read_face(face_path: str):
-    """Return (list_of_bgr_frames, fps).
+def _face_detect(images, detector, static: bool):
+    """Run face detection on frames, return list of (face_crop, (y1,y2,x1,x2)).
 
-    If face_path is an image, returns a single-element list and fps=_DEFAULT_FPS.
-    If face_path is a video, reads all frames.
-    """
-    import cv2
-    import numpy as np
-
-    img_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-    ext = Path(face_path).suffix.lower()
-    if ext in img_exts:
-        img = cv2.imread(face_path)
-        if img is None:
-            raise RuntimeError(f"无法读取形象图: {face_path}")
-        return [img], _DEFAULT_FPS
-
-    cap = cv2.VideoCapture(face_path)
-    if not cap.isOpened():
-        raise RuntimeError(f"无法打开形象视频: {face_path}")
-    fps = cap.get(cv2.CAP_PROP_FPS) or _DEFAULT_FPS
-    frames = []
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        frames.append(frame)
-    cap.release()
-    if not frames:
-        raise RuntimeError(f"形象视频无帧: {face_path}")
-    return frames, fps
-
-
-def _crop_and_resize(frame, coords, size: int):
-    """Crop *coords* (x1,y1,x2,y2) from *frame*, resize to (size, size)."""
-    import cv2
-    x1, y1, x2, y2 = coords
-    h, w = frame.shape[:2]
-    x1, y1 = max(0, x1), max(0, y1)
-    x2, y2 = min(w, x2), min(h, y2)
-    crop = frame[y1:y2, x1:x2]
-    if crop.size == 0:
-        import numpy as np
-        return np.zeros((size, size, 3), dtype=np.uint8)
-    return cv2.resize(crop, (size, size))
-
-
-def _build_mel_chunks(audio_path: str, fps: float):
-    """Load WAV → resample → mel-spectrogram → slice into chunks.
-
-    Each chunk is a numpy array of shape [80, mel_step_size].
-    The number of chunks equals the number of output video frames.
+    Mirrors the official face_detect() function logic.
     """
     import numpy as np
-    import librosa
+    import cv2
 
-    y, _sr = librosa.load(audio_path, sr=_SR, mono=True)
+    pads = (0, 10, 0, 0)  # pady1, pady2, padx1, padx2 (official defaults)
+    batch_size = 16
 
-    # Build mel spectrogram using official hparams
-    mel = librosa.feature.melspectrogram(
-        y=y,
-        sr=_SR,
-        n_fft=_N_FFT,
-        hop_length=_HOP,
-        win_length=_WIN,
-        n_mels=_N_MELS,
-        fmin=_FMIN,
-        fmax=_FMAX,
-    )
-    # Convert to log scale (official uses np.log10 clamped at -5)
-    mel = np.log10(np.maximum(mel, 1e-5))
+    predictions = []
+    try:
+        for i in range(0, len(images), batch_size):
+            batch = np.array(images[i : i + batch_size])
+            predictions.extend(detector.get_detections_for_batch(batch))
+    except RuntimeError:
+        # OOM fallback: single-frame detection
+        for img in images:
+            predictions.extend(
+                detector.get_detections_for_batch(np.array([img]))
+            )
 
-    # Number of mel frames per video frame
-    mel_fps = _SR / _HOP           # mel frames per second ≈ 80 for 16kHz/hop200
-    mel_per_vid_frame = mel_fps / fps
+    results = []
+    pady1, pady2, padx1, padx2 = pads
+    for rect, image in zip(predictions, images):
+        if rect is None:
+            raise RuntimeError(
+                "未检测到人脸,请换正脸形象 (face detection returned None)"
+            )
+        y1 = max(0, rect[1] - pady1)
+        y2 = min(image.shape[0], rect[3] + pady2)
+        x1 = max(0, rect[0] - padx1)
+        x2 = min(image.shape[1], rect[2] + padx2)
+        results.append([x1, y1, x2, y2])
 
-    # Number of video frames
-    n_vid_frames = int(mel.shape[1] / mel_per_vid_frame)
+    if not static:
+        # Temporal smoothing (T=5 window, official get_smoothened_boxes)
+        boxes = np.array(results)
+        T = 5
+        for i in range(len(boxes)):
+            window = boxes[max(0, i - T // 2) : i + T // 2 + 1]
+            boxes[i] = np.mean(window, axis=0)
+        results = boxes.tolist()
 
-    chunks = []
-    for i in range(n_vid_frames):
-        mel_start = int(round(i * mel_per_vid_frame))
-        mel_end   = mel_start + _MEL_STEP
-        if mel_end > mel.shape[1]:
-            # Pad the last chunk
-            chunk = mel[:, mel_start:]
-            pad_w = _MEL_STEP - chunk.shape[1]
-            chunk = np.pad(chunk, ((0, 0), (0, pad_w)), mode="edge")
-        else:
-            chunk = mel[:, mel_start:mel_end]
-        chunks.append(chunk)          # shape [80, 16]
-
-    return chunks
+    face_det_results = [
+        [image[y1:y2, x1:x2], (y1, y2, x1, x2)]
+        for image, (x1, y1, x2, y2) in zip(images, results)
+    ]
+    return face_det_results
 
 
-def _batch_inference(handle: _Handle, face_det_results, mel_chunks,
-                     on_progress, start: int, end: int):
-    """Run Wav2Lip inference in batches.
-
-    Returns list of final BGR frames (already composited onto original frame).
-    """
+def _flush_batch(img_batch, mel_batch, frame_batch, coords_batch, model, device):
+    """Run one batch through the Wav2Lip model and paste predictions back."""
     import numpy as np
     import torch
     import cv2
 
-    device = handle.device
-    batch_size = 128
-    gen_frames = []
-    n = len(face_det_results)
+    img_arr = np.asarray(img_batch)   # [B, H, W, 3]
+    mel_arr = np.asarray(mel_batch)   # [B, 80, 16]
 
-    for batch_start in range(0, n, batch_size):
-        batch_end_idx = min(batch_start + batch_size, n)
-        face_batch  = []
-        audio_batch = []
-        meta_batch  = []   # (coords, original_frame)
+    # Mask lower half (official: img_masked[:, img_size//2:] = 0)
+    img_masked = img_arr.copy()
+    img_masked[:, _IMG_SIZE // 2 :] = 0
 
-        for i in range(batch_start, batch_end_idx):
-            coords, crop_lower, orig_frame = face_det_results[i]
-            mel_chunk = mel_chunks[i]
+    # Concat masked + original along axis=3 (channels), then normalise
+    # Official: np.concatenate((img_masked, img_batch), axis=3) / 255.
+    img_input = np.concatenate((img_masked, img_arr), axis=3) / 255.0  # [B, H, W, 6]
+    # Official: mel_batch = np.reshape(mel_batch, [B, 80, 16, 1])
+    mel_input = np.reshape(mel_arr, [len(mel_arr), mel_arr.shape[1], mel_arr.shape[2], 1])  # [B, 80, 16, 1]
 
-            # Build the input face tensor: [6, 96, 96]
-            # Upper half → zeroed (masked), lower half → crop
-            # Two frames: masked + original (official inputs both halves)
-            face_frame = cv2.resize(
-                orig_frame[coords[1]:coords[3], coords[0]:coords[2]],
-                (_FACE_SIZE, _FACE_SIZE)
-            )
-            masked = face_frame.copy()
-            masked[_FACE_SIZE // 2:] = 0   # mask lower half
+    # Transpose to [B, C, H, W] (official: (0, 3, 1, 2))
+    img_t = torch.FloatTensor(np.transpose(img_input, (0, 3, 1, 2))).to(device)  # [B, 6, H, W]
+    mel_t = torch.FloatTensor(np.transpose(mel_input, (0, 3, 1, 2))).to(device)  # [B, 1, 80, 16]
 
-            # Normalise to [0, 1] and stack [masked | original] → [6, H, W]
-            m = (masked.astype(np.float32) / 255.0).transpose(2, 0, 1)
-            o = (face_frame.astype(np.float32) / 255.0).transpose(2, 0, 1)
-            face_t = np.concatenate([m, o], axis=0)  # [6, 96, 96]
+    with torch.no_grad():
+        pred = model(mel_t, img_t)  # [B, 3, H, W]
 
-            # Mel chunk: [1, 80, 16]
-            audio_t = mel_chunk[np.newaxis]           # [1, 80, 16]
+    # Official: pred.cpu().numpy().transpose(0,2,3,1) * 255.
+    pred_np = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.0  # [B, H, W, 3]
 
-            face_batch.append(face_t)
-            audio_batch.append(audio_t)
-            meta_batch.append((coords, orig_frame))
+    out_frames = []
+    for p, f, c in zip(pred_np, frame_batch, coords_batch):
+        y1, y2, x1, x2 = c
+        p_resized = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1))
+        f[y1:y2, x1:x2] = p_resized
+        out_frames.append(f)
 
-        face_arr  = np.stack(face_batch,  axis=0)   # [B, 6, 96, 96]
-        audio_arr = np.stack(audio_batch, axis=0)   # [B, 1, 80, 16]
-
-        face_t  = torch.FloatTensor(face_arr).to(device)
-        audio_t = torch.FloatTensor(audio_arr).to(device)
-
-        with torch.no_grad():
-            pred = handle.wav2lip_net(audio_t, face_t)  # [B, 3, 96, 96]
-
-        pred_np = pred.cpu().numpy()                   # [B, 3, 96, 96]
-
-        for bi, (coords, orig_frame) in enumerate(meta_batch):
-            p = pred_np[bi].transpose(1, 2, 0)         # [96, 96, 3]
-            p = np.clip(p * 255, 0, 255).astype(np.uint8)
-
-            # Paste predicted region back into original frame
-            x1, y1, x2, y2 = coords
-            out_frame = orig_frame.copy()
-            ph = y2 - y1
-            pw = x2 - x1
-            if ph > 0 and pw > 0:
-                p_resized = cv2.resize(p, (pw, ph))
-                out_frame[y1:y2, x1:x2] = p_resized
-
-            gen_frames.append(out_frame)
-
-        # Progress update
-        prog = start + int((end - start) * batch_end_idx / n)
-        _prog(on_progress, prog)
-
-    return gen_frames
+    return None, None, out_frames, coords_batch
 
 
-def _write_video(frames, audio_path: str, out_path: str,
-                 fps: float, out_w: int, out_h: int) -> None:
-    """Write frames + audio to mp4 using the project's bundled ffmpeg."""
-    import numpy as np
-    import cv2
+def _mux_audio(
+    tmp_avi: str,
+    audio_path: str,
+    out_path: str,
+    out_w: int,
+    out_h: int,
+    fps: float,
+) -> None:
+    """Mux video frames + audio to final mp4 using bundled ffmpeg."""
     import subprocess
 
-    # First write frames to a temp raw video (no audio)
-    tmp_video = out_path + ".tmp_noaudio.mp4"
     try:
         import imageio_ffmpeg
         ff = imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
-        ff = "ffmpeg"   # fallback: system ffmpeg (should not happen in bundled env)
+        ff = "ffmpeg"  # fallback: system ffmpeg
 
-    # Use subprocess + ffmpeg pipe to write frames
-    cmd_write = [
+    # Resize + mux: scale to out_size, add audio
+    cmd = [
         ff, "-y",
-        "-f", "rawvideo",
-        "-vcodec", "rawvideo",
-        "-s", f"{out_w}x{out_h}",
-        "-pix_fmt", "bgr24",
-        "-r", str(fps),
-        "-i", "-",                # stdin
-        "-an",
-        "-vcodec", "libx264",
+        "-i", tmp_avi,
+        "-i", audio_path,
+        "-vf", f"scale={out_w}:{out_h}",
+        "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "18",
-        tmp_video,
-    ]
-    proc = subprocess.Popen(cmd_write, stdin=subprocess.PIPE,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for frame in frames:
-        resized = cv2.resize(frame, (out_w, out_h))
-        proc.stdin.write(resized.tobytes())
-    proc.stdin.close()
-    proc.wait()
-
-    if not os.path.isfile(tmp_video):
-        raise RuntimeError("ffmpeg 未生成临时视频文件")
-
-    # Mux audio with the video
-    cmd_mux = [
-        ff, "-y",
-        "-i", tmp_video,
-        "-i", audio_path,
-        "-c:v", "copy",
         "-c:a", "aac",
-        "-shortest",
+        "-strict", "-2",
+        "-q:v", "1",
         out_path,
     ]
-    subprocess.run(cmd_mux, check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    try:
-        os.remove(tmp_video)
-    except OSError:
-        pass
+    subprocess.run(
+        cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
