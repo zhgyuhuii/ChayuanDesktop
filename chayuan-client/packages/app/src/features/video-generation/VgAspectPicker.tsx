@@ -70,7 +70,9 @@ export const VgAspectPicker: React.FC<{ compact?: boolean }> = ({ compact = fals
   const curLabel = vw && vh ? `${vw}×${vh}` : `${aspect}`;
 
   const pickPreset = (p: Preset) => {
-    patch({ video_aspect: p.ratio as VgVideoAspect, video_width: p.w, video_height: p.h });
+    // video_aspect 只能是 16:9/9:16/1:1(后端枚举);精确尺寸走 video_width/height,
+    // aspect 取最接近的那个(p.ratio 如 4:3/21:9 不是合法枚举值,直接塞会 422)。
+    patch({ video_aspect: nearestAspect(p.w, p.h), video_width: p.w, video_height: p.h });
     setOpen(false);
   };
   const applyCustom = () => {

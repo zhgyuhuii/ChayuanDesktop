@@ -293,6 +293,15 @@ def _sanitize_vg_params_body(body: Dict[str, Any]) -> None:
     """就地净化前端 params:时间轴 int 字段取整、video_width/height 夹 [16,7680] 否则丢弃。"""
     if not isinstance(body, dict):
         return
+    # video_aspect 只能是三枚举之一;前端画幅预设(4:3/16:10/21:9 等)误塞展示比例会 422。
+    # 非法值 → 按 video_width/height 取最接近的(宽>高=16:9,高>宽=9:16,近方=1:1)。
+    asp = body.get("video_aspect")
+    if asp not in ("16:9", "9:16", "1:1"):
+        try:
+            w = float(body.get("video_width") or 0); h = float(body.get("video_height") or 0)
+        except (TypeError, ValueError):
+            w = h = 0
+        body["video_aspect"] = ("16:9" if w > h * 1.15 else "1:1" if w and h and abs(w - h) <= h * 0.15 else "9:16") if (w and h) else "9:16"
     for key in ("video_width", "video_height"):
         v = body.get(key)
         if v is None:
