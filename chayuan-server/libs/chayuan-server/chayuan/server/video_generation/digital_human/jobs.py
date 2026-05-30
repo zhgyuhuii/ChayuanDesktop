@@ -20,7 +20,10 @@ logger = logging.getLogger("chayuan.dh.jobs")
 _POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dh")
 _STATUS: Dict[str, DhTaskStatus] = {}
 _LOCK = threading.Lock()
-_PENDING: Dict[str, dict] = {}  # task_id → 入参
+# task_id → 入参。单写(submit)单读(单 worker pipeline),GIL 下 dict 操作安全,
+# 故不加锁。注意:别把 _PENDING 操作塞进 _LOCK —— _set() 已持 _LOCK,在 _run_pipeline
+# 内再对 _PENDING 加同一把锁会自死锁。
+_PENDING: Dict[str, dict] = {}
 
 
 def _set(tid: str, **kw) -> None:
