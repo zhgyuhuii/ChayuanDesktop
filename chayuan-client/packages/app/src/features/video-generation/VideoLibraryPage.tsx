@@ -8,7 +8,7 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { getPlatform } from '@chayuan/platform-shared';
-import { Video, Download, RefreshCw, Trash2, LayoutGrid, List as ListIcon, Play, FileText, Captions, X } from 'lucide-react';
+import { Video, Download, RefreshCw, Trash2, LayoutGrid, List as ListIcon, Play, FileText, Captions, X, CheckSquare, Square } from 'lucide-react';
 import {
   videoGeneration,
   vgTaskFileUrl,
@@ -58,6 +58,13 @@ export const VideoLibraryPage: React.FC = () => {
   const [viewMode, setViewMode] = React.useState<'card' | 'list'>('card');
   const [tab, setTab] = React.useState<'videos' | 'tasks'>('videos');
   const [selectedVideoId, setSelectedVideoId] = React.useState<string | null>(null);
+  const [multiSelect, setMultiSelect] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const toggleSel = (id: string) => setSelectedIds((prev) => {
+    const n = new Set(prev);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
   const cardRefs = React.useRef<Record<string, HTMLLIElement | null>>({});
 
   // 从「视频任务」tab 点「查看视频」→ 切到 videos tab + 滚动到 + 选中对应成片
@@ -117,17 +124,41 @@ export const VideoLibraryPage: React.FC = () => {
             已合成的成品按时间分组,可在线播放 / 下载 / 复制参数重做
           </p>
         </div>
-        {/* 视图切换:卡片 / 列表(仅「我的视频」tab) */}
+        {/* 视图切换 + 多选(仅「我的视频」tab) */}
         {tab === 'videos' && (
-          <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-[var(--cy-border-subtle)]">
-            <button type="button" onClick={() => setViewMode('card')} title="卡片视图"
-              className={'inline-flex h-8 w-8 items-center justify-center ' + (viewMode === 'card' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
-              <LayoutGrid className="h-4 w-4" />
-            </button>
-            <button type="button" onClick={() => setViewMode('list')} title="列表视图"
-              className={'inline-flex h-8 w-8 items-center justify-center border-l border-[var(--cy-border-subtle)] ' + (viewMode === 'list' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
-              <ListIcon className="h-4 w-4" />
-            </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {multiSelect ? (
+              <>
+                <button type="button" onClick={async () => {
+                  if (selectedIds.size === 0) return;
+                  if (!(await confirmDialog(`删除选中的 ${selectedIds.size} 个视频?磁盘文件会一并清掉。`, { danger: true }))) return;
+                  for (const id of selectedIds) { try { await deleteMut.mutateAsync(id); } catch (e) { reportError(e as Error); } }
+                  setSelectedIds(new Set()); setMultiSelect(false);
+                }} disabled={selectedIds.size === 0}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs text-rose-700 hover:border-rose-300 disabled:opacity-50">
+                  <Trash2 className="h-3.5 w-3.5" /> 删除选中 ({selectedIds.size})
+                </button>
+                <button type="button" onClick={() => setSelectedIds(new Set(items.map((v) => v.video_id)))}
+                  className="inline-flex h-8 items-center rounded-lg border border-[var(--cy-border-subtle)] px-3 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">全选</button>
+                <button type="button" onClick={() => { setMultiSelect(false); setSelectedIds(new Set()); }}
+                  className="inline-flex h-8 items-center rounded-lg border border-[var(--cy-border-subtle)] px-3 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">取消</button>
+              </>
+            ) : (
+              <button type="button" onClick={() => setMultiSelect(true)}
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-[var(--cy-border-subtle)] px-3 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                <CheckSquare className="h-3.5 w-3.5" /> 多选
+              </button>
+            )}
+            <div className="inline-flex overflow-hidden rounded-lg border border-[var(--cy-border-subtle)]">
+              <button type="button" onClick={() => setViewMode('card')} title="卡片视图"
+                className={'inline-flex h-8 w-8 items-center justify-center ' + (viewMode === 'card' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+              <button type="button" onClick={() => setViewMode('list')} title="列表视图"
+                className={'inline-flex h-8 w-8 items-center justify-center border-l border-[var(--cy-border-subtle)] ' + (viewMode === 'list' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
+                <ListIcon className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
       </header>
@@ -174,6 +205,9 @@ export const VideoLibraryPage: React.FC = () => {
                       v={v}
                       mode={viewMode}
                       selected={selectedVideoId === v.video_id}
+                      multiSelect={multiSelect}
+                      checked={selectedIds.has(v.video_id)}
+                      onToggleSelect={() => toggleSel(v.video_id)}
                       cardRef={(el) => { cardRefs.current[v.video_id] = el; }}
                       onCopyRedo={() => onCopyAndRedo(v)}
                       onDelete={async () => {
@@ -248,10 +282,19 @@ const VideoCard: React.FC<{
   v: VgVideo;
   mode?: 'card' | 'list';
   selected?: boolean;
+  multiSelect?: boolean;
+  checked?: boolean;
+  onToggleSelect?: () => void;
   cardRef?: (el: HTMLLIElement | null) => void;
   onCopyRedo: () => void;
   onDelete: () => void;
-}> = ({ v, mode = 'card', selected = false, cardRef, onCopyRedo, onDelete }) => {
+}> = ({ v, mode = 'card', selected = false, multiSelect = false, checked = false, onToggleSelect, cardRef, onCopyRedo, onDelete }) => {
+  const checkbox = multiSelect ? (
+    <button type="button" onClick={onToggleSelect} title={checked ? '取消选择' : '选择'}
+      className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)]">
+      {checked ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4 text-[var(--cy-text-tertiary)]" />}
+    </button>
+  ) : null;
   const name = v.path.split(/[\\/]/).pop() || `${v.video_id}.mp4`;
   const playUrl = vgTaskFileUrl(v.task_id, name, false);
   const [downloading, setDownloading] = React.useState(false);
@@ -279,6 +322,7 @@ const VideoCard: React.FC<{
     return (
       <li ref={cardRef} className={'rounded-lg border bg-[var(--cy-surface-base)] ' + (selected ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/40' : 'border-[var(--cy-border-subtle)]')}>
         <div className="flex items-center gap-2 px-3 py-2">
+          {checkbox}
           <button type="button" onClick={() => setExpanded((x) => !x)} title="播放/收起"
             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)] hover:bg-[var(--cy-brand-100)]">
             <Play className="h-3.5 w-3.5" />
@@ -307,7 +351,10 @@ const VideoCard: React.FC<{
   }
 
   return (
-    <li ref={cardRef} className={'overflow-hidden rounded-xl border bg-[var(--cy-surface-base)] ' + (selected ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/40' : 'border-[var(--cy-border-subtle)]')}>
+    <li ref={cardRef} className={'relative overflow-hidden rounded-xl border bg-[var(--cy-surface-base)] ' + (selected ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/40' : (checked ? 'border-[var(--cy-brand-500)]' : 'border-[var(--cy-border-subtle)]'))}>
+      {multiSelect && (
+        <div className="absolute left-2 top-2 z-10 rounded bg-black/55 p-0.5">{checkbox}</div>
+      )}
       <video
         src={playUrl}
         controls
