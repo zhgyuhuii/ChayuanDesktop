@@ -138,6 +138,13 @@ def storage_dir(sub_dir: str = "", *, create: bool = False) -> str:
     return str(d)
 
 
+def voice_clones_dir(*, create: bool = False) -> str:
+    """克隆音色样本目录 ``<CHAYUAN_ROOT>/video_generation/storage/voice_clones``。
+    每个克隆音色:``<id>.wav``(参考人声,24k mono)+ ``<id>.json``(name/ref_text)。
+    随用户数据保留,跨重建不丢。"""
+    return storage_dir("voice_clones", create=create)
+
+
 def task_dir(task_id: str, *, create: bool = True) -> str:
     """``<CHAYUAN_ROOT>/video_generation/storage/tasks/<task_id>/``。"""
 

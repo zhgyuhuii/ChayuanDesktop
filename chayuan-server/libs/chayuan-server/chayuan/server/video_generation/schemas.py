@@ -217,7 +217,7 @@ class VideoParams(BaseModel):
     voice_name: str = ""  # 空 → 走 modality.audio 默认 piper 中文女声
     voice_volume: float = Field(default=1.0, ge=0.0, le=2.0)
     voice_rate: float = Field(default=1.0, ge=0.5, le=2.0)
-    voice_provider: Literal["piper", "edge", "sherpa"] = "piper"  # M4 加 sherpa
+    voice_provider: Literal["piper", "edge", "sherpa", "clone"] = "piper"  # M4 加 sherpa
 
     # ── BGM ─────────────────────────────────────────────
     bgm_type: Literal["none", "random", "file"] = "random"
@@ -252,7 +252,7 @@ class SubtitleRequest(BaseModel):
     voice_name: str = ""
     voice_volume: float = 1.0
     voice_rate: float = 1.2
-    voice_provider: Literal["piper", "edge", "sherpa"] = "piper"
+    voice_provider: Literal["piper", "edge", "sherpa", "clone"] = "piper"
     bgm_type: Literal["none", "random", "file"] = "random"
     bgm_file: str = ""
     bgm_volume: float = 0.2
@@ -275,7 +275,7 @@ class AudioRequest(BaseModel):
     voice_name: str = ""
     voice_volume: float = 1.0
     voice_rate: float = 1.2
-    voice_provider: Literal["piper", "edge", "sherpa"] = "piper"
+    voice_provider: Literal["piper", "edge", "sherpa", "clone"] = "piper"
     bgm_type: Literal["none", "random", "file"] = "random"
     bgm_file: str = ""
     bgm_volume: float = 0.2

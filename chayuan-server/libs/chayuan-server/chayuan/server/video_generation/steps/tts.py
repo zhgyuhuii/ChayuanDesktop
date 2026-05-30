@@ -113,6 +113,16 @@ def synthesize(
         logger.warning("[tts] edge 路径失败,fallback piper")
         provider = "piper"
 
+    if provider == "clone":
+        # 音色克隆(VoxCPM):voice_name = "clone:<id>",参考样本在 voice_clones_dir。
+        result = _synthesize_via_clone(
+            text, voice_file, voice_name=voice_name,
+        )
+        if result is not None:
+            return result
+        logger.warning("[tts] clone 路径失败,fallback piper")
+        provider = "piper"
+
     if provider == "sherpa":
         # M4 加:sherpa-onnx VITS 高质量本地 TTS。
         result = _synthesize_via_sherpa(
@@ -179,6 +189,51 @@ def _synthesize_via_sherpa(
         audio_file=voice_file, duration_ms=duration_ms,
         cues=cues, provider="sherpa",
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 音色克隆路径(VoxCPM,P1)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _synthesize_via_clone(
+    text: str,
+    voice_file: str,
+    *,
+    voice_name: Optional[str],
+) -> Optional[TtsResult]:
+    """音色克隆:voice_name="clone:<id>" → 取 voice_clones_dir/<id>.wav 作参考人声,
+    走 AudioPipeline 的 voxcpm 分支(in-process)。失败返 None 由 caller fallback piper。"""
+    import os as _os
+    from chayuan.server.video_generation._helpers import voice_clones_dir
+
+    cid = (voice_name or "").strip()
+    if cid.startswith("clone:"):
+        cid = cid[len("clone:"):]
+    wav = _os.path.join(voice_clones_dir(), f"{cid}.wav") if cid else ""
+    if cid and not _os.path.isfile(wav):
+        logger.warning("[tts:clone] 克隆样本不存在: %s", wav)
+        return None
+    try:
+        from chayuan.server.modality.audio import AudioPipeline
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[tts:clone] AudioPipeline import 失败: %r", e)
+        return None
+    am = AudioPipeline()
+    fmt = _ext(voice_file) or "wav"
+    try:
+        data = am.synthesize(text, voice=f"voxcpm:{wav}", fmt=fmt)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[tts:clone] synthesize 异常: %r", e)
+        return None
+    if not data:
+        return None
+    with open(voice_file, "wb") as f:
+        f.write(data)
+    duration_ms = _probe_audio_duration_ms(voice_file) or _estimate_duration_ms(text)
+    cues = _equal_split_cues(text, duration_ms)
+    logger.info("[tts:clone] wrote %s dur_ms=%d cues=%d (ref=%s)", voice_file, duration_ms, len(cues), cid or "默认")
+    return TtsResult(audio_file=voice_file, duration_ms=duration_ms, cues=cues, provider="clone")
 
 
 # ─────────────────────────────────────────────────────────────────────

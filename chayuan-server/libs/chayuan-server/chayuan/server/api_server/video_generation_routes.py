@@ -1043,7 +1043,7 @@ def _font_family(path: str) -> Optional[str]:
 )
 def list_voices(
     provider: str = Query(
-        "piper", pattern="^(piper|edge|sherpa)$",
+        "piper", pattern="^(piper|edge|sherpa|clone)$",
         description="对应 voice_provider 字段",
     ),
     user: Dict[str, Any] = Depends(require_auth_enabled()),
@@ -1064,11 +1064,101 @@ def list_voices(
         # 中文音色排前。edge 不需要本地文件,直接全列。
         from chayuan.server.video_generation.edge_voices import EDGE_VOICES
         voices = list(EDGE_VOICES)
+    elif provider == "clone":
+        voices = _list_clone_voices()
     else:  # sherpa
         # 扫 bundled_models/tts/sherpa-onnx/ 子目录返实际可用 voice。
         # 名称规约:目录名即 voice_id;含 model.onnx 视为可用。
         voices = _scan_sherpa_voices()
     return {"provider": provider, "count": len(voices), "items": voices}
+
+
+def _list_clone_voices() -> List[Dict[str, Any]]:
+    """扫 voice_clones_dir,返「我的音色」列表(name=clone:<id>,label=用户命名)。"""
+    import json as _json
+    from chayuan.server.video_generation._helpers import voice_clones_dir
+    d = voice_clones_dir(create=False)
+    out: List[Dict[str, Any]] = []
+    if not os.path.isdir(d):
+        return out
+    for f in sorted(os.listdir(d)):
+        if not f.endswith(".wav"):
+            continue
+        cid = f[:-4]
+        label = cid
+        try:
+            with open(os.path.join(d, f"{cid}.json"), "r", encoding="utf-8") as jf:
+                label = (_json.load(jf) or {}).get("name") or cid
+        except Exception:  # noqa: BLE001
+            pass
+        out.append({"name": f"clone:{cid}", "label": label, "family": "clone", "source": "user"})
+    out.sort(key=lambda x: (x.get("label") or x["name"]).lower())
+    return out
+
+
+@video_generation_router.post(
+    "/voices/clone", summary="上传/录制人声样本 → 注册克隆音色", status_code=status.HTTP_201_CREATED,
+)
+async def create_clone_voice(
+    file: UploadFile = File(..., description="参考人声 wav/mp3,3-10s 干净单人"),
+    name: str = Form(..., min_length=1, max_length=40),
+    ref_text: str = Form("", description="可选:样本对应文本(部分模型提升零样本质量)"),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    import json as _json
+    import re as _re
+    import time as _time
+    import uuid as _uuid
+    from chayuan.server.video_generation._helpers import voice_clones_dir
+    from chayuan.server.video_generation.steps import media_probe  # ffmpeg 在此
+
+    d = voice_clones_dir(create=True)
+    cid = _re.sub(r"[^a-zA-Z0-9_-]", "", f"{int(_time.time())}-{_uuid.uuid4().hex[:6]}")
+    raw_path = os.path.join(d, f"{cid}.src")
+    wav_path = os.path.join(d, f"{cid}.wav")
+    try:
+        with open(raw_path, "wb") as f:
+            f.write(await file.read())
+        # ffmpeg 转 24k mono wav(VoxCPM 默认采样率),失败则原样改名兜底
+        try:
+            import imageio_ffmpeg
+            import subprocess
+            ff = imageio_ffmpeg.get_ffmpeg_exe()
+            subprocess.run(
+                [ff, "-v", "error", "-y", "-i", raw_path, "-ac", "1", "-ar", "24000", wav_path],
+                check=True, timeout=60,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[vg] clone 样本转码失败,直存原文件: %r", e)
+            os.replace(raw_path, wav_path)
+        finally:
+            if os.path.isfile(raw_path):
+                try: os.remove(raw_path)
+                except OSError: pass
+        with open(os.path.join(d, f"{cid}.json"), "w", encoding="utf-8") as jf:
+            _json.dump({"name": name.strip(), "ref_text": (ref_text or "").strip(), "created": _time.time()}, jf, ensure_ascii=False)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"保存克隆样本失败: {e}") from e
+    return {"id": cid, "name": f"clone:{cid}", "label": name.strip()}
+
+
+@video_generation_router.delete(
+    "/voices/clone/{cid}", summary="删除克隆音色",
+)
+def delete_clone_voice(
+    cid: str = FPath(..., max_length=64),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    from chayuan.server.video_generation._helpers import voice_clones_dir
+    d = voice_clones_dir(create=False)
+    base = os.path.basename(cid)
+    removed = False
+    for ext in (".wav", ".json"):
+        p = os.path.join(d, f"{base}{ext}")
+        if os.path.isfile(p):
+            try: os.remove(p); removed = True
+            except OSError: pass
+    return {"deleted": removed, "id": base}
 
 
 @video_generation_router.post(

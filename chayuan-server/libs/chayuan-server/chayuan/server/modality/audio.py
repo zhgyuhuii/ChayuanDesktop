@@ -585,6 +585,12 @@ class AudioPipeline:
                 voice = "zh-CN-XiaoxiaoNeural"
         if not text:
             return b""
+        # -2) VoxCPM 音色克隆(显式 voice="voxcpm:<参考wav路径>";空路径=默认音色)
+        if isinstance(voice, str) and voice.startswith("voxcpm:"):
+            vox_bytes = self._synthesize_via_voxcpm(text, prompt_wav=voice[len("voxcpm:"):], fmt=fmt)
+            if vox_bytes:
+                return vox_bytes
+            # 失败 fallback piper
         # -1) sherpa-onnx(高质量本地 VITS,显式 voice="sherpa:<model_id>")
         if isinstance(voice, str) and voice.startswith("sherpa:"):
             sherpa_bytes = self._synthesize_via_sherpa(text, voice=voice, fmt=fmt)
@@ -837,6 +843,49 @@ class AudioPipeline:
     # ──────────────────────────────────────────────────────────────────
 
     _SHERPA_DEFAULT_VOICE = "vits-zh-ll"
+
+    def _synthesize_via_voxcpm(
+        self, text: str, *, prompt_wav: str, fmt: str,
+    ) -> Optional[bytes]:
+        """VoxCPM 0.5B 本地音色克隆。prompt_wav = 参考人声路径(空=默认音色)。
+        in-process 推理(与 sherpa 同模式),失败返 None 由 caller fallback piper。
+        """
+        try:
+            from voxcpm import VoxCPM  # type: ignore
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[tts:voxcpm] voxcpm 未装,跳过: %r", e, exc_info=True)
+            return None
+        prompt = (prompt_wav or "").strip()
+        if prompt and not os.path.isfile(prompt):
+            logger.warning("[tts:voxcpm] 参考音频不存在,改用默认音色: %s", prompt)
+            prompt = ""
+        try:
+            handle = getattr(self, "_voxcpm_handle", None)
+            if handle is None:
+                handle = VoxCPM.from_pretrained("openbmb/VoxCPM-0.5B")
+                self._voxcpm_handle = handle
+            arr = handle.generate(text=text, prompt_speech_path=prompt or None)
+            import numpy as np  # type: ignore
+            if hasattr(arr, "cpu"):
+                arr = arr.cpu().numpy()
+            if hasattr(arr, "squeeze"):
+                arr = arr.squeeze()
+            audio = np.asarray(arr, dtype="float32")
+            import io
+            import wave
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(24000)
+                w.writeframes((audio * 32767).clip(-32768, 32767).astype("int16").tobytes())
+            wav_bytes = buf.getvalue()
+            if fmt and fmt.lower() not in ("wav", "wave"):
+                return self._wav_to_format(wav_bytes, fmt) or wav_bytes
+            return wav_bytes
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[tts:voxcpm] 合成失败: %r", e, exc_info=True)
+            return None
 
     def _synthesize_via_sherpa(
         self, text: str, *, voice: str, fmt: str,
