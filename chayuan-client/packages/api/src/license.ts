@@ -13,8 +13,11 @@ import { http } from './client';
 export interface LicenseStatus {
   licensed: boolean;
   app?: string;
+  /** 到期时间（ISO）。 */
   expireAt?: string;
+  /** 通过时的来源通道：online/relay/file/airgap/shortcode。 */
   source?: string;
+  /** 未通过原因：none/expired/rollback/mismatch/signature/invalid-app。 */
   reason?: string;
 }
 

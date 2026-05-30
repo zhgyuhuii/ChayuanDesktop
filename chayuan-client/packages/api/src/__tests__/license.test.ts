@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setPlatform } from '@chayuan/platform-shared';
 import { configureClient } from '../client';
 import {
@@ -9,6 +9,9 @@ import {
   licenseStatus,
 } from '../license';
 
+// 注入完整 PAL stub（非仅 net）：client.ts 每次请求都经 buildHeaders → getAccessToken
+// → getPlatform().secure.get(...)，只给 net.fetch 会在取 token 时抛 undefined。
+// 与 diagnose.test.ts 同套路。每个 test 用 mockNet 覆盖本次的 fetch 响应。
 function mockNet(handler: (url: string, init?: RequestInit) => unknown) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const body = handler(url, init);
@@ -29,12 +32,15 @@ function mockNet(handler: (url: string, init?: RequestInit) => unknown) {
   return fetchMock;
 }
 
+// 默认每个 test 前重置 baseURL，避免跨 test 状态泄漏（fetch 仍由各 test 的 mockNet 覆盖）。
+beforeEach(() => configureClient({ baseURL: 'http://127.0.0.1:62581' }));
 afterEach(() => vi.restoreAllMocks());
 
 describe('license api client', () => {
   it('GET /fingerprint 返回指纹', async () => {
-    mockNet(() => ({ fingerprint: '1122334455667788' }));
+    const f = mockNet(() => ({ fingerprint: '1122334455667788' }));
     expect(await licenseFingerprint()).toEqual({ fingerprint: '1122334455667788' });
+    expect(String(f.mock.calls[0]![0])).toContain('/api/v1/license/fingerprint');
   });
 
   it('GET /buy-url 带 app query', async () => {
@@ -45,10 +51,11 @@ describe('license api client', () => {
   });
 
   it('GET /status 原样返回裸 JSON（无壳剥离）', async () => {
-    mockNet(() => ({ licensed: true, app: 'video', expireAt: '2026-07-01T00:00:00.000Z', source: 'shortcode' }));
+    const f = mockNet(() => ({ licensed: true, app: 'video', expireAt: '2026-07-01T00:00:00.000Z', source: 'shortcode' }));
     const s = await licenseStatus('video');
     expect(s.licensed).toBe(true);
     expect(s.expireAt).toBe('2026-07-01T00:00:00.000Z');
+    expect(String(f.mock.calls[0]![0])).toContain('/api/v1/license/status?app=video');
   });
 
   it('POST /activate 发送 {app,serial}', async () => {
