@@ -61,6 +61,8 @@ const BACKEND_PROXY_PREFIXES = [
   '/tools',
   '/v1',
   '/api/v1/mcp_connections',
+  // 视频生成全套 API(素材库/搜索/任务/时间轴/finalize/缩略图…)dev web 需代理到后端
+  '/api/v1/video-generation',
   '/governance',
   '/storage',
   '/modality',
