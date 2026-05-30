@@ -46,6 +46,7 @@ from chayuan.server.api_server.openai_routes import openai_router
 from chayuan.server.api_server.server_routes import server_router
 from chayuan.server.api_server.tool_routes import tool_router
 from chayuan.server.api_server.video_generation_routes import video_generation_router
+from chayuan.server.api_server.digital_human_routes import digital_human_router
 from chayuan.server.auth.middleware import AuthMiddleware
 from chayuan.server.chat.completion import completion
 from chayuan.server.observability import (
@@ -140,6 +141,8 @@ def create_app(run_mode: str = None):
     # 视频生成模块(chayuan-video-generation 集成)— 21 个 endpoint,前缀
     # /api/v1/video-generation/*。详见 video_generation_routes.py 模块 docstring。
     app.include_router(video_generation_router)
+    # 数字人模块 — 预设 / 形象 / 生成 / 状态 / 产物,前缀 /api/v1/digital-human/*
+    app.include_router(digital_human_router)
     # 开放平台路由（需要 App 签名鉴权，见 AppAuthMiddleware）
     app.include_router(openapi_router)
     # 开放平台 WebSocket 路由；鉴权走查询串签名，在 endpoint 内部自行校验
