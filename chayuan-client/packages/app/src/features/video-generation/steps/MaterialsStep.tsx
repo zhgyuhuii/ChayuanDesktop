@@ -378,11 +378,9 @@ const OnlineTab: React.FC<{
                 {/* 缩略图(拖到轨道即用);右下角时长角标 */}
                 <button type="button" onClick={() => onToggle(item)} className="block w-full cursor-grab text-left active:cursor-grabbing" title="拖到时间轴视频轨">
                   <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden text-xs text-[var(--cy-text-tertiary)]">
-                    {item.image ? (
-                      <img src={item.image} alt="" draggable={false} className="h-full w-full object-cover" loading="lazy" />
-                    ) : (
-                      <span>{item.provider} · {item.duration}s</span>
-                    )}
+                    {/* 缩略图:优先服务端 thumbnail;没有就用视频首帧(pixabay 常缺 thumbnail) */}
+                    <video src={`${item.url}#t=0.1`} poster={item.image || undefined} muted preload="metadata" draggable={false}
+                      className="h-full w-full object-cover" />
                     <span className="absolute bottom-1 right-1 rounded bg-black/55 px-1 text-[9px] text-white">{item.duration}s</span>
                   </div>
                 </button>
