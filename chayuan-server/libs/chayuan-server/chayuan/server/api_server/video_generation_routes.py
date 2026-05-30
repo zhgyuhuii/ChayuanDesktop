@@ -1552,6 +1552,15 @@ def task_audio_peaks(
     if not row:
         raise HTTPException(404, "task not found")
     audio_file = (row.get("result") or {}).get("audio_file")
+    # result.audio_file 缺失/路径漂移时,按约定回落到 task_dir 下的音频文件
+    # (subtitle.srt 就是按目录约定服务的,所以它 200 而 peaks 404)。
+    if not audio_file or not os.path.isfile(audio_file):
+        td = task_dir(task_id, create=False)
+        for name in ("audio.wav", "audio.mp3", "voice.wav", "voice.mp3"):
+            cand = os.path.join(td, name)
+            if os.path.isfile(cand):
+                audio_file = cand
+                break
     if not audio_file or not os.path.isfile(audio_file):
         raise HTTPException(404, "audio not ready")
     data = media_probe.cached_peaks(audio_file, task_dir(task_id, create=True), n=n)

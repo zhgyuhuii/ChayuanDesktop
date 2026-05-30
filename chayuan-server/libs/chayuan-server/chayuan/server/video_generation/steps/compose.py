@@ -590,6 +590,18 @@ def render_proxy_from_timeline(
 
     clip_files: list = []
     for i, p in enumerate(plan):
+        seg_path = os.path.join(output_dir, f"proxy-seg-{i}.mp4")
+        # 图像 clip 不能用 VideoFileClip 打开(png_pipe 无 duration → ffmpeg 报
+        # "At least one output file must be specified");走 ImageClip 定格成片段。
+        if p.get("is_image"):
+            img_dur = p["end_s"] if p["end_s"] and p["end_s"] > 0 else 3.0
+            seg = ImageClip(p["path"]).with_duration(img_dur).resized(new_size=(pw, ph))
+            try:
+                seg.write_videofile(seg_path, logger=None, fps=15, codec=video_codec)
+                clip_files.append(seg_path)
+            finally:
+                close_clip(seg)
+            continue
         clip = _open_video_clip_quietly(p["path"])
         try:
             src_dur = clip.duration
@@ -599,7 +611,6 @@ def render_proxy_from_timeline(
             if end_s <= start_s:
                 end_s = min(start_s + 1.0, src_dur)
             seg = clip.subclipped(start_s, end_s).resized(new_size=(pw, ph))
-            seg_path = os.path.join(output_dir, f"proxy-seg-{i}.mp4")
             seg.write_videofile(seg_path, logger=None, fps=15, codec=video_codec)
             clip_files.append(seg_path)
         finally:
