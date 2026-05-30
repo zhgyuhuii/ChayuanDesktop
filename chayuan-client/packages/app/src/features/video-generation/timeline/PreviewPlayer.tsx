@@ -62,22 +62,25 @@ export const PreviewPlayer: React.FC<{
     if (!playing && !v.paused) v.pause();
   }, [playing, url]);
 
+  const ratio = aspect === '16:9' ? '16 / 9' : aspect === '1:1' ? '1 / 1' : '9 / 16';
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl bg-black/90 p-2">
-      <div className="relative flex max-h-full max-w-full items-center justify-center">
+    <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl bg-[var(--cy-surface-2)] p-2">
+      {/* 固定画幅黑框:proxy 视频 + PIP 浮层都在框内(坐标与成片一致) */}
+      <div className="relative max-h-full overflow-hidden rounded bg-black"
+        style={{ aspectRatio: ratio, height: '100%', maxWidth: '100%' }}>
         {url ? (
           <video
             ref={videoRef}
             src={url}
-            className="max-h-full max-w-full rounded"
+            className="h-full w-full object-contain"
             onTimeUpdate={(e) => onTimeMs(e.currentTarget.currentTime * 1000)}
             onPlay={() => onPlayingChange(true)}
             onPause={() => onPlayingChange(false)}
           />
         ) : (
-          <div className="text-xs text-white/60">点「生成预览」查看画面</div>
+          <div className="flex h-full w-full items-center justify-center text-xs text-white/60">点「生成预览」查看画面</div>
         )}
-        {/* PIP 编辑浮层覆盖在画面上(无 PIP 时为空) */}
+        {/* PIP 编辑浮层(0-1 相对黑框) */}
         {overlay}
       </div>
       {(stale || !url) && (

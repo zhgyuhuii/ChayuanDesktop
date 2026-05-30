@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Sparkles, Film, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Loader2, Sparkles, Film, AlertTriangle, RefreshCw, ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
+import { VgAspectChip } from './VgAspectChip';
 import { videoGeneration, type VgTimeline } from '@chayuan/api';
 import { useVgComposer, scriptHashOf } from './store/vgComposer';
 import { MediaPoolPanel } from './timeline/MediaPoolPanel';
@@ -46,6 +47,15 @@ export const VgTimelineEditorPage: React.FC = () => {
   });
   const poolWRef = React.useRef(poolW);
   React.useEffect(() => { poolWRef.current = poolW; }, [poolW]);
+  // 折叠态 + 时间轴高度(可拖)
+  const [previewCollapsed, setPreviewCollapsed] = React.useState(false);
+  const [timelineCollapsed, setTimelineCollapsed] = React.useState(false);
+  const [timelineH, setTimelineH] = React.useState<number>(() => {
+    const v = typeof localStorage !== 'undefined' ? Number(localStorage.getItem('cy.vg.timeline.h')) : 0;
+    return v >= 120 && v <= 600 ? v : 280;
+  });
+  const timelineHRef = React.useRef(timelineH);
+  React.useEffect(() => { timelineHRef.current = timelineH; }, [timelineH]);
 
   const timeline = params.timeline ?? buildTimelineFromMaterials(params.video_materials ?? []);
   const curHash = scriptHashOf(params);
@@ -137,6 +147,9 @@ export const VgTimelineEditorPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentMs > 0]);
 
+  // 画幅改变 → 预览过期(重新生成才按新画幅)
+  React.useEffect(() => { setProxyStale(true); }, [params.video_aspect]);
+
   const onTimelineChange = (t: VgTimeline) => { patchParams({ timeline: t }); setProxyStale(true); };
   // 缩略图按 clip 的 source 解析:material_id → 素材缩略图;url(http)→ 暂无。
   const videoClips = (timeline.tracks ?? []).find((t) => t.kind === 'video')?.clips ?? [];
@@ -216,39 +229,75 @@ export const VgTimelineEditorPage: React.FC = () => {
 
   return (
     <div ref={containerRef} className="flex h-full w-full flex-col">
-      {/* 上半:素材库 + 可拖分隔条 + 预览 */}
-      <div className="flex min-h-0 flex-1">
-        <MediaPoolPanel width={poolW} />
+      {/* 上半:素材库 + 可拖分隔条 + 预览(可折叠) */}
+      {!timelineCollapsed && (
+        <div className="flex min-h-0 flex-1">
+          <MediaPoolPanel width={poolW} />
+          <div
+            title="拖动调整素材库宽度"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              const startX = e.clientX; const startW = poolWRef.current;
+              const move = (ev: PointerEvent) => {
+                const w = Math.max(160, Math.min(560, startW + (ev.clientX - startX)));
+                poolWRef.current = w; setPoolW(w);
+              };
+              const up = () => {
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', up);
+                try { localStorage.setItem('cy.vg.mediapool.w', String(poolWRef.current)); } catch { /* noop */ }
+              };
+              window.addEventListener('pointermove', move);
+              window.addEventListener('pointerup', up);
+            }}
+            className="w-1 shrink-0 cursor-ew-resize bg-[var(--cy-border-subtle)] hover:bg-[var(--cy-brand-400)]"
+          />
+          <div className="flex min-h-0 flex-1 flex-col">
+            {/* 预览头:画幅条 + 折叠 */}
+            <div className="flex items-center gap-2 px-3 pt-2">
+              <VgAspectChip />
+              <button type="button" onClick={() => setPreviewCollapsed((v) => !v)}
+                className="ml-auto inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                {previewCollapsed ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />} {previewCollapsed ? '展开预览' : '折叠预览'}
+              </button>
+            </div>
+            {!previewCollapsed && (
+              <div className="min-h-0 flex-1 p-3">
+                <PreviewPlayer
+                  timeline={timeline} aspect={params.video_aspect}
+                  seekMs={seekMs} playing={playing} stale={proxyStale}
+                  onTimeMs={(ms) => setPlayheadMs(ms)}
+                  onPlayingChange={setPlaying}
+                  onFreshGenerated={() => setProxyStale(false)}
+                  overlay={<PipOverlay timeline={timeline} playheadMs={playheadMs} onTransform={onSetTransform} />}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {/* 上下可拖分隔条(调时间轴高度) */}
+      {!timelineCollapsed && (
         <div
-          title="拖动调整素材库宽度"
+          title="拖动调整时间轴高度"
           onPointerDown={(e) => {
             e.preventDefault();
-            const startX = e.clientX; const startW = poolWRef.current;
+            const startY = e.clientY; const startH = timelineHRef.current;
             const move = (ev: PointerEvent) => {
-              const w = Math.max(160, Math.min(560, startW + (ev.clientX - startX)));
-              poolWRef.current = w; setPoolW(w);
+              const h = Math.max(120, Math.min(600, startH - (ev.clientY - startY)));
+              timelineHRef.current = h; setTimelineH(h);
             };
             const up = () => {
               window.removeEventListener('pointermove', move);
               window.removeEventListener('pointerup', up);
-              try { localStorage.setItem('cy.vg.mediapool.w', String(poolWRef.current)); } catch { /* noop */ }
+              try { localStorage.setItem('cy.vg.timeline.h', String(timelineHRef.current)); } catch { /* noop */ }
             };
             window.addEventListener('pointermove', move);
             window.addEventListener('pointerup', up);
           }}
-          className="w-1 shrink-0 cursor-ew-resize bg-[var(--cy-border-subtle)] hover:bg-[var(--cy-brand-400)]"
+          className="h-1 shrink-0 cursor-ns-resize bg-[var(--cy-border-subtle)] hover:bg-[var(--cy-brand-400)]"
         />
-        <div className="min-h-0 flex-1 p-3">
-          <PreviewPlayer
-            timeline={timeline} aspect={params.video_aspect}
-            seekMs={seekMs} playing={playing} stale={proxyStale}
-            onTimeMs={(ms) => setPlayheadMs(ms)}
-            onPlayingChange={setPlaying}
-            onFreshGenerated={() => setProxyStale(false)}
-            overlay={<PipOverlay timeline={timeline} playheadMs={playheadMs} onTransform={onSetTransform} />}
-          />
-        </div>
-      </div>
+      )}
       {/* transport */}
       <TransportBar playing={playing} currentMs={playheadMs} durationMs={contentMs} pxPerSec={pxPerSec}
         onPlayPause={() => setPlaying((v) => !v)} onZoom={setPxPerSec} />
@@ -281,12 +330,17 @@ export const VgTimelineEditorPage: React.FC = () => {
           </button>
         </div>
       )}
-      {/* 下半:全宽多轨时间轴 */}
-      <div className="border-t border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-3">
+      {/* 下半:全宽多轨时间轴(可折叠 + 拖高) */}
+      <div className="flex min-h-0 flex-col border-t border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-3"
+        style={timelineCollapsed ? undefined : { height: timelineH }}>
         <div className="mb-2 flex items-center gap-2">
           <h2 className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--cy-text-primary)]">
             <Film className="h-4 w-4" /> 时间轴
           </h2>
+          <button type="button" onClick={() => setTimelineCollapsed((v) => !v)} title={timelineCollapsed ? '展开时间轴' : '折叠时间轴'}
+            className="inline-flex h-7 items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+            {timelineCollapsed ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />} {timelineCollapsed ? '展开' : '折叠'}
+          </button>
           <button type="button" onClick={() => setScriptGenOpen(true)}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--cy-border-strong)] px-3 text-xs text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
             <Sparkles className="h-3.5 w-3.5" /> 生成脚本
@@ -296,6 +350,8 @@ export const VgTimelineEditorPage: React.FC = () => {
             {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} 提交合成
           </button>
         </div>
+        {!timelineCollapsed && (
+        <div className="min-h-0 flex-1 overflow-y-auto cy-hide-scrollbar">
         <TimelineTracks
           timeline={timeline} durationMs={durationMs} pxPerSec={pxPerSec} playheadMs={playheadMs}
           peaks={peaks} peaksLoading={draft.state === 'generating'} cues={cues} bgmName={bgmName}
@@ -311,6 +367,8 @@ export const VgTimelineEditorPage: React.FC = () => {
           onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
           onTimelineChange={onTimelineChange}
         />
+        </div>
+        )}
       </div>
       {/* 隐藏文件输入(右键「从本地上传」) */}
       <input ref={fileInputRef} type="file" accept="video/*,image/*,audio/*" className="hidden" onChange={(e) => void onFilePicked(e)} />
