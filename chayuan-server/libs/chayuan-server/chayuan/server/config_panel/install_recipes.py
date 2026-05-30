@@ -641,8 +641,10 @@ def _voxcpm2(host: str) -> List[InstallRecipe]:
     没有官方 docker 镜像;主要靠 pip(``voxcpm`` 包)或源码 clone。
     """
     out: List[InstallRecipe] = []
-    # 1. pip 包(主推)— 4 镜像源
-    out.extend(_pip_with_mirrors("voxcpm"))
+    # 1. pip 包(主推)— 4 镜像源。带上 torchaudio:voxcpm 的 model/voxcpm.py 顶部
+    # ``import torchaudio``,缺它整个 voxcpm import 就 ModuleNotFoundError(实测
+    # 2026-05-30 用户环境克隆音色合成失败的真因)→ 必须一起装。
+    out.extend(_pip_with_mirrors("voxcpm torchaudio"))
     # 2. git clone 源码(兜底,适合需要 voice clone 自定义音色的高级用户)
     if host == "win":
         out.append(InstallRecipe(

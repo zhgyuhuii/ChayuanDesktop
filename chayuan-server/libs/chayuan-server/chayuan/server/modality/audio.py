@@ -590,13 +590,18 @@ class AudioPipeline:
             vox_bytes = self._synthesize_via_voxcpm(text, prompt_wav=voice[len("voxcpm:"):], fmt=fmt)
             if vox_bytes:
                 return vox_bytes
-            # 失败 fallback piper
+            # 失败 fallback piper —— ⚠ 必须把 voice 清空,否则 "voxcpm:<abs路径>"
+            # 会被当成 piper voice id 去拼下载 URL(实测 desktop 上 404 刷屏)。
+            logger.warning("[tts] voxcpm 不可用(可能缺 torchaudio),回退 piper 默认音色")
+            voice = None
         # -1) sherpa-onnx(高质量本地 VITS,显式 voice="sherpa:<model_id>")
         if isinstance(voice, str) and voice.startswith("sherpa:"):
             sherpa_bytes = self._synthesize_via_sherpa(text, voice=voice, fmt=fmt)
             if sherpa_bytes:
                 return sherpa_bytes
-            # 失败 fallback 到 piper
+            # 失败 fallback 到 piper —— 同理清空 "sherpa:..." 前缀,别喂给 piper
+            logger.warning("[tts] sherpa 不可用,回退 piper 默认音色")
+            voice = None
         # 0) piper-tts(离线优先)— 模型 ≤ 60 MB,装好后没网也能用
         piper_bytes = self._synthesize_via_piper(text, voice=voice, fmt=fmt)
         if piper_bytes:
