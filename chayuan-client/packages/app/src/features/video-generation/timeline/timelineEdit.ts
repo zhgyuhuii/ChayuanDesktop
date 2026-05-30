@@ -187,6 +187,21 @@ export function appendClipFromMaterial(
   return { ...t, tracks: next };
 }
 
+/** 拖入素材时长未知(在线/链接无 duration),落点后探测到真实时长再回填:
+ *  把匹配 source 且 out_ms<=0(整段占位)的 clip 设为该时长,并重算主轨紧贴。 */
+export function applyProbedDuration(t: VgTimeline, src: { materialId?: string; url?: string }, durMs: number): VgTimeline {
+  const d = Math.max(MIN_DUR, Math.round(durMs));
+  const tracks = (t.tracks || []).map((tr) => ({
+    ...tr,
+    clips: (tr.clips || []).map((c) => {
+      const match = (src.materialId && c.source.material_id === src.materialId) || (src.url && c.source.url === src.url);
+      if (match && (!c.out_ms || c.out_ms <= 0)) return { ...c, out_ms: (c.in_ms ?? 0) + d, duration_ms: d };
+      return c;
+    }),
+  }));
+  return recomputeStarts({ ...t, tracks });
+}
+
 /** 设某 clip 的转场(作用于上一片段→本片段切点)。任意轨。 */
 export function setClipTransition(t: VgTimeline, clipId: string, transition: string): VgTimeline {
   const tracks = (t.tracks || []).map((tr) => ({

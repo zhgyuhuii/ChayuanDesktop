@@ -10,7 +10,7 @@ import { PreviewPlayer } from './timeline/PreviewPlayer';
 import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
-import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, setClipTransition, type DraggedMaterial } from './timeline/timelineEdit';
+import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, setClipTransition, applyProbedDuration, type DraggedMaterial } from './timeline/timelineEdit';
 import { TRANSITIONS } from './timeline/transitions';
 import { addTrack, removeTrack, setClipTransform, reorderVideoTrack } from './timeline/trackOps';
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
@@ -224,6 +224,24 @@ export const VgTimelineEditorPage: React.FC = () => {
   const onDropMaterial = (m: DraggedMaterial, trackId?: string, atIndex?: number) => {
     if (m.kind === 'audio') return; // 音频走音频轨
     onTimelineChange(appendClipFromMaterial(timeline, m, atIndex, trackId, contentMs));
+    // 视频时长未知(在线/链接无 duration)→ 探测真实时长再回填,保证轨上时长对得上
+    if (m.kind === 'video' && (!m.durationMs || m.durationMs <= 0)) probeVideoDuration(m);
+  };
+  const probeVideoDuration = (m: DraggedMaterial) => {
+    const url = m.materialId ? videoGeneration.materialFileUrl(m.materialId) : (m.url || '');
+    if (!url) return;
+    const v = document.createElement('video');
+    v.preload = 'metadata'; v.muted = true;
+    const done = () => { v.onloadedmetadata = null; v.onerror = null; v.src = ''; };
+    v.onloadedmetadata = () => {
+      const durMs = Math.round((v.duration || 0) * 1000);
+      done();
+      if (durMs <= 0) return;
+      const tl = useVgComposer.getState().params.timeline;
+      if (tl) onTimelineChange(applyProbedDuration(tl, { materialId: m.materialId, url: m.url }, durMs));
+    };
+    v.onerror = done;
+    v.src = url;
   };
   const onDropAudio = (m: DraggedMaterial, trackId?: string) => { onTimelineChange(appendAudioClip(timeline, m, undefined, trackId)); };
   const [selectedTrackId, setSelectedTrackId] = React.useState<string | null>(null);

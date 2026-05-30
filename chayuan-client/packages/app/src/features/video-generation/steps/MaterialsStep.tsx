@@ -31,6 +31,15 @@ function setDragData(e: React.DragEvent, m: DraggedMaterial) {
   e.dataTransfer.effectAllowed = 'copy';
 }
 
+/** 素材卡左上角小播放角标(各类素材统一)。点击弹预览窗。 */
+const PlayBadge: React.FC<{ onClick: () => void }> = ({ onClick }) => (
+  <button type="button" title="预览"
+    onClick={(e) => { e.stopPropagation(); onClick(); }}
+    className="absolute left-1.5 top-1.5 z-10 inline-flex h-5 w-5 items-center justify-center rounded-full bg-black/55 text-white hover:bg-black/80">
+    <Play className="h-3 w-3" />
+  </button>
+);
+
 type Tab = 'mine' | 'online' | 'link' | 'upload';
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
@@ -221,6 +230,7 @@ const MineTab: React.FC<{
                         : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')
               }
             >
+              <PlayBadge onClick={() => setPreview(m)} />
               <button type="button" onClick={() => onToggle(item)} className="block w-full text-left">
                 <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden">
                   {thumb(m, fileUrl)}
@@ -229,7 +239,7 @@ const MineTab: React.FC<{
                 </div>
               </button>
               {chosen && (
-                <span className="pointer-events-none absolute left-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
+                <span className="pointer-events-none absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </span>
               )}
@@ -285,13 +295,13 @@ const OnlineTab: React.FC<{
   view?: 'card' | 'list';
 }> = ({ selected, onToggle, aspect, qc, view = 'card' }) => {
   void view; // 在线搜索结果保持卡片视图;列表视图主要服务「我的素材」
+  void qc;   // 不再做「加入素材库」,qc 暂留接口
   const [source, setSource] = React.useState<'pexels' | 'pixabay'>('pexels');
   const [keyword, setKeyword] = React.useState('');
   const [results, setResults] = React.useState<VgMaterialInfo[]>([]);
   const [translated, setTranslated] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [searching, setSearching] = React.useState(false);
-  const [ingesting, setIngesting] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState<string | null>(null);
 
   const onSearch = React.useCallback(async () => {
@@ -316,18 +326,6 @@ const OnlineTab: React.FC<{
       setSearching(false);
     }
   }, [keyword, source, aspect]);
-
-  const onIngest = React.useCallback(async (url: string) => {
-    setIngesting(url);
-    try {
-      await videoGeneration.ingestMedia({ url, kind: 'video', source });
-      await qc.invalidateQueries({ queryKey: ['vg.materials'] });
-    } catch (e) {
-      reportError(e as Error, '加入素材库失败');
-    } finally {
-      setIngesting(null);
-    }
-  }, [source, qc]);
 
   return (
     <div className="space-y-3">
@@ -376,7 +374,9 @@ const OnlineTab: React.FC<{
                 className={'group relative overflow-hidden rounded-xl border transition-colors ' +
                   (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
                           : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
-                <button type="button" onClick={() => onToggle(item)} className="block w-full text-left">
+                <PlayBadge onClick={() => setPreview(item.url)} />
+                {/* 缩略图(拖到轨道即用);右下角时长角标 */}
+                <button type="button" onClick={() => onToggle(item)} className="block w-full cursor-grab text-left active:cursor-grabbing" title="拖到时间轴视频轨">
                   <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden text-xs text-[var(--cy-text-tertiary)]">
                     {item.image ? (
                       <img src={item.image} alt="" draggable={false} className="h-full w-full object-cover" loading="lazy" />
@@ -386,20 +386,8 @@ const OnlineTab: React.FC<{
                     <span className="absolute bottom-1 right-1 rounded bg-black/55 px-1 text-[9px] text-white">{item.duration}s</span>
                   </div>
                 </button>
-                <button type="button" title="预览" onClick={() => setPreview(item.url)}
-                  className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/75">
-                  <Play className="h-3.5 w-3.5" />
-                </button>
-                <div className="flex items-center justify-between gap-1 p-2">
-                  <span className="truncate text-[10px] text-[var(--cy-text-tertiary)]">{item.url.split('/').pop()}</span>
-                  <button type="button" disabled={ingesting === item.url}
-                    onClick={() => onIngest(item.url)}
-                    className="shrink-0 rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-[10px] hover:border-[var(--cy-brand-500)] disabled:opacity-50">
-                    {ingesting === item.url ? '…' : '加入素材库'}
-                  </button>
-                </div>
                 {chosen && (
-                  <span className="pointer-events-none absolute left-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
+                  <span className="pointer-events-none absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                   </span>
                 )}
@@ -431,6 +419,7 @@ const LinkTab: React.FC<{ qc: ReturnType<typeof useQueryClient> }> = ({ qc }) =>
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [ingesting, setIngesting] = React.useState(false);
+  const [pv, setPv] = React.useState<import('@chayuan/api').VgMediaItem | null>(null);
 
   const onExtract = React.useCallback(async () => {
     if (!url.trim()) return;
@@ -507,27 +496,37 @@ const LinkTab: React.FC<{ qc: ReturnType<typeof useQueryClient> }> = ({ qc }) =>
             {items.map((it, i) => {
               const chosen = picked.has(it.url);
               return (
-                <li key={`${it.url}-${i}`}>
-                  <button type="button" onClick={() => toggle(it.url)}
-                    className={'group relative w-full overflow-hidden rounded-xl border text-left transition-colors ' +
-                      (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
-                              : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
+                <li key={`${it.url}-${i}`}
+                  draggable
+                  onDragStart={(e) => setDragData(e, { url: it.url, kind: it.kind })}
+                  className={'group relative overflow-hidden rounded-xl border transition-colors ' +
+                    (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
+                            : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
+                  <PlayBadge onClick={() => setPv(it)} />
+                  <button type="button" onClick={() => toggle(it.url)} className="block w-full cursor-grab text-left active:cursor-grabbing" title="拖到时间轴 / 点选批量加入素材库">
                     <div className="aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden text-xs text-[var(--cy-text-tertiary)]">
-                      {it.thumb ? <img src={it.thumb} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      {it.thumb ? <img src={it.thumb} alt="" draggable={false} className="h-full w-full object-cover" loading="lazy" />
                                 : (it.kind === 'video' ? '🎬 视频' : '🖼 图片')}
                     </div>
                     <p className="truncate p-2 text-[10px] text-[var(--cy-text-tertiary)]">{it.title || it.url.split('/').pop()}</p>
-                    {chosen && (
-                      <span className="absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                      </span>
-                    )}
                   </button>
+                  {chosen && (
+                    <span className="pointer-events-none absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    </span>
+                  )}
                 </li>
               );
             })}
           </ul>
         </>
+      )}
+      {pv && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-6" onClick={() => setPv(null)}>
+          {pv.kind === 'image'
+            ? <img src={pv.url} alt="" onClick={(e) => e.stopPropagation()} className="max-h-[85vh] max-w-[85vw] rounded-lg" />
+            : <video src={pv.url} controls autoPlay onClick={(e) => e.stopPropagation()} className="max-h-[85vh] max-w-[85vw] rounded-lg bg-black" />}
+        </div>
       )}
     </div>
   );

@@ -177,9 +177,13 @@ def search_videos_pixabay(
                     item.provider = "pixabay"
                     item.url = video["url"]
                     item.duration = duration
-                    # pixabay 视频托管在 vimeo,picture_id 拼缩略图 URL
-                    pid = str(v.get("picture_id", "")).strip()
-                    item.image = f"https://i.vimeocdn.com/video/{pid}_640x360.jpg" if pid else ""
+                    # 缩略图:优先用该清晰度对象自带的 thumbnail 直链(Pixabay 现行字段);
+                    # 没有再回落老 picture_id→vimeocdn 拼接(已多不可用,仅兜底)。
+                    thumb = str(video.get("thumbnail") or "").strip()
+                    if not thumb:
+                        pid = str(v.get("picture_id", "")).strip()
+                        thumb = f"https://i.vimeocdn.com/video/{pid}_640x360.jpg" if pid else ""
+                    item.image = thumb
                     video_items.append(item)
                     break
         return video_items
