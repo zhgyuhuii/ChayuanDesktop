@@ -170,8 +170,8 @@ export const VgTimelineEditorPage: React.FC = () => {
     if (start >= contentMs - 20) start = 0; // 到末尾再按播放 = 从头
     playheadRef.current = start; // 同步,避免首帧读到旧值
     setPlayheadMs(start);
-    // 音频:旁白(从 0)+ 各音频轨 clip(按 track_start),按 start 偏移起播
-    const items: { url: string; startMs: number }[] = [];
+    // 音频:旁白(从 0)+ 各音频轨 clip(按 track_start)+ 背景音乐(从 0,循环,bgm_volume)
+    const items: { url: string; startMs: number; volume?: number; loop?: boolean }[] = [];
     if (draft.taskId && draft.audioFileName) items.push({ url: videoGeneration.taskFileUrl(draft.taskId, draft.audioFileName), startMs: 0 });
     for (const tr of (timeline.tracks ?? [])) {
       if (tr.kind !== 'audio') continue;
@@ -179,6 +179,10 @@ export const VgTimelineEditorPage: React.FC = () => {
         const url = c.source.material_id ? videoGeneration.materialFileUrl(c.source.material_id) : (c.source.url ?? '');
         if (url) items.push({ url, startMs: c.track_start_ms });
       }
+    }
+    if (params.bgm_type === 'file' && params.bgm_file) {
+      const base = params.bgm_file.split(/[\\/]/).pop() || '';
+      if (base) items.push({ url: videoGeneration.bgmFileUrl(base), startMs: 0, volume: params.bgm_volume, loop: true });
     }
     const stopAudio = items.length ? playAudioTimeline(items, undefined, start) : null;
     let last = performance.now();
@@ -295,7 +299,10 @@ export const VgTimelineEditorPage: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  const bgmName = params.bgm_type === 'random' ? '随机背景音乐' : (params.bgm_file || null);
+  // 音乐轨只显名称(basename),不显完整路径;file 模式给试听 URL(后端按 basename 解析)
+  const bgmBase = params.bgm_file ? (params.bgm_file.split(/[\\/]/).pop() || '') : '';
+  const bgmName = params.bgm_type === 'random' ? '随机背景音乐' : (bgmBase || null);
+  const bgmUrl = params.bgm_type === 'file' && bgmBase ? videoGeneration.bgmFileUrl(bgmBase) : undefined;
 
   return (
     <div ref={containerRef} className="flex h-full w-full flex-col">
@@ -417,7 +424,15 @@ export const VgTimelineEditorPage: React.FC = () => {
       {/* 下半:全宽多轨时间轴(可折叠 + 拖高) */}
       <div className="flex min-h-0 flex-col border-t border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-3"
         style={timelineCollapsed ? undefined : { height: timelineH }}>
-        <div className="mb-2 flex items-center gap-2">
+        {/* #18/#19 设置面板:在工具栏行**上方**展开(语音/字幕/背景音乐,复用会话组件) */}
+        {!timelineCollapsed && settingsPanel && (
+          <div className="mb-2 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 py-2">
+            {settingsPanel === 'speech' ? <VgSpeechSettings />
+              : settingsPanel === 'subtitle' ? <VgSubtitleSettings />
+              : <BgmSection />}
+          </div>
+        )}
+        <div className="mb-2 flex flex-wrap items-center gap-2">
           <h2 className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--cy-text-primary)]">
             <Film className="h-4 w-4" /> 时间轴
           </h2>
@@ -437,41 +452,28 @@ export const VgTimelineEditorPage: React.FC = () => {
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--cy-border-strong)] px-3 text-xs text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
             <Captions className="h-3.5 w-3.5" /> 编辑字幕
           </button>
+          {/* 语音 / 字幕 / 背景音乐 设置 chip —— 与上面按钮同排,点击向上展开面板 */}
+          <span className="mx-0.5 h-5 w-px bg-[var(--cy-border-subtle)]" />
+          {([['speech', '语音', Volume2], ['subtitle', '字幕', Type], ['bgm', '背景音乐', Music]] as const).map(([k, label, Icon]) => (
+            <button key={k} type="button" onClick={() => setSettingsPanel((c) => (c === k ? null : k))}
+              className={'inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs transition-colors ' +
+                (settingsPanel === k
+                  ? 'border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                  : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]')}>
+              <Icon className="h-3.5 w-3.5 text-[var(--cy-brand-500)]" /> {label}
+              <ChevronDown className={'h-3 w-3 transition-transform ' + (settingsPanel === k ? 'rotate-180' : '')} />
+            </button>
+          ))}
           <button type="button" onClick={() => void onSubmit()} disabled={submitting || draft.state !== 'ready'}
             className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 text-xs font-medium text-white shadow disabled:opacity-50">
             {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} 提交合成
           </button>
         </div>
-        {/* #18/#19 设置条:语音 / 字幕 / 背景音乐(复用会话同款组件,写全局 params) */}
-        {!timelineCollapsed && (
-          <div className="mb-2 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
-            <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 text-xs">
-              {([['speech', '语音', Volume2], ['subtitle', '字幕', Type], ['bgm', '背景音乐', Music]] as const).map(([k, label, Icon]) => (
-                <button key={k} type="button" onClick={() => setSettingsPanel((c) => (c === k ? null : k))}
-                  className={'inline-flex h-7 items-center gap-1 rounded-md border px-2 transition-colors ' +
-                    (settingsPanel === k
-                      ? 'border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                      : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]')}>
-                  <Icon className="h-3 w-3 text-[var(--cy-brand-500)]" /> {label}
-                  <ChevronDown className={'h-3 w-3 transition-transform ' + (settingsPanel === k ? 'rotate-180' : '')} />
-                </button>
-              ))}
-              <span className="text-[10px] text-[var(--cy-text-tertiary)]">配置语音后点「编辑脚本/生成脚本」即按此合成旁白+字幕</span>
-            </div>
-            {settingsPanel && (
-              <div className="border-t border-[var(--cy-border-subtle)] px-3 py-2">
-                {settingsPanel === 'speech' ? <VgSpeechSettings />
-                  : settingsPanel === 'subtitle' ? <VgSubtitleSettings />
-                  : <BgmSection />}
-              </div>
-            )}
-          </div>
-        )}
         {!timelineCollapsed && (
         <div className="min-h-0 flex-1 overflow-y-auto cy-hide-scrollbar">
         <TimelineTracks
           timeline={timeline} durationMs={durationMs} pxPerSec={pxPerSec} playheadMs={playheadMs}
-          peaks={peaks} peaksLoading={draft.state === 'generating'} cues={cues} bgmName={bgmName}
+          peaks={peaks} peaksLoading={draft.state === 'generating'} cues={cues} bgmName={bgmName} bgmUrl={bgmUrl}
           thumbUrlOf={thumbUrlOf}
           onDropAudio={onDropAudio}
           onCuesChange={setCues}

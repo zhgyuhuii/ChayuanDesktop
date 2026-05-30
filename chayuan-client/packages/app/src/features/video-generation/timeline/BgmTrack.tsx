@@ -1,19 +1,44 @@
 import * as React from 'react';
-import { Music } from 'lucide-react';
+import { Music, Play, Pause } from 'lucide-react';
 import { TRACK_H } from './TrackHeader';
 
+/** 音乐(BGM)轨:只显名称(不显路径)+ 可在轨上试听。 */
 export const BgmTrack: React.FC<{
   bgmName: string | null;
+  bgmUrl?: string;
   contentWidthPx: number;
-}> = ({ bgmName, contentWidthPx }) => (
-  <div className="relative border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]"
-    style={{ height: TRACK_H, width: contentWidthPx }}>
-    {bgmName ? (
-      <div className="absolute inset-x-1 top-1.5 flex h-8 items-center gap-1 overflow-hidden rounded border border-emerald-300 bg-emerald-50 px-2 text-[10px] text-emerald-800">
-        <Music className="h-3 w-3 shrink-0" /> <span className="truncate">{bgmName}</span>
-      </div>
-    ) : (
-      <span className="absolute inset-0 flex items-center justify-center text-[10px] text-[var(--cy-text-tertiary)]">无背景音乐</span>
-    )}
-  </div>
-);
+}> = ({ bgmName, bgmUrl, contentWidthPx }) => {
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = React.useState(false);
+  React.useEffect(() => () => { audioRef.current?.pause(); }, []);
+  const toggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) void a.play().catch(() => undefined); else a.pause();
+  };
+
+  return (
+    <div className="relative border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]"
+      style={{ height: TRACK_H, width: contentWidthPx }}>
+      {bgmName ? (
+        <div className="absolute inset-x-1 top-1.5 flex h-8 items-center gap-1 overflow-hidden rounded border border-emerald-300 bg-emerald-50 px-2 text-[10px] text-emerald-800">
+          <Music className="h-3 w-3 shrink-0" />
+          <span className="truncate">{bgmName}</span>
+          {bgmUrl && (
+            <>
+              <button type="button" onClick={toggle} title={playing ? '暂停' : '试听'}
+                className="ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-emerald-100">
+                {playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+              </button>
+              <audio ref={audioRef} src={bgmUrl} preload="none"
+                onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
+            </>
+          )}
+        </div>
+      ) : (
+        <span className="absolute inset-0 flex items-center justify-center text-[10px] text-[var(--cy-text-tertiary)]">无背景音乐</span>
+      )}
+    </div>
+  );
+};

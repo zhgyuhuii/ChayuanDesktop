@@ -25,6 +25,7 @@ export const TimelineTracks: React.FC<{
   peaksLoading?: boolean;
   cues: SrtCue[];
   bgmName: string | null;
+  bgmUrl?: string;
   thumbUrlOf?: (clipIndex: number) => string | null;
   onSeekMs: (ms: number) => void;
   onTimelineChange: (t: VgTimeline) => void;
@@ -38,7 +39,7 @@ export const TimelineTracks: React.FC<{
   onReorderVideoTrack?: (trackId: string, dir: 'up' | 'down') => void;
   selectedClipId?: string | null;
   onSelectClip?: (clipId: string) => void;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip }) => {
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const audioTracks = (timeline.tracks || []).filter((t) => t.kind === 'audio');
@@ -139,7 +140,7 @@ export const TimelineTracks: React.FC<{
                   onClipContextMenu={(e, clipId) => onLaneContextMenu?.(e, 'audio', clipId, tr?.id, !!tr?.removable)} />
               </div>
             ))}
-            <BgmTrack bgmName={bgmName} contentWidthPx={contentWidthPx} />
+            <BgmTrack bgmName={bgmName} bgmUrl={bgmUrl} contentWidthPx={contentWidthPx} />
             <SubtitleCueTrack cues={cues} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx}
               editable onCuesChange={onCuesChange}
               onCueContextMenu={(e, idx) => onLaneContextMenu?.(e, 'subtitle', String(idx))} />

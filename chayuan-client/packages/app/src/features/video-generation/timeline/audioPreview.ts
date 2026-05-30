@@ -6,6 +6,10 @@
 export interface AudioPreviewItem {
   url: string;
   startMs: number;
+  /** 0..1 音量(BGM 用 bgm_volume;不传=1)。 */
+  volume?: number;
+  /** 循环播放(BGM 短素材铺满时间轴)。 */
+  loop?: boolean;
 }
 
 export function playAudioTimeline(items: AudioPreviewItem[], onEnd?: () => void, offsetMs = 0): () => void {
@@ -16,6 +20,8 @@ export function playAudioTimeline(items: AudioPreviewItem[], onEnd?: () => void,
   for (const it of items) {
     const a = new Audio(it.url);
     a.preload = 'auto';
+    if (it.volume != null) a.volume = Math.max(0, Math.min(1, it.volume));
+    if (it.loop) a.loop = true;
     audios.push(a);
     const delay = it.startMs - offsetMs;
     if (delay <= 0) {
