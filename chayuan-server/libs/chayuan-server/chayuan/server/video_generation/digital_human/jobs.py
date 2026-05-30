@@ -81,7 +81,7 @@ def _run_pipeline(tid: str) -> None:
         out_path = os.path.join(td, "digital_human.mp4")
         _synthesize_narration(args["text"], preset, audio_path)
         _set(tid, progress=30)
-        get_engine().generate(
+        get_engine(args.get("engine") or "wav2lip").generate(
             avatar_path=avatar, audio_path=audio_path, out_path=out_path,
             width=args["width"], height=args["height"],
             on_progress=lambda pct: _set(tid, progress=30 + int(pct * 0.7)),
@@ -114,10 +114,12 @@ def _run_pipeline(tid: str) -> None:
 
 
 def submit(*, preset_id: str, text: str, width: int, height: int,
-           product_ref: Optional[str] = None, template: str = "none", matte: bool = False) -> str:
+           product_ref: Optional[str] = None, template: str = "none",
+           matte: bool = False, engine: str = "wav2lip") -> str:
     tid = uuid.uuid4().hex[:12]
     _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height,
-                     "product_ref": product_ref, "template": template, "matte": matte}
+                     "product_ref": product_ref, "template": template, "matte": matte,
+                     "engine": engine}
     _set(tid, state="pending", progress=0)
     _POOL.submit(_run_pipeline, tid)
     return tid

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 AvatarKind = Literal["image", "video"]
 DhTemplate = Literal["none", "corner", "side", "bg"]  # P1 仅用 none;corner/side/bg 留 P2/P3
+DhEngine = Literal["wav2lip", "sadtalker", "musetalk"]
 DhState = Literal["pending", "running", "complete", "failed", "canceled"]
 
 
@@ -26,6 +27,7 @@ class DhGenerateRequest(BaseModel):
     product_image: Optional[str] = None
     template: DhTemplate = "none"
     matte: bool = False
+    engine: DhEngine = "wav2lip"
 
 
 class DhTaskStatus(BaseModel):

@@ -38,7 +38,7 @@ def test_job_pipeline_success(monkeypatch, tmp_path):
         def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
             if on_progress: on_progress(80)
             open(out_path, "wb").write(b"mp4"); return out_path
-    monkeypatch.setattr(dh_jobs, "get_engine", lambda: _E())
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda eid="wav2lip": _E())
     monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
 
     pid = dh_jobs.store.create_preset(name="A", avatar_ref="bundled:f1",
@@ -70,7 +70,7 @@ def test_job_pipeline_with_product(monkeypatch, tmp_path):
     class _E:
         def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
             open(out_path, "wb").write(b"mp4"); return out_path
-    monkeypatch.setattr(dh_jobs, "get_engine", lambda: _E())
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda eid="wav2lip": _E())
     monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
     monkeypatch.setattr(dh_jobs, "resolve_product_path", lambda ref: str(tmp_path / "prod.png"))
     (tmp_path / "prod.png").write_bytes(b"x")
@@ -99,7 +99,7 @@ def test_job_pipeline_matte(monkeypatch, tmp_path):
     class _E:
         def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
             open(out_path, "wb").write(b"mp4"); return out_path
-    monkeypatch.setattr(dh_jobs, "get_engine", lambda: _E())
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda eid="wav2lip": _E())
     monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
     monkeypatch.setattr(dh_jobs, "resolve_product_path", lambda ref: str(tmp_path / "p.png"))
     (tmp_path / "p.png").write_bytes(b"x")
@@ -148,3 +148,23 @@ def test_get_engine_unknown_raises():
     import pytest
     with pytest.raises(RuntimeError, match="未知引擎"):
         dh_engine.get_engine("nope")
+
+
+def test_job_pipeline_engine_passthrough(monkeypatch, tmp_path):
+    import uuid as _uuid
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    monkeypatch.setattr(dh_jobs, "_synthesize_narration", lambda t, p, a: (open(a, "wb").write(b"w"), a)[1])
+    monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
+    seen = {}
+    class _E:
+        def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
+            open(out_path, "wb").write(b"mp4"); return out_path
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda eid="wav2lip": seen.update(engine=eid) or _E())
+
+    pid = dh_jobs.store.create_preset(name="A", avatar_ref="bundled:f1", avatar_kind="video").id
+    tid = _uuid.uuid4().hex[:12]
+    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "hi", "width": 720, "height": 1280,
+                             "product_ref": None, "template": "none", "matte": False, "engine": "sadtalker"}
+    dh_jobs._set(tid, state="pending", progress=0)
+    dh_jobs.run_sync(tid)
+    assert seen.get("engine") == "sadtalker"
