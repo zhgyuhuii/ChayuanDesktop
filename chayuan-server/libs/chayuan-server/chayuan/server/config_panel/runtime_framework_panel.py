@@ -162,6 +162,16 @@ _FRAMEWORK_CATALOG: Tuple[_FrameworkSpec, ...] = (
         needs_gpu=True,
     ),
     _FrameworkSpec(
+        # MuseTalk — 高清口型同步数字人;需 GPU + 多组件权重(VAE/whisper/dwpose)
+        # 端口 18780 — 避开已用端口(sadtalker 18680)
+        name="musetalk", label="MuseTalk (数字人·高清口型)",
+        capabilities=("talking-head",),
+        default_url="http://127.0.0.1:18780", health_path="/health",
+        install_kind="manual", install_pkg=None,
+        bin_names=(),
+        needs_gpu=True,
+    ),
+    _FrameworkSpec(
         name="piper", label="Piper TTS",
         capabilities=("tts",),
         default_url="", health_path="",

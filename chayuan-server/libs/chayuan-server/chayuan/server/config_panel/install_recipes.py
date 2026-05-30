@@ -284,6 +284,8 @@ def get_recipes(framework: str) -> List[InstallRecipe]:
         return _voxcpm2(host)
     if framework == "sadtalker":
         return _sadtalker(host)
+    if framework == "musetalk":
+        return _musetalk(host)
     if framework == "rapidocr":
         return _pip_with_mirrors("rapidocr-onnxruntime")
     if framework == "paddleocr":
@@ -690,6 +692,26 @@ def _sadtalker(host: str) -> List[InstallRecipe]:
     wwd123/sadtalker checkpoints(首次 pipeline() 自动下)。"""
     out: List[InstallRecipe] = []
     out.extend(_pip_with_mirrors("modelscope"))
+    return out
+
+
+def _musetalk(host: str) -> List[InstallRecipe]:
+    """MuseTalk 数字人(需 GPU)。git clone 官方仓 + 权重用仓内脚本拉
+    (VAE/whisper/dwpose 多组件,[GPU-VERIFY] 用户环境跑)。"""
+    out: List[InstallRecipe] = []
+    target = os.path.expanduser("~/MuseTalk") if host != "win" else "%USERPROFILE%\\MuseTalk"
+    out.append(InstallRecipe(
+        label="git clone MuseTalk(官方)",
+        cmd=["git", "clone", "https://github.com/TMElyralab/MuseTalk.git", target],
+        note="clone 后按仓库 README 跑 download_weights 拉权重(需 GPU)",
+        requires="git",
+    ))
+    out.append(InstallRecipe(
+        label="git clone MuseTalk(国内代理 ghproxy)",
+        cmd=["git", "clone", "https://mirror.ghproxy.com/https://github.com/TMElyralab/MuseTalk.git", target],
+        note="国内网络优选",
+        requires="git",
+    ))
     return out
 
 

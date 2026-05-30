@@ -495,6 +495,16 @@ _START_RECIPES: Dict[str, InstallRecipe] = {
         note=f"启 chayuan 内置 SadTalker HTTP 包装(需 GPU);日志 {_bg_log_path('sadtalker')}",
         requires="",
     ),
+    "musetalk": InstallRecipe(
+        label="python -m chayuan.server.modality.musetalk_server",
+        cmd=_bg_cmd(
+            [sys.executable, "-m", "chayuan.server.modality.musetalk_server",
+             "--host", "127.0.0.1", "--port", "18780"],
+            _bg_log_path("musetalk"),
+        ),
+        note=f"启 chayuan 内置 MuseTalk HTTP 包装(需 GPU);日志 {_bg_log_path('musetalk')}",
+        requires="",
+    ),
     "rapidocr": InstallRecipe(
         label="python -m chayuan.server.modality.rapidocr_server",
         cmd=_bg_cmd(
