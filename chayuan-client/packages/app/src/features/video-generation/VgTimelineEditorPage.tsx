@@ -357,6 +357,7 @@ export const VgTimelineEditorPage: React.FC = () => {
                   onFreshGenerated={() => setProxyStale(false)}
                   onTransform={onSetTransform}
                   onModeChange={setPreviewMode}
+                  cues={cues}
                 />
               </div>
             </div>

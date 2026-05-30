@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { videoGeneration, type VgTimeline, type VgTimelineClip } from '@chayuan/api';
 import { clipDurMs } from './timelineEdit';
+import type { SrtCue } from './srtParse';
 
 /** 解析 clip 的可播放 URL(material_id → 素材文件;url → 直接用)。path/无 → null。 */
 function clipUrl(c: VgTimelineClip): string | null {
@@ -42,11 +43,13 @@ export const LivePreviewCanvas: React.FC<{
   timeline: VgTimeline;
   playheadMs: number;
   onTransform: (clipId: string, tf: { x?: number; y?: number; scale?: number }) => void;
-}> = ({ timeline, playheadMs, onTransform }) => {
+  cues?: SrtCue[];
+}> = ({ timeline, playheadMs, onTransform, cues }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const base = clipAt(videoTracks[0]?.clips, playheadMs);
   const baseUrl = base ? clipUrl(base) : null;
+  const cue = (cues ?? []).find((c) => playheadMs >= c.startMs && playheadMs < c.endMs);
 
   type Corner = 'nw' | 'ne' | 'sw' | 'se';
   const drag = (e: React.PointerEvent, clipId: string, mode: 'move' | Corner, cur: { x: number; y: number; scale: number }) => {
@@ -102,6 +105,15 @@ export const LivePreviewCanvas: React.FC<{
           </div>
         );
       })}
+      {/* 字幕叠层:当前 playhead 命中的 cue,底部居中(与画面/音频同 playhead → 可核对对齐) */}
+      {cue && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-[6%] z-[200] flex justify-center px-[6%]">
+          <span className="max-w-full whitespace-pre-wrap rounded bg-black/55 px-2 py-0.5 text-center text-[clamp(11px,3.2vw,18px)] leading-snug text-white"
+            style={{ textShadow: '0 1px 2px rgba(0,0,0,.9)' }}>
+            {cue.text}
+          </span>
+        </div>
+      )}
     </div>
   );
 };
