@@ -184,6 +184,11 @@ def search_videos_pixabay(
                         pid = str(v.get("picture_id", "")).strip()
                         thumb = f"https://i.vimeocdn.com/video/{pid}_640x360.jpg" if pid else ""
                     item.image = thumb
+                    if len(video_items) == 0:  # 诊断:首条打印实际字段,定位"无缩略图"
+                        logger.info(
+                            "[pixabay] sample url=%s thumb=%s video_keys=%s hit_keys=%s",
+                            item.url, thumb or "(空)", list(video.keys()), list(v.keys()),
+                        )
                     video_items.append(item)
                     break
         return video_items

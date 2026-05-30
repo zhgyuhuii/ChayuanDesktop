@@ -296,6 +296,7 @@ const OnlineTab: React.FC<{
 }> = ({ selected, onToggle, aspect, qc, view = 'card' }) => {
   void view; // 在线搜索结果保持卡片视图;列表视图主要服务「我的素材」
   void qc;   // 不再做「加入素材库」,qc 暂留接口
+  void selected; void onToggle; // 在线素材不可删/不做选中,仅拖拽使用
   const [source, setSource] = React.useState<'pexels' | 'pixabay'>('pexels');
   const [keyword, setKeyword] = React.useState('');
   const [results, setResults] = React.useState<VgMaterialInfo[]>([]);
@@ -362,7 +363,6 @@ const OnlineTab: React.FC<{
       {results.length > 0 && (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {results.map((item, i) => {
-            const chosen = selected.some((s) => s.url === item.url);
             return (
               <li key={`${item.url}-${i}`}
                 draggable
@@ -371,24 +371,16 @@ const OnlineTab: React.FC<{
                   kind: /\.(jpg|jpeg|png|webp|bmp|gif)(\?|$)/i.test(item.url) ? 'image' : 'video',
                   durationMs: item.duration ? item.duration * 1000 : undefined,
                 })}
-                className={'group relative overflow-hidden rounded-xl border transition-colors ' +
-                  (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
-                          : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
+                className="group relative cursor-grab overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] transition-colors hover:border-[var(--cy-border-strong)] active:cursor-grabbing"
+                title="拖到时间轴视频轨">
                 <PlayBadge onClick={() => setPreview(item.url)} />
-                {/* 缩略图(拖到轨道即用);右下角时长角标 */}
-                <button type="button" onClick={() => onToggle(item)} className="block w-full cursor-grab text-left active:cursor-grabbing" title="拖到时间轴视频轨">
-                  <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden text-xs text-[var(--cy-text-tertiary)]">
-                    {/* 缩略图:优先服务端 thumbnail;没有就用视频首帧(pixabay 常缺 thumbnail) */}
-                    <video src={`${item.url}#t=0.1`} poster={item.image || undefined} muted preload="metadata" draggable={false}
-                      className="h-full w-full object-cover" />
-                    <span className="absolute bottom-1 right-1 rounded bg-black/55 px-1 text-[9px] text-white">{item.duration}s</span>
-                  </div>
-                </button>
-                {chosen && (
-                  <span className="pointer-events-none absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                  </span>
-                )}
+                <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden text-xs text-[var(--cy-text-tertiary)]">
+                  {/* 缩略图:优先服务端 thumbnail(poster);没有就用视频首帧 */}
+                  <video src={`${item.url}#t=0.1`} poster={item.image || undefined} muted preload="metadata" draggable={false}
+                    className="h-full w-full object-cover"
+                    onError={(e) => { (e.currentTarget.style.display = 'none'); }} />
+                  <span className="absolute bottom-1 right-1 rounded bg-black/55 px-1 text-[9px] text-white">{item.duration}s</span>
+                </div>
               </li>
             );
           })}
@@ -508,11 +500,6 @@ const LinkTab: React.FC<{ qc: ReturnType<typeof useQueryClient> }> = ({ qc }) =>
                     </div>
                     <p className="truncate p-2 text-[10px] text-[var(--cy-text-tertiary)]">{it.title || it.url.split('/').pop()}</p>
                   </button>
-                  {chosen && (
-                    <span className="pointer-events-none absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-white shadow">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                    </span>
-                  )}
                 </li>
               );
             })}
