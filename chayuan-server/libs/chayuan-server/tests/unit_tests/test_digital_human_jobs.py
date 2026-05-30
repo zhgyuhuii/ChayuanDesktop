@@ -120,3 +120,31 @@ def test_job_pipeline_matte(monkeypatch, tmp_path):
     dh_jobs.run_sync(tid)
     assert dh_jobs.get_status(tid).state == "complete"
     assert seen["matte"] == 1 and seen["plain"] == 0
+
+
+def test_engine_registry_listing():
+    items = dh_engine.list_engines()
+    ids = {e["id"] for e in items}
+    assert ids == {"wav2lip", "sadtalker", "musetalk"}
+    w = next(e for e in items if e["id"] == "wav2lip")
+    assert w["builtin"] is True and w["kind"] == "cpu" and w["installed"] is True
+    g = next(e for e in items if e["id"] == "sadtalker")
+    assert g["builtin"] is False and g["kind"] == "gpu" and g["installed"] is False
+    assert g["input"] == "image"
+    assert next(e for e in items if e["id"] == "musetalk")["input"] == "video"
+
+def test_get_engine_default_is_wav2lip():
+    assert isinstance(dh_engine.get_engine(), dh_engine.Wav2LipEngine)
+    assert isinstance(dh_engine.get_engine("wav2lip"), dh_engine.Wav2LipEngine)
+
+def test_get_engine_gpu_placeholder_raises_on_generate():
+    e = dh_engine.get_engine("sadtalker")
+    assert dh_engine.is_available("sadtalker") is False
+    import pytest
+    with pytest.raises(RuntimeError, match="未安装"):
+        e.generate(avatar_path="a", audio_path="b", out_path="o", width=720, height=1280)
+
+def test_get_engine_unknown_raises():
+    import pytest
+    with pytest.raises(RuntimeError, match="未知引擎"):
+        dh_engine.get_engine("nope")

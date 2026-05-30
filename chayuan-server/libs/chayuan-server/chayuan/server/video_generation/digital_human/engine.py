@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 import logging, os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, Protocol
 
@@ -64,5 +65,64 @@ class Wav2LipEngine:
         return out_path
 
 
-def get_engine() -> DigitalHumanEngine:
-    return Wav2LipEngine()
+@dataclass(frozen=True)
+class EngineSpec:
+    id: str
+    label: str
+    kind: str       # "cpu" | "gpu"
+    input: str      # "image" | "video" | "both"
+    builtin: bool
+
+
+_SPECS: dict[str, EngineSpec] = {
+    "wav2lip":   EngineSpec("wav2lip",   "Wav2Lip · 快速(CPU)",     "cpu", "both",  True),
+    "sadtalker": EngineSpec("sadtalker", "SadTalker · 高清头动(GPU)", "gpu", "image", False),
+    "musetalk":  EngineSpec("musetalk",  "MuseTalk · 高清口型(GPU)",  "gpu", "video", False),
+}
+
+
+class _UnavailableGpuEngine:
+    """GPU 引擎占位(GPU-P1 只搭骨架,真实现 P2/P3)。generate 抛"未安装"明确错误,
+    绝不静默回退 Wav2Lip(避免用户以为用了高质量档)。"""
+    def __init__(self, spec: EngineSpec) -> None:
+        self._spec = spec
+
+    def generate(self, *, avatar_path: str, audio_path: str, out_path: str,
+                 width: int, height: int,
+                 on_progress: Optional[ProgressCb] = None) -> str:
+        raise RuntimeError(
+            f"{self._spec.label} 运行时未安装：请在模型广场安装 {self._spec.id} "
+            f"运行时后重试（需 GPU）"
+        )
+
+
+def _engine_installed(engine_id: str) -> bool:
+    spec = _SPECS.get(engine_id)
+    if spec is None:
+        return False
+    if spec.builtin:
+        return True
+    # GPU-P1:真 GPU 运行时尚未实现 → 恒 False。GPU-P2/P3 在此接
+    # local_runtime_registry 查"运行时已装 + sidecar /health ready"。
+    return False
+
+
+def is_available(engine_id: str) -> bool:
+    return _engine_installed(engine_id)
+
+
+def get_engine(engine_id: str = "wav2lip") -> DigitalHumanEngine:
+    if engine_id == "wav2lip":
+        return Wav2LipEngine()
+    spec = _SPECS.get(engine_id)
+    if spec is None:
+        raise RuntimeError(f"未知引擎: {engine_id}")
+    return _UnavailableGpuEngine(spec)
+
+
+def list_engines() -> list[dict]:
+    return [
+        {"id": s.id, "label": s.label, "kind": s.kind, "input": s.input,
+         "builtin": s.builtin, "installed": _engine_installed(s.id)}
+        for s in _SPECS.values()
+    ]
