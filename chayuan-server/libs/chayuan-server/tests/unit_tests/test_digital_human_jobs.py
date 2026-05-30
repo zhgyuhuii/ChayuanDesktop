@@ -90,3 +90,33 @@ def test_job_pipeline_with_product(monkeypatch, tmp_path):
     assert st.state == "complete"
     assert called.get("template") == "corner"
     assert st.result_path.endswith("digital_human.mp4")
+
+
+def test_job_pipeline_matte(monkeypatch, tmp_path):
+    import uuid as _uuid
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    monkeypatch.setattr(dh_jobs, "_synthesize_narration", lambda t, p, a: (open(a, "wb").write(b"w"), a)[1])
+    class _E:
+        def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
+            open(out_path, "wb").write(b"mp4"); return out_path
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda: _E())
+    monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
+    monkeypatch.setattr(dh_jobs, "resolve_product_path", lambda ref: str(tmp_path / "p.png"))
+    (tmp_path / "p.png").write_bytes(b"x")
+    monkeypatch.setattr(dh_jobs, "_probe_duration_ms", lambda p: 4000)
+    seen = {"matte": 0, "plain": 0}
+    def fake_matte(**kw):
+        seen["matte"] += 1; open(kw["out_path"], "wb").write(b"m"); return kw["out_path"]
+    def fake_plain(**kw):
+        seen["plain"] += 1; open(kw["out_path"], "wb").write(b"p"); return kw["out_path"]
+    monkeypatch.setattr(dh_jobs, "render_with_product_matte", fake_matte)
+    monkeypatch.setattr(dh_jobs, "render_with_product", fake_plain)
+
+    pid = dh_jobs.store.create_preset(name="A", avatar_ref="bundled:f1", avatar_kind="video").id
+    tid = _uuid.uuid4().hex[:12]
+    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "hi", "width": 720, "height": 1280,
+                             "product_ref": "product:p.png", "template": "bg", "matte": True}
+    dh_jobs._set(tid, state="pending", progress=0)
+    dh_jobs.run_sync(tid)
+    assert dh_jobs.get_status(tid).state == "complete"
+    assert seen["matte"] == 1 and seen["plain"] == 0

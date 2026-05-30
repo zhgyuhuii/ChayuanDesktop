@@ -14,7 +14,7 @@ from chayuan.server.video_generation.digital_human import store
 from chayuan.server.video_generation.digital_human.engine import get_engine
 from chayuan.server.video_generation.digital_human.schemas import DhTaskStatus
 from chayuan.server.video_generation.digital_human.store import resolve_avatar_path, resolve_product_path
-from chayuan.server.video_generation.digital_human.compose import render_with_product
+from chayuan.server.video_generation.digital_human.compose import render_with_product, render_with_product_matte
 
 logger = logging.getLogger("chayuan.dh.jobs")
 
@@ -98,7 +98,8 @@ def _run_pipeline(tid: str) -> None:
             final_path = os.path.join(td, "digital_human.mp4")
             os.replace(out_path, presenter_keep)  # presenter 让出最终文件名
             dur_ms = _probe_duration_ms(presenter_keep) or _probe_duration_ms(audio_path) or 5000
-            render_with_product(
+            renderer = render_with_product_matte if args.get("matte") else render_with_product
+            renderer(
                 presenter_path=presenter_keep, product_path=product_path, template=template,
                 audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
                 dur_ms=dur_ms,
@@ -113,10 +114,10 @@ def _run_pipeline(tid: str) -> None:
 
 
 def submit(*, preset_id: str, text: str, width: int, height: int,
-           product_ref: Optional[str] = None, template: str = "none") -> str:
+           product_ref: Optional[str] = None, template: str = "none", matte: bool = False) -> str:
     tid = uuid.uuid4().hex[:12]
     _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height,
-                     "product_ref": product_ref, "template": template}
+                     "product_ref": product_ref, "template": template, "matte": matte}
     _set(tid, state="pending", progress=0)
     _POOL.submit(_run_pipeline, tid)
     return tid
