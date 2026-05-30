@@ -310,6 +310,9 @@ export const VgTimelineEditorPage: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
+  // 旁白音频块名称 = 主题名(video_subject);手动脚本时取脚本首句;都空则「旁白」
+  const narrationName = ((params.video_subject || '').trim()
+    || (params.video_script || '').trim().split(/[\n。.!?！？]/)[0] || '旁白').slice(0, 20) || '旁白';
   // 音乐轨只显名称(basename),不显完整路径;file 模式给试听 URL(后端按 basename 解析)
   const bgmBase = params.bgm_file ? (params.bgm_file.split(/[\\/]/).pop() || '') : '';
   const bgmName = params.bgm_type === 'random' ? '随机背景音乐' : (bgmBase || null);
@@ -497,9 +500,8 @@ export const VgTimelineEditorPage: React.FC = () => {
           onReorderVideoTrack={(tid, dir) => onTimelineChange(reorderVideoTrack(timeline, tid, dir))}
           selectedClipId={selectedClipId}
           onSelectClip={setSelectedClipId}
-          narrationReady={!!(draft.taskId && draft.audioFileName)}
-          onPreviewNarration={doPreviewNarration}
-          onDownloadNarration={() => void doDownloadNarration()}
+          narrationName={narrationName}
+          narrationDurationMs={draft.audioDurationMs || (peaks.length ? contentMs : 0)}
           onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
           onTimelineChange={onTimelineChange}
         />
@@ -515,6 +517,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           onAddFromLibrary={() => setLibPickTrack(menuCtx.track === 'audio' ? 'audio' : 'video')}
           onPreview={() => (menuCtx.track === 'audio' ? doPreviewAudioTrack() : doPreviewNarration())}
           onRegenNarration={() => void startDraftGen()}
+          onDownloadNarration={() => void doDownloadNarration()}
           onAddVideoTrack={() => onTimelineChange(addTrack(timeline, 'video'))}
           onAddAudioTrack={() => onTimelineChange(addTrack(timeline, 'audio'))}
           onRemoveTrack={(tid) => onTimelineChange(removeTrack(timeline, tid))}

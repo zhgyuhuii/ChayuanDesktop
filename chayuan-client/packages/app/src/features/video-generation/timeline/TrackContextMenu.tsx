@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Upload, Library, Play, Trash2, Plus, RefreshCw } from 'lucide-react';
+import { Upload, Library, Play, Trash2, Plus, RefreshCw, Download } from 'lucide-react';
 
 export interface TrackMenuCtx {
   x: number;
@@ -23,7 +23,8 @@ export const TrackContextMenu: React.FC<{
   onAddAudioTrack?: () => void;
   onRemoveTrack?: (trackId: string) => void;
   onRegenNarration?: () => void;
-}> = ({ ctx, onUploadLocal, onAddFromLibrary, onPreview, onDeleteClip, onClose, onAddVideoTrack, onAddAudioTrack, onRemoveTrack, onRegenNarration }) => {
+  onDownloadNarration?: () => void;
+}> = ({ ctx, onUploadLocal, onAddFromLibrary, onPreview, onDeleteClip, onClose, onAddVideoTrack, onAddAudioTrack, onRemoveTrack, onRegenNarration, onDownloadNarration }) => {
   React.useEffect(() => {
     // 只在左键点击 / Esc 关闭。不监听 contextmenu —— 否则"再次右键"会与新菜单打开抢
     // 同一事件(先 set 新 ctx 又被关闭监听 set null),导致第 2 次起右键菜单出不来。
@@ -52,6 +53,9 @@ export const TrackContextMenu: React.FC<{
         <>
           <button type="button" className={item} onClick={() => { onPreview(); onClose(); }}>
             <Play className="h-3.5 w-3.5" /> 试听旁白
+          </button>
+          <button type="button" className={item} onClick={() => { onDownloadNarration?.(); onClose(); }}>
+            <Download className="h-3.5 w-3.5" /> 下载旁白
           </button>
           <button type="button" className={item} onClick={() => { onRegenNarration?.(); onClose(); }}>
             <RefreshCw className="h-3.5 w-3.5" /> 重新生成旁白
