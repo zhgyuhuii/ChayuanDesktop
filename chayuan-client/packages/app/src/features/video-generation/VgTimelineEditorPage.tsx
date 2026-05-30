@@ -72,37 +72,34 @@ export const VgTimelineEditorPage: React.FC = () => {
   // #18/#19:编辑器内联设置面板(复用会话同款 语音/字幕/背景音乐 section)
   const [settingsPanel, setSettingsPanel] = React.useState<'speech' | 'subtitle' | 'bgm' | null>(null);
   const [subtitleEditorOpen, setSubtitleEditorOpen] = React.useState(false);
-  const submitScriptGen = (v: { subject: string; model: string | null; paragraph: number; language: string }) => {
-    patchParams({ video_subject: v.subject, model: v.model ?? undefined, paragraph_number: v.paragraph, video_language: v.language, script_source: 'ai', video_script: '' });
-    useVgComposer.getState().resetDraft();
-    setScriptGenOpen(false);
-  };
-
-  // 提交一次草稿生成(stop_at=subtitle:只旁白+字幕,不下素材)。手动按钮 + 自动都用。
-  const startDraftGen = React.useCallback(async () => {
-    patchDraft({ state: 'generating', scriptHash: curHash, error: undefined, taskId: null });
+  // 提交一次草稿生成(stop_at=subtitle:只旁白+字幕,不下素材)。
+  // override 显式传参 → 避开 patchParams 异步闭包旧值,并保证「点了就生成」不靠 hash 变化。
+  const runDraftGen = React.useCallback(async (override?: typeof params) => {
+    const base = override ?? params;
+    const submitP = { ...base, timeline: base.timeline ? roundTimeline(base.timeline) : base.timeline };
+    patchDraft({ state: 'generating', scriptHash: scriptHashOf(submitP), error: undefined, taskId: null });
     try {
-      const submitP = { ...params, timeline: params.timeline ? roundTimeline(params.timeline) : params.timeline };
       const t = await videoGeneration.submitTask(submitP, { stop_at: 'subtitle' });
       patchDraft({ taskId: t.task_id });
     } catch (e) {
       patchDraft({ state: 'failed', error: (e as Error).message });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curHash]);
+  }, [params, patchDraft]);
+  const startDraftGen = React.useCallback(() => runDraftGen(), [runDraftGen]);
+
+  const submitScriptGen = (v: { subject: string; model: string | null; paragraph: number; language: string }) => {
+    const next = { ...params, video_subject: v.subject, model: v.model ?? undefined, paragraph_number: v.paragraph, video_language: v.language, script_source: 'ai' as const, video_script: '' };
+    patchParams({ video_subject: v.subject, model: v.model ?? undefined, paragraph_number: v.paragraph, video_language: v.language, script_source: 'ai', video_script: '' });
+    setScriptGenOpen(false);
+    void runDraftGen(next); // 点「生成」立即重生成,不依赖 hash 变化
+  };
 
   // 手动脚本(#15):保存到 params.video_script(script_source=manual)
   const onSaveScript = (script: string) => patchParams({ video_script: script, script_source: 'manual', video_subject: '' });
-  // 合成语音:用显式 next 避开 patchParams 异步导致的闭包旧值,按当前音频设置生成旁白+字幕
+  // 合成语音:按当前音频设置生成旁白+字幕
   const onSynthesizeScript = async (script: string) => {
     patchParams({ video_script: script, script_source: 'manual', video_subject: '' });
-    const next = { ...params, video_script: script, script_source: 'manual' as const, video_subject: '', timeline: params.timeline ? roundTimeline(params.timeline) : params.timeline };
-    const hash = scriptHashOf(next);
-    patchDraft({ state: 'generating', scriptHash: hash, error: undefined, taskId: null });
-    try {
-      const t = await videoGeneration.submitTask(next, { stop_at: 'subtitle' });
-      patchDraft({ taskId: t.task_id });
-    } catch (e) { patchDraft({ state: 'failed', error: (e as Error).message }); }
+    await runDraftGen({ ...params, video_script: script, script_source: 'manual', video_subject: '' });
   };
 
   // ── 进页面 / 脚本变 → 自动生成旁白+字幕 ──
