@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Sparkles, Film, AlertTriangle, RefreshCw, ChevronDown, ChevronUp, Eye, EyeOff, FileText, Volume2, Type, Music } from 'lucide-react';
+import { Loader2, Sparkles, Film, AlertTriangle, RefreshCw, ChevronDown, ChevronUp, Eye, EyeOff, FileText, Volume2, Type, Music, Captions } from 'lucide-react';
 import { VgAspectPicker } from './VgAspectPicker';
 import { videoGeneration, type VgTimeline } from '@chayuan/api';
 import { useVgComposer, scriptHashOf } from './store/vgComposer';
@@ -433,6 +433,10 @@ export const VgTimelineEditorPage: React.FC = () => {
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--cy-border-strong)] px-3 text-xs text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
             <FileText className="h-3.5 w-3.5" /> 编辑脚本
           </button>
+          <button type="button" onClick={() => setSubtitleEditorOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--cy-border-strong)] px-3 text-xs text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
+            <Captions className="h-3.5 w-3.5" /> 编辑字幕
+          </button>
           <button type="button" onClick={() => void onSubmit()} disabled={submitting || draft.state !== 'ready'}
             className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 text-xs font-medium text-white shadow disabled:opacity-50">
             {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} 提交合成
@@ -474,7 +478,6 @@ export const VgTimelineEditorPage: React.FC = () => {
           onReplaceClip={onReplaceClip}
           onDropMaterial={onDropMaterial}
           onLaneContextMenu={onLaneContextMenu}
-          onEditSubtitle={() => setSubtitleEditorOpen(true)}
           selectedTrackId={selectedTrackId}
           onSelectTrack={setSelectedTrackId}
           onReorderVideoTrack={(tid, dir) => onTimelineChange(reorderVideoTrack(timeline, tid, dir))}

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Film, Mic, Captions, Music, Music2, Pencil } from 'lucide-react';
+import { Mic, Captions, Music, Music2, Clapperboard, PictureInPicture2 } from 'lucide-react';
 import type { VgTimeline, VgTimelineTrack } from '@chayuan/api';
 import type { SrtCue } from './srtParse';
 import { msToPx } from './timelineScale';
@@ -13,7 +13,7 @@ import { SubtitleCueTrack } from './SubtitleCueTrack';
 import { BgmTrack } from './BgmTrack';
 import { VG_MATERIAL_DND_MIME, type DraggedMaterial } from './timelineEdit';
 
-const HEADER_W = 64;
+const HEADER_W = 84;
 const RULER_H = 24;
 
 export const TimelineTracks: React.FC<{
@@ -33,20 +33,18 @@ export const TimelineTracks: React.FC<{
   onCuesChange?: (cues: SrtCue[]) => void;
   onReplaceClip?: (clipId: string) => void;
   onLaneContextMenu?: (e: React.MouseEvent, track: 'video' | 'audio' | 'subtitle' | 'narration', clipId?: string, trackId?: string, removable?: boolean) => void;
-  onEditSubtitle?: () => void;
   selectedTrackId?: string | null;
   onSelectTrack?: (trackId: string) => void;
   onReorderVideoTrack?: (trackId: string, dir: 'up' | 'down') => void;
   selectedClipId?: string | null;
   onSelectClip?: (clipId: string) => void;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, onEditSubtitle, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip }) => {
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const audioTracks = (timeline.tracks || []).filter((t) => t.kind === 'audio');
   const audioLanes: (VgTimelineTrack | null)[] = audioTracks.length ? audioTracks : [null]; // 至少一条插入音频 lane(可拖)
   const laneCount = videoTracks.length + 1 /*旁白*/ + audioLanes.length + 1 /*音乐*/ + 1 /*字幕*/;
   const lanesH = TRACK_H * laneCount;
-  const hdrBtn = 'inline-flex h-5 w-5 items-center justify-center rounded text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]';
   const selCls = (id?: string) => (id && id === selectedTrackId ? ' ring-2 ring-inset ring-[var(--cy-brand-400)]' : '');
   const dragOver = (e: React.DragEvent) => { if (e.dataTransfer.types.includes(VG_MATERIAL_DND_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } };
   // 轨道头竖直拖动 → 每越过一格 TRACK_H 触发一次上/下移
@@ -72,7 +70,11 @@ export const TimelineTracks: React.FC<{
             onClick={() => onSelectTrack?.(tr.id)}
             onPointerDown={(e) => { if (videoTracks.length > 1) startHeaderDrag(e, tr.id); }}
             title={videoTracks.length > 1 ? '上下拖动调整图层顺序(越靠上越上层)' : undefined}>
-            <TrackHeader label={i === 0 ? '视频' : (tr.label || `视频 ${i + 1}`)} icon={<Film className="h-3 w-3" />} />
+            <TrackHeader
+              label={i === 0 ? '视频' : (tr.label || `视频 ${i + 1}`)}
+              icon={i === 0
+                ? <Clapperboard className="h-3 w-3 text-[var(--cy-brand-600)]" />
+                : <PictureInPicture2 className="h-3 w-3 text-[var(--cy-text-tertiary)]" />} />
           </div>
         ))}
         <div onContextMenu={(e) => { if (onLaneContextMenu) { e.preventDefault(); onLaneContextMenu(e, 'narration'); } }}>
@@ -84,8 +86,7 @@ export const TimelineTracks: React.FC<{
           </div>
         ))}
         <TrackHeader label="音乐" icon={<Music className="h-3 w-3" />} />
-        <TrackHeader label="字幕" icon={<Captions className="h-3 w-3" />}
-          action={onEditSubtitle && <button type="button" className={hdrBtn} title="整体编辑字幕" onClick={onEditSubtitle}><Pencil className="h-3 w-3" /></button>} />
+        <TrackHeader label="字幕" icon={<Captions className="h-3 w-3" />} />
       </div>
       {/* 右:单横向滚动容器 */}
       <div className="relative flex-1 overflow-x-auto cy-hide-scrollbar">
