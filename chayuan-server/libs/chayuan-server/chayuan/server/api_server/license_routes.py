@@ -1,6 +1,7 @@
 """授权验证 HTTP 路由(挂 /api/v1/license)。单机匿名透明放行,前端(桌面/网页同一套)调用。"""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Query
@@ -10,6 +11,10 @@ from chayuan.server.license.config import load_license_config
 from chayuan.server.license.fingerprint import fingerprint as _fp
 
 license_router = APIRouter(prefix="/api/v1/license", tags=["license"])
+
+
+def _valid_app(app: str) -> bool:
+    return bool(re.fullmatch(r"[a-z0-9_-]{1,32}", app or ""))
 
 
 def _root() -> Path:
@@ -28,6 +33,8 @@ def get_fingerprint():
 
 @license_router.get("/buy-url")
 def get_buy_url(app: str = Query("video")):
+    if not _valid_app(app):
+        return {"url": ""}
     cfg = load_license_config()
     fp = _fp(_root())
     return {"url": f"{cfg['buy_base_url']}/buy?app={app}&mid={fp}"}
@@ -35,6 +42,8 @@ def get_buy_url(app: str = Query("video")):
 
 @license_router.get("/status")
 def get_status(app: str = Query("video")):
+    if not _valid_app(app):
+        return {"licensed": False, "reason": "invalid-app"}
     cfg = load_license_config()
     # 偶尔在线:status 时尝试在线自动激活(联网才会成功,断网静默)
     http_get_fn = None if not cfg["configured"] else _safe_get
@@ -43,14 +52,20 @@ def get_status(app: str = Query("video")):
 
 @license_router.post("/activate")
 def post_activate(payload: dict = Body(...)):
+    app = payload.get("app", "video")
+    if not _valid_app(app):
+        return {"licensed": False, "reason": "invalid-app"}
     cfg = load_license_config()
-    return service.activate_serial(_root(), payload.get("app", "video"), payload.get("serial", ""), cfg)
+    return service.activate_serial(_root(), app, payload.get("serial", ""), cfg)
 
 
 @license_router.post("/activate-token")
 def post_activate_token(payload: dict = Body(...)):
+    app = payload.get("app", "video")
+    if not _valid_app(app):
+        return {"licensed": False, "reason": "invalid-app"}
     cfg = load_license_config()
-    return service.activate_token(_root(), payload.get("app", "video"), payload.get("token", ""), "file", cfg)
+    return service.activate_token(_root(), app, payload.get("token", ""), "file", cfg)
 
 
 def _safe_get(url: str) -> str:

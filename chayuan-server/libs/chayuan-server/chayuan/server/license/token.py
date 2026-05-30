@@ -3,7 +3,6 @@ import json
 import base64
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from cryptography.exceptions import InvalidSignature
 
 
 def _b64url(s: str) -> bytes:
@@ -19,5 +18,5 @@ def verify_token(token: str, public_key: bytes) -> dict:
         sig = _b64url(parts[1])
         Ed25519PublicKey.from_public_bytes(public_key).verify(sig, msg)
         return {"valid": True, "payload": json.loads(msg.decode("utf-8"))}
-    except (InvalidSignature, ValueError, Exception):
+    except Exception:
         return {"valid": False}

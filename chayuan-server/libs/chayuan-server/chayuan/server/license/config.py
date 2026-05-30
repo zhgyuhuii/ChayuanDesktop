@@ -13,8 +13,16 @@ def load_license_config() -> dict:
         products = {"video": 1}
     hmac_keys = {}
     if hmac_hex:
-        hmac_keys[active] = bytes.fromhex(hmac_hex)
-    public_key = bytes.fromhex(pub_hex) if pub_hex else b""
+        try:
+            hmac_keys[active] = bytes.fromhex(hmac_hex)
+        except ValueError:
+            hmac_keys = {}
+    public_key = b""
+    if pub_hex:
+        try:
+            public_key = bytes.fromhex(pub_hex)
+        except ValueError:
+            public_key = b""
     return {
         "active_key_id": active,
         "hmac_keys": hmac_keys,

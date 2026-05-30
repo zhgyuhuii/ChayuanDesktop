@@ -31,3 +31,34 @@ def test_activate_serial_route_uses_local_fp(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch)
     r = c.post("/api/v1/license/activate", json={"app": "video", "serial": "WRONG-CODE-XXXXX-YYYYY-ZZZZ"})
     assert r.status_code == 200 and r.json()["licensed"] is False
+
+def test_invalid_app_activate_rejected(tmp_path, monkeypatch):
+    """Fix 5: path-traversal app string must be rejected with invalid-app reason."""
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/api/v1/license/activate", json={"app": "../../etc", "serial": "x"})
+    assert r.status_code == 200
+    assert r.json()["licensed"] is False
+    assert r.json()["reason"] == "invalid-app"
+
+def test_invalid_app_status_rejected(tmp_path, monkeypatch):
+    """Fix 5: status endpoint rejects invalid app names."""
+    c = _client(tmp_path, monkeypatch)
+    r = c.get("/api/v1/license/status?app=../../etc")
+    assert r.status_code == 200
+    assert r.json()["licensed"] is False
+    assert r.json()["reason"] == "invalid-app"
+
+def test_invalid_app_activate_token_rejected(tmp_path, monkeypatch):
+    """Fix 5: activate-token endpoint rejects invalid app names."""
+    c = _client(tmp_path, monkeypatch)
+    r = c.post("/api/v1/license/activate-token", json={"app": "<script>", "token": "x"})
+    assert r.status_code == 200
+    assert r.json()["licensed"] is False
+    assert r.json()["reason"] == "invalid-app"
+
+def test_invalid_app_buy_url_rejected(tmp_path, monkeypatch):
+    """Fix 5: buy-url returns empty url for invalid app names."""
+    c = _client(tmp_path, monkeypatch)
+    r = c.get("/api/v1/license/buy-url?app=../../etc")
+    assert r.status_code == 200
+    assert r.json()["url"] == ""

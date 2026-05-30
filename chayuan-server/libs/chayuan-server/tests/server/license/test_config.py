@@ -15,3 +15,21 @@ def test_missing_keys_marks_unconfigured(monkeypatch):
     monkeypatch.delenv("LICENSE_ED25519_PUBLIC_KEY", raising=False)
     cfg = load_license_config()
     assert cfg["configured"] is False
+
+def test_bad_hex_hmac_key_does_not_raise(monkeypatch):
+    monkeypatch.setenv("LICENSE_HMAC_KEY_V1", "zzzz")
+    monkeypatch.delenv("LICENSE_ED25519_PUBLIC_KEY", raising=False)
+    cfg = load_license_config()
+    assert cfg["configured"] is False
+
+def test_bad_hex_public_key_does_not_raise(monkeypatch):
+    monkeypatch.setenv("LICENSE_HMAC_KEY_V1", "00" * 32)
+    monkeypatch.setenv("LICENSE_ED25519_PUBLIC_KEY", "zzzz")
+    cfg = load_license_config()
+    assert cfg["configured"] is False
+
+def test_bad_hex_both_does_not_raise(monkeypatch):
+    monkeypatch.setenv("LICENSE_HMAC_KEY_V1", "zzzz")
+    monkeypatch.setenv("LICENSE_ED25519_PUBLIC_KEY", "zzzz")
+    cfg = load_license_config()
+    assert cfg["configured"] is False

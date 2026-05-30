@@ -42,3 +42,39 @@ def test_online_auto_activate(tmp_path):
     st = service.current_status(tmp_path, "video", CFG, fp=MID, now=NOW, http_get=http_get)
     assert st["licensed"] is True and st["source"] == "online"
     assert "mid=" + MID in calls["url"]
+
+def test_expired_record_triggers_online_renewal(tmp_path):
+    """Fix 4: an expired local record should attempt online renewal when http_get provided."""
+    import json
+    # Pre-seed an expired record (expireAt in the past: 2026-05-01)
+    store.write_activation(tmp_path, {
+        "mid": MID,
+        "app": "video",
+        "expireAt": "2026-05-01T00:00:00.000Z",
+        "seenMax": datetime(2026, 5, 1, tzinfo=timezone.utc).timestamp(),
+        "source": "shortcode",
+        "credential": "old",
+    })
+    calls = {}
+    def http_get(url):
+        calls["url"] = url
+        return json.dumps({"token": TOKEN})
+    # now = 2026-06-15; TOKEN exp = 2026-07-01 → renewal succeeds
+    st = service.current_status(tmp_path, "video", CFG, fp=MID, now=NOW, http_get=http_get)
+    assert st["licensed"] is True
+    assert st["source"] == "online"
+    assert "mid=" + MID in calls["url"]
+
+def test_expired_record_no_http_get_returns_expired(tmp_path):
+    """Fix 4: without http_get, expired record still returns expired (not online attempt)."""
+    store.write_activation(tmp_path, {
+        "mid": MID,
+        "app": "video",
+        "expireAt": "2026-05-01T00:00:00.000Z",
+        "seenMax": datetime(2026, 5, 1, tzinfo=timezone.utc).timestamp(),
+        "source": "shortcode",
+        "credential": "old",
+    })
+    st = service.current_status(tmp_path, "video", CFG, fp=MID, now=NOW)
+    assert st["licensed"] is False
+    assert st["reason"] == "expired"

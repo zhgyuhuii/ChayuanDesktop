@@ -34,6 +34,10 @@ def current_status(root, app, cfg, *, fp=None, now=None, http_get=None) -> dict:
     if now < rec["seenMax"] - ROLLBACK_TOLERANCE:
         return {"licensed": False, "app": app, "reason": "rollback", "expireAt": rec["expireAt"], "source": rec.get("source")}
     if now > _ts(rec["expireAt"]):
+        if http_get:
+            s = activate_online(root, app, cfg, fp=fp, now=now, http_get=http_get)
+            if s["licensed"]:
+                return s
         return {"licensed": False, "app": app, "reason": "expired", "expireAt": rec["expireAt"], "source": rec.get("source")}
     if now > rec["seenMax"]:
         rec["seenMax"] = now
@@ -63,9 +67,10 @@ def activate_token(root, app, token, source, cfg, *, fp=None, now=None) -> dict:
     p = r["payload"]
     if p.get("app") != app or str(p.get("mid", "")).lower() != fph.lower():
         return {"licensed": False, "app": app, "reason": "mismatch"}
-    if p["exp"] * 1000 <= now * 1000:
+    exp = p.get("exp", 0)
+    if not exp or exp <= now:
         return {"licensed": False, "app": app, "reason": "expired"}
-    expire = to_iso(datetime.fromtimestamp(p["exp"], tz=timezone.utc))
+    expire = to_iso(datetime.fromtimestamp(exp, tz=timezone.utc))
     rec = {"mid": fph, "app": app, "expireAt": expire, "seenMax": now, "source": source, "credential": token}
     store.write_activation(root, rec)
     return {"licensed": True, "app": app, "expireAt": expire, "source": source}

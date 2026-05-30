@@ -21,7 +21,7 @@ def _stable_machine_id(root: Path) -> str:
     if not mid:
         try:
             import winreg  # type: ignore
-            k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\\Microsoft\\Cryptography")
+            k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Cryptography")
             mid = winreg.QueryValueEx(k, "MachineGuid")[0]
         except Exception:
             mid = ""
