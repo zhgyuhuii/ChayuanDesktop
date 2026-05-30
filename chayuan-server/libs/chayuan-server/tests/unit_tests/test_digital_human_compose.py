@@ -16,3 +16,10 @@ def test_build_presenter_edl_structure():
     assert c.scale == TEMPLATES["corner"]["scale"]
     assert c.out_ms == 5000 and base.clips[0].out_ms == 5000
     assert tl.duration_ms == 5000
+
+
+from chayuan.server.video_generation.digital_human import compose as dh_compose
+
+def test_matte_api_present():
+    assert hasattr(dh_compose, "render_with_product_matte")
+    assert isinstance(dh_compose.MATTE_GREEN, tuple) and len(dh_compose.MATTE_GREEN) == 3

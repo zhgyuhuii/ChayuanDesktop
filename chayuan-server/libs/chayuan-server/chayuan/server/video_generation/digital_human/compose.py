@@ -51,3 +51,44 @@ def render_with_product(*, presenter_path: str, product_path: str, template: str
     params = VideoParams(video_width=width, video_height=height)
     render_from_edl(tl, audio_path, "", out_path, params, source_resolver=_resolver)
     return out_path
+
+
+MATTE_GREEN = (0, 255, 0)  # 标准绿幕色;非绿底素材抠像效果有限(UI 注明)
+
+
+def render_with_product_matte(*, presenter_path: str, product_path: str, template: str,
+                              audio_path: str, out_path: str, width: int, height: int,
+                              dur_ms: int, green=MATTE_GREEN, threshold: int = 100,
+                              stiffness: int = 5) -> str:
+    """绿幕抠像合成:presenter 抠掉绿背景 → 按版式叠在商品图全屏底上。
+    直接走 moviepy(不经 render_from_edl),自包含。失败抛异常由 caller 兜底。
+    """
+    from moviepy import (
+        AudioFileClip, CompositeVideoClip, ImageClip, VideoFileClip, vfx,
+    )
+
+    tpl = TEMPLATES.get(template) or TEMPLATES["corner"]
+    dur_s = max(0.1, dur_ms / 1000.0)
+
+    base = ImageClip(product_path).resized(new_size=(width, height)).with_duration(dur_s)
+    presenter = VideoFileClip(presenter_path, audio=False)
+    presenter = presenter.with_effects([
+        vfx.MaskColor(color=list(green), threshold=threshold, stiffness=stiffness),
+    ])
+    pip_w = max(1, int(width * float(tpl["scale"])))
+    presenter = presenter.resized(width=pip_w).with_position(
+        (float(tpl["x"]), float(tpl["y"])), relative=True,
+    )
+    audio = AudioFileClip(audio_path)
+    comp = CompositeVideoClip([base, presenter], size=(width, height)).with_duration(dur_s)
+    comp = comp.with_audio(audio)
+    try:
+        comp.write_videofile(out_path, codec="libx264", audio_codec="aac",
+                             fps=25, threads=2, logger=None)
+    finally:
+        for c in (audio, presenter, base, comp):
+            try:
+                c.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return out_path
