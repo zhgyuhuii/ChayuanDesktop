@@ -18,3 +18,9 @@ def test_musetalk_install_recipe_present():
     out = get_recipes("musetalk")
     joined = " ".join(" ".join(r.cmd) for r in out)
     assert "MuseTalk" in joined or "musetalk" in joined
+
+
+def test_musetalk_server_imports_clean():
+    import importlib
+    m = importlib.import_module("chayuan.server.modality.musetalk_server")
+    assert hasattr(m, "main") and hasattr(m, "_register_routes")
