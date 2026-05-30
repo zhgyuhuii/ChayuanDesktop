@@ -34,7 +34,7 @@ it('totalDurationMs = max(audio, 片段总长, 插入音频末尾)', () => {
   expect(totalDurationMs(tl([{ id: 'a', start: 0, out: 5000 }], [{ id: 's', start: 9000, out: 4000 }]), 6000)).toBe(13000);
 });
 
-it('rulerDurationMs adds small headroom, floors at 15s', () => {
-  expect(rulerDurationMs(0)).toBe(15000);
-  expect(rulerDurationMs(100000)).toBe(106000); // +6s headroom
+it('rulerDurationMs adds headroom, floors at 60s', () => {
+  expect(rulerDurationMs(0)).toBe(60000);
+  expect(rulerDurationMs(100000)).toBe(115000); // +15s headroom
 });
