@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Mic, Captions, Music, Music2, Clapperboard, PictureInPicture2 } from 'lucide-react';
+import { Mic, Captions, Music, Music2, Clapperboard, PictureInPicture2, Play, Download } from 'lucide-react';
 import type { VgTimeline, VgTimelineTrack } from '@chayuan/api';
 import type { SrtCue } from './srtParse';
 import { msToPx } from './timelineScale';
@@ -39,7 +39,11 @@ export const TimelineTracks: React.FC<{
   onReorderVideoTrack?: (trackId: string, dir: 'up' | 'down') => void;
   selectedClipId?: string | null;
   onSelectClip?: (clipId: string) => void;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip }) => {
+  /** 旁白音频就绪 → 在旁白轨叠 试听/下载。 */
+  narrationReady?: boolean;
+  onPreviewNarration?: () => void;
+  onDownloadNarration?: () => void;
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationReady, onPreviewNarration, onDownloadNarration }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const audioTracks = (timeline.tracks || []).filter((t) => t.kind === 'audio');
@@ -120,8 +124,20 @@ export const TimelineTracks: React.FC<{
                 </div>
               );
             })}
-            <div onContextMenu={(e) => { if (onLaneContextMenu) { e.preventDefault(); onLaneContextMenu(e, 'narration'); } }}>
+            <div className="relative" onContextMenu={(e) => { if (onLaneContextMenu) { e.preventDefault(); onLaneContextMenu(e, 'narration'); } }}>
               <AudioWaveTrack peaks={peaks} contentWidthPx={contentWidthPx} loading={peaksLoading} />
+              {narrationReady && (
+                <div className="absolute left-1 top-1 z-20 flex gap-1">
+                  <button type="button" title="试听旁白" onClick={(e) => { e.stopPropagation(); onPreviewNarration?.(); }}
+                    className="inline-flex h-5 items-center gap-0.5 rounded border border-[var(--cy-brand-300)] bg-white/85 px-1 text-[9px] text-[var(--cy-brand-700)] hover:bg-white">
+                    <Play className="h-3 w-3" /> 试听
+                  </button>
+                  <button type="button" title="下载旁白音频" onClick={(e) => { e.stopPropagation(); onDownloadNarration?.(); }}
+                    className="inline-flex h-5 items-center gap-0.5 rounded border border-[var(--cy-border-strong)] bg-white/85 px-1 text-[9px] text-[var(--cy-text-secondary)] hover:bg-white">
+                    <Download className="h-3 w-3" /> 下载
+                  </button>
+                </div>
+              )}
             </div>
             {/* 插入音频轨们 */}
             {audioLanes.map((tr, i) => (

@@ -275,6 +275,17 @@ export const VgTimelineEditorPage: React.FC = () => {
       [{ url: videoGeneration.taskFileUrl(draft.taskId, draft.audioFileName), startMs: 0 }],
       () => { previewStopRef.current = null; });
   };
+  const doDownloadNarration = async () => {
+    if (!draft.taskId || !draft.audioFileName) { reportError(new Error('旁白尚未生成')); return; }
+    try {
+      const { blob } = await videoGeneration.downloadTaskFile(draft.taskId, draft.audioFileName);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = draft.audioFileName || 'narration.wav';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) { reportError(e as Error, '旁白下载失败'); }
+  };
   const doPreviewAudioTrack = () => {
     if (previewStopRef.current) return stopPreview();
     const clips = (timeline.tracks ?? []).find((t) => t.kind === 'audio')?.clips ?? [];
@@ -486,6 +497,9 @@ export const VgTimelineEditorPage: React.FC = () => {
           onReorderVideoTrack={(tid, dir) => onTimelineChange(reorderVideoTrack(timeline, tid, dir))}
           selectedClipId={selectedClipId}
           onSelectClip={setSelectedClipId}
+          narrationReady={!!(draft.taskId && draft.audioFileName)}
+          onPreviewNarration={doPreviewNarration}
+          onDownloadNarration={() => void doDownloadNarration()}
           onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
           onTimelineChange={onTimelineChange}
         />
