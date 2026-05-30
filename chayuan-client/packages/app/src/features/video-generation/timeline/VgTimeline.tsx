@@ -80,17 +80,21 @@ export const VgTimeline: React.FC<{
     if ((e.target as HTMLElement).closest('button,[data-handle]')) return;
     const startX = e.clientX;
     let moved = false;
+    // 在闭包里累积最新时间轴 —— 否则 onUp 的 normalizeMontage 会用拖动前的旧 timeline,
+    // 把这次拖动整个丢弃,导致「拖了等于没拖」(#30)。
+    let latest = timeline;
     const onMove = (ev: PointerEvent) => {
       if (!moved && Math.abs(ev.clientX - startX) < 4) return;
       moved = true;
       const deltaMs = ((ev.clientX - startX) / pps) * 1000;
-      onChange(setClipStart(timeline, clipId, origStart + deltaMs));
+      latest = setClipStart(latest, clipId, origStart + deltaMs);
+      onChange(latest);
     };
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       if (!moved) { setSelectedId(clipId); onSelectClip?.(clipId); }
-      else if (editable) { onChange(normalizeMontage(timeline)); }
+      else if (editable) { onChange(normalizeMontage(latest)); }
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
