@@ -1483,9 +1483,13 @@ def preview_edl(
     if av_audio_path:
         raw_params = body.get("params")
         if isinstance(raw_params, dict):
+            # 净化同 submit_task(纠正 video_aspect=4:3 等、取整),否则校验失败 → av_params=None
+            # → want_av=False → 精确预览退回"仅画面"(无旁白/BGM/字幕)。
+            _sanitize_vg_params_body(raw_params)
             try:
                 av_params = VideoParams.model_validate(raw_params)
-            except Exception:  # noqa: BLE001
+            except PydanticValidationError as e:
+                logger.warning("[vg] preview-edl params 校验失败,退回仅画面: %s", e.errors())
                 av_params = None
         srt_text = body.get("subtitle")
         if isinstance(srt_text, str) and srt_text.strip():
