@@ -88,8 +88,9 @@ export const VgTimelineEditorPage: React.FC = () => {
     if (!canGen) return;
     if (draft.scriptHash === curHash && (draft.state === 'ready' || draft.state === 'generating')) return;
     void startDraftGen();
+    // 依赖 canGen:去编辑合成进入时 video_script 可能晚一拍才到,canGen false→true 时补触发
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curHash]);
+  }, [curHash, canGen]);
 
   // ── 轮询草稿 task 直到 complete ──
   useQuery({
@@ -229,8 +230,8 @@ export const VgTimelineEditorPage: React.FC = () => {
 
   return (
     <div ref={containerRef} className="flex h-full w-full flex-col">
-      {/* 上半:素材库 + 可拖分隔条 + 预览(可折叠) */}
-      {!timelineCollapsed && (
+      {/* 上半:素材库 + 可拖分隔条 + 预览(始终显示;折叠时间轴时占满) */}
+      {(
         <div className="flex min-h-0 flex-1">
           <MediaPoolPanel width={poolW} />
           <div
