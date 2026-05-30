@@ -317,6 +317,19 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/license:
+    dependencies:
+      '@noble/curves':
+        specifier: ^2.2.0
+        version: 2.2.0
+      '@noble/hashes':
+        specifier: ^2.2.0
+        version: 2.2.0
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/observability:
     dependencies:
       '@chayuan/api':
@@ -334,13 +347,6 @@ importers:
         version: 5.9.3
 
   packages/platform-shared:
-    dependencies:
-      '@noble/curves':
-        specifier: ^2.2.0
-        version: 2.2.0
-      '@noble/hashes':
-        specifier: ^2.2.0
-        version: 2.2.0
     devDependencies:
       typescript:
         specifier: ^5.7.2

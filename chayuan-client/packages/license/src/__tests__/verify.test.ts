@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { verifyShortcode } from '../license/shortcode';
-import { verifyToken } from '../license/token';
+import { verifyShortcode } from '../shortcode';
+import { verifyToken } from '../token';
 
 // 黄金向量:由真实服务端 server/license/ 签发(node 生成),用于证明桌面 TS 验签
 // 与服务端字节兼容。任何一端改了 wire 格式,这些断言就会红。

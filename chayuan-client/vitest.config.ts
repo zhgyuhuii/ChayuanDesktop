@@ -14,6 +14,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@chayuan/platform-shared': resolve(__dirname, 'packages/platform-shared/src/index.ts'),
+      '@chayuan/license': resolve(__dirname, 'packages/license/src/index.ts'),
       '@chayuan/api': resolve(__dirname, 'packages/api/src/index.ts'),
       '@chayuan/observability': resolve(__dirname, 'packages/observability/src/index.ts'),
       '@chayuan/transport': resolve(__dirname, 'packages/transport/src/index.ts'),
