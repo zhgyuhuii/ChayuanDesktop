@@ -54,7 +54,12 @@ export const TimelineTracks: React.FC<{
   const laneCount = videoTracks.length + 1 /*旁白*/ + audioLanes.length + 1 /*音乐*/ + 1 /*字幕*/;
   const lanesH = TRACK_H * laneCount;
   const selCls = (id?: string) => (id && id === selectedTrackId ? ' ring-2 ring-inset ring-[var(--cy-brand-400)]' : '');
-  const dragOver = (e: React.DragEvent) => { if (e.dataTransfer.types.includes(VG_MATERIAL_DND_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } };
+  // 时间轴各轨是专用 drop 区 → dragover 一律 preventDefault(否则浏览器禁止 drop)。
+  // 不要按 dataTransfer.types.includes(MIME) gating:Tauri 的 WebKitGTK 在 dragover
+  // 阶段**不暴露**自定义 MIME 到 types(只在 drop 才可读)→ gating 会让 preventDefault
+  // 永不触发,desktop 上整个拖放失效(dev Chrome 正常)。payload 合法性在 drop 里
+  // getData(MIME) 校验,非素材拖拽 raw 为空会被早返回,无副作用。
+  const dragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; };
   // #26 主轨拖放精确定位:按指针 X 算插入索引 + 边界像素(落在第几个片段之间)
   const [dropMark, setDropMark] = React.useState<{ trackId: string; index: number; leftPx: number } | null>(null);
   const computeInsert = (e: React.DragEvent, tr: VgTimelineTrack) => {
@@ -122,7 +127,7 @@ export const TimelineTracks: React.FC<{
                   className={`relative border-b border-[var(--cy-border-subtle)]${selCls(tr.id)}`}
                   onClick={() => onSelectTrack?.(tr.id)}
                   onContextMenu={(e) => { if (onLaneContextMenu) { e.preventDefault(); onLaneContextMenu(e, 'video', undefined, tr.id, !!tr.removable); } }}
-                  onDragOver={(e) => { dragOver(e); if (i === 0 && e.dataTransfer.types.includes(VG_MATERIAL_DND_MIME)) { const { index, leftPx } = computeInsert(e, tr); setDropMark({ trackId: tr.id, index, leftPx }); } }}
+                  onDragOver={(e) => { dragOver(e); if (i === 0) { const { index, leftPx } = computeInsert(e, tr); setDropMark({ trackId: tr.id, index, leftPx }); } }}
                   onDragLeave={() => setDropMark((d) => (d?.trackId === tr.id ? null : d))}
                   onDrop={(e) => {
                     const raw = e.dataTransfer.getData(VG_MATERIAL_DND_MIME);
