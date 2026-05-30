@@ -94,7 +94,7 @@ export const PreviewPlayer: React.FC<{
             onPause={() => onPlayingChange(false)}
           />
         ) : (
-          <LivePreviewCanvas timeline={timeline} playheadMs={playheadMs} onTransform={onTransform} cues={cues} />
+          <LivePreviewCanvas timeline={timeline} playheadMs={playheadMs} playing={playing} onTransform={onTransform} cues={cues} />
         )}
       </div>
       <div className="flex items-center gap-2">

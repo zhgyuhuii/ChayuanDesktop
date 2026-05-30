@@ -218,7 +218,7 @@ export const VgTimelineEditorPage: React.FC = () => {
   };
   const onDropMaterial = (m: DraggedMaterial, trackId?: string) => {
     if (m.kind === 'audio') return; // 音频走音频轨
-    onTimelineChange(appendClipFromMaterial(timeline, m, undefined, trackId));
+    onTimelineChange(appendClipFromMaterial(timeline, m, undefined, trackId, contentMs));
   };
   const onDropAudio = (m: DraggedMaterial, trackId?: string) => { onTimelineChange(appendAudioClip(timeline, m, undefined, trackId)); };
   const [selectedTrackId, setSelectedTrackId] = React.useState<string | null>(null);
@@ -253,7 +253,7 @@ export const VgTimelineEditorPage: React.FC = () => {
     (mime || '').startsWith('image') ? 'image' : (mime || '').startsWith('audio') ? 'audio' : 'video';
   const addMaterialToTrack = (track: 'video' | 'audio', m: { material_id: string; mime?: string; duration_ms?: number }) => {
     const dm: DraggedMaterial = { materialId: m.material_id, kind: track === 'audio' ? 'audio' : mimeKind(m.mime), durationMs: m.duration_ms || undefined };
-    onTimelineChange(track === 'audio' ? appendAudioClip(timeline, dm) : appendClipFromMaterial(timeline, dm));
+    onTimelineChange(track === 'audio' ? appendAudioClip(timeline, dm) : appendClipFromMaterial(timeline, dm, undefined, undefined, contentMs));
   };
   const onLaneContextMenu = (e: React.MouseEvent, track: 'video' | 'audio' | 'subtitle' | 'narration', clipId?: string, trackId?: string, removable?: boolean) =>
     setMenuCtx({ x: e.clientX, y: e.clientY, track, clipId, trackId, removable });

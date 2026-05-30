@@ -418,6 +418,18 @@ def _timeline_audio_end_s(timeline) -> float:
     return end
 
 
+def _timeline_video_end_s(timeline) -> float:
+    """所有视频轨(含 PIP)最右 clip 的结束秒(track_start + out_ms);out_ms=0(整段)不计入。"""
+    end = 0.0
+    for tr in (timeline.tracks or []):
+        if tr.kind != "video":
+            continue
+        for c in tr.clips:
+            dur = c.out_ms if (c.out_ms and c.out_ms > 0) else 0
+            end = max(end, (c.track_start_ms + dur) / 1000.0)
+    return end
+
+
 def cues_to_srt(cues: list) -> str:
     """[{startMs,endMs,text}] -> SRT 文本(编辑后字幕回传 compose 用)。"""
     def _ts(ms) -> str:
@@ -499,28 +511,22 @@ def render_from_edl(
         finally:
             close_clip(clip)
 
-    # 合成总时长 = max(视频末尾, 旁白末尾, 插入音频末尾)(用户选定:含旁白取最右,不截断)
-    target_dur = max(audio_duration, _timeline_audio_end_s(timeline))
+    # 合成总时长 = max(旁白末尾, 主视频实长, 所有视频轨末尾, 插入音频末尾)
+    # #24:以「最后占位元素」为准,主视频不足处用黑底填充(不再定格末帧)。
+    target_dur = max(
+        audio_duration, total,
+        _timeline_video_end_s(timeline), _timeline_audio_end_s(timeline),
+    )
     if clip_files and total < target_dur - 0.2:
         try:
-            last = _open_video_clip_quietly(clip_files[-1])
-            try:
-                freeze_dur = target_dur - total
-                last_dur = last.duration
-                freeze_start = max(0.0, last_dur - 0.05)
-                freeze_end = last_dur
-                frame = (
-                    last.subclipped(freeze_start, freeze_end)
-                    .with_duration(freeze_dur)
-                    .resized(new_size=(video_width, video_height))
-                )
-                freeze_path = os.path.join(output_dir, "edl-freeze.mp4")
-                frame.write_videofile(freeze_path, logger=None, fps=fps, codec=video_codec)
-                clip_files.append(freeze_path)
-            finally:
-                close_clip(last)
+            gap = target_dur - total
+            black = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(gap)
+            black_path = os.path.join(output_dir, "edl-black.mp4")
+            black.write_videofile(black_path, logger=None, fps=fps, codec=video_codec)
+            close_clip(black)
+            clip_files.append(black_path)
         except Exception as exc:
-            logger.warning("[edl] 末段定格补足失败,跳过(将以现有片段长度交付): %s", exc)
+            logger.warning("[edl] 黑底补足失败,跳过(将以现有片段长度交付): %s", exc)
 
     combined_path = os.path.join(output_dir, "edl-combined.mp4")
     concat_video_clips_with_ffmpeg(clip_files, combined_path, threads=threads, output_dir=output_dir)

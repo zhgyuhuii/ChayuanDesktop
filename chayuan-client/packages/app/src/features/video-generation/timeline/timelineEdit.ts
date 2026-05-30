@@ -118,17 +118,27 @@ export function appendClipFromMaterial(
   m: DraggedMaterial,
   atIndex?: number,
   trackId?: string,
+  fillToMs?: number,
 ): VgTimeline {
-  const dur = m.durationMs && m.durationMs > 0
-    ? Math.round(m.durationMs)
-    : (m.kind === 'image' ? 3000 : 0); // 图像默认 3s;视频 0=整段
-  const baseClip: VgTimelineClip = {
-    id: `c${Date.now()}${Math.floor(Math.random() * 1000)}`,
-    source: m.materialId ? { material_id: m.materialId } : { url: m.url ?? '' },
-    track_start_ms: 0,
-    in_ms: 0,
-    out_ms: dur,
-    duration_ms: m.kind === 'image' ? (dur || 3000) : (m.durationMs || 0),
+  // 视频:用真实时长(m.durationMs;0=到素材末尾,渲染时取整段)。
+  // 图像:占「剩余时间轴」—— 从落点到内容末尾(fillToMs);无内容则默认 3s。
+  const isImage = m.kind === 'image';
+  const mkClip = (start: number): VgTimelineClip => {
+    let dur: number;
+    if (isImage) {
+      // 图像:显式时长优先;否则占「剩余时间轴」(落点→内容末尾),无内容默认 3s
+      dur = m.durationMs && m.durationMs > 0 ? Math.round(m.durationMs) : (Math.max(3000, (fillToMs ?? 0) - start) || 3000);
+    } else {
+      dur = m.durationMs && m.durationMs > 0 ? Math.round(m.durationMs) : 0;
+    }
+    return {
+      id: `c${Date.now()}${Math.floor(Math.random() * 1000)}`,
+      source: m.materialId ? { material_id: m.materialId } : { url: m.url ?? '' },
+      track_start_ms: start,
+      in_ms: 0,
+      out_ms: dur,
+      duration_ms: isImage ? dur : (m.durationMs || 0),
+    };
   };
 
   const tracks = t.tracks || [];
@@ -137,16 +147,17 @@ export function appendClipFromMaterial(
   if (isMain) {
     const clips = [...videoClips(t)];
     const at = atIndex == null ? clips.length : Math.max(0, Math.min(atIndex, clips.length));
-    clips.splice(at, 0, baseClip);
+    const priorSum = clips.slice(0, at).reduce((acc, c) => acc + clipDurMs(c), 0);
+    clips.splice(at, 0, mkClip(priorSum));
     return recomputeStarts(withVideoClips(t, clips));
   }
-  // 附加视频轨(PIP):顺序排在该轨末尾 + 默认 PIP transform
+  // 附加视频轨(PIP):排在该轨末尾 + 默认 PIP transform(图像填充到末尾)
   const next = tracks.map((tr) => {
     if (tr.id !== trackId) return tr;
     const clips = [...(tr.clips || [])];
     const last = clips[clips.length - 1];
     const start = last ? last.track_start_ms + clipDurMs(last) : 0;
-    clips.push({ ...baseClip, track_start_ms: start, x: 0.55, y: 0.05, scale: 0.4, z: clips.length + 1 });
+    clips.push({ ...mkClip(start), x: 0.55, y: 0.05, scale: 0.4, z: clips.length + 1 });
     return { ...tr, clips };
   });
   return { ...t, tracks: next };
