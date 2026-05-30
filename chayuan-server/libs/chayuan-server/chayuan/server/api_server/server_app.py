@@ -47,6 +47,7 @@ from chayuan.server.api_server.server_routes import server_router
 from chayuan.server.api_server.tool_routes import tool_router
 from chayuan.server.api_server.video_generation_routes import video_generation_router
 from chayuan.server.api_server.digital_human_routes import digital_human_router
+from chayuan.server.api_server.license_routes import license_router
 from chayuan.server.auth.middleware import AuthMiddleware
 from chayuan.server.chat.completion import completion
 from chayuan.server.observability import (
@@ -143,6 +144,8 @@ def create_app(run_mode: str = None):
     app.include_router(video_generation_router)
     # 数字人模块 — 预设 / 形象 / 生成 / 状态 / 产物,前缀 /api/v1/digital-human/*
     app.include_router(digital_human_router)
+    # 授权验证模块 — 机器指纹 / 状态 / 激活,前缀 /api/v1/license/*
+    app.include_router(license_router)
     # 开放平台路由（需要 App 签名鉴权，见 AppAuthMiddleware）
     app.include_router(openapi_router)
     # 开放平台 WebSocket 路由；鉴权走查询串签名，在 endpoint 内部自行校验
