@@ -8,7 +8,7 @@ export interface AudioPreviewItem {
   startMs: number;
 }
 
-export function playAudioTimeline(items: AudioPreviewItem[], onEnd?: () => void): () => void {
+export function playAudioTimeline(items: AudioPreviewItem[], onEnd?: () => void, offsetMs = 0): () => void {
   const audios: HTMLAudioElement[] = [];
   const timers: ReturnType<typeof setTimeout>[] = [];
   let stopped = false;
@@ -17,10 +17,19 @@ export function playAudioTimeline(items: AudioPreviewItem[], onEnd?: () => void)
     const a = new Audio(it.url);
     a.preload = 'auto';
     audios.push(a);
-    const t = setTimeout(() => {
-      if (!stopped) void a.play().catch(() => undefined);
-    }, Math.max(0, it.startMs));
-    timers.push(t);
+    const delay = it.startMs - offsetMs;
+    if (delay <= 0) {
+      // 起播点已过(从时间轴中段播放):立即播,并 seek 到已流逝的位置
+      const seekS = Math.max(0, (offsetMs - it.startMs) / 1000);
+      const playSeeked = () => {
+        try { if (seekS > 0) a.currentTime = seekS; } catch { /* not seekable yet */ }
+        if (!stopped) void a.play().catch(() => undefined);
+      };
+      if (a.readyState >= 1) playSeeked(); else a.addEventListener('loadedmetadata', playSeeked, { once: true });
+    } else {
+      const t = setTimeout(() => { if (!stopped) void a.play().catch(() => undefined); }, delay);
+      timers.push(t);
+    }
   }
 
   // 最后一条结束后回调(粗略:用最大 startMs + 监听最后一个 audio 的 ended)

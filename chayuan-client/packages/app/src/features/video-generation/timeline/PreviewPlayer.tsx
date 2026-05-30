@@ -26,14 +26,18 @@ export const PreviewPlayer: React.FC<{
   onPlayingChange: (playing: boolean) => void;
   onFreshGenerated: () => void;
   onTransform: (clipId: string, tf: { x?: number; y?: number; scale?: number }) => void;
-}> = ({ timeline, aspect, width, height, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform }) => {
+  /** 模式上提:父组件据此决定是否跑实时播放引擎(proxy 模式由 proxy <video> 自己驱动)。 */
+  onModeChange?: (mode: 'live' | 'proxy') => void;
+}> = ({ timeline, aspect, width, height, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform, onModeChange }) => {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
   const [url, setUrl] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const [mode, setMode] = React.useState<'live' | 'proxy'>('live');
+  const [mode, setModeRaw] = React.useState<'live' | 'proxy'>('live');
+  const setMode = React.useCallback((m: 'live' | 'proxy') => { setModeRaw(m); onModeChange?.(m); }, [onModeChange]);
 
   React.useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); }, []);
+  React.useEffect(() => { onModeChange?.('live'); }, []); // 初始上报 live
 
   const generate = React.useCallback(async () => {
     if (!timeline.tracks?.some((t) => t.kind === 'video' && (t.clips?.length ?? 0) > 0)) {
