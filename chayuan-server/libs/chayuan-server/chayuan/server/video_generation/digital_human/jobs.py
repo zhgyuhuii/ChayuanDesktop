@@ -6,14 +6,15 @@
 from __future__ import annotations
 import logging, os, threading, uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict
+from typing import Dict, Optional
 
 from chayuan.server.video_generation import _helpers
 from chayuan.server.video_generation._helpers import task_dir
 from chayuan.server.video_generation.digital_human import store
 from chayuan.server.video_generation.digital_human.engine import get_engine
 from chayuan.server.video_generation.digital_human.schemas import DhTaskStatus
-from chayuan.server.video_generation.digital_human.store import resolve_avatar_path
+from chayuan.server.video_generation.digital_human.store import resolve_avatar_path, resolve_product_path
+from chayuan.server.video_generation.digital_human.compose import render_with_product
 
 logger = logging.getLogger("chayuan.dh.jobs")
 
@@ -51,6 +52,20 @@ def _synthesize_narration(text: str, preset, audio_path: str) -> str:
     return audio_path
 
 
+def _probe_duration_ms(path: str) -> int:
+    """ffprobe 取媒体时长(ms);失败返 0。"""
+    try:
+        import imageio_ffmpeg, subprocess, json as _json
+        ff = imageio_ffmpeg.get_ffmpeg_exe()
+        ffprobe = ff.replace("ffmpeg", "ffprobe")
+        out = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration",
+                              "-of", "json", path], capture_output=True, text=True, timeout=30)
+        dur = float(_json.loads(out.stdout or "{}").get("format", {}).get("duration") or 0)
+        return int(dur * 1000)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def _run_pipeline(tid: str) -> None:
     args = _PENDING.get(tid) or {}
     try:
@@ -71,7 +86,25 @@ def _run_pipeline(tid: str) -> None:
             width=args["width"], height=args["height"],
             on_progress=lambda pct: _set(tid, progress=30 + int(pct * 0.7)),
         )
-        _set(tid, state="complete", progress=100, result_path=out_path)
+        result_path = out_path
+        product_ref = args.get("product_ref")
+        template = args.get("template") or "none"
+        if product_ref and template != "none":
+            product_path = resolve_product_path(product_ref)
+            if not product_path:
+                raise RuntimeError("商品图缺失")
+            _set(tid, progress=88)
+            presenter_keep = os.path.join(td, "presenter.mp4")
+            final_path = os.path.join(td, "digital_human.mp4")
+            os.replace(out_path, presenter_keep)  # presenter 让出最终文件名
+            dur_ms = _probe_duration_ms(presenter_keep) or _probe_duration_ms(audio_path) or 5000
+            render_with_product(
+                presenter_path=presenter_keep, product_path=product_path, template=template,
+                audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
+                dur_ms=dur_ms,
+            )
+            result_path = final_path
+        _set(tid, state="complete", progress=100, result_path=result_path)
     except Exception as e:  # noqa: BLE001
         logger.warning("[dh] task %s 失败: %r", tid, e, exc_info=True)
         _set(tid, state="failed", error=str(e))
@@ -79,9 +112,11 @@ def _run_pipeline(tid: str) -> None:
         _PENDING.pop(tid, None)
 
 
-def submit(*, preset_id: str, text: str, width: int, height: int) -> str:
+def submit(*, preset_id: str, text: str, width: int, height: int,
+           product_ref: Optional[str] = None, template: str = "none") -> str:
     tid = uuid.uuid4().hex[:12]
-    _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height}
+    _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height,
+                     "product_ref": product_ref, "template": template}
     _set(tid, state="pending", progress=0)
     _POOL.submit(_run_pipeline, tid)
     return tid

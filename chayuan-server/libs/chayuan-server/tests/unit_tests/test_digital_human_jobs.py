@@ -59,3 +59,34 @@ def test_job_pipeline_missing_preset(monkeypatch, tmp_path):
     dh_jobs._set(tid, state="pending", progress=0)
     dh_jobs.run_sync(tid)
     assert dh_jobs.get_status(tid).state == "failed"
+
+
+def test_job_pipeline_with_product(monkeypatch, tmp_path):
+    import uuid as _uuid
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    def fake_tts(text, preset, audio_path):
+        open(audio_path, "wb").write(b"wav"); return audio_path
+    monkeypatch.setattr(dh_jobs, "_synthesize_narration", fake_tts)
+    class _E:
+        def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
+            open(out_path, "wb").write(b"mp4"); return out_path
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda: _E())
+    monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
+    monkeypatch.setattr(dh_jobs, "resolve_product_path", lambda ref: str(tmp_path / "prod.png"))
+    (tmp_path / "prod.png").write_bytes(b"x")
+    called = {}
+    def fake_render(**kw):
+        called.update(kw); open(kw["out_path"], "wb").write(b"final"); return kw["out_path"]
+    monkeypatch.setattr(dh_jobs, "render_with_product", fake_render)
+    monkeypatch.setattr(dh_jobs, "_probe_duration_ms", lambda p: 5000)
+
+    pid = dh_jobs.store.create_preset(name="A", avatar_ref="bundled:f1", avatar_kind="video").id
+    tid = _uuid.uuid4().hex[:12]
+    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "你好", "width": 720, "height": 1280,
+                             "product_ref": "product:prod.png", "template": "corner"}
+    dh_jobs._set(tid, state="pending", progress=0)
+    dh_jobs.run_sync(tid)
+    st = dh_jobs.get_status(tid)
+    assert st.state == "complete"
+    assert called.get("template") == "corner"
+    assert st.result_path.endswith("digital_human.mp4")
