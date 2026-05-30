@@ -176,6 +176,9 @@ importers:
       '@chayuan/i18n':
         specifier: workspace:*
         version: link:../i18n
+      '@chayuan/license':
+        specifier: workspace:*
+        version: link:../license
       '@chayuan/observability':
         specifier: workspace:*
         version: link:../observability
