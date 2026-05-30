@@ -109,7 +109,7 @@ export const TimelineTracks: React.FC<{
       </div>
       {/* 右:单横向滚动容器 */}
       <div className="relative flex-1 overflow-x-auto cy-hide-scrollbar">
-        <div style={{ width: contentWidthPx }}>
+        <div className="relative" style={{ width: contentWidthPx }}>
           <TimeRuler durationMs={durationMs} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx} onSeekMs={onSeekMs} />
           <div className="relative" style={{ height: lanesH }}>
             {/* 视频轨们(第 0 条 = 主轨可编辑;其余 = PIP 显示+拖入+右键) */}
@@ -175,8 +175,9 @@ export const TimelineTracks: React.FC<{
             <SubtitleCueTrack cues={cues} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx}
               editable onCuesChange={onCuesChange}
               onCueContextMenu={(e, idx) => onLaneContextMenu?.(e, 'subtitle', String(idx))} />
-            <Playhead playheadMs={playheadMs} pxPerSec={pxPerSec} heightPx={lanesH} durationMs={durationMs} onSeekMs={onSeekMs} />
           </div>
+          {/* 播放头:贯穿刻度 + 所有轨道;手柄在最顶(刻度上方) */}
+          <Playhead playheadMs={playheadMs} pxPerSec={pxPerSec} heightPx={RULER_H + lanesH} durationMs={durationMs} onSeekMs={onSeekMs} />
         </div>
       </div>
     </div>

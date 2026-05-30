@@ -40,6 +40,8 @@ export const VgTimelineEditorPage: React.FC = () => {
   const [pxPerSec, setPxPerSec] = React.useState(20);
   const [playheadMs, setPlayheadMs] = React.useState(0);
   const [seekMs, setSeekMs] = React.useState(0);
+  const [seekNonce, setSeekNonce] = React.useState(0); // 播放中拖播放头 → 防抖后重启引擎从新位置续播
+  const seekDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [playing, setPlaying] = React.useState(false);
   const [previewMode, setPreviewMode] = React.useState<'live' | 'proxy'>('live');
   const [proxyStale, setProxyStale] = React.useState(true);
@@ -197,7 +199,7 @@ export const VgTimelineEditorPage: React.FC = () => {
     });
     return () => { cancelAnimationFrame(raf); stopAudio?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, previewMode]);
+  }, [playing, previewMode, seekNonce]);
 
   // 容器宽变化时 fit 一次(内容时长首次 > 0;按内容铺满,富余部分横向滚)
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -517,7 +519,13 @@ export const VgTimelineEditorPage: React.FC = () => {
           narrationName={narrationName}
           narrationDurationMs={draft.audioDurationMs || (peaks.length ? contentMs : 0)}
           onTransitionMenu={(e, clipId) => setTxMenu({ x: e.clientX, y: e.clientY, clipId })}
-          onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
+          onSeekMs={(ms) => {
+            setSeekMs(ms); setPlayheadMs(ms); playheadRef.current = ms;
+            if (playing) { // 停止拖动 120ms 后从新位置续播(旁白/音频/画面)
+              if (seekDebounceRef.current) clearTimeout(seekDebounceRef.current);
+              seekDebounceRef.current = setTimeout(() => setSeekNonce((n) => n + 1), 120);
+            }
+          }}
           onTimelineChange={onTimelineChange}
         />
         </div>
