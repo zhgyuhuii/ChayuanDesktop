@@ -12,6 +12,8 @@ from typing import Any, Callable, Optional, Protocol
 logger = logging.getLogger("chayuan.dh.engine")
 ProgressCb = Callable[[int], None]
 
+_SADTALKER_PORT = 18680
+
 
 class DigitalHumanEngine(Protocol):
     def generate(self, *, avatar_path: str, audio_path: str, out_path: str,
@@ -65,6 +67,57 @@ class Wav2LipEngine:
         return out_path
 
 
+def _port_listening(port: int, timeout: float = 0.3) -> bool:
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        return s.connect_ex(("127.0.0.1", port)) == 0
+    finally:
+        s.close()
+
+
+def _sadtalker_ensure_ready() -> None:
+    """确保 sidecar 在跑(端口监听)。未跑则尝试 install_task_manager 启动。
+    [GPU-VERIFY] 启动/就绪等待在用户 GPU 环境实测。"""
+    if _port_listening(_SADTALKER_PORT):
+        return
+    try:
+        from chayuan.server.config_panel.install_task_manager import get_install_manager
+        get_install_manager().start_service(framework="sadtalker")
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"SadTalker 运行时未启动且自启失败: {e}") from e
+    import time
+    for _ in range(60):
+        if _port_listening(_SADTALKER_PORT):
+            return
+        time.sleep(0.5)
+    raise RuntimeError("SadTalker sidecar 启动超时(检查运行时框架日志)")
+
+
+class SadTalkerEngine:
+    """转发到 sadtalker_server sidecar(GPU)。"""
+    def generate(self, *, avatar_path: str, audio_path: str, out_path: str,
+                 width: int, height: int,
+                 on_progress: Optional[ProgressCb] = None) -> str:
+        import httpx
+        _sadtalker_ensure_ready()
+        if on_progress:
+            on_progress(10)
+        with httpx.Client() as client:
+            resp = client.post(
+                f"http://127.0.0.1:{_SADTALKER_PORT}/infer",
+                json={"image_path": avatar_path, "audio_path": audio_path, "out_path": out_path},
+                timeout=600,
+            )
+            resp.raise_for_status()
+        if on_progress:
+            on_progress(100)
+        if not os.path.isfile(out_path):
+            raise RuntimeError("SadTalker 未产出 mp4")
+        return out_path
+
+
 @dataclass(frozen=True)
 class EngineSpec:
     id: str
@@ -102,9 +155,9 @@ def _engine_installed(engine_id: str) -> bool:
         return False
     if spec.builtin:
         return True
-    # GPU-P1:真 GPU 运行时尚未实现 → 恒 False。GPU-P2/P3 在此接
-    # local_runtime_registry 查"运行时已装 + sidecar /health ready"。
-    return False
+    if engine_id == "sadtalker":
+        return _port_listening(_SADTALKER_PORT)
+    return False  # musetalk 仍占位(GPU-P3)
 
 
 def is_available(engine_id: str) -> bool:
@@ -114,6 +167,8 @@ def is_available(engine_id: str) -> bool:
 def get_engine(engine_id: str = "wav2lip") -> DigitalHumanEngine:
     if engine_id == "wav2lip":
         return Wav2LipEngine()
+    if engine_id == "sadtalker":
+        return SadTalkerEngine()
     spec = _SPECS.get(engine_id)
     if spec is None:
         raise RuntimeError(f"未知引擎: {engine_id}")

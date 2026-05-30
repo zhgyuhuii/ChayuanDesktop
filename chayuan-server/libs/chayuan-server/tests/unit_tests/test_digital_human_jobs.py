@@ -138,8 +138,8 @@ def test_get_engine_default_is_wav2lip():
     assert isinstance(dh_engine.get_engine("wav2lip"), dh_engine.Wav2LipEngine)
 
 def test_get_engine_gpu_placeholder_raises_on_generate():
-    e = dh_engine.get_engine("sadtalker")
-    assert dh_engine.is_available("sadtalker") is False
+    e = dh_engine.get_engine("musetalk")
+    assert dh_engine.is_available("musetalk") is False
     import pytest
     with pytest.raises(RuntimeError, match="未安装"):
         e.generate(avatar_path="a", audio_path="b", out_path="o", width=720, height=1280)
