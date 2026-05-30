@@ -29,6 +29,7 @@ export const TimelineTracks: React.FC<{
   bgmUrl?: string;
   contentMs?: number;
   thumbUrlOf?: (clipIndex: number) => string | null;
+  clipThumb?: (clip: { source?: { material_id?: string; url?: string } }) => string | null;
   onSeekMs: (ms: number) => void;
   onTimelineChange: (t: VgTimeline) => void;
   onDropMaterial?: (m: DraggedMaterial, trackId?: string, atIndex?: number) => void;
@@ -45,7 +46,7 @@ export const TimelineTracks: React.FC<{
   narrationName?: string;
   narrationDurationMs?: number;
   onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationName, narrationDurationMs, onTransitionMenu }) => {
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationName, narrationDurationMs, onTransitionMenu }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const audioTracks = (timeline.tracks || []).filter((t) => t.kind === 'audio');
@@ -138,8 +139,10 @@ export const TimelineTracks: React.FC<{
                     <span className="pointer-events-none absolute top-0 z-30 h-full w-0.5 bg-[var(--cy-brand-500)]"
                       style={{ left: Math.max(0, dropMark.leftPx - 1) }} />
                   )}
-                  <VideoTrack timeline={timeline} trackId={tr.id} editable={!tr.removable} videoTrackOnly pxPerSec={pxPerSec}
-                    thumbUrlOf={!tr.removable ? thumbUrlOf : undefined} onChange={onTimelineChange} onReplaceClip={onReplaceClip}
+                  {/* 所有视频轨(含 PIP/附加轨)都可编辑(拖拽调时长)+ 显缩略图;
+                      thumbUrlOf 按主轨下标只给主轨,clipThumb 按 clip 自身 source 给全部轨 */}
+                  <VideoTrack timeline={timeline} trackId={tr.id} editable videoTrackOnly pxPerSec={pxPerSec}
+                    thumbUrlOf={!tr.removable ? thumbUrlOf : undefined} clipThumb={clipThumb} onChange={onTimelineChange} onReplaceClip={onReplaceClip}
                     selectedClipId={selectedClipId} onSelectClip={onSelectClip}
                     onTransitionMenu={onTransitionMenu}
                     onClipContextMenu={(e, clipId) => onLaneContextMenu?.(e, 'video', clipId, tr.id, !!tr.removable)} />

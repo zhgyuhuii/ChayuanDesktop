@@ -27,6 +27,36 @@ it('appendClipFromMaterial 主轨 drop 不广播到其它视频轨(#13 回归)',
   expect(r.tracks[1]!.clips!.length).toBe(0); // 附加轨仍为空,不被广播
 });
 
+it('setClipDuration 改 PIP/附加轨 clip 时长 — 只改本轨 out_ms,不动主轨、不重排起点(回归)', () => {
+  const base: VgTimeline = { version: 1, duration_ms: 0, tracks: [
+    { id: 'v', kind: 'video', clips: [
+      { id: 'a', source: { path: '/a.mp4' }, track_start_ms: 0, in_ms: 0, out_ms: 3000 },
+      { id: 'b', source: { path: '/b.mp4' }, track_start_ms: 3000, in_ms: 0, out_ms: 2000 },
+    ] },
+    { id: 'v2', kind: 'video', removable: true, clips: [
+      { id: 'p', source: { material_id: 'm1' }, track_start_ms: 1500, in_ms: 0, out_ms: 4000 },
+    ] },
+  ] };
+  const r = setClipDuration(base, 'p', 1000);
+  // PIP clip 时长改成 1000,track_start_ms 保持 1500(自由定位,不被重排到 0)
+  expect(r.tracks[1]!.clips![0]!.out_ms).toBe(1000);
+  expect(r.tracks[1]!.clips![0]!.track_start_ms).toBe(1500);
+  // 主轨原封不动
+  expect(r.tracks[0]!.clips!.map((c) => c.track_start_ms)).toEqual([0, 3000]);
+});
+
+it('setClipDuration 改主轨 clip 时长 — 顺排重算后续起点(montage 行为不变)', () => {
+  const base: VgTimeline = { version: 1, duration_ms: 0, tracks: [
+    { id: 'v', kind: 'video', clips: [
+      { id: 'a', source: { path: '/a.mp4' }, track_start_ms: 0, in_ms: 0, out_ms: 3000 },
+      { id: 'b', source: { path: '/b.mp4' }, track_start_ms: 3000, in_ms: 0, out_ms: 2000 },
+    ] },
+  ] };
+  const r = setClipDuration(base, 'a', 5000);
+  expect(r.tracks[0]!.clips![0]!.out_ms).toBe(5000);
+  expect(r.tracks[0]!.clips![1]!.track_start_ms).toBe(5000); // b 顺排到 a 之后
+});
+
 it('setClipStart 自由移动任意轨 clip;normalizeMontage 按 start 重排紧贴', () => {
   const base: VgTimeline = { version: 1, duration_ms: 0, tracks: [
     { id: 'v', kind: 'video', clips: [

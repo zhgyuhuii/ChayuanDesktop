@@ -221,6 +221,13 @@ export const VgTimelineEditorPage: React.FC = () => {
     const src = videoClips[i]?.source;
     return src?.material_id ? videoGeneration.materialThumbUrl(src.material_id) : null;
   };
+  // 按 clip 自身 source 取缩略图(主轨/PIP 轨通用):material_id→素材缩略图;http url(图片)直接用
+  const clipThumb = (c: { source?: { material_id?: string; url?: string } }) => {
+    const src = c?.source;
+    if (src?.material_id) return videoGeneration.materialThumbUrl(src.material_id);
+    if (src?.url && /^https?:/.test(src.url)) return src.url;
+    return null;
+  };
   const onDropMaterial = (m: DraggedMaterial, trackId?: string, atIndex?: number) => {
     if (m.kind === 'audio') return; // 音频走音频轨
     onTimelineChange(appendClipFromMaterial(timeline, m, atIndex, trackId, contentMs));
@@ -528,6 +535,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           timeline={timeline} durationMs={durationMs} pxPerSec={pxPerSec} playheadMs={playheadMs}
           peaks={peaks} peaksLoading={draft.state === 'generating'} cues={cues} bgmName={bgmName} bgmUrl={bgmUrl} contentMs={contentMs}
           thumbUrlOf={thumbUrlOf}
+          clipThumb={clipThumb}
           onDropAudio={onDropAudio}
           onCuesChange={setCues}
           onReplaceClip={onReplaceClip}

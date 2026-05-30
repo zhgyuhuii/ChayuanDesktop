@@ -15,8 +15,11 @@ export const VgTimeline: React.FC<{
   onClipClick?: (clipId: string) => void;
   /** 外部统一 px/秒(P4a 多轨共用);不传则用内部默认 PX_PER_SEC。 */
   pxPerSec?: number;
-  /** 由 clip 下标取首帧缩略图 URL(P4a 传 videoGeneration.thumbUrl 包装);不传则不显缩略图。 */
+  /** 由 clip 下标取首帧缩略图 URL(P4a 传 videoGeneration.thumbUrl 包装);不传则不显缩略图。
+   *  注:thumbUrlOf 按「下标」索引主轨 clips,只适用主轨;PIP/附加轨用 clipThumb 按 clip 自身 source 取。 */
   thumbUrlOf?: (clipIndex: number) => string | null;
+  /** 按 clip 自身 source 取缩略图(material_id → 素材缩略图);所有视频轨通用,PIP 轨必需。 */
+  clipThumb?: (clip: { source?: { material_id?: string; url?: string } }) => string | null;
   /** 只渲染 video 轨(P4a 多轨时音频/字幕轨独立组件;默认 false 维持 P2/P3 三占位轨)。 */
   videoTrackOnly?: boolean;
   /** 选中 clip 点「替换」回调(P5b);不传则不显替换按钮。 */
@@ -30,7 +33,7 @@ export const VgTimeline: React.FC<{
   onSelectClip?: (clipId: string) => void;
   /** 点片段间转场块(#26):在切点打开转场菜单。 */
   onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
-}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, videoTrackOnly, onReplaceClip, onClipContextMenu, trackId, selectedClipId, onSelectClip, onTransitionMenu }) => {
+}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, clipThumb, videoTrackOnly, onReplaceClip, onClipContextMenu, trackId, selectedClipId, onSelectClip, onTransitionMenu }) => {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const pps = pxPerSec ?? PX_PER_SEC;
   const videoTrack = trackId
@@ -122,7 +125,11 @@ export const VgTimeline: React.FC<{
                 onKeyDown={(e) => { if (e.key === 'Enter') { setSelectedId(s.id); onSelectClip?.(s.id); if (!editable) onClipClick?.(s.id); } }}
                 style={{
                   left: s.leftPx, width: s.widthPx,
-                  backgroundImage: thumbUrlOf?.(s.idx) ? `url(${thumbUrlOf(s.idx)})` : undefined,
+                  // 优先按 clip 自身 source 取缩略图(主轨/PIP 轨通用);兜底用主轨下标式 thumbUrlOf
+                  backgroundImage: (() => {
+                    const u = clipThumb?.(clips[s.idx]!) ?? thumbUrlOf?.(s.idx);
+                    return u ? `url(${u})` : undefined;
+                  })(),
                   backgroundSize: 'cover', backgroundPosition: 'center',
                 }}
                 className={`absolute top-2 h-8 cursor-grab active:cursor-grabbing overflow-hidden rounded border text-[10px] ${

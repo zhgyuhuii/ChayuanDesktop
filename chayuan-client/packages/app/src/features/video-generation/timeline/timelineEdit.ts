@@ -116,21 +116,39 @@ export function normalizeMontage(t: VgTimeline): VgTimeline {
 }
 
 /** 设时长:out = in + dur(>=MIN_DUR);随后重算 starts。 */
+/** clipId 所在的轨道是否为主视频轨(顺排蒙太奇);PIP/附加轨为自由定位,改时长不重排。 */
+function isMainTrackOf(t: VgTimeline, clipId: string): boolean {
+  const mIdx = mainVideoIdx(t);
+  const mainId = mIdx >= 0 ? t.tracks![mIdx]!.id : undefined;
+  const tr = (t.tracks || []).find((x) => (x.clips || []).some((c) => c.id === clipId));
+  return !!tr && tr.id === mainId;
+}
+
 export function setClipDuration(t: VgTimeline, clipId: string, durMs: number): VgTimeline {
   const d = Math.max(MIN_DUR, Math.round(durMs));
-  const clips = videoClips(t).map((c) => (c.id === clipId ? { ...c, out_ms: (c.in_ms ?? 0) + d } : c));
-  return recomputeStarts(withVideoClips(t, clips));
+  // 跨轨:找到 clip 所在轨编辑(主轨 + PIP/附加轨都能改时长);主轨改完顺排重算后续起点,
+  // PIP 轨自由定位不重排,保持 track_start_ms。
+  const tr = (t.tracks || []).find((x) => (x.clips || []).some((c) => c.id === clipId));
+  if (!tr) return t;
+  const clips = (tr.clips || []).map((c) =>
+    c.id === clipId ? { ...c, out_ms: (c.in_ms ?? 0) + d, duration_ms: d } : c);
+  const next = withTrackClips(t, tr.id, clips);
+  return isMainTrackOf(t, clipId) ? recomputeStarts(next) : next;
 }
 
 /** 设入点 in_ms(>=0),保持时长地板(out 至少 in+max(MIN_DUR,原时长))。 */
 export function setClipIn(t: VgTimeline, clipId: string, inMs: number): VgTimeline {
   const v = Math.max(0, Math.round(inMs));
-  const clips = videoClips(t).map((c) => {
+  // 跨轨:同 setClipDuration —— 主轨重排、PIP 轨保持自由定位。
+  const tr = (t.tracks || []).find((x) => (x.clips || []).some((c) => c.id === clipId));
+  if (!tr) return t;
+  const clips = (tr.clips || []).map((c) => {
     if (c.id !== clipId) return c;
     const dur = clipDurMs(c);
     return { ...c, in_ms: v, out_ms: v + Math.max(MIN_DUR, dur) };
   });
-  return recomputeStarts(withVideoClips(t, clips));
+  const next = withTrackClips(t, tr.id, clips);
+  return isMainTrackOf(t, clipId) ? recomputeStarts(next) : next;
 }
 
 /** 拖拽 dataTransfer 的 MIME 与 payload 类型(MaterialsStep 写 / TimelineTracks 读)。 */
