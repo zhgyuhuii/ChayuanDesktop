@@ -130,6 +130,8 @@ export const VgTimelineEditorPage: React.FC = () => {
           state: 'ready',
           audioFileName: audioFull ? audioFull.split(/[\\/]/).pop()! : null,
           subtitleFileName: subFull ? subFull.split(/[\\/]/).pop()! : null,
+          // 旁白时长直接取任务结果(可靠),不依赖 audio-peaks;contentMs/旁白块据此显示
+          audioDurationMs: Number(res.audio_duration_ms) || 0,
           materials: [], // P5a:素材手动拖入,草稿不再自动下素材
         });
       } else if (t.state === 'failed' || t.state === 'canceled') {
@@ -146,7 +148,7 @@ export const VgTimelineEditorPage: React.FC = () => {
       try {
         const pk = await videoGeneration.fetchAudioPeaks(draft.taskId!, 600);
         setPeaks(pk.peaks);
-        patchDraft({ audioDurationMs: pk.duration_ms });
+        if (pk.duration_ms > 0) patchDraft({ audioDurationMs: pk.duration_ms }); // 不用 0 覆盖结果里的可靠值
       } catch { setPeaks([]); }
       if (draft.subtitleFileName) {
         try {

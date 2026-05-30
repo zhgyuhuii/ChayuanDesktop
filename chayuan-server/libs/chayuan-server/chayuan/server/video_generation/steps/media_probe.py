@@ -85,10 +85,13 @@ def cached_peaks(audio_path: str, cache_dir: str, n: int = 600) -> dict:
         except Exception:  # noqa: BLE001
             pass
     result = extract_peaks(audio_path, n)
-    try:
-        os.makedirs(cache_dir, exist_ok=True)
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(result, f)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("[media_probe] 写 peaks 缓存失败: %r", e)
+    # 不缓存"失败/全 0"结果:音频还没就绪或 ffmpeg 出错时 extract_peaks 返回 duration_ms=0,
+    # 一旦缓存进去,之后音频有了也永远返回 0(扁平波形)。只缓存有效结果。
+    if (result.get("duration_ms") or 0) > 0:
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(result, f)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[media_probe] 写 peaks 缓存失败: %r", e)
     return result
