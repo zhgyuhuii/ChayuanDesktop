@@ -167,3 +167,33 @@ export interface VgMessageMeta {
   finalVideos?: string[];
   videoAspect?: '16:9' | '9:16' | '1:1';
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// 数字人
+// ─────────────────────────────────────────────────────────────────────
+
+export interface DigitalHumanPreset {
+  id: string;
+  name: string;
+  avatar_ref: string;
+  avatar_kind: 'image' | 'video';
+  is_greenscreen: boolean;
+  voice_provider: 'piper' | 'edge' | 'sherpa' | 'clone';
+  voice_name: string;
+  created: number;
+}
+
+export interface DhAvatar {
+  ref: string;
+  kind: 'image' | 'video';
+  source: 'bundled' | 'user';
+  name: string;
+}
+
+export interface DhTaskStatus {
+  task_id: string;
+  state: 'pending' | 'running' | 'complete' | 'failed' | 'canceled';
+  progress: number;
+  error: string;
+  result_path: string;
+}
