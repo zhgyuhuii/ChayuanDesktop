@@ -24,3 +24,35 @@ def test_musetalk_server_imports_clean():
     import importlib
     m = importlib.import_module("chayuan.server.modality.musetalk_server")
     assert hasattr(m, "main") and hasattr(m, "_register_routes")
+
+
+import os
+
+def test_musetalk_engine_forwards(monkeypatch, tmp_path):
+    from chayuan.server.video_generation.digital_human import engine as dh_engine
+    posted = {}
+    class _Resp:
+        status_code = 200
+        def json(self): return {"ok": True}
+        def raise_for_status(self): pass
+    class _Client:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def post(self, url, json, timeout=None):
+            posted.update(url=url, body=json); return _Resp()
+    monkeypatch.setattr("httpx.Client", _Client)
+    monkeypatch.setattr(dh_engine, "_musetalk_ensure_ready", lambda: None)
+    out = os.path.join(tmp_path, "o.mp4"); open(out, "wb").write(b"x")
+    e = dh_engine.MuseTalkEngine()
+    r = e.generate(avatar_path="v.mp4", audio_path="a.wav", out_path=out, width=720, height=1280)
+    assert r == out and posted["url"].endswith("/infer") and ":18780/" in posted["url"]
+
+def test_get_engine_musetalk_is_real_engine():
+    from chayuan.server.video_generation.digital_human import engine as dh_engine
+    assert isinstance(dh_engine.get_engine("musetalk"), dh_engine.MuseTalkEngine)
+
+def test_musetalk_installed_reflects_port(monkeypatch):
+    from chayuan.server.video_generation.digital_human import engine as dh_engine
+    monkeypatch.setattr(dh_engine, "_port_listening", lambda port, timeout=0.3: port == 18780)
+    assert dh_engine.is_available("musetalk") is True
