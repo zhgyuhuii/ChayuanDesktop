@@ -14,6 +14,7 @@
  */
 
 import * as React from 'react';
+import { vgTaskName } from './vgTaskName';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, Square, Loader2, AlertTriangle, CircleCheck, RefreshCw } from 'lucide-react';
 import {
@@ -186,7 +187,7 @@ const TaskProgressRow: React.FC<{
 
   const progress = task.progress;
   const label = progressLabel(progress);
-  const subject = task.params?.video_subject || '(未命名主题)';
+  const subject = vgTaskName(task.params, '(未命名主题)');
   const isTerminal = task.state === 'complete' || task.state === 'failed' || task.state === 'canceled';
 
   return (

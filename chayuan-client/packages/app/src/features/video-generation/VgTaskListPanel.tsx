@@ -11,6 +11,7 @@
  * 轮询(5s)刷新;不依赖 SSE —— 任务管理视角用轮询足够,实时进度看「我的视频」首页面板。
  */
 import * as React from 'react';
+import { vgTaskName } from './vgTaskName';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Square, RefreshCw, Trash2, Video as VideoIcon, AlertTriangle, CircleCheck, Eraser } from 'lucide-react';
 import { videoGeneration, type VgTask, type VgTaskState } from '@chayuan/api';
@@ -97,8 +98,8 @@ export const VgTaskListPanel: React.FC<{
               <li key={t.task_id} className="flex items-center gap-2 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-2">
                 <span className="shrink-0">{stateIcon(t.state)}</span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-[var(--cy-text-primary)]" title={t.params?.video_subject || ''}>
-                    {t.params?.video_subject || '(未命名)'}
+                  <p className="truncate text-sm font-medium text-[var(--cy-text-primary)]" title={vgTaskName(t.params)}>
+                    {vgTaskName(t.params)}
                   </p>
                   <p className="truncate text-[10px] text-[var(--cy-text-tertiary)]">
                     {t.task_id.slice(0, 8)}…
