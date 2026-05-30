@@ -7,7 +7,12 @@
  * - fail-closed：未刷新 / 网络异常 → 未授权，由 LicenseGate 显激活入口（可离线手输短码）。
  */
 
-import { type LicenseStatus, licenseActivate, licenseActivateToken, licenseStatus } from '@chayuan/api';
+import {
+  type LicenseStatus,
+  licenseActivate,
+  licenseActivateToken,
+  licenseStatus,
+} from '@chayuan/api';
 import { create } from 'zustand';
 
 export type { LicenseStatus } from '@chayuan/api';
@@ -42,43 +47,43 @@ export const useLicenseStore = create<LicenseState>((set, get) => {
     }));
 
   return {
-  statusByApp: {},
-  readyApps: {},
+    statusByApp: {},
+    readyApps: {},
 
-  async refresh(app) {
-    let s: LicenseStatus;
-    try {
-      s = await licenseStatus(app);
-    } catch {
-      s = FAIL_CLOSED(app);
-    }
-    put(app, s);
-    return s;
-  },
+    async refresh(app) {
+      let s: LicenseStatus;
+      try {
+        s = await licenseStatus(app);
+      } catch {
+        s = FAIL_CLOSED(app);
+      }
+      put(app, s);
+      return s;
+    },
 
-  async activateSerial(app, serial) {
-    const s = await licenseActivate(app, serial);
-    put(app, s);
-    return s;
-  },
+    async activateSerial(app, serial) {
+      const s = await licenseActivate(app, serial);
+      put(app, s);
+      return s;
+    },
 
-  async activateToken(app, token) {
-    const s = await licenseActivateToken(app, token);
-    put(app, s);
-    return s;
-  },
+    async activateToken(app, token) {
+      const s = await licenseActivateToken(app, token);
+      put(app, s);
+      return s;
+    },
 
-  isLicensed(app) {
-    return get().statusByApp[app]?.licensed ?? false;
-  },
+    isLicensed(app) {
+      return get().statusByApp[app]?.licensed ?? false;
+    },
 
-  isReady(app) {
-    return get().readyApps[app] ?? false;
-  },
+    isReady(app) {
+      return get().readyApps[app] ?? false;
+    },
 
-  reset() {
-    set({ statusByApp: {}, readyApps: {} });
-  },
+    reset() {
+      set({ statusByApp: {}, readyApps: {} });
+    },
   };
 });
 

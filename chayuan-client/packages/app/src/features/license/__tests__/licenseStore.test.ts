@@ -22,7 +22,11 @@ beforeEach(() => {
 
 describe('licenseStore', () => {
   it('refresh 写入 status 并置 ready', async () => {
-    mocked.status.mockResolvedValue({ licensed: true, app: 'video', expireAt: '2026-07-01T00:00:00.000Z' });
+    mocked.status.mockResolvedValue({
+      licensed: true,
+      app: 'video',
+      expireAt: '2026-07-01T00:00:00.000Z',
+    });
     const s = await useLicenseStore.getState().refresh('video');
     expect(s.licensed).toBe(true);
     expect(useLicenseStore.getState().isLicensed('video')).toBe(true);
@@ -39,8 +43,14 @@ describe('licenseStore', () => {
   });
 
   it('activateSerial 成功后 isLicensed=true', async () => {
-    mocked.activate.mockResolvedValue({ licensed: true, app: 'video', expireAt: '2026-07-01T00:00:00.000Z' });
-    const s = await useLicenseStore.getState().activateSerial('video', '2101W-0JWN1-MN2JP-9V4QW-MSGJ');
+    mocked.activate.mockResolvedValue({
+      licensed: true,
+      app: 'video',
+      expireAt: '2026-07-01T00:00:00.000Z',
+    });
+    const s = await useLicenseStore
+      .getState()
+      .activateSerial('video', '2101W-0JWN1-MN2JP-9V4QW-MSGJ');
     expect(s.licensed).toBe(true);
     expect(mocked.activate).toHaveBeenCalledWith('video', '2101W-0JWN1-MN2JP-9V4QW-MSGJ');
     expect(useLicenseStore.getState().isLicensed('video')).toBe(true);
@@ -60,7 +70,11 @@ describe('licenseStore', () => {
   });
 
   it('reset 清空授权态与 ready', async () => {
-    mocked.status.mockResolvedValue({ licensed: true, app: 'video', expireAt: '2026-07-01T00:00:00.000Z' });
+    mocked.status.mockResolvedValue({
+      licensed: true,
+      app: 'video',
+      expireAt: '2026-07-01T00:00:00.000Z',
+    });
     await useLicenseStore.getState().refresh('video');
     expect(useLicenseStore.getState().isLicensed('video')).toBe(true);
     useLicenseStore.getState().reset();
