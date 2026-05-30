@@ -13,6 +13,9 @@ import { cn } from '@chayuan/ui';
 import { useVgComposer } from './store/vgComposer';
 import { VoicePicker } from './VoicePicker';
 
+// 兼容旧引用路径 + 方便发现:VoicePicker 抽到独立文件,这里再导出一份。
+export { VoicePicker, type VoicePickerValue } from './VoicePicker';
+
 const RATE_OPTIONS = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0] as const;
 
 export const VgSpeechSettings: React.FC = () => {
