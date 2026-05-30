@@ -252,8 +252,8 @@ license::license_verify_shortcode,
 // 内嵌 Ed25519 公钥（验在线/文件令牌；仅公钥，非机密）+ 基址。
 // 公钥 hex = 服务端 license_ed25519 公钥的原始 32 字节（与 server 对应）。
 export const LICENSE_PUBLIC_KEY_HEX = '__INJECT_REAL_ED25519_PUBKEY_HEX__'; // 32B=64 hex
-export const ENTITLEMENT_BASE_URL = 'https://pay.aidooo.com'; // 内网改中继
-export const BUY_BASE_URL = 'https://pay.aidooo.com';
+export const ENTITLEMENT_BASE_URL = 'https://aidooo.com'; // 内网改中继
+export const BUY_BASE_URL = 'https://aidooo.com';
 
 export function publicKeyBytes(): Uint8Array {
   const h = LICENSE_PUBLIC_KEY_HEX;

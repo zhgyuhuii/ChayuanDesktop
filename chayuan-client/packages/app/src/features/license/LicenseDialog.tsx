@@ -27,7 +27,7 @@ export interface LicenseDialogProps {
   app: string;
   open: boolean;
   onOpenChange(open: boolean): void;
-  /** 购买页基址(默认 pay.aidooo.com;内网可改) */
+  /** 购买页基址(默认 aidooo.com;内网可改) */
   buyBaseUrl?: string;
 }
 
@@ -35,7 +35,7 @@ export function LicenseDialog({
   app,
   open,
   onOpenChange,
-  buyBaseUrl = 'https://pay.aidooo.com',
+  buyBaseUrl = 'https://aidooo.com',
 }: LicenseDialogProps): React.ReactElement {
   const store = useLicenseStore();
   const [mid, setMid] = React.useState<string | null>(null);

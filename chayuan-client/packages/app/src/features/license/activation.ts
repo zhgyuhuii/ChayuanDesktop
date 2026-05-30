@@ -4,7 +4,7 @@
  * 架构（ARCHITECTURE.md §1 / CONTRIBUTING §包边界）：
  * - 纯验签算法来自 `@chayuan/license`（Ed25519 令牌，无机密）。
  * - 平台能力（指纹 / B1 短码验签 / 防回拨记录读写）经 PAL `LicenseHostApi`（桌面 = platform-tauri/Rust）。
- * - 在线 entitlement 拉取走注入的 `fetchText`（运行时 = PAL.net.fetch 到 pay.aidooo.com / 内网中继）。
+ * - 在线 entitlement 拉取走注入的 `fetchText`（运行时 = PAL.net.fetch 到 aidooo.com / 内网中继）。
  *
  * 全部依赖注入，便于 vitest 在无 Tauri 运行时下测。本模块**无 React、无 server data 进 store**。
  */
@@ -30,7 +30,7 @@ export interface ActivationDeps {
   host: LicenseHostApi;
   /** 内嵌 Ed25519 公钥（验令牌；无机密）。 */
   publicKey: Uint8Array;
-  /** entitlement 基址：默认 pay.aidooo.com；内网部署改中继地址。 */
+  /** entitlement 基址：默认 aidooo.com；内网部署改中继地址。 */
   entitlementBaseUrl: string;
   /** 拉取文本（运行时 = PAL.net.fetch 包一层，返回响应体字符串）。 */
   fetchText(url: string): Promise<string>;

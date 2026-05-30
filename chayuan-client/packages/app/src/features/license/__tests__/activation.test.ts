@@ -54,7 +54,7 @@ function makeDeps(
   return {
     host,
     publicKey: hexToBytes(RAW_PUB_HEX),
-    entitlementBaseUrl: 'https://pay.aidooo.com',
+    entitlementBaseUrl: 'https://aidooo.com',
     fetchText: async () => JSON.stringify({ token: TOKEN, expireAt: EXPIRE_ISO }),
     now: () => NOW,
     ...over,
