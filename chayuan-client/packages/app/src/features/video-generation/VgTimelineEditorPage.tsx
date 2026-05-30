@@ -216,9 +216,9 @@ export const VgTimelineEditorPage: React.FC = () => {
     const src = videoClips[i]?.source;
     return src?.material_id ? videoGeneration.materialThumbUrl(src.material_id) : null;
   };
-  const onDropMaterial = (m: DraggedMaterial, trackId?: string) => {
+  const onDropMaterial = (m: DraggedMaterial, trackId?: string, atIndex?: number) => {
     if (m.kind === 'audio') return; // 音频走音频轨
-    onTimelineChange(appendClipFromMaterial(timeline, m, undefined, trackId, contentMs));
+    onTimelineChange(appendClipFromMaterial(timeline, m, atIndex, trackId, contentMs));
   };
   const onDropAudio = (m: DraggedMaterial, trackId?: string) => { onTimelineChange(appendAudioClip(timeline, m, undefined, trackId)); };
   const [selectedTrackId, setSelectedTrackId] = React.useState<string | null>(null);

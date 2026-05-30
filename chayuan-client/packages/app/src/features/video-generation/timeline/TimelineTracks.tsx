@@ -2,7 +2,8 @@ import * as React from 'react';
 import { Mic, Captions, Music, Music2, Clapperboard, PictureInPicture2 } from 'lucide-react';
 import type { VgTimeline, VgTimelineTrack } from '@chayuan/api';
 import type { SrtCue } from './srtParse';
-import { msToPx } from './timelineScale';
+import { msToPx, pxToMs } from './timelineScale';
+import { clipDurMs } from './timelineEdit';
 import { TimeRuler } from './TimeRuler';
 import { Playhead } from './Playhead';
 import { TrackHeader, TRACK_H } from './TrackHeader';
@@ -29,7 +30,7 @@ export const TimelineTracks: React.FC<{
   thumbUrlOf?: (clipIndex: number) => string | null;
   onSeekMs: (ms: number) => void;
   onTimelineChange: (t: VgTimeline) => void;
-  onDropMaterial?: (m: DraggedMaterial, trackId?: string) => void;
+  onDropMaterial?: (m: DraggedMaterial, trackId?: string, atIndex?: number) => void;
   onDropAudio?: (m: DraggedMaterial, trackId?: string) => void;
   onCuesChange?: (cues: SrtCue[]) => void;
   onReplaceClip?: (clipId: string) => void;
@@ -51,6 +52,19 @@ export const TimelineTracks: React.FC<{
   const lanesH = TRACK_H * laneCount;
   const selCls = (id?: string) => (id && id === selectedTrackId ? ' ring-2 ring-inset ring-[var(--cy-brand-400)]' : '');
   const dragOver = (e: React.DragEvent) => { if (e.dataTransfer.types.includes(VG_MATERIAL_DND_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } };
+  // #26 主轨拖放精确定位:按指针 X 算插入索引 + 边界像素(落在第几个片段之间)
+  const [dropMark, setDropMark] = React.useState<{ trackId: string; index: number; leftPx: number } | null>(null);
+  const computeInsert = (e: React.DragEvent, tr: VgTimelineTrack) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const xMs = pxToMs(Math.max(0, e.clientX - rect.left), pxPerSec);
+    const clips = [...(tr.clips || [])].sort((a, b) => a.track_start_ms - b.track_start_ms);
+    let index = 0; let boundaryMs = 0;
+    for (const c of clips) {
+      const mid = c.track_start_ms + clipDurMs(c) / 2;
+      if (xMs > mid) { index++; boundaryMs = c.track_start_ms + clipDurMs(c); } else break;
+    }
+    return { index, leftPx: msToPx(boundaryMs, pxPerSec) };
+  };
   // 轨道头竖直拖动 → 每越过一格 TRACK_H 触发一次上/下移
   const startHeaderDrag = (e: React.PointerEvent, trackId: string) => {
     if (!onReorderVideoTrack) return;
@@ -105,16 +119,27 @@ export const TimelineTracks: React.FC<{
                   className={`relative border-b border-[var(--cy-border-subtle)]${selCls(tr.id)}`}
                   onClick={() => onSelectTrack?.(tr.id)}
                   onContextMenu={(e) => { if (onLaneContextMenu) { e.preventDefault(); onLaneContextMenu(e, 'video', undefined, tr.id, !!tr.removable); } }}
-                  onDragOver={dragOver}
+                  onDragOver={(e) => { dragOver(e); if (i === 0 && e.dataTransfer.types.includes(VG_MATERIAL_DND_MIME)) { const { index, leftPx } = computeInsert(e, tr); setDropMark({ trackId: tr.id, index, leftPx }); } }}
+                  onDragLeave={() => setDropMark((d) => (d?.trackId === tr.id ? null : d))}
                   onDrop={(e) => {
                     const raw = e.dataTransfer.getData(VG_MATERIAL_DND_MIME);
+                    setDropMark(null);
                     if (!raw) return; e.preventDefault();
-                    try { const m = JSON.parse(raw) as DraggedMaterial; if (m.kind !== 'audio') onDropMaterial?.(m, tr.id); } catch { /* 忽略 */ }
+                    try {
+                      const m = JSON.parse(raw) as DraggedMaterial;
+                      if (m.kind === 'audio') return;
+                      const at = i === 0 ? computeInsert(e, tr).index : undefined;
+                      onDropMaterial?.(m, tr.id, at);
+                    } catch { /* 忽略 */ }
                   }}>
                   {empty && (
                     <span className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-[10px] text-[var(--cy-text-tertiary)]">
                       {i === 0 ? '从左侧素材库拖 视频 / 图像 到此处' : '拖素材到此处作画中画'}
                     </span>
+                  )}
+                  {dropMark?.trackId === tr.id && (
+                    <span className="pointer-events-none absolute top-0 z-30 h-full w-0.5 bg-[var(--cy-brand-500)]"
+                      style={{ left: Math.max(0, dropMark.leftPx - 1) }} />
                   )}
                   <VideoTrack timeline={timeline} trackId={tr.id} editable={i === 0} videoTrackOnly pxPerSec={pxPerSec}
                     thumbUrlOf={i === 0 ? thumbUrlOf : undefined} onChange={onTimelineChange} onReplaceClip={onReplaceClip}
