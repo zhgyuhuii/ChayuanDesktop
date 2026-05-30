@@ -43,7 +43,6 @@ export const AudioInsertTrack: React.FC<{
   return (
     <div className="relative border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]"
       style={{ height: TRACK_H, width: contentWidthPx }}>
-      {clips.length === 0 && <span className="absolute inset-0 flex items-center justify-center text-[10px] text-[var(--cy-text-tertiary)]">拖音频到此处</span>}
       {clips.map((c) => {
         const selected = selectedClipId === c.id;
         return (

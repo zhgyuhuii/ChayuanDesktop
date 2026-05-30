@@ -115,7 +115,6 @@ export const TimelineTracks: React.FC<{
           <div className="relative" style={{ height: lanesH }}>
             {/* 视频轨们(第 0 条 = 主轨可编辑;其余 = PIP 显示+拖入+右键) */}
             {videoTracks.map((tr, i) => {
-              const empty = (tr.clips?.length ?? 0) === 0;
               return (
                 <div key={tr.id} style={{ height: TRACK_H }}
                   className={`relative border-b border-[var(--cy-border-subtle)]${selCls(tr.id)}`}
@@ -134,11 +133,6 @@ export const TimelineTracks: React.FC<{
                       onDropMaterial?.(m, tr.id, at);
                     } catch { /* 忽略 */ }
                   }}>
-                  {empty && (
-                    <span className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-[10px] text-[var(--cy-text-tertiary)]">
-                      {i === 0 ? '从左侧素材库拖 视频 / 图像 到此处' : '拖素材到此处作画中画'}
-                    </span>
-                  )}
                   {dropMark?.trackId === tr.id && (
                     <span className="pointer-events-none absolute top-0 z-30 h-full w-0.5 bg-[var(--cy-brand-500)]"
                       style={{ left: Math.max(0, dropMark.leftPx - 1) }} />

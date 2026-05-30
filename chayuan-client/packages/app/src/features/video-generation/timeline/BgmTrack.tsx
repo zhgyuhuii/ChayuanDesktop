@@ -39,9 +39,7 @@ export const BgmTrack: React.FC<{
             </>
           )}
         </div>
-      ) : (
-        <span className="absolute inset-0 flex items-center justify-center text-[10px] text-[var(--cy-text-tertiary)]">无背景音乐</span>
-      )}
+      ) : null}
     </div>
   );
 };

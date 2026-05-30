@@ -196,11 +196,6 @@ export const VgTimeline: React.FC<{
               </button>
             );
           })}
-          {segs.length === 0 && (
-            <span className="absolute inset-0 flex items-center justify-center text-[10px] text-[var(--cy-text-tertiary)]">
-              从下方「加入轨道」添加素材
-            </span>
-          )}
         </div>
         {!videoTrackOnly && (
           <>

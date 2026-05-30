@@ -32,7 +32,6 @@ export const AudioWaveTrack: React.FC<{
     <div className="relative overflow-hidden border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]"
       style={{ height: TRACK_H, width: contentWidthPx }}>
       {loading && <span className="absolute inset-0 flex items-center justify-center text-[10px] text-[var(--cy-text-tertiary)]">生成中…</span>}
-      {!loading && !hasAudio && <span className="absolute inset-0 flex items-center justify-center text-[10px] text-[var(--cy-text-tertiary)]">旁白(生成后显示)</span>}
       {!loading && hasAudio && (
         <div className="absolute left-1 top-1.5 h-9 overflow-hidden rounded border border-[var(--cy-brand-300)] bg-[var(--cy-brand-50)]"
           style={{ width: blockW }} title={label || '旁白'}>
