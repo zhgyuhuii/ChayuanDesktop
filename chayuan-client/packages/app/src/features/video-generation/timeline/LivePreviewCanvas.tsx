@@ -10,6 +10,22 @@ function clipUrl(c: VgTimelineClip): string | null {
   return null;
 }
 const isImageUrl = (u: string) => /\.(jpg|jpeg|png|webp|bmp|gif)(\?|$)/i.test(u);
+const TX_MS = 1000; // 转场时长(与 compose 的 1s 一致)
+
+/** 片段入场转场 → 当前 playhead 的样式(opacity/transform)。none/超过转场窗口 → 空。 */
+function transitionStyle(c: VgTimelineClip, playheadMs: number): React.CSSProperties {
+  const tx = c.transition;
+  if (!tx || tx === 'none') return {};
+  const elapsed = playheadMs - c.track_start_ms;
+  if (elapsed < 0 || elapsed >= TX_MS) return {};
+  const p = Math.max(0, Math.min(1, elapsed / TX_MS)); // 0→1 入场进度
+  if (tx === 'fade' || tx === 'shuffle') return { opacity: p };
+  if (tx === 'slide_left') return { transform: `translateX(${(p - 1) * 100}%)` };
+  if (tx === 'slide_right') return { transform: `translateX(${(1 - p) * 100}%)` };
+  if (tx === 'slide_top') return { transform: `translateY(${(p - 1) * 100}%)` };
+  if (tx === 'slide_bottom') return { transform: `translateY(${(1 - p) * 100}%)` };
+  return {};
+}
 
 /** 取轨道上当前 playhead 命中的 clip。 */
 function clipAt(clips: VgTimelineClip[] | undefined, playheadMs: number): VgTimelineClip | null {
@@ -92,9 +108,12 @@ export const LivePreviewCanvas: React.FC<{
         const full = x === 0 && y === 0 && scale >= 0.999;
         return (
           <div key={c.id} className="group absolute cursor-move"
-            style={full
-              ? { inset: 0, zIndex: 10 + (videoTracks.length - i) }
-              : { left: `${x * 100}%`, top: `${y * 100}%`, width: `${scale * 100}%`, zIndex: 10 + (videoTracks.length - i) }}
+            style={{
+              ...(full
+                ? { inset: 0, zIndex: 10 + (videoTracks.length - i) }
+                : { left: `${x * 100}%`, top: `${y * 100}%`, width: `${scale * 100}%`, zIndex: 10 + (videoTracks.length - i) }),
+              ...transitionStyle(c, playheadMs), // #26 实时模拟入场转场(fade/slide)
+            }}
             onPointerDown={(e) => drag(e, c.id, 'move', { x, y, scale })}>
             {isImageUrl(url)
               ? <img src={url} alt="" draggable={false} className={full ? 'pointer-events-none h-full w-full object-contain' : 'pointer-events-none w-full'} />

@@ -145,7 +145,7 @@ export const TimelineTracks: React.FC<{
                   <VideoTrack timeline={timeline} trackId={tr.id} editable={i === 0} videoTrackOnly pxPerSec={pxPerSec}
                     thumbUrlOf={i === 0 ? thumbUrlOf : undefined} onChange={onTimelineChange} onReplaceClip={onReplaceClip}
                     selectedClipId={selectedClipId} onSelectClip={onSelectClip}
-                    onTransitionMenu={i === 0 ? onTransitionMenu : undefined}
+                    onTransitionMenu={onTransitionMenu}
                     onClipContextMenu={(e, clipId) => onLaneContextMenu?.(e, 'video', clipId, tr.id, !!tr.removable)} />
                 </div>
               );

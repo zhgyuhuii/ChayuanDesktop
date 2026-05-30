@@ -403,6 +403,7 @@ def _build_pip_layers(timeline, *, source_resolver) -> list:
                 "start_s": max(0.0, c.track_start_ms / 1000.0),
                 "dur": dur,
                 "is_image": is_image,
+                "transition": (getattr(c, "transition", "none") or "none"),
             })
     # ti 小的(上层)要排到列表末尾 → 降序
     layers.sort(key=lambda ly: ly["z"], reverse=True)
@@ -575,6 +576,10 @@ def render_from_edl(
                     if ly["dur"]:
                         oc = oc.subclipped(0, min(ly["dur"], oc.duration))
                 oc = oc.resized(width=w).with_position((ly["x"], ly["y"]), relative=True).with_start(ly["start_s"])
+                if ly.get("transition", "none") not in ("none", ""):
+                    try: oc = video_effects.fadein_transition(oc, 1)  # PIP 用淡入(slide 会覆盖定位)
+                    except Exception:  # noqa: BLE001
+                        pass
                 overlays.append(oc)
             comp = CompositeVideoClip([base_clip, *overlays])
             pip_path = os.path.join(output_dir, "edl-pip.mp4")
@@ -679,6 +684,10 @@ def render_proxy_from_timeline(
                     if ly["dur"]:
                         oc = oc.subclipped(0, min(ly["dur"], oc.duration))
                 oc = oc.resized(width=ow).with_position((ly["x"], ly["y"]), relative=True).with_start(ly["start_s"])
+                if ly.get("transition", "none") not in ("none", ""):
+                    try: oc = video_effects.fadein_transition(oc, 1)
+                    except Exception:  # noqa: BLE001
+                        pass
                 overlays.append(oc)
             comp = CompositeVideoClip([base_clip, *overlays])
             comp.write_videofile(visual_path, logger=None, fps=15, codec=video_codec)
