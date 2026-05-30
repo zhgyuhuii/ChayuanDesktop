@@ -1640,6 +1640,11 @@ def task_audio_peaks(
     if not audio_file or not os.path.isfile(audio_file):
         raise HTTPException(404, "audio not ready")
     data = media_probe.cached_peaks(audio_file, task_dir(task_id, create=True), n=n)
+    nz = sum(1 for p in (data.get("peaks") or []) if p and p > 0.01)
+    logger.info(
+        "[vg] audio-peaks task=%s file=%s dur_ms=%s 非零峰值=%d/%d",
+        task_id, os.path.basename(audio_file), data.get("duration_ms"), nz, len(data.get("peaks") or []),
+    )
     return JSONResponse(data)
 
 

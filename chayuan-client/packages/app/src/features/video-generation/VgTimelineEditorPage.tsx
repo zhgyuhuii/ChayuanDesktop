@@ -132,6 +132,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           subtitleFileName: subFull ? subFull.split(/[\\/]/).pop()! : null,
           // 旁白时长直接取任务结果(可靠),不依赖 audio-peaks;contentMs/旁白块据此显示
           audioDurationMs: Number(res.audio_duration_ms) || 0,
+          script: String(res.script ?? ''), // 服务端生成的脚本,供「编辑脚本」回显
           materials: [], // P5a:素材手动拖入,草稿不再自动下素材
         });
       } else if (t.state === 'failed' || t.state === 'canceled') {
@@ -607,7 +608,9 @@ export const VgTimelineEditorPage: React.FC = () => {
       )}
       {scriptEditOpen && (
         <ScriptEditorDialog
-          initial={params.video_script || ''}
+          initial={(params.video_script || '').trim()
+            || (draft.script || '').trim()
+            || cues.map((c) => c.text).join('\n')}
           onSave={onSaveScript}
           onSynthesize={(s) => void onSynthesizeScript(s)}
           onClose={() => setScriptEditOpen(false)} />

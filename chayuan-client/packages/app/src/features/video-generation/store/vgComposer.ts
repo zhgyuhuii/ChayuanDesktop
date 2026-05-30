@@ -36,6 +36,8 @@ export interface VgTimelineDraft {
   audioFileName: string | null;
   subtitleFileName: string | null;
   audioDurationMs: number;
+  /** 服务端生成的脚本原文(AI 模式回显用;不进 params.video_script 以免改 hash 触发重生成)。 */
+  script?: string;
   materials: VgTimelineDraftMaterial[];
   error?: string;
 }
