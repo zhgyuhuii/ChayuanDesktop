@@ -13,6 +13,7 @@
  */
 
 import type {
+  ActivationRecord,
   CaptureApi,
   ClipboardApi,
   DataDirApi,
@@ -21,6 +22,8 @@ import type {
   DialogApi,
   FsApi,
   Database as IDatabase,
+  LicenseCheck,
+  LicenseHostApi,
   NetApi,
   NotifyApi,
   PickDirectoryOptions,
@@ -204,6 +207,40 @@ const tauriSecure: SecureStore = {
 };
 
 // ──────────────────────────────────────────────────────────────
+// License（软件授权宿主能力）
+//
+// 指纹 + B1 短码验签走 Rust 命令(machine-uid / HMAC 密钥编进二进制);
+// 防回拨激活记录复用 Stronghold 安全存储(加密 + 防篡改)。
+// Rust 侧需提供两个命令(必须匹配 server/license 的 wire 格式与黄金向量):
+//   - `license_fingerprint() -> String`            : hex(sha256(machine_uid))[..16]
+//   - `license_verify_shortcode(serial) -> LicenseCheck`
+// ──────────────────────────────────────────────────────────────
+const LICENSE_KEY = (app: string): string => `cy.license.${app}`;
+
+const tauriLicense: LicenseHostApi = {
+  async fingerprint() {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke<string>('license_fingerprint');
+  },
+  async verifyShortcode(serial) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke<LicenseCheck>('license_verify_shortcode', { serial });
+  },
+  async readActivation(app) {
+    const raw = await tauriSecure.get(LICENSE_KEY(app));
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as ActivationRecord;
+    } catch {
+      return null;
+    }
+  },
+  async writeActivation(rec) {
+    await tauriSecure.set(LICENSE_KEY(rec.app), JSON.stringify(rec));
+  },
+};
+
+// ──────────────────────────────────────────────────────────────
 // Database（plugin-sql / sqlite）
 // ──────────────────────────────────────────────────────────────
 
@@ -308,8 +345,11 @@ const tauriFs: FsApi = {
     type Entry = { name: string; isDirectory?: boolean; isFile?: boolean };
     const walk = async (dir: string, rel: string): Promise<void> => {
       let entries: Entry[];
-      try { entries = (await readDir(dir)) as Entry[]; }
-      catch { return; }
+      try {
+        entries = (await readDir(dir)) as Entry[];
+      } catch {
+        return;
+      }
       for (const e of entries) {
         if (!e.name || SKIP.has(e.name) || e.name.startsWith('.')) continue;
         const sub = `${dir}/${e.name}`;
@@ -323,7 +363,9 @@ const tauriFs: FsApi = {
             // 对齐 web 行为:暴露 webkitRelativePath = '<rootName>/<rel>'
             Object.defineProperty(f, 'webkitRelativePath', {
               value: `${rootName}/${subRel}`,
-              configurable: false, enumerable: true, writable: false,
+              configurable: false,
+              enumerable: true,
+              writable: false,
             });
             out.push(f);
           } catch {
@@ -398,11 +440,13 @@ function mimeFromName(name: string): string {
   if (ext === 'json') return 'application/json';
   if (ext === 'html' || ext === 'htm') return 'text/html';
   // 办公(MS / WPS)
-  if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (ext === 'docx')
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   if (ext === 'doc') return 'application/msword';
   if (ext === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   if (ext === 'xls') return 'application/vnd.ms-excel';
-  if (ext === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  if (ext === 'pptx')
+    return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
   if (ext === 'ppt') return 'application/vnd.ms-powerpoint';
   // 音视频(语音消息 / KB 上传)
   if (ext === 'mp3') return 'audio/mpeg';
@@ -567,7 +611,9 @@ const tauriCapture: CaptureApi = {
     try {
       const stale = await WebviewWindow.getByLabel('screenshot-overlay');
       if (stale) await stale.close();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // 3. 创窗口:无边框 / 透明 / 置顶 / 不进任务栏;盖在主显示器上
     const win = new WebviewWindow('screenshot-overlay', {
@@ -578,7 +624,7 @@ const tauriCapture: CaptureApi = {
       skipTaskbar: true,
       resizable: false,
       maximizable: false,
-      fullscreen: false,  // 用 inner_size 精确盖主屏 — fullscreen=true 在 Windows 上会触发 OS 全屏动画,跟"截图"语义不搭
+      fullscreen: false, // 用 inner_size 精确盖主屏 — fullscreen=true 在 Windows 上会触发 OS 全屏动画,跟"截图"语义不搭
       focus: true,
       x: geom.x,
       y: geom.y,
@@ -627,19 +673,25 @@ const tauriCapture: CaptureApi = {
         } catch (e) {
           reject(e instanceof Error ? e : new Error(String(e)));
         }
-      }).then((fn) => { unlistenDone = fn; });
+      }).then((fn) => {
+        unlistenDone = fn;
+      });
 
       // overlay 被外力关掉(用户 alt+f4 / 系统终止)— 当作取消处理
-      win.onCloseRequested(() => {
-        if (settled) return;
-        // close request 来了,但 submit 事件可能还在路上,给个短延迟兜底
-        setTimeout(() => {
+      win
+        .onCloseRequested(() => {
           if (settled) return;
-          settled = true;
-          cleanup();
-          reject(new DOMException('用户取消了截图', 'AbortError'));
-        }, 150);
-      }).then((fn) => { unlistenDestroyed = fn; });
+          // close request 来了,但 submit 事件可能还在路上,给个短延迟兜底
+          setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(new DOMException('用户取消了截图', 'AbortError'));
+          }, 150);
+        })
+        .then((fn) => {
+          unlistenDestroyed = fn;
+        });
     });
   },
 };
@@ -1078,5 +1130,6 @@ export async function createTauriPlatform(env: {
     preview: tauriPreview,
     dataDir: tauriDataDir,
     sidecar: tauriSidecar,
+    license: tauriLicense,
   };
 }
