@@ -92,3 +92,8 @@ export const useLicenseStore = create<LicenseState>((set, get) => ({
     set({ statusByApp: {} });
   },
 }));
+
+/** 反应式门控判定（供组件订阅）：未启用(Web)放行；启用按 status。 */
+export function useIsLicensed(app: string): boolean {
+  return useLicenseStore((s) => (!s.enabled ? true : (s.statusByApp[app]?.licensed ?? false)));
+}
