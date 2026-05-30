@@ -11,6 +11,9 @@
 
 export type PlatformKind = 'desktop' | 'web' | 'mobile';
 
+// 授权验证核心(离线短码 + Ed25519 令牌)。与服务端 server/license/ 字节兼容。
+export * as license from './license/index';
+
 export interface SecureStore {
   /** 安全 KV：桌面走 OS keychain（Tauri Stronghold）；Web 走 httpOnly cookie 兜底 + sessionStorage */
   get(key: string): Promise<string | null>;

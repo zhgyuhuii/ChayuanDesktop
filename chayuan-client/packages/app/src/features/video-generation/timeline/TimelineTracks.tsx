@@ -90,9 +90,10 @@ export const TimelineTracks: React.FC<{
             onClick={() => onSelectTrack?.(tr.id)}
             onPointerDown={(e) => { if (videoTracks.length > 1) startHeaderDrag(e, tr.id); }}
             title={videoTracks.length > 1 ? '上下拖动调整图层顺序(越靠上越上层)' : undefined}>
+            {/* 标签/图标按「轨道身份」(removable)走,不绑 index —— 重排时主轨整体移动 */}
             <TrackHeader
-              label={i === 0 ? '视频' : (tr.label || `视频 ${i + 1}`)}
-              icon={i === 0
+              label={tr.label || (!tr.removable ? '主视频' : `视频 ${i + 1}`)}
+              icon={!tr.removable
                 ? <Clapperboard className="h-3 w-3 text-[var(--cy-brand-600)]" />
                 : <PictureInPicture2 className="h-3 w-3 text-[var(--cy-text-tertiary)]" />} />
           </div>
@@ -137,8 +138,8 @@ export const TimelineTracks: React.FC<{
                     <span className="pointer-events-none absolute top-0 z-30 h-full w-0.5 bg-[var(--cy-brand-500)]"
                       style={{ left: Math.max(0, dropMark.leftPx - 1) }} />
                   )}
-                  <VideoTrack timeline={timeline} trackId={tr.id} editable={i === 0} videoTrackOnly pxPerSec={pxPerSec}
-                    thumbUrlOf={i === 0 ? thumbUrlOf : undefined} onChange={onTimelineChange} onReplaceClip={onReplaceClip}
+                  <VideoTrack timeline={timeline} trackId={tr.id} editable={!tr.removable} videoTrackOnly pxPerSec={pxPerSec}
+                    thumbUrlOf={!tr.removable ? thumbUrlOf : undefined} onChange={onTimelineChange} onReplaceClip={onReplaceClip}
                     selectedClipId={selectedClipId} onSelectClip={onSelectClip}
                     onTransitionMenu={onTransitionMenu}
                     onClipContextMenu={(e, clipId) => onLaneContextMenu?.(e, 'video', clipId, tr.id, !!tr.removable)} />

@@ -34,18 +34,26 @@ export function clipDurMs(c: VgTimelineClip): number {
   return 1000;
 }
 
+/** 主视频轨下标 = 第一条 removable=false 的视频轨(主/蒙太奇轨);没有则第一条视频轨。
+ *  主轨身份跟「轨道」走,不绑死 index 0 —— 这样上下拖动重排时主轨整体移动而非只换素材。 */
+function mainVideoIdx(t: VgTimeline): number {
+  const tracks = t.tracks || [];
+  const i = tracks.findIndex((tr) => tr.kind === 'video' && !tr.removable);
+  return i >= 0 ? i : tracks.findIndex((tr) => tr.kind === 'video');
+}
+
 function videoClips(t: VgTimeline): VgTimelineClip[] {
-  return (t.tracks || []).find((tr) => tr.kind === 'video')?.clips ?? [];
+  const i = mainVideoIdx(t);
+  return i >= 0 ? (t.tracks![i]!.clips ?? []) : [];
 }
 
 function withVideoClips(t: VgTimeline, clips: VgTimelineClip[]): VgTimeline {
-  // 只改「第一条 video 轨」(主轨)。⚠ 之前 map 给每条 video 轨都赋同一份 clips,
-  // 多视频轨(PIP)存在后往主轨 drop 会把素材广播到所有视频轨(#13 下一轨被填充 +
-  // 连带 #12 预览遮挡)。这里精确只写主轨。
-  const firstIdx = (t.tracks || []).findIndex((tr) => tr.kind === 'video');
-  const tracks = firstIdx < 0
+  // 只改「主视频轨」(removable=false,跟轨道身份走,不绑 index 0)。⚠ 之前 map 给每条
+  // video 轨都赋同一份 clips → 多视频轨存在后 drop 会广播污染(#13)。这里精确只写主轨。
+  const mainIdx = mainVideoIdx(t);
+  const tracks = mainIdx < 0
     ? [...(t.tracks || []), { id: 'v', kind: 'video' as const, clips }]
-    : (t.tracks || []).map((tr, i) => (i === firstIdx ? { ...tr, clips } : tr));
+    : (t.tracks || []).map((tr, i) => (i === mainIdx ? { ...tr, clips } : tr));
   let cursor = 0;
   for (const c of clips) cursor += clipDurMs(c);
   return { ...t, tracks, duration_ms: Math.max(cursor, t.duration_ms ?? 0) };
@@ -94,7 +102,8 @@ export function setClipStart(t: VgTimeline, clipId: string, startMs: number): Vg
 
 /** 主视频轨拖动结束后归一:按当前 start 排序再紧贴重算(把自由拖动落成新顺序)。 */
 export function normalizeMontage(t: VgTimeline): VgTimeline {
-  const tr = (t.tracks || []).find((x) => x.kind === 'video');
+  const mIdx = mainVideoIdx(t);
+  const tr = mIdx >= 0 ? t.tracks![mIdx] : undefined;
   if (!tr) return t;
   const sorted = [...(tr.clips || [])].sort((a, b) => (a.track_start_ms || 0) - (b.track_start_ms || 0));
   let cursor = 0;
@@ -166,8 +175,8 @@ export function appendClipFromMaterial(
   };
 
   const tracks = t.tracks || [];
-  const firstVideoIdx = tracks.findIndex((tr) => tr.kind === 'video');
-  const isMain = trackId == null || tracks[firstVideoIdx]?.id === trackId;
+  const mIdx = mainVideoIdx(t);
+  const isMain = trackId == null || tracks[mIdx]?.id === trackId;
   if (isMain) {
     const clips = [...videoClips(t)];
     const at = atIndex == null ? clips.length : Math.max(0, Math.min(atIndex, clips.length));
