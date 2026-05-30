@@ -48,3 +48,10 @@ def test_list_avatars_bundled_and_user(monkeypatch, tmp_path):
     open(os.path.join(av_dir, "u1.mp4"), "wb").write(b"x")
     items = dh_store.list_avatars()
     assert any(a["ref"] == "user:u1.mp4" and a["kind"] == "video" for a in items)
+
+    bundled_dir = tmp_path / "bundled"
+    bundled_dir.mkdir()
+    (bundled_dir / "avatar.mp4").write_bytes(b"x")
+    monkeypatch.setattr(dh_store, "_bundled_avatars_root", lambda: str(bundled_dir))
+    items2 = dh_store.list_avatars()
+    assert any(a["ref"] == "bundled:avatar.mp4" and a["source"] == "bundled" for a in items2)
