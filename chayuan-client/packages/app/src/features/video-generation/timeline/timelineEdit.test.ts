@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clipDurMs, recomputeStarts, reorderClip, deleteClip, setClipDuration, setClipIn, appendClipFromMaterial, setClipStart, normalizeMontage } from './timelineEdit';
+import { clipDurMs, recomputeStarts, reorderClip, deleteClip, setClipDuration, setClipIn, setClipStart, normalizeMontage } from './timelineEdit';
 import type { VgTimeline } from '@chayuan/api';
 
 const mk = (): VgTimeline => ({
