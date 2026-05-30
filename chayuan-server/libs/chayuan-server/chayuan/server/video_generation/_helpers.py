@@ -161,6 +161,14 @@ def dh_avatars_dir(*, create: bool = False) -> str:
     return str(d)
 
 
+def dh_products_dir(*, create: bool = False) -> str:
+    """商品图目录 ``.../data/digital_human/products``(数字人讲解用,只存本机)。"""
+    d = _chayuan_root() / "data" / "digital_human" / "products"
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+
+
 def dh_presets_path() -> str:
     """数字人预设清单 ``.../data/digital_human/presets.json``。"""
     return str(_chayuan_root() / "data" / "digital_human" / "presets.json")

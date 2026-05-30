@@ -55,3 +55,13 @@ def test_list_avatars_bundled_and_user(monkeypatch, tmp_path):
     monkeypatch.setattr(dh_store, "_bundled_avatars_root", lambda: str(bundled_dir))
     items2 = dh_store.list_avatars()
     assert any(a["ref"] == "bundled:avatar.mp4" and a["source"] == "bundled" for a in items2)
+
+
+def test_product_dir_and_resolve(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    pdir = _helpers.dh_products_dir(create=True)
+    assert os.path.isdir(pdir) and pdir.endswith(os.path.join("digital_human", "products"))
+    open(os.path.join(pdir, "p1.png"), "wb").write(b"x")
+    assert dh_store.resolve_product_path("product:p1.png").endswith("p1.png")
+    assert dh_store.resolve_product_path("product:missing.png") is None
+    assert dh_store.resolve_product_path("bad") is None

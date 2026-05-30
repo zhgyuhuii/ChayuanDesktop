@@ -3,7 +3,7 @@ from __future__ import annotations
 import json, os, time, uuid
 from typing import Any, Dict, List, Optional
 from chayuan.server.video_generation._helpers import (
-    digital_human_dir, dh_avatars_dir, dh_presets_path,
+    digital_human_dir, dh_avatars_dir, dh_presets_path, dh_products_dir,
 )
 from chayuan.server.video_generation.digital_human.schemas import DigitalHumanPreset
 
@@ -123,3 +123,11 @@ def resolve_avatar_path(avatar_ref: str) -> Optional[str]:
         p = os.path.join(broot, avatar_ref[len("bundled:"):])
         return p if os.path.isfile(p) else None
     return None
+
+
+def resolve_product_path(ref: str) -> Optional[str]:
+    """``product:<file>`` → 绝对路径;不是该前缀或文件不存在返 None。"""
+    if not ref or not ref.startswith("product:"):
+        return None
+    p = os.path.join(dh_products_dir(), os.path.basename(ref[len("product:"):]))
+    return p if os.path.isfile(p) else None
