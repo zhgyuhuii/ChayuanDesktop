@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from chayuan.server.api_server.digital_human_routes import digital_human_router
 from chayuan.server.video_generation import _helpers
 from chayuan.server.video_generation.digital_human import jobs as dh_jobs
+from chayuan.server.video_generation.digital_human import engine as dh_engine
 
 
 def _client(monkeypatch, tmp_path):
@@ -59,3 +60,22 @@ def test_generate_passes_matte(monkeypatch, tmp_path):
                json={"preset_id": "p1", "text": "hi", "product_image": "product:p.png",
                      "template": "bg", "matte": True})
     assert r.status_code == 200 and seen.get("matte") is True
+
+
+def test_list_engines(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path)
+    r = c.get("/api/v1/digital-human/engines")
+    assert r.status_code == 200
+    items = r.json()["items"]
+    ids = {e["id"] for e in items}
+    assert ids == {"wav2lip", "sadtalker", "musetalk"}
+    assert next(e for e in items if e["id"] == "wav2lip")["installed"] is True
+
+
+def test_generate_passes_engine(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path)
+    seen = {}
+    monkeypatch.setattr(dh_jobs, "submit", lambda **k: seen.update(k) or "tidE")
+    r = c.post("/api/v1/digital-human/generate",
+               json={"preset_id": "p1", "text": "hi", "engine": "musetalk"})
+    assert r.status_code == 200 and seen.get("engine") == "musetalk"

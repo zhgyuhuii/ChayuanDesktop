@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 
 from chayuan.server.auth.deps import require_auth_enabled
 from chayuan.server.video_generation._helpers import dh_avatars_dir, dh_products_dir
+from chayuan.server.video_generation.digital_human import engine as dh_engine
 from chayuan.server.video_generation.digital_human import jobs as dh_jobs
 from chayuan.server.video_generation.digital_human import store
 from chayuan.server.video_generation.digital_human.schemas import DhGenerateRequest
@@ -62,6 +63,12 @@ def list_avatars(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict
     return {"count": len(items), "items": items}
 
 
+@digital_human_router.get("/engines")
+def list_engines(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    items = dh_engine.list_engines()
+    return {"count": len(items), "items": items}
+
+
 @digital_human_router.post("/avatars")
 async def upload_avatar(file: UploadFile = File(...),
                         user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
@@ -106,7 +113,7 @@ def generate(body: DhGenerateRequest,
     tid = dh_jobs.submit(preset_id=body.preset_id, text=body.text,
                          width=width, height=height,
                          product_ref=body.product_image, template=body.template,
-                         matte=body.matte)
+                         matte=body.matte, engine=body.engine)
     return {"task_id": tid}
 
 
