@@ -28,6 +28,7 @@ from fastapi import (
     Path as FPath, Query, Request, UploadFile, status,
 )
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from pydantic import ValidationError as PydanticValidationError
 from sse_starlette.sse import EventSourceResponse
 
 from chayuan.server.auth.deps import require_auth_enabled
@@ -266,7 +267,7 @@ def preview_audio(
     status_code=status.HTTP_202_ACCEPTED,
 )
 def submit_task(
-    params: VideoParams,
+    body: Dict[str, Any] = Body(...),
     stop_at: str = Query(
         "video",
         pattern="^(script|terms|audio|subtitle|materials|video)$",
@@ -274,10 +275,45 @@ def submit_task(
     ),
     user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
+    # 先净化再校验:时间轴整数字段取整、video_width/height 夹合法区间,避免前端偶发
+    # 小数/越界值触发 422;失败时把具体违约字段写日志便于排查。
+    _sanitize_vg_params_body(body)
+    try:
+        params = VideoParams.model_validate(body)
+    except PydanticValidationError as e:
+        logger.warning("[vg] submit_task 参数校验失败 (422): %s", e.errors())
+        raise HTTPException(status_code=422, detail=e.errors()) from e
     row = vg_service.submit_task(
         params, owner_id=_owner_id_of(user), stop_at=stop_at,
     )
     return row
+
+
+def _sanitize_vg_params_body(body: Dict[str, Any]) -> None:
+    """就地净化前端 params:时间轴 int 字段取整、video_width/height 夹 [16,7680] 否则丢弃。"""
+    if not isinstance(body, dict):
+        return
+    for key in ("video_width", "video_height"):
+        v = body.get(key)
+        if v is None:
+            continue
+        try:
+            iv = int(round(float(v)))
+        except (TypeError, ValueError):
+            body[key] = None
+            continue
+        body[key] = max(16, min(7680, iv)) if iv > 0 else None
+    tl = body.get("timeline")
+    if isinstance(tl, dict):
+        if "duration_ms" in tl and tl["duration_ms"] is not None:
+            try: tl["duration_ms"] = int(round(float(tl["duration_ms"])))
+            except (TypeError, ValueError): tl["duration_ms"] = 0
+        for tr in (tl.get("tracks") or []):
+            for c in (tr.get("clips") or []):
+                for f in ("track_start_ms", "in_ms", "out_ms", "duration_ms", "z"):
+                    if f in c and c[f] is not None:
+                        try: c[f] = int(round(float(c[f])))
+                        except (TypeError, ValueError): c[f] = 0
 
 
 @video_generation_router.post(
