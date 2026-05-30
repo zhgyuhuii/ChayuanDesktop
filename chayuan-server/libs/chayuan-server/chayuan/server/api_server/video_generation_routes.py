@@ -325,6 +325,25 @@ def _sanitize_vg_params_body(body: Dict[str, Any]) -> None:
                         except (TypeError, ValueError): c[f] = 0
 
 
+def _coerce_aspect(aspect: str, width: float = 0, height: float = 0) -> str:
+    """任意画幅比例字符串(如 4:3 / 16:10 / 21:9)→ 最接近的合法枚举(16:9/9:16/1:1)。
+
+    画幅选择器扩了 4:3/16:10/21:9 等展示比例,但 VideoAspect 只有三枚举;在线搜索/预览等
+    端点都用它兜底,避免 4:3 之类直接 422(精确像素另由 video_width/height 承载)。"""
+    if aspect in ("16:9", "9:16", "1:1"):
+        return aspect
+    w, h = float(width or 0), float(height or 0)
+    if not (w and h) and isinstance(aspect, str) and ":" in aspect:
+        try:
+            a, b = aspect.split(":", 1)
+            w, h = float(a), float(b)
+        except (TypeError, ValueError):
+            w = h = 0
+    if not (w and h):
+        return "9:16"
+    return "16:9" if w > h * 1.15 else "1:1" if abs(w - h) <= h * 0.15 else "9:16"
+
+
 @video_generation_router.post(
     "/tasks/batch", summary="批量提交:N 个主题共享一套参数,并发跑",
     status_code=status.HTTP_202_ACCEPTED,
@@ -631,7 +650,7 @@ def _maybe_translate_query(q: str, auto_translate: bool) -> str:
 def search_materials(
     q: str = Query(..., min_length=1, max_length=120),
     source: str = Query("pexels", pattern="^(pexels|pixabay)$"),
-    aspect: str = Query("9:16", pattern="^(16:9|9:16|1:1)$"),
+    aspect: str = Query("9:16", max_length=12, description="画幅比例;非枚举(4:3 等)兜底取最近"),
     minimum_duration: int = Query(5, ge=1, le=120),
     auto_translate: bool = Query(True, description="非英文 query 自动转英文再搜"),
     user: Dict[str, Any] = Depends(require_auth_enabled()),
@@ -647,7 +666,7 @@ def search_materials(
         items = fn(
             search_term=effective_q,
             minimum_duration=minimum_duration,
-            video_aspect=VideoAspect(aspect),
+            video_aspect=VideoAspect(_coerce_aspect(aspect)),
         )
     except ValueError as e:
         raise HTTPException(412, str(e)) from e
@@ -1436,12 +1455,12 @@ def preview_edl(
     from chayuan.server.video_generation._helpers import storage_dir, task_dir
 
     raw_tl = body.get("timeline") or {}
-    aspect = str(body.get("aspect") or "9:16")
+    # 画幅非枚举(4:3 等)兜底取最近;精确像素由 width/height 承载,故 aspect 不该 422
+    aspect = _coerce_aspect(str(body.get("aspect") or "9:16"))
     try:
         timeline = Timeline.model_validate(raw_tl)
-        VideoAspect(aspect)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(422, f"timeline/aspect 非法: {e}") from e
+        raise HTTPException(422, f"timeline 非法: {e}") from e
     # 精确像素覆盖(都 >0 时优先于 aspect);非法值忽略,回落 aspect。
     try:
         ov_w = int(body.get("width") or 0)
