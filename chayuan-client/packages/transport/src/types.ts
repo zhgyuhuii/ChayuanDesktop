@@ -197,3 +197,12 @@ export interface DhTaskStatus {
   error: string;
   result_path: string;
 }
+
+export interface DhEngineInfo {
+  id: 'wav2lip' | 'sadtalker' | 'musetalk';
+  label: string;
+  kind: 'cpu' | 'gpu';
+  input: 'image' | 'video' | 'both';
+  builtin: boolean;
+  installed: boolean;
+}

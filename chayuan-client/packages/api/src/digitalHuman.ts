@@ -42,6 +42,15 @@ export interface DhTaskStatus {
   result_path: string;
 }
 
+export interface DhEngineInfo {
+  id: 'wav2lip' | 'sadtalker' | 'musetalk';
+  label: string;
+  kind: 'cpu' | 'gpu';
+  input: 'image' | 'video' | 'both';
+  builtin: boolean;
+  installed: boolean;
+}
+
 /**
  * 内部 helper:对 `request<T>` 做一次解包,函数体只关心 data。
  * 别在 digitalHuman.ts 外面用 — 其它包统一用 request<T>.data 风格。
@@ -121,18 +130,40 @@ export async function dhUploadProduct(file: File): Promise<{ ref: string; name: 
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Engines
+// ─────────────────────────────────────────────────────────────────────
+
+export async function dhListEngines(): Promise<{ count: number; items: DhEngineInfo[] }> {
+  return rd<{ count: number; items: DhEngineInfo[] }>('/api/v1/digital-human/engines');
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Generate
 // ─────────────────────────────────────────────────────────────────────
 
 export async function dhGenerate(
   preset_id: string,
   text: string,
-  opts?: { product_image?: string; template?: 'none' | 'corner' | 'bg' | 'side'; matte?: boolean; width?: number; height?: number },
+  opts?: {
+    product_image?: string;
+    template?: 'none' | 'corner' | 'bg' | 'side';
+    matte?: boolean;
+    engine?: 'wav2lip' | 'sadtalker' | 'musetalk';
+    width?: number;
+    height?: number;
+  },
 ): Promise<{ task_id: string }> {
   return rd<{ task_id: string }>('/api/v1/digital-human/generate', {
     method: 'POST',
     query: { width: opts?.width ?? 720, height: opts?.height ?? 1280 },
-    body: { preset_id, text, product_image: opts?.product_image, template: opts?.template ?? 'none', matte: opts?.matte ?? false },
+    body: {
+      preset_id,
+      text,
+      product_image: opts?.product_image,
+      template: opts?.template ?? 'none',
+      matte: opts?.matte ?? false,
+      engine: opts?.engine ?? 'wav2lip',
+    },
   });
 }
 
@@ -163,6 +194,7 @@ export const digitalHuman = {
   uploadAvatar: dhUploadAvatar,
   deleteAvatar: dhDeleteAvatar,
   uploadProduct: dhUploadProduct,
+  listEngines: dhListEngines,
   generate: dhGenerate,
   taskStatus: dhTaskStatus,
   taskFileUrl: dhTaskFileUrl,
