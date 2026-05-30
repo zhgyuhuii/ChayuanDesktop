@@ -33,10 +33,11 @@ export function totalDurationMs(t: VgTimeline, audioDurationMs: number): number 
 }
 
 /** 标尺富余:画布向后延伸的额外时长,让用户能把元素放到当前内容之后。 */
-export const RULER_HEADROOM_MS = 15000;
-const RULER_MIN_MS = 60000;
+export const RULER_HEADROOM_MS = 6000;
+const RULER_MIN_MS = 15000;
 
-/** 标尺/画布展示时长 = max(内容末尾+富余, 最小 60s)。内容增长则画布跟着向后延伸。 */
+/** 标尺/画布展示时长 = 内容末尾 + 小富余(贴着内容,避免短内容被撑出大片空白)。
+ *  内容增长则画布跟着延伸;空时给最小 15s 便于起步拖入。 */
 export function rulerDurationMs(contentMs: number): number {
   return Math.max(RULER_MIN_MS, contentMs + RULER_HEADROOM_MS);
 }

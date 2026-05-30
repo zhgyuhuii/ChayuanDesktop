@@ -27,6 +27,7 @@ export const TimelineTracks: React.FC<{
   cues: SrtCue[];
   bgmName: string | null;
   bgmUrl?: string;
+  contentMs?: number;
   thumbUrlOf?: (clipIndex: number) => string | null;
   onSeekMs: (ms: number) => void;
   onTimelineChange: (t: VgTimeline) => void;
@@ -44,7 +45,7 @@ export const TimelineTracks: React.FC<{
   narrationName?: string;
   narrationDurationMs?: number;
   onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationName, narrationDurationMs, onTransitionMenu }) => {
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationName, narrationDurationMs, onTransitionMenu }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const audioTracks = (timeline.tracks || []).filter((t) => t.kind === 'audio');
@@ -171,7 +172,8 @@ export const TimelineTracks: React.FC<{
                   onClipContextMenu={(e, clipId) => onLaneContextMenu?.(e, 'audio', clipId, tr?.id, !!tr?.removable)} />
               </div>
             ))}
-            <BgmTrack bgmName={bgmName} bgmUrl={bgmUrl} contentWidthPx={contentWidthPx} />
+            <BgmTrack bgmName={bgmName} bgmUrl={bgmUrl} contentWidthPx={contentWidthPx}
+              bgmWidthPx={contentMs != null ? msToPx(contentMs, pxPerSec) : undefined} />
             <SubtitleCueTrack cues={cues} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx}
               editable onCuesChange={onCuesChange}
               onCueContextMenu={(e, idx) => onLaneContextMenu?.(e, 'subtitle', String(idx))} />

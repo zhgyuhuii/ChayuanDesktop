@@ -522,7 +522,7 @@ export const VgTimelineEditorPage: React.FC = () => {
         <div className="min-h-0 flex-1 overflow-y-auto cy-hide-scrollbar">
         <TimelineTracks
           timeline={timeline} durationMs={durationMs} pxPerSec={pxPerSec} playheadMs={playheadMs}
-          peaks={peaks} peaksLoading={draft.state === 'generating'} cues={cues} bgmName={bgmName} bgmUrl={bgmUrl}
+          peaks={peaks} peaksLoading={draft.state === 'generating'} cues={cues} bgmName={bgmName} bgmUrl={bgmUrl} contentMs={contentMs}
           thumbUrlOf={thumbUrlOf}
           onDropAudio={onDropAudio}
           onCuesChange={setCues}

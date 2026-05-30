@@ -7,7 +7,9 @@ export const BgmTrack: React.FC<{
   bgmName: string | null;
   bgmUrl?: string;
   contentWidthPx: number;
-}> = ({ bgmName, bgmUrl, contentWidthPx }) => {
+  /** BGM 块宽 = 内容长度(混音随片长,不应铺满标尺富余区);不传则铺满。 */
+  bgmWidthPx?: number;
+}> = ({ bgmName, bgmUrl, contentWidthPx, bgmWidthPx }) => {
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = React.useState(false);
   React.useEffect(() => () => { audioRef.current?.pause(); }, []);
@@ -22,7 +24,8 @@ export const BgmTrack: React.FC<{
     <div className="relative border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]"
       style={{ height: TRACK_H, width: contentWidthPx }}>
       {bgmName ? (
-        <div className="absolute inset-x-1 top-1.5 flex h-8 items-center gap-1 overflow-hidden rounded border border-emerald-300 bg-emerald-50 px-2 text-[10px] text-emerald-800">
+        <div className="absolute left-1 top-1.5 flex h-8 items-center gap-1 overflow-hidden rounded border border-emerald-300 bg-emerald-50 px-2 text-[10px] text-emerald-800"
+          style={{ width: Math.max(40, (bgmWidthPx ?? contentWidthPx) - 8) }}>
           <Music className="h-3 w-3 shrink-0" />
           <span className="truncate">{bgmName}</span>
           {bgmUrl && (
