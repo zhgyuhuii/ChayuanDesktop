@@ -23,3 +23,10 @@ def test_sadtalker_install_recipe_present():
     from chayuan.server.config_panel.install_recipes import get_recipes
     out = get_recipes("sadtalker")
     assert any("modelscope" in " ".join(r.cmd) for r in out)
+
+
+def test_sadtalker_server_imports_clean():
+    import importlib
+    m = importlib.import_module("chayuan.server.modality.sadtalker_server")
+    assert hasattr(m, "main")
+    assert hasattr(m, "_register_routes")
