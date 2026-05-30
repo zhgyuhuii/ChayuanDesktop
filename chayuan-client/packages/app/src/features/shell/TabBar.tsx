@@ -16,7 +16,7 @@
  */
 
 import * as React from 'react';
-import { Home, Settings, MessageSquare, Library, Box, Grid3x3, Clock, Plug, Wrench, Shield, Briefcase, X } from 'lucide-react';
+import { Home, Settings, MessageSquare, Library, Box, Grid3x3, Clock, Plug, Wrench, Shield, Briefcase, UserRound, X } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { cn } from '@chayuan/ui';
 import {
@@ -40,6 +40,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   wrench: Wrench,
   shield: Shield,
   briefcase: Briefcase,
+  'user-round': UserRound,
 };
 
 export const TabBar: React.FC = () => {
