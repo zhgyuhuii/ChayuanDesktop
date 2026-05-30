@@ -1385,10 +1385,10 @@ def preview_edl(
 ) -> FileResponse:
     import hashlib
     import json as _json
-    from chayuan.server.video_generation.schemas import Timeline, VideoAspect
+    from chayuan.server.video_generation.schemas import Timeline, VideoAspect, VideoParams
     from chayuan.server.video_generation.steps import compose as compose_step
     from chayuan.server.video_generation.steps import materials as materials_step
-    from chayuan.server.video_generation._helpers import storage_dir
+    from chayuan.server.video_generation._helpers import storage_dir, task_dir
 
     raw_tl = body.get("timeline") or {}
     aspect = str(body.get("aspect") or "9:16")
@@ -1404,9 +1404,39 @@ def preview_edl(
     except (TypeError, ValueError):
         ov_w = ov_h = 0
 
+    # #25 精确预览要完整:可选带旁白音频(task_id+audio_file)、字幕(subtitle SRT 文本)、
+    # 合成参数(params,供 BGM + 字幕样式)。任一缺失则退回「仅画面」快速预览。
     cache_dir = storage_dir("preview", create=True)
+    av_audio_path = None
+    av_subtitle_path = None
+    av_params = None
+    tid = str(body.get("task_id") or "").strip()
+    afile = os.path.basename(str(body.get("audio_file") or "").strip())
+    if tid and afile:
+        cand = os.path.join(task_dir(tid, create=False), afile)
+        if os.path.isfile(cand):
+            av_audio_path = cand
+    if av_audio_path:
+        raw_params = body.get("params")
+        if isinstance(raw_params, dict):
+            try:
+                av_params = VideoParams.model_validate(raw_params)
+            except Exception:  # noqa: BLE001
+                av_params = None
+        srt_text = body.get("subtitle")
+        if isinstance(srt_text, str) and srt_text.strip():
+            import hashlib as _h
+            sp = os.path.join(cache_dir, f"sub-{_h.md5(srt_text.encode('utf-8')).hexdigest()}.srt")
+            try:
+                with open(sp, "w", encoding="utf-8") as f:
+                    f.write(srt_text)
+                av_subtitle_path = sp
+            except OSError:
+                av_subtitle_path = None
+
+    av_tag = f"av:{bool(av_audio_path)}:{afile}:{bool(av_subtitle_path)}:{tid}" if av_audio_path else "novl"
     key = hashlib.md5(
-        (f"{aspect}-{ov_w}x{ov_h}-" + _json.dumps(raw_tl, sort_keys=True, ensure_ascii=False)).encode("utf-8")
+        (f"{aspect}-{ov_w}x{ov_h}-{av_tag}-" + _json.dumps(raw_tl, sort_keys=True, ensure_ascii=False)).encode("utf-8")
     ).hexdigest()
     out_path = os.path.join(cache_dir, f"proxy-{key}.mp4")
 
@@ -1428,6 +1458,7 @@ def preview_edl(
             compose_step.render_proxy_from_timeline(
                 timeline, aspect, out_path, source_resolver=_resolve,
                 width=ov_w or None, height=ov_h or None,
+                audio_path=av_audio_path, subtitle_path=av_subtitle_path, params=av_params,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("[vg] preview-edl 失败: %r", e)

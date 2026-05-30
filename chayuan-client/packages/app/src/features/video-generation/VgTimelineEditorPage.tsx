@@ -372,6 +372,8 @@ export const VgTimelineEditorPage: React.FC = () => {
                   onTransform={onSetTransform}
                   onModeChange={setPreviewMode}
                   cues={cues}
+                  taskId={draft.taskId} audioFileName={draft.audioFileName}
+                  composeParams={{ ...params, timeline }}
                 />
               </div>
             </div>

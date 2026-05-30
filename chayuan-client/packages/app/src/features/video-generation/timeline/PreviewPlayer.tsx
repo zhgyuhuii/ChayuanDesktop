@@ -4,6 +4,7 @@ import { videoGeneration, type VgTimeline } from '@chayuan/api';
 import { reportError } from '../../../store/errorDialog';
 import { LivePreviewCanvas } from './LivePreviewCanvas';
 import type { SrtCue } from './srtParse';
+import { cuesToSrt } from './subtitleEdit';
 
 /**
  * 预览区:默认「实时画布」(LivePreviewCanvas)——拖素材进视频轨立即出画,
@@ -29,9 +30,13 @@ export const PreviewPlayer: React.FC<{
   onTransform: (clipId: string, tf: { x?: number; y?: number; scale?: number }) => void;
   /** 模式上提:父组件据此决定是否跑实时播放引擎(proxy 模式由 proxy <video> 自己驱动)。 */
   onModeChange?: (mode: 'live' | 'proxy') => void;
-  /** 字幕 cues:实时画布按 playhead 叠当前字幕,便于核对字幕↔画面对齐。 */
+  /** 字幕 cues:实时画布按 playhead 叠当前字幕;精确预览时也烧进 proxy。 */
   cues?: SrtCue[];
-}> = ({ timeline, aspect, width, height, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform, onModeChange, cues }) => {
+  /** #25 精确预览要带旁白/BGM/字幕:旁白任务 + 合成参数。 */
+  taskId?: string | null;
+  audioFileName?: string | null;
+  composeParams?: unknown;
+}> = ({ timeline, aspect, width, height, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform, onModeChange, cues, taskId, audioFileName, composeParams }) => {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
   const [url, setUrl] = React.useState<string | null>(null);
@@ -49,7 +54,12 @@ export const PreviewPlayer: React.FC<{
     }
     setLoading(true);
     try {
-      const { blob } = await videoGeneration.previewEdl({ timeline, aspect: aspect as never, width, height });
+      const { blob } = await videoGeneration.previewEdl({
+        timeline, aspect: aspect as never, width, height,
+        taskId, audioFile: audioFileName,
+        subtitle: cues && cues.length ? cuesToSrt(cues) : null,
+        params: composeParams,
+      });
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       urlRef.current = URL.createObjectURL(blob);
       setUrl(urlRef.current);
@@ -57,7 +67,7 @@ export const PreviewPlayer: React.FC<{
       onFreshGenerated();
     } catch (e) { reportError(e as Error, '预览渲染失败'); }
     finally { setLoading(false); }
-  }, [timeline, aspect, width, height, onFreshGenerated]);
+  }, [timeline, aspect, width, height, taskId, audioFileName, cues, composeParams, onFreshGenerated]);
 
   // 外部 seek → set currentTime(proxy 模式)
   React.useEffect(() => {

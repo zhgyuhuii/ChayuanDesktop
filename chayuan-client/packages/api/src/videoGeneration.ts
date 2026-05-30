@@ -367,6 +367,11 @@ export async function vgPreviewEdl(args: {
   aspect?: VgVideoAspect;
   width?: number | null;
   height?: number | null;
+  /** #25 精确预览要完整:带旁白(task_id+audio_file)、字幕(SRT 文本)、合成参数(BGM/字幕样式)。 */
+  taskId?: string | null;
+  audioFile?: string | null;
+  subtitle?: string | null;
+  params?: unknown;
 }): Promise<{ blob: Blob }> {
   const cfg = getClientConfig();
   const url = `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/video-generation/preview-edl`;
@@ -382,6 +387,9 @@ export async function vgPreviewEdl(args: {
       timeline: args.timeline,
       aspect: args.aspect ?? '9:16',
       ...(args.width && args.height ? { width: args.width, height: args.height } : {}),
+      ...(args.taskId && args.audioFile ? { task_id: args.taskId, audio_file: args.audioFile } : {}),
+      ...(args.subtitle ? { subtitle: args.subtitle } : {}),
+      ...(args.params ? { params: args.params } : {}),
     }),
     credentials: cfg.authMode === 'cookie' ? 'include' : 'same-origin',
   } as RequestInit);

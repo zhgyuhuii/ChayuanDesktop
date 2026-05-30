@@ -580,9 +580,15 @@ def render_proxy_from_timeline(
     threads: int = 2,
     width=None,
     height=None,
+    audio_path: str | None = None,
+    subtitle_path: str | None = None,
+    params=None,
 ) -> str:
-    """低清「仅画面轨」代理预览:按 EDL 顺序裁剪+缩放到 scale 倍分辨率 ->
-    ffmpeg concat。无音轨/字幕,出片快,给时间轴页快速看素材顺序/时长。"""
+    """低清代理预览:按 EDL 顺序裁剪+缩放到 scale 倍分辨率拼接。
+
+    默认只拼画面(出片快)。传入 audio_path/params 时(#25 精确预览要完整):在低清画面上
+    再走 generate_video 挂旁白音频 + 背景音乐 + 插入音频轨 + 烧字幕(subtitle_path),
+    得到带声音和字幕的精确预览。"""
     w, h = resolve_resolution(video_aspect, width, height)
     pw = max(2, int(w * scale) // 2 * 2)
     ph = max(2, int(h * scale) // 2 * 2)
@@ -622,35 +628,52 @@ def render_proxy_from_timeline(
         finally:
             close_clip(clip)
 
+    # 是否要挂音轨/字幕(精确预览)。要的话画面先出到临时文件,最后统一 mux。
+    want_av = bool(audio_path and params is not None)
+    visual_path = os.path.join(output_dir, "proxy-visual.mp4") if want_av else output_file
+
     # 主轨 concat;若有 PIP 层(第 2+ 视频轨)再分层合成(低清预览也显真实画中画)
     pip_layers = _build_pip_layers(timeline, source_resolver=source_resolver)
     if not pip_layers:
-        concat_video_clips_with_ffmpeg(clip_files, output_file, threads=threads, output_dir=output_dir)
-        return output_file
-    combined_path = os.path.join(output_dir, "proxy-combined.mp4")
-    concat_video_clips_with_ffmpeg(clip_files, combined_path, threads=threads, output_dir=output_dir)
-    try:
-        base_clip = _open_video_clip_quietly(combined_path)
-        overlays = []
-        for ly in pip_layers:
-            ow = max(2, int(pw * max(0.05, min(1.0, ly["scale"]))))
-            if ly["is_image"]:
-                oc = ImageClip(ly["path"]).with_duration(ly["dur"] or base_clip.duration)
-            else:
-                oc = _open_video_clip_quietly(ly["path"])
-                if ly["dur"]:
-                    oc = oc.subclipped(0, min(ly["dur"], oc.duration))
-            oc = oc.resized(width=ow).with_position((ly["x"], ly["y"]), relative=True).with_start(ly["start_s"])
-            overlays.append(oc)
-        comp = CompositeVideoClip([base_clip, *overlays])
-        comp.write_videofile(output_file, logger=None, fps=15, codec=video_codec)
-        for oc in overlays:
-            close_clip(oc)
-        close_clip(base_clip)
-        close_clip(comp)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[pip] proxy 分层合成失败,退回主轨: %s", exc)
-        shutil.move(combined_path, output_file)
+        concat_video_clips_with_ffmpeg(clip_files, visual_path, threads=threads, output_dir=output_dir)
+    else:
+        combined_path = os.path.join(output_dir, "proxy-combined.mp4")
+        concat_video_clips_with_ffmpeg(clip_files, combined_path, threads=threads, output_dir=output_dir)
+        try:
+            base_clip = _open_video_clip_quietly(combined_path)
+            overlays = []
+            for ly in pip_layers:
+                ow = max(2, int(pw * max(0.05, min(1.0, ly["scale"]))))
+                if ly["is_image"]:
+                    oc = ImageClip(ly["path"]).with_duration(ly["dur"] or base_clip.duration)
+                else:
+                    oc = _open_video_clip_quietly(ly["path"])
+                    if ly["dur"]:
+                        oc = oc.subclipped(0, min(ly["dur"], oc.duration))
+                oc = oc.resized(width=ow).with_position((ly["x"], ly["y"]), relative=True).with_start(ly["start_s"])
+                overlays.append(oc)
+            comp = CompositeVideoClip([base_clip, *overlays])
+            comp.write_videofile(visual_path, logger=None, fps=15, codec=video_codec)
+            for oc in overlays:
+                close_clip(oc)
+            close_clip(base_clip)
+            close_clip(comp)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[pip] proxy 分层合成失败,退回主轨: %s", exc)
+            shutil.move(combined_path, visual_path)
+
+    if want_av:
+        # 低清画面 + 旁白/BGM/插入音频 + 烧字幕 → 精确预览(#25)。
+        # 用低清分辨率覆盖 params,避免 generate_video 按全分辨率重渲染。
+        low_params = params.model_copy(update={"video_width": pw, "video_height": ph})
+        generate_video(
+            video_path=visual_path,
+            audio_path=audio_path,
+            subtitle_path=subtitle_path or "",
+            output_file=output_file,
+            params=low_params,
+            extra_audios=_build_extra_audios(timeline, source_resolver=source_resolver),
+        )
     return output_file
 
 
