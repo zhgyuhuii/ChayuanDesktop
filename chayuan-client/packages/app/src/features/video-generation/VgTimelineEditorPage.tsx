@@ -10,7 +10,7 @@ import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
 import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, type DraggedMaterial } from './timeline/timelineEdit';
-import { addTrack, removeTrack, setClipTransform } from './timeline/timelineTracks';
+import { addTrack, removeTrack, setClipTransform } from './timeline/trackOps';
 import { PipOverlay } from './timeline/PipOverlay';
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
 import { ScriptGenDialog } from './timeline/ScriptGenDialog';

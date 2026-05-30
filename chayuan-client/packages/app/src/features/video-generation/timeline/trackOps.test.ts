@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addTrack, removeTrack, setClipTransform } from './timelineTracks';
+import { addTrack, removeTrack, setClipTransform } from './trackOps';
 
 const tl = () => ({ version: 1, duration_ms: 0, tracks: [
   { id: 'v', kind: 'video' as const, clips: [{ id: 'a', source: { path: '/a.mp4' }, track_start_ms: 0, in_ms: 0, out_ms: 0 }] },
