@@ -21,7 +21,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  Library, Layers3, Pen, ScanText, Mic, Clapperboard,
+  Library, Layers3, Pen, ScanText, Mic, Clapperboard, UserRound,
   AlertCircle,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
@@ -103,6 +103,15 @@ const CAPS: ReadonlyArray<CapItem> = [
     to: '/video-generation',
     gradient: 'from-indigo-50 to-purple-100 dark:from-indigo-900/30 dark:to-purple-800/40',
     iconBg: 'bg-gradient-to-br from-indigo-400 to-purple-500',
+  },
+  {
+    id: 'digital-human',
+    icon: UserRound,
+    title: '数字人',
+    subtitle: '选形象 + 绑音色 → 文案口播 → 一键生成讲话视频',
+    to: '/digital-human',
+    gradient: 'from-teal-50 to-cyan-100 dark:from-teal-900/30 dark:to-cyan-800/40',
+    iconBg: 'bg-gradient-to-br from-teal-400 to-cyan-500',
   },
 ];
 

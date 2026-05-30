@@ -102,6 +102,9 @@ const VgVideoLibraryPage = React.lazy(() =>
 const OnlineFeaturePage = React.lazy(() =>
   import('../online/OnlineFeaturePage').then((m) => ({ default: m.OnlineFeaturePage })),
 );
+const DigitalHumanPage = React.lazy(() =>
+  import('../digital-human/DigitalHumanPage').then((m) => ({ default: m.DigitalHumanPage })),
+);
 
 /**
  * 模型广场路由包装 —— 把 ``/marketplace?configure=<pid>`` 的 search param
@@ -326,6 +329,12 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     render: () => <VgVideoLibraryPage />,
     defaultTitle: '我的视频',
     defaultIcon: 'video',
+  },
+  {
+    pattern: /^\/digital-human$/,
+    render: () => <DigitalHumanPage />,
+    defaultTitle: '数字人',
+    defaultIcon: 'user-round',
   },
   {
     // 在线办公功能占位页:/online/<feature>(office / space / market / tasks / annotation)
