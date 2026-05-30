@@ -156,7 +156,7 @@ export interface VgMessageMeta {
   taskId?: string;
   scriptCues?: VgScriptCue[];
   tts?: {
-    provider: 'piper' | 'edge' | 'sherpa';
+    provider: 'piper' | 'edge' | 'sherpa' | 'clone';
     voice: string;
     rate: number;
     volume: number;

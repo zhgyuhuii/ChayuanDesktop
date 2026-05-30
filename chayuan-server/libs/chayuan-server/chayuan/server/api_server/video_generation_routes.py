@@ -1091,8 +1091,8 @@ def _list_clone_voices() -> List[Dict[str, Any]]:
                 label = (_json.load(jf) or {}).get("name") or cid
         except Exception:  # noqa: BLE001
             pass
-        out.append({"name": f"clone:{cid}", "label": label, "family": "clone", "source": "user"})
-    out.sort(key=lambda x: (x.get("label") or x["name"]).lower())
+        out.append({"id": f"clone:{cid}", "label": label, "language": ""})
+    out.sort(key=lambda x: (x.get("label") or x["id"]).lower())
     return out
 
 

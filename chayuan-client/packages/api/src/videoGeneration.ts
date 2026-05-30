@@ -20,7 +20,7 @@ export type VgScriptSource = 'ai' | 'manual' | 'srt';
 export type VgVideoAspect = '16:9' | '9:16' | '1:1';
 export type VgConcatMode = 'random' | 'sequential';
 export type VgTransitionMode = '' | 'Shuffle' | 'FadeIn' | 'FadeOut' | 'SlideIn' | 'SlideOut';
-export type VgVoiceProvider = 'piper' | 'edge' | 'sherpa';
+export type VgVoiceProvider = 'piper' | 'edge' | 'sherpa' | 'clone';
 export type VgVideoSource = 'local' | 'pexels' | 'pixabay';
 export type VgBgmType = 'none' | 'random' | 'file';
 export type VgSubtitlePosition = 'top' | 'bottom' | 'center' | 'custom';
@@ -721,6 +721,36 @@ export async function vgDownloadVoice(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// 音色克隆(provider='clone')— 上传/录制人声样本 → 注册「我的音色」
+// ─────────────────────────────────────────────────────────────────────
+
+/** 上传(或录音得到的)人声样本,注册一个克隆音色。返回 voice_name='clone:<id>'。 */
+export async function vgUploadCloneVoice(args: {
+  file: Blob;
+  name: string;
+  refText?: string;
+}): Promise<{ id: string; name: string; label: string }> {
+  const fd = new FormData();
+  // Blob(录音)无文件名 → 显式给个名,后端按内容转码不依赖扩展名。
+  const fname = (args.file as File).name || 'sample.webm';
+  fd.append('file', args.file, fname);
+  fd.append('name', args.name);
+  if (args.refText) fd.append('ref_text', args.refText);
+  return rd<{ id: string; name: string; label: string }>(
+    '/api/v1/video-generation/voices/clone',
+    { method: 'POST', body: fd },
+  );
+}
+
+/** 删除一个克隆音色(cid = voice_name 去掉 'clone:' 前缀)。 */
+export async function vgDeleteCloneVoice(cid: string): Promise<{ deleted: boolean; id: string }> {
+  return rd<{ deleted: boolean; id: string }>(
+    `/api/v1/video-generation/voices/clone/${encodeURIComponent(cid)}`,
+    { method: 'DELETE' },
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // 在线素材源配置
 // ─────────────────────────────────────────────────────────────────────
 
@@ -874,6 +904,8 @@ export const videoGeneration = {
   listFonts: vgListFonts,
   listVoices: vgListVoices,
   downloadVoice: vgDownloadVoice,
+  uploadCloneVoice: vgUploadCloneVoice,
+  deleteCloneVoice: vgDeleteCloneVoice,
   taskFileUrl: vgTaskFileUrl,
   downloadTaskFile: vgDownloadTaskFile,
   materialFileUrl: vgMaterialFileUrl,
