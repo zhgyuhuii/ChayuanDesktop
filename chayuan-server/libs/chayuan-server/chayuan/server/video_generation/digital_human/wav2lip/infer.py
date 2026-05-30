@@ -58,17 +58,22 @@ def load_models(weights_dir: str) -> dict:
     model = model.to(device)
     model.eval()
 
-    # Load S3FD face detector — pass local path so it never hits the network
-    detector = face_detection.FaceAlignment(
-        face_detection.LandmarksType._2D,
-        flip_input=False,
-        device=device,
-        face_detector="sfd",
-    )
-    # Override the default weight path to our bundled file
-    detector.face_detector.face_detector.load_state_dict(
-        torch.load(s3fd_path, map_location=device)
-    )
+    # Load S3FD face detector from the BUNDLED weight — must never hit the network
+    # (self-contained / offline / frozen 红线)。SFDDetector.__init__ 默认路径指向
+    # 包内不存在的 s3fd.pth → 原版会 load_url 联网下载。这里临时把该模块的 load_url
+    # 替换成「直接读 bundled 权重」,构造期就走本地,彻底杜绝联网。
+    from .face_detection.detection.sfd import sfd_detector as _sfd_mod
+    _orig_load_url = _sfd_mod.load_url
+    _sfd_mod.load_url = lambda *a, **k: torch.load(s3fd_path, map_location=device)
+    try:
+        detector = face_detection.FaceAlignment(
+            face_detection.LandmarksType._2D,
+            flip_input=False,
+            device=device,
+            face_detector="sfd",
+        )
+    finally:
+        _sfd_mod.load_url = _orig_load_url
     detector.face_detector.face_detector.to(device)
     detector.face_detector.face_detector.eval()
 

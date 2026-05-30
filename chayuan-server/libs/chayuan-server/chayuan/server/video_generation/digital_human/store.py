@@ -52,10 +52,12 @@ def create_preset(*, name: str, avatar_ref: str, avatar_kind: str,
 
 
 def update_preset(pid: str, **fields: Any) -> Optional[DigitalHumanPreset]:
+    # 不允许改 id/created(否则会改出找不回的孤儿条目)
+    safe = {k: v for k, v in fields.items() if v is not None and k not in ("id", "created")}
     rows = _load_raw(); hit = None
     for r in rows:
         if r.get("id") == pid:
-            r.update({k: v for k, v in fields.items() if v is not None})
+            r.update(safe)
             hit = r
     if hit is None:
         return None
