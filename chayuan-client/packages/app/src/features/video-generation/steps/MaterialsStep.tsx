@@ -375,10 +375,10 @@ const OnlineTab: React.FC<{
                 title="拖到时间轴视频轨">
                 <PlayBadge onClick={() => setPreview(item.url)} />
                 <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden text-xs text-[var(--cy-text-tertiary)]">
-                  {/* 缩略图:优先服务端 thumbnail(poster);没有就用视频首帧 */}
-                  <video src={`${item.url}#t=0.1`} poster={item.image || undefined} muted preload="metadata" draggable={false}
-                    className="h-full w-full object-cover"
-                    onError={(e) => { (e.currentTarget.style.display = 'none'); }} />
+                  {/* 有服务端缩略图(Pexels)用 img;没有(Pixabay 常缺)才用视频首帧兜底 */}
+                  {item.image
+                    ? <img src={item.image} alt="" draggable={false} loading="lazy" className="h-full w-full object-cover" />
+                    : <video src={`${item.url}#t=0.1`} muted preload="metadata" draggable={false} className="h-full w-full object-cover" />}
                   <span className="absolute bottom-1 right-1 rounded bg-black/55 px-1 text-[9px] text-white">{item.duration}s</span>
                 </div>
               </li>
