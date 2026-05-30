@@ -2,6 +2,7 @@ import * as React from 'react';
 import { ChevronLeft, ChevronRight, Trash2, Replace } from 'lucide-react';
 import type { VgTimeline as VgTimelineData } from '@chayuan/api';
 import { clipDurMs, deleteClip, reorderClip, setClipDuration, setClipIn, setClipStart, normalizeMontage } from './timelineEdit';
+import { TRANSITIONS, hasTransition } from './transitions';
 
 const PX_PER_SEC = 12;
 const MIN_SEG_PX = 24;
@@ -27,7 +28,9 @@ export const VgTimeline: React.FC<{
   /** 全局选中 clip(#10:跨轨选中 + Delete 删除);命中则高亮。 */
   selectedClipId?: string | null;
   onSelectClip?: (clipId: string) => void;
-}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, videoTrackOnly, onReplaceClip, onClipContextMenu, trackId, selectedClipId, onSelectClip }) => {
+  /** 点片段间转场块(#26):在切点打开转场菜单。 */
+  onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
+}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, videoTrackOnly, onReplaceClip, onClipContextMenu, trackId, selectedClipId, onSelectClip, onTransitionMenu }) => {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const pps = pxPerSec ?? PX_PER_SEC;
   const videoTrack = trackId
@@ -169,6 +172,24 @@ export const VgTimeline: React.FC<{
                   </div>
                 )}
               </div>
+            );
+          })}
+          {/* 片段间转场块(#26):每个切点(第 2 个片段起)一个小块,点开转场菜单 */}
+          {onTransitionMenu && segs.slice(1).map((s) => {
+            const tr = clips[s.idx]?.transition;
+            const on = hasTransition(tr);
+            const Icon = TRANSITIONS.find((o) => o.value === tr)?.icon;
+            return (
+              <button key={`tx-${s.id}`} type="button"
+                onClick={(e) => { e.stopPropagation(); onTransitionMenu(e, s.id); }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onTransitionMenu(e, s.id); }}
+                title={on ? `转场:${TRANSITIONS.find((o) => o.value === tr)?.label}` : '设置转场'}
+                style={{ left: s.leftPx - 7 }}
+                className={`absolute top-1/2 z-40 inline-flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-sm border text-[8px] ${
+                  on ? 'border-[var(--cy-brand-600)] bg-[var(--cy-brand-500)] text-white'
+                     : 'border-[var(--cy-border-strong)] bg-[var(--cy-surface-base)] text-[var(--cy-text-tertiary)] hover:border-[var(--cy-brand-400)]'}`}>
+                {Icon ? <Icon className="h-2.5 w-2.5" /> : '⇄'}
+              </button>
             );
           })}
           {segs.length === 0 && (

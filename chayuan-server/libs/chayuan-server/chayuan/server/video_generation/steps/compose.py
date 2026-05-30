@@ -349,8 +349,32 @@ def _build_edl_render_plan(timeline, video_aspect, *, source_resolver, width=Non
             "is_image": is_image,
             "target_w": target_w,
             "target_h": target_h,
+            "transition": (getattr(c, "transition", "none") or "none"),
         })
     return plan
+
+
+def _apply_transition(clip, transition: str):
+    """逐片段转场:作用于本片段入场(上一片段→本片段切点)。none 原样返回。
+    映射前端值(fade/slide_left|right|top|bottom/shuffle)到 _video_effects。"""
+    t = (transition or "none").lower()
+    if t in ("none", ""):
+        return clip
+    try:
+        if t == "fade":
+            return video_effects.fadein_transition(clip, 1)
+        if t.startswith("slide_"):
+            return video_effects.slidein_transition(clip, 1, t.split("_", 1)[1])
+        if t == "shuffle":
+            side = random.choice(["left", "right", "top", "bottom"])
+            fn = random.choice([
+                lambda c: video_effects.fadein_transition(c, 1),
+                lambda c: video_effects.slidein_transition(c, 1, side),
+            ])
+            return fn(clip)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[edl] 转场 %s 应用失败,跳过: %s", t, exc)
+    return clip
 
 
 def _build_pip_layers(timeline, *, source_resolver) -> list:
@@ -488,6 +512,8 @@ def render_from_edl(
             seg_path = os.path.join(output_dir, f"edl-seg-{i}.mp4")
             try:
                 img = ImageClip(p["path"]).with_duration(dur).resized(new_size=(video_width, video_height))
+                if i > 0:
+                    img = _apply_transition(img, p.get("transition", "none"))
                 img.write_videofile(seg_path, logger=None, fps=fps, codec=video_codec)
                 close_clip(img)
                 clip_files.append(seg_path)
@@ -504,6 +530,8 @@ def render_from_edl(
             if end_s <= start_s:
                 end_s = min(start_s + 1.0, src_dur)
             seg = clip.subclipped(start_s, end_s).resized(new_size=(video_width, video_height))
+            if i > 0:
+                seg = _apply_transition(seg, p.get("transition", "none"))
             seg_path = os.path.join(output_dir, f"edl-seg-{i}.mp4")
             seg.write_videofile(seg_path, logger=None, fps=fps, codec=video_codec)
             clip_files.append(seg_path)

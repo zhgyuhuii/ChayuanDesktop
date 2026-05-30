@@ -63,7 +63,7 @@ export interface VgTimelineClip {
   track_start_ms: number;
   in_ms?: number;
   out_ms?: number;            // 0 = 到素材末尾
-  transition?: 'none' | 'fade' | 'slide';
+  transition?: string;        // none/fade/slide_left|right|top|bottom/shuffle(逐片段转场)
   volume?: number;
   duration_ms?: number;       // 前端编辑用的有效时长;后端只用 in/out
   x?: number;                 // 画中画 0-1 归一位置/缩放/层级(P5c-2)

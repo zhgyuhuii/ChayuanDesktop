@@ -43,7 +43,8 @@ export const TimelineTracks: React.FC<{
   /** 旁白音频块显示名(主题名)+ 时长。 */
   narrationName?: string;
   narrationDurationMs?: number;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationName, narrationDurationMs }) => {
+  onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationName, narrationDurationMs, onTransitionMenu }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const audioTracks = (timeline.tracks || []).filter((t) => t.kind === 'audio');
@@ -144,6 +145,7 @@ export const TimelineTracks: React.FC<{
                   <VideoTrack timeline={timeline} trackId={tr.id} editable={i === 0} videoTrackOnly pxPerSec={pxPerSec}
                     thumbUrlOf={i === 0 ? thumbUrlOf : undefined} onChange={onTimelineChange} onReplaceClip={onReplaceClip}
                     selectedClipId={selectedClipId} onSelectClip={onSelectClip}
+                    onTransitionMenu={i === 0 ? onTransitionMenu : undefined}
                     onClipContextMenu={(e, clipId) => onLaneContextMenu?.(e, 'video', clipId, tr.id, !!tr.removable)} />
                 </div>
               );

@@ -10,7 +10,8 @@ import { PreviewPlayer } from './timeline/PreviewPlayer';
 import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
-import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, type DraggedMaterial } from './timeline/timelineEdit';
+import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, setClipTransition, type DraggedMaterial } from './timeline/timelineEdit';
+import { TRANSITIONS } from './timeline/transitions';
 import { addTrack, removeTrack, setClipTransform, reorderVideoTrack } from './timeline/trackOps';
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
 import { ScriptGenDialog } from './timeline/ScriptGenDialog';
@@ -240,6 +241,15 @@ export const VgTimelineEditorPage: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedClipId, timeline]);
   const onSetTransform = (clipId: string, tf: { x?: number; y?: number; scale?: number }) => onTimelineChange(setClipTransform(timeline, clipId, tf));
+  // #26 片段间转场菜单
+  const [txMenu, setTxMenu] = React.useState<{ x: number; y: number; clipId: string } | null>(null);
+  React.useEffect(() => {
+    if (!txMenu) return;
+    const close = () => setTxMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setTxMenu(null); };
+    const t = setTimeout(() => { window.addEventListener('click', close); window.addEventListener('keydown', onKey); }, 0);
+    return () => { clearTimeout(t); window.removeEventListener('click', close); window.removeEventListener('keydown', onKey); };
+  }, [txMenu]);
   const [replacingClipId, setReplacingClipId] = React.useState<string | null>(null);
   const onReplaceClip = (clipId: string) => setReplacingClipId(clipId);
 
@@ -506,6 +516,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           onSelectClip={setSelectedClipId}
           narrationName={narrationName}
           narrationDurationMs={draft.audioDurationMs || (peaks.length ? contentMs : 0)}
+          onTransitionMenu={(e, clipId) => setTxMenu({ x: e.clientX, y: e.clientY, clipId })}
           onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
           onTimelineChange={onTimelineChange}
         />
@@ -534,6 +545,24 @@ export const VgTimelineEditorPage: React.FC = () => {
             }
           }}
           onClose={() => setMenuCtx(null)} />
+      )}
+      {/* #26/#28 片段间转场菜单(名称前带图示) */}
+      {txMenu && (
+        <div className="fixed z-[300] min-w-[132px] overflow-hidden rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] py-1 shadow-xl"
+          style={{ left: txMenu.x, top: txMenu.y }} onClick={(e) => e.stopPropagation()}>
+          <div className="px-3 py-1 text-[10px] text-[var(--cy-text-tertiary)]">片段间转场</div>
+          {TRANSITIONS.map(({ value, label, icon: Icon }) => {
+            const cur = (timeline.tracks ?? []).flatMap((t) => t.clips ?? []).find((c) => c.id === txMenu.clipId)?.transition ?? 'none';
+            const active = cur === value;
+            return (
+              <button key={value} type="button"
+                onClick={() => { onTimelineChange(setClipTransition(timeline, txMenu.clipId, value)); setTxMenu(null); }}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${active ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]'}`}>
+                <Icon className="h-3.5 w-3.5 text-[var(--cy-brand-500)]" /> {label}
+              </button>
+            );
+          })}
+        </div>
       )}
       {/* 替换素材弹层 */}
       {replacingClipId && (

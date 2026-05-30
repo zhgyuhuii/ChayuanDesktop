@@ -187,6 +187,15 @@ export function appendClipFromMaterial(
   return { ...t, tracks: next };
 }
 
+/** 设某 clip 的转场(作用于上一片段→本片段切点)。任意轨。 */
+export function setClipTransition(t: VgTimeline, clipId: string, transition: string): VgTimeline {
+  const tracks = (t.tracks || []).map((tr) => ({
+    ...tr,
+    clips: (tr.clips || []).map((c) => (c.id === clipId ? { ...c, transition: transition as VgTimelineClip['transition'] } : c)),
+  }));
+  return { ...t, tracks };
+}
+
 /** 替换 clip 的素材源,保留 in/out/时长/位置。 */
 export function replaceClipSource(
   t: VgTimeline,
