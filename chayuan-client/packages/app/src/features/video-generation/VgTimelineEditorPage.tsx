@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, Sparkles, Film, AlertTriangle, RefreshCw, ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
-import { VgAspectChip } from './VgAspectChip';
+import { VgAspectPicker } from './VgAspectPicker';
 import { videoGeneration, type VgTimeline } from '@chayuan/api';
 import { useVgComposer, scriptHashOf } from './store/vgComposer';
 import { MediaPoolPanel } from './timeline/MediaPoolPanel';
@@ -148,7 +148,7 @@ export const VgTimelineEditorPage: React.FC = () => {
   }, [contentMs > 0]);
 
   // 画幅改变 → 预览过期(重新生成才按新画幅)
-  React.useEffect(() => { setProxyStale(true); }, [params.video_aspect]);
+  React.useEffect(() => { setProxyStale(true); }, [params.video_aspect, params.video_width, params.video_height]);
 
   const onTimelineChange = (t: VgTimeline) => { patchParams({ timeline: t }); setProxyStale(true); };
   // 缩略图按 clip 的 source 解析:material_id → 素材缩略图;url(http)→ 暂无。
@@ -264,7 +264,7 @@ export const VgTimelineEditorPage: React.FC = () => {
             <div className="flex min-h-0 flex-1 flex-col">
               {/* 预览头:画幅条 + 折叠 */}
               <div className="flex items-center gap-2 px-3 pt-2">
-                <VgAspectChip />
+                <VgAspectPicker compact />
                 <button type="button" onClick={() => setPreviewCollapsed((v) => !v)}
                   className="ml-auto inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
                   <EyeOff className="h-3 w-3" /> 折叠预览
@@ -273,6 +273,7 @@ export const VgTimelineEditorPage: React.FC = () => {
               <div className="min-h-0 flex-1 p-3">
                 <PreviewPlayer
                   timeline={timeline} aspect={params.video_aspect}
+                  width={params.video_width} height={params.video_height}
                   playheadMs={playheadMs} seekMs={seekMs} playing={playing} stale={proxyStale}
                   onTimeMs={(ms) => setPlayheadMs(ms)}
                   onPlayingChange={setPlaying}

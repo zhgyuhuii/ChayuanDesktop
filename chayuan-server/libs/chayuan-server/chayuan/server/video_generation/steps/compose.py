@@ -49,6 +49,7 @@ from ..schemas import (
     VideoConcatMode,
     VideoParams,
     VideoTransitionMode,
+    resolve_resolution,
 )
 from .. import _video_effects as video_effects
 from .. import _helpers as utils
@@ -314,7 +315,7 @@ def get_bgm_file(bgm_type: str = "random", bgm_file: str = ""):
     return ""
 
 
-def _build_edl_render_plan(timeline, video_aspect, *, source_resolver):
+def _build_edl_render_plan(timeline, video_aspect, *, source_resolver, width=None, height=None):
     """把 EDL 的 video 轨解析成有序渲染计划(纯函数,便于单测)。
 
     返回 list[dict]:{clip_id, path, start_s, end_s(None=到末尾), target_w, target_h}。
@@ -323,8 +324,7 @@ def _build_edl_render_plan(timeline, video_aspect, *, source_resolver):
     - source 经 source_resolver(material_id/path/url -> 本地路径);解析空则跳过。
     - in_ms/out_ms -> 秒;out_ms==0 视为"到素材末尾"(end_s=None)。
     """
-    aspect = VideoAspect(video_aspect)
-    target_w, target_h = aspect.to_resolution()
+    target_w, target_h = resolve_resolution(video_aspect, width, height)
     video_tracks = [t for t in (timeline.tracks or []) if t.kind == "video"]
     if not video_tracks:
         return []
@@ -450,11 +450,15 @@ def render_from_edl(
     时长策略:总长 > 音频 -> generate_video 用音频长截断(沿用现有);
     < 音频 -> 末段定格补足到音频长。
     """
-    aspect = VideoAspect(params.video_aspect)
-    video_width, video_height = aspect.to_resolution()
+    video_width, video_height = resolve_resolution(
+        params.video_aspect, getattr(params, "video_width", None), getattr(params, "video_height", None)
+    )
     output_dir = os.path.dirname(output_file)
 
-    plan = _build_edl_render_plan(timeline, params.video_aspect, source_resolver=source_resolver)
+    plan = _build_edl_render_plan(
+        timeline, params.video_aspect, source_resolver=source_resolver,
+        width=getattr(params, "video_width", None), height=getattr(params, "video_height", None),
+    )
     if not plan:
         raise RuntimeError("EDL 没有可渲染的视频片段(video 轨为空或素材解析失败)")
 
@@ -568,16 +572,19 @@ def render_proxy_from_timeline(
     source_resolver,
     scale: float = 0.5,
     threads: int = 2,
+    width=None,
+    height=None,
 ) -> str:
     """低清「仅画面轨」代理预览:按 EDL 顺序裁剪+缩放到 scale 倍分辨率 ->
     ffmpeg concat。无音轨/字幕,出片快,给时间轴页快速看素材顺序/时长。"""
-    aspect = VideoAspect(video_aspect)
-    w, h = aspect.to_resolution()
+    w, h = resolve_resolution(video_aspect, width, height)
     pw = max(2, int(w * scale) // 2 * 2)
     ph = max(2, int(h * scale) // 2 * 2)
     output_dir = os.path.dirname(output_file)
 
-    plan = _build_edl_render_plan(timeline, video_aspect, source_resolver=source_resolver)
+    plan = _build_edl_render_plan(
+        timeline, video_aspect, source_resolver=source_resolver, width=width, height=height,
+    )
     if not plan:
         raise RuntimeError("时间轴没有可预览的视频片段")
 
@@ -639,6 +646,8 @@ def combine_videos(
     video_transition_mode: VideoTransitionMode = None,
     max_clip_duration: int = 5,
     threads: int = 2,
+    video_width: int | None = None,
+    video_height: int | None = None,
 ) -> str:
     audio_clip = AudioFileClip(audio_file)
     try:
@@ -654,8 +663,7 @@ def combine_videos(
     transition_value = getattr(video_transition_mode, "value", video_transition_mode)
     output_dir = os.path.dirname(combined_video_path)
 
-    aspect = VideoAspect(video_aspect)
-    video_width, video_height = aspect.to_resolution()
+    video_width, video_height = resolve_resolution(video_aspect, video_width, video_height)
 
     processed_clips = []
     subclipped_items = []
@@ -870,8 +878,9 @@ def generate_video(
     params: VideoParams,
     extra_audios: list | None = None,
 ):
-    aspect = VideoAspect(params.video_aspect)
-    video_width, video_height = aspect.to_resolution()
+    video_width, video_height = resolve_resolution(
+        params.video_aspect, getattr(params, "video_width", None), getattr(params, "video_height", None)
+    )
 
     logger.info(f"generating video: {video_width} x {video_height}")
     logger.info(f"  ① video: {video_path}")

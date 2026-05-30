@@ -99,6 +99,9 @@ export interface VgVideoParams {
   /** 时间轴 EDL;非空时后端按它精确渲染(P1 后端已支持)。 */
   timeline?: VgTimeline | null;
   video_aspect: VgVideoAspect;
+  /** 精确像素覆盖(都 >0 时优先于 video_aspect);支持电脑尺寸 / 自定义画幅。 */
+  video_width?: number | null;
+  video_height?: number | null;
   video_concat_mode: VgConcatMode;
   video_transition_mode: VgTransitionMode;
   video_clip_duration: number;
@@ -362,6 +365,8 @@ export async function vgPreviewAudio(args: {
 export async function vgPreviewEdl(args: {
   timeline: VgTimeline;
   aspect?: VgVideoAspect;
+  width?: number | null;
+  height?: number | null;
 }): Promise<{ blob: Blob }> {
   const cfg = getClientConfig();
   const url = `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/video-generation/preview-edl`;
@@ -376,6 +381,7 @@ export async function vgPreviewEdl(args: {
     body: JSON.stringify({
       timeline: args.timeline,
       aspect: args.aspect ?? '9:16',
+      ...(args.width && args.height ? { width: args.width, height: args.height } : {}),
     }),
     credentials: cfg.authMode === 'cookie' ? 'include' : 'same-origin',
   } as RequestInit);

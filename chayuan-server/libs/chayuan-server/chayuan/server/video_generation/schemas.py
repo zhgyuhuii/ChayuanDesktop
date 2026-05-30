@@ -66,6 +66,23 @@ class VideoAspect(str, Enum):
         return 1080, 1920
 
 
+def resolve_resolution(aspect, width=None, height=None) -> tuple[int, int]:
+    """成片分辨率:显式 width/height(都 >0)优先,否则回落到 aspect 枚举。
+
+    显式像素做偶数化(H.264/x264 要求宽高为偶),并夹到合理范围,避免前端传非法值。
+    """
+    try:
+        w = int(width or 0)
+        h = int(height or 0)
+    except (TypeError, ValueError):
+        w = h = 0
+    if w > 0 and h > 0:
+        w = max(16, min(7680, w)) // 2 * 2
+        h = max(16, min(7680, h)) // 2 * 2
+        return w, h
+    return VideoAspect(aspect).to_resolution()
+
+
 class ScriptSource(str, Enum):
     """脚本来源 — 决定 wizard 走哪条分支。
 
@@ -181,6 +198,9 @@ class VideoParams(BaseModel):
 
     # ── 画幅 + 拼接 ──────────────────────────────────────
     video_aspect: VideoAspect = VideoAspect.portrait
+    # 精确像素覆盖(都 >0 时优先于 video_aspect);支持电脑尺寸 / 自定义画幅。
+    video_width: Optional[int] = Field(default=None, ge=16, le=7680)
+    video_height: Optional[int] = Field(default=None, ge=16, le=7680)
     video_concat_mode: VideoConcatMode = VideoConcatMode.random
     video_transition_mode: VideoTransitionMode = VideoTransitionMode.none
     video_clip_duration: int = Field(default=5, ge=1, le=60)

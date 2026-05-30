@@ -1397,10 +1397,16 @@ def preview_edl(
         VideoAspect(aspect)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(422, f"timeline/aspect 非法: {e}") from e
+    # 精确像素覆盖(都 >0 时优先于 aspect);非法值忽略,回落 aspect。
+    try:
+        ov_w = int(body.get("width") or 0)
+        ov_h = int(body.get("height") or 0)
+    except (TypeError, ValueError):
+        ov_w = ov_h = 0
 
     cache_dir = storage_dir("preview", create=True)
     key = hashlib.md5(
-        (aspect + _json.dumps(raw_tl, sort_keys=True, ensure_ascii=False)).encode("utf-8")
+        (f"{aspect}-{ov_w}x{ov_h}-" + _json.dumps(raw_tl, sort_keys=True, ensure_ascii=False)).encode("utf-8")
     ).hexdigest()
     out_path = os.path.join(cache_dir, f"proxy-{key}.mp4")
 
@@ -1421,6 +1427,7 @@ def preview_edl(
         try:
             compose_step.render_proxy_from_timeline(
                 timeline, aspect, out_path, source_resolver=_resolve,
+                width=ov_w or None, height=ov_h or None,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("[vg] preview-edl 失败: %r", e)

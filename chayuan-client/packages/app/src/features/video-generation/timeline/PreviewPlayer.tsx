@@ -16,6 +16,8 @@ import { LivePreviewCanvas } from './LivePreviewCanvas';
 export const PreviewPlayer: React.FC<{
   timeline: VgTimeline;
   aspect: string;
+  width?: number | null;
+  height?: number | null;
   playheadMs: number;
   seekMs: number;
   playing: boolean;
@@ -24,7 +26,7 @@ export const PreviewPlayer: React.FC<{
   onPlayingChange: (playing: boolean) => void;
   onFreshGenerated: () => void;
   onTransform: (clipId: string, tf: { x?: number; y?: number; scale?: number }) => void;
-}> = ({ timeline, aspect, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform }) => {
+}> = ({ timeline, aspect, width, height, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform }) => {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
   const [url, setUrl] = React.useState<string | null>(null);
@@ -40,7 +42,7 @@ export const PreviewPlayer: React.FC<{
     }
     setLoading(true);
     try {
-      const { blob } = await videoGeneration.previewEdl({ timeline, aspect: aspect as never });
+      const { blob } = await videoGeneration.previewEdl({ timeline, aspect: aspect as never, width, height });
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       urlRef.current = URL.createObjectURL(blob);
       setUrl(urlRef.current);
@@ -48,7 +50,7 @@ export const PreviewPlayer: React.FC<{
       onFreshGenerated();
     } catch (e) { reportError(e as Error, '预览渲染失败'); }
     finally { setLoading(false); }
-  }, [timeline, aspect, onFreshGenerated]);
+  }, [timeline, aspect, width, height, onFreshGenerated]);
 
   // 外部 seek → set currentTime(proxy 模式)
   React.useEffect(() => {
@@ -67,7 +69,9 @@ export const PreviewPlayer: React.FC<{
     if (!playing && !v.paused) v.pause();
   }, [playing, url, mode]);
 
-  const ratio = aspect === '16:9' ? '16 / 9' : aspect === '1:1' ? '1 / 1' : '9 / 16';
+  const ratio = (width && height && width > 0 && height > 0)
+    ? `${width} / ${height}`
+    : aspect === '16:9' ? '16 / 9' : aspect === '1:1' ? '1 / 1' : '9 / 16';
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl bg-[var(--cy-surface-2)] p-2">
       {/* 固定画幅黑框:实时画布 / proxy 视频都在框内(坐标与成片一致) */}

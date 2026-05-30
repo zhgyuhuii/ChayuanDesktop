@@ -554,6 +554,8 @@ def _compose_videos(
                 video_transition_mode=params.video_transition_mode,
                 max_clip_duration=max(1, int(params.video_clip_duration)),
                 threads=max(1, int(params.n_threads)),
+                video_width=getattr(params, "video_width", None),
+                video_height=getattr(params, "video_height", None),
             )
             compose_step.generate_video(
                 video_path=combined_path,
@@ -667,7 +669,10 @@ def _persist_vg_videos(task_id: str, params, final_videos: list[str]) -> None:
     owner_id = row.get("owner_id") if row else None
     snap = params.model_dump(mode="json")
 
-    aspect_res = params.video_aspect.to_resolution()
+    from chayuan.server.video_generation.schemas import resolve_resolution
+    aspect_res = resolve_resolution(
+        params.video_aspect, getattr(params, "video_width", None), getattr(params, "video_height", None)
+    )
     # 标题:高度概括的短名(不是把整段输入当名字)——取主题/脚本首句的第一个
     # 句段、截到 ~14 字;空则兜底"视频"。附生成时间。
     import datetime as _dt

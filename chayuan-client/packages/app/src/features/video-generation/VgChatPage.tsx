@@ -148,6 +148,9 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
         // 若用户先生成脚本、之后才改画幅,用 vm.videoAspect 会拿到旧的 9:16 覆盖 1:1。
         // 直接用 base.* 才反映用户当前选择。
         video_aspect: base.video_aspect,
+        // 精确像素覆盖(画幅选择器设的电脑尺寸/自定义);跟 video_aspect 同源真源 base.*
+        video_width: base.video_width,
+        video_height: base.video_height,
       };
       try {
         const t = await videoGeneration.submitTask(params, { stop_at: 'video' });
