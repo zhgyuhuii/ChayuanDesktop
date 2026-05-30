@@ -58,4 +58,13 @@ describe('licenseStore', () => {
     expect(useLicenseStore.getState().isLicensed('video')).toBe(false);
     expect(useLicenseStore.getState().isReady('video')).toBe(false);
   });
+
+  it('reset 清空授权态与 ready', async () => {
+    mocked.status.mockResolvedValue({ licensed: true, app: 'video', expireAt: '2026-07-01T00:00:00.000Z' });
+    await useLicenseStore.getState().refresh('video');
+    expect(useLicenseStore.getState().isLicensed('video')).toBe(true);
+    useLicenseStore.getState().reset();
+    expect(useLicenseStore.getState().isLicensed('video')).toBe(false);
+    expect(useLicenseStore.getState().isReady('video')).toBe(false);
+  });
 });

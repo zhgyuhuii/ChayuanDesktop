@@ -17,9 +17,14 @@ interface LicenseState {
   /** 该 app 是否已至少刷新回来一次（供 Gate 显 loading，避免闪锁屏）。 */
   readyApps: Record<string, boolean>;
 
-  /** 读后端授权态（后端内部做偶尔在线自动激活）。网络异常落 fail-closed。 */
+  /** 读后端授权态（后端内部做偶尔在线自动激活）。网络异常落 fail-closed（不抛）。 */
   refresh(app: string): Promise<LicenseStatus>;
+  /**
+   * 主动激活：与 `refresh` 不同，**网络/服务端异常会向上抛**（由 LicenseDialog 的
+   * try/catch 捕获并显错），因为这是用户显式操作、需要看到失败原因；失败时不动 store 缓存。
+   */
   activateSerial(app: string, serial: string): Promise<LicenseStatus>;
+  /** 同 activateSerial：异常上抛由调用方处理。 */
   activateToken(app: string, token: string): Promise<LicenseStatus>;
   isLicensed(app: string): boolean;
   isReady(app: string): boolean;
@@ -28,7 +33,15 @@ interface LicenseState {
 
 const FAIL_CLOSED = (app: string): LicenseStatus => ({ licensed: false, app, reason: 'none' });
 
-export const useLicenseStore = create<LicenseState>((set, get) => ({
+export const useLicenseStore = create<LicenseState>((set, get) => {
+  /** 写入某 app 的授权态并置 ready（三处写路径共用）。 */
+  const put = (app: string, s: LicenseStatus): void =>
+    set((st) => ({
+      statusByApp: { ...st.statusByApp, [app]: s },
+      readyApps: { ...st.readyApps, [app]: true },
+    }));
+
+  return {
   statusByApp: {},
   readyApps: {},
 
@@ -39,28 +52,19 @@ export const useLicenseStore = create<LicenseState>((set, get) => ({
     } catch {
       s = FAIL_CLOSED(app);
     }
-    set((st) => ({
-      statusByApp: { ...st.statusByApp, [app]: s },
-      readyApps: { ...st.readyApps, [app]: true },
-    }));
+    put(app, s);
     return s;
   },
 
   async activateSerial(app, serial) {
     const s = await licenseActivate(app, serial);
-    set((st) => ({
-      statusByApp: { ...st.statusByApp, [app]: s },
-      readyApps: { ...st.readyApps, [app]: true },
-    }));
+    put(app, s);
     return s;
   },
 
   async activateToken(app, token) {
     const s = await licenseActivateToken(app, token);
-    set((st) => ({
-      statusByApp: { ...st.statusByApp, [app]: s },
-      readyApps: { ...st.readyApps, [app]: true },
-    }));
+    put(app, s);
     return s;
   },
 
@@ -75,7 +79,8 @@ export const useLicenseStore = create<LicenseState>((set, get) => ({
   reset() {
     set({ statusByApp: {}, readyApps: {} });
   },
-}));
+  };
+});
 
 /** 反应式门控判定（供组件订阅）：fail-closed。 */
 export function useIsLicensed(app: string): boolean {
