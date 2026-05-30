@@ -11,7 +11,7 @@ from fastapi import Path as FPath
 from fastapi.responses import FileResponse
 
 from chayuan.server.auth.deps import require_auth_enabled
-from chayuan.server.video_generation._helpers import dh_avatars_dir
+from chayuan.server.video_generation._helpers import dh_avatars_dir, dh_products_dir
 from chayuan.server.video_generation.digital_human import jobs as dh_jobs
 from chayuan.server.video_generation.digital_human import store
 from chayuan.server.video_generation.digital_human.schemas import DhGenerateRequest
@@ -74,6 +74,17 @@ async def upload_avatar(file: UploadFile = File(...),
     return {"ref": f"user:{fid}", "kind": kind, "source": "user", "name": fid}
 
 
+@digital_human_router.post("/products")
+async def upload_product(file: UploadFile = File(...),
+                         user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".png"
+    fid = f"{int(time.time())}-{uuid.uuid4().hex[:6]}{ext}"
+    dest = os.path.join(dh_products_dir(create=True), fid)
+    with open(dest, "wb") as f:
+        f.write(await file.read())
+    return {"ref": f"product:{fid}", "name": fid}
+
+
 @digital_human_router.delete("/avatars/{name}")
 def delete_avatar(name: str = FPath(..., max_length=128),
                   user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
@@ -93,7 +104,8 @@ def generate(body: DhGenerateRequest,
              width: int = 720, height: int = 1280,
              user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
     tid = dh_jobs.submit(preset_id=body.preset_id, text=body.text,
-                         width=width, height=height)
+                         width=width, height=height,
+                         product_ref=body.product_image, template=body.template)
     return {"task_id": tid}
 
 

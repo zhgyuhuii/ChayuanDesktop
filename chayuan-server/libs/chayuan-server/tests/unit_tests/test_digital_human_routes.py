@@ -32,3 +32,20 @@ def test_generate_enqueues(monkeypatch, tmp_path):
     r = c.post("/api/v1/digital-human/generate",
                json={"preset_id": "p1", "text": "你好", "width": 720, "height": 1280})
     assert r.status_code == 200 and r.json()["task_id"] == "tid123"
+
+
+def test_upload_product(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path)
+    r = c.post("/api/v1/digital-human/products",
+               files={"file": ("p.png", b"x", "image/png")})
+    assert r.status_code == 200 and r.json()["ref"].startswith("product:")
+
+
+def test_generate_passes_product(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path)
+    seen = {}
+    monkeypatch.setattr(dh_jobs, "submit", lambda **k: seen.update(k) or "tid9")
+    r = c.post("/api/v1/digital-human/generate",
+               json={"preset_id": "p1", "text": "hi", "product_image": "product:p.png", "template": "corner"})
+    assert r.status_code == 200 and r.json()["task_id"] == "tid9"
+    assert seen.get("product_ref") == "product:p.png" and seen.get("template") == "corner"
