@@ -13,8 +13,9 @@
  */
 
 import * as React from 'react';
-import { tabsStaticTitle } from './tab-titles';
 import { useTabsStore } from '../../store/tabs';
+import { LicenseGate } from '../license';
+import { tabsStaticTitle } from './tab-titles';
 
 export interface RouteParams {
   [key: string]: string;
@@ -86,13 +87,19 @@ const VgBatchModePage = React.lazy(() =>
   import('../video-generation/BatchModePage').then((m) => ({ default: m.BatchModePage })),
 );
 const VgTimelineEditorPage = React.lazy(() =>
-  import('../video-generation/VgTimelineEditorPage').then((m) => ({ default: m.VgTimelineEditorPage })),
+  import('../video-generation/VgTimelineEditorPage').then((m) => ({
+    default: m.VgTimelineEditorPage,
+  })),
 );
 const VideoGenerationPage = React.lazy(() =>
-  import('../video-generation/VideoGenerationPage').then((m) => ({ default: m.VideoGenerationPage })),
+  import('../video-generation/VideoGenerationPage').then((m) => ({
+    default: m.VideoGenerationPage,
+  })),
 );
 const VgMaterialLibraryPage = React.lazy(() =>
-  import('../video-generation/MaterialLibraryPage').then((m) => ({ default: m.MaterialLibraryPage })),
+  import('../video-generation/MaterialLibraryPage').then((m) => ({
+    default: m.MaterialLibraryPage,
+  })),
 );
 const VgVideoLibraryPage = React.lazy(() =>
   import('../video-generation/VideoLibraryPage').then((m) => ({ default: m.VideoLibraryPage })),
@@ -119,7 +126,7 @@ const MarketplaceRoute: React.FC<{ path: string }> = ({ path }) => {
   const queryIdx = path.indexOf('?');
   const configurePid =
     queryIdx >= 0
-      ? new URLSearchParams(path.slice(queryIdx + 1)).get('configure') ?? undefined
+      ? (new URLSearchParams(path.slice(queryIdx + 1)).get('configure') ?? undefined)
       : undefined;
 
   // 清掉 configure 参数:找到当前这条 marketplace Tab,把 path 改回不带 query 的
@@ -276,7 +283,11 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
   {
     pattern: /^\/video-generation$/,
     // 草稿模式:同 /chat 路径,conversationId={null} 让 VgChatPage 渲染空态
-    render: () => <VgChatPage conversationId={null} />,
+    render: () => (
+      <LicenseGate app="video">
+        <VgChatPage conversationId={null} />
+      </LicenseGate>
+    ),
     onActivate: () => {
       void import('../../store/composer').then(({ useComposerStore }) => {
         useComposerStore.getState().setActive(null);
@@ -289,7 +300,9 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     // 历史会话:/video-generation/<convId>。Sidebar 按 conversation.mode 分流到这条
     pattern: /^\/video-generation\/(?<id>[0-9a-fA-F-]{20,})$/,
     render: (params) => (
-      <VgChatPage conversationId={params.id ? decodeURIComponent(params.id) : null} />
+      <LicenseGate app="video">
+        <VgChatPage conversationId={params.id ? decodeURIComponent(params.id) : null} />
+      </LicenseGate>
     ),
     onActivate: (params) => {
       const id = params.id ? decodeURIComponent(params.id) : '';
@@ -302,19 +315,31 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
   },
   {
     pattern: /^\/video-generation\/batch$/,
-    render: () => <VgBatchModePage />,
+    render: () => (
+      <LicenseGate app="video">
+        <VgBatchModePage />
+      </LicenseGate>
+    ),
     defaultTitle: '批量生成',
     defaultIcon: 'layers',
   },
   {
     pattern: /^\/video-generation\/timeline$/,
-    render: () => <VgTimelineEditorPage />,
+    render: () => (
+      <LicenseGate app="video">
+        <VgTimelineEditorPage />
+      </LicenseGate>
+    ),
     defaultTitle: '时间轴编辑',
     defaultIcon: 'film',
   },
   {
     pattern: /^\/video-generation\/wizard$/,
-    render: () => <VideoGenerationPage />,
+    render: () => (
+      <LicenseGate app="video">
+        <VideoGenerationPage />
+      </LicenseGate>
+    ),
     defaultTitle: '视频生成(旧版)',
     defaultIcon: 'video',
   },
