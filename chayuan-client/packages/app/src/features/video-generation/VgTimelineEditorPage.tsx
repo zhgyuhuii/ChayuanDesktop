@@ -163,6 +163,21 @@ export const VgTimelineEditorPage: React.FC = () => {
   };
   const onDropAudio = (m: DraggedMaterial, trackId?: string) => { onTimelineChange(appendAudioClip(timeline, m, undefined, trackId)); };
   const [selectedTrackId, setSelectedTrackId] = React.useState<string | null>(null);
+  // #10:跨轨选中 clip + Delete/Backspace 删除(焦点在输入框时不拦)
+  const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (!selectedClipId) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      e.preventDefault();
+      onTimelineChange(deleteAnyClip(timeline, selectedClipId));
+      setSelectedClipId(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedClipId, timeline]);
   const onSetTransform = (clipId: string, tf: { x?: number; y?: number; scale?: number }) => onTimelineChange(setClipTransform(timeline, clipId, tf));
   const [replacingClipId, setReplacingClipId] = React.useState<string | null>(null);
   const onReplaceClip = (clipId: string) => setReplacingClipId(clipId);
@@ -374,6 +389,8 @@ export const VgTimelineEditorPage: React.FC = () => {
           selectedTrackId={selectedTrackId}
           onSelectTrack={setSelectedTrackId}
           onReorderVideoTrack={(tid, dir) => onTimelineChange(reorderVideoTrack(timeline, tid, dir))}
+          selectedClipId={selectedClipId}
+          onSelectClip={setSelectedClipId}
           onSeekMs={(ms) => { setSeekMs(ms); setPlayheadMs(ms); }}
           onTimelineChange={onTimelineChange}
         />

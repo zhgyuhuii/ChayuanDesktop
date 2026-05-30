@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ChevronLeft, ChevronRight, Trash2, Replace } from 'lucide-react';
 import type { VgTimeline as VgTimelineData } from '@chayuan/api';
-import { clipDurMs, deleteClip, reorderClip, setClipDuration, setClipIn } from './timelineEdit';
+import { clipDurMs, deleteClip, reorderClip, setClipDuration, setClipIn, setClipStart, normalizeMontage } from './timelineEdit';
 
 const PX_PER_SEC = 12;
 const MIN_SEG_PX = 24;
@@ -24,7 +24,10 @@ export const VgTimeline: React.FC<{
   onClipContextMenu?: (e: React.MouseEvent, clipId: string) => void;
   /** 指定渲染哪条视频轨(P5c-2 多视频轨);不传 = 第一条 video 轨。 */
   trackId?: string;
-}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, videoTrackOnly, onReplaceClip, onClipContextMenu, trackId }) => {
+  /** 全局选中 clip(#10:跨轨选中 + Delete 删除);命中则高亮。 */
+  selectedClipId?: string | null;
+  onSelectClip?: (clipId: string) => void;
+}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, videoTrackOnly, onReplaceClip, onClipContextMenu, trackId, selectedClipId, onSelectClip }) => {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const pps = pxPerSec ?? PX_PER_SEC;
   const videoTrack = trackId
@@ -67,6 +70,29 @@ export const VgTimeline: React.FC<{
     window.addEventListener('pointerup', onUp);
   };
 
+  // 整块拖动:改 track_start_ms 跟随指针;松手时主轨归一成新顺序(#11)。
+  // 未移动(阈值内)= 点选(#10)。点到把手/按钮的 pointerdown 已 stopPropagation,不进这里。
+  const startBodyDrag = (e: React.PointerEvent, clipId: string, origStart: number) => {
+    if (!onChange) return;
+    if ((e.target as HTMLElement).closest('button,[data-handle]')) return;
+    const startX = e.clientX;
+    let moved = false;
+    const onMove = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - startX) < 4) return;
+      moved = true;
+      const deltaMs = ((ev.clientX - startX) / pps) * 1000;
+      onChange(setClipStart(timeline, clipId, origStart + deltaMs));
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      if (!moved) { setSelectedId(clipId); onSelectClip?.(clipId); }
+      else if (editable) { onChange(normalizeMontage(timeline)); }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
   const trackBase =
     'relative h-12 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] overflow-x-auto cy-hide-scrollbar';
 
@@ -77,27 +103,27 @@ export const VgTimeline: React.FC<{
         <div className={videoTrackOnly ? 'relative h-full w-full' : trackBase} style={{ overflow: 'visible' }}>
           {!videoTrackOnly && <span className="absolute left-1 top-0.5 z-10 text-[9px] text-[var(--cy-text-tertiary)]">视频</span>}
           {segs.map((s) => {
-            const selected = editable && selectedId === s.id;
+            const selected = (editable && selectedId === s.id) || selectedClipId === s.id;
             const dur = clipDurMs(clips[s.idx]!);
             return (
               <div
                 key={s.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => (editable ? setSelectedId(s.id) : onClipClick?.(s.id))}
+                onPointerDown={(e) => startBodyDrag(e, s.id, clips[s.idx]!.track_start_ms)}
                 onContextMenu={(e) => { if (onClipContextMenu) { e.preventDefault(); onClipContextMenu(e, s.id); } }}
-                onKeyDown={(e) => { if (e.key === 'Enter') (editable ? setSelectedId(s.id) : onClipClick?.(s.id)); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { setSelectedId(s.id); onSelectClip?.(s.id); if (!editable) onClipClick?.(s.id); } }}
                 style={{
                   left: s.leftPx, width: s.widthPx,
                   backgroundImage: thumbUrlOf?.(s.idx) ? `url(${thumbUrlOf(s.idx)})` : undefined,
                   backgroundSize: 'cover', backgroundPosition: 'center',
                 }}
-                className={`absolute top-2 h-8 cursor-pointer overflow-hidden rounded border text-[10px] ${
+                className={`absolute top-2 h-8 cursor-grab active:cursor-grabbing overflow-hidden rounded border text-[10px] ${
                   selected
                     ? 'z-20 border-[var(--cy-brand-600)] ring-2 ring-[var(--cy-brand-400)]'
                     : 'border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)] hover:bg-[var(--cy-brand-100)]'
                 }`}
-                title={`片段 ${s.idx + 1} · ${(dur / 1000).toFixed(1)}s`}
+                title={`片段 ${s.idx + 1} · ${(dur / 1000).toFixed(1)}s · 拖动调顺序`}
               >
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <span className="rounded bg-black/40 px-1 text-white">{s.idx + 1}</span>
@@ -105,20 +131,20 @@ export const VgTimeline: React.FC<{
                 {editable && (
                   <>
                     {/* 左把手:裁 in */}
-                    <span
+                    <span data-handle
                       onPointerDown={(e) => startDrag(e, s.id, 'in', s.in_ms)}
                       className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize rounded-l bg-[var(--cy-brand-500)]/60 hover:bg-[var(--cy-brand-600)]"
                       title="拖动裁剪入点"
                     />
                     {/* 右把手:改时长 */}
-                    <span
+                    <span data-handle
                       onPointerDown={(e) => startDrag(e, s.id, 'dur', dur)}
                       className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize rounded-r bg-[var(--cy-brand-500)]/60 hover:bg-[var(--cy-brand-600)]"
                       title="拖动改时长"
                     />
                   </>
                 )}
-                {selected && onChange && (
+                {selected && onChange && editable && (
                   <div className="absolute -top-6 left-0 z-30 flex items-center gap-0.5 rounded bg-[var(--cy-surface-base)] p-0.5 shadow ring-1 ring-[var(--cy-border-subtle)]">
                     <button type="button" onClick={(e) => { e.stopPropagation(); onChange(reorderClip(timeline, s.id, s.idx - 1)); }}
                       disabled={s.idx === 0}

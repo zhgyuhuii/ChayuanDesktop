@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clipDurMs, recomputeStarts, reorderClip, deleteClip, setClipDuration, setClipIn } from './timelineEdit';
+import { clipDurMs, recomputeStarts, reorderClip, deleteClip, setClipDuration, setClipIn, appendClipFromMaterial, setClipStart, normalizeMontage } from './timelineEdit';
 import type { VgTimeline } from '@chayuan/api';
 
 const mk = (): VgTimeline => ({
@@ -15,6 +15,29 @@ it('clipDurMs uses out-in, falls back to duration_ms', () => {
   expect(clipDurMs({ id: 'x', source: {}, track_start_ms: 0, in_ms: 0, out_ms: 3000 })).toBe(3000);
   expect(clipDurMs({ id: 'x', source: {}, track_start_ms: 0, in_ms: 1000, out_ms: 4000 })).toBe(3000);
   expect(clipDurMs({ id: 'x', source: {}, track_start_ms: 0, in_ms: 0, out_ms: 0, duration_ms: 5000 })).toBe(5000);
+});
+
+it('appendClipFromMaterial 主轨 drop 不广播到其它视频轨(#13 回归)', () => {
+  const base: VgTimeline = { version: 1, duration_ms: 0, tracks: [
+    { id: 'v', kind: 'video', clips: [{ id: 'a', source: { path: '/a.mp4' }, track_start_ms: 0, in_ms: 0, out_ms: 3000 }] },
+    { id: 'v2', kind: 'video', removable: true, clips: [] },
+  ] };
+  const r = appendClipFromMaterial(base, { materialId: 'm1', kind: 'video', durationMs: 2000 });
+  expect(r.tracks[0]!.clips!.length).toBe(2); // 主轨 a + 新 clip
+  expect(r.tracks[1]!.clips!.length).toBe(0); // 附加轨仍为空,不被广播
+});
+
+it('setClipStart 自由移动任意轨 clip;normalizeMontage 按 start 重排紧贴', () => {
+  const base: VgTimeline = { version: 1, duration_ms: 0, tracks: [
+    { id: 'v', kind: 'video', clips: [
+      { id: 'a', source: {}, track_start_ms: 0, in_ms: 0, out_ms: 3000 },
+      { id: 'b', source: {}, track_start_ms: 3000, in_ms: 0, out_ms: 2000 },
+    ] },
+  ] };
+  const moved = setClipStart(base, 'a', 9999); // a 拖到 b 之后
+  const norm = normalizeMontage(moved).tracks[0]!.clips!;
+  expect(norm.map((c) => c.id)).toEqual(['b', 'a']);
+  expect(norm.map((c) => c.track_start_ms)).toEqual([0, 2000]);
 });
 
 it('recomputeStarts makes clips abut', () => {

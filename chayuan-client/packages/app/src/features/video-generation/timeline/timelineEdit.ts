@@ -15,13 +15,13 @@ function videoClips(t: VgTimeline): VgTimelineClip[] {
 }
 
 function withVideoClips(t: VgTimeline, clips: VgTimelineClip[]): VgTimeline {
-  let hasVideo = false;
-  const tracks = (t.tracks || []).map((tr) => {
-    if (tr.kind !== 'video') return tr;
-    hasVideo = true;
-    return { ...tr, clips };
-  });
-  if (!hasVideo) tracks.push({ id: 'v', kind: 'video' as const, clips });
+  // 只改「第一条 video 轨」(主轨)。⚠ 之前 map 给每条 video 轨都赋同一份 clips,
+  // 多视频轨(PIP)存在后往主轨 drop 会把素材广播到所有视频轨(#13 下一轨被填充 +
+  // 连带 #12 预览遮挡)。这里精确只写主轨。
+  const firstIdx = (t.tracks || []).findIndex((tr) => tr.kind === 'video');
+  const tracks = firstIdx < 0
+    ? [...(t.tracks || []), { id: 'v', kind: 'video' as const, clips }]
+    : (t.tracks || []).map((tr, i) => (i === firstIdx ? { ...tr, clips } : tr));
   let cursor = 0;
   for (const c of clips) cursor += clipDurMs(c);
   return { ...t, tracks, duration_ms: Math.max(cursor, t.duration_ms ?? 0) };
@@ -49,6 +49,37 @@ export function reorderClip(t: VgTimeline, clipId: string, toIndex: number): VgT
 
 export function deleteClip(t: VgTimeline, clipId: string): VgTimeline {
   return recomputeStarts(withVideoClips(t, videoClips(t).filter((c) => c.id !== clipId)));
+}
+
+/** 替换某条轨的 clips 并按全轨末端刷新 duration_ms(泛化,任意 kind)。 */
+function withTrackClips(t: VgTimeline, trackId: string, clips: VgTimelineClip[]): VgTimeline {
+  const tracks = (t.tracks || []).map((tr) => (tr.id === trackId ? { ...tr, clips } : tr));
+  let dur = 0;
+  for (const tr of tracks) for (const c of (tr.clips || [])) dur = Math.max(dur, (c.track_start_ms || 0) + clipDurMs(c));
+  return { ...t, tracks, duration_ms: Math.max(dur, 0) };
+}
+
+/** 自由设置某 clip 的起始时间(>=0),用于 PIP/音频轨拖动改位置(任意轨)。 */
+export function setClipStart(t: VgTimeline, clipId: string, startMs: number): VgTimeline {
+  const s = Math.max(0, Math.round(startMs));
+  const tr = (t.tracks || []).find((x) => (x.clips || []).some((c) => c.id === clipId));
+  if (!tr) return t;
+  const clips = (tr.clips || []).map((c) => (c.id === clipId ? { ...c, track_start_ms: s } : c));
+  return withTrackClips(t, tr.id, clips);
+}
+
+/** 主视频轨拖动结束后归一:按当前 start 排序再紧贴重算(把自由拖动落成新顺序)。 */
+export function normalizeMontage(t: VgTimeline): VgTimeline {
+  const tr = (t.tracks || []).find((x) => x.kind === 'video');
+  if (!tr) return t;
+  const sorted = [...(tr.clips || [])].sort((a, b) => (a.track_start_ms || 0) - (b.track_start_ms || 0));
+  let cursor = 0;
+  const next = sorted.map((c) => {
+    const nc = { ...c, track_start_ms: cursor };
+    cursor += clipDurMs(c);
+    return nc;
+  });
+  return withTrackClips(t, tr.id, next);
 }
 
 /** 设时长:out = in + dur(>=MIN_DUR);随后重算 starts。 */

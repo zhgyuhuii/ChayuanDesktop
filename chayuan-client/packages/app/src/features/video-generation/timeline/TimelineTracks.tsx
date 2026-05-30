@@ -37,7 +37,9 @@ export const TimelineTracks: React.FC<{
   selectedTrackId?: string | null;
   onSelectTrack?: (trackId: string) => void;
   onReorderVideoTrack?: (trackId: string, dir: 'up' | 'down') => void;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, onEditSubtitle, selectedTrackId, onSelectTrack, onReorderVideoTrack }) => {
+  selectedClipId?: string | null;
+  onSelectClip?: (clipId: string) => void;
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, thumbUrlOf, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, onEditSubtitle, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const audioTracks = (timeline.tracks || []).filter((t) => t.kind === 'audio');
@@ -111,6 +113,7 @@ export const TimelineTracks: React.FC<{
                   )}
                   <VideoTrack timeline={timeline} trackId={tr.id} editable={i === 0} videoTrackOnly pxPerSec={pxPerSec}
                     thumbUrlOf={i === 0 ? thumbUrlOf : undefined} onChange={onTimelineChange} onReplaceClip={onReplaceClip}
+                    selectedClipId={selectedClipId} onSelectClip={onSelectClip}
                     onClipContextMenu={(e, clipId) => onLaneContextMenu?.(e, 'video', clipId, tr.id, !!tr.removable)} />
                 </div>
               );
@@ -131,6 +134,7 @@ export const TimelineTracks: React.FC<{
                   try { const m = JSON.parse(raw) as DraggedMaterial; if (m.kind === 'audio') onDropAudio?.(m, tr?.id); } catch { /* 忽略 */ }
                 }}>
                 <AudioInsertTrack timeline={timeline} trackId={tr?.id} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx}
+                  onChange={onTimelineChange} selectedClipId={selectedClipId} onSelectClip={onSelectClip}
                   onClipContextMenu={(e, clipId) => onLaneContextMenu?.(e, 'audio', clipId, tr?.id, !!tr?.removable)} />
               </div>
             ))}
