@@ -282,6 +282,8 @@ def get_recipes(framework: str) -> List[InstallRecipe]:
         return _pip_with_mirrors("cosyvoice")
     if framework == "voxcpm2":
         return _voxcpm2(host)
+    if framework == "sadtalker":
+        return _sadtalker(host)
     if framework == "rapidocr":
         return _pip_with_mirrors("rapidocr-onnxruntime")
     if framework == "paddleocr":
@@ -680,6 +682,14 @@ def _voxcpm2(host: str) -> List[InstallRecipe]:
             note="国内网络优选",
             requires="git",
         ))
+    return out
+
+
+def _sadtalker(host: str) -> List[InstallRecipe]:
+    """SadTalker 数字人(ModelScope talking-head pipeline)。需 GPU + modelscope 拉
+    wwd123/sadtalker checkpoints(首次 pipeline() 自动下)。"""
+    out: List[InstallRecipe] = []
+    out.extend(_pip_with_mirrors("modelscope"))
     return out
 
 

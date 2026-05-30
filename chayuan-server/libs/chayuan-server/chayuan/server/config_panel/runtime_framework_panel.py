@@ -151,6 +151,17 @@ _FRAMEWORK_CATALOG: Tuple[_FrameworkSpec, ...] = (
         bin_names=("voxcpm",),
     ),
     _FrameworkSpec(
+        # SadTalker — 高清 talking-head 数字人驱动;需 GPU + ModelScope checkpoints
+        # 端口 18680 — 避开已用端口(funasr 18180/cosyvoice 18280/rapidocr 18380/
+        #   paddleocr 18480/voxcpm2 18580)
+        name="sadtalker", label="SadTalker (数字人·高清头动)",
+        capabilities=("talking-head",),
+        default_url="http://127.0.0.1:18680", health_path="/health",
+        install_kind="pip", install_pkg="modelscope",
+        bin_names=(),
+        needs_gpu=True,
+    ),
+    _FrameworkSpec(
         name="piper", label="Piper TTS",
         capabilities=("tts",),
         default_url="", health_path="",

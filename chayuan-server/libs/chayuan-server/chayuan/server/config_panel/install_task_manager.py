@@ -485,6 +485,16 @@ _START_RECIPES: Dict[str, InstallRecipe] = {
         note=f"启 chayuan 内置 VoxCPM 2 HTTP 包装;日志 {_bg_log_path('voxcpm2')}",
         requires="",
     ),
+    "sadtalker": InstallRecipe(
+        label="python -m chayuan.server.modality.sadtalker_server",
+        cmd=_bg_cmd(
+            [sys.executable, "-m", "chayuan.server.modality.sadtalker_server",
+             "--host", "127.0.0.1", "--port", "18680"],
+            _bg_log_path("sadtalker"),
+        ),
+        note=f"启 chayuan 内置 SadTalker HTTP 包装(需 GPU);日志 {_bg_log_path('sadtalker')}",
+        requires="",
+    ),
     "rapidocr": InstallRecipe(
         label="python -m chayuan.server.modality.rapidocr_server",
         cmd=_bg_cmd(
