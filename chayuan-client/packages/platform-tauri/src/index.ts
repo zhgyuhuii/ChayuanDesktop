@@ -13,7 +13,6 @@
  */
 
 import type {
-  ActivationRecord,
   CaptureApi,
   ClipboardApi,
   DataDirApi,
@@ -22,8 +21,6 @@ import type {
   DialogApi,
   FsApi,
   Database as IDatabase,
-  LicenseCheck,
-  LicenseHostApi,
   NetApi,
   NotifyApi,
   PickDirectoryOptions,
@@ -203,40 +200,6 @@ const tauriSecure: SecureStore = {
     } catch {
       /* ignore */
     }
-  },
-};
-
-// ──────────────────────────────────────────────────────────────
-// License（软件授权宿主能力）
-//
-// 指纹 + B1 短码验签走 Rust 命令(machine-uid / HMAC 密钥编进二进制);
-// 防回拨激活记录复用 Stronghold 安全存储(加密 + 防篡改)。
-// Rust 侧需提供两个命令(必须匹配 server/license 的 wire 格式与黄金向量):
-//   - `license_fingerprint() -> String`            : hex(sha256(machine_uid))[..16]
-//   - `license_verify_shortcode(serial) -> LicenseCheck`
-// ──────────────────────────────────────────────────────────────
-const LICENSE_KEY = (app: string): string => `cy.license.${app}`;
-
-const tauriLicense: LicenseHostApi = {
-  async fingerprint() {
-    const { invoke } = await import('@tauri-apps/api/core');
-    return invoke<string>('license_fingerprint');
-  },
-  async verifyShortcode(serial) {
-    const { invoke } = await import('@tauri-apps/api/core');
-    return invoke<LicenseCheck>('license_verify_shortcode', { serial });
-  },
-  async readActivation(app) {
-    const raw = await tauriSecure.get(LICENSE_KEY(app));
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as ActivationRecord;
-    } catch {
-      return null;
-    }
-  },
-  async writeActivation(rec) {
-    await tauriSecure.set(LICENSE_KEY(rec.app), JSON.stringify(rec));
   },
 };
 
@@ -1130,6 +1093,5 @@ export async function createTauriPlatform(env: {
     preview: tauriPreview,
     dataDir: tauriDataDir,
     sidecar: tauriSidecar,
-    license: tauriLicense,
   };
 }

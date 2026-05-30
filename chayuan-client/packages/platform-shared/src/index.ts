@@ -333,50 +333,6 @@ export interface RuntimeInfo {
   systemLocale?: string;
 }
 
-/**
- * 离线/在线软件授权宿主能力(单机绑定)。**桌面专有**,Web 端为 undefined。
- *
- * 设计分工(见 ARCHITECTURE.md §1 / CONTRIBUTING §包边界):
- * - 纯验签算法(Ed25519 令牌 / base32 / 到期计算)在 `@chayuan/license`,无机密,跨平台直接 import。
- * - 这里只放**平台相关**的能力:本机指纹、B1 短码验签(HMAC 密钥编进二进制)、防回拨记录读写。
- * - 桌面实现在 platform-tauri(指纹=machine-uid;B1=Rust 命令;记录=Stronghold)。
- * - Web 端不做单机绑定(指纹不可靠),恒在线走账号/会话授权,故整个能力为 undefined。
- */
-export interface LicenseCheck {
-  valid: boolean;
-  /** 失败原因:length/decode/checksum/unknown-key/signature 等 */
-  reason?: string;
-  /** 通过时:到期时间(ISO) */
-  expireAt?: string;
-  /** 通过时:授权来源通道 */
-  source?: 'shortcode' | 'token';
-}
-
-export interface ActivationRecord {
-  /** 本机指纹(8 字节 hex);换机即不匹配 */
-  mid: string;
-  app: string;
-  /** 到期时间(ISO) */
-  expireAt: string;
-  /** 防时钟回拨:见过的最大时间戳(epoch ms),单调推进 */
-  seenMax: number;
-  /** 激活来源通道 */
-  source: 'online' | 'relay' | 'file' | 'airgap' | 'shortcode';
-  /** 原始凭证(短码或令牌),便于复核/重放 */
-  credential: string;
-}
-
-export interface LicenseHostApi {
-  /** 本机指纹(8 字节 hex)。桌面=Rust machine-uid 派生;无法获取返回 null。 */
-  fingerprint(): Promise<string>;
-  /** B1 短码离线验签。HMAC 密钥编在二进制内,桌面经 Rust 命令完成,密钥不出原生层。 */
-  verifyShortcode(serial: string): Promise<LicenseCheck>;
-  /** 读防回拨激活记录(Stronghold 等安全存储);无则 null。 */
-  readActivation(app: string): Promise<ActivationRecord | null>;
-  /** 写防回拨激活记录(签名保护 + seenMax 单调)。 */
-  writeActivation(rec: ActivationRecord): Promise<void>;
-}
-
 export interface Platform {
   kind: PlatformKind;
   runtime: RuntimeInfo;
@@ -401,8 +357,6 @@ export interface Platform {
   dataDir?: DataDirApi;
   /** 单机版 chayuan-server sidecar 启停(仅桌面端;Web 构建为 undefined) */
   sidecar?: SidecarApi;
-  /** 软件授权宿主能力(单机绑定;仅桌面端,Web 构建为 undefined → 业务 capability check) */
-  license?: LicenseHostApi;
 }
 
 // ──────────────────────────────────────────────────────────────
