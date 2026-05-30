@@ -16,3 +16,11 @@ def test_engine_protocol_shape():
 def test_get_engine_returns_wav2lip():
     e = dh_engine.get_engine()
     assert hasattr(e, "generate")
+
+
+import importlib.util, pytest
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="no torch")
+def test_wav2lip_module_importable():
+    from chayuan.server.video_generation.digital_human.wav2lip import infer
+    assert hasattr(infer, "load_models") and hasattr(infer, "run")
