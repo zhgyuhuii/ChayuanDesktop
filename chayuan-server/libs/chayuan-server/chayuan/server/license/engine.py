@@ -159,3 +159,22 @@ def redeem(root, code: str, cfg: dict, *, now=None) -> dict:
         _apply_grant(root, g, now)
     entstore.add_redeemed(root, code_id)
     return {"ok": True, "applied": grants}
+
+
+def redeem_shortcode(root, serial: str, app: str, cfg: dict, *, now=None) -> dict:
+    """25 位 B1 短码:HMAC 验签(绑本机指纹)→ 时间写进 entstore(取 max)。"""
+    now = _now() if now is None else now
+    fp = _fp(root)
+    fp_bytes = bytes.fromhex(fp)
+    r = verify_shortcode(serial, fp_bytes, cfg.get("hmac_keys", {}))
+    if not r.get("valid"):
+        return {"ok": False, "reason": r.get("reason") or "signature"}
+    exp = r["expireAt"]
+    state = _normalize(entstore.read_state(root, app), now)
+    cur = _ts(state["timeExpireAt"]) if state["timeExpireAt"] else 0
+    if _ts(exp) > cur:
+        state["timeExpireAt"] = exp
+    if now > state.get("seenMax", 0):
+        state["seenMax"] = now
+    entstore.write_state(root, state)
+    return {"ok": True, "timeExpireAt": state["timeExpireAt"]}
