@@ -41,6 +41,17 @@ export const VgTaskListPanel: React.FC<{
   // finalize 后草稿会被升为 stop_at=video,正常显示渲染进度。
   const tasks = (q.data?.items ?? []).filter((t) => t.stop_at === 'video');
 
+  // 任务"刚完成"自动刷「我的视频」—— 5s 轮询发现新 complete 任务时 invalidate vg.videos,
+  // 不必用户手动刷新(合成结束后成片立刻出现在列表)。
+  const seenCompleteRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    const nowComplete = tasks.filter((t) => t.state === 'complete').map((t) => t.task_id);
+    const seen = seenCompleteRef.current;
+    let isNew = false;
+    for (const id of nowComplete) { if (!seen.has(id)) { seen.add(id); isNew = true; } }
+    if (isNew) void qc.invalidateQueries({ queryKey: ['vg.videos'] });
+  }, [tasks, qc]);
+
   const grouped = React.useMemo(() => {
     const g: Record<Group, VgTask[]> = { running: [], failed: [], done: [] };
     for (const t of tasks) g[groupOf(t.state)].push(t);
