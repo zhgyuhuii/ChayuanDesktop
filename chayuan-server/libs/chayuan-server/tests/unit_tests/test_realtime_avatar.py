@@ -22,3 +22,9 @@ def test_realtime_avatar_install_recipe():
     out = get_recipes("realtime_avatar")
     joined = " ".join(" ".join(r.cmd) for r in out)
     assert "aiortc" in joined
+
+
+def test_realtime_avatar_server_imports_clean():
+    import importlib
+    m = importlib.import_module("chayuan.server.modality.realtime_avatar_server")
+    assert hasattr(m, "main") and hasattr(m, "_register_routes")
