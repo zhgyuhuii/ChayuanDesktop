@@ -15,7 +15,7 @@
  */
 import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Wifi, WifiOff, Play, Loader2, Mic, Square, Upload, Trash2 } from 'lucide-react';
+import { Wifi, WifiOff, Play, Loader2, Mic, Square, Upload, Trash2, Pencil } from 'lucide-react';
 import { cn } from '@chayuan/ui';
 import { videoGeneration, type VgVoiceProvider } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
@@ -143,6 +143,7 @@ export const VoicePicker: React.FC<{
 
   // ── 克隆音色:上传 / 录音 / 删除 ────────────────────────────────────
   const [cloneBusy, setCloneBusy] = React.useState(false);
+  const [cloneEngine, setCloneEngine] = React.useState<'voxcpm' | 'cosyvoice'>('voxcpm');
   const [recording, setRecording] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const recRef = React.useRef<MediaRecorder | null>(null);
@@ -160,16 +161,19 @@ export const VoicePicker: React.FC<{
       if (!name || !name.trim()) return;
       setCloneBusy(true);
       try {
-        const r = await videoGeneration.uploadCloneVoice({ file: blob, name: name.trim() });
+        const r = await videoGeneration.uploadCloneVoice({ file: blob, name: name.trim(), engine: cloneEngine });
         await qc.invalidateQueries({ queryKey: ['vg.voices', 'clone'] });
         onChange({ ...value, voice_name: r.name }); // 'clone:<id>'
+        if (r.quality?.warnings?.length) {
+          reportError(new Error(r.quality.warnings.join('；')), '样本质量提示');
+        }
       } catch (e) {
         reportError(e as Error, '克隆音色注册失败');
       } finally {
         setCloneBusy(false);
       }
     },
-    [onChange, value, qc],
+    [onChange, value, qc, cloneEngine],
   );
 
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -210,6 +214,24 @@ export const VoicePicker: React.FC<{
       onChange({ ...value, voice_name: '' });
     } catch (e) {
       reportError(e as Error, '删除克隆音色失败');
+    } finally {
+      setCloneBusy(false);
+    }
+  };
+
+  const onRenameClone = async () => {
+    const cur = value.voice_name;
+    if (!cur || !cur.startsWith('clone:')) return;
+    const cid = cur.slice('clone:'.length);
+    const curLabel = voices.find((v) => v.id === cur)?.label ?? '';
+    const name = await promptDialog('重命名克隆音色', { defaultValue: curLabel, title: '重命名' });
+    if (!name || !name.trim()) return;
+    setCloneBusy(true);
+    try {
+      await videoGeneration.renameCloneVoice(cid, name.trim());
+      await qc.invalidateQueries({ queryKey: ['vg.voices', 'clone'] });
+    } catch (e) {
+      reportError(e as Error, '重命名失败');
     } finally {
       setCloneBusy(false);
     }
@@ -277,6 +299,20 @@ export const VoicePicker: React.FC<{
           />
           <button
             type="button"
+            onClick={() => setCloneEngine((e) => (e === 'cosyvoice' ? 'voxcpm' : 'cosyvoice'))}
+            disabled={cloneBusy}
+            title={cloneEngine === 'cosyvoice' ? '高质量 CosyVoice2(需 CosyVoice 运行时)' : '默认 VoxCPM 引擎'}
+            className={cn(
+              'inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[10px] disabled:opacity-50',
+              cloneEngine === 'cosyvoice'
+                ? 'border border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                : 'border border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]',
+            )}
+          >
+            {cloneEngine === 'cosyvoice' ? '高质量' : '标准'}
+          </button>
+          <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={cloneBusy}
             className="inline-flex h-6 items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] px-1.5 text-[10px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50"
@@ -298,15 +334,26 @@ export const VoicePicker: React.FC<{
             {recording ? '停止' : '录音'}
           </button>
           {value.voice_name.startsWith('clone:') && (
-            <button
-              type="button"
-              onClick={() => void onDeleteClone()}
-              disabled={cloneBusy}
-              title="删除当前克隆音色"
-              className="inline-flex h-6 items-center rounded-md px-1 text-[10px] text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => void onRenameClone()}
+                disabled={cloneBusy}
+                title="重命名当前克隆音色"
+                className="inline-flex h-6 items-center rounded-md px-1 text-[10px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void onDeleteClone()}
+                disabled={cloneBusy}
+                title="删除当前克隆音色"
+                className="inline-flex h-6 items-center rounded-md px-1 text-[10px] text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </>
           )}
           {cloneBusy && <Loader2 className="h-3 w-3 animate-spin text-[var(--cy-brand-600)]" />}
         </>

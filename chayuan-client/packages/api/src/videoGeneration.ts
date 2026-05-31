@@ -729,16 +729,26 @@ export async function vgUploadCloneVoice(args: {
   file: Blob;
   name: string;
   refText?: string;
-}): Promise<{ id: string; name: string; label: string }> {
+  engine?: 'voxcpm' | 'cosyvoice';
+}): Promise<{ id: string; name: string; label: string; quality?: { duration: number; warnings: string[] } }> {
   const fd = new FormData();
   // Blob(录音)无文件名 → 显式给个名,后端按内容转码不依赖扩展名。
   const fname = (args.file as File).name || 'sample.webm';
   fd.append('file', args.file, fname);
   fd.append('name', args.name);
   if (args.refText) fd.append('ref_text', args.refText);
-  return rd<{ id: string; name: string; label: string }>(
+  if (args.engine) fd.append('engine', args.engine);
+  return rd<{ id: string; name: string; label: string; quality?: { duration: number; warnings: string[] } }>(
     '/api/v1/video-generation/voices/clone',
     { method: 'POST', body: fd },
+  );
+}
+
+/** 重命名克隆音色。cid = voice_name 去掉 'clone:' 前缀。 */
+export async function vgRenameCloneVoice(cid: string, name: string): Promise<{ id: string; name: string; label: string }> {
+  return rd<{ id: string; name: string; label: string }>(
+    `/api/v1/video-generation/voices/clone/${encodeURIComponent(cid)}`,
+    { method: 'PATCH', body: JSON.stringify({ name }), headers: { 'Content-Type': 'application/json' } },
   );
 }
 
@@ -915,6 +925,7 @@ export const videoGeneration = {
   downloadVoice: vgDownloadVoice,
   uploadCloneVoice: vgUploadCloneVoice,
   deleteCloneVoice: vgDeleteCloneVoice,
+  renameCloneVoice: vgRenameCloneVoice,
   taskFileUrl: vgTaskFileUrl,
   downloadTaskFile: vgDownloadTaskFile,
   materialFileUrl: vgMaterialFileUrl,
