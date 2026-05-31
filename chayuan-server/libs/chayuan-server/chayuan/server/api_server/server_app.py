@@ -221,16 +221,27 @@ def create_app(run_mode: str = None):
         log = logging.getLogger("chayuan.startup")
 
         def _run() -> None:
-            with phase("first-launch-hooks"):
+            # run_first_launch_hooks 内部的本地 runtime 预热会 asyncio.get_event_loop()。
+            # 本函数跑在 to_thread 的 worker 线程里,默认没有 loop → 给它建一个,
+            # 否则报 "There is no current event loop in thread"(预热静默失败)。
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                with phase("first-launch-hooks"):
+                    try:
+                        from chayuan.server.model_registry.first_launch import run_first_launch_hooks
+                        r = run_first_launch_hooks()
+                        if r.promoted:
+                            log.info("[first_launch] auto-promoted defaults: %s", r.promoted)
+                        if r.manuals_md or r.manuals_docx:
+                            log.info("[first_launch] deployed manuals: md=%s docx=%s", r.manuals_md, r.manuals_docx)
+                    except Exception:  # noqa: BLE001
+                        log.exception("run_first_launch_hooks failed")
+            finally:
                 try:
-                    from chayuan.server.model_registry.first_launch import run_first_launch_hooks
-                    r = run_first_launch_hooks()
-                    if r.promoted:
-                        log.info("[first_launch] auto-promoted defaults: %s", r.promoted)
-                    if r.manuals_md or r.manuals_docx:
-                        log.info("[first_launch] deployed manuals: md=%s docx=%s", r.manuals_md, r.manuals_docx)
+                    loop.close()
                 except Exception:  # noqa: BLE001
-                    log.exception("run_first_launch_hooks failed")
+                    pass
 
         asyncio.create_task(asyncio.to_thread(_run))
 
