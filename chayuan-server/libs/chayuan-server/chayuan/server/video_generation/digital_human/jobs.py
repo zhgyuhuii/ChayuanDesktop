@@ -27,20 +27,71 @@ _LOCK = threading.Lock()
 _PENDING: Dict[str, dict] = {}
 
 
+_PERSISTED_LOADED = False
+_MAX_PERSIST = 100  # 只留最近 N 条,避免无限增长
+
+
+def _tasks_path() -> str:
+    import os as _os
+    return _os.path.join(_helpers.digital_human_dir(create=True), "tasks.json")
+
+
+def _persist_locked() -> None:
+    """把当前任务状态写盘(调用方须已持 _LOCK)。失败忽略,不阻塞主链路。"""
+    try:
+        import json as _json
+        rows = [st.model_dump() for st in _STATUS.values()]
+        rows = rows[-_MAX_PERSIST:]
+        with open(_tasks_path(), "w", encoding="utf-8") as f:
+            _json.dump(rows, f, ensure_ascii=False)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[dh] 任务持久化失败(忽略): %r", e)
+
+
+def _ensure_loaded_locked() -> None:
+    """首次访问时从盘加载历史任务(调用方须已持 _LOCK)。"""
+    global _PERSISTED_LOADED
+    if _PERSISTED_LOADED:
+        return
+    _PERSISTED_LOADED = True
+    try:
+        import json as _json, os as _os
+        p = _tasks_path()
+        if not _os.path.isfile(p):
+            return
+        with open(p, "r", encoding="utf-8") as f:
+            rows = _json.load(f) or []
+        for r in rows:
+            try:
+                st = DhTaskStatus(**r)
+                # 重启后仍"运行中"的是僵尸(进程没了),标失败,避免前端永远转圈
+                if st.state in ("pending", "running"):
+                    st = st.model_copy(update={"state": "failed", "error": "进程已重启,任务中断"})
+                _STATUS.setdefault(st.task_id, st)
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[dh] 任务历史加载失败(忽略): %r", e)
+
+
 def _set(tid: str, **kw) -> None:
     with _LOCK:
+        _ensure_loaded_locked()
         cur = _STATUS.get(tid) or DhTaskStatus(task_id=tid, state="pending")
         _STATUS[tid] = cur.model_copy(update=kw)
+        _persist_locked()
 
 
 def get_status(tid: str) -> DhTaskStatus:
     with _LOCK:
+        _ensure_loaded_locked()
         return _STATUS.get(tid) or DhTaskStatus(task_id=tid, state="failed", error="未知任务")
 
 
 def list_statuses() -> list[DhTaskStatus]:
-    """所有已登记任务的状态快照(内存态;进程重启即清)。"""
+    """所有已登记任务的状态快照(已落盘,进程重启后仍在;运行中僵尸标失败)。"""
     with _LOCK:
+        _ensure_loaded_locked()
         return list(_STATUS.values())
 
 

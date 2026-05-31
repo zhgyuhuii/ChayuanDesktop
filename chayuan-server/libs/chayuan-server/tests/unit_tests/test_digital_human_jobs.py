@@ -241,3 +241,21 @@ def test_gen_slot_clips_uses_per_slot_voice(monkeypatch, tmp_path):
     assert len(clips) == 2
     assert seen[0] == ("sherpa", "vz")
     assert seen[1] == ("piper", "default")
+
+
+def test_task_persistence_survives_restart(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    dh_jobs._STATUS.clear(); dh_jobs._PERSISTED_LOADED = False
+    dh_jobs._set("tk1", state="complete", progress=100, result_path="/x.mp4")
+    # 模拟进程重启:清内存 + 复位加载标志
+    dh_jobs._STATUS.clear(); dh_jobs._PERSISTED_LOADED = False
+    sts = {s.task_id: s for s in dh_jobs.list_statuses()}
+    assert "tk1" in sts and sts["tk1"].state == "complete"
+
+
+def test_task_zombie_running_marked_failed(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    dh_jobs._STATUS.clear(); dh_jobs._PERSISTED_LOADED = False
+    dh_jobs._set("tk2", state="running", progress=50)
+    dh_jobs._STATUS.clear(); dh_jobs._PERSISTED_LOADED = False
+    assert dh_jobs.get_status("tk2").state == "failed"
