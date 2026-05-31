@@ -20,7 +20,7 @@ const DEFAULT_ENGINES: Array<{ id: EngineId; label: string; kind: 'cpu' | 'gpu';
   { id: 'wav2lip', label: 'Wav2Lip', kind: 'cpu', installed: true },
 ];
 
-export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string }> = ({ presets, initialPresetId }) => {
+export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void }> = ({ presets, initialPresetId, onPresetChange }) => {
   const [pid, setPid] = React.useState(initialPresetId ?? '');
   const [text, setText] = React.useState('');
   const [taskId, setTaskId] = React.useState<string | null>(null);
@@ -73,6 +73,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const engineInstalled = engines.find((e) => e.id === engine)?.installed ?? (engine === 'wav2lip');
 
   React.useEffect(() => { if (!pid && presets[0]) setPid(presets[0].id); }, [presets, pid]);
+  React.useEffect(() => { if (pid) onPresetChange?.(pid); }, [pid, onPresetChange]);
 
   const handleProductFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
