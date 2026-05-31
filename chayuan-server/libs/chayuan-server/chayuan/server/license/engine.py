@@ -146,9 +146,11 @@ def redeem(root, code: str, cfg: dict, *, now=None) -> dict:
     # 归一化:新码用 grants;旧 .lic 单模块令牌({app,exp})合成单个 time grant。
     if isinstance(p.get("grants"), list):
         grants, code_id, mid, card_exp = p["grants"], p.get("id"), p.get("mid"), p.get("cardExpireAt")
+        src = p.get("src")
     elif "app" in p and "exp" in p:
         grants = [{"app": p["app"], "kind": "time", "until": p["exp"]}]
         code_id, mid, card_exp = p.get("oid") or _code_id_of(code), p.get("mid"), None
+        src = p.get("src")
     else:
         return {"ok": False, "reason": "shape"}
 
@@ -170,6 +172,8 @@ def redeem(root, code: str, cfg: dict, *, now=None) -> dict:
     entstore.add_redeemed(root, code_id)
     for g in grants:
         _apply_grant(root, g, now)
+    if src == "promo":
+        entstore.add_redeemed_card(root, {"id": str(code_id), "mid": _fp(root), "at": _to_iso(now)})
     return {"ok": True, "applied": grants}
 
 

@@ -58,3 +58,36 @@ def add_redeemed(root: Path, code_id: str) -> None:
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(sorted(ids)), encoding="utf-8")
     tmp.replace(p)
+
+
+def _redeemed_cards_path(root: Path) -> Path:
+    return Path(root) / "license" / "redeemed_cards.json"
+
+
+def read_redeemed_cards(root: Path) -> list:
+    try:
+        return json.loads(_redeemed_cards_path(root).read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def add_redeemed_card(root: Path, rec: dict) -> None:
+    recs = read_redeemed_cards(root)
+    recs.append(rec)
+    p = _redeemed_cards_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(recs), encoding="utf-8")
+    tmp.replace(p)
+
+
+def mark_redeemed_cards_reported(root: Path, ids: list) -> None:
+    recs = read_redeemed_cards(root)
+    idset = set(ids)
+    for r in recs:
+        if r.get("id") in idset:
+            r["reported"] = True
+    p = _redeemed_cards_path(root)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(recs), encoding="utf-8")
+    tmp.replace(p)
