@@ -82,6 +82,62 @@ const LiveAvatarInner: React.FC = () => {
   // ── 人设 prompt ──────────────────────────────────────────────────────────
   const [persona, setPersona] = React.useState('');
 
+  // ── 实时口型（WebRTC）────────────────────────────────────────────────────
+  const [liveVideo, setLiveVideo] = React.useState(false);
+  const pcRef = React.useRef<RTCPeerConnection | null>(null);
+  const dcRef = React.useRef<RTCDataChannel | null>(null);
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+
+  const startLive = React.useCallback(async () => {
+    try {
+      const avail = await digitalHuman.liveAvailable();
+      if (!avail.available) {
+        window.console.warn('实时数字人运行时未启动');
+        setLiveVideo(false);
+        return;
+      }
+      const pc = new RTCPeerConnection();
+      pcRef.current = pc;
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+      dcRef.current = pc.createDataChannel('text');
+      pc.ontrack = (e) => {
+        if (videoRef.current && e.streams[0]) videoRef.current.srcObject = e.streams[0];
+      };
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      const ans = await digitalHuman.liveOffer(
+        pc.localDescription!.sdp,
+        pc.localDescription!.type,
+      );
+      await pc.setRemoteDescription(ans as RTCSessionDescriptionInit);
+    } catch (err) {
+      reportError(err as Error, '实时口型连接失败');
+      setLiveVideo(false);
+    }
+  }, []);
+
+  const stopLive = React.useCallback(() => {
+    try {
+      dcRef.current?.close();
+      pcRef.current?.close();
+    } catch {
+      /* noop */
+    }
+    pcRef.current = null;
+    dcRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }, []);
+
+  React.useEffect(() => {
+    if (liveVideo) {
+      void startLive();
+    } else {
+      stopLive();
+    }
+    return () => stopLive();
+  }, [liveVideo, startLive, stopLive]);
+
   // ── 对话状态 ─────────────────────────────────────────────────────────────
   const [input, setInput] = React.useState('');
   const [answer, setAnswer] = React.useState('');
@@ -101,6 +157,13 @@ const LiveAvatarInner: React.FC = () => {
   const send = React.useCallback(async () => {
     const q = input.trim();
     if (!q || busy) return;
+
+    // 实时口型模式：直接把文字推入 data channel，sidecar 驱动口型
+    if (liveVideo && dcRef.current?.readyState === 'open') {
+      dcRef.current.send(q);
+      setInput('');
+      return;
+    }
 
     setBusy(true);
     setAnswer('');
@@ -144,7 +207,7 @@ const LiveAvatarInner: React.FC = () => {
     } finally {
       setBusy(false);
     }
-  }, [input, busy, model, platformName, kuIds, persona, tts]);
+  }, [input, busy, liveVideo, model, platformName, kuIds, persona, tts]);
 
   // 回答增长时滚到底
   React.useEffect(() => {
@@ -244,6 +307,28 @@ const LiveAvatarInner: React.FC = () => {
           }}
           aria-label="人设 prompt"
         />
+
+        {/* 实时口型开关 */}
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontSize: '13px',
+            color: 'var(--cy-text-secondary)',
+            cursor: 'pointer',
+            userSelect: 'none',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={liveVideo}
+            onChange={(e) => setLiveVideo(e.target.checked)}
+            style={{ accentColor: 'var(--cy-ink-600)', width: '14px', height: '14px' }}
+          />
+          实时口型
+        </label>
       </div>
 
       {/* ── 主体（形象 + 回答）────────────────────────────────────────────── */}
@@ -267,7 +352,23 @@ const LiveAvatarInner: React.FC = () => {
             minHeight: '200px',
           }}
         >
-          {preset ? (
+          {/* 实时口型模式：显示 WebRTC 视频流 */}
+          {liveVideo ? (
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              style={{
+                maxHeight: '240px',
+                maxWidth: '100%',
+                borderRadius: '12px',
+                objectFit: 'contain',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                background: '#000',
+              }}
+            />
+          ) : preset ? (
             preset.avatar_kind === 'image' ? (
               <img
                 src={avatarUrl}

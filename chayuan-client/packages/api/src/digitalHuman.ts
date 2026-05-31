@@ -168,6 +168,24 @@ export async function dhGenerate(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Live (WebRTC bridge)
+// ─────────────────────────────────────────────────────────────────────
+
+export async function dhLiveAvailable(): Promise<{ available: boolean }> {
+  return rd<{ available: boolean }>('/api/v1/digital-human/live/available');
+}
+
+export async function dhLiveOffer(
+  sdp: string,
+  type: string,
+): Promise<{ sdp: string; type: string }> {
+  return rd<{ sdp: string; type: string }>('/api/v1/digital-human/live/offer', {
+    method: 'POST',
+    body: { sdp, type },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Tasks
 // ─────────────────────────────────────────────────────────────────────
 
@@ -205,4 +223,6 @@ export const digitalHuman = {
   taskStatus: dhTaskStatus,
   taskFileUrl: dhTaskFileUrl,
   avatarFileUrl: dhAvatarFileUrl,
+  liveAvailable: dhLiveAvailable,
+  liveOffer: dhLiveOffer,
 };
