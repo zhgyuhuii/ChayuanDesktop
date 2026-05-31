@@ -153,6 +153,24 @@ def run(
             "Mel 含 NaN — 音频可能全静音,请检查 WAV 文件"
         )
 
+    # 口型完全由音频 mel 驱动:静音/空音频 → 模型生成接近闭嘴 → 看着"嘴不动"。
+    # 这里量化 RMS 并显式告警(诊断 "口型不动" 时一眼定位是不是音频问题)。
+    try:
+        _rms = float(np.sqrt(np.mean(np.square(np.asarray(wav, dtype=np.float64)))))
+    except Exception:  # noqa: BLE001
+        _rms = -1.0
+    logger.info(
+        "[wav2lip] audio rms=%.5f wav_len=%d mel_shape=%s mel[min=%.3f max=%.3f mean=%.3f]",
+        _rms, len(wav), getattr(mel, "shape", None),
+        float(np.min(mel)), float(np.max(mel)), float(np.mean(mel)),
+    )
+    if 0 <= _rms < 1e-3:
+        logger.warning(
+            "[wav2lip] 参考/旁白音频接近静音(rms=%.6f) — 口型几乎不会动!"
+            "多半是 TTS/克隆链路回退到了空音频。先确认 narration.wav 能听到人声。",
+            _rms,
+        )
+
     mel_chunks = []
     mel_idx_multiplier = 80.0 / fps
     i = 0
@@ -176,6 +194,21 @@ def run(
     # 3. Face detection (official datagen approach)
     # ------------------------------------------------------------------
     face_det_results = _face_detect(full_frames, detector, static)
+    try:
+        _y1, _y2, _x1, _x2 = face_det_results[0][1]
+        logger.info(
+            "[wav2lip] frames=%d mel_chunks=%d static=%s face_box=%dx%d @(%d,%d) frame=%dx%d device=%s",
+            len(full_frames), len(mel_chunks), static,
+            (_x2 - _x1), (_y2 - _y1), _x1, _y1,
+            full_frames[0].shape[1], full_frames[0].shape[0], device,
+        )
+        if (_x2 - _x1) < 40 or (_y2 - _y1) < 40:
+            logger.warning(
+                "[wav2lip] 人脸框很小(%dx%d) — 口型变化在成片里可能看不出,"
+                "建议换更大/更正的脸,或裁剪到人脸为主。", (_x2 - _x1), (_y2 - _y1),
+            )
+    except Exception:  # noqa: BLE001
+        pass
     _prog(on_progress, 40)
 
     # ------------------------------------------------------------------

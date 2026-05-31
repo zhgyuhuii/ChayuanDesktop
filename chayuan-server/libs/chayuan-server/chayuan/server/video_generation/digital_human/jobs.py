@@ -47,8 +47,9 @@ def list_statuses() -> list[DhTaskStatus]:
 def _synthesize_narration(text: str, preset, audio_path: str) -> str:
     """preset 绑定音色 → 旁白 wav。复用 AudioPipeline(含 clone:<id>)。"""
     from chayuan.server.modality.audio import AudioPipeline
+    provider = (preset.voice_provider or "").strip()
     voice = preset.voice_name or ""
-    if preset.voice_provider == "clone" and voice.startswith("clone:"):
+    if provider == "clone" and voice.startswith("clone:"):
         cid = voice[len("clone:"):]
         wav = os.path.join(_helpers.voice_clones_dir(), f"{cid}.wav")
         engine = "voxcpm"
@@ -59,6 +60,12 @@ def _synthesize_narration(text: str, preset, audio_path: str) -> str:
         except Exception:  # noqa: BLE001
             pass
         voice = f"cosyvoice-clone:{wav}" if engine == "cosyvoice" else f"voxcpm:{wav}"
+    elif provider == "sherpa" and voice and not voice.startswith("sherpa:"):
+        # sherpa 的 voice_name 是裸 id(如 vits-zh-hf-fanchen-C / <name>#<sid>),
+        # 而 AudioPipeline.synthesize 按【前缀】分派:不补 sherpa: 就会被当成 piper
+        # voice id 去找/下载 → 音色不对,piper 找不到甚至产出空音频致 wav2lip 口型不动。
+        voice = "sherpa:" + voice
+    logger.info("[dh] narration provider=%s voice=%r", provider, voice)
     data = AudioPipeline().synthesize(text, voice=voice or None, fmt="wav")
     with open(audio_path, "wb") as f:
         f.write(data)
