@@ -86,3 +86,16 @@ def test_preset_mirrors_first_avatar_to_legacy_ref():
            compose_mode="coframe", layout="pip")
     assert p.avatar_ref == "user:a.png" and p.avatar_kind == "image"
     assert p.avatars[1].lines == ""
+
+
+def test_create_preset_with_avatars(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    p = dh_store.create_preset(
+        name="多形象", avatar_ref="user:a.png", avatar_kind="image",
+        avatars=[{"ref": "user:a.png", "kind": "image"},
+                 {"ref": "user:b.mp4", "kind": "video", "lines": "你好"}],
+        compose_mode="sequential", layout="side",
+    )
+    assert p.compose_mode == "sequential" and len(p.avatars) == 2
+    got = dh_store.get_preset(p.id)
+    assert got is not None and got.avatars[1].lines == "你好"
