@@ -23,9 +23,9 @@
 
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Send, Bot } from 'lucide-react';
+import { Send, Bot, Mic, Square } from 'lucide-react';
 
-import { digitalHuman, type DigitalHumanPreset } from '@chayuan/api';
+import { digitalHuman, modality, type DigitalHumanPreset } from '@chayuan/api';
 import { uuid } from '@chayuan/platform-shared';
 import { createChayuanTransport } from '@chayuan/transport';
 import type { ChatRequestV2 } from '@chayuan/transport';
@@ -38,6 +38,7 @@ import {
 } from '../../store/composer';
 import { reportError } from '../../store/errorDialog';
 import { useSentenceTts } from './useSentenceTts';
+import { useMicSimpleRecorder } from '../composer/useMicSimpleRecorder';
 
 // 独立 composer store，与全局 chat store 完全隔离
 const dhComposerStore = createComposerStore('live-avatar');
@@ -154,8 +155,8 @@ const LiveAvatarInner: React.FC = () => {
   );
 
   // ── 发送 ──────────────────────────────────────────────────────────────────
-  const send = React.useCallback(async () => {
-    const q = input.trim();
+  const send = React.useCallback(async (override?: string) => {
+    const q = (override ?? input).trim();
     if (!q || busy) return;
 
     // 实时口型模式：直接把文字推入 data channel，sidecar 驱动口型
@@ -215,6 +216,31 @@ const LiveAvatarInner: React.FC = () => {
       answerRef.current.scrollTop = answerRef.current.scrollHeight;
     }
   }, [answer]);
+
+  // ── 语音输入(ASR)──────────────────────────────────────────────────────────
+  const [transcribing, setTranscribing] = React.useState(false);
+  const mic = useMicSimpleRecorder({
+    onRecorded: async (blob) => {
+      setTranscribing(true);
+      try {
+        const res = await modality.transcribe(blob, { language: 'zh' });
+        const text = (res?.text ?? '').trim();
+        if (text) {
+          setInput(text);     // 显示转写内容，用户可见
+          void send(text);    // 实时对话=免手发，直接进编排
+        }
+      } catch (e) {
+        reportError(e as Error, '语音转写失败');
+      } finally {
+        setTranscribing(false);
+      }
+    },
+    onError: (err) => reportError(err, '麦克风不可用'),
+  });
+  const toggleMic = React.useCallback(() => {
+    if (mic.recording) mic.stop();
+    else void mic.start();
+  }, [mic]);
 
   // ── 键盘：Enter 发送，Shift+Enter 换行 ────────────────────────────────────
   const handleKeyDown = React.useCallback(
@@ -498,6 +524,49 @@ const LiveAvatarInner: React.FC = () => {
           }}
         >
           <Send style={{ width: '18px', height: '18px' }} />
+        </button>
+        <button
+          type="button"
+          onClick={toggleMic}
+          disabled={busy || transcribing}
+          title={mic.recording ? '点击停止并转写' : '点击说话'}
+          aria-label={mic.recording ? '停止录音' : '开始录音'}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px',
+            height: '40px',
+            padding: '0 12px',
+            borderRadius: '10px',
+            border: 'none',
+            background:
+              busy || transcribing
+                ? 'var(--cy-surface-3)'
+                : mic.recording
+                  ? '#ef4444'
+                  : 'var(--cy-ink-600)',
+            color:
+              busy || transcribing
+                ? 'var(--cy-text-tertiary)'
+                : '#fff',
+            cursor: busy || transcribing ? 'not-allowed' : 'pointer',
+            transition: 'background 0.15s',
+            flexShrink: 0,
+            fontSize: '13px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {transcribing ? (
+            <span>转写中…</span>
+          ) : mic.recording ? (
+            <>
+              <Square style={{ width: '14px', height: '14px' }} />
+              <span>{mic.elapsed}s</span>
+            </>
+          ) : (
+            <Mic style={{ width: '18px', height: '18px' }} />
+          )}
         </button>
       </div>
     </div>
