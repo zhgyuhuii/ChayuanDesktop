@@ -190,21 +190,23 @@ def create_app(run_mode: str = None):
     @app.on_event("startup")
     async def _db_migrations_and_auth_bootstrap() -> None:
         """启动时补齐增量表结构,避免 prod 配置切库后业务路由遇到空库 500。"""
-        import logging
+        import asyncio, logging
         log = logging.getLogger("chayuan.startup")
-        try:
-            from chayuan.server.db.migrations import run_migrations
-            run_migrations()
-        except Exception:  # noqa: BLE001
-            log.exception("run_migrations failed")
-        try:
-            from chayuan.server.auth.service import bootstrap_default_admin
-            seed = bootstrap_default_admin()
-            if seed:
-                username, password = seed
-                log.warning("seeded default admin username=%s password=%s", username, password)
-        except Exception:  # noqa: BLE001
-            log.exception("bootstrap_default_admin failed")
+        with phase("db-migrations"):
+            try:
+                from chayuan.server.db.migrations import run_migrations
+                await asyncio.to_thread(run_migrations)
+            except Exception:  # noqa: BLE001
+                log.exception("run_migrations failed")
+        with phase("admin-bootstrap"):
+            try:
+                from chayuan.server.auth.service import bootstrap_default_admin
+                seed = await asyncio.to_thread(bootstrap_default_admin)
+                if seed:
+                    username, password = seed
+                    log.warning("seeded default admin username=%s password=%s", username, password)
+            except Exception:  # noqa: BLE001
+                log.exception("bootstrap_default_admin failed")
 
     @app.on_event("startup")
     async def _model_first_launch() -> None:
@@ -215,22 +217,22 @@ def create_app(run_mode: str = None):
 
         失败仅记日志,不阻塞启动。
         """
-        import logging
+        import asyncio, logging
         log = logging.getLogger("chayuan.startup")
-        try:
-            from chayuan.server.model_registry.first_launch import (
-                run_first_launch_hooks,
-            )
-            r = run_first_launch_hooks()
-            if r.promoted:
-                log.info("[first_launch] auto-promoted defaults: %s", r.promoted)
-            if r.manuals_md or r.manuals_docx:
-                log.info(
-                    "[first_launch] deployed manuals: md=%s docx=%s",
-                    r.manuals_md, r.manuals_docx,
-                )
-        except Exception:  # noqa: BLE001
-            log.exception("run_first_launch_hooks failed")
+
+        def _run() -> None:
+            with phase("first-launch-hooks"):
+                try:
+                    from chayuan.server.model_registry.first_launch import run_first_launch_hooks
+                    r = run_first_launch_hooks()
+                    if r.promoted:
+                        log.info("[first_launch] auto-promoted defaults: %s", r.promoted)
+                    if r.manuals_md or r.manuals_docx:
+                        log.info("[first_launch] deployed manuals: md=%s docx=%s", r.manuals_md, r.manuals_docx)
+                except Exception:  # noqa: BLE001
+                    log.exception("run_first_launch_hooks failed")
+
+        asyncio.create_task(asyncio.to_thread(_run))
 
     # WS hub 与事件循环绑定，并注册关停钩子
     @app.on_event("startup")
@@ -242,33 +244,44 @@ def create_app(run_mode: str = None):
     # 没法续传的标 orphaned 让前端看得到清晰错误,不再"流式永远转圈"。
     @app.on_event("startup")
     async def _modality_task_recovery() -> None:
-        import logging
+        import asyncio, logging
         log = logging.getLogger("chayuan.startup")
-        try:
-            # 触发 Connector 注册落表 — 否则 resume 时 pick_connector 找不到类
-            from chayuan.server.modality.router import connectors as _connectors  # noqa: F401
-            from chayuan.server.modality.router.tasks import manager as task_mgr
-            summary = await task_mgr.resume_unfinished_tasks()
-            if summary["resumed"] or summary["orphaned"]:
-                log.info(
-                    "[modality.recovery] resumed=%d orphaned=%d skipped=%d",
-                    summary["resumed"], summary["orphaned"], summary["skipped"],
-                )
-        except Exception:  # noqa: BLE001
-            log.exception("modality task recovery failed")
+
+        async def _run() -> None:
+            with phase("modality-recovery"):
+                try:
+                    # 触发 Connector 注册落表 — 否则 resume 时 pick_connector 找不到类
+                    from chayuan.server.modality.router import connectors as _connectors  # noqa: F401
+                    from chayuan.server.modality.router.tasks import manager as task_mgr
+                    summary = await task_mgr.resume_unfinished_tasks()
+                    if summary["resumed"] or summary["orphaned"]:
+                        log.info(
+                            "[modality.recovery] resumed=%d orphaned=%d skipped=%d",
+                            summary["resumed"], summary["orphaned"], summary["skipped"],
+                        )
+                except Exception:  # noqa: BLE001
+                    log.exception("modality task recovery failed")
+
+        asyncio.create_task(_run())
 
     # 模型生命周期: framework_wiring 注入到 modelmgr.lifecycle 的 WIRE 阶段
     # 这样 "下载完一个模型 → Ollama / vLLM / ComfyUI 等运行时立刻可见" 成为默认行为
     @app.on_event("startup")
     async def _lifecycle_install_wiring() -> None:
-        try:
-            from chayuan_runtime.framework_wiring import install_into_lifecycle
-            install_into_lifecycle()
-        except Exception:  # noqa: BLE001
-            import logging as _logging
-            _logging.getLogger("chayuan.startup").exception(
-                "install framework_wiring into lifecycle failed"
-            )
+        import asyncio
+
+        def _run() -> None:
+            with phase("framework-wiring"):
+                try:
+                    from chayuan_runtime.framework_wiring import install_into_lifecycle
+                    install_into_lifecycle()
+                except Exception:  # noqa: BLE001
+                    import logging as _logging
+                    _logging.getLogger("chayuan.startup").exception(
+                        "install framework_wiring into lifecycle failed"
+                    )
+
+        asyncio.create_task(asyncio.to_thread(_run))
 
     @app.on_event("shutdown")
     async def _ws_hub_close() -> None:
@@ -629,16 +642,19 @@ def create_app(run_mode: str = None):
 
 
 def run_api(host, port, **kwargs):
+    extra = {}
+    # unix 上 uvloop + httptools 更快;Windows 无 uvloop,优雅跳过。
+    try:
+        import uvloop  # noqa: F401
+        extra["loop"] = "uvloop"
+        extra["http"] = "httptools"
+    except Exception:  # noqa: BLE001
+        pass
     if kwargs.get("ssl_keyfile") and kwargs.get("ssl_certfile"):
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            ssl_keyfile=kwargs.get("ssl_keyfile"),
-            ssl_certfile=kwargs.get("ssl_certfile"),
-        )
+        uvicorn.run(app, host=host, port=port,
+                    ssl_keyfile=kwargs["ssl_keyfile"], ssl_certfile=kwargs["ssl_certfile"], **extra)
     else:
-        uvicorn.run(app, host=host, port=port)
+        uvicorn.run(app, host=host, port=port, **extra)
 
 
 app = create_app()
