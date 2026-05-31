@@ -96,6 +96,13 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
       : [...prev, { ref: a.ref, kind: a.kind, label: a.name, lines: '' }]));
   const setSlotLines = (ref: string, lines: string) =>
     setSlots((prev) => prev.map((x) => (x.ref === ref ? { ...x, lines } : x)));
+  const setSlotVoice = (ref: string, v: VoicePickerValue) =>
+    setSlots((prev) => prev.map((x) => (x.ref === ref
+      ? { ...x, voice_provider: v.voice_provider, voice_name: v.voice_name } : x)));
+  const slotVoiceValue = (sl: AvatarSlot): VoicePickerValue => ({
+    voice_provider: (sl.voice_provider || voice.voice_provider) as VoicePickerValue['voice_provider'],
+    voice_name: sl.voice_provider ? (sl.voice_name || '') : voice.voice_name,
+  });
 
   const onComposeReference = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -313,17 +320,21 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         </div>
       )}
 
-      {/* 各形象台词(多形象) */}
+      {/* 各形象 台词 + 音色(多形象) */}
       {isMulti && slots.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-[var(--cy-text-secondary)]">各形象台词(空=用统一文案)</label>
+        <div className="flex flex-col gap-2">
+          <label className="text-[11px] text-[var(--cy-text-secondary)]">各形象 台词与音色(台词空=用统一文案;音色不动=继承预设)</label>
           {slots.map((sl, i) => (
-            <div key={sl.ref} className="flex items-center gap-2">
-              <span className="w-4 text-[11px] text-[var(--cy-text-tertiary)]">{i + 1}</span>
+            <div key={sl.ref} className="flex flex-col gap-1 rounded-md border border-[var(--cy-border-subtle)] p-2">
+              <div className="flex items-center gap-2">
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-[9px] text-white">{i + 1}</span>
+                <span className="text-[11px] text-[var(--cy-text-secondary)]">{sl.label || sl.ref}</span>
+              </div>
               <input type="text" value={sl.lines ?? ''}
                 onChange={(e) => setSlotLines(sl.ref, e.target.value)}
-                placeholder={sl.label || sl.ref}
-                className="h-7 flex-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
+                placeholder="该形象台词(空=用统一文案)"
+                className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
+              <VoicePicker value={slotVoiceValue(sl)} onChange={(v) => setSlotVoice(sl.ref, v)} />
             </div>
           ))}
         </div>

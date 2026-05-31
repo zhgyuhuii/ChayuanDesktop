@@ -23,6 +23,8 @@ export interface AvatarSlot {
   kind: DhAvatarKind;
   label?: string;
   lines?: string;
+  voice_provider?: DhVoiceProvider;  // 空=继承预设级音色
+  voice_name?: string;
 }
 
 export interface DigitalHumanPreset {
