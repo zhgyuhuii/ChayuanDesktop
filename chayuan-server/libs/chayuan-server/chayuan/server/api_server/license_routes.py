@@ -2,15 +2,19 @@
 from __future__ import annotations
 
 import re
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Query
 
 from chayuan.server.license import service
+from chayuan.server.license import engine
 from chayuan.server.license.config import load_license_config
 from chayuan.server.license.fingerprint import fingerprint as _fp
 
 license_router = APIRouter(prefix="/api/v1/license", tags=["license"])
+
+_mutate_lock = threading.Lock()
 
 
 def _valid_app(app: str) -> bool:
@@ -54,27 +58,44 @@ def get_status(app: str = Query("video")):
     if not _valid_app(app):
         return {"licensed": False, "reason": "invalid-app"}
     cfg = load_license_config()
-    # 偶尔在线:status 时尝试在线自动激活(联网才会成功,断网静默)
-    http_get_fn = None if not cfg["configured"] else _safe_get
-    return service.current_status(_root(), app, cfg, http_get=http_get_fn)
+    return engine.status(_root(), app, cfg)
 
 
 @license_router.post("/activate")
 def post_activate(payload: dict = Body(...)):
     app = payload.get("app", "video")
     if not _valid_app(app):
-        return {"licensed": False, "reason": "invalid-app"}
+        return {"ok": False, "reason": "invalid-app"}
     cfg = load_license_config()
-    return service.activate_serial(_root(), app, payload.get("serial", ""), cfg)
+    with _mutate_lock:
+        return engine.redeem_shortcode(_root(), payload.get("serial", ""), app, cfg)
 
 
 @license_router.post("/activate-token")
 def post_activate_token(payload: dict = Body(...)):
+    cfg = load_license_config()
+    with _mutate_lock:
+        return engine.redeem(_root(), payload.get("token", ""), cfg)
+
+
+@license_router.post("/consume")
+def post_consume(payload: dict = Body(...)):
     app = payload.get("app", "video")
     if not _valid_app(app):
-        return {"licensed": False, "reason": "invalid-app"}
+        return {"allowed": False, "source": "none", "reason": "invalid-app"}
     cfg = load_license_config()
-    return service.activate_token(_root(), app, payload.get("token", ""), "file", cfg)
+    with _mutate_lock:
+        return engine.consume(_root(), app, cfg)
+
+
+@license_router.post("/redeem")
+def post_redeem(payload: dict = Body(...)):
+    code = payload.get("code", "")
+    if not isinstance(code, str) or not code:
+        return {"ok": False, "reason": "empty"}
+    cfg = load_license_config()
+    with _mutate_lock:
+        return engine.redeem(_root(), code, cfg)
 
 
 @license_router.get("/entitlements")

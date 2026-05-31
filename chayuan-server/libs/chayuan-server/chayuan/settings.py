@@ -938,8 +938,13 @@ class ApiModelSettings(BaseFileSettings):
 
     model_config = SettingsConfigDict(yaml_file=CHAYUAN_ROOT / "model_settings.yaml")
 
-    DEFAULT_LLM_MODEL: str = "glm4-chat"
-    """默认选用的 LLM 名称"""
+    DEFAULT_LLM_MODEL: str = ""
+    """默认选用的 LLM 名称。
+
+    留空 = 用"已注册可用模型里的第一个"(装机自带 Qwen3-4B 即默认)。
+    历史默认是 "glm4-chat"——一个并不随包分发的名字,导致每次启动
+    get_default_llm 都命中"配的默认不在可用列表 → fallback"分支刷 warning。
+    改空后:配了就用配的,没配就用现有可用模型,不再有失效默认。"""
 
     DEFAULT_EMBEDDING_MODEL: str = "bge-m3"
     """默认选用的 Embedding 名称"""

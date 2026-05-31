@@ -539,13 +539,18 @@ def get_default_llm():
     if Settings.model_settings.DEFAULT_LLM_MODEL in available_llms:
         return Settings.model_settings.DEFAULT_LLM_MODEL
     if available_llms:
-        logger.warning(
-            f"default llm model {Settings.model_settings.DEFAULT_LLM_MODEL} is not found in available llms, "
-            f"using {available_llms[0]} instead"
-        )
+        # 配的默认不可用 → 用第一个现有可用模型。这是正常兜底(尤其默认留空时),
+        # 非异常,debug 即可,别在启动期刷 warning(见 settings.DEFAULT_LLM_MODEL 注释)。
+        if Settings.model_settings.DEFAULT_LLM_MODEL:
+            logger.debug(
+                "default llm model %s 不在可用列表,改用 %s",
+                Settings.model_settings.DEFAULT_LLM_MODEL, available_llms[0],
+            )
         return available_llms[0]
-    logger.error(
-        "No LLM in model_settings: set MODEL_PLATFORMS.*.llm_models or fix auto_detect_model / platform config."
+    # 启动早期模型平台还没注册完(MODEL_PLATFORMS 为空)时会走到这——属预期状态,
+    # 不是错误;调用方拿到空名后会在模型就绪后重试,故 debug 不 error。
+    logger.debug(
+        "No LLM in model_settings yet(平台可能尚未注册完);set MODEL_PLATFORMS.*.llm_models if persists."
     )
     return Settings.model_settings.DEFAULT_LLM_MODEL
 
@@ -582,14 +587,16 @@ def get_default_embedding():
 
     # 3. 兜底:已加载的第一个可用
     if available_embeddings:
-        logger.warning(
-            f"default embedding model "
-            f"{Settings.model_settings.DEFAULT_EMBEDDING_MODEL} 不在可用列表,"
-            f"使用 {available_embeddings[0]}"
-        )
+        if Settings.model_settings.DEFAULT_EMBEDDING_MODEL:
+            logger.debug(
+                "default embedding model %s 不在可用列表,使用 %s",
+                Settings.model_settings.DEFAULT_EMBEDDING_MODEL, available_embeddings[0],
+            )
         return available_embeddings[0]
-    logger.error(
-        "No embedding model in model_settings: set MODEL_PLATFORMS.*.embed_models or fix platform config."
+    # 启动早期 embedding 平台还没注册完(MODEL_PLATFORMS 为空)时会走到这——属预期状态,
+    # 不是错误(原来 error 级在启动期刷十几条);平台就绪后调用方会拿到 bge-m3。
+    logger.debug(
+        "No embedding model registered yet(平台可能尚未注册完);set MODEL_PLATFORMS.*.embed_models if persists."
     )
     return Settings.model_settings.DEFAULT_EMBEDDING_MODEL
 

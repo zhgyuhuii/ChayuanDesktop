@@ -331,7 +331,7 @@ def main():
 @click.option("-x", "--xinference-endpoint", "xf_endpoint",
               help="指定Xinference API 服务地址。默认为 http://127.0.0.1:9997/v1")
 @click.option("-l", "--llm-model",
-              help="指定默认 LLM 模型。默认为 glm4-chat")
+              help="指定默认 LLM 模型。留空则用已注册可用模型的第一个(装机自带 Qwen3-4B)")
 @click.option("-e", "--embed-model",
               help="指定默认 Embedding 模型。默认为 bge-large-zh-v1.5")
 @click.option("-r", "--recreate-kb",

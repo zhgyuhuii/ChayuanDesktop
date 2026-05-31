@@ -30,17 +30,17 @@ def test_buy_url(tmp_path, monkeypatch):
     assert r["channels"] == {"wechat": False, "alipay": False}
 
 def test_activate_serial_route_uses_local_fp(tmp_path, monkeypatch):
-    # 用本机指纹签发一个短码 → 需 fp 匹配;这里直接测「非法短码 -> licensed false」
+    # 用本机指纹签发一个短码 → 需 fp 匹配;这里直接测「非法短码 -> ok false」
     c = _client(tmp_path, monkeypatch)
     r = c.post("/api/v1/license/activate", json={"app": "video", "serial": "WRONG-CODE-XXXXX-YYYYY-ZZZZ"})
-    assert r.status_code == 200 and r.json()["licensed"] is False
+    assert r.status_code == 200 and r.json()["ok"] is False
 
 def test_invalid_app_activate_rejected(tmp_path, monkeypatch):
     """Fix 5: path-traversal app string must be rejected with invalid-app reason."""
     c = _client(tmp_path, monkeypatch)
     r = c.post("/api/v1/license/activate", json={"app": "../../etc", "serial": "x"})
     assert r.status_code == 200
-    assert r.json()["licensed"] is False
+    assert r.json()["ok"] is False
     assert r.json()["reason"] == "invalid-app"
 
 def test_invalid_app_status_rejected(tmp_path, monkeypatch):
@@ -52,12 +52,11 @@ def test_invalid_app_status_rejected(tmp_path, monkeypatch):
     assert r.json()["reason"] == "invalid-app"
 
 def test_invalid_app_activate_token_rejected(tmp_path, monkeypatch):
-    """Fix 5: activate-token endpoint rejects invalid app names."""
+    """Fix 5: activate-token endpoint rejects bad token."""
     c = _client(tmp_path, monkeypatch)
     r = c.post("/api/v1/license/activate-token", json={"app": "<script>", "token": "x"})
     assert r.status_code == 200
-    assert r.json()["licensed"] is False
-    assert r.json()["reason"] == "invalid-app"
+    assert r.json()["ok"] is False
 
 def test_invalid_app_buy_url_rejected(tmp_path, monkeypatch):
     """Fix 5: buy-url returns empty url for invalid app names."""
