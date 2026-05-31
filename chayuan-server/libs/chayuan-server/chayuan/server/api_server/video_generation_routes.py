@@ -1123,6 +1123,7 @@ async def create_clone_voice(
     file: UploadFile = File(..., description="参考人声 wav/mp3,3-10s 干净单人"),
     name: str = Form(..., min_length=1, max_length=40),
     ref_text: str = Form("", description="可选:样本对应文本(部分模型提升零样本质量)"),
+    engine: str = Form("voxcpm", description="克隆引擎:voxcpm(本地) / cosyvoice(CosyVoice2 sidecar)"),
     user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     import json as _json
@@ -1156,7 +1157,12 @@ async def create_clone_voice(
                 try: os.remove(raw_path)
                 except OSError: pass
         with open(os.path.join(d, f"{cid}.json"), "w", encoding="utf-8") as jf:
-            _json.dump({"name": name.strip(), "ref_text": (ref_text or "").strip(), "created": _time.time()}, jf, ensure_ascii=False)
+            _json.dump({
+                "name": name.strip(),
+                "ref_text": (ref_text or "").strip(),
+                "created": _time.time(),
+                "engine": engine if engine in ("voxcpm", "cosyvoice") else "voxcpm",
+            }, jf, ensure_ascii=False)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"保存克隆样本失败: {e}") from e
     dur = _probe_wav_duration(wav_path)

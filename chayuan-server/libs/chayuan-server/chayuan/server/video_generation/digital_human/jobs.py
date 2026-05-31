@@ -45,7 +45,14 @@ def _synthesize_narration(text: str, preset, audio_path: str) -> str:
     if preset.voice_provider == "clone" and voice.startswith("clone:"):
         cid = voice[len("clone:"):]
         wav = os.path.join(_helpers.voice_clones_dir(), f"{cid}.wav")
-        voice = f"voxcpm:{wav}"
+        engine = "voxcpm"
+        try:
+            import json as _json
+            with open(os.path.join(_helpers.voice_clones_dir(), f"{cid}.json"), "r", encoding="utf-8") as _f:
+                engine = (_json.load(_f) or {}).get("engine") or "voxcpm"
+        except Exception:  # noqa: BLE001
+            pass
+        voice = f"cosyvoice-clone:{wav}" if engine == "cosyvoice" else f"voxcpm:{wav}"
     data = AudioPipeline().synthesize(text, voice=voice or None, fmt="wav")
     with open(audio_path, "wb") as f:
         f.write(data)

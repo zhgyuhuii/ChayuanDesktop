@@ -39,3 +39,21 @@ def test_probe_wav_duration(tmp_path):
     w = wave.open(p, "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(24000)
     w.writeframes(b"\x00\x00" * 24000 * 3); w.close()
     assert abs(_probe_wav_duration(p) - 3.0) < 0.1
+
+
+def test_create_clone_stores_engine(monkeypatch, tmp_path):
+    import os, json
+    from chayuan.server.video_generation import _helpers
+    d = str(tmp_path / "vc")
+    os.makedirs(d, exist_ok=True)
+    monkeypatch.setattr(_helpers, "voice_clones_dir", lambda **k: d)
+    c = _client(monkeypatch, tmp_path)
+    r = c.post(
+        "/api/v1/video-generation/voices/clone",
+        files={"file": ("a.wav", b"RIFF0000WAVE", "audio/wav")},
+        data={"name": "test", "engine": "cosyvoice"},
+    )
+    assert r.status_code == 201
+    cid = r.json()["id"]
+    meta = json.load(open(os.path.join(d, f"{cid}.json")))
+    assert meta.get("engine") == "cosyvoice"

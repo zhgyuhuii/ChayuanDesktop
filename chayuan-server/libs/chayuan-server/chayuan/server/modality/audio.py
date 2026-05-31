@@ -585,6 +585,13 @@ class AudioPipeline:
                 voice = "zh-CN-XiaoxiaoNeural"
         if not text:
             return b""
+        # -3) CosyVoice2 零样本 clone(显式 voice="cosyvoice-clone:<参考wav>")
+        if isinstance(voice, str) and voice.startswith("cosyvoice-clone:"):
+            cv_bytes = self._synthesize_via_cosyvoice_clone(text, prompt_wav=voice[len("cosyvoice-clone:"):])
+            if cv_bytes:
+                return cv_bytes
+            logger.warning("[tts] cosyvoice clone 不可用(sidecar 未起?),回退 voxcpm 同样本")
+            voice = "voxcpm:" + voice[len("cosyvoice-clone:"):]
         # -2) VoxCPM 音色克隆(显式 voice="voxcpm:<参考wav路径>";空路径=默认音色)
         if isinstance(voice, str) and voice.startswith("voxcpm:"):
             vox_bytes = self._synthesize_via_voxcpm(text, prompt_wav=voice[len("voxcpm:"):], fmt=fmt)
@@ -894,6 +901,22 @@ class AudioPipeline:
         except Exception as e:  # noqa: BLE001
             logger.warning("[tts:voxcpm] 合成失败: %r", e, exc_info=True)
             return None
+
+    def _synthesize_via_cosyvoice_clone(self, text: str, *, prompt_wav: str) -> bytes:
+        """转发 cosyvoice sidecar /v1/audio/clone(零样本 clone)。失败返 b''(调用方回退 voxcpm)。
+        [VERIFY] 需 cosyvoice 运行时起在 127.0.0.1:18280 + CosyVoice2 模型。"""
+        import httpx
+        try:
+            with httpx.Client(timeout=60) as client:
+                r = client.post(
+                    "http://127.0.0.1:18280/v1/audio/clone",
+                    json={"text": text, "prompt_wav": prompt_wav},
+                )
+                if r.status_code == 200 and r.content:
+                    return r.content
+        except Exception:  # noqa: BLE001
+            pass
+        return b""
 
     def _resolve_voxcpm_model_dir(self) -> Optional[str]:
         """VoxCPM-0.5B 本地模型目录(含 config.json)→ from_pretrained 直接 offline 加载。
