@@ -869,6 +869,9 @@ class AudioPipeline:
             return None
         # 旧版 voxcpm(< 2.0.3)在 CPU 上 warm-up 就崩的兜底,见下方方法注释。
         self._ensure_voxcpm_sdpa_mask_patch()
+        # 新版 torchaudio.load 走 torchcodec(需 FFmpeg full-shared DLL),Windows 常崩;
+        # voxcpm build_prompt_cache 用它读参考音频,会带崩克隆。换成不依赖 torchcodec 的 load。
+        self._ensure_torchaudio_load_fallback()
         prompt = (prompt_wav or "").strip()
         if prompt and not os.path.isfile(prompt):
             logger.warning("[tts:voxcpm] 参考音频不存在,改用默认音色: %s", prompt)
@@ -987,6 +990,60 @@ class AudioPipeline:
         except Exception:  # noqa: BLE001
             pass
         return b""
+
+    @staticmethod
+    def _ensure_torchaudio_load_fallback() -> None:
+        """新版 torchaudio(>=2.9)把 torchaudio.load 委托给 torchcodec,后者要
+        FFmpeg "full-shared" DLL 且要与 torch 版本匹配;Windows/离线环境常因缺
+        libtorchcodec_coreN.dll 或版本不配而 RuntimeError。voxcpm 的
+        build_prompt_cache 用 torchaudio.load(参考wav) 读音频 → 带崩克隆回退 piper。
+
+        这里把 torchaudio.load 换成不依赖 torchcodec 的实现:优先 soundfile(libsndfile,
+        跨格式),其次 stdlib wave(PCM wav),都不行再回退原 load。返回 (tensor[ch,frames],
+        sr),与 torchaudio.load 约定一致。幂等,进程级只打一次。"""
+        try:
+            import torchaudio  # type: ignore
+        except Exception:  # noqa: BLE001
+            return
+        cur = getattr(torchaudio, "load", None)
+        if cur is None or getattr(cur, "_chayuan_safe", False):
+            return
+        try:
+            import torch  # type: ignore
+        except Exception:  # noqa: BLE001
+            return
+        _orig = cur
+
+        def _safe_load(filepath, *args, **kwargs):  # noqa: ANN001
+            import numpy as _np  # type: ignore
+            path = str(filepath)
+            # 1) soundfile:跨格式,无 torchcodec/ffmpeg 依赖
+            try:
+                import soundfile as _sf  # type: ignore
+                data, sr = _sf.read(path, dtype="float32", always_2d=True)  # (frames, ch)
+                return torch.from_numpy(_np.ascontiguousarray(data.T)), int(sr)
+            except Exception:  # noqa: BLE001
+                pass
+            # 2) stdlib wave:仅 PCM wav,但克隆参考多是 wav,离线可用
+            try:
+                import wave as _wave
+                with _wave.open(path, "rb") as wf:
+                    sr = wf.getframerate(); ch = wf.getnchannels()
+                    sw = wf.getsampwidth(); n = wf.getnframes()
+                    raw = wf.readframes(n)
+                dtype = {1: _np.int8, 2: _np.int16, 4: _np.int32}.get(sw)
+                if dtype is not None:
+                    arr = _np.frombuffer(raw, dtype=dtype).astype(_np.float32)
+                    arr = arr / float(2 ** (8 * sw - 1))
+                    arr = arr.reshape(-1, ch).T  # (ch, frames)
+                    return torch.from_numpy(_np.ascontiguousarray(arr)), int(sr)
+            except Exception:  # noqa: BLE001
+                pass
+            # 3) 回退原实现(可能仍走 torchcodec 报错,但至少不比现状差)
+            return _orig(filepath, *args, **kwargs)
+
+        _safe_load._chayuan_safe = True
+        torchaudio.load = _safe_load
 
     @staticmethod
     def _ensure_voxcpm_sdpa_mask_patch() -> None:
