@@ -2,12 +2,12 @@
 from datetime import datetime, timedelta, timezone
 
 EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
-_WIDTHS = {"ver": 4, "app": 6, "durDays": 14, "issueDate": 14, "nonce": 8}
-_ORDER = ["ver", "app", "durDays", "issueDate", "nonce"]
+_WIDTHS = {"ver": 4, "kind": 1, "modules": 8, "value": 14, "issueDate": 13, "nonce": 8}
+_ORDER = ["ver", "kind", "modules", "value", "issueDate", "nonce"]
 
 
 def unpack(buf: bytes) -> dict:
-    v = int.from_bytes(buf, "big") >> 2  # 丢低 2 保留位
+    v = int.from_bytes(buf, "big")
     out = {}
     for k in reversed(_ORDER):
         w = _WIDTHS[k]
