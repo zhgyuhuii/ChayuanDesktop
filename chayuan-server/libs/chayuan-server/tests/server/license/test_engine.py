@@ -57,3 +57,41 @@ def test_free_module_always_licensed(tmp_path):
     assert s["free"] is True and s["licensed"] is True
     r = engine.consume(tmp_path, "kb", cfg, now=T0)
     assert r["allowed"] is True and r["source"] == "free"
+
+
+def test_consume_time_licensed_does_not_deduct(tmp_path):
+    st = entstore.read_state(tmp_path, "video")
+    st["timeExpireAt"] = "2099-01-01T00:00:00.000Z"
+    st["counts"] = 5
+    entstore.write_state(tmp_path, st)
+    r = engine.consume(tmp_path, "video", CFG, now=T0)
+    assert r["allowed"] is True and r["source"] == "time"
+    assert entstore.read_state(tmp_path, "video")["counts"] == 5  # 不扣次数
+
+
+def test_consume_uses_free_then_count(tmp_path):
+    # 2 次免费用完,再用扣次数
+    for i in range(2):
+        r = engine.consume(tmp_path, "video", CFG, now=T0)
+        assert r["allowed"] is True and r["source"] == "free"
+    st = entstore.read_state(tmp_path, "video")
+    st["counts"] = 1
+    entstore.write_state(tmp_path, st)
+    r = engine.consume(tmp_path, "video", CFG, now=T0)
+    assert r["allowed"] is True and r["source"] == "count"
+    assert entstore.read_state(tmp_path, "video")["counts"] == 0
+
+
+def test_consume_blocked_when_exhausted(tmp_path):
+    for _ in range(2):
+        engine.consume(tmp_path, "video", CFG, now=T0)  # 用完免费
+    r = engine.consume(tmp_path, "video", CFG, now=T0)
+    assert r["allowed"] is False and r["source"] == "none"
+
+
+def test_consume_rollback_blocked(tmp_path):
+    st = entstore.read_state(tmp_path, "video")
+    st["seenMax"] = T0 + 10 * 86400
+    entstore.write_state(tmp_path, st)
+    r = engine.consume(tmp_path, "video", CFG, now=T0)
+    assert r["allowed"] is False and r["reason"] == "rollback"
