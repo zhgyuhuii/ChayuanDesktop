@@ -890,11 +890,13 @@ class AudioPipeline:
                 except TypeError:
                     handle = VoxCPM.from_pretrained(model_ref)
                 self._voxcpm_handle = handle
-            # voxcpm 2.x 把参考音频参数从 prompt_speech_path 改名为 prompt_wav_path
-            # (<2.x 用旧名)。按 _generate 实际签名挑参数名,挑不到再依次试新旧名,
-            # 兼容用户已升级 / 仍是旧版两种情况(否则克隆音色一直 TypeError 回退 piper)。
+            # voxcpm 2.x:① 参考音频参数 prompt_speech_path → prompt_wav_path 改名;
+            # ② 克隆契约变严——prompt_wav_path 与 prompt_text 必须同时给(参考音频 +
+            # 其文字转写)或同时不给。旧版只认旧名、且无 prompt_text。按 _generate
+            # 实际签名适配,并在 2.x 克隆时补上参考音频的转写(否则 ValueError 回退 piper)。
             prompt_arg = prompt or None
             pname = None
+            has_prompt_text = False
             try:
                 import inspect
                 params = inspect.signature(handle._generate).parameters  # noqa: SLF001
@@ -902,11 +904,25 @@ class AudioPipeline:
                     pname = "prompt_wav_path"
                 elif "prompt_speech_path" in params:
                     pname = "prompt_speech_path"
+                has_prompt_text = "prompt_text" in params
             except Exception:  # noqa: BLE001
                 pname = None
-            if pname:
-                arr = handle.generate(text=text, **{pname: prompt_arg})
+            gen_kwargs = {"text": text}
+            if prompt_arg and pname:
+                gen_kwargs[pname] = prompt_arg
+                if has_prompt_text:
+                    ptext = self._voxcpm_prompt_text(prompt_arg)
+                    if not ptext:
+                        logger.warning(
+                            "[tts:voxcpm] 2.x 克隆需要参考音频的文字转写,但本地 ASR "
+                            "未取到文本,放弃克隆回退上层默认链路: %s", prompt_arg,
+                        )
+                        return None
+                    gen_kwargs["prompt_text"] = ptext
+            if pname or not prompt_arg:
+                arr = handle.generate(**gen_kwargs)
             else:
+                # 签名读不到参数名(极旧版):依次试新旧名(无 prompt_text)
                 try:
                     arr = handle.generate(text=text, prompt_wav_path=prompt_arg)
                 except TypeError:
@@ -932,6 +948,29 @@ class AudioPipeline:
         except Exception as e:  # noqa: BLE001
             logger.warning("[tts:voxcpm] 合成失败: %r", e, exc_info=True)
             return None
+
+    def _voxcpm_prompt_text(self, wav_path: str) -> str:
+        """取参考音频的文字转写(voxcpm 2.x 克隆必需:prompt_text 要与 prompt_wav_path
+        同时给)。优先读同名缓存 <wav>.prompt.txt;没有则用本地 ASR(_transcribe_via_sidecar)
+        转一次并写缓存,避免每次合成都重转。任何失败返 ""(caller 据此放弃克隆回退)。"""
+        try:
+            cache = wav_path + ".prompt.txt"
+            if os.path.isfile(cache):
+                with open(cache, "r", encoding="utf-8") as f:
+                    t = f.read().strip()
+                if t:
+                    return t
+            text = (self._transcribe_via_sidecar(wav_path) or "").strip()
+            if text:
+                try:
+                    with open(cache, "w", encoding="utf-8") as f:
+                        f.write(text)
+                except Exception:  # noqa: BLE001
+                    pass
+            return text
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[tts:voxcpm] 取参考音频转写失败: %r", e, exc_info=True)
+            return ""
 
     def _synthesize_via_cosyvoice_clone(self, text: str, *, prompt_wav: str) -> bytes:
         """转发 cosyvoice sidecar /v1/audio/clone(零样本 clone)。失败返 b''(调用方回退 voxcpm)。
