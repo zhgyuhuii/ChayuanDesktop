@@ -1073,6 +1073,26 @@ def list_voices(
     return {"provider": provider, "count": len(voices), "items": voices}
 
 
+def _probe_wav_duration(wav_path: str) -> float:
+    """读标准 wav 算时长(秒)。非 wav/读失败返 0。"""
+    import wave
+    try:
+        with wave.open(wav_path, "rb") as w:
+            fr = w.getframerate() or 0
+            return (w.getnframes() / fr) if fr else 0.0
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _quality_warnings(duration: float) -> List[str]:
+    out: List[str] = []
+    if duration and duration < 2.0:
+        out.append("样本过短,建议 3-10s 干净人声")
+    if duration and duration > 30.0:
+        out.append("样本过长,建议截取 3-10s 干净人声")
+    return out
+
+
 def _list_clone_voices() -> List[Dict[str, Any]]:
     """扫 voice_clones_dir,返「我的音色」列表(name=clone:<id>,label=用户命名)。"""
     import json as _json
@@ -1139,7 +1159,9 @@ async def create_clone_voice(
             _json.dump({"name": name.strip(), "ref_text": (ref_text or "").strip(), "created": _time.time()}, jf, ensure_ascii=False)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"保存克隆样本失败: {e}") from e
-    return {"id": cid, "name": f"clone:{cid}", "label": name.strip()}
+    dur = _probe_wav_duration(wav_path)
+    quality = {"duration": round(dur, 2), "warnings": _quality_warnings(dur)}
+    return {"id": cid, "name": f"clone:{cid}", "label": name.strip(), "quality": quality}
 
 
 @video_generation_router.delete(
