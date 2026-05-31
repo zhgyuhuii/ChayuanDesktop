@@ -1161,6 +1161,39 @@ def delete_clone_voice(
     return {"deleted": removed, "id": base}
 
 
+@video_generation_router.patch(
+    "/voices/clone/{cid}", summary="重命名克隆音色",
+)
+def rename_clone_voice(
+    cid: str = FPath(..., max_length=64),
+    body: Dict[str, Any] = Body(...),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    import json as _json
+    from chayuan.server.video_generation._helpers import voice_clones_dir
+    name = str((body or {}).get("name", "")).strip()
+    if not name:
+        raise HTTPException(422, "name 不能为空")
+    if len(name) > 40:
+        raise HTTPException(422, "name 过长(<=40)")
+    d = voice_clones_dir(create=False)
+    base = os.path.basename(cid)
+    jp = os.path.join(d, f"{base}.json")
+    if not os.path.isfile(os.path.join(d, f"{base}.wav")):
+        raise HTTPException(404, "克隆音色不存在")
+    meta: Dict[str, Any] = {}
+    if os.path.isfile(jp):
+        try:
+            with open(jp, "r", encoding="utf-8") as f:
+                meta = _json.load(f) or {}
+        except Exception:  # noqa: BLE001
+            meta = {}
+    meta["name"] = name
+    with open(jp, "w", encoding="utf-8") as f:
+        _json.dump(meta, f, ensure_ascii=False)
+    return {"id": base, "name": f"clone:{base}", "label": name}
+
+
 @video_generation_router.post(
     "/voices/download", summary="按需下载 piper 音色到本地(显式触发,带成功/失败)",
 )
