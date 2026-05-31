@@ -661,14 +661,35 @@ def run_api(host, port, **kwargs):
         extra["http"] = "httptools"
     except Exception:  # noqa: BLE001
         pass
+    app_ = _get_app()
     if kwargs.get("ssl_keyfile") and kwargs.get("ssl_certfile"):
-        uvicorn.run(app, host=host, port=port,
+        uvicorn.run(app_, host=host, port=port,
                     ssl_keyfile=kwargs["ssl_keyfile"], ssl_certfile=kwargs["ssl_certfile"], **extra)
     else:
-        uvicorn.run(app, host=host, port=port, **extra)
+        uvicorn.run(app_, host=host, port=port, **extra)
 
 
-app = create_app()
+# 懒加载模块级 app(PEP 562)——避免「import server_app 只为拿 create_app」时
+# 白跑一次 create_app。启动器(startup.run_api_server)先 import create_app(触发
+# 本模块加载)再显式 create_app(run_mode=...);若这里还 eager `app = create_app()`,
+# 同进程就跑两遍 create_app(实测 init-tracing 等启动段日志打两遍即此因)。
+# 改懒:只有真访问 server_app.app(uvicorn "server_app:app" 字符串 / run_api)时才建,
+# 且只建一次。
+_app_singleton = None
+
+
+def _get_app():
+    global _app_singleton
+    if _app_singleton is None:
+        _app_singleton = create_app()
+    return _app_singleton
+
+
+def __getattr__(name):
+    # 模块级 PEP 562:外部 `from server_app import app` / uvicorn getattr(mod,"app") 命中这里。
+    if name == "app":
+        return _get_app()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 if __name__ == "__main__":
