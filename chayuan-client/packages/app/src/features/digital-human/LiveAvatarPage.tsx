@@ -93,7 +93,12 @@ const LiveAvatarInner: React.FC = () => {
     try {
       const avail = await digitalHuman.liveAvailable();
       if (!avail.available) {
-        window.console.warn('实时数字人运行时未启动');
+        // 实时口型需要 GPU 实时数字人 sidecar(realtime/musetalk)在跑;没装/没起时
+        // 给明确提示而非静默回弹(用户反馈"勾不上不知为啥")。
+        reportError(
+          new Error('实时口型运行时未启动:需在「模型广场」安装并启动实时数字人(realtime/musetalk)运行时(需 GPU)。未启用时仍可用「生成视频」做离线口型。'),
+          '实时口型不可用',
+        );
         setLiveVideo(false);
         return;
       }
