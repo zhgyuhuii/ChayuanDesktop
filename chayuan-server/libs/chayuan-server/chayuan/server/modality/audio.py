@@ -867,6 +867,8 @@ class AudioPipeline:
         except Exception as e:  # noqa: BLE001
             logger.warning("[tts:voxcpm] voxcpm 未装,跳过: %r", e, exc_info=True)
             return None
+        # 旧版 voxcpm(< 2.0.3)在 CPU 上 warm-up 就崩的兜底,见下方方法注释。
+        self._ensure_voxcpm_sdpa_mask_patch()
         prompt = (prompt_wav or "").strip()
         if prompt and not os.path.isfile(prompt):
             logger.warning("[tts:voxcpm] 参考音频不存在,改用默认音色: %s", prompt)
@@ -926,6 +928,36 @@ class AudioPipeline:
         except Exception:  # noqa: BLE001
             pass
         return b""
+
+    @staticmethod
+    def _ensure_voxcpm_sdpa_mask_patch() -> None:
+        """旧版 voxcpm(< 2.0.3)在 CPU 上跑单步注意力(forward_step)时,会把
+        1 维的 attn_mask 直接喂给 torch.nn.functional.scaled_dot_product_attention;
+        CPU 的 SDPA 会去取 mask.size(-2),1 维张量没有 dim -2 →
+        IndexError(Dimension out of range ... got -2),且这步发生在
+        VoxCPM.from_pretrained() 的 warm-up generate 里,导致模型初始化整体崩溃,
+        克隆音色永远回退 piper。GPU 融合 kernel 会广播 1D mask 所以只在 CPU 复现。
+
+        上游 commit b1584ae(2026-04-13,首发于 voxcpm 2.0.3)已修:把 mask
+        reshape 成可广播的 (1, 1, 1, -1)。这里把同样修复以进程级 shim backport,
+        让未升级 / offline 的旧版本也能用(desktop 离线打包优先,不能依赖 pip 升级)。
+        对已传 >= 2 维 mask 的调用方完全 no-op,幂等(重复调用只打一次补丁)。
+        """
+        try:
+            import torch.nn.functional as F  # type: ignore
+        except Exception:  # noqa: BLE001
+            return
+        orig = getattr(F, "scaled_dot_product_attention", None)
+        if orig is None or getattr(orig, "_chayuan_mask_fix", False):
+            return
+
+        def _sdpa_1d_mask_safe(query, key, value, attn_mask=None, *args, **kwargs):
+            if attn_mask is not None and getattr(attn_mask, "dim", None) and attn_mask.dim() == 1:
+                attn_mask = attn_mask.view(1, 1, 1, -1)
+            return orig(query, key, value, attn_mask, *args, **kwargs)
+
+        _sdpa_1d_mask_safe._chayuan_mask_fix = True
+        F.scaled_dot_product_attention = _sdpa_1d_mask_safe
 
     def _resolve_voxcpm_model_dir(self) -> Optional[str]:
         """VoxCPM-0.5B 本地模型目录(含 config.json)→ from_pretrained 直接 offline 加载。
