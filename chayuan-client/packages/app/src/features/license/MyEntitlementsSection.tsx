@@ -4,10 +4,12 @@
  * 在线时含产品/到期/购买时间/支付金额/序列号;断网回落本地激活(无金额/购买时间)。
  */
 
-import { type EntitlementItem, licenseEntitlements } from '@chayuan/api';
+import { type EntitlementItem, licenseEntitlements, licenseReset } from '@chayuan/api';
+import { getPlatform } from '@chayuan/platform-shared';
 import { Button } from '@chayuan/ui';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, RotateCcw } from 'lucide-react';
 import * as React from 'react';
+import { useLicenseStore } from './licenseStore';
 
 function fmtDate(iso?: string | null): string {
   if (!iso) return '—';
@@ -26,6 +28,7 @@ export function MyEntitlementsSection(): React.ReactElement {
   const [err, setErr] = React.useState<string | null>(null);
   const [items, setItems] = React.useState<EntitlementItem[]>([]);
   const [online, setOnline] = React.useState(true);
+  const [resetting, setResetting] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -40,6 +43,30 @@ export function MyEntitlementsSection(): React.ReactElement {
       setLoading(false);
     }
   }, []);
+
+  const onReset = React.useCallback(async () => {
+    const apps = [...new Set(items.map((i) => i.app).filter(Boolean))];
+    const targets = apps.length ? (apps as string[]) : ['video'];
+    const ok = await getPlatform().dialog.confirm(
+      '确定重置本机授权?重置后该机器需重新激活。\n注意:若云端仍保留该机器授权且本机联网,下次刷新会被自动恢复(彻底重置需在网站后台按机器指纹吊销)。',
+      { title: '重置本机授权' },
+    );
+    if (!ok) return;
+    setResetting(true);
+    setErr(null);
+    try {
+      for (const app of targets) await licenseReset(app);
+      // 同步门控:清并重查,让 LicenseGate 立即回到未授权态。
+      const store = useLicenseStore.getState();
+      store.reset();
+      for (const app of targets) await store.refresh(app).catch(() => undefined);
+      await load();
+    } catch (e) {
+      setErr((e as Error).message || '重置失败');
+    } finally {
+      setResetting(false);
+    }
+  }, [items, load]);
 
   React.useEffect(() => {
     void load();
@@ -110,6 +137,19 @@ export function MyEntitlementsSection(): React.ReactElement {
           ))}
         </div>
       )}
+
+      <div className="flex items-center justify-between border-border border-t pt-3">
+        <p className="text-xs text-muted-foreground">重置后本机回到未授权,需重新激活。</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void onReset()}
+          disabled={resetting || loading}
+        >
+          <RotateCcw className={resetting ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
+          重置本机授权
+        </Button>
+      </div>
     </div>
   );
 }

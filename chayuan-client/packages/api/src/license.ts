@@ -73,3 +73,11 @@ export interface EntitlementsResp {
 export function licenseEntitlements(): Promise<EntitlementsResp> {
   return http.get<EntitlementsResp>(`${BASE}/entitlements`);
 }
+
+/**
+ * 重置本机激活(删除本地授权记录)。注意:若线上仍有该机器授权且联网,
+ * 下次刷新会被在线自动激活"复活";彻底重置需在网站后台按指纹吊销。
+ */
+export function licenseReset(app: string): Promise<{ ok: boolean; removed: boolean; app: string }> {
+  return http.post<{ ok: boolean; removed: boolean; app: string }>(`${BASE}/reset`, { app });
+}
