@@ -14,5 +14,5 @@ export function verifySha(expected: string | undefined, actual: string): boolean
 /** 当前候选(attemptedIdx)失败,取下一个候选 URL;无更多返回 null。 */
 export function nextMirror(candidates: string[], attemptedIdx: number): string | null {
   const next = attemptedIdx + 1;
-  return next < candidates.length ? candidates[next] : null;
+  return next < candidates.length ? (candidates[next] ?? null) : null;
 }

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "察元下载构建器",
+  "version": "0.1.0",
+  "identifier": "com.chayuan.installer",
+  "build": { "frontendDist": "../dist", "devUrl": "http://localhost:3920", "beforeDevCommand": "pnpm dev", "beforeBuildCommand": "pnpm build" },
+  "app": { "windows": [{ "title": "察元下载构建器", "width": 820, "height": 600 }], "security": { "csp": null } },
+  "bundle": { "active": true, "targets": "all", "icon": ["icons/icon.png"] }
+}
