@@ -51,6 +51,8 @@ def create_preset(body: Dict[str, Any],
             avatars=body.get("avatars"),
             compose_mode=body.get("compose_mode", "single"),
             layout=body.get("layout", "side"),
+            video_width=int(body.get("video_width", 720) or 720),
+            video_height=int(body.get("video_height", 1280) or 1280),
         )
     except KeyError as e:
         raise HTTPException(422, f"缺字段: {e}") from e

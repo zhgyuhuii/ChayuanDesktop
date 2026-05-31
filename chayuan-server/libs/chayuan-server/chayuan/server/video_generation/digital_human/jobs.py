@@ -134,6 +134,10 @@ def _run_pipeline(tid: str) -> None:
             raise RuntimeError("数字人不存在")
         td = task_dir(f"dh-{tid}", create=True)
         out_path = os.path.join(td, "digital_human.mp4")
+        # 画布尺寸:优先预设(video_width/height),否则用请求传入的 args(默认 720x1280)。
+        gw = int(getattr(preset, "video_width", 0) or args["width"])
+        gh = int(getattr(preset, "video_height", 0) or args["height"])
+        args["width"], args["height"] = gw, gh
         # 多形象:同框(coframe)/分段(sequential),>=2 槽且非 single 才走。
         # 各槽各自生片段(自带音频),再用 compose_multi 合成;合成失败回退首片段。
         slots = list(getattr(preset, "avatars", None) or [])

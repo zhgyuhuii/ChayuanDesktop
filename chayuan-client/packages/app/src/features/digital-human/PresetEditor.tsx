@@ -35,6 +35,9 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const [composeMode, setComposeMode] = React.useState<DhComposeMode>(initial?.compose_mode ?? 'single');
   const [layout, setLayout] = React.useState<DhLayout>(initial?.layout ?? 'side');
   const [slots, setSlots] = React.useState<AvatarSlot[]>(initial?.avatars ?? []);
+  const [canvas, setCanvas] = React.useState<{ w: number; h: number }>({
+    w: initial?.video_width ?? 720, h: initial?.video_height ?? 1280,
+  });
   const avatarFileRef = React.useRef<HTMLInputElement | null>(null);
   const composeFileRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -139,6 +142,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
             avatar_kind: selectedAvatar?.kind ?? 'image',
             compose_mode: 'single',
             avatars: [],
+            video_width: canvas.w,
+            video_height: canvas.h,
             voice_provider: voice.voice_provider as DigitalHumanPreset['voice_provider'],
             voice_name: voice.voice_name,
           }
@@ -149,6 +154,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
             compose_mode: composeMode,
             layout,
             avatars: slots,
+            video_width: canvas.w,
+            video_height: canvas.h,
             voice_provider: voice.voice_provider as DigitalHumanPreset['voice_provider'],
             voice_name: voice.voice_name,
           };
@@ -185,6 +192,23 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
             'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
           )}
         />
+      </div>
+
+      {/* 画布尺寸 */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-[var(--cy-text-secondary)]">画布</label>
+        <div className="flex gap-1.5 text-[11px]">
+          {(([['竖屏 9:16', 720, 1280], ['横屏 16:9', 1280, 720], ['方形 1:1', 1080, 1080]]) as [string, number, number][]).map(([zh, w, h]) => (
+            <button key={zh} type="button" onClick={() => setCanvas({ w, h })}
+              className={cn('rounded-md border px-2 py-1',
+                canvas.w === w && canvas.h === h
+                  ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                  : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
+              {zh}
+            </button>
+          ))}
+          <span className="self-center text-[10px] text-[var(--cy-text-tertiary)]">{canvas.w}×{canvas.h}</span>
+        </div>
       </div>
 
       {/* 合成模式 */}

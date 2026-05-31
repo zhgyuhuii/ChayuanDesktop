@@ -39,6 +39,8 @@ export interface DigitalHumanPreset {
   avatars?: AvatarSlot[];
   compose_mode?: DhComposeMode;
   layout?: DhLayout;
+  video_width?: number;
+  video_height?: number;
 }
 
 export interface DhAvatar {

@@ -43,12 +43,14 @@ def create_preset(*, name: str, avatar_ref: str = "", avatar_kind: str = "image"
                   voice_provider: str = "piper", voice_name: str = "",
                   is_greenscreen: bool = False,
                   avatars: Optional[List[Dict[str, Any]]] = None,
-                  compose_mode: str = "single", layout: str = "side") -> DigitalHumanPreset:
+                  compose_mode: str = "single", layout: str = "side",
+                  video_width: int = 720, video_height: int = 1280) -> DigitalHumanPreset:
     p = DigitalHumanPreset(
         id=uuid.uuid4().hex[:12], name=name, avatar_ref=avatar_ref,
         avatar_kind=avatar_kind, is_greenscreen=is_greenscreen,
         voice_provider=voice_provider, voice_name=voice_name, created=time.time(),
         avatars=avatars or [], compose_mode=compose_mode, layout=layout,
+        video_width=video_width, video_height=video_height,
     )
     rows = _load_raw(); rows.append(p.model_dump()); _save_raw(rows)
     return p

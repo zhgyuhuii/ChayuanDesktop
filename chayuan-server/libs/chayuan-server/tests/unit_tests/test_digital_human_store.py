@@ -126,3 +126,16 @@ def test_preset_slot_voice_roundtrip(monkeypatch, tmp_path):
     assert got is not None
     assert got.avatars[0].voice_provider == "sherpa"
     assert got.avatars[0].voice_name == "vz"
+
+
+def test_preset_canvas_size_roundtrip(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    p = dh_store.create_preset(name="m", avatar_ref="user:a", avatar_kind="video",
+                               video_width=1280, video_height=720)
+    got = dh_store.get_preset(p.id)
+    assert got is not None and got.video_width == 1280 and got.video_height == 720
+
+def test_preset_canvas_default(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    p = dh_store.create_preset(name="m", avatar_ref="user:a", avatar_kind="video")
+    assert p.video_width == 720 and p.video_height == 1280
