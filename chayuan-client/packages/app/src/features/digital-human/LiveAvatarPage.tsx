@@ -23,7 +23,7 @@
 
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Send, Bot, Mic, Square } from 'lucide-react';
+import { Send, Bot, Mic, Square, ChevronDown, ChevronUp, Settings } from 'lucide-react';
 
 import { digitalHuman, modality, type DigitalHumanPreset } from '@chayuan/api';
 import { uuid } from '@chayuan/platform-shared';
@@ -255,225 +255,174 @@ const LiveAvatarInner: React.FC = () => {
 
   const avatarUrl = preset ? digitalHuman.avatarFileUrl(preset.avatar_ref) : '';
 
+  // ── 展示态（纯 UI，不影响任何业务逻辑）──────────────────────────────────
+  const [cfgOpen, setCfgOpen] = React.useState(true);
+  const [convOpen, setConvOpen] = React.useState(true);
+
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        background: 'var(--cy-surface-base)',
-        color: 'var(--cy-text-primary)',
-        overflow: 'hidden',
-      }}
-    >
-      {/* ── 配置栏 ─────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '8px 12px',
-          borderBottom: '1px solid var(--cy-border-subtle)',
-          background: 'var(--cy-surface-1)',
-          flexWrap: 'wrap',
-        }}
-      >
-        {/* 数字人预设选择 */}
-        <select
-          value={presetId}
-          onChange={(e) => setPresetId(e.target.value)}
-          style={{
-            height: '32px',
-            padding: '0 8px',
-            borderRadius: '8px',
-            border: '1px solid var(--cy-border-subtle)',
-            background: 'var(--cy-surface-base)',
-            color: 'var(--cy-text-primary)',
-            fontSize: '13px',
-            outline: 'none',
-          }}
-          aria-label="选择数字人"
-        >
-          {presets.length === 0 && (
-            <option value="">-- 暂无预设 --</option>
-          )}
-          {presets.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+    <div className="relative flex h-full flex-col overflow-hidden bg-[var(--cy-ink-900,#0b0d12)]">
 
-        {/* 模型选择（受控 props，不写全局 composer store）*/}
-        <ModelPicker
-          value={{ modelId: model, platformName }}
-          onChange={handleModelChange}
-        />
-
-        {/* 知识库选择（通过 ComposerStoreContext 读写 dhComposerStore）*/}
-        <KnowledgePickerPill side="bottom" align="start" />
-
-        {/* 人设 prompt */}
-        <input
-          type="text"
-          value={persona}
-          onChange={(e) => setPersona(e.target.value)}
-          placeholder="人设 prompt（可选）"
-          style={{
-            flex: 1,
-            minWidth: '120px',
-            height: '32px',
-            padding: '0 10px',
-            borderRadius: '8px',
-            border: '1px solid var(--cy-border-subtle)',
-            background: 'var(--cy-surface-base)',
-            color: 'var(--cy-text-primary)',
-            fontSize: '13px',
-            outline: 'none',
-          }}
-          aria-label="人设 prompt"
-        />
-
-        {/* 实时口型开关 */}
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-            fontSize: '13px',
-            color: 'var(--cy-text-secondary)',
-            cursor: 'pointer',
-            userSelect: 'none',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={liveVideo}
-            onChange={(e) => setLiveVideo(e.target.checked)}
-            style={{ accentColor: 'var(--cy-ink-600)', width: '14px', height: '14px' }}
+      {/* ── Stage layer（全屏铺满，在最底层）────────────────────────────── */}
+      <div className="absolute inset-0">
+        {liveVideo ? (
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="h-full w-full object-cover"
           />
-          实时口型
-        </label>
-      </div>
-
-      {/* ── 主体（形象 + 回答）────────────────────────────────────────────── */}
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        {/* 形象区 */}
-        <div
-          style={{
-            flex: '0 0 auto',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            padding: '16px',
-            background: 'var(--cy-surface-2)',
-            minHeight: '200px',
-          }}
-        >
-          {/* 实时口型模式：显示 WebRTC 视频流 */}
-          {liveVideo ? (
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              style={{
-                maxHeight: '240px',
-                maxWidth: '100%',
-                borderRadius: '12px',
-                objectFit: 'contain',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-                background: '#000',
-              }}
-            />
-          ) : preset ? (
-            preset.avatar_kind === 'image' ? (
-              <img
-                src={avatarUrl}
-                alt={preset.name}
-                style={{
-                  maxHeight: '240px',
-                  maxWidth: '100%',
-                  borderRadius: '12px',
-                  objectFit: 'contain',
-                  boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-                }}
-              />
-            ) : (
-              <video
-                src={avatarUrl}
-                muted
-                loop
-                autoPlay
-                playsInline
-                style={{
-                  maxHeight: '240px',
-                  maxWidth: '100%',
-                  borderRadius: '12px',
-                  objectFit: 'contain',
-                  boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-                }}
-              />
-            )
-          ) : (
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '8px',
-                color: 'var(--cy-text-tertiary)',
-              }}
-            >
-              <Bot style={{ width: '48px', height: '48px', opacity: 0.4 }} />
-              <span style={{ fontSize: '13px' }}>
-                {presetsQ.isLoading ? '正在加载数字人...' : '暂无数字人预设'}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* 流式回答区 */}
-        <div
-          ref={answerRef}
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '16px',
-            fontSize: '14px',
-            lineHeight: '1.7',
-            color: 'var(--cy-text-primary)',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-          }}
-        >
-          {answer || (
-            <span style={{ color: 'var(--cy-text-tertiary)', fontSize: '13px' }}>
-              {busy ? '正在思考...' : '向数字人提问，回答将在此显示'}
+        ) : preset && preset.avatar_kind === 'image' ? (
+          <img
+            src={avatarUrl}
+            alt={preset.name}
+            className="h-full w-full object-cover"
+          />
+        ) : preset ? (
+          <video
+            src={avatarUrl}
+            muted
+            loop
+            autoPlay
+            playsInline
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-[var(--cy-ink-800,#11141c)] to-[var(--cy-ink-900,#0b0d12)] text-white/40">
+            <Bot className="h-12 w-12" />
+            <span className="text-sm">
+              {presetsQ.isLoading ? '正在加载数字人...' : '暂无数字人预设'}
             </span>
-          )}
-        </div>
+          </div>
+        )}
+        {/* 暗色渐变蒙层，让浮层内容可读 */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/20" />
       </div>
 
-      {/* ── 输入区 ──────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-end',
-          gap: '8px',
-          padding: '10px 12px',
-          borderTop: '1px solid var(--cy-border-subtle)',
-          background: 'var(--cy-surface-1)',
-        }}
-      >
+      {/* ── Config overlay（左上角，可折叠）──────────────────────────────── */}
+      {cfgOpen ? (
+        <div className="absolute left-3 top-3 z-20 w-[300px] max-w-[80%] rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]/95 p-3 shadow-lg backdrop-blur">
+          {/* 标题行 */}
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--cy-text-primary)]">
+              <Settings className="h-3.5 w-3.5" />
+              配置
+            </div>
+            <button
+              type="button"
+              onClick={() => setCfgOpen(false)}
+              className="flex h-6 w-6 items-center justify-center rounded text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
+              aria-label="收起配置面板"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* 配置项垂直堆叠 */}
+          <div className="flex flex-col gap-2">
+            {/* 数字人预设选择 */}
+            <select
+              value={presetId}
+              onChange={(e) => setPresetId(e.target.value)}
+              className="h-8 w-full rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-[13px] text-[var(--cy-text-primary)] outline-none"
+              aria-label="选择数字人"
+            >
+              {presets.length === 0 && (
+                <option value="">-- 暂无预设 --</option>
+              )}
+              {presets.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+
+            {/* 模型选择（受控 props，不写全局 composer store）*/}
+            <ModelPicker
+              value={{ modelId: model, platformName }}
+              onChange={handleModelChange}
+            />
+
+            {/* 知识库选择（通过 ComposerStoreContext 读写 dhComposerStore）*/}
+            <KnowledgePickerPill side="bottom" align="start" />
+
+            {/* 人设 prompt */}
+            <input
+              type="text"
+              value={persona}
+              onChange={(e) => setPersona(e.target.value)}
+              placeholder="人设 prompt（可选）"
+              className="h-8 w-full rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2.5 text-[13px] text-[var(--cy-text-primary)] outline-none placeholder:text-[var(--cy-text-tertiary)]"
+              aria-label="人设 prompt"
+            />
+
+            {/* 实时口型开关 */}
+            <label className="flex cursor-pointer select-none items-center gap-1.5 text-[13px] text-[var(--cy-text-secondary)]">
+              <input
+                type="checkbox"
+                checked={liveVideo}
+                onChange={(e) => setLiveVideo(e.target.checked)}
+                className="h-3.5 w-3.5 accent-[var(--cy-ink-600)]"
+              />
+              实时口型
+            </label>
+          </div>
+        </div>
+      ) : (
+        /* 折叠态：左上角胶囊按钮 */
+        <button
+          type="button"
+          onClick={() => setCfgOpen(true)}
+          className="absolute left-3 top-3 z-20 flex items-center gap-1 rounded-full border border-white/20 bg-black/40 px-3 py-1 text-[13px] text-white/80 backdrop-blur hover:bg-black/60"
+          aria-label="展开配置面板"
+        >
+          <Settings className="h-3.5 w-3.5" />
+          配置
+        </button>
+      )}
+
+      {/* ── Conversation overlay（右侧，可折叠）──────────────────────────── */}
+      {convOpen ? (
+        <div className="absolute right-3 top-3 z-20 flex max-h-[55%] w-[340px] max-w-[80%] flex-col rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]/95 shadow-lg backdrop-blur">
+          {/* 标题行 */}
+          <div className="flex shrink-0 items-center justify-between border-b border-[var(--cy-border-subtle)] px-3 py-2">
+            <span className="text-[13px] font-medium text-[var(--cy-text-primary)]">回答</span>
+            <button
+              type="button"
+              onClick={() => setConvOpen(false)}
+              className="flex h-6 w-6 items-center justify-center rounded text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
+              aria-label="隐藏回答面板"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+          </div>
+          {/* 回答滚动区（answerRef 保持在此，保证 auto-scroll 正常）*/}
+          <div
+            ref={answerRef}
+            className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words p-3 text-[14px] leading-7 text-[var(--cy-text-primary)]"
+          >
+            {answer || (
+              <span className="text-[13px] text-[var(--cy-text-tertiary)]">
+                {busy ? '正在思考...' : '向数字人提问，回答将在此显示'}
+              </span>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* 折叠态：右下方胶囊按钮（在输入栏上方）*/
+        <button
+          type="button"
+          onClick={() => setConvOpen(true)}
+          className="absolute bottom-[80px] right-3 z-20 flex items-center gap-1 rounded-full border border-white/20 bg-black/40 px-3 py-1 text-[13px] text-white/80 backdrop-blur hover:bg-black/60"
+          aria-label="显示回答面板"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+          显示回答
+        </button>
+      )}
+
+      {/* ── 底部输入栏（固定在底部，覆盖在舞台上方）──────────────────────── */}
+      <div className="relative z-20 mt-auto flex items-end gap-2 border-t border-white/10 bg-black/30 p-2.5 backdrop-blur">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -481,91 +430,50 @@ const LiveAvatarInner: React.FC = () => {
           placeholder="输入问题，Enter 发送 / Shift+Enter 换行"
           disabled={busy}
           rows={2}
-          style={{
-            flex: 1,
-            resize: 'none',
-            padding: '8px 12px',
-            borderRadius: '10px',
-            border: '1px solid var(--cy-border-subtle)',
-            background: 'var(--cy-surface-base)',
-            color: 'var(--cy-text-primary)',
-            fontSize: '14px',
-            outline: 'none',
-            lineHeight: '1.5',
-            fontFamily: 'inherit',
-          }}
+          className="flex-1 resize-none rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-[14px] text-white outline-none placeholder:text-white/50 disabled:opacity-60"
           aria-label="输入问题"
         />
+        {/* 发送按钮 */}
         <button
           type="button"
           onClick={() => void send()}
           disabled={busy || !input.trim()}
           title="发送（Enter）"
           aria-label="发送"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: '40px',
-            height: '40px',
-            borderRadius: '10px',
-            border: 'none',
-            background:
-              busy || !input.trim()
-                ? 'var(--cy-surface-3)'
-                : 'var(--cy-ink-600)',
-            color:
-              busy || !input.trim()
-                ? 'var(--cy-text-tertiary)'
-                : '#fff',
-            cursor: busy || !input.trim() ? 'not-allowed' : 'pointer',
-            transition: 'background 0.15s',
-            flexShrink: 0,
-          }}
+          className={[
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border-none transition-colors',
+            busy || !input.trim()
+              ? 'cursor-not-allowed bg-white/10 text-white/40'
+              : 'cursor-pointer bg-[var(--cy-ink-600)] text-white hover:opacity-90',
+          ].join(' ')}
         >
-          <Send style={{ width: '18px', height: '18px' }} />
+          <Send className="h-[18px] w-[18px]" />
         </button>
+        {/* 麦克风按钮 */}
         <button
           type="button"
           onClick={toggleMic}
           disabled={busy || transcribing}
           title={mic.recording ? '点击停止并转写' : '点击说话'}
           aria-label={mic.recording ? '停止录音' : '开始录音'}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '4px',
-            height: '40px',
-            padding: '0 12px',
-            borderRadius: '10px',
-            border: 'none',
-            background:
-              busy || transcribing
-                ? 'var(--cy-surface-3)'
-                : mic.recording
-                  ? '#ef4444'
-                  : 'var(--cy-ink-600)',
-            color:
-              busy || transcribing
-                ? 'var(--cy-text-tertiary)'
-                : '#fff',
-            cursor: busy || transcribing ? 'not-allowed' : 'pointer',
-            transition: 'background 0.15s',
-            flexShrink: 0,
-            fontSize: '13px',
-            whiteSpace: 'nowrap',
-          }}
+          className={[
+            'flex h-10 shrink-0 items-center justify-center gap-1 rounded-lg border-none px-3 text-[13px] whitespace-nowrap transition-colors',
+            busy || transcribing
+              ? 'cursor-not-allowed bg-white/10 text-white/40'
+              : mic.recording
+                ? 'cursor-pointer bg-[#ef4444] text-white hover:opacity-90'
+                : 'cursor-pointer bg-[var(--cy-ink-600)] text-white hover:opacity-90',
+          ].join(' ')}
         >
           {transcribing ? (
             <span>转写中…</span>
           ) : mic.recording ? (
             <>
-              <Square style={{ width: '14px', height: '14px' }} />
+              <Square className="h-[14px] w-[14px]" />
               <span>{mic.elapsed}s</span>
             </>
           ) : (
-            <Mic style={{ width: '18px', height: '18px' }} />
+            <Mic className="h-[18px] w-[18px]" />
           )}
         </button>
       </div>
