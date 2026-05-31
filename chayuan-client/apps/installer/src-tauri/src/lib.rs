@@ -50,6 +50,42 @@ fn sha256_of(path: &std::path::Path) -> std::io::Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// 把 staging 目录打成自解压安装包。
+/// [BUILD-VERIFY] 真打包需目标平台 makeself / 7z 自解压头;本骨架用 tar.gz + shell 自解压头(Linux/mac)。
+#[tauri::command]
+async fn build_installer(staging_dir: String, out_path: String, tier: String, os: String) -> Result<String, String> {
+    use std::process::Command;
+    let staging = std::path::Path::new(&staging_dir);
+    if !staging.is_dir() {
+        return Err(format!("staging 不存在: {}", staging_dir));
+    }
+    // [BUILD-VERIFY] Linux/mac:tar 打包 + 拼 shell 自解压头;Windows 待接 7z SFX。
+    if os == "win" {
+        return Err("windows 自解压制包待接 7z SFX [BUILD-VERIFY]".into());
+    }
+    let tar_tmp = format!("{}.tar.gz", out_path);
+    let status = Command::new("tar")
+        .args(["-czf", &tar_tmp, "-C", &staging_dir, "."])
+        .status()
+        .map_err(|e| format!("tar 失败: {}", e))?;
+    if !status.success() {
+        return Err("tar 退出码非 0".into());
+    }
+    // 自解压头:解压到 $1(默认 ./chayuan-<tier>)后跑 install.sh
+    let stub = format!(
+        "#!/bin/sh\nset -e\nDEST=\"${{1:-./chayuan-{tier}}}\"\nmkdir -p \"$DEST\"\nARCHIVE_LINE=$(awk '/^__ARCHIVE__/ {{print NR + 1; exit 0}}' \"$0\")\ntail -n +$ARCHIVE_LINE \"$0\" | tar -xzf - -C \"$DEST\"\n[ -f \"$DEST/install.sh\" ] && sh \"$DEST/install.sh\"\nexit 0\n__ARCHIVE__\n",
+        tier = tier
+    );
+    // 拼 stub + tar 内容 → out_path
+    let mut out = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
+    use std::io::Write;
+    out.write_all(stub.as_bytes()).map_err(|e| e.to_string())?;
+    let tar_bytes = std::fs::read(&tar_tmp).map_err(|e| e.to_string())?;
+    out.write_all(&tar_bytes).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&tar_tmp);
+    Ok(out_path)
+}
+
 /// 拉取归一化清单 —— [BUILD-VERIFY] 真实从 website 取;骨架先返空清单。
 #[tauri::command]
 async fn fetch_manifest() -> Result<serde_json::Value, String> {
@@ -58,7 +94,7 @@ async fn fetch_manifest() -> Result<serde_json::Value, String> {
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![download_file, fetch_manifest])
+        .invoke_handler(tauri::generate_handler![download_file, fetch_manifest, build_installer])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
