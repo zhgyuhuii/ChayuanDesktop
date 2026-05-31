@@ -79,6 +79,31 @@ def _probe_duration_ms(path: str) -> int:
         return 0
 
 
+def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height):
+    """为每个形象槽各生成一段说话片段(片段自带音频,引擎已 mux)。
+    台词:槽自带 lines,空则用全局 text;某槽形象文件缺失则跳过。全缺则抛异常。"""
+    clips = []
+    n = max(1, len(slots))
+    for i, slot in enumerate(slots):
+        av = resolve_avatar_path(slot.ref)
+        if not av:
+            logger.warning("[dh] 槽 %d 形象缺失,跳过: %s", i, slot.ref)
+            continue
+        seg_text = (getattr(slot, "lines", "") or "").strip() or global_text
+        a_path = os.path.join(td, f"seg{i}.wav")
+        c_path = os.path.join(td, f"seg{i}.mp4")
+        _synthesize_narration(seg_text, preset, a_path)
+        get_engine(engine).generate(
+            avatar_path=av, audio_path=a_path, out_path=c_path,
+            width=width, height=height, on_progress=None,
+        )
+        clips.append(c_path)
+        _set(tid, progress=10 + int((i + 1) * 78 / n))
+    if not clips:
+        raise RuntimeError("没有可用形象片段(全部形象文件缺失)")
+    return clips
+
+
 def _run_pipeline(tid: str) -> None:
     args = _PENDING.get(tid) or {}
     try:
@@ -86,12 +111,36 @@ def _run_pipeline(tid: str) -> None:
         preset = store.get_preset(args["preset_id"])
         if preset is None:
             raise RuntimeError("数字人不存在")
+        td = task_dir(f"dh-{tid}", create=True)
+        out_path = os.path.join(td, "digital_human.mp4")
+        # 多形象:同框(coframe)/分段(sequential),>=2 槽且非 single 才走。
+        # 各槽各自生片段(自带音频),再用 compose_multi 合成;合成失败回退首片段。
+        slots = list(getattr(preset, "avatars", None) or [])
+        mode = getattr(preset, "compose_mode", "single") or "single"
+        if mode in ("coframe", "sequential") and len(slots) >= 2:
+            clips = _gen_slot_clips(tid, preset, slots, args["text"],
+                                    args.get("engine") or "wav2lip", td,
+                                    args["width"], args["height"])
+            from chayuan.server.video_generation.digital_human import compose_multi as _cm
+            _set(tid, progress=90)
+            try:
+                if mode == "coframe":
+                    _cm.render_coframe(clips, layout=getattr(preset, "layout", "side") or "side",
+                                       out_path=out_path, width=args["width"], height=args["height"])
+                else:
+                    _cm.render_sequential(clips, out_path=out_path,
+                                          width=args["width"], height=args["height"])
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[dh] %s 合成失败,回退首个形象片段: %r", mode, e)
+                import shutil
+                shutil.copyfile(clips[0], out_path)
+            _set(tid, state="complete", progress=100, result_path=out_path)
+            return
+        # ---- 单形象(原路径)----
         avatar = resolve_avatar_path(preset.avatar_ref)
         if not avatar:
             raise RuntimeError("形象文件缺失")
-        td = task_dir(f"dh-{tid}", create=True)
         audio_path = os.path.join(td, "narration.wav")
-        out_path = os.path.join(td, "digital_human.mp4")
         _synthesize_narration(args["text"], preset, audio_path)
         _set(tid, progress=30)
         get_engine(args.get("engine") or "wav2lip").generate(

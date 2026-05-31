@@ -168,3 +168,45 @@ def test_job_pipeline_engine_passthrough(monkeypatch, tmp_path):
     dh_jobs._set(tid, state="pending", progress=0)
     dh_jobs.run_sync(tid)
     assert seen.get("engine") == "sadtalker"
+
+
+def _setup_multi(monkeypatch, tmp_path, mode):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    monkeypatch.setattr(dh_jobs, "_synthesize_narration",
+                        lambda text, preset, ap: (open(ap, "wb").write(b"wav"), ap)[1])
+    class _E:
+        def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
+            open(out_path, "wb").write(b"mp4"); return out_path
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda eid="wav2lip": _E())
+    monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
+    pid = dh_jobs.store.create_preset(
+        name="M", avatar_ref="user:a.mp4", avatar_kind="video",
+        avatars=[{"ref": "user:a.mp4", "kind": "video", "lines": "甲"},
+                 {"ref": "user:b.mp4", "kind": "video", "lines": "乙"}],
+        compose_mode=mode, layout="side").id
+    tid = uuid.uuid4().hex[:12]
+    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "全局", "width": 720, "height": 1280}
+    dh_jobs._set(tid, state="pending", progress=0)
+    return tid
+
+def test_job_dispatch_sequential(monkeypatch, tmp_path):
+    from chayuan.server.video_generation.digital_human import compose_multi as cm
+    called = {}
+    monkeypatch.setattr(cm, "render_sequential",
+                        lambda clips, **k: (open(k["out_path"], "wb").write(b"seq"),
+                                            called.setdefault("seq", len(clips)))[0] or k["out_path"])
+    tid = _setup_multi(monkeypatch, tmp_path, "sequential")
+    dh_jobs.run_sync(tid)
+    st = dh_jobs.get_status(tid)
+    assert st.state == "complete" and called.get("seq") == 2
+
+def test_job_dispatch_coframe(monkeypatch, tmp_path):
+    from chayuan.server.video_generation.digital_human import compose_multi as cm
+    called = {}
+    monkeypatch.setattr(cm, "render_coframe",
+                        lambda clips, **k: (open(k["out_path"], "wb").write(b"cf"),
+                                            called.setdefault("cf", k.get("layout")))[0] or k["out_path"])
+    tid = _setup_multi(monkeypatch, tmp_path, "coframe")
+    dh_jobs.run_sync(tid)
+    st = dh_jobs.get_status(tid)
+    assert st.state == "complete" and called.get("cf") == "side"
