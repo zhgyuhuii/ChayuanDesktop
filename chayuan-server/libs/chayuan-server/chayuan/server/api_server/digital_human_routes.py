@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi import Path as FPath
@@ -105,6 +105,35 @@ async def upload_avatar(file: UploadFile = File(...),
         f.write(await file.read())
     kind = "image" if ext in {".jpg", ".jpeg", ".png", ".webp", ".bmp"} else "video"
     return {"ref": f"user:{fid}", "kind": kind, "source": "user", "name": fid}
+
+
+@digital_human_router.post("/avatars/compose")
+async def compose_reference(files: List[UploadFile] = File(...),
+                            user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    """多照合一:上传同一人多张照片 → 挑最佳单帧存为一个 user 形象。
+    受单图引擎约束,不做多参考身份建模,只是选最清晰一张。"""
+    import shutil, tempfile
+    from chayuan.server.video_generation.digital_human.reference import build_reference_image
+    if not files:
+        raise HTTPException(422, "至少上传一张照片")
+    tmps: List[str] = []
+    try:
+        for uf in files:
+            ext = os.path.splitext(uf.filename or "")[1].lower() or ".png"
+            tf = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+            tf.write(await uf.read()); tf.close(); tmps.append(tf.name)
+        chosen = build_reference_image(tmps)
+        ext = os.path.splitext(chosen)[1].lower() or ".png"
+        fid = f"{int(time.time())}-{uuid.uuid4().hex[:6]}{ext}"
+        dest = os.path.join(dh_avatars_dir(create=True), fid)
+        shutil.copyfile(chosen, dest)
+        return {"ref": f"user:{fid}", "kind": "image", "source": "user", "name": fid}
+    finally:
+        for t in tmps:
+            try:
+                os.unlink(t)
+            except OSError:
+                pass
 
 
 @digital_human_router.post("/products")

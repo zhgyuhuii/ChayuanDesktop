@@ -99,3 +99,17 @@ def test_create_preset_with_avatars(monkeypatch, tmp_path):
     assert p.compose_mode == "sequential" and len(p.avatars) == 2
     got = dh_store.get_preset(p.id)
     assert got is not None and got.avatars[1].lines == "你好"
+
+
+from chayuan.server.video_generation.digital_human.reference import build_reference_image as _bri
+
+def test_build_reference_image_empty_raises():
+    import pytest
+    with pytest.raises(RuntimeError):
+        _bri([])
+
+def test_build_reference_image_fallback_first(tmp_path):
+    # 非图片文件 → cv2 读不出(分数都 -1)→ 回退第一张
+    a = tmp_path / "a.png"; a.write_bytes(b"notimg")
+    b = tmp_path / "b.png"; b.write_bytes(b"notimg")
+    assert _bri([str(a), str(b)]) == str(a)
