@@ -164,20 +164,43 @@ def redeem(root, code: str, cfg: dict, *, now=None) -> dict:
     return {"ok": True, "applied": grants}
 
 
-def redeem_shortcode(root, serial: str, app: str, cfg: dict, *, now=None) -> dict:
-    """25 位 B1 短码:HMAC 验签(绑本机指纹)→ 时间写进 entstore(取 max)。"""
+def redeem_shortcode(root, serial: str, cfg: dict, *, now=None) -> dict:
+    """位图短码:HMAC 验签(绑本机指纹)→ 按 modules 位图展开到各模块。
+    kind=0 时长:逐模块 max 到期(幂等不去重);kind=1 次数:去重后逐模块累加 counts。"""
     now = _now() if now is None else now
-    fp = _fp(root)
-    fp_bytes = bytes.fromhex(fp)
+    fp_bytes = bytes.fromhex(_fp(root))
     r = verify_shortcode(serial, fp_bytes, cfg.get("hmac_keys", {}))
     if not r.get("valid"):
         return {"ok": False, "reason": r.get("reason") or "signature"}
+    fields = r["fields"]
+    products = cfg.get("products", {})
+    mods = [name for name, bit in products.items() if fields["modules"] & (1 << int(bit))]
+    if not mods:
+        return {"ok": False, "reason": "no-module"}
+
+    if fields["kind"] == 1:  # 次数:去重后逐模块累加
+        code_id = hashlib.sha256(serial.encode("utf-8")).hexdigest()[:16]
+        if entstore.is_redeemed(root, code_id):
+            return {"ok": False, "reason": "used"}
+        entstore.add_redeemed(root, code_id)
+        for m in mods:
+            state = _normalize(entstore.read_state(root, m), now)
+            state["counts"] += int(fields["value"])
+            if now > state.get("seenMax", 0):
+                state["seenMax"] = now
+            entstore.write_state(root, state)
+        return {"ok": True, "kind": "count", "modules": mods, "added": int(fields["value"])}
+
+    # kind=0 时长:逐模块取 max 到期
     exp = r["expireAt"]
-    state = _normalize(entstore.read_state(root, app), now)
-    cur = _ts(state["timeExpireAt"]) if state["timeExpireAt"] else 0
-    if _ts(exp) > cur:
-        state["timeExpireAt"] = exp
-    if now > state.get("seenMax", 0):
-        state["seenMax"] = now
-    entstore.write_state(root, state)
-    return {"ok": True, "timeExpireAt": state["timeExpireAt"]}
+    applied = []
+    for m in mods:
+        state = _normalize(entstore.read_state(root, m), now)
+        cur = _ts(state["timeExpireAt"]) if state["timeExpireAt"] else 0
+        if _ts(exp) > cur:
+            state["timeExpireAt"] = exp
+        if now > state.get("seenMax", 0):
+            state["seenMax"] = now
+        entstore.write_state(root, state)
+        applied.append({"app": m, "timeExpireAt": state["timeExpireAt"]})
+    return {"ok": True, "kind": "time", "modules": mods, "applied": applied}

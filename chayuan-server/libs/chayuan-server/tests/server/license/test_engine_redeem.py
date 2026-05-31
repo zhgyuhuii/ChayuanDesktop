@@ -68,23 +68,55 @@ import hmac as _hmac
 import hashlib as _hashlib
 
 
+def _scfg(products=None):
+    return {**_cfg(), "products": products or {"video": 0, "ocr": 1}}
+
+
 def test_redeem_shortcode_sets_time(monkeypatch, tmp_path):
-    # 用 stub 的 verify_shortcode 返回到期,验证 engine 把它写进 entstore。
+    # stub verify_shortcode 返回 kind=0 + 位图,验证 engine 按位图展开写到期。
     from chayuan.server.license import engine as eng
 
     def fake_verify(serial, machine_fp, hmac_keys):
-        return {"valid": True, "reason": None, "fields": {"app": 1}, "expireAt": "2099-01-01T00:00:00.000Z"}
+        return {"valid": True, "fields": {"kind": 0, "modules": 0b1, "value": 1,
+                                          "issueDate": 0, "nonce": 0, "ver": 1},
+                "expireAt": "2099-01-01T00:00:00.000Z"}
 
     monkeypatch.setattr(eng, "verify_shortcode", fake_verify)
-    r = eng.redeem_shortcode(tmp_path, "2101W-0JWN1-MN2JP-9V4QW-MSGJ", "video", _cfg(), now=T0)
-    assert r["ok"] is True
+    r = eng.redeem_shortcode(tmp_path, "S", _scfg(), now=T0)
+    assert r["ok"] is True and r["kind"] == "time" and r["modules"] == ["video"]
     assert entstore.read_state(tmp_path, "video")["timeExpireAt"] == "2099-01-01T00:00:00.000Z"
+
+
+def test_redeem_shortcode_count_bitmask_and_dedup(monkeypatch, tmp_path):
+    # kind=1 次数 + 位图(video|ocr):逐模块 +n;同码再核销 → used,不重复加。
+    from chayuan.server.license import engine as eng
+    monkeypatch.setattr(eng, "verify_shortcode", lambda *a, **k: {
+        "valid": True, "fields": {"kind": 1, "modules": 0b11, "value": 5,
+                                  "issueDate": 0, "nonce": 0, "ver": 1}})
+    r = eng.redeem_shortcode(tmp_path, "CNT", _scfg(), now=T0)
+    assert r["ok"] is True and r["kind"] == "count" and sorted(r["modules"]) == ["ocr", "video"]
+    assert entstore.read_state(tmp_path, "video")["counts"] == 5
+    assert entstore.read_state(tmp_path, "ocr")["counts"] == 5
+    r2 = eng.redeem_shortcode(tmp_path, "CNT", _scfg(), now=T0)
+    assert r2["ok"] is False and r2["reason"] == "used"
+    assert entstore.read_state(tmp_path, "video")["counts"] == 5  # 不重复加
+
+
+def test_redeem_shortcode_no_module(monkeypatch, tmp_path):
+    # 位图命中的位没有映射模块 → no-module。
+    from chayuan.server.license import engine as eng
+    monkeypatch.setattr(eng, "verify_shortcode", lambda *a, **k: {
+        "valid": True, "fields": {"kind": 0, "modules": 0b100, "value": 1,
+                                  "issueDate": 0, "nonce": 0, "ver": 1},
+        "expireAt": "2099-01-01T00:00:00.000Z"})
+    r = eng.redeem_shortcode(tmp_path, "X", _scfg(), now=T0)
+    assert r["ok"] is False and r["reason"] == "no-module"
 
 
 def test_redeem_shortcode_invalid_rejected(monkeypatch, tmp_path):
     from chayuan.server.license import engine as eng
     monkeypatch.setattr(eng, "verify_shortcode", lambda *a, **k: {"valid": False, "reason": "checksum"})
-    r = eng.redeem_shortcode(tmp_path, "BAD", "video", _cfg(), now=T0)
+    r = eng.redeem_shortcode(tmp_path, "BAD", _scfg(), now=T0)
     assert r["ok"] is False and r["reason"] == "checksum"
 
 

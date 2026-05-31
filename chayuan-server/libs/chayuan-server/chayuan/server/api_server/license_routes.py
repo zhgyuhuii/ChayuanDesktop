@@ -63,12 +63,28 @@ def get_status(app: str = Query("video")):
 
 @license_router.post("/activate")
 def post_activate(payload: dict = Body(...)):
-    app = payload.get("app", "video")
-    if not _valid_app(app):
-        return {"ok": False, "reason": "invalid-app"}
     cfg = load_license_config()
     with _mutate_lock:
-        return engine.redeem_shortcode(_root(), payload.get("serial", ""), app, cfg)
+        r = engine.redeem_shortcode(_root(), payload.get("serial", ""), cfg)
+    r.setdefault("fingerprint", _fp(_root()))
+    return r
+
+
+@license_router.get("/diag")
+def get_diag():
+    """同源诊断:对比网站后台「一键生成密钥」里的 products_hash,判断密钥/位号是否同源。"""
+    import hashlib as _h
+    import json as _json
+    cfg = load_license_config()
+    prod = cfg.get("products", {})
+    prod_hash = _h.sha256(_json.dumps(prod, sort_keys=True).encode()).hexdigest()[:8]
+    return {
+        "configured": cfg.get("configured", False),
+        "active_key_id": cfg.get("active_key_id"),
+        "products": prod,
+        "products_hash": prod_hash,
+        "fingerprint": _fp(_root()),
+    }
 
 
 @license_router.post("/activate-token")

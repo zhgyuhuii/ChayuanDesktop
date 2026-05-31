@@ -63,16 +63,20 @@ def load_license_config() -> dict:
     pub_hex = pick("LICENSE_ED25519_PUBLIC_KEY", "ed25519_public_key")
     buy_base_url = pick("LICENSE_BUY_BASE_URL", "buy_base_url", "https://aidooo.com")
 
-    # products:env JSON 优先,其次文件里的 dict,最后默认 {"video": 1}
-    products = {"video": 1}
+    # products:模块->位号(0-7)。env JSON 优先,其次文件 dict,最后默认 {"video": 0}
+    products = {"video": 0}
     env_products = os.environ.get("LICENSE_PRODUCTS")
     if env_products:
         try:
             products = json.loads(env_products)
         except Exception:
-            products = {"video": 1}
+            products = {"video": 0}
     elif isinstance(f.get("products"), dict):
         products = f["products"]
+    try:
+        products = {str(k): int(v) for k, v in products.items()}
+    except (TypeError, ValueError):
+        products = {"video": 0}
 
     hmac_keys = {}
     if hmac_hex:
