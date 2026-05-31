@@ -44,6 +44,13 @@ CATALOG = {
 STARTER_MULTILANG = ["vits-zh-hf-fanchen-C", "vits-piper-en_US-amy-low"]
 DEFAULT_MODELS = ["vits-zh-hf-fanchen-C", "vits-zh-aishell3"]
 DEFAULT_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
+# 国内 GitHub release 镜像前缀(2026-05-31 实测可用;mirror.ghproxy.com 已挂故不列)。
+# 用 --mirror <key> 选,免手敲长 URL。值会拼到 DEFAULT_BASE 前。
+MIRRORS = {
+    "ghproxy": "https://ghproxy.net/",
+    "ghfast": "https://ghfast.top/",
+    "gh-proxy": "https://gh-proxy.com/",
+}
 
 
 def _bundled_sherpa_dir() -> Path:
@@ -110,6 +117,7 @@ def main() -> int:
     ap.add_argument("--models", default="", help="逗号分隔模型名;缺省用默认集(中文)")
     ap.add_argument("--all", action="store_true", help="下中+英多语言起步集(STARTER_MULTILANG)")
     ap.add_argument("--list", action="store_true", help="按语言列出可下模型目录(CATALOG)")
+    ap.add_argument("--mirror", default="", help="国内镜像: ghproxy / ghfast / gh-proxy(免手设环境变量)")
     args = ap.parse_args()
 
     if args.list:
@@ -120,8 +128,8 @@ def main() -> int:
                 print(f"    {m}")
         print("用法: python scripts/seed_sherpa_voices.py --models <名1>,<名2>")
         print("     python scripts/seed_sherpa_voices.py --all   # 中+英起步集")
-        print("国内慢/不通: set CHAYUAN_SHERPA_BASE="
-              "https://mirror.ghproxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models")
+        print("国内慢/不通,加镜像(任选其一,实测可用): --mirror ghproxy | ghfast | gh-proxy")
+        print("     例: python scripts/seed_sherpa_voices.py --all --mirror ghproxy")
         return 0
 
     # 提醒装运行时包(只是模型 seed,推理还需 sherpa-onnx)
@@ -138,7 +146,14 @@ def main() -> int:
         models = [m.strip() for m in args.models.split(",") if m.strip()]
     else:
         models = list(DEFAULT_MODELS)
-    base = os.environ.get("CHAYUAN_SHERPA_BASE", DEFAULT_BASE)
+    if args.mirror:
+        prefix = MIRRORS.get(args.mirror, args.mirror)  # 也允许直接传前缀 URL
+        base = prefix.rstrip("/") + "/" + DEFAULT_BASE
+    else:
+        base = os.environ.get("CHAYUAN_SHERPA_BASE") or DEFAULT_BASE
+    # 关键:去掉粘贴长 URL 时被终端折行带进来的 \n 和空格(否则 httpx 报
+    # InvalidURL: non-printable ASCII '\n')。
+    base = "".join(base.split())
     dest = _bundled_sherpa_dir()
     print(f"[sherpa] base = {base}")
     print(f"[sherpa] dest = {dest}")
