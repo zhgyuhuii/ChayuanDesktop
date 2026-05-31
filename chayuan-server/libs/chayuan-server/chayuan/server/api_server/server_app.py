@@ -55,6 +55,7 @@ from chayuan.server.observability import (
     setup_observability,
 )
 from chayuan.server.utils import MakeFastAPIOffline
+from chayuan.server.api_server._startup_timing import phase
 
 
 def create_app(run_mode: str = None):
@@ -587,26 +588,29 @@ def create_app(run_mode: str = None):
     app.mount("/img", StaticFiles(directory=img_dir), name="img")
 
     # FastAPI instrument 必须在路由都注册后调用，否则部分 router 的 span 会漏
-    try:
-        from chayuan.server.observability import init_tracing
-        init_tracing(app)
-    except Exception:  # noqa: BLE001
-        pass
+    with phase("init-tracing"):
+        try:
+            from chayuan.server.observability import init_tracing
+            init_tracing(app)
+        except Exception:  # noqa: BLE001
+            pass
 
     # NLTK 资源预下载(unstructured 解析 .rtf / .eml / .epub 等需要 punkt 等);
     # 失败只 warning,不影响启动 —— 纯 .txt / .md / .csv / .pdf 路径根本不依赖 NLTK
-    try:
-        from chayuan.server.file_rag.nltk_bootstrap import ensure_nltk_data
-        ensure_nltk_data()
-    except Exception:  # noqa: BLE001
-        pass
+    with phase("nltk-bootstrap"):
+        try:
+            from chayuan.server.file_rag.nltk_bootstrap import ensure_nltk_data
+            ensure_nltk_data()
+        except Exception:  # noqa: BLE001
+            pass
 
     # N-1：注册内置检索插件（ColBERT 等）；import 失败不影响主服务启动
-    try:
-        from chayuan.server.file_rag.plugins import register_builtin_plugins
-        register_builtin_plugins()
-    except Exception:  # noqa: BLE001
-        pass
+    with phase("register-builtin-plugins"):
+        try:
+            from chayuan.server.file_rag.plugins import register_builtin_plugins
+            register_builtin_plugins()
+        except Exception:  # noqa: BLE001
+            pass
 
     return app
 
