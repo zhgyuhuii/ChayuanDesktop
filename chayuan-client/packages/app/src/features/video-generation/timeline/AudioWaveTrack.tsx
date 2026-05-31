@@ -3,7 +3,7 @@ import { Mic } from 'lucide-react';
 import { TRACK_H } from './TrackHeader';
 
 /** 由 peaks(0~1)生成填充式对称波形 SVG path(viewBox: N×100,中线 50,上下各 ±48)。 */
-function waveformPath(peaks: number[]): string {
+export function waveformPath(peaks: number[]): string {
   const n = peaks.length;
   const top = peaks.map((p, i) => `L ${i} ${(50 - Math.min(1, p) * 48).toFixed(1)}`);
   const bot: string[] = [];
