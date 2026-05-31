@@ -152,12 +152,15 @@ def redeem(root, code: str, cfg: dict, *, now=None) -> dict:
         return {"ok": False, "reason": "mismatch"}
     if not code_id:
         return {"ok": False, "reason": "no-id"}
+    code_id = str(code_id)  # 防签发端给非字符串 id 导致 add_redeemed 的 sorted() 崩
     if entstore.is_redeemed(root, code_id):
         return {"ok": False, "reason": "used"}
 
+    # 先记 id 再入账:多 grant 中途若写盘失败,该码已被标记消耗,不会被重复核销
+    # (宁可这张码作废,也不允许部分应用后重复刷次数)。
+    entstore.add_redeemed(root, code_id)
     for g in grants:
         _apply_grant(root, g, now)
-    entstore.add_redeemed(root, code_id)
     return {"ok": True, "applied": grants}
 
 
