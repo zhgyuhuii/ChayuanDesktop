@@ -65,3 +65,24 @@ def test_product_dir_and_resolve(monkeypatch, tmp_path):
     assert dh_store.resolve_product_path("product:p1.png").endswith("p1.png")
     assert dh_store.resolve_product_path("product:missing.png") is None
     assert dh_store.resolve_product_path("bad") is None
+
+
+from chayuan.server.video_generation.digital_human.schemas import (
+    DigitalHumanPreset as _P, AvatarSlot as _Slot,
+)
+
+def test_preset_backfills_avatars_from_legacy_ref():
+    # 旧 presets.json 行没有 avatars/compose_mode → 应回填且默认 single
+    p = _P(id="p1", name="A", avatar_ref="user:f.mp4", avatar_kind="video", created=1.0)
+    assert p.compose_mode == "single"
+    assert len(p.avatars) == 1
+    assert p.avatars[0].ref == "user:f.mp4" and p.avatars[0].kind == "video"
+
+def test_preset_mirrors_first_avatar_to_legacy_ref():
+    # 给了 avatars → avatar_ref/kind 应镜像首槽(旧单形象消费方不破)
+    p = _P(id="p2", name="B", avatar_ref="", avatar_kind="image",
+           avatars=[_Slot(ref="user:a.png", kind="image", lines="台词1"),
+                    _Slot(ref="user:b.mp4", kind="video")],
+           compose_mode="coframe", layout="pip")
+    assert p.avatar_ref == "user:a.png" and p.avatar_kind == "image"
+    assert p.avatars[1].lines == ""

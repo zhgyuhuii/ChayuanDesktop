@@ -1,9 +1,16 @@
 """数字人 P1 数据契约。"""
 from __future__ import annotations
-from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from typing import List, Literal, Optional
+from pydantic import BaseModel, Field, model_validator
 
 AvatarKind = Literal["image", "video"]
+
+
+class AvatarSlot(BaseModel):
+    ref: str
+    kind: AvatarKind = "image"
+    label: str = ""
+    lines: str = ""          # 该形象台词(同框/分段用);空=回退全局 text
 DhTemplate = Literal["none", "corner", "side", "bg"]  # P1 仅用 none;corner/side/bg 留 P2/P3
 DhEngine = Literal["wav2lip", "sadtalker", "musetalk"]
 DhState = Literal["pending", "running", "complete", "failed", "canceled"]
@@ -12,12 +19,27 @@ DhState = Literal["pending", "running", "complete", "failed", "canceled"]
 class DigitalHumanPreset(BaseModel):
     id: str
     name: str = Field(min_length=1, max_length=40)
-    avatar_ref: str            # "bundled:<id>" 或 "user:<file>"
-    avatar_kind: AvatarKind
+    avatar_ref: str = ""       # "bundled:<id>" 或 "user:<file>"(首槽镜像)
+    avatar_kind: AvatarKind = "image"
     is_greenscreen: bool = False
     voice_provider: Literal["piper", "edge", "sherpa", "clone"] = "piper"
     voice_name: str = ""
     created: float = 0.0
+    # 多形象 + 合成模式(方案 B);旧 presets.json 行无这些字段 → 默认值 + validator 回填
+    avatars: List[AvatarSlot] = Field(default_factory=list)
+    compose_mode: Literal["single", "coframe", "sequential"] = "single"
+    layout: Literal["side", "pip", "main_minor"] = "side"
+
+    @model_validator(mode="after")
+    def _sync_avatars(self) -> "DigitalHumanPreset":
+        # 旧行(无 avatars)→ 用 avatar_ref 回填;有 avatars → 首槽镜像回旧字段,
+        # 保证 jobs 单形象路径(读 preset.avatar_ref)对老/新数据都成立。
+        if not self.avatars and self.avatar_ref:
+            self.avatars = [AvatarSlot(ref=self.avatar_ref, kind=self.avatar_kind)]
+        if self.avatars:
+            self.avatar_ref = self.avatars[0].ref
+            self.avatar_kind = self.avatars[0].kind
+        return self
 
 
 class DhGenerateRequest(BaseModel):
