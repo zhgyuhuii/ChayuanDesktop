@@ -1304,6 +1304,21 @@ def _list_piper_voices() -> List[Dict[str, Any]]:
     return local + extra
 
 
+def _sherpa_lang_of(name: str) -> str:
+    """按 voice 目录名粗判语言标签(多语言下拉才不会全标 zh-CN)。
+    piper 名形如 vits-piper-en_US-amy-low;中文 vits-zh-*。识别不出回退 zh-CN。"""
+    import re as _re
+    low = name.lower()
+    m = _re.search(r"(?:^|[-_])([a-z]{2})[-_]([a-z]{2})(?:[-_]|$)", low)
+    if m:
+        return f"{m.group(1)}-{m.group(2).upper()}"
+    if "-zh" in low or low.startswith("zh") or "chinese" in low:
+        return "zh-CN"
+    if "-en" in low or "english" in low or low.startswith("vits-ljs"):
+        return "en-US"
+    return "zh-CN"
+
+
 def _scan_sherpa_voices() -> List[Dict[str, Any]]:
     """扫描 sherpa-onnx voice 目录列表 — CHAYUAN_ROOT 装机 seed + 开发期
     vendor 两档同时扫,merge 去重。
@@ -1340,10 +1355,16 @@ def _scan_sherpa_voices() -> List[Dict[str, Any]]:
             vd = os.path.join(root, name)
             if not os.path.isdir(vd):
                 continue
-            if not os.path.isfile(os.path.join(vd, "model.onnx")):
+            # onnx 不一定叫 model.onnx(中文 hf-fanchen=<name>.onnx、piper=<voice>.onnx),
+            # 认 tokens.txt + 任意 *.onnx(与 audio.py 的 resolver/builder 一致)。
+            import glob as _glob
+            has_onnx = (os.path.isfile(os.path.join(vd, "model.onnx"))
+                        or bool(_glob.glob(os.path.join(vd, "*.onnx"))))
+            if not (has_onnx and os.path.isfile(os.path.join(vd, "tokens.txt"))):
                 continue
             seen.add(name)
             label = SHERPA_VOICE_LABELS.get(name, name)
+            lang = _sherpa_lang_of(name)
             # 多说话人模型:展开成 <model>#<sid> 每个说话人一条(如 aishell3 174 个)
             n_spk = _sherpa_num_speakers(vd)
             if n_spk and n_spk > 1:
@@ -1351,10 +1372,10 @@ def _scan_sherpa_voices() -> List[Dict[str, Any]]:
                     items.append({
                         "id": f"{name}#{sid}",
                         "label": f"{label} · 音色 {sid + 1}",
-                        "language": "zh-CN",
+                        "language": lang,
                     })
             else:
-                items.append({"id": name, "label": label, "language": "zh-CN"})
+                items.append({"id": name, "label": label, "language": lang})
     return items
 
 
