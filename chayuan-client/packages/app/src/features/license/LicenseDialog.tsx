@@ -9,7 +9,7 @@
  * - 刷新在线授权 → store.refresh（后端内部做偶尔在线自动激活）。
  */
 
-import { licenseBuyUrl } from '@chayuan/api';
+import { type PayChannels, licenseBuyUrl } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
 import {
   Button,
@@ -35,17 +35,20 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
   const store = useLicenseStore();
   const [qr, setQr] = React.useState<string>('');
   const [buyUrl, setBuyUrl] = React.useState<string>('');
+  const [channels, setChannels] = React.useState<PayChannels | null>(null);
   const [serial, setSerial] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
-  // 取购买链接（后端拼 指纹 + app）→ 生成离线二维码。
+  // 取购买链接 + 支持的支付渠道（后端拼 指纹 + app）→ 生成离线二维码。
   React.useEffect(() => {
     if (!open) return;
     let alive = true;
     licenseBuyUrl(app)
       .then((r) => {
-        if (alive) setBuyUrl(r.url);
+        if (!alive) return;
+        setBuyUrl(r.url);
+        setChannels(r.channels ?? null);
       })
       .catch(() => {
         if (alive) setBuyUrl('');
@@ -54,6 +57,8 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
       alive = false;
     };
   }, [open, app]);
+
+  const scanText = channelScanText(channels);
 
   React.useEffect(() => {
     if (!buyUrl) {
@@ -109,6 +114,16 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
           ) : (
             <div className="h-[220px] w-[220px] animate-pulse rounded bg-muted" />
           )}
+
+          {/* 支持的支付渠道：按后台「支付配置」开关显示官方 logo */}
+          {channels && (channels.wechat || channels.alipay) ? (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground">{scanText}</span>
+              {channels.wechat ? <WeChatLogo /> : null}
+              {channels.alipay ? <AlipayLogo /> : null}
+            </div>
+          ) : null}
+
           {buyUrl ? (
             <a
               className="text-xs text-muted-foreground underline"
@@ -116,7 +131,7 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
               target="_blank"
               rel="noreferrer"
             >
-              在手机微信中打开购买
+              或在手机中打开购买页
             </a>
           ) : null}
         </div>
@@ -150,6 +165,53 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** 按支持的渠道给扫码提示文案。 */
+function channelScanText(ch: PayChannels | null): string {
+  if (!ch) return '扫码购买';
+  if (ch.wechat && ch.alipay) return '微信 / 支付宝 扫码购买';
+  if (ch.wechat) return '微信扫码购买';
+  if (ch.alipay) return '支付宝扫码购买';
+  return '扫码购买';
+}
+
+/** 微信官方 logo(brand 路径 + 官方绿)。 */
+function WeChatLogo(): React.ReactElement {
+  return (
+    <svg
+      viewBox="0 0 576 512"
+      width={22}
+      height={22}
+      aria-label="微信支付"
+      role="img"
+      style={{ color: '#07c160' }}
+    >
+      <path
+        fill="currentColor"
+        d="M385.2 167.6c6.4 0 12.6 .3 18.8 1.1C387.4 90.3 303.3 32 207.7 32 100.5 32 13 104.8 13 197.4c0 53.4 29.3 97.5 78.2 131.6l-19.6 58.8 68.6-34.3c24.5 4.9 44.1 9.8 68.6 9.8 6.1 0 12.1-.3 18.1-.8-3.8-13.1-6.1-26.8-6.1-41.1 0-85.6 73.8-155.8 165.4-155.8zm-104.5-52.9c14.7 0 24.5 9.8 24.5 24.5 0 14.7-9.8 24.5-24.5 24.5-14.7 0-29.4-9.8-29.4-24.5 0-14.7 14.7-24.5 29.4-24.5zm-147 49c-14.7 0-29.4-9.8-29.4-24.5 0-14.7 14.7-24.5 29.4-24.5 14.7 0 24.5 9.8 24.5 24.5 0 14.7-9.8 24.5-24.5 24.5zM563 319.4c0-77.9-77.9-141.3-165.4-141.3-92.7 0-165.4 63.4-165.4 141.3S305 460.7 397.6 460.7c19.6 0 39.2-4.9 58.8-9.8l53.9 29.4-14.7-48.9c39.1-29.4 67.4-68.6 67.4-112.7zm-219.3-24.5c-9.8 0-19.6-9.8-19.6-19.6 0-9.8 9.8-19.6 19.6-19.6 14.7 0 24.5 9.8 24.5 19.6 0 9.8-9.8 19.6-24.5 19.6zm98 0c-9.8 0-19.6-9.8-19.6-19.6 0-9.8 9.8-19.6 19.6-19.6 14.7 0 24.5 9.8 24.5 19.6 0 9.8-9.8 19.6-24.5 19.6z"
+      />
+    </svg>
+  );
+}
+
+/** 支付宝官方 logo(brand 路径 + 官方蓝)。 */
+function AlipayLogo(): React.ReactElement {
+  return (
+    <svg
+      viewBox="0 0 448 512"
+      width={22}
+      height={22}
+      aria-label="支付宝"
+      role="img"
+      style={{ color: '#1677ff' }}
+    >
+      <path
+        fill="currentColor"
+        d="M377.74 32H70.26C31.41 32 0 63.41 0 102.26v307.48C0 448.59 31.41 480 70.26 480h307.48c38.52 0 69.76-31.08 70.26-69.6-45.96-25.62-110.59-60.34-171.6-89.81-37.99 46.46-87.71 78.4-139.34 78.4-87.5 0-117.13-76.37-72.62-126.61 9.71-10.95 26.27-21.4 52-27.66 40.23-9.78 104.27 6.27 164.73 26.08 10.91-20.06 20.04-42.07 26.77-65.51H94.32v-18.54h94.42v-33.79H75.16V123.6h113.58V92.26c0-9.96 8.06-18.07 18.07-18.07h41.46v49.41h114.04v18.54H248.27v33.79h93.27c-8.34 33.86-21.07 65.13-37.43 92.61 26.34 9.59 50.13 18.74 67.6 24.74 67.66 23.18 67.83 23.16 84.07 27.74V102.26C448 63.41 416.59 32 377.74 32z"
+      />
+    </svg>
   );
 }
 

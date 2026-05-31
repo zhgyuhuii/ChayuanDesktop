@@ -27,8 +27,14 @@ export function licenseFingerprint(): Promise<{ fingerprint: string }> {
   return http.get<{ fingerprint: string }>(`${BASE}/fingerprint`);
 }
 
-export function licenseBuyUrl(app: string): Promise<{ url: string }> {
-  return http.get<{ url: string }>(`${BASE}/buy-url`, { query: { app } });
+/** 支持的支付渠道(来自买站后台「支付配置」开关 + 已配置)。 */
+export interface PayChannels {
+  wechat: boolean;
+  alipay: boolean;
+}
+
+export function licenseBuyUrl(app: string): Promise<{ url: string; channels?: PayChannels }> {
+  return http.get<{ url: string; channels?: PayChannels }>(`${BASE}/buy-url`, { query: { app } });
 }
 
 export function licenseStatus(app: string): Promise<LicenseStatus> {

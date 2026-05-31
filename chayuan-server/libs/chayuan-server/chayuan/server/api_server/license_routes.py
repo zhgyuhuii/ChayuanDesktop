@@ -34,10 +34,19 @@ def get_fingerprint():
 @license_router.get("/buy-url")
 def get_buy_url(app: str = Query("video")):
     if not _valid_app(app):
-        return {"url": ""}
+        return {"url": "", "channels": {"wechat": False, "alipay": False}}
     cfg = load_license_config()
     fp = _fp(_root())
-    return {"url": f"{cfg['buy_base_url']}/buy?app={app}&mid={fp}"}
+    # 顺带拉买站「支持的支付渠道」,供激活弹框显示对应官方 logo + 文案(联网才有,断网默认空)。
+    channels = {"wechat": False, "alipay": False}
+    try:
+        import json as _json
+        data = _json.loads(_safe_get(f"{cfg['buy_base_url']}/api/pay/channels"))
+        if isinstance(data, dict):
+            channels = {"wechat": bool(data.get("wechat")), "alipay": bool(data.get("alipay"))}
+    except Exception:
+        pass
+    return {"url": f"{cfg['buy_base_url']}/buy?app={app}&mid={fp}", "channels": channels}
 
 
 @license_router.get("/status")

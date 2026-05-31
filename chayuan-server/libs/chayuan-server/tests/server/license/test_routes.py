@@ -22,9 +22,12 @@ def test_fingerprint_and_status_none(tmp_path, monkeypatch):
     assert st["licensed"] is False
 
 def test_buy_url(tmp_path, monkeypatch):
+    # 买站设为本地不可达 → 渠道拉取快速失败回落空,不打真网络。
+    monkeypatch.setenv("LICENSE_BUY_BASE_URL", "http://127.0.0.1:9")
     c = _client(tmp_path, monkeypatch)
-    u = c.get("/api/v1/license/buy-url?app=video").json()["url"]
-    assert u.startswith("https://aidooo.com/buy?app=video&mid=")
+    r = c.get("/api/v1/license/buy-url?app=video").json()
+    assert r["url"].startswith("http://127.0.0.1:9/buy?app=video&mid=")
+    assert r["channels"] == {"wechat": False, "alipay": False}
 
 def test_activate_serial_route_uses_local_fp(tmp_path, monkeypatch):
     # 用本机指纹签发一个短码 → 需 fp 匹配;这里直接测「非法短码 -> licensed false」
