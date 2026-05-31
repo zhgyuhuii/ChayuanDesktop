@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
-  resolveComponents, mirrorCandidates, DEFAULT_MIRROR_RULES, decideUpdate,
+  resolveComponents, mirrorCandidates, DEFAULT_MIRROR_RULES, decideUpdate, validateManifest,
   type InstallerManifest, type Tier, type Selection, type ResolvedComponent, type VersionResponse,
 } from '@chayuan/installer-core';
 
@@ -26,7 +26,13 @@ export const App: React.FC = () => {
   // 拉清单([BUILD-VERIFY] 真实地址走 website;此处先留按钮)
   const loadManifest = async () => {
     try {
-      const m = await invoke<InstallerManifest>('fetch_manifest');
+      const raw = await invoke<unknown>('fetch_manifest');
+      const v = validateManifest(raw);
+      if (!v.ok) {
+        append(`清单校验失败,已拒绝:${v.errors.slice(0, 3).join('；')}`);
+        return;
+      }
+      const m = raw as InstallerManifest;
       setManifest(m);
       append(`清单 v${m.version},组件 ${m.components.length}`);
     } catch (e) {
