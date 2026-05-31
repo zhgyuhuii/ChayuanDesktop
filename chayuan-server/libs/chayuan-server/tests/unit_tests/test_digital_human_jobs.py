@@ -210,3 +210,34 @@ def test_job_dispatch_coframe(monkeypatch, tmp_path):
     dh_jobs.run_sync(tid)
     st = dh_jobs.get_status(tid)
     assert st.state == "complete" and called.get("cf") == "side"
+
+
+def test_voice_string_prefixes():
+    assert dh_jobs._voice_string("sherpa", "vits-zh-hf-fanchen-C") == "sherpa:vits-zh-hf-fanchen-C"
+    assert dh_jobs._voice_string("sherpa", "sherpa:already") == "sherpa:already"
+    assert dh_jobs._voice_string("piper", "zh_CN-huayan-medium") == "zh_CN-huayan-medium"
+    assert dh_jobs._voice_string("piper", "") is None
+    assert dh_jobs._voice_string("", "") is None
+
+
+def test_gen_slot_clips_uses_per_slot_voice(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    seen = []
+    def fake_synth(text, provider, name, ap):
+        seen.append((provider, name)); open(ap, "wb").write(b"w"); return ap
+    monkeypatch.setattr(dh_jobs, "_synth_to_wav", fake_synth)
+    class _E:
+        def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
+            open(out_path, "wb").write(b"mp4"); return out_path
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda eid="wav2lip": _E())
+    monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
+    from chayuan.server.video_generation.digital_human.schemas import DigitalHumanPreset, AvatarSlot
+    preset = DigitalHumanPreset(
+        id="p", name="m", avatar_ref="user:a", avatar_kind="video",
+        voice_provider="piper", voice_name="default",
+        avatars=[AvatarSlot(ref="user:a", kind="video", voice_provider="sherpa", voice_name="vz"),
+                 AvatarSlot(ref="user:b", kind="video")])  # 第二槽继承预设
+    clips = dh_jobs._gen_slot_clips("t", preset, preset.avatars, "全局", "wav2lip", str(tmp_path), 720, 1280)
+    assert len(clips) == 2
+    assert seen[0] == ("sherpa", "vz")
+    assert seen[1] == ("piper", "default")

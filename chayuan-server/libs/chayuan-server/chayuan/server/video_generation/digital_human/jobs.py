@@ -44,11 +44,12 @@ def list_statuses() -> list[DhTaskStatus]:
         return list(_STATUS.values())
 
 
-def _synthesize_narration(text: str, preset, audio_path: str) -> str:
-    """preset 绑定音色 → 旁白 wav。复用 AudioPipeline(含 clone:<id>)。"""
-    from chayuan.server.modality.audio import AudioPipeline
-    provider = (preset.voice_provider or "").strip()
-    voice = preset.voice_name or ""
+def _voice_string(provider: str, name: str):
+    """provider + voice_name → AudioPipeline.synthesize 的 voice 串(按前缀分派)。
+    clone→voxcpm:/cosyvoice-clone:(读 clones_dir);sherpa→sherpa:<name>;
+    piper/edge→name 原样;空→None。集中此处,单/多形象(每槽各自音色)共用。"""
+    provider = (provider or "").strip()
+    voice = name or ""
     if provider == "clone" and voice.startswith("clone:"):
         cid = voice[len("clone:"):]
         wav = os.path.join(_helpers.voice_clones_dir(), f"{cid}.wav")
@@ -59,17 +60,28 @@ def _synthesize_narration(text: str, preset, audio_path: str) -> str:
                 engine = (_json.load(_f) or {}).get("engine") or "voxcpm"
         except Exception:  # noqa: BLE001
             pass
-        voice = f"cosyvoice-clone:{wav}" if engine == "cosyvoice" else f"voxcpm:{wav}"
-    elif provider == "sherpa" and voice and not voice.startswith("sherpa:"):
-        # sherpa 的 voice_name 是裸 id(如 vits-zh-hf-fanchen-C / <name>#<sid>),
-        # 而 AudioPipeline.synthesize 按【前缀】分派:不补 sherpa: 就会被当成 piper
-        # voice id 去找/下载 → 音色不对,piper 找不到甚至产出空音频致 wav2lip 口型不动。
-        voice = "sherpa:" + voice
+        return f"cosyvoice-clone:{wav}" if engine == "cosyvoice" else f"voxcpm:{wav}"
+    if provider == "sherpa" and voice and not voice.startswith("sherpa:"):
+        # sherpa voice_name 是裸 id,synthesize 按前缀分派,不补 sherpa: 会被当 piper id
+        # 去找/下载 → 音色不对、piper 失败甚至空音频致 wav2lip 口型不动。
+        return "sherpa:" + voice
+    return voice or None
+
+
+def _synth_to_wav(text: str, provider: str, name: str, audio_path: str) -> str:
+    """指定音色合成旁白 wav。"""
+    from chayuan.server.modality.audio import AudioPipeline
+    voice = _voice_string(provider, name)
     logger.info("[dh] narration provider=%s voice=%r", provider, voice)
-    data = AudioPipeline().synthesize(text, voice=voice or None, fmt="wav")
+    data = AudioPipeline().synthesize(text, voice=voice, fmt="wav")
     with open(audio_path, "wb") as f:
         f.write(data)
     return audio_path
+
+
+def _synthesize_narration(text: str, preset, audio_path: str) -> str:
+    """preset 绑定音色 → 旁白 wav(单形象/默认路径)。"""
+    return _synth_to_wav(text, preset.voice_provider, preset.voice_name, audio_path)
 
 
 def _probe_duration_ms(path: str) -> int:
@@ -99,7 +111,9 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height):
         seg_text = (getattr(slot, "lines", "") or "").strip() or global_text
         a_path = os.path.join(td, f"seg{i}.wav")
         c_path = os.path.join(td, f"seg{i}.mp4")
-        _synthesize_narration(seg_text, preset, a_path)
+        prov = (getattr(slot, "voice_provider", "") or "") or (preset.voice_provider or "")
+        nm = (getattr(slot, "voice_name", "") or "") or (preset.voice_name or "")
+        _synth_to_wav(seg_text, prov, nm, a_path)
         get_engine(engine).generate(
             avatar_path=av, audio_path=a_path, out_path=c_path,
             width=width, height=height, on_progress=None,

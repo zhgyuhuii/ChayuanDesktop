@@ -11,6 +11,8 @@ class AvatarSlot(BaseModel):
     kind: AvatarKind = "image"
     label: str = ""
     lines: str = ""          # 该形象台词(同框/分段用);空=回退全局 text
+    voice_provider: str = ""  # 该形象音色;空=继承预设级 voice_provider
+    voice_name: str = ""      # 空=继承预设级 voice_name
 DhTemplate = Literal["none", "corner", "side", "bg"]  # P1 仅用 none;corner/side/bg 留 P2/P3
 DhEngine = Literal["wav2lip", "sadtalker", "musetalk"]
 DhState = Literal["pending", "running", "complete", "failed", "canceled"]

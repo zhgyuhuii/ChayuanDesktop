@@ -113,3 +113,16 @@ def test_build_reference_image_fallback_first(tmp_path):
     a = tmp_path / "a.png"; a.write_bytes(b"notimg")
     b = tmp_path / "b.png"; b.write_bytes(b"notimg")
     assert _bri([str(a), str(b)]) == str(a)
+
+
+def test_preset_slot_voice_roundtrip(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    p = dh_store.create_preset(
+        name="m", avatar_ref="user:a", avatar_kind="video",
+        avatars=[{"ref": "user:a", "kind": "video",
+                  "voice_provider": "sherpa", "voice_name": "vz"}],
+        compose_mode="coframe")
+    got = dh_store.get_preset(p.id)
+    assert got is not None
+    assert got.avatars[0].voice_provider == "sherpa"
+    assert got.avatars[0].voice_name == "vz"
