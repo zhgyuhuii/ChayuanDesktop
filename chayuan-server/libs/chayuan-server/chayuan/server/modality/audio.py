@@ -877,7 +877,16 @@ class AudioPipeline:
                 # 自包含优先:先找打包/装机 seed 的本地模型目录,offline 直接加载;
                 # 找不到才回退 HF repo id(需联网,full 版不应走到这)。
                 model_ref = self._resolve_voxcpm_model_dir() or "openbmb/VoxCPM-0.5B"
-                handle = VoxCPM.from_pretrained(model_ref)
+                # load_denoiser=False:不加载 ZipEnhancer 去噪器。去噪器只是给参考音频
+                # 预降噪(可选),但它会拉起 modelscope→transformers→torchvision 整条链,
+                # 一旦环境 torch/torchvision ABI 不配套(torchvision::nms 报错)就让整个
+                # voxcpm 加载崩掉 → 克隆失败回退 piper。关掉去噪器即绕开这条链,克隆照常
+                # 工作(参考音频自带即可),还更快、少装一坨依赖。
+                # 兼容旧版 voxcpm(无 load_denoiser 形参)→ TypeError 时退回默认调用。
+                try:
+                    handle = VoxCPM.from_pretrained(model_ref, load_denoiser=False)
+                except TypeError:
+                    handle = VoxCPM.from_pretrained(model_ref)
                 self._voxcpm_handle = handle
             arr = handle.generate(text=text, prompt_speech_path=prompt or None)
             import numpy as np  # type: ignore
