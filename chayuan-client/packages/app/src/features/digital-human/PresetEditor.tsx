@@ -5,11 +5,12 @@
  */
 import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Plus, X } from 'lucide-react';
 import { cn } from '@chayuan/ui';
-import { digitalHuman, type DigitalHumanPreset, type DhVoiceProvider } from '@chayuan/api';
+import { digitalHuman, type DigitalHumanPreset, type DhVoiceProvider, type DhAvatar } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
 import { VoicePicker, type VoicePickerValue } from '../video-generation/VoicePicker';
+import { confirmDialog } from '../../store/confirmDialog';
 
 interface PresetEditorProps {
   initial?: DigitalHumanPreset;
@@ -28,6 +29,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   });
   const [saving, setSaving] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
+  const [deleting, setDeleting] = React.useState<string | null>(null);
+  const [replacing, setReplacing] = React.useState<string | null>(null);
   const avatarFileRef = React.useRef<HTMLInputElement | null>(null);
 
   const avatarsQ = useQuery({
@@ -47,6 +50,13 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
     setUploading(true);
     try {
       const a = await digitalHuman.uploadAvatar(f);
+      if (replacing) {
+        const old = avatars.find((x) => x.ref === replacing);
+        if (old && old.source === 'user') {
+          try { await digitalHuman.deleteAvatar(old.name); } catch { /* 删旧失败不阻断 */ }
+        }
+        setReplacing(null);
+      }
       await qc.invalidateQueries({ queryKey: ['dh.avatars'] });
       setAvatarRef(a.ref);
     } catch (err) {
@@ -55,6 +65,23 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
       setUploading(false);
     }
   };
+
+  const onDeleteAvatar = async (a: DhAvatar) => {
+    const ok = await confirmDialog(`确定删除形象「${a.name}」?`);
+    if (!ok) return;
+    setDeleting(a.ref);
+    try {
+      await digitalHuman.deleteAvatar(a.name);
+      if (avatarRef === a.ref) setAvatarRef('');
+      await qc.invalidateQueries({ queryKey: ['dh.avatars'] });
+    } catch (err) {
+      reportError(err as Error, '删除形象失败');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const onReplaceClick = (a: DhAvatar) => { setReplacing(a.ref); avatarFileRef.current?.click(); };
 
   const canSave = name.trim().length > 0 && avatarRef.length > 0 && !saving;
 
@@ -114,21 +141,47 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         ) : (
           <div className="flex flex-wrap gap-2">
             {avatars.map((a) => (
-              <button
-                key={a.ref}
-                type="button"
-                onClick={() => setAvatarRef(a.ref)}
-                title={a.name}
-                className={cn(
-                  'flex h-16 w-16 flex-col items-center justify-center rounded-lg border text-[10px] transition-colors',
-                  avatarRef === a.ref
-                    ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                    : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]',
+              <div key={a.ref} className="group relative">
+                <button
+                  type="button"
+                  onClick={() => setAvatarRef(a.ref)}
+                  title={a.name}
+                  className={cn(
+                    'h-16 w-16 overflow-hidden rounded-lg border transition-colors',
+                    avatarRef === a.ref
+                      ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-400)]'
+                      : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-brand-300)]',
+                  )}
+                >
+                  {a.kind === 'video' ? (
+                    <video
+                      src={digitalHuman.avatarFileUrl(a.ref)}
+                      muted
+                      preload="metadata"
+                      playsInline
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <img
+                      src={digitalHuman.avatarFileUrl(a.ref)}
+                      alt={a.name}
+                      className="h-full w-full object-cover"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                    />
+                  )}
+                </button>
+                {a.source === 'user' && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onDeleteAvatar(a); }}
+                    disabled={deleting === a.ref}
+                    title="删除"
+                    className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--cy-danger-500)] text-white opacity-0 transition-opacity group-hover:opacity-100"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
                 )}
-              >
-                <span className="line-clamp-2 px-1 text-center leading-tight">{a.name}</span>
-                <span className="mt-0.5 opacity-50">{a.kind}</span>
-              </button>
+              </div>
             ))}
             {/* 上传 tile */}
             <button
@@ -151,6 +204,15 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
               onChange={onUploadAvatar}
             />
           </div>
+        )}
+        {selectedAvatar?.source === 'user' && (
+          <button
+            type="button"
+            onClick={() => selectedAvatar && onReplaceClick(selectedAvatar)}
+            className="self-start text-[11px] text-[var(--cy-brand-600)] hover:underline"
+          >
+            替换当前形象
+          </button>
         )}
       </div>
 
