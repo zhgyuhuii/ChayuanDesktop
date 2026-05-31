@@ -6,3 +6,4 @@ export {
   planUpload, runChunkedUpload,
   type UploadChunk, type UploadPlan, type UploadMeta, type UploadIO,
 } from './upload';
+export { compareVersions, isVersionNewer } from './version';
