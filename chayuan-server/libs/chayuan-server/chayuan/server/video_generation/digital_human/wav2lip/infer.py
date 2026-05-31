@@ -411,13 +411,18 @@ def _mux_audio(
         ff, "-y",
         "-i", tmp_avi,
         "-i", audio_path,
+        # 显式只取视频流0+音频流1,并 -shortest:否则音频比视频帧长时,成片末尾会
+        # 多出一段没有画面的时长 → 播放器显示黑屏(用户报的"最后是黑屏"根因)。
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+        "-shortest",
         "-vf", f"scale={out_w}:{out_h}",
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "18",
+        "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-strict", "-2",
-        "-q:v", "1",
         out_path,
     ]
     subprocess.run(
