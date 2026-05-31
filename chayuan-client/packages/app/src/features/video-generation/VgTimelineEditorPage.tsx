@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Sparkles, Film, AlertTriangle, RefreshCw, ChevronDown, ChevronUp, Eye, EyeOff, FileText, Volume2, Type, Music, Captions } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCw, Eye, EyeOff, FileText } from 'lucide-react';
 import { VgAspectPicker } from './VgAspectPicker';
 import { videoGeneration, type VgTimeline } from '@chayuan/api';
 import { useVgComposer, scriptHashOf } from './store/vgComposer';
@@ -20,6 +20,7 @@ import { VgSpeechSettings } from './VgAudioPopover';
 import { VgSubtitleSettings } from './VgSubtitlePopover';
 import { BgmSection } from './sections/BgmSection';
 import { SubtitleBulkEditor } from './timeline/SubtitleBulkEditor';
+import { TimelineToolbar } from './timeline/TimelineToolbar';
 import { rebuildCuesFromLines } from './timeline/subtitleEdit';
 import { playAudioTimeline } from './timeline/audioPreview';
 import { totalDurationMs, rulerDurationMs, fitPxPerSec } from './timeline/timelineScale';
@@ -492,43 +493,18 @@ export const VgTimelineEditorPage: React.FC = () => {
               : <BgmSection />}
           </div>
         )}
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <h2 className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--cy-text-primary)]">
-            <Film className="h-4 w-4" /> 时间轴
-          </h2>
-          <button type="button" onClick={() => setTimelineCollapsed((v) => !v)} title={timelineCollapsed ? '展开时间轴' : '折叠时间轴'}
-            className="inline-flex h-7 items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
-            {timelineCollapsed ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />} {timelineCollapsed ? '展开' : '折叠'}
-          </button>
-          <button type="button" onClick={() => setScriptGenOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--cy-border-strong)] px-3 text-xs text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
-            <Sparkles className="h-3.5 w-3.5" /> 生成脚本
-          </button>
-          <button type="button" onClick={() => setScriptEditOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--cy-border-strong)] px-3 text-xs text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
-            <FileText className="h-3.5 w-3.5" /> 编辑脚本
-          </button>
-          <button type="button" onClick={() => setSubtitleEditorOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--cy-border-strong)] px-3 text-xs text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
-            <Captions className="h-3.5 w-3.5" /> 编辑字幕
-          </button>
-          {/* 语音 / 字幕 / 背景音乐 设置 chip —— 与上面按钮同排,点击向上展开面板 */}
-          <span className="mx-0.5 h-5 w-px bg-[var(--cy-border-subtle)]" />
-          {([['speech', '语音', Volume2], ['subtitle', '字幕', Type], ['bgm', '背景音乐', Music]] as const).map(([k, label, Icon]) => (
-            <button key={k} type="button" onClick={() => setSettingsPanel((c) => (c === k ? null : k))}
-              className={'inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs transition-colors ' +
-                (settingsPanel === k
-                  ? 'border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                  : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]')}>
-              <Icon className="h-3.5 w-3.5 text-[var(--cy-brand-500)]" /> {label}
-              <ChevronDown className={'h-3 w-3 transition-transform ' + (settingsPanel === k ? 'rotate-180' : '')} />
-            </button>
-          ))}
-          <button type="button" onClick={() => void onSubmit()} disabled={submitting || draft.state !== 'ready'}
-            className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 text-xs font-medium text-white shadow disabled:opacity-50">
-            {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} 提交合成
-          </button>
-        </div>
+        <TimelineToolbar
+          timelineCollapsed={timelineCollapsed}
+          onToggleCollapse={() => setTimelineCollapsed((v) => !v)}
+          onScriptGen={() => setScriptGenOpen(true)}
+          onScriptEdit={() => setScriptEditOpen(true)}
+          onSubtitleEdit={() => setSubtitleEditorOpen(true)}
+          settingsPanel={settingsPanel}
+          onSettingsPanel={setSettingsPanel}
+          submitting={submitting}
+          canSubmit={draft.state === 'ready'}
+          onSubmit={() => void onSubmit()}
+        />
         {!timelineCollapsed && (
         <div className="min-h-0 flex-1 overflow-y-auto cy-hide-scrollbar">
         <TimelineTracks
