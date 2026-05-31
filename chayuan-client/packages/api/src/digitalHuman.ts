@@ -123,7 +123,7 @@ export async function dhComposeReference(files: File[]): Promise<DhAvatar> {
   return rd<DhAvatar>('/api/v1/digital-human/avatars/compose', { method: 'POST', body: fd });
 }
 
-export async function dhTaskToTimeline(taskId: string): Promise<{ material: { id: string; name: string } }> {
+export async function dhTaskToTimeline(taskId: string): Promise<{ material: { id: string; name: string }; timeline?: unknown }> {
   return rd(`/api/v1/digital-human/tasks/${encodeURIComponent(taskId)}/to-timeline`, { method: 'POST' });
 }
 
