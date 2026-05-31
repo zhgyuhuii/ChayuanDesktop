@@ -24,6 +24,7 @@ import { TimelineToolbar } from './timeline/TimelineToolbar';
 import { rebuildCuesFromLines } from './timeline/subtitleEdit';
 import { playAudioTimeline } from './timeline/audioPreview';
 import { totalDurationMs, rulerDurationMs, fitPxPerSec } from './timeline/timelineScale';
+import { useTimelinePlayback } from './timeline/useTimelinePlayback';
 import { parseSrt, type SrtCue } from './timeline/srtParse';
 import { reportError, notifySuccess } from '../../store/errorDialog';
 import { useTabsStore } from '../../store/tabs';
@@ -39,12 +40,6 @@ export const VgTimelineEditorPage: React.FC = () => {
   const patchDraft = useVgComposer((s) => s.patchDraft);
 
   const [pxPerSec, setPxPerSec] = React.useState(20);
-  const [playheadMs, setPlayheadMs] = React.useState(0);
-  const [seekMs, setSeekMs] = React.useState(0);
-  const [seekNonce, setSeekNonce] = React.useState(0); // 播放中拖播放头 → 防抖后重启引擎从新位置续播
-  const seekDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [playing, setPlaying] = React.useState(false);
-  const [previewMode, setPreviewMode] = React.useState<'live' | 'proxy'>('live');
   const [proxyStale, setProxyStale] = React.useState(true);
   const [peaks, setPeaks] = React.useState<number[]>([]);
   const [cues, setCues] = React.useState<SrtCue[]>([]);
@@ -165,42 +160,9 @@ export const VgTimelineEditorPage: React.FC = () => {
   const contentMs = totalDurationMs(timeline, draft.audioDurationMs); // 实际成片时长(传输栏显示)
   const durationMs = rulerDurationMs(contentMs); // 标尺/画布展示时长(向后留富余,可放更多元素)
 
-  // #17 实时播放引擎:实时画布模式下,播放键用 rAF 推进播放头 + 同步起播旁白/音频轨
-  // (无需先「精确预览」proxy)。proxy 模式由 proxy <video> 自己驱动,这里不跑。
-  const playheadRef = React.useRef(playheadMs);
-  React.useEffect(() => { playheadRef.current = playheadMs; }, [playheadMs]);
-  React.useEffect(() => {
-    if (!playing || previewMode !== 'live') return;
-    let start = playheadRef.current;
-    if (start >= contentMs - 20) start = 0; // 到末尾再按播放 = 从头
-    playheadRef.current = start; // 同步,避免首帧读到旧值
-    setPlayheadMs(start);
-    // 音频:旁白(从 0)+ 各音频轨 clip(按 track_start)+ 背景音乐(从 0,循环,bgm_volume)
-    const items: { url: string; startMs: number; volume?: number; loop?: boolean }[] = [];
-    if (draft.taskId && draft.audioFileName) items.push({ url: videoGeneration.taskFileUrl(draft.taskId, draft.audioFileName), startMs: 0 });
-    for (const tr of (timeline.tracks ?? [])) {
-      if (tr.kind !== 'audio') continue;
-      for (const c of (tr.clips ?? [])) {
-        const url = c.source.material_id ? videoGeneration.materialFileUrl(c.source.material_id) : (c.source.url ?? '');
-        if (url) items.push({ url, startMs: c.track_start_ms });
-      }
-    }
-    if (params.bgm_type === 'file' && params.bgm_file) {
-      const base = params.bgm_file.split(/[\\/]/).pop() || '';
-      if (base) items.push({ url: videoGeneration.bgmFileUrl(base), startMs: 0, volume: params.bgm_volume, loop: true });
-    }
-    const stopAudio = items.length ? playAudioTimeline(items, undefined, start) : null;
-    let last = performance.now();
-    let raf = requestAnimationFrame(function tick(now) {
-      const dt = now - last; last = now;
-      const np = playheadRef.current + dt;
-      if (np >= contentMs) { setPlayheadMs(contentMs); setPlaying(false); return; }
-      setPlayheadMs(np);
-      raf = requestAnimationFrame(tick);
-    });
-    return () => { cancelAnimationFrame(raf); stopAudio?.(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, previewMode, seekNonce]);
+  const { playheadMs, setPlayheadMs, seekMs, setSeekMs, seekNonce, setSeekNonce,
+          seekDebounceRef, playing, setPlaying, previewMode, setPreviewMode, playheadRef }
+    = useTimelinePlayback({ timeline, contentMs, draft, params });
 
   // 容器宽变化时 fit 一次(内容时长首次 > 0;按内容铺满,富余部分横向滚)
   const containerRef = React.useRef<HTMLDivElement | null>(null);
