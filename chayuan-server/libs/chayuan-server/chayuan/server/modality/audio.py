@@ -890,7 +890,27 @@ class AudioPipeline:
                 except TypeError:
                     handle = VoxCPM.from_pretrained(model_ref)
                 self._voxcpm_handle = handle
-            arr = handle.generate(text=text, prompt_speech_path=prompt or None)
+            # voxcpm 2.x 把参考音频参数从 prompt_speech_path 改名为 prompt_wav_path
+            # (<2.x 用旧名)。按 _generate 实际签名挑参数名,挑不到再依次试新旧名,
+            # 兼容用户已升级 / 仍是旧版两种情况(否则克隆音色一直 TypeError 回退 piper)。
+            prompt_arg = prompt or None
+            pname = None
+            try:
+                import inspect
+                params = inspect.signature(handle._generate).parameters  # noqa: SLF001
+                if "prompt_wav_path" in params:
+                    pname = "prompt_wav_path"
+                elif "prompt_speech_path" in params:
+                    pname = "prompt_speech_path"
+            except Exception:  # noqa: BLE001
+                pname = None
+            if pname:
+                arr = handle.generate(text=text, **{pname: prompt_arg})
+            else:
+                try:
+                    arr = handle.generate(text=text, prompt_wav_path=prompt_arg)
+                except TypeError:
+                    arr = handle.generate(text=text, prompt_speech_path=prompt_arg)
             import numpy as np  # type: ignore
             if hasattr(arr, "cpu"):
                 arr = arr.cpu().numpy()
