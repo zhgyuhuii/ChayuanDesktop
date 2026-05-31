@@ -193,6 +193,11 @@ export async function dhTaskStatus(tid: string): Promise<DhTaskStatus> {
   return rd<DhTaskStatus>(`/api/v1/digital-human/tasks/${encodeURIComponent(tid)}`);
 }
 
+/** 列出所有数字人任务 + 进行中(pending/running)计数。内存态,进程重启即清。 */
+export async function dhListTasks(): Promise<{ count: number; active: number; items: DhTaskStatus[] }> {
+  return rd<{ count: number; active: number; items: DhTaskStatus[] }>('/api/v1/digital-human/tasks');
+}
+
 /** 拼接任务产物文件 URL — 直接用于 <video> src 或下载链接。 */
 export function dhTaskFileUrl(tid: string): string {
   const cfg = getClientConfig();
@@ -221,6 +226,7 @@ export const digitalHuman = {
   listEngines: dhListEngines,
   generate: dhGenerate,
   taskStatus: dhTaskStatus,
+  listTasks: dhListTasks,
   taskFileUrl: dhTaskFileUrl,
   avatarFileUrl: dhAvatarFileUrl,
   liveAvailable: dhLiveAvailable,

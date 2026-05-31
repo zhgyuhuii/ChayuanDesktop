@@ -140,6 +140,13 @@ def generate(body: DhGenerateRequest,
     return {"task_id": tid}
 
 
+@digital_human_router.get("/tasks")
+def list_tasks(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    items = [s.model_dump() for s in dh_jobs.list_statuses()]
+    active = sum(1 for s in items if s.get("state") in ("pending", "running"))
+    return {"count": len(items), "active": active, "items": items}
+
+
 @digital_human_router.get("/tasks/{tid}")
 def task_status(tid: str,
                 user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:

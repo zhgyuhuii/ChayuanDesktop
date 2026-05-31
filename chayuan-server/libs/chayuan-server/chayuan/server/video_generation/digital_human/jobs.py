@@ -38,6 +38,12 @@ def get_status(tid: str) -> DhTaskStatus:
         return _STATUS.get(tid) or DhTaskStatus(task_id=tid, state="failed", error="未知任务")
 
 
+def list_statuses() -> list[DhTaskStatus]:
+    """所有已登记任务的状态快照(内存态;进程重启即清)。"""
+    with _LOCK:
+        return list(_STATUS.values())
+
+
 def _synthesize_narration(text: str, preset, audio_path: str) -> str:
     """preset 绑定音色 → 旁白 wav。复用 AudioPipeline(含 clone:<id>)。"""
     from chayuan.server.modality.audio import AudioPipeline
