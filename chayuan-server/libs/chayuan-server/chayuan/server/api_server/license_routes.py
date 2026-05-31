@@ -68,6 +68,18 @@ def post_activate_token(payload: dict = Body(...)):
     return service.activate_token(_root(), app, payload.get("token", ""), "file", cfg)
 
 
+@license_router.post("/reset")
+def post_reset(payload: dict = Body(default={})):
+    """重置本机激活(删除本地授权记录)。注意:若线上仍有该机器授权且联网,
+    下次 status 会在线自动重新激活;彻底重置需同时在网站后台吊销该 mid 的授权。"""
+    from chayuan.server.license import store
+    app = (payload or {}).get("app", "video")
+    if not _valid_app(app):
+        return {"ok": False, "reason": "invalid-app"}
+    removed = store.delete_activation(_root(), app)
+    return {"ok": True, "removed": removed, "app": app}
+
+
 def _safe_get(url: str) -> str:
     import urllib.request
     return urllib.request.urlopen(url, timeout=8).read().decode("utf-8")

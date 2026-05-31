@@ -23,3 +23,13 @@ def write_activation(root: Path, rec: dict) -> None:
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(rec), encoding="utf-8")
     tmp.replace(p)
+
+
+def delete_activation(root: Path, app: str) -> bool:
+    """删除本机激活记录(重置授权)。返回是否删到了文件。"""
+    p = _path(root, app)
+    try:
+        p.unlink()
+        return True
+    except FileNotFoundError:
+        return False
