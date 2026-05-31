@@ -7,6 +7,7 @@ export {
   type UploadChunk, type UploadPlan, type UploadMeta, type UploadIO,
 } from './upload';
 export { compareVersions, isVersionNewer } from './version';
+export { validateManifest } from './validate';
 export {
   toReleasePlatform, decideUpdate,
   type VersionPlatform, type VersionResponse, type UpdateOpts, type UpdateDecision,

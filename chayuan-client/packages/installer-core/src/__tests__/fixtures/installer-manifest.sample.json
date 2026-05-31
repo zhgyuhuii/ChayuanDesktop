@@ -1,0 +1,467 @@
+{
+  "version": "3.0.0",
+  "components": [
+    {
+      "name": "python312",
+      "tiers": [
+        "lite",
+        "standard",
+        "pro"
+      ],
+      "dest": "vendor/runtimes/python",
+      "optional": false,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "github://astral-sh/python-build-standalone#cpython-3.12.*-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+          "unpack": "tar.gz"
+        },
+        "linux-arm64": {
+          "url": "github://astral-sh/python-build-standalone#cpython-3.12.*-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+          "unpack": "tar.gz"
+        },
+        "mac-x86_64": {
+          "url": "github://astral-sh/python-build-standalone#cpython-3.12.*-x86_64-apple-darwin-install_only_stripped.tar.gz",
+          "unpack": "tar.gz"
+        },
+        "mac-arm64": {
+          "url": "github://astral-sh/python-build-standalone#cpython-3.12.*-aarch64-apple-darwin-install_only_stripped.tar.gz",
+          "unpack": "tar.gz"
+        },
+        "win-x86_64": {
+          "url": "github://astral-sh/python-build-standalone#cpython-3.12.*-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+          "unpack": "tar.gz"
+        },
+        "win-arm64": {
+          "url": "github://astral-sh/python-build-standalone#cpython-3.12.*-aarch64-pc-windows-msvc-install_only_stripped.tar.gz",
+          "unpack": "tar.gz"
+        }
+      }
+    },
+    {
+      "name": "jdk17",
+      "tiers": [
+        "standard",
+        "pro"
+      ],
+      "dest": "vendor/runtimes/jdk17",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse",
+          "unpack": "tar.gz"
+        },
+        "linux-arm64": {
+          "url": "https://api.adoptium.net/v3/binary/latest/17/ga/linux/aarch64/jdk/hotspot/normal/eclipse",
+          "unpack": "tar.gz"
+        },
+        "mac-x86_64": {
+          "url": "https://api.adoptium.net/v3/binary/latest/17/ga/mac/x64/jdk/hotspot/normal/eclipse",
+          "unpack": "tar.gz"
+        },
+        "mac-arm64": {
+          "url": "https://api.adoptium.net/v3/binary/latest/17/ga/mac/aarch64/jdk/hotspot/normal/eclipse",
+          "unpack": "tar.gz"
+        },
+        "win-x86_64": {
+          "url": "https://api.adoptium.net/v3/binary/latest/17/ga/windows/x64/jdk/hotspot/normal/eclipse",
+          "unpack": "tar.gz"
+        },
+        "win-arm64": {
+          "url": "https://api.adoptium.net/v3/binary/latest/17/ga/windows/aarch64/jdk/hotspot/normal/eclipse",
+          "unpack": "tar.gz"
+        }
+      }
+    },
+    {
+      "name": "nodejs20",
+      "tiers": [
+        "standard",
+        "pro"
+      ],
+      "dest": "vendor/runtimes/nodejs",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz",
+          "unpack": "none"
+        },
+        "linux-arm64": {
+          "url": "https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-arm64.tar.xz",
+          "unpack": "none"
+        },
+        "mac-x86_64": {
+          "url": "https://nodejs.org/dist/v20.18.0/node-v20.18.0-darwin-x64.tar.gz",
+          "unpack": "none"
+        },
+        "mac-arm64": {
+          "url": "https://nodejs.org/dist/v20.18.0/node-v20.18.0-darwin-arm64.tar.gz",
+          "unpack": "none"
+        },
+        "win-x86_64": {
+          "url": "https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-x64.zip",
+          "unpack": "none"
+        },
+        "win-arm64": {
+          "url": "https://nodejs.org/dist/v20.18.0/node-v20.18.0-win-arm64.zip",
+          "unpack": "none"
+        }
+      }
+    },
+    {
+      "name": "postgres16",
+      "tiers": [
+        "standard",
+        "pro"
+      ],
+      "dest": "vendor/services/postgres",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://get.enterprisedb.com/postgresql/postgresql-16.4-1-linux-x64-binaries.tar.gz",
+          "unpack": "none"
+        },
+        "linux-arm64": {
+          "url": "https://get.enterprisedb.com/postgresql/postgresql-16.4-1-linux-arm64-binaries.tar.gz",
+          "unpack": "none"
+        },
+        "mac-x86_64": {
+          "url": "https://get.enterprisedb.com/postgresql/postgresql-16.4-1-osx-binaries.zip",
+          "unpack": "none"
+        },
+        "mac-arm64": {
+          "url": "https://get.enterprisedb.com/postgresql/postgresql-16.4-1-osx-binaries.zip",
+          "unpack": "none"
+        },
+        "win-x86_64": {
+          "url": "https://get.enterprisedb.com/postgresql/postgresql-16.4-1-windows-x64-binaries-binaries.zip",
+          "unpack": "none"
+        },
+        "win-arm64": {
+          "url": "https://get.enterprisedb.com/postgresql/postgresql-16.4-1-windows-x64-binaries-binaries.zip",
+          "unpack": "none"
+        }
+      }
+    },
+    {
+      "name": "redis74",
+      "tiers": [
+        "standard",
+        "pro"
+      ],
+      "dest": "vendor/services/redis",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://download.redis.io/releases/redis-{version}.tar.gz",
+          "unpack": "none"
+        },
+        "linux-arm64": {
+          "url": "https://download.redis.io/releases/redis-{version}.tar.gz",
+          "unpack": "none"
+        },
+        "mac-x86_64": {
+          "url": "https://download.redis.io/releases/redis-{version}.tar.gz",
+          "unpack": "none"
+        },
+        "mac-arm64": {
+          "url": "https://download.redis.io/releases/redis-{version}.tar.gz",
+          "unpack": "none"
+        },
+        "win-x86_64": {
+          "url": "github://tporadowski/redis",
+          "unpack": "none"
+        },
+        "win-arm64": {
+          "url": "github://tporadowski/redis",
+          "unpack": "none"
+        }
+      }
+    },
+    {
+      "name": "minio",
+      "tiers": [
+        "standard",
+        "pro"
+      ],
+      "dest": "vendor/services/minio",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://dl.min.io/server/minio/release/linux-amd64/minio",
+          "unpack": "none"
+        },
+        "linux-arm64": {
+          "url": "https://dl.min.io/server/minio/release/linux-arm64/minio",
+          "unpack": "none"
+        },
+        "mac-x86_64": {
+          "url": "https://dl.min.io/server/minio/release/darwin-amd64/minio",
+          "unpack": "none"
+        },
+        "mac-arm64": {
+          "url": "https://dl.min.io/server/minio/release/darwin-arm64/minio",
+          "unpack": "none"
+        },
+        "win-x86_64": {
+          "url": "https://dl.min.io/server/minio/release/windows-amd64/minio.exe",
+          "unpack": "none"
+        },
+        "win-arm64": {
+          "url": "https://dl.min.io/server/minio/release/windows-amd64/minio.exe",
+          "unpack": "none"
+        }
+      }
+    },
+    {
+      "name": "milvus",
+      "tiers": [
+        "pro"
+      ],
+      "dest": "vendor/services/milvus",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "github://milvus-io/milvus#milvus-{version}-linux-amd64.tar.gz",
+          "unpack": "none"
+        },
+        "linux-arm64": {
+          "url": "github://milvus-io/milvus#milvus-{version}-linux-arm64.tar.gz",
+          "unpack": "none"
+        },
+        "mac-x86_64": {
+          "url": "github://milvus-io/milvus#milvus-lite-{version}-darwin-amd64.tar.gz",
+          "unpack": "none"
+        },
+        "mac-arm64": {
+          "url": "github://milvus-io/milvus#milvus-lite-{version}-darwin-arm64.tar.gz",
+          "unpack": "none"
+        },
+        "win-x86_64": {
+          "url": "github://milvus-io/milvus#milvus-lite-{version}-windows-amd64.tar.gz",
+          "unpack": "none"
+        },
+        "win-arm64": {
+          "url": "github://milvus-io/milvus#milvus-lite-{version}-windows-amd64.tar.gz",
+          "unpack": "none"
+        }
+      }
+    },
+    {
+      "name": "docker-compose",
+      "tiers": [
+        "pro"
+      ],
+      "dest": "vendor/services/docker-compose",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "github://docker/compose#docker-compose-linux-x86_64",
+          "unpack": "none"
+        },
+        "linux-arm64": {
+          "url": "github://docker/compose#docker-compose-linux-aarch64",
+          "unpack": "none"
+        },
+        "mac-x86_64": {
+          "url": "github://docker/compose#docker-compose-darwin-x86_64",
+          "unpack": "none"
+        },
+        "mac-arm64": {
+          "url": "github://docker/compose#docker-compose-darwin-aarch64",
+          "unpack": "none"
+        },
+        "win-x86_64": {
+          "url": "github://docker/compose#docker-compose-windows-x86_64.exe",
+          "unpack": "none"
+        },
+        "win-arm64": {
+          "url": "github://docker/compose#docker-compose-windows-x86_64.exe",
+          "unpack": "none"
+        }
+      }
+    },
+    {
+      "name": "elasticsearch",
+      "tiers": [
+        "pro"
+      ],
+      "dest": "vendor/services/elastic",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.15.0-linux-x86_64.tar.gz",
+          "unpack": "none"
+        },
+        "linux-arm64": {
+          "url": "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.15.0-linux-aarch64.tar.gz",
+          "unpack": "none"
+        },
+        "mac-x86_64": {
+          "url": "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.15.0-darwin-x86_64.tar.gz",
+          "unpack": "none"
+        },
+        "mac-arm64": {
+          "url": "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.15.0-darwin-aarch64.tar.gz",
+          "unpack": "none"
+        },
+        "win-x86_64": {
+          "url": "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.15.0-windows-x86_64.zip",
+          "unpack": "none"
+        },
+        "win-arm64": {
+          "url": "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.15.0-windows-x86_64.zip",
+          "unpack": "none"
+        }
+      }
+    },
+    {
+      "name": "ollama",
+      "tiers": [
+        "lite",
+        "standard",
+        "pro"
+      ],
+      "dest": "vendor/runtimes/ollama",
+      "optional": false,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "github://ollama/ollama#ollama-linux-amd64.tgz",
+          "unpack": "none"
+        },
+        "linux-arm64": {
+          "url": "github://ollama/ollama#ollama-linux-arm64.tgz",
+          "unpack": "none"
+        },
+        "mac-x86_64": {
+          "url": "github://ollama/ollama#Ollama-darwin.zip",
+          "unpack": "none"
+        },
+        "mac-arm64": {
+          "url": "github://ollama/ollama#Ollama-darwin.zip",
+          "unpack": "none"
+        },
+        "win-x86_64": {
+          "url": "github://ollama/ollama#ollama-windows-amd64.zip",
+          "unpack": "none"
+        },
+        "win-arm64": {
+          "url": "github://ollama/ollama#ollama-windows-amd64.zip",
+          "unpack": "none"
+        }
+      }
+    },
+    {
+      "name": "llama-cpp",
+      "tiers": [
+        "standard",
+        "standard",
+        "pro",
+        "pro"
+      ],
+      "dest": "vendor/runtimes/llama-cpp",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "github://ggerganov/llama.cpp#llama-{version}-bin-ubuntu-x64.zip",
+          "unpack": "none"
+        },
+        "linux-arm64": {
+          "url": "github://ggerganov/llama.cpp#llama-{version}-bin-ubuntu-arm64.zip",
+          "unpack": "none"
+        },
+        "mac-x86_64": {
+          "url": "github://ggerganov/llama.cpp#llama-{version}-bin-macos-x64.zip",
+          "unpack": "none"
+        },
+        "mac-arm64": {
+          "url": "github://ggerganov/llama.cpp#llama-{version}-bin-macos-arm64.zip",
+          "unpack": "none"
+        },
+        "win-x86_64": {
+          "url": "github://ggerganov/llama.cpp#llama-{version}-bin-win-avx2-x64.zip",
+          "unpack": "none"
+        },
+        "win-arm64": {
+          "url": "github://ggerganov/llama.cpp#llama-{version}-bin-win-arm64.zip",
+          "unpack": "none"
+        }
+      }
+    },
+    {
+      "name": "whisper-cpp",
+      "tiers": [
+        "standard",
+        "standard",
+        "pro",
+        "pro"
+      ],
+      "dest": "vendor/runtimes/whisper-cpp",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "github://ggerganov/whisper.cpp#whisper-cpp-{version}-Linux-x86_64.tar.gz",
+          "unpack": "none"
+        },
+        "linux-arm64": {
+          "url": "github://ggerganov/whisper.cpp#whisper-cpp-{version}-Linux-aarch64.tar.gz",
+          "unpack": "none"
+        },
+        "mac-x86_64": {
+          "url": "github://ggerganov/whisper.cpp#whisper-cpp-{version}-macOS-x86_64.tar.gz",
+          "unpack": "none"
+        },
+        "mac-arm64": {
+          "url": "github://ggerganov/whisper.cpp#whisper-cpp-{version}-macOS-arm64.tar.gz",
+          "unpack": "none"
+        },
+        "win-x86_64": {
+          "url": "github://ggerganov/whisper.cpp#whisper-cpp-{version}-Win-x86_64.zip",
+          "unpack": "none"
+        },
+        "win-arm64": {
+          "url": "github://ggerganov/whisper.cpp#whisper-cpp-{version}-Win-x86_64.zip",
+          "unpack": "none"
+        }
+      }
+    },
+    {
+      "name": "piper",
+      "tiers": [
+        "lite",
+        "lite",
+        "standard",
+        "standard",
+        "pro",
+        "pro"
+      ],
+      "dest": "vendor/runtimes/piper",
+      "optional": true,
+      "platforms": {
+        "linux-x86_64": {
+          "url": "github://rhasspy/piper#piper_linux_x86_64.tar.gz",
+          "unpack": "none"
+        },
+        "linux-arm64": {
+          "url": "github://rhasspy/piper#piper_linux_aarch64.tar.gz",
+          "unpack": "none"
+        },
+        "mac-x86_64": {
+          "url": "github://rhasspy/piper#piper_macos_x64.tar.gz",
+          "unpack": "none"
+        },
+        "mac-arm64": {
+          "url": "github://rhasspy/piper#piper_macos_aarch64.tar.gz",
+          "unpack": "none"
+        },
+        "win-x86_64": {
+          "url": "github://rhasspy/piper#piper_windows_amd64.zip",
+          "unpack": "none"
+        },
+        "win-arm64": {
+          "url": "github://rhasspy/piper#piper_windows_amd64.zip",
+          "unpack": "none"
+        }
+      }
+    }
+  ]
+}
