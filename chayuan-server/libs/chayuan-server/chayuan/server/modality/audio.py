@@ -1142,28 +1142,41 @@ class AudioPipeline:
         """
 
         import os as _os
+        import glob as _glob
+        # onnx 文件名因模型而异:sherpa release 里中文 hf-fanchen 是 <name>.onnx、
+        # piper(英/德/法…)是 <voice>.onnx,都不叫 model.onnx。优先 model.onnx,
+        # 否则取目录里第一个 *.onnx(这正是"下了也提示没模型"的根因)。
         model = _os.path.join(voice_dir, "model.onnx")
-        lexicon = _os.path.join(voice_dir, "lexicon.txt")
+        if not _os.path.isfile(model):
+            cands = sorted(_glob.glob(_os.path.join(voice_dir, "*.onnx")))
+            if cands:
+                model = cands[0]
         tokens = _os.path.join(voice_dir, "tokens.txt")
         if not (_os.path.isfile(model) and _os.path.isfile(tokens)):
-            logger.warning("[tts:sherpa] %s 缺 model.onnx / tokens.txt", voice_dir)
+            logger.warning("[tts:sherpa] %s 缺 *.onnx / tokens.txt", voice_dir)
             return None
 
         # FST 规则:有则拼,无则空(sherpa-onnx 接收分号分隔的多 fst 路径)
         fsts: list[str] = []
         for f in ("date.fst", "number.fst", "phone.fst", "new_heteronym.fst"):
-            p = _os.path.join(voice_dir, f)
-            if _os.path.isfile(p):
-                fsts.append(p)
+            fp = _os.path.join(voice_dir, f)
+            if _os.path.isfile(fp):
+                fsts.append(fp)
         rule_fsts = ";".join(fsts)
         dict_dir = _os.path.join(voice_dir, "dict")
         if not _os.path.isdir(dict_dir):
             dict_dir = ""
+        # piper 系列用 espeak-ng-data(data_dir),中文 hf-fanchen 用 lexicon.txt。
+        # 两者互斥:有 espeak-ng-data 就走 data_dir,不传 lexicon。
+        lexicon = _os.path.join(voice_dir, "lexicon.txt")
+        data_dir = _os.path.join(voice_dir, "espeak-ng-data")
+        data_dir = data_dir if _os.path.isdir(data_dir) else ""
 
         vits_cfg = sherpa_onnx.OfflineTtsVitsModelConfig(
             model=model,
-            lexicon=lexicon if _os.path.isfile(lexicon) else "",
+            lexicon=(lexicon if (_os.path.isfile(lexicon) and not data_dir) else ""),
             tokens=tokens,
+            data_dir=data_dir,
             dict_dir=dict_dir,
         )
         model_cfg = sherpa_onnx.OfflineTtsModelConfig(
@@ -1202,7 +1215,9 @@ class AudioPipeline:
             pass
 
         for r in roots:
-            if (r / "model.onnx").is_file():
+            if r.is_dir() and (r / "tokens.txt").is_file() and (
+                (r / "model.onnx").is_file() or any(r.glob("*.onnx"))
+            ):
                 return str(r)
         return None
 

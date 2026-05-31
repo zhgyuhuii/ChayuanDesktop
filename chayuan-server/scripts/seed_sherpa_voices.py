@@ -31,7 +31,17 @@ import tarfile
 import tempfile
 from pathlib import Path
 
-# 模型名 → release tar.bz2 文件名(同名解压出的目录即 voice 目录)
+# 模型名 → release tar.bz2 文件名(同名解压出的目录即 voice 目录)。
+# CATALOG 里的名字都已对 k2-fsa/sherpa-onnx release 实测可下(HTTP 200)。
+# 更多模型见 release 页 tts-models 与官方文档 pretrained_models(TTS)。
+CATALOG = {
+    "zh": ["vits-zh-hf-fanchen-C", "vits-zh-aishell3"],
+    "en": ["vits-piper-en_US-amy-low", "vits-piper-en_US-libritts_r-medium", "vits-ljs"],
+    "de": ["vits-piper-de_DE-thorsten-low"],
+    "fr": ["vits-piper-fr_FR-siwis-medium"],
+}
+# 一键多语言起步集(中+英各一,体积适中)
+STARTER_MULTILANG = ["vits-zh-hf-fanchen-C", "vits-piper-en_US-amy-low"]
 DEFAULT_MODELS = ["vits-zh-hf-fanchen-C", "vits-zh-aishell3"]
 DEFAULT_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
 
@@ -43,7 +53,11 @@ def _bundled_sherpa_dir() -> Path:
 
 
 def _has_model(voice_dir: Path) -> bool:
-    return (voice_dir / "model.onnx").is_file() and (voice_dir / "tokens.txt").is_file()
+    # sherpa release 里 onnx 不一定叫 model.onnx(中文 hf-fanchen=<name>.onnx、
+    # piper=<voice>.onnx),所以认 tokens.txt + 任意 *.onnx。
+    if not (voice_dir / "tokens.txt").is_file():
+        return False
+    return (voice_dir / "model.onnx").is_file() or any(voice_dir.glob("*.onnx"))
 
 
 def _download_extract(name: str, base: str, dest_root: Path) -> bool:
@@ -93,20 +107,37 @@ def _download_extract(name: str, base: str, dest_root: Path) -> bool:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="seed sherpa-onnx Chinese TTS models")
-    ap.add_argument("--models", default="", help="逗号分隔模型名;缺省用默认集")
-    ap.add_argument("--list", action="store_true", help="只列默认集不下载")
+    ap.add_argument("--models", default="", help="逗号分隔模型名;缺省用默认集(中文)")
+    ap.add_argument("--all", action="store_true", help="下中+英多语言起步集(STARTER_MULTILANG)")
+    ap.add_argument("--list", action="store_true", help="按语言列出可下模型目录(CATALOG)")
     args = ap.parse_args()
 
     if args.list:
-        print("默认 sherpa 中文模型:")
-        for m in DEFAULT_MODELS:
-            print(f"  {m}")
+        print("sherpa 可下模型(按语言;名字均已实测可下):")
+        for lang, ms in CATALOG.items():
+            print(f"  [{lang}]")
+            for m in ms:
+                print(f"    {m}")
+        print("用法: python scripts/seed_sherpa_voices.py --models <名1>,<名2>")
+        print("     python scripts/seed_sherpa_voices.py --all   # 中+英起步集")
+        print("国内慢/不通: set CHAYUAN_SHERPA_BASE="
+              "https://mirror.ghproxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models")
         return 0
 
-    models = (
-        [m.strip() for m in args.models.split(",") if m.strip()]
-        if args.models else list(DEFAULT_MODELS)
-    )
+    # 提醒装运行时包(只是模型 seed,推理还需 sherpa-onnx)
+    try:
+        import sherpa_onnx  # noqa: F401
+    except Exception:  # noqa: BLE001
+        print("[sherpa] !! 未检测到 sherpa-onnx 包,推理时用不了。先装: "
+              "pip install sherpa-onnx (国内: pip install sherpa-onnx -i "
+              "https://pypi.tuna.tsinghua.edu.cn/simple)")
+
+    if args.all:
+        models = list(STARTER_MULTILANG)
+    elif args.models:
+        models = [m.strip() for m in args.models.split(",") if m.strip()]
+    else:
+        models = list(DEFAULT_MODELS)
     base = os.environ.get("CHAYUAN_SHERPA_BASE", DEFAULT_BASE)
     dest = _bundled_sherpa_dir()
     print(f"[sherpa] base = {base}")
