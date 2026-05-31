@@ -7,3 +7,4 @@ export {
   useLicenseReady,
   type LicenseStatus,
 } from './licenseStore';
+export { MyEntitlementsSection } from './MyEntitlementsSection';
