@@ -1,5 +1,6 @@
 """权益状态机:status / consume / redeem / redeem_shortcode。
 三级放行:时间制(不限次)→ 每日免费 → 购买次数。每日清零 + 防回拨 + 防重放。"""
+import hashlib
 from datetime import datetime, timezone
 
 from . import entstore, entcode
@@ -101,3 +102,60 @@ def consume(root, app: str, cfg: dict, *, now=None) -> dict:
     entstore.write_state(root, state)  # 落 seenMax
     return {"allowed": False, "source": "none", "remainingFree": 0,
             "counts": state["counts"], "timeExpireAt": state["timeExpireAt"]}
+
+
+def _code_id_of(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()[:16]
+
+
+def _apply_grant(root, grant: dict, now: float) -> None:
+    app = grant["app"]
+    state = _normalize(entstore.read_state(root, app), now)
+    kind = grant["kind"]
+    if kind == "count":
+        state["counts"] += int(grant["n"])
+    elif kind == "time":
+        cur = _ts(state["timeExpireAt"]) if state["timeExpireAt"] else 0
+        if "days" in grant:
+            base = max(now, cur)
+            new_exp = base + int(grant["days"]) * 86400
+        else:  # until(绝对到期,旧 .lic 令牌)
+            new_exp = max(cur, float(grant["until"]))
+        state["timeExpireAt"] = _to_iso(new_exp)
+    if now > state.get("seenMax", 0):
+        state["seenMax"] = now
+    entstore.write_state(root, state)
+
+
+def redeem(root, code: str, cfg: dict, *, now=None) -> dict:
+    now = _now() if now is None else now
+    r = entcode.verify(code, cfg.get("public_key", b""))
+    if not r.get("valid"):
+        return {"ok": False, "reason": "signature"}
+    p = r["payload"]
+
+    # 归一化:新码用 grants;旧 .lic 单模块令牌({app,exp})合成单个 time grant。
+    if isinstance(p.get("grants"), list):
+        grants, code_id, mid, card_exp = p["grants"], p.get("id"), p.get("mid"), p.get("cardExpireAt")
+    elif "app" in p and "exp" in p:
+        grants = [{"app": p["app"], "kind": "time", "until": p["exp"]}]
+        code_id, mid, card_exp = p.get("oid") or _code_id_of(code), p.get("mid"), None
+    else:
+        return {"ok": False, "reason": "shape"}
+
+    shape_err = entcode.validate_payload({"grants": grants})
+    if shape_err:
+        return {"ok": False, "reason": shape_err}
+    if card_exp and now > _ts(card_exp):
+        return {"ok": False, "reason": "card-expired"}
+    if mid and mid.lower() != _fp(root).lower():
+        return {"ok": False, "reason": "mismatch"}
+    if not code_id:
+        return {"ok": False, "reason": "no-id"}
+    if entstore.is_redeemed(root, code_id):
+        return {"ok": False, "reason": "used"}
+
+    for g in grants:
+        _apply_grant(root, g, now)
+    entstore.add_redeemed(root, code_id)
+    return {"ok": True, "applied": grants}
