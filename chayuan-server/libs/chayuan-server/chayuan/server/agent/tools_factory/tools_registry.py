@@ -4,8 +4,12 @@ import json
 import re
 from typing import Any, Callable, Dict, Optional, Tuple, Type, Union, List
 
-from langchain_classic.agents import tool
-from langchain_core.tools import BaseTool
+# `tool` 装饰器从轻量的 langchain_core.tools 取,**不要**从 langchain_classic.agents
+# 取——后者会拉起整个 langchain agents 框架(AgentExecutor 等),实测启动期 import
+# 链此处 ~9.5s(且传递拉 transformers/torch)。tools_registry 只用 `tool` 装饰器,
+# langchain_core.tools.tool 与之等价。真正用 AgentExecutor 的 agents_registry 是
+# 运行期惰性 import,不在启动链上。
+from langchain_core.tools import tool, BaseTool
 
 from chayuan.server.knowledge_base.kb_doc_api import DocumentWithVSId
 from chayuan.server.pydantic_v1 import BaseModel, Extra
