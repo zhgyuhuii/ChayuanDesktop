@@ -41,6 +41,11 @@ def _time_valid(state: dict, now: float) -> bool:
     return bool(exp) and now < _ts(exp)
 
 
+def _count_expired(state: dict, now: float) -> bool:
+    ce = state.get("countExpireAt")
+    return bool(ce) and now >= _ts(ce)
+
+
 def _rolled_back(state: dict, now: float) -> bool:
     return now < state.get("seenMax", 0) - ROLLBACK_TOLERANCE
 
@@ -60,7 +65,8 @@ def status(root, app: str, cfg: dict, *, now=None) -> dict:
     }
     if _rolled_back(state, now):
         return {**base, "licensed": False, "reason": "rollback"}
-    licensed = _time_valid(state, now) or remaining_free > 0 or state["counts"] > 0
+    has_count = state["counts"] > 0 and not _count_expired(state, now)
+    licensed = _time_valid(state, now) or remaining_free > 0 or has_count
     return {**base, "licensed": licensed}
 
 
@@ -94,8 +100,8 @@ def consume(root, app: str, cfg: dict, *, now=None) -> dict:
     if state["freeUsedToday"] < daily:
         state["freeUsedToday"] += 1
         return _ret("free")
-    # 3) 购买次数
-    if state["counts"] > 0:
+    # 3) 购买/赠送次数(带使用到期)
+    if state["counts"] > 0 and not _count_expired(state, now):
         state["counts"] -= 1
         return _ret("count")
     # 都没了
@@ -114,6 +120,9 @@ def _apply_grant(root, grant: dict, now: float) -> None:
     kind = grant["kind"]
     if kind == "count":
         state["counts"] += int(grant["n"])
+        if grant.get("until") is not None:
+            cur = _ts(state["countExpireAt"]) if state.get("countExpireAt") else 0
+            state["countExpireAt"] = _to_iso(max(cur, float(grant["until"])))
     elif kind == "time":
         cur = _ts(state["timeExpireAt"]) if state["timeExpireAt"] else 0
         if "days" in grant:

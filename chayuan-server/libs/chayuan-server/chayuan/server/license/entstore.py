@@ -12,7 +12,7 @@ def state_path(root: Path, app: str) -> Path:
 
 
 def default_state(app: str) -> dict:
-    return {"app": app, "timeExpireAt": None, "counts": 0,
+    return {"app": app, "timeExpireAt": None, "counts": 0, "countExpireAt": None,
             "freeUsedToday": 0, "freeDate": None, "seenMax": 0}
 
 
