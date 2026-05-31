@@ -66,6 +66,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   };
 
   const enginesQ = useQuery({ queryKey: ['dh.engines'], queryFn: digitalHuman.listEngines });
+  const tasksQ = useQuery({ queryKey: ['dh.tasks'], queryFn: digitalHuman.listTasks, refetchInterval: 3000 });
+  const recentTasks = (tasksQ.data?.items ?? []).filter((t) => t.task_id !== taskId).slice(-8).reverse();
   const engines = enginesQ.data?.items ?? DEFAULT_ENGINES;
 
   const engineInstalled = engines.find((e) => e.id === engine)?.installed ?? (engine === 'wav2lip');
@@ -225,6 +227,14 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       </button>
 
       {taskId && <DhProgressCard taskId={taskId} />}
+      {recentTasks.length > 0 && (
+        <div className="flex flex-col gap-2 border-t border-[var(--cy-border-subtle)] pt-2">
+          <div className="text-xs text-[var(--cy-text-tertiary)]">最近任务</div>
+          {recentTasks.map((t) => (
+            <DhProgressCard key={t.task_id} taskId={t.task_id} />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
