@@ -19,6 +19,18 @@ from chayuan.server.video_generation.digital_human.schemas import DhGenerateRequ
 
 digital_human_router = APIRouter(prefix="/api/v1/digital-human", tags=["digital-human"])
 
+_REALTIME_PORT = 18880
+
+
+def _realtime_port_listening() -> bool:
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.3)
+    try:
+        return s.connect_ex(("127.0.0.1", _REALTIME_PORT)) == 0
+    finally:
+        s.close()
+
 
 @digital_human_router.get("/presets")
 def list_presets(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
@@ -141,3 +153,21 @@ def task_file(tid: str,
     if st.state != "complete" or not os.path.isfile(st.result_path):
         raise HTTPException(404, "产物未就绪")
     return FileResponse(st.result_path, media_type="video/mp4", filename="digital_human.mp4")
+
+
+@digital_human_router.get("/live/available")
+def live_available(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    return {"available": _realtime_port_listening()}
+
+
+@digital_human_router.post("/live/offer")
+def live_offer(body: Dict[str, Any],
+               user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    """中继浏览器 SDP offer 到 realtime_avatar sidecar 的 /offer,返回 answer。"""
+    import httpx
+    if not _realtime_port_listening():
+        raise HTTPException(503, "实时数字人运行时未启动(去运行时框架安装/启动)")
+    with httpx.Client() as client:
+        resp = client.post(f"http://127.0.0.1:{_REALTIME_PORT}/offer", json=body, timeout=30)
+        resp.raise_for_status()
+        return resp.json()

@@ -79,3 +79,44 @@ def test_generate_passes_engine(monkeypatch, tmp_path):
     r = c.post("/api/v1/digital-human/generate",
                json={"preset_id": "p1", "text": "hi", "engine": "musetalk"})
     assert r.status_code == 200 and seen.get("engine") == "musetalk"
+
+
+def test_live_offer_relays(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path)
+    import chayuan.server.api_server.digital_human_routes as routes
+    monkeypatch.setattr(routes, "_realtime_port_listening", lambda: True)
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"sdp": "ANSWER", "type": "answer"}
+
+        def raise_for_status(self):
+            pass
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, json, timeout=None):
+            assert url.endswith(":18880/offer")
+            return _Resp()
+
+    monkeypatch.setattr("httpx.Client", _Client)
+    r = c.post("/api/v1/digital-human/live/offer", json={"sdp": "OFFER", "type": "offer"})
+    assert r.status_code == 200 and r.json()["sdp"] == "ANSWER"
+
+
+def test_live_available(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path)
+    import chayuan.server.api_server.digital_human_routes as routes
+    monkeypatch.setattr(routes, "_realtime_port_listening", lambda: True)
+    r = c.get("/api/v1/digital-human/live/available")
+    assert r.json()["available"] is True
