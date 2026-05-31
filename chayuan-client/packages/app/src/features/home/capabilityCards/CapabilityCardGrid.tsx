@@ -14,7 +14,7 @@
 
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Settings2 } from 'lucide-react';
+import { Settings2, Layers3 } from 'lucide-react';
 import type { ModalityCapability } from '@chayuan/transport';
 import { CapabilityCard } from './CapabilityCard';
 import { HOME_CAPABILITY_CARDS } from './capabilityCardCatalog';
@@ -32,11 +32,14 @@ import {
 export interface CapabilityCardGridProps {
   /** 没任何配置时,主页可能把卡片整片隐藏走另一条 onboarding;不传默认始终显示 */
   hideWhenAllEmpty?: boolean;
+  /** 传入则在本组末尾追加一张「模型广场」卡(点击 → 此回调)。 */
+  onMarketplace?: () => void;
 }
 
 
 export const CapabilityCardGrid: React.FC<CapabilityCardGridProps> = ({
   hideWhenAllEmpty = false,
+  onMarketplace,
 }) => {
   const navigate = useNavigate();
   const { byCap, hasAny, isLoading, isFetched } = useAvailableModelsByCapability();
@@ -98,8 +101,8 @@ export const CapabilityCardGrid: React.FC<CapabilityCardGridProps> = ({
         </div>
       </header>
 
-      {/* 7 张卡。窄屏 2、lg 4(2 行 4+3)、2xl 起 7(单行)— 大屏避免 4+3 留单行尾巴。 */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
+      {/* 7 张能力卡(+末尾可选「模型广场」)。窄屏 2、lg 4、2xl 起 8(单行)。 */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
         {isLoading && !isFetched ? (
           // 骨架 — 不阻塞首屏,等 react-query 跑完自动替换
           Array.from({ length: HOME_CAPABILITY_CARDS.length }).map((_, i) => (
@@ -122,6 +125,22 @@ export const CapabilityCardGrid: React.FC<CapabilityCardGridProps> = ({
               />
             );
           })
+        )}
+        {/* 末尾追加:模型广场(放在"按模型类型开始对话"这一组最后一个) */}
+        {onMarketplace && (
+          <button
+            type="button"
+            onClick={onMarketplace}
+            className="flex h-36 2xl:h-32 flex-col items-start justify-between rounded-2xl border border-[var(--cy-border-subtle)] bg-gradient-to-br from-violet-50 to-fuchsia-100 p-3 text-left transition-colors hover:border-[var(--cy-brand-400)] dark:from-violet-900/30 dark:to-fuchsia-800/40"
+          >
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-400 to-fuchsia-500 text-white">
+              <Layers3 className="h-5 w-5" />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-[var(--cy-text-primary)]">模型广场</span>
+              <span className="block text-[11px] text-[var(--cy-text-tertiary)]">云端 / 本地 / 聚合厂商一键接入</span>
+            </span>
+          </button>
         )}
       </div>
 

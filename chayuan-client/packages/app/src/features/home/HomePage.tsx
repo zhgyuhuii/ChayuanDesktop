@@ -21,7 +21,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  Library, Layers3, Pen, ScanText, Mic, Clapperboard, UserRound,
+  Library, Pen, ScanText, Mic, Clapperboard, UserRound,
   AlertCircle,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
@@ -58,15 +58,6 @@ const CAPS: ReadonlyArray<CapItem> = [
     to: '/kb',
     gradient: 'from-emerald-50 to-teal-100 dark:from-emerald-900/30 dark:to-teal-800/40',
     iconBg: 'bg-gradient-to-br from-emerald-400 to-teal-500',
-  },
-  {
-    id: 'marketplace',
-    icon: Layers3,
-    title: '模型广场',
-    subtitle: '云端 / 本地 / 聚合厂商一键接入',
-    to: '/marketplace',
-    gradient: 'from-violet-50 to-fuchsia-100 dark:from-violet-900/30 dark:to-fuchsia-800/40',
-    iconBg: 'bg-gradient-to-br from-violet-400 to-fuchsia-500',
   },
   {
     id: 'image-to-text',
@@ -353,7 +344,7 @@ export const HomePage: React.FC = () => {
        *  数据源跟 ChatComposer 共享 ['v1.models',{type:'all'}] react-query 缓存,
        *  零额外网络。 */}
       <div className="relative z-10">
-        <CapabilityCardGrid />
+        <CapabilityCardGrid onMarketplace={onConfigureModel} />
       </div>
 
       {/* ── 5. 流式产品介绍气泡 ────────────────────────────────
