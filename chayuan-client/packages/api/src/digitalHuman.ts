@@ -15,6 +15,15 @@ export type DhVoiceProvider = 'piper' | 'edge' | 'sherpa' | 'clone';
 export type DhAvatarKind = 'image' | 'video';
 export type DhAvatarSource = 'bundled' | 'user';
 export type DhTaskState = 'pending' | 'running' | 'complete' | 'failed' | 'canceled';
+export type DhComposeMode = 'single' | 'coframe' | 'sequential';
+export type DhLayout = 'side' | 'pip' | 'main_minor';
+
+export interface AvatarSlot {
+  ref: string;
+  kind: DhAvatarKind;
+  label?: string;
+  lines?: string;
+}
 
 export interface DigitalHumanPreset {
   id: string;
@@ -25,6 +34,9 @@ export interface DigitalHumanPreset {
   voice_provider: DhVoiceProvider;
   voice_name: string;
   created: number;
+  avatars?: AvatarSlot[];
+  compose_mode?: DhComposeMode;
+  layout?: DhLayout;
 }
 
 export interface DhAvatar {
