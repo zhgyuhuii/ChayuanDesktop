@@ -274,7 +274,19 @@ def task_to_timeline(tid: str = FPath(..., max_length=64),
         size=os.path.getsize(st.result_path),
         tags=["digital_human"],
     )
-    return {"material": row}
+    # 构建带「视频轨+字幕轨」的 Timeline EDL,供 VG 时间轴编辑器加载(改字幕→VG 重渲染)
+    from chayuan.server.video_generation.digital_human.timeline_bridge import (
+        build_cues_from_script, build_timeline,
+    )
+    dur_ms = 0
+    try:
+        from chayuan.server.video_generation.steps.subtitle import _probe_audio_duration_ms
+        dur_ms = _probe_audio_duration_ms(st.result_path) or 0
+    except Exception:  # noqa: BLE001
+        dur_ms = 0
+    cues = build_cues_from_script(getattr(st, "script", "") or "", dur_ms)
+    timeline = build_timeline(st.result_path, cues, dur_ms)
+    return {"material": row, "timeline": timeline.model_dump()}
 
 
 @digital_human_router.get("/live/available")

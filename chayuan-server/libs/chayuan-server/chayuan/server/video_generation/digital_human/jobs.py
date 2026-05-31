@@ -210,7 +210,8 @@ def _run_pipeline(tid: str) -> None:
                 logger.warning("[dh] %s 合成失败,回退首个形象片段: %r", mode, e)
                 import shutil
                 shutil.copyfile(clips[0], out_path)
-            _set(tid, state="complete", progress=100, result_path=out_path)
+            _set(tid, state="complete", progress=100, result_path=out_path,
+                 script=args.get("text", ""))
             return
         # ---- 单形象(原路径)----
         avatar = resolve_avatar_path(preset.avatar_ref)
@@ -243,7 +244,8 @@ def _run_pipeline(tid: str) -> None:
                 dur_ms=dur_ms,
             )
             result_path = final_path
-        _set(tid, state="complete", progress=100, result_path=result_path)
+        _set(tid, state="complete", progress=100, result_path=result_path,
+             script=args.get("text", ""))
     except Exception as e:  # noqa: BLE001
         logger.warning("[dh] task %s 失败: %r", tid, e, exc_info=True)
         _set(tid, state="failed", error=str(e))

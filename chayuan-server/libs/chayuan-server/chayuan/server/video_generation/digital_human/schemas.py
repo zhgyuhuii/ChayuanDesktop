@@ -62,3 +62,4 @@ class DhTaskStatus(BaseModel):
     progress: int = 0
     error: str = ""
     result_path: str = ""
+    script: str = ""          # 生成所用文案(供"送到时间轴"派生字幕 cue)
