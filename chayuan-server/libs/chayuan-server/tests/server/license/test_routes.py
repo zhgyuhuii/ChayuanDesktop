@@ -62,3 +62,24 @@ def test_invalid_app_buy_url_rejected(tmp_path, monkeypatch):
     r = c.get("/api/v1/license/buy-url?app=../../etc")
     assert r.status_code == 200
     assert r.json()["url"] == ""
+
+
+def test_entitlements_offline_fallback_to_local(tmp_path, monkeypatch):
+    # 无网络 → 在线拉取失败 → 回落本地激活记录。
+    from chayuan.server.license import store
+    c = _client(tmp_path, monkeypatch)
+    # buy_base_url 指向不可达地址,确保在线分支失败走本地回落
+    monkeypatch.setenv("LICENSE_BUY_BASE_URL", "http://127.0.0.1:9")
+    store.write_activation(tmp_path, {
+        "mid": "1122334455667788", "app": "video",
+        "expireAt": "2099-01-01T00:00:00.000Z", "seenMax": 0,
+        "source": "shortcode", "credential": "AAAAA-BBBBB-CCCCC-DDDDD-EEEE",
+    })
+    r = c.get("/api/v1/license/entitlements").json()
+    assert "fingerprint" in r
+    assert r["online"] is False
+    items = r["items"]
+    assert len(items) == 1
+    assert items[0]["app"] == "video"
+    assert items[0]["active"] is True
+    assert items[0]["serial"] == "AAAAA-BBBBB-CCCCC-DDDDD-EEEE"

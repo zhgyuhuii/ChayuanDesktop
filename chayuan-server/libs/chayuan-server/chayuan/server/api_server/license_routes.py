@@ -68,6 +68,60 @@ def post_activate_token(payload: dict = Body(...)):
     return service.activate_token(_root(), app, payload.get("token", ""), "file", cfg)
 
 
+@license_router.get("/entitlements")
+def get_entitlements():
+    """「我的权限」:在线拉该机器购买记录(产品/到期/购买时间/金额/序列号);
+    断网则回落本地激活记录(只有到期/序列号,无金额/购买时间)。"""
+    import json as _json
+    from chayuan.server.license import store
+    from chayuan.server.license import service
+    cfg = load_license_config()
+    root = _root()
+    fp = _fp(root)
+    now = service._now()
+
+    def _active(exp):
+        if not exp:
+            return False
+        try:
+            return service._ts(exp) > now
+        except Exception:
+            return False
+
+    rows, online = [], False
+    try:
+        data = _json.loads(_safe_get(f"{cfg['buy_base_url']}/api/license/my?mid={fp}"))
+        rows = data.get("items", []) if isinstance(data, dict) else []
+        online = True
+    except Exception:
+        rows = []
+
+    items = []
+    if rows:
+        for o in rows:
+            items.append({
+                "app": o.get("app"),
+                "productName": o.get("productName") or o.get("app"),
+                "amountFen": o.get("amountFen"),
+                "paidAt": o.get("paidAt"),
+                "expireAt": o.get("expireAt"),
+                "serial": o.get("serial"),
+                "active": _active(o.get("expireAt")),
+                "source": "online",
+            })
+    else:
+        for app in (cfg.get("products") or {"video": 1}).keys():
+            rec = store.read_activation(root, app)
+            if rec:
+                items.append({
+                    "app": app, "productName": app,
+                    "amountFen": None, "paidAt": None,
+                    "expireAt": rec.get("expireAt"), "serial": rec.get("credential"),
+                    "active": _active(rec.get("expireAt")), "source": rec.get("source"),
+                })
+    return {"fingerprint": fp, "online": online, "items": items}
+
+
 @license_router.post("/reset")
 def post_reset(payload: dict = Body(default={})):
     """重置本机激活(删除本地授权记录)。注意:若线上仍有该机器授权且联网,
