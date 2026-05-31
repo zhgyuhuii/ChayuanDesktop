@@ -92,9 +92,34 @@ async fn fetch_manifest() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({ "version": "0.0.0", "components": [] }))
 }
 
+/// 应用更新:把已下载校验过的新包原子替换到目标路径(先写 .new 再 rename)。
+/// [BUILD-VERIFY] 真替换运行中安装需平台细节(Windows 文件占用 → 重启替换);本骨架做原子 rename。
+#[tauri::command]
+async fn apply_update(downloaded_path: String, target_path: String) -> Result<String, String> {
+    let src = std::path::Path::new(&downloaded_path);
+    if !src.is_file() {
+        return Err(format!("下载文件不存在: {}", downloaded_path));
+    }
+    let tmp = format!("{}.new", target_path);
+    std::fs::copy(&downloaded_path, &tmp).map_err(|e| format!("写临时文件失败: {}", e))?;
+    // 原子替换:rename 覆盖(同盘原子)。Windows 上目标被占用会失败 → [BUILD-VERIFY] 退重启替换。
+    std::fs::rename(&tmp, &target_path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("原子替换失败(可能文件占用,需重启替换): {}", e)
+    })?;
+    Ok(target_path)
+}
+
+/// 拉 website 版本信息 —— [BUILD-VERIFY] 真实现 reqwest GET {base}/api/version/{product};骨架返空。
+#[tauri::command]
+async fn fetch_version(product: String) -> Result<serde_json::Value, String> {
+    let _ = product;
+    Ok(serde_json::json!({ "product": "", "latest": { "version": "0.0.0" }, "platforms": {} }))
+}
+
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![download_file, fetch_manifest, build_installer])
+        .invoke_handler(tauri::generate_handler![download_file, fetch_manifest, build_installer, apply_update, fetch_version])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

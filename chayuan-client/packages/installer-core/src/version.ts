@@ -1,8 +1,8 @@
 interface Parsed { nums: number[]; pre: string[]; }
 
 function parse(v: string): Parsed {
-  const noBuild = v.split('+')[0];
-  const [rel, pre] = noBuild.split('-', 2);
+  const noBuild = v.split('+')[0] ?? v;
+  const [rel = '', pre] = noBuild.split('-', 2);
   const nums = rel.split('.').map((s) => parseInt(s, 10) || 0);
   return { nums, pre: pre ? pre.split('.') : [] };
 }

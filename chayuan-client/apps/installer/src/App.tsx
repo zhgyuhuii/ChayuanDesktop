@@ -1,9 +1,11 @@
 import * as React from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
-  resolveComponents, mirrorCandidates, DEFAULT_MIRROR_RULES,
-  type InstallerManifest, type Tier, type Selection, type ResolvedComponent,
+  resolveComponents, mirrorCandidates, DEFAULT_MIRROR_RULES, decideUpdate,
+  type InstallerManifest, type Tier, type Selection, type ResolvedComponent, type VersionResponse,
 } from '@chayuan/installer-core';
+
+const CURRENT_VERSION = '3.0.0'; // [BUILD-VERIFY] 真版本读已装 manifest
 
 const TIERS: { id: Tier; label: string }[] = [
   { id: 'lite', label: '轻量版' },
@@ -51,6 +53,17 @@ export const App: React.FC = () => {
     append('完成(真下载需 Tauri Rust 环境)');
   };
 
+  const checkUpdate = async () => {
+    try {
+      const resp = await invoke<VersionResponse>('fetch_version', { product: 'desktop' });
+      const d = decideUpdate(resp, { currentVersion: CURRENT_VERSION, os, arch, preferVariant: undefined });
+      if (d.available) append(`发现新版 ${d.latestVersion}(${d.variant}) → ${d.downloadUrl}`);
+      else append('已是最新');
+    } catch (e) {
+      append(`检查更新失败: ${String(e)}`);
+    }
+  };
+
   return (
     <div style={{ fontFamily: 'system-ui', padding: 24, maxWidth: 720 }}>
       <h1>察元下载构建器</h1>
@@ -72,7 +85,8 @@ export const App: React.FC = () => {
         </label>
       </section>
       <button onClick={() => void loadManifest()}>① 拉取清单</button>{' '}
-      <button onClick={() => void startInstall()} disabled={plan.length === 0}>② 安装到本机({plan.length} 组件)</button>
+      <button onClick={() => void startInstall()} disabled={plan.length === 0}>② 安装到本机({plan.length} 组件)</button>{' '}
+      <button onClick={() => void checkUpdate()}>检查更新</button>
       <ul>{plan.map((c) => <li key={c.name}>{c.name} → {c.dest}</li>)}</ul>
       <pre style={{ background: '#111', color: '#0f0', padding: 12, minHeight: 80 }}>{log.join('\n')}</pre>
     </div>

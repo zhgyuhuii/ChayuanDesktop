@@ -34,7 +34,7 @@ export function toReleasePlatform(os: 'linux' | 'mac' | 'win', arch: 'x86_64' | 
     mac: { x86_64: 'x64', arm64: 'arm64' },
     linux: { x86_64: 'amd64', arm64: 'arm64' },
   };
-  return `${osMap[os]}-${archMap[os][arch]}`;
+  return `${osMap[os]}-${(archMap[os] ?? {})[arch]}`;
 }
 
 /** 给定 version-routes 响应 + 本地版本/平台 → 是否有更新 + 下载链接。 */
