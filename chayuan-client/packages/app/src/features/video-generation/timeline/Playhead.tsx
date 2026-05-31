@@ -11,7 +11,18 @@ export const Playhead: React.FC<{
   heightPx: number;
   durationMs: number;
   onSeekMs: (ms: number) => void;
-}> = ({ playheadMs, pxPerSec, heightPx, durationMs, onSeekMs }) => {
+  /** 播放时由 rAF 命令式驱动:注册一个 setter,直接改本元素 transform(不触发 React 重渲)。 */
+  driveRef?: React.MutableRefObject<((ms: number) => void) | null>;
+}> = ({ playheadMs, pxPerSec, heightPx, durationMs, onSeekMs, driveRef }) => {
+  const elRef = React.useRef<HTMLDivElement | null>(null);
+  // 注册命令式驱动(pxPerSec 变化时重注册,保证换算正确)
+  React.useEffect(() => {
+    if (!driveRef) return;
+    driveRef.current = (ms: number) => {
+      if (elRef.current) elRef.current.style.transform = `translateX(${msToPx(ms, pxPerSec)}px)`;
+    };
+    return () => { driveRef.current = null; };
+  }, [driveRef, pxPerSec]);
   const startDrag = (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -30,8 +41,9 @@ export const Playhead: React.FC<{
   };
   return (
     <div
-      className="pointer-events-none absolute top-0 z-40"
-      style={{ left: msToPx(playheadMs, pxPerSec), height: heightPx }}
+      ref={elRef}
+      className="pointer-events-none absolute left-0 top-0 z-40 will-change-transform"
+      style={{ transform: `translateX(${msToPx(playheadMs, pxPerSec)}px)`, height: heightPx }}
     >
       {/* 贯穿竖线 */}
       <div className="h-full w-px bg-[var(--cy-brand-600)]" />

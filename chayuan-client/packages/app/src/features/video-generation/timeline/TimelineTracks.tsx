@@ -46,7 +46,9 @@ export const TimelineTracks: React.FC<{
   narrationName?: string;
   narrationDurationMs?: number;
   onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationName, narrationDurationMs, onTransitionMenu }) => {
+  /** 播放头命令式驱动 ref(rAF 每帧推 DOM,不重渲整条时间轴);透传给 Playhead。 */
+  playheadDriveRef?: React.MutableRefObject<((ms: number) => void) | null>;
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationName, narrationDurationMs, onTransitionMenu, playheadDriveRef }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const audioTracks = (timeline.tracks || []).filter((t) => t.kind === 'audio');
@@ -182,7 +184,7 @@ export const TimelineTracks: React.FC<{
               onCueContextMenu={(e, idx) => onLaneContextMenu?.(e, 'subtitle', String(idx))} />
           </div>
           {/* 播放头:贯穿刻度 + 所有轨道;手柄在最顶(刻度上方) */}
-          <Playhead playheadMs={playheadMs} pxPerSec={pxPerSec} heightPx={RULER_H + lanesH} durationMs={durationMs} onSeekMs={onSeekMs} />
+          <Playhead playheadMs={playheadMs} pxPerSec={pxPerSec} heightPx={RULER_H + lanesH} durationMs={durationMs} onSeekMs={onSeekMs} driveRef={playheadDriveRef} />
         </div>
       </div>
     </div>

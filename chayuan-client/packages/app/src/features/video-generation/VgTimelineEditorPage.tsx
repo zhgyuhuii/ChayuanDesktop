@@ -82,7 +82,7 @@ export const VgTimelineEditorPage: React.FC = () => {
   const durationMs = rulerDurationMs(contentMs); // 标尺/画布展示时长(向后留富余,可放更多元素)
 
   const { playheadMs, setPlayheadMs, seekMs, setSeekMs, seekNonce, setSeekNonce,
-          seekDebounceRef, playing, setPlaying, previewMode, setPreviewMode, playheadRef }
+          seekDebounceRef, playing, setPlaying, previewMode, setPreviewMode, playheadRef, playheadDriveRef }
     = useTimelinePlayback({ timeline, contentMs, draft, params });
 
   // 容器宽变化时 fit 一次(内容时长首次 > 0;按内容铺满,富余部分横向滚)
@@ -405,6 +405,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           onReorderVideoTrack={(tid, dir) => onTimelineChange(reorderVideoTrack(timeline, tid, dir))}
           selectedClipId={selectedClipId}
           onSelectClip={setSelectedClipId}
+          playheadDriveRef={playheadDriveRef}
           narrationName={narrationName}
           narrationDurationMs={draft.audioDurationMs || (peaks.length ? contentMs : 0)}
           onTransitionMenu={(e, clipId) => setTxMenu({ x: e.clientX, y: e.clientY, clipId })}
