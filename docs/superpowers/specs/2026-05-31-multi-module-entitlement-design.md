@@ -138,3 +138,13 @@ chayuan-server 是单机 sidecar,但 consume 是读改写 → 用**进程内 app
 - 不做账号体系/多租户(仍以机器指纹为身份)。
 - 不做促销卡的离线跨机器强阻断(B 的固有取舍)。
 - 不改既有时间制 25 位短码的格式与离线兼容。
+
+## 12. 黄金向量(Plan A↔B 字节兼容)
+
+统一权益码 canonical = `json.dumps(payload, sort_keys=True, separators=(",",":"))` → `base64url_nopad(json).base64url_nopad(ed25519_sig)`。Plan B(website 签发端)必须对同一 payload + 同一私钥产出**字节一致**的码。
+
+- 测试私钥种子(seed,32B hex,**仅测试用**):`000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f`
+- 公钥(hex):`03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8`
+- payload:`{"v":1,"id":"a1b2c3d4e5f60718","src":"promo","mid":null,"cardExpireAt":"2026-12-31T00:00:00.000Z","grants":[{"app":"video","kind":"count","n":5},{"app":"chat","kind":"time","days":30}]}`
+- 期望码 CODE:
+  `eyJjYXJkRXhwaXJlQXQiOiIyMDI2LTEyLTMxVDAwOjAwOjAwLjAwMFoiLCJncmFudHMiOlt7ImFwcCI6InZpZGVvIiwia2luZCI6ImNvdW50IiwibiI6NX0seyJhcHAiOiJjaGF0IiwiZGF5cyI6MzAsImtpbmQiOiJ0aW1lIn1dLCJpZCI6ImExYjJjM2Q0ZTVmNjA3MTgiLCJtaWQiOm51bGwsInNyYyI6InByb21vIiwidiI6MX0._bqbnE6foxiC5JcRMmtn4zi6ZhYPxn82qaCR0JGjc2lpayt_qYmKBKr6HsQ28FKjngPwamqkRv7ojoQthdpnAg`
