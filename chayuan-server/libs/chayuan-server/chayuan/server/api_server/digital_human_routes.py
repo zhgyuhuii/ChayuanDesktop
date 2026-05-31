@@ -194,6 +194,32 @@ def task_file(tid: str,
     return FileResponse(st.result_path, media_type="video/mp4", filename="digital_human.mp4")
 
 
+@digital_human_router.post("/tasks/{tid}/to-timeline")
+def task_to_timeline(tid: str = FPath(..., max_length=64),
+                     user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    """把已完成任务的产物 mp4 注册进视频生成素材库(本地文件,不下载),
+    用户即可在「视频生成 → 时间轴」里拿它做高级编排(同框/分段/字幕等)。"""
+    st = dh_jobs.get_status(tid)
+    if st.state != "complete" or not st.result_path or not os.path.isfile(st.result_path):
+        raise HTTPException(409, "任务未完成或产物缺失")
+    from chayuan.server.video_generation.store import materials as materials_store
+    try:
+        from chayuan.server.api_server.video_generation_routes import _owner_id_of
+        owner = _owner_id_of(user)
+    except Exception:  # noqa: BLE001
+        owner = None
+    row = materials_store.create_material(
+        source="digital_human",
+        name=os.path.basename(st.result_path),
+        path=st.result_path,
+        owner_id=owner,
+        mime="video/mp4",
+        size=os.path.getsize(st.result_path),
+        tags=["digital_human"],
+    )
+    return {"material": row}
+
+
 @digital_human_router.get("/live/available")
 def live_available(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
     return {"available": _realtime_port_listening()}

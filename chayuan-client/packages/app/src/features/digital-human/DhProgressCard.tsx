@@ -3,6 +3,19 @@ import { useQuery } from '@tanstack/react-query';
 import { digitalHuman } from '@chayuan/api';
 
 export const DhProgressCard: React.FC<{ taskId: string }> = ({ taskId }) => {
+  const [sentToTimeline, setSentToTimeline] = React.useState(false);
+  const [sending, setSending] = React.useState(false);
+  const onToTimeline = async () => {
+    setSending(true);
+    try {
+      await digitalHuman.taskToTimeline(taskId);
+      setSentToTimeline(true);
+    } catch {
+      // 忽略:失败时按钮恢复可重试
+    } finally {
+      setSending(false);
+    }
+  };
   const q = useQuery({
     queryKey: ['dh.task', taskId],
     queryFn: () => digitalHuman.taskStatus(taskId),
@@ -20,6 +33,10 @@ export const DhProgressCard: React.FC<{ taskId: string }> = ({ taskId }) => {
         <video src={digitalHuman.taskFileUrl(taskId)} controls className="h-40 rounded-md" />
         <a href={digitalHuman.taskFileUrl(taskId)} download
           className="inline-flex h-7 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-white hover:bg-[var(--cy-brand-600)]">下载</a>
+        <button type="button" onClick={onToTimeline} disabled={sending || sentToTimeline}
+          className="inline-flex h-7 items-center rounded-md border border-[var(--cy-border-subtle)] px-3 text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+          {sentToTimeline ? '已送到素材库' : sending ? '发送中…' : '送到时间轴(高级编辑)'}
+        </button>
       </div>
     );
   }
