@@ -117,23 +117,66 @@ def _pid_alive(pid: int) -> bool:
 
 
 def _looks_like_chayuan_proc(pid: int) -> bool:
-    """尽量避免误杀：用 `ps -p <pid> -o command=` 读 cmdline，
-    命中 `cli.py` 或 `chayuan` 才认为是自己之前启起来的父进程。
+    """尽量避免误杀：确认 pid 的命令行/映像名像是自己之前 `chayuan start`
+    起的进程，命中 `cli.py` / `chayuan` / `察元` 才认。
 
-    读不到（比如进程刚死、ps 不可用）就保守返回 False。
+    跨平台多路兜底（按可靠性排序），任一路读到就判定：
+      1) psutil（若已装，任何平台都最准 —— 直接拿 cmdline / name）
+      2) POSIX：`ps -p <pid> -o command=`
+      3) Windows：`wmic` 读 CommandLine，再退到 PowerShell Get-CimInstance
+    全部读不到（进程刚死 / 工具不可用）就保守返回 False。
+
+    [Windows 修复] 旧实现只有第 2 路 `ps`，Windows 上必抛异常→恒 False，
+    使 `_kill_previous_instance` 永远「为避免误杀」跳过、旧实例杀不掉，
+    `chayuan start -a` 形同没重启（旧进程继续占端口、服务旧代码 → 新增
+    路由 404）。补 psutil + Windows 原生路径后，start 在 Windows 也能正确重启。
     """
+    def _hit(text: str) -> bool:
+        t = (text or "").lower()
+        return bool(t) and (("cli.py" in t) or ("chayuan" in t) or ("察元" in (text or "")))
+
+    # 1) psutil：跨平台、最准（项目其它处已用；未装则跳过）
     try:
-        import subprocess as _sp
-        out = _sp.check_output(
-            ["ps", "-p", str(pid), "-o", "command="],
-            stderr=_sp.DEVNULL,
-            timeout=2.0,
-        ).decode("utf-8", errors="replace").strip().lower()
-    except Exception:
-        return False
-    if not out:
-        return False
-    return ("cli.py" in out) or ("chayuan" in out)
+        import psutil  # type: ignore
+        proc = psutil.Process(pid)
+        try:
+            cmd = " ".join(proc.cmdline())
+        except Exception:  # noqa: BLE001
+            cmd = ""
+        if _hit(cmd) or _hit(proc.name()):
+            return True
+        # psutil 读到了但都不像 → 命中失败也别急着判负，继续走原生路径核对
+        # （cmdline 可能因权限读不全），避免漏杀。
+    except Exception:  # noqa: BLE001
+        pass
+
+    import subprocess as _sp
+    # 2) POSIX：ps
+    if os.name != "nt":
+        try:
+            out = _sp.check_output(
+                ["ps", "-p", str(pid), "-o", "command="],
+                stderr=_sp.DEVNULL, timeout=2.0,
+            ).decode("utf-8", errors="replace")
+            return _hit(out)
+        except Exception:  # noqa: BLE001
+            return False
+
+    # 3) Windows：wmic 读完整 CommandLine；wmic 在新版 Win 可能被裁，再退 PowerShell
+    for argv in (
+        ["wmic", "process", "where", "ProcessId=%d" % pid, "get", "CommandLine", "/value"],
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+         "(Get-CimInstance Win32_Process -Filter 'ProcessId=%d').CommandLine" % pid],
+    ):
+        try:
+            out = _sp.check_output(
+                argv, stderr=_sp.DEVNULL, timeout=6.0,
+            ).decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            continue
+        if out.strip():
+            return _hit(out)
+    return False
 
 
 def _kill_previous_instance(
