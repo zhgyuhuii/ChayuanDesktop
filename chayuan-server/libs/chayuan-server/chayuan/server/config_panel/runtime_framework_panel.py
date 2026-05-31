@@ -172,6 +172,16 @@ _FRAMEWORK_CATALOG: Tuple[_FrameworkSpec, ...] = (
         needs_gpu=True,
     ),
     _FrameworkSpec(
+        # realtime_avatar — 实时数字人 WebRTC 服务(MuseTalk 驱动);需 GPU + aiortc
+        # 端口 18880 — 避开已用端口(musetalk 18780)
+        name="realtime_avatar", label="实时数字人 (WebRTC·MuseTalk)",
+        capabilities=("talking-head",),
+        default_url="http://127.0.0.1:18880", health_path="/health",
+        install_kind="manual", install_pkg=None,
+        bin_names=(),
+        needs_gpu=True,
+    ),
+    _FrameworkSpec(
         name="piper", label="Piper TTS",
         capabilities=("tts",),
         default_url="", health_path="",

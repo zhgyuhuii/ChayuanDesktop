@@ -286,6 +286,8 @@ def get_recipes(framework: str) -> List[InstallRecipe]:
         return _sadtalker(host)
     if framework == "musetalk":
         return _musetalk(host)
+    if framework == "realtime_avatar":
+        return _realtime_avatar(host)
     if framework == "rapidocr":
         return _pip_with_mirrors("rapidocr-onnxruntime")
     if framework == "paddleocr":
@@ -710,6 +712,21 @@ def _musetalk(host: str) -> List[InstallRecipe]:
         label="git clone MuseTalk(国内代理 ghproxy)",
         cmd=["git", "clone", "https://mirror.ghproxy.com/https://github.com/TMElyralab/MuseTalk.git", target],
         note="国内网络优选",
+        requires="git",
+    ))
+    return out
+
+
+def _realtime_avatar(host: str) -> List[InstallRecipe]:
+    """实时数字人(WebRTC + MuseTalk)。需 GPU。装 aiortc + clone MuseTalk
+    (权重用仓内脚本拉,[GPU-VERIFY] 用户环境)。"""
+    out: List[InstallRecipe] = []
+    out.extend(_pip_with_mirrors("aiortc av"))
+    target = os.path.expanduser("~/MuseTalk") if host != "win" else "%USERPROFILE%\\MuseTalk"
+    out.append(InstallRecipe(
+        label="git clone MuseTalk(实时口型依赖)",
+        cmd=["git", "clone", "https://github.com/TMElyralab/MuseTalk.git", target],
+        note="clone 后按 README 拉权重",
         requires="git",
     ))
     return out

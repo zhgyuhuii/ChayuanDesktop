@@ -505,6 +505,16 @@ _START_RECIPES: Dict[str, InstallRecipe] = {
         note=f"启 chayuan 内置 MuseTalk HTTP 包装(需 GPU);日志 {_bg_log_path('musetalk')}",
         requires="",
     ),
+    "realtime_avatar": InstallRecipe(
+        label="python -m chayuan.server.modality.realtime_avatar_server",
+        cmd=_bg_cmd(
+            [sys.executable, "-m", "chayuan.server.modality.realtime_avatar_server",
+             "--host", "127.0.0.1", "--port", "18880"],
+            _bg_log_path("realtime_avatar"),
+        ),
+        note=f"启 chayuan 内置 实时数字人 WebRTC 服务(需 GPU + aiortc);日志 {_bg_log_path('realtime_avatar')}",
+        requires="",
+    ),
     "rapidocr": InstallRecipe(
         label="python -m chayuan.server.modality.rapidocr_server",
         cmd=_bg_cmd(
