@@ -1,7 +1,8 @@
 /**
  * 授权窗口。spec 的「弹窗：公众号/收款二维码 + 序列号输入 + 确定」。
  *
- * - 指纹 + 购买链接从后端 `/api/v1/license/{fingerprint,buy-url}` 取。
+ * - 购买链接从后端 `GET /api/v1/license/buy-url` 取（后端把本机指纹直接拼进 URL，
+ *   前端不经手 mid）。
  * - 二维码本地生成（编码后端给的购买链接），手机扫码到在线购买页。
  * - 序列号手输 → store.activateSerial（B1，后端验签）。
  * - 导入 .lic → store.activateToken（Ed25519，后端验签）。
@@ -64,11 +65,15 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
       .catch(() => setQr(''));
   }, [buyUrl]);
 
-  async function run(fn: () => Promise<{ licensed: boolean; reason?: string }>): Promise<void> {
+  // fn 返回 null = 无操作（如用户取消选文件），不报错、不关窗。
+  async function run(
+    fn: () => Promise<{ licensed: boolean; reason?: string } | null>,
+  ): Promise<void> {
     setBusy(true);
     setErr(null);
     try {
       const s = await fn();
+      if (!s) return;
       if (s.licensed) onOpenChange(false);
       else setErr(reasonText(s.reason));
     } catch (e) {
@@ -83,7 +88,7 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
   const onImportFile = () =>
     run(async () => {
       const [file] = await getPlatform().fs.pickFiles({ accept: ['.lic', '.txt'] });
-      if (!file) return { licensed: false, reason: 'none' };
+      if (!file) return null; // 用户取消选文件
       const token = (await file.text()).trim();
       return store.activateToken(app, token);
     });
@@ -156,6 +161,8 @@ function reasonText(reason?: string): string {
       return '检测到系统时间被回拨，请联网校时后重试。';
     case 'mismatch':
       return '该授权不属于本机器。';
+    case 'invalid-app':
+      return '该授权适用于其他产品，请使用对应产品的授权码。';
     case 'signature':
       return '授权凭证签名校验失败。';
     default:
