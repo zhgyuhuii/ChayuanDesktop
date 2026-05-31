@@ -36,6 +36,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const [layout, setLayout] = React.useState<DhLayout>(initial?.layout ?? 'side');
   const [slots, setSlots] = React.useState<AvatarSlot[]>(initial?.avatars ?? []);
   const avatarFileRef = React.useRef<HTMLInputElement | null>(null);
+  const composeFileRef = React.useRef<HTMLInputElement | null>(null);
 
   const avatarsQ = useQuery({
     queryKey: ['dh.avatars'],
@@ -95,6 +96,26 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
       : [...prev, { ref: a.ref, kind: a.kind, label: a.name, lines: '' }]));
   const setSlotLines = (ref: string, lines: string) =>
     setSlots((prev) => prev.map((x) => (x.ref === ref ? { ...x, lines } : x)));
+
+  const onComposeReference = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      const a = await digitalHuman.composeReference(files);
+      await qc.invalidateQueries({ queryKey: ['dh.avatars'] });
+      if (isMulti) {
+        setSlots((prev) => [...prev, { ref: a.ref, kind: a.kind, label: a.name, lines: '' }]);
+      } else {
+        setAvatarRef(a.ref);
+      }
+    } catch (err) {
+      reportError(err as Error, '合成参考图失败');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const canSave = name.trim().length > 0 && !saving && (
     composeMode === 'single' ? avatarRef.length > 0 : slots.length >= 2
@@ -266,6 +287,12 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
             替换当前形象
           </button>
         )}
+        <button type="button" onClick={() => composeFileRef.current?.click()} disabled={uploading}
+          className="self-start text-[11px] text-[var(--cy-brand-600)] hover:underline disabled:opacity-50">
+          多照合一(多张照片挑最佳)
+        </button>
+        <input ref={composeFileRef} type="file" accept="image/*" multiple className="hidden"
+          onChange={onComposeReference} />
       </div>
 
       {/* 同框版式 */}

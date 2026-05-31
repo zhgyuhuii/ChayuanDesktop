@@ -113,6 +113,12 @@ export async function dhListAvatars(): Promise<{ count: number; items: DhAvatar[
   return rd<{ count: number; items: DhAvatar[] }>('/api/v1/digital-human/avatars');
 }
 
+export async function dhComposeReference(files: File[]): Promise<DhAvatar> {
+  const fd = new FormData();
+  files.forEach((f) => fd.append('files', f));
+  return rd<DhAvatar>('/api/v1/digital-human/avatars/compose', { method: 'POST', body: fd });
+}
+
 export async function dhUploadAvatar(file: File): Promise<DhAvatar> {
   const fd = new FormData();
   fd.append('file', file);
@@ -233,6 +239,7 @@ export const digitalHuman = {
   deletePreset: dhDeletePreset,
   listAvatars: dhListAvatars,
   uploadAvatar: dhUploadAvatar,
+  composeReference: dhComposeReference,
   deleteAvatar: dhDeleteAvatar,
   uploadProduct: dhUploadProduct,
   listEngines: dhListEngines,
