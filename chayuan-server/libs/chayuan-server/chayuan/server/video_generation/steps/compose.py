@@ -575,7 +575,12 @@ def render_from_edl(
                     oc = _open_video_clip_quietly(ly["path"])
                     if ly["dur"]:
                         oc = oc.subclipped(0, min(ly["dur"], oc.duration))
-                oc = oc.resized(width=w).with_position((ly["x"], ly["y"]), relative=True).with_start(ly["start_s"])
+                # 绝对像素定位:左上角 = (x*W, y*H),与前端预览 left:x% / top:y% 一一对应。
+                # 不用 relative=True —— moviepy 的相对定位是 x*(W-w)(右缘锚定)语义,
+                # 跟前端"左上角按比例"不一致,会导致"调了位置但成片没按调的来"。
+                oc = oc.resized(width=w).with_position(
+                    (int(ly["x"] * video_width), int(ly["y"] * video_height))
+                ).with_start(ly["start_s"])
                 if ly.get("transition", "none") not in ("none", ""):
                     try: oc = video_effects.fadein_transition(oc, 1)  # PIP 用淡入(slide 会覆盖定位)
                     except Exception:  # noqa: BLE001
@@ -683,7 +688,10 @@ def render_proxy_from_timeline(
                     oc = _open_video_clip_quietly(ly["path"])
                     if ly["dur"]:
                         oc = oc.subclipped(0, min(ly["dur"], oc.duration))
-                oc = oc.resized(width=ow).with_position((ly["x"], ly["y"]), relative=True).with_start(ly["start_s"])
+                # 绝对像素定位(同 render_from_edl):左上角 = (x*pw, y*ph),对齐前端预览。
+                oc = oc.resized(width=ow).with_position(
+                    (int(ly["x"] * pw), int(ly["y"] * ph))
+                ).with_start(ly["start_s"])
                 if ly.get("transition", "none") not in ("none", ""):
                     try: oc = video_effects.fadein_transition(oc, 1)
                     except Exception:  # noqa: BLE001
