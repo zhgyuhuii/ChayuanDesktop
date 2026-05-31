@@ -33,3 +33,34 @@ def test_bad_hex_both_does_not_raise(monkeypatch):
     monkeypatch.setenv("LICENSE_ED25519_PUBLIC_KEY", "zzzz")
     cfg = load_license_config()
     assert cfg["configured"] is False
+
+
+def test_load_from_yaml_file_when_env_absent(monkeypatch, tmp_path):
+    # 无 env 时,从 $CHAYUAN_ROOT/license_settings.yaml 读取。
+    for k in ("LICENSE_HMAC_KEY_V1", "LICENSE_ED25519_PUBLIC_KEY", "LICENSE_BUY_BASE_URL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("CHAYUAN_ROOT", str(tmp_path))
+    (tmp_path / "license_settings.yaml").write_text(
+        "hmac_key_v1: '%s'\n"
+        "ed25519_public_key: '%s'\n"
+        "buy_base_url: 'https://relay.example.com'\n"
+        "products: { video: 1, premium: 2 }\n" % ("00" * 32, "11" * 32),
+        encoding="utf-8",
+    )
+    cfg = load_license_config()
+    assert cfg["configured"] is True
+    assert cfg["hmac_keys"][1] == bytes.fromhex("00" * 32)
+    assert cfg["public_key"] == bytes.fromhex("11" * 32)
+    assert cfg["buy_base_url"] == "https://relay.example.com"
+    assert cfg["products"]["premium"] == 2
+
+
+def test_env_overrides_yaml_file(monkeypatch, tmp_path):
+    # env 与文件同时存在时,env 赢。
+    monkeypatch.setenv("CHAYUAN_ROOT", str(tmp_path))
+    (tmp_path / "license_settings.yaml").write_text(
+        "buy_base_url: 'https://from-file.example.com'\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("LICENSE_BUY_BASE_URL", "https://from-env.example.com")
+    cfg = load_license_config()
+    assert cfg["buy_base_url"] == "https://from-env.example.com"
