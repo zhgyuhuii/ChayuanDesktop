@@ -587,12 +587,20 @@ def create_app(run_mode: str = None):
     img_dir = str(Settings.basic_settings.IMG_DIR)
     app.mount("/img", StaticFiles(directory=img_dir), name="img")
 
+    # tracing 必须在路由都注册后、且**在主线程同步**调用:它给 app 加 middleware,
+    # 放后台 thread 在 app 已 started 后加 middleware 会触发 "middleware after start"。
+    # 且 init_tracing 只是装 middleware,无 I/O,很快 —— 不值得后台化。失败 best-effort。
+    with phase("init-tracing"):
+        try:
+            from chayuan.server.observability import init_tracing
+            init_tracing(app)
+        except Exception:  # noqa: BLE001
+            pass
+
     @app.on_event("startup")
     async def _deferred_import_time_work() -> None:
-        """原本在 import 时同步跑的非关键初始化，改后台 thread 执行，不阻塞就绪信号。
-
-        tracing/nltk/检索插件失败都不影响主链路：
-        - init_tracing: best-effort，极早期请求可能漏 span，可接受
+        """原本在 import 时同步跑的**慢**初始化(nltk 资源 / 检索插件注册),改后台
+        thread 执行,不阻塞就绪信号。失败都不影响主链路:
         - ensure_nltk_data: 只影响 .rtf/.eml/.epub 解析，纯 txt/md/pdf 不依赖
         - register_builtin_plugins: active_plugins() 返回空列表时 hybrid_service
           只是不走 ColBERT 路径；registry 是 dict，注册幂等，无竞态
@@ -600,13 +608,6 @@ def create_app(run_mode: str = None):
         import asyncio
 
         def _run() -> None:
-            # FastAPI instrument 必须在路由都注册后调用，否则部分 router 的 span 会漏
-            with phase("init-tracing"):
-                try:
-                    from chayuan.server.observability import init_tracing
-                    init_tracing(app)
-                except Exception:  # noqa: BLE001
-                    pass
             # NLTK 资源预下载(unstructured 解析 .rtf / .eml / .epub 等需要 punkt 等)
             with phase("nltk-bootstrap"):
                 try:
