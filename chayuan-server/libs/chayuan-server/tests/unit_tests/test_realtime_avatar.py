@@ -28,3 +28,9 @@ def test_realtime_avatar_server_imports_clean():
     import importlib
     m = importlib.import_module("chayuan.server.modality.realtime_avatar_server")
     assert hasattr(m, "main") and hasattr(m, "_register_routes")
+
+
+def test_avatar_session_constructs_without_aiortc():
+    from chayuan.server.modality.realtime_avatar_server import AvatarSession
+    s = AvatarSession({"fps": 25, "width": 512, "height": 512, "avatar_path": ""})
+    assert hasattr(s, "orchestrate") and hasattr(s, "frame_queue") and hasattr(s, "audio_queue")
