@@ -7,7 +7,8 @@ import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Plus, X } from 'lucide-react';
 import { cn } from '@chayuan/ui';
-import { digitalHuman, type DigitalHumanPreset, type DhVoiceProvider, type DhAvatar } from '@chayuan/api';
+import { digitalHuman, type DigitalHumanPreset, type DhVoiceProvider, type DhAvatar,
+  type AvatarSlot, type DhComposeMode, type DhLayout } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
 import { VoicePicker, type VoicePickerValue } from '../video-generation/VoicePicker';
 import { confirmDialog } from '../../store/confirmDialog';
@@ -31,6 +32,9 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const [uploading, setUploading] = React.useState(false);
   const [deleting, setDeleting] = React.useState<string | null>(null);
   const [replacing, setReplacing] = React.useState<string | null>(null);
+  const [composeMode, setComposeMode] = React.useState<DhComposeMode>(initial?.compose_mode ?? 'single');
+  const [layout, setLayout] = React.useState<DhLayout>(initial?.layout ?? 'side');
+  const [slots, setSlots] = React.useState<AvatarSlot[]>(initial?.avatars ?? []);
   const avatarFileRef = React.useRef<HTMLInputElement | null>(null);
 
   const avatarsQ = useQuery({
@@ -83,19 +87,43 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
 
   const onReplaceClick = (a: DhAvatar) => { setReplacing(a.ref); avatarFileRef.current?.click(); };
 
-  const canSave = name.trim().length > 0 && avatarRef.length > 0 && !saving;
+  const isMulti = composeMode !== 'single';
+  const inSlots = (ref: string) => slots.some((x) => x.ref === ref);
+  const toggleSlot = (a: DhAvatar) =>
+    setSlots((prev) => (prev.some((x) => x.ref === a.ref)
+      ? prev.filter((x) => x.ref !== a.ref)
+      : [...prev, { ref: a.ref, kind: a.kind, label: a.name, lines: '' }]));
+  const setSlotLines = (ref: string, lines: string) =>
+    setSlots((prev) => prev.map((x) => (x.ref === ref ? { ...x, lines } : x)));
+
+  const canSave = name.trim().length > 0 && !saving && (
+    composeMode === 'single' ? avatarRef.length > 0 : slots.length >= 2
+  );
 
   const onSave = async () => {
     if (!canSave) return;
     setSaving(true);
     try {
-      const body: Partial<DigitalHumanPreset> = {
-        name: name.trim(),
-        avatar_ref: avatarRef,
-        avatar_kind: selectedAvatar?.kind ?? 'image',
-        voice_provider: voice.voice_provider as DigitalHumanPreset['voice_provider'],
-        voice_name: voice.voice_name,
-      };
+      const body: Partial<DigitalHumanPreset> = composeMode === 'single'
+        ? {
+            name: name.trim(),
+            avatar_ref: avatarRef,
+            avatar_kind: selectedAvatar?.kind ?? 'image',
+            compose_mode: 'single',
+            avatars: [],
+            voice_provider: voice.voice_provider as DigitalHumanPreset['voice_provider'],
+            voice_name: voice.voice_name,
+          }
+        : {
+            name: name.trim(),
+            avatar_ref: slots[0]?.ref ?? '',
+            avatar_kind: slots[0]?.kind ?? 'image',
+            compose_mode: composeMode,
+            layout,
+            avatars: slots,
+            voice_provider: voice.voice_provider as DigitalHumanPreset['voice_provider'],
+            voice_name: voice.voice_name,
+          };
       if (initial) {
         await digitalHuman.updatePreset(initial.id, body);
       } else {
@@ -131,6 +159,25 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         />
       </div>
 
+      {/* 合成模式 */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-[var(--cy-text-secondary)]">合成模式</label>
+        <div className="flex gap-1.5 text-[11px]">
+          {(([['single', '单形象'], ['coframe', '多人同框'], ['sequential', '分段轮流']]) as [DhComposeMode, string][]).map(([m, zh]) => (
+            <button key={m} type="button" onClick={() => setComposeMode(m)}
+              className={cn('rounded-md border px-2 py-1',
+                composeMode === m
+                  ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                  : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
+              {zh}
+            </button>
+          ))}
+        </div>
+        {isMulti && (
+          <span className="text-[10px] text-[var(--cy-text-tertiary)]">点形象格子多选(数字=出场顺序),需 ≥2 个</span>
+        )}
+      </div>
+
       {/* 形象选择器 */}
       <div className="flex flex-col gap-1">
         <label className="text-[11px] text-[var(--cy-text-secondary)]">形象</label>
@@ -144,11 +191,11 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
               <div key={a.ref} className="group relative">
                 <button
                   type="button"
-                  onClick={() => setAvatarRef(a.ref)}
+                  onClick={() => (isMulti ? toggleSlot(a) : setAvatarRef(a.ref))}
                   title={a.name}
                   className={cn(
                     'h-16 w-16 overflow-hidden rounded-lg border transition-colors',
-                    avatarRef === a.ref
+                    (isMulti ? inSlots(a.ref) : avatarRef === a.ref)
                       ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-400)]'
                       : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-brand-300)]',
                   )}
@@ -180,6 +227,11 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                   >
                     <X className="h-2.5 w-2.5" />
                   </button>
+                )}
+                {isMulti && inSlots(a.ref) && (
+                  <span className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-[9px] text-white">
+                    {slots.findIndex((x) => x.ref === a.ref) + 1}
+                  </span>
                 )}
               </div>
             ))}
@@ -215,6 +267,40 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
           </button>
         )}
       </div>
+
+      {/* 同框版式 */}
+      {composeMode === 'coframe' && (
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-[var(--cy-text-secondary)]">版式</label>
+          <div className="flex gap-1.5 text-[11px]">
+            {(([['side', '并排'], ['pip', '画中画'], ['main_minor', '主+角']]) as [DhLayout, string][]).map(([l, zh]) => (
+              <button key={l} type="button" onClick={() => setLayout(l)}
+                className={cn('rounded-md border px-2 py-1',
+                  layout === l
+                    ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                    : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
+                {zh}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 各形象台词(多形象) */}
+      {isMulti && slots.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-[var(--cy-text-secondary)]">各形象台词(空=用统一文案)</label>
+          {slots.map((sl, i) => (
+            <div key={sl.ref} className="flex items-center gap-2">
+              <span className="w-4 text-[11px] text-[var(--cy-text-tertiary)]">{i + 1}</span>
+              <input type="text" value={sl.lines ?? ''}
+                onChange={(e) => setSlotLines(sl.ref, e.target.value)}
+                placeholder={sl.label || sl.ref}
+                className="h-7 flex-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 音色绑定 */}
       <div className="flex flex-col gap-1">
