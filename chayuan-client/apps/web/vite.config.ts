@@ -65,6 +65,8 @@ const BACKEND_PROXY_PREFIXES = [
   '/api/v1/video-generation',
   // 统一知识查询入口(kbUniverse 的 POST /api/v1/kb-query/search)
   '/api/v1/kb-query',
+  // 软件授权(指纹/购买链接/状态/激活)dev web 需代理到后端
+  '/api/v1/license',
   '/governance',
   '/storage',
   '/modality',
