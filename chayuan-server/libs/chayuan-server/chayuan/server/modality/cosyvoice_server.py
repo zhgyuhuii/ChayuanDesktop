@@ -95,6 +95,58 @@ def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
             raise HTTPException(status_code=500, detail=f"TTS 合成失败: {e}") from e
         return StreamingResponse(buf, media_type="audio/wav")
 
+    @app.post("/v1/audio/clone")
+    async def clone(request: Request) -> StreamingResponse:
+        """零样本 clone:prompt_wav(参考人声路径,服务端可达)+ text → 合成。
+        cross_lingual=True 走跨语种(prompt 与目标语言不同)。
+        [VERIFY] 真合成需 CosyVoice2 模型 + torchaudio,handle 方法名/返回键以模型为准。"""
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        text = (payload.get("text") or payload.get("input") or "").strip()
+        prompt_wav = payload.get("prompt_wav") or ""
+        prompt_text = (payload.get("prompt_text") or "").strip()
+        cross_lingual = bool(payload.get("cross_lingual", False))
+        if not text or not prompt_wav:
+            raise HTTPException(status_code=400, detail="text/prompt_wav 必填")
+        handle = _ensure_loaded()
+        try:
+            import torchaudio  # type: ignore
+            if hasattr(handle, "load_wav"):
+                prompt_16k = handle.load_wav(prompt_wav, 16000)
+            else:
+                wav, sr = torchaudio.load(prompt_wav)
+                prompt_16k = torchaudio.transforms.Resample(sr, 16000)(wav)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=503, detail=f"prompt 加载失败(torchaudio?): {e}") from e
+        try:
+            import io as _io
+            import wave
+            import numpy as np  # type: ignore
+            if cross_lingual:
+                it = handle.inference_cross_lingual(text, prompt_16k)
+            else:
+                it = handle.inference_zero_shot(text, prompt_text, prompt_16k)
+            chunks = []
+            for out in it:
+                speech = out.get("tts_speech") if isinstance(out, dict) else out
+                if speech is None:
+                    continue
+                chunks.append(speech.cpu().numpy().squeeze())
+            audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+            buf = _io.BytesIO()
+            with wave.open(buf, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(int(cfg.get("sample_rate", 22050)))
+                w.writeframes((audio * 32767).clip(-32768, 32767).astype("int16").tobytes())
+            buf.seek(0)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("CosyVoice clone failed")
+            raise HTTPException(status_code=500, detail=f"clone 合成失败: {e}") from e
+        return StreamingResponse(buf, media_type="audio/wav")
+
 
 def main() -> None:
     args = parse_serve_args(default_port=18280)
