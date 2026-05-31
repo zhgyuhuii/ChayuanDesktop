@@ -86,6 +86,31 @@ def load_license_config() -> dict:
             public_key = bytes.fromhex(pub_hex)
         except ValueError:
             public_key = b""
+
+    # 每日免费配额:env(JSON)优先,其次文件 daily_free,默认空。
+    daily_free = {}
+    env_df = os.environ.get("LICENSE_DAILY_FREE")
+    if env_df:
+        try:
+            v = json.loads(env_df)
+            daily_free = {str(k): int(x) for k, x in v.items()} if isinstance(v, dict) else {}
+        except Exception:
+            daily_free = {}
+    elif isinstance(f.get("daily_free"), dict):
+        daily_free = {str(k): int(x) for k, x in f["daily_free"].items()}
+
+    # 免费模块:整模块不门控(定价="免费")。env(JSON 数组)优先,其次文件 free_modules。
+    free_modules = []
+    env_fm = os.environ.get("LICENSE_FREE_MODULES")
+    if env_fm:
+        try:
+            v = json.loads(env_fm)
+            free_modules = [str(x) for x in v] if isinstance(v, list) else []
+        except Exception:
+            free_modules = []
+    elif isinstance(f.get("free_modules"), list):
+        free_modules = [str(x) for x in f["free_modules"]]
+
     return {
         "active_key_id": active,
         "hmac_keys": hmac_keys,
@@ -93,4 +118,6 @@ def load_license_config() -> dict:
         "buy_base_url": buy_base_url,
         "products": products,
         "configured": bool(hmac_keys and public_key),
+        "daily_free": daily_free,
+        "free_modules": free_modules,
     }

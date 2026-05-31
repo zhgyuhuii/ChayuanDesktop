@@ -64,3 +64,39 @@ def test_env_overrides_yaml_file(monkeypatch, tmp_path):
     monkeypatch.setenv("LICENSE_BUY_BASE_URL", "https://from-env.example.com")
     cfg = load_license_config()
     assert cfg["buy_base_url"] == "https://from-env.example.com"
+
+
+import json as _json
+
+
+def test_daily_free_from_env(monkeypatch):
+    monkeypatch.setenv("LICENSE_DAILY_FREE", _json.dumps({"video": 2, "chat": 10}))
+    cfg = load_license_config()
+    assert cfg["daily_free"]["video"] == 2
+    assert cfg["daily_free"]["chat"] == 10
+
+
+def test_daily_free_default_empty(monkeypatch):
+    monkeypatch.delenv("LICENSE_DAILY_FREE", raising=False)
+    monkeypatch.setenv("CHAYUAN_ROOT", "/nonexistent-xyz")
+    cfg = load_license_config()
+    assert cfg["daily_free"] == {}
+
+
+def test_daily_free_bad_json_falls_back(monkeypatch):
+    monkeypatch.setenv("LICENSE_DAILY_FREE", "{not json")
+    cfg = load_license_config()
+    assert cfg["daily_free"] == {}
+
+
+def test_free_modules_from_env(monkeypatch):
+    monkeypatch.setenv("LICENSE_FREE_MODULES", _json.dumps(["kb", "chat"]))
+    cfg = load_license_config()
+    assert set(cfg["free_modules"]) == {"kb", "chat"}
+
+
+def test_free_modules_default_empty(monkeypatch):
+    monkeypatch.delenv("LICENSE_FREE_MODULES", raising=False)
+    monkeypatch.setenv("CHAYUAN_ROOT", "/nonexistent-xyz")
+    cfg = load_license_config()
+    assert cfg["free_modules"] == []
