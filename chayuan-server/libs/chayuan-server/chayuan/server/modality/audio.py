@@ -1213,13 +1213,14 @@ class AudioPipeline:
             logger.warning("[tts:sherpa] %s 缺 *.onnx / tokens.txt", voice_dir)
             return None
 
-        # FST 规则:有则拼,无则空(sherpa-onnx 接收分号分隔的多 fst 路径)
+        # FST 规则:有则拼,无则空。sherpa-onnx 的 rule_fsts 用【逗号】分隔多个 fst,
+        # 不是分号——用分号时整串会被当成一个文件名,kaldifst 报 Error opening input stream。
         fsts: list[str] = []
         for f in ("date.fst", "number.fst", "phone.fst", "new_heteronym.fst"):
             fp = _os.path.join(voice_dir, f)
             if _os.path.isfile(fp):
                 fsts.append(fp)
-        rule_fsts = ";".join(fsts)
+        rule_fsts = ",".join(fsts)
         dict_dir = _os.path.join(voice_dir, "dict")
         if not _os.path.isdir(dict_dir):
             dict_dir = ""
@@ -1239,12 +1240,19 @@ class AudioPipeline:
         model_cfg = sherpa_onnx.OfflineTtsModelConfig(
             vits=vits_cfg, num_threads=2, debug=False,
         )
-        cfg = sherpa_onnx.OfflineTtsConfig(
-            model=model_cfg,
-            rule_fsts=rule_fsts,
-            max_num_sentences=2,
-        )
-        return sherpa_onnx.OfflineTts(cfg)
+        def _make(rf: str):
+            return sherpa_onnx.OfflineTts(sherpa_onnx.OfflineTtsConfig(
+                model=model_cfg, rule_fsts=rf, max_num_sentences=2,
+            ))
+        try:
+            return _make(rule_fsts)
+        except Exception as e:  # noqa: BLE001
+            # FST 只是文本规整(数字/日期/多音字),加载失败不该让整个音色起不来。
+            # 去掉 rule_fsts 重建,音色照常可用(规整弱化)。
+            if rule_fsts:
+                logger.warning("[tts:sherpa] rule_fsts 加载失败,去掉 FST 重试: %r", e)
+                return _make("")
+            raise
 
     def _resolve_sherpa_voice_dir(self, voice_id: str) -> Optional[str]:
         """voice_id → 含 model.onnx 的目录路径。
