@@ -19,8 +19,8 @@ const DEFAULT_ENGINES: Array<{ id: EngineId; label: string; kind: 'cpu' | 'gpu';
   { id: 'wav2lip', label: 'Wav2Lip', kind: 'cpu', installed: true },
 ];
 
-export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[] }> = ({ presets }) => {
-  const [pid, setPid] = React.useState('');
+export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string }> = ({ presets, initialPresetId }) => {
+  const [pid, setPid] = React.useState(initialPresetId ?? '');
   const [text, setText] = React.useState('');
   const [taskId, setTaskId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);

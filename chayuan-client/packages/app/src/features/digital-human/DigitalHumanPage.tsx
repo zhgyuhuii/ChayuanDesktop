@@ -7,11 +7,27 @@ import { GeneratePanel } from './GeneratePanel';
 
 export const DigitalHumanPage: React.FC = () => {
   const [tab, setTab] = React.useState<'manage' | 'generate'>('manage');
+  const [genPresetId, setGenPresetId] = React.useState<string | undefined>(undefined);
   const presetsQ = useQuery({ queryKey: ['dh.presets'], queryFn: digitalHuman.listPresets });
+  const avatarsQ = useQuery({ queryKey: ['dh.avatars'], queryFn: digitalHuman.listAvatars });
   const presets = presetsQ.data?.items ?? [];
+  const presetCount = presetsQ.data?.count ?? presets.length;
+  const avatarCount = avatarsQ.data?.count ?? 0;
   const navigate = useNavigate();
+
+  const goGenerate = React.useCallback((presetId?: string) => {
+    setGenPresetId(presetId);
+    setTab('generate');
+  }, []);
+
   return (
     <div className="flex h-full flex-col p-4">
+      {/* 状态概览条 */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--cy-text-tertiary)]">
+        <span><b className="text-[var(--cy-text-secondary)]">{presetCount}</b> 个数字人</span>
+        <span className="h-3 w-px bg-[var(--cy-border-subtle)]" />
+        <span><b className="text-[var(--cy-text-secondary)]">{avatarCount}</b> 个形象素材</span>
+      </div>
       <div className="mb-3 flex gap-2">
         {(['manage', 'generate'] as const).map((k) => (
           <button key={k} onClick={() => setTab(k)}
@@ -30,8 +46,8 @@ export const DigitalHumanPage: React.FC = () => {
         </button>
       </div>
       {tab === 'manage'
-        ? <PresetList presets={presets} onChanged={() => void presetsQ.refetch()} />
-        : <GeneratePanel presets={presets} />}
+        ? <PresetList presets={presets} onChanged={() => void presetsQ.refetch()} onGenerate={goGenerate} />
+        : <GeneratePanel presets={presets} initialPresetId={genPresetId} />}
     </div>
   );
 };
