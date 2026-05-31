@@ -587,30 +587,42 @@ def create_app(run_mode: str = None):
     img_dir = str(Settings.basic_settings.IMG_DIR)
     app.mount("/img", StaticFiles(directory=img_dir), name="img")
 
-    # FastAPI instrument 必须在路由都注册后调用，否则部分 router 的 span 会漏
-    with phase("init-tracing"):
-        try:
-            from chayuan.server.observability import init_tracing
-            init_tracing(app)
-        except Exception:  # noqa: BLE001
-            pass
+    @app.on_event("startup")
+    async def _deferred_import_time_work() -> None:
+        """原本在 import 时同步跑的非关键初始化，改后台 thread 执行，不阻塞就绪信号。
 
-    # NLTK 资源预下载(unstructured 解析 .rtf / .eml / .epub 等需要 punkt 等);
-    # 失败只 warning,不影响启动 —— 纯 .txt / .md / .csv / .pdf 路径根本不依赖 NLTK
-    with phase("nltk-bootstrap"):
-        try:
-            from chayuan.server.file_rag.nltk_bootstrap import ensure_nltk_data
-            ensure_nltk_data()
-        except Exception:  # noqa: BLE001
-            pass
+        tracing/nltk/检索插件失败都不影响主链路：
+        - init_tracing: best-effort，极早期请求可能漏 span，可接受
+        - ensure_nltk_data: 只影响 .rtf/.eml/.epub 解析，纯 txt/md/pdf 不依赖
+        - register_builtin_plugins: active_plugins() 返回空列表时 hybrid_service
+          只是不走 ColBERT 路径；registry 是 dict，注册幂等，无竞态
+        """
+        import asyncio
 
-    # N-1：注册内置检索插件（ColBERT 等）；import 失败不影响主服务启动
-    with phase("register-builtin-plugins"):
-        try:
-            from chayuan.server.file_rag.plugins import register_builtin_plugins
-            register_builtin_plugins()
-        except Exception:  # noqa: BLE001
-            pass
+        def _run() -> None:
+            # FastAPI instrument 必须在路由都注册后调用，否则部分 router 的 span 会漏
+            with phase("init-tracing"):
+                try:
+                    from chayuan.server.observability import init_tracing
+                    init_tracing(app)
+                except Exception:  # noqa: BLE001
+                    pass
+            # NLTK 资源预下载(unstructured 解析 .rtf / .eml / .epub 等需要 punkt 等)
+            with phase("nltk-bootstrap"):
+                try:
+                    from chayuan.server.file_rag.nltk_bootstrap import ensure_nltk_data
+                    ensure_nltk_data()
+                except Exception:  # noqa: BLE001
+                    pass
+            # N-1：注册内置检索插件（ColBERT 等）；import 失败不影响主服务启动
+            with phase("register-builtin-plugins"):
+                try:
+                    from chayuan.server.file_rag.plugins import register_builtin_plugins
+                    register_builtin_plugins()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        asyncio.create_task(asyncio.to_thread(_run))
 
     return app
 
