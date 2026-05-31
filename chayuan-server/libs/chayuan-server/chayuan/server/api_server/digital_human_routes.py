@@ -43,11 +43,14 @@ def create_preset(body: Dict[str, Any],
                   user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
     try:
         p = store.create_preset(
-            name=body["name"], avatar_ref=body["avatar_ref"],
-            avatar_kind=body["avatar_kind"],
+            name=body["name"], avatar_ref=body.get("avatar_ref", ""),
+            avatar_kind=body.get("avatar_kind", "image"),
             voice_provider=body.get("voice_provider", "piper"),
             voice_name=body.get("voice_name", ""),
             is_greenscreen=bool(body.get("is_greenscreen", False)),
+            avatars=body.get("avatars"),
+            compose_mode=body.get("compose_mode", "single"),
+            layout=body.get("layout", "side"),
         )
     except KeyError as e:
         raise HTTPException(422, f"缺字段: {e}") from e

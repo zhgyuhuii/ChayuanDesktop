@@ -120,3 +120,14 @@ def test_live_available(monkeypatch, tmp_path):
     monkeypatch.setattr(routes, "_realtime_port_listening", lambda: True)
     r = c.get("/api/v1/digital-human/live/available")
     assert r.json()["available"] is True
+
+
+def test_create_preset_route_accepts_avatars(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path)
+    r = c.post("/api/v1/digital-human/presets", json={
+        "name": "X", "avatar_ref": "user:a.png", "avatar_kind": "image",
+        "avatars": [{"ref": "user:a.png", "kind": "image"}],
+        "compose_mode": "coframe", "layout": "pip"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["compose_mode"] == "coframe" and len(data["avatars"]) == 1
