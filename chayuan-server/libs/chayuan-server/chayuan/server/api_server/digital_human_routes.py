@@ -138,6 +138,61 @@ async def compose_reference(files: List[UploadFile] = File(...),
                 pass
 
 
+@digital_human_router.post("/script/generate")
+def script_generate(body: Dict[str, Any],
+                    user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    """主题 -> LLM 生成口播文案(复用 VG steps/script.generate_script)。"""
+    from chayuan.server.video_generation.steps.script import generate_script
+    subject = (body.get("subject") or "").strip()
+    if not subject:
+        raise HTTPException(422, "缺 subject(主题)")
+    text = generate_script(
+        subject, language=str(body.get("language", "") or ""),
+        paragraph_number=int(body.get("paragraphs", 1) or 1),
+        model=body.get("model"),
+    )
+    if not text:
+        raise HTTPException(502, "文案生成失败(LLM 不可用?先在模型配置里设默认 chat 模型)")
+    return {"script": text}
+
+
+@digital_human_router.post("/script/from-video")
+async def script_from_video(file: UploadFile = File(...),
+                            user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    """参考视频 -> 抽音轨 -> ASR 转写 -> LLM 改写成口播文案。"""
+    import subprocess, tempfile
+    from chayuan.server.modality.audio import AudioPipeline
+    from chayuan.server.video_generation.steps.script import _invoke_llm
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".mp4"
+    tf = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+    tf.write(await file.read()); tf.close()
+    wav = tf.name + ".16k.wav"
+    try:
+        try:
+            import imageio_ffmpeg
+            ff = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:  # noqa: BLE001
+            ff = "ffmpeg"
+        subprocess.run([ff, "-y", "-i", tf.name, "-vn", "-ac", "1", "-ar", "16000", wav],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        transcript = (AudioPipeline()._transcribe_via_sidecar(wav) or "").strip()  # noqa: SLF001
+        if not transcript:
+            raise HTTPException(502, "参考视频转写为空(无人声?或 ASR 运行时未就绪)")
+        prompt = (
+            "下面是一段参考视频的语音转写。请据其主题与风格,改写成一段适合数字人口播"
+            "朗读的短视频文案。只输出文案本身,不要前言后语/引号/markdown。原文如下:"
+            + chr(10) + chr(10) + transcript
+        )
+        script = (_invoke_llm(prompt) or "").strip()
+        return {"script": script or transcript, "transcript": transcript}
+    finally:
+        for pth in (tf.name, wav):
+            try:
+                os.unlink(pth)
+            except OSError:
+                pass
+
+
 @digital_human_router.post("/products")
 async def upload_product(file: UploadFile = File(...),
                          user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:

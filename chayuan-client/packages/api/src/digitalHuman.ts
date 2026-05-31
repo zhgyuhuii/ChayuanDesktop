@@ -127,6 +127,22 @@ export async function dhTaskToTimeline(taskId: string): Promise<{ material: { id
   return rd(`/api/v1/digital-human/tasks/${encodeURIComponent(taskId)}/to-timeline`, { method: 'POST' });
 }
 
+export async function dhGenerateScript(
+  subject: string,
+  opts?: { language?: string; paragraphs?: number; model?: string },
+): Promise<{ script: string }> {
+  return rd('/api/v1/digital-human/script/generate', {
+    method: 'POST',
+    body: { subject, language: opts?.language, paragraphs: opts?.paragraphs, model: opts?.model },
+  });
+}
+
+export async function dhScriptFromVideo(file: File): Promise<{ script: string; transcript: string }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  return rd('/api/v1/digital-human/script/from-video', { method: 'POST', body: fd });
+}
+
 export async function dhUploadAvatar(file: File): Promise<DhAvatar> {
   const fd = new FormData();
   fd.append('file', file);
@@ -249,6 +265,8 @@ export const digitalHuman = {
   uploadAvatar: dhUploadAvatar,
   composeReference: dhComposeReference,
   taskToTimeline: dhTaskToTimeline,
+  generateScript: dhGenerateScript,
+  scriptFromVideo: dhScriptFromVideo,
   deleteAvatar: dhDeleteAvatar,
   uploadProduct: dhUploadProduct,
   listEngines: dhListEngines,

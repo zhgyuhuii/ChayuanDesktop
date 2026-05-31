@@ -4,6 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { digitalHuman } from '@chayuan/api';
 import type { DigitalHumanPreset } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
+import { promptDialog } from '../../store/promptDialog';
 import { DhProgressCard } from './DhProgressCard';
 
 type Template = 'corner' | 'bg' | 'side';
@@ -41,6 +42,28 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const [matte, setMatte] = React.useState(false);
 
   const navigate = useNavigate();
+  const [scripting, setScripting] = React.useState(false);
+  const refVideoRef = React.useRef<HTMLInputElement>(null);
+  const onAiScript = async () => {
+    const subject = await promptDialog('输入主题,AI 生成口播文案:');
+    if (!subject || !subject.trim()) return;
+    setScripting(true);
+    try {
+      const r = await digitalHuman.generateScript(subject.trim());
+      if (r.script) setText(r.script);
+    } catch (e) { reportError(e as Error, 'AI 生成文案失败'); }
+    finally { setScripting(false); }
+  };
+  const onRefVideo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    setScripting(true);
+    try {
+      const r = await digitalHuman.scriptFromVideo(f);
+      if (r.script) setText(r.script);
+    } catch (err) { reportError(err as Error, '参考视频生成文案失败'); }
+    finally { setScripting(false); }
+  };
 
   const enginesQ = useQuery({ queryKey: ['dh.engines'], queryFn: digitalHuman.listEngines });
   const engines = enginesQ.data?.items ?? DEFAULT_ENGINES;
@@ -126,6 +149,17 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4}
         placeholder="输入口播文案…"
         className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)]" />
+      <div className="flex items-center gap-2 text-xs">
+        <button type="button" onClick={onAiScript} disabled={scripting}
+          className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-1 text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+          {scripting ? '生成中…' : '✨ AI 生成文案'}
+        </button>
+        <button type="button" onClick={() => refVideoRef.current?.click()} disabled={scripting}
+          className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-1 text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+          🎬 参考视频生成稿
+        </button>
+        <input ref={refVideoRef} type="file" accept="video/*,audio/*" className="hidden" onChange={onRefVideo} />
+      </div>
 
       {/* Product image upload row */}
       <div className="flex items-center gap-2">
