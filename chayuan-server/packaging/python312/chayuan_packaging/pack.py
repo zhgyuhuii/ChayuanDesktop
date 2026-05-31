@@ -334,6 +334,26 @@ def sbom(out_path: str) -> None:
     click.secho(f"→ {out} ({len(items)} items, {total_gb:.2f} GB)", fg="green")
 
 
+# ---- manifest ------------------------------------------------------------
+
+
+@cli.command(help="layout.yaml → 归一化 InstallerManifest JSON(喂下载构建器皮)")
+@click.option("--layout-path", type=str, default=str(DEFAULT_LAYOUT))
+@click.option("--version", "version_str", type=str, default="0.0.0")
+@click.option("--out", type=str, default="", help="输出文件(默认 stdout)")
+def manifest(layout_path: str, version_str: str, out: str) -> None:
+    from chayuan_packaging.installer_manifest import build_installer_manifest
+    layout = load_layout(layout_path)
+    man = build_installer_manifest(layout, version=version_str)
+    text = json.dumps(man, indent=2, ensure_ascii=False)
+    if out:
+        from pathlib import Path as _P
+        _P(out).write_text(text, encoding="utf-8")
+        click.secho(f"-> manifest: {out}({len(man['components'])} 组件)", fg="green")
+    else:
+        click.echo(text)
+
+
 # ---- clean ---------------------------------------------------------------
 
 
