@@ -307,3 +307,10 @@ def test_coframe_passes_positions(monkeypatch, tmp_path):
     dh_jobs._set(tid, state="pending", progress=0)
     dh_jobs.run_sync(tid)
     assert seen.get("positions") == [(0.1, 0.2, 0.5), (0.6, 0.2, 0.5)]
+
+
+def test_af_filter_builds_string():
+    assert dh_jobs._af_filter(1.0, 1.0) == ""
+    assert dh_jobs._af_filter(1.1, 1.0) == "atempo=1.100"
+    assert dh_jobs._af_filter(1.0, 0.8) == "volume=0.800"
+    assert dh_jobs._af_filter(1.2, 0.5) == "atempo=1.200,volume=0.500"

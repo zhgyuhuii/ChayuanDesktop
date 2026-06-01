@@ -119,7 +119,19 @@ def _voice_string(provider: str, name: str):
     return voice or None
 
 
-def _synth_to_wav(text: str, provider: str, name: str, audio_path: str) -> str:
+def _af_filter(rate: float, volume: float) -> str:
+    """ffmpeg -af 滤镜串;rate≈1 且 volume≈1 → 空串(不处理)。atempo 仅 0.5-2.0。"""
+    parts = []
+    r = max(0.5, min(2.0, float(rate or 1.0)))
+    if abs(r - 1.0) > 1e-3:
+        parts.append("atempo=%.3f" % r)
+    v = float(volume or 1.0)
+    if abs(v - 1.0) > 1e-3:
+        parts.append("volume=%.3f" % v)
+    return ",".join(parts)
+
+
+def _synth_to_wav(text: str, provider: str, name: str, audio_path: str, rate: float = 1.0, volume: float = 1.0) -> str:
     """指定音色合成旁白 wav。"""
     from chayuan.server.modality.audio import AudioPipeline
     voice = _voice_string(provider, name)
@@ -127,6 +139,17 @@ def _synth_to_wav(text: str, provider: str, name: str, audio_path: str) -> str:
     data = AudioPipeline().synthesize(text, voice=voice, fmt="wav")
     with open(audio_path, "wb") as f:
         f.write(data)
+    af = _af_filter(rate, volume)
+    if af:
+        try:
+            import subprocess as _sp, imageio_ffmpeg, os as _os2
+            ff = imageio_ffmpeg.get_ffmpeg_exe()
+            tmp = audio_path + ".af.wav"
+            _sp.run([ff, "-y", "-i", audio_path, "-af", af, tmp],
+                    check=True, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+            _os2.replace(tmp, audio_path)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[dh] 语速/音量后处理失败(忽略,用原速): %r", e)
     return audio_path
 
 
