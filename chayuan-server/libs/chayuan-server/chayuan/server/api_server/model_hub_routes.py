@@ -51,7 +51,7 @@ def search_models(
     """搜索某个 Hub 的模型，返回一页归一模型卡。"""
     adapter = _adapter(source)
     try:
-        return adapter.search(
+        page_result = adapter.search(
             query=query,
             capability=capability,
             runnable_only=runnable_only,
@@ -64,6 +64,22 @@ def search_models(
         raise
     except Exception as e:  # noqa: BLE001 — 单源错误隔离：收敛成 502，不让上游栈冒泡
         raise HTTPException(status_code=502, detail=f"{source} 源不可达: {e}")
+
+    # P2 Task 2.2:用本地 manifest origin 扫描出的「已安装集合」回填 installed。
+    # 扫盘失败不应让搜索 502 —— installed 仅是 UI 辅助,异常时退化为全 False。
+    try:
+        from chayuan.server.model_registry.hub_catalog.installed import (
+            installed_repo_set,
+            mark_installed,
+        )
+        mark_installed(page_result.items, installed_repo_set())
+    except Exception as e:  # noqa: BLE001 — 已安装态填充失败不阻塞搜索
+        # 不污染响应,只记日志(搜索结果 installed 保持适配器默认 False)
+        import logging
+        logging.getLogger("chayuan.api_server.model_hub_routes").warning(
+            "[model-hub] 填充 installed 失败(不阻塞): %r", e
+        )
+    return page_result
 
 
 @model_hub_router.get("/detail", response_model=List[HubFile], summary="Hub 模型文件清单")
