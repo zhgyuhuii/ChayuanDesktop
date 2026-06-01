@@ -23,6 +23,7 @@ const DEFAULT_ENGINES: Array<{ id: EngineId; label: string; kind: 'cpu' | 'gpu';
 export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void }> = ({ presets, initialPresetId, onPresetChange }) => {
   const [pid, setPid] = React.useState(initialPresetId ?? '');
   const [text, setText] = React.useState('');
+  const [roleScripts, setRoleScripts] = React.useState<string[]>([]);
   const [taskId, setTaskId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
@@ -72,6 +73,10 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   const engineInstalled = engines.find((e) => e.id === engine)?.installed ?? (engine === 'wav2lip');
 
+  const curPreset = presets.find((p) => p.id === pid);
+  const mode = curPreset?.compose_mode ?? 'single';
+  const roles = curPreset?.avatars ?? [];
+
   React.useEffect(() => { if (!pid && presets[0]) setPid(presets[0].id); }, [presets, pid]);
   React.useEffect(() => { if (pid) onPresetChange?.(pid); }, [pid, onPresetChange]);
 
@@ -102,7 +107,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const gen = async () => {
     setBusy(true);
     try {
-      const opts = { engine, ...(productRef ? { product_image: productRef, template, matte } : {}) };
+      const opts = {
+        engine,
+        ...(productRef ? { product_image: productRef, template, matte } : {}),
+        ...(mode === 'sequential' ? { role_scripts: roleScripts } : { script: text }),
+      };
       const r = await digitalHuman.generate(pid, text, opts);
       setTaskId(r.task_id);
     } catch (e) { reportError(e as Error, '数字人生成失败'); }
@@ -163,6 +172,18 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         </button>
         <input ref={refVideoRef} type="file" accept="video/*,audio/*" className="hidden" onChange={onRefVideo} />
       </div>
+
+      {mode === 'sequential' && roles.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="text-xs text-[var(--cy-text-tertiary)]">分段台词(每角色一段,各用各自音色)</div>
+          {roles.map((r, i) => (
+            <input key={r.ref} type="text" value={roleScripts[i] ?? ''}
+              onChange={(e) => setRoleScripts((s) => { const n = [...s]; n[i] = e.target.value; return n; })}
+              placeholder={`${r.name || r.label || ('角色' + (i + 1))} 的台词`}
+              className="h-8 w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
+          ))}
+        </div>
+      )}
 
       {/* Product image upload row */}
       <div className="flex items-center gap-2">
