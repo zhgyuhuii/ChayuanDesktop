@@ -203,8 +203,12 @@ def _run_pipeline(tid: str) -> None:
             _set(tid, progress=90)
             try:
                 if mode == "coframe":
+                    positions = [(float(getattr(s, "x", 0.0) or 0.0),
+                                  float(getattr(s, "y", 0.0) or 0.0),
+                                  float(getattr(s, "scale", 1.0) or 1.0)) for s in slots]
                     _cm.render_coframe(clips, layout=getattr(preset, "layout", "side") or "side",
-                                       out_path=out_path, width=args["width"], height=args["height"])
+                                       out_path=out_path, width=args["width"], height=args["height"],
+                                       positions=positions)
                 else:
                     _cm.render_sequential(clips, out_path=out_path,
                                           width=args["width"], height=args["height"])

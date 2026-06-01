@@ -283,3 +283,27 @@ def test_sequential_uses_role_scripts(monkeypatch, tmp_path):
     dh_jobs._set(tid, state="pending", progress=0)
     dh_jobs.run_sync(tid)
     assert ("甲的台词", "sherpa", "v1") in seen and ("乙的台词", "piper", "v2") in seen
+
+
+def test_coframe_passes_positions(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    monkeypatch.setattr(dh_jobs, "_synth_to_wav",
+        lambda text, provider, name, ap: (open(ap, "wb").write(b"w"), ap)[1])
+    class _E:
+        def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
+            open(out_path, "wb").write(b"mp4"); return out_path
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda eid="wav2lip": _E())
+    monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
+    from chayuan.server.video_generation.digital_human import compose_multi as cm
+    seen = {}
+    monkeypatch.setattr(cm, "render_coframe",
+        lambda clips, **k: (seen.update(k), open(k["out_path"], "wb").write(b"c"), k["out_path"])[2])
+    pid = dh_jobs.store.create_preset(name="m", avatar_ref="user:a", avatar_kind="video",
+        avatars=[{"ref": "user:a", "kind": "video", "x": 0.1, "y": 0.2, "scale": 0.5},
+                 {"ref": "user:b", "kind": "video", "x": 0.6, "y": 0.2, "scale": 0.5}],
+        compose_mode="coframe").id
+    tid = uuid.uuid4().hex[:12]
+    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "全局", "width": 720, "height": 1280}
+    dh_jobs._set(tid, state="pending", progress=0)
+    dh_jobs.run_sync(tid)
+    assert seen.get("positions") == [(0.1, 0.2, 0.5), (0.6, 0.2, 0.5)]
