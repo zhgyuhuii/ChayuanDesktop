@@ -41,6 +41,18 @@ def _coframe_positions(layout: str, n: int, width: int, height: int) -> List[Tup
     return [(i * col, 0, col) for i in range(n)]
 
 
+def _resolve_positions(positions, layout, n, width, height):
+    """每角色位置 -> 像素 (x_px, y_px, target_w_px)。
+    positions: 归一 (x,y,scale) 列表(0-1);非空且数量够 -> 自由位置,否则回退 _coframe_positions(layout)。"""
+    if positions and len(positions) >= n:
+        out = []
+        for x, y, scale in positions[:n]:
+            tw = max(1, int(float(scale) * width))
+            out.append((int(float(x) * width), int(float(y) * height), tw))
+        return out
+    return _coframe_positions(layout, n, width, height)
+
+
 def render_sequential(clip_paths: List[str], *, out_path: str, width: int, height: int) -> str:
     """各片段顺序拼接(各形象轮流)。片段自带音频。失败抛异常。"""
     from moviepy import VideoFileClip, concatenate_videoclips
@@ -66,8 +78,8 @@ def render_sequential(clip_paths: List[str], *, out_path: str, width: int, heigh
                 pass
 
 
-def render_coframe(clip_paths: List[str], *, layout: str, out_path: str,
-                   width: int, height: int) -> str:
+def render_coframe(clip_paths: List[str], *, layout: str = "side", out_path: str,
+                   width: int, height: int, positions=None) -> str:
     """各片段按 layout 摆同一画面、同时播放(音轨叠加)。失败抛异常。"""
     from moviepy import VideoFileClip, CompositeVideoClip
     if not clip_paths:
@@ -77,7 +89,7 @@ def render_coframe(clip_paths: List[str], *, layout: str, out_path: str,
     try:
         for p in clip_paths:
             raw.append(VideoFileClip(p))
-        pos = _coframe_positions(layout, len(raw), width, height)
+        pos = _resolve_positions(positions, layout, len(raw), width, height)
         dur = max((c.duration for c in raw), default=0.1)
         for c, (x, y, tw) in zip(raw, pos):
             placed.append(c.resized(width=tw).with_position((x, y)))
