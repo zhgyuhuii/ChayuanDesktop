@@ -36,6 +36,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const [composeMode, setComposeMode] = React.useState<DhComposeMode>(initial?.compose_mode ?? 'single');
   const [layout, setLayout] = React.useState<DhLayout>(initial?.layout ?? 'side');
   const [slots, setSlots] = React.useState<AvatarSlot[]>(initial?.avatars ?? []);
+  const [focusedRef, setFocusedRef] = React.useState<string>('');
   const [canvas, setCanvas] = React.useState<{ w: number; h: number }>({
     w: initial?.video_width ?? 720, h: initial?.video_height ?? 1280,
   });
@@ -94,10 +95,6 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
 
   const isMulti = composeMode !== 'single';
   const inSlots = (ref: string) => slots.some((x) => x.ref === ref);
-  const toggleSlot = (a: DhAvatar) =>
-    setSlots((prev) => (prev.some((x) => x.ref === a.ref)
-      ? prev.filter((x) => x.ref !== a.ref)
-      : [...prev, { ref: a.ref, kind: a.kind, label: a.name, lines: '' }]));
   const setSlotField = (ref: string, patch: Partial<AvatarSlot>) =>
     setSlots((prev) => prev.map((x) => (x.ref === ref ? { ...x, ...patch } : x)));
   const setSlotVoice = (ref: string, v: VoicePickerValue) =>
@@ -107,6 +104,31 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
     voice_provider: (sl.voice_provider || voice.voice_provider) as VoicePickerValue['voice_provider'],
     voice_name: sl.voice_provider ? (sl.voice_name || '') : voice.voice_name,
   });
+
+  // 多形象:点格子 = 加入阵容(若未加入)并聚焦;已在阵容则只聚焦,不移除。
+  const addIfAbsentAndFocus = (a: DhAvatar) => {
+    setSlots((prev) => (prev.some((x) => x.ref === a.ref)
+      ? prev
+      : [...prev, { ref: a.ref, kind: a.kind, label: a.name, lines: '' }]));
+    setFocusedRef(a.ref);
+  };
+  // 移出阵容(不删除形象资产),点序号徽标触发。
+  const removeFromCast = (ref: string) => {
+    setSlots((prev) => prev.filter((x) => x.ref !== ref));
+    setFocusedRef((cur) => (cur === ref ? '' : cur));
+  };
+
+  // 默认聚焦:多形象 -> 第一个 slot;单形象 -> 当前 avatarRef。
+  React.useEffect(() => {
+    if (isMulti) {
+      if (!slots.some((s2) => s2.ref === focusedRef)) {
+        setFocusedRef(slots[0]?.ref ?? '');
+      }
+    } else if (focusedRef !== avatarRef) {
+      setFocusedRef(avatarRef);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMulti, slots, avatarRef]);
 
   const onComposeReference = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -244,13 +266,14 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
               <div key={a.ref} className="group relative">
                 <button
                   type="button"
-                  onClick={() => (isMulti ? toggleSlot(a) : setAvatarRef(a.ref))}
+                  onClick={() => (isMulti ? addIfAbsentAndFocus(a) : setAvatarRef(a.ref))}
                   title={a.name}
                   className={cn(
                     'h-16 w-16 overflow-hidden rounded-lg border transition-colors',
                     (isMulti ? inSlots(a.ref) : avatarRef === a.ref)
                       ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-400)]'
                       : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-brand-300)]',
+                    isMulti && focusedRef === a.ref && 'ring-[var(--cy-brand-600)] ring-offset-1',
                   )}
                 >
                   {a.kind === 'video' ? (
@@ -282,9 +305,14 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                   </button>
                 )}
                 {isMulti && inSlots(a.ref) && (
-                  <span className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-[9px] text-white">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); removeFromCast(a.ref); }}
+                    title="点序号移出阵容(不删除形象)"
+                    className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-[9px] text-white hover:bg-[var(--cy-danger-500)]"
+                  >
                     {slots.findIndex((x) => x.ref === a.ref) + 1}
-                  </span>
+                  </button>
                 )}
               </div>
             ))}
@@ -355,47 +383,53 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         </div>
       )}
 
-      {/* 各角色 配置(多形象) */}
-      {isMulti && slots.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <label className="text-[11px] text-[var(--cy-text-secondary)]">各角色 配置(昵称/音色/语速/音量;台词在生成时填)</label>
-          {slots.map((sl, i) => (
-            <div key={sl.ref} className="flex flex-col gap-1 rounded-md border border-[var(--cy-border-subtle)] p-2">
+      {/* 聚焦角色 配置(多形象 master-detail:仅显示当前聚焦角色) */}
+      {isMulti && slots.length > 0 && (() => {
+        const fSlot = slots.find((s2) => s2.ref === focusedRef) ?? slots[0];
+        const fIdx = slots.findIndex((x) => x.ref === fSlot.ref) + 1;
+        return (
+          <div className="flex flex-col gap-2">
+            <label className="text-[11px] text-[var(--cy-text-secondary)]">
+              配置:{fSlot.name || fSlot.label || fSlot.ref}
+            </label>
+            <div className="flex flex-col gap-2 rounded-md border border-[var(--cy-border-subtle)] p-2">
               <div className="flex items-center gap-2">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-[9px] text-white">{i + 1}</span>
-                <span className="text-[11px] text-[var(--cy-text-secondary)]">{sl.label || sl.ref}</span>
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-[9px] text-white">{fIdx}</span>
+                <span className="text-[11px] text-[var(--cy-text-secondary)]">{fSlot.label || fSlot.ref}</span>
               </div>
-              <input type="text" value={sl.name ?? ''}
-                onChange={(e) => setSlotField(sl.ref, { name: e.target.value })}
+              <input type="text" value={fSlot.name ?? ''}
+                onChange={(e) => setSlotField(fSlot.ref, { name: e.target.value })}
                 placeholder="昵称(如 小李,会标在视频上)"
                 className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
-              <input type="text" value={sl.language ?? ''}
-                onChange={(e) => setSlotField(sl.ref, { language: e.target.value })}
+              <input type="text" value={fSlot.language ?? ''}
+                onChange={(e) => setSlotField(fSlot.ref, { language: e.target.value })}
                 placeholder="语言(zh/en…,可空)"
                 className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
-              <VoicePicker value={slotVoiceValue(sl)} onChange={(v) => setSlotVoice(sl.ref, v)} />
+              <VoicePicker value={slotVoiceValue(fSlot)} onChange={(v) => setSlotVoice(fSlot.ref, v)} />
               <div className="flex items-center gap-2 text-[10px] text-[var(--cy-text-tertiary)]">
                 <span>语速</span>
-                <input type="range" min={0.5} max={1.5} step={0.05} value={sl.voice_rate ?? 1}
-                  onChange={(e) => setSlotField(sl.ref, { voice_rate: Number(e.target.value) })} className="flex-1" />
-                <span>{(sl.voice_rate ?? 1).toFixed(2)}</span>
+                <input type="range" min={0.5} max={1.5} step={0.05} value={fSlot.voice_rate ?? 1}
+                  onChange={(e) => setSlotField(fSlot.ref, { voice_rate: Number(e.target.value) })} className="flex-1" />
+                <span>{(fSlot.voice_rate ?? 1).toFixed(2)}</span>
                 <span>音量</span>
-                <input type="range" min={0} max={1.5} step={0.05} value={sl.voice_volume ?? 1}
-                  onChange={(e) => setSlotField(sl.ref, { voice_volume: Number(e.target.value) })} className="flex-1" />
-                <span>{(sl.voice_volume ?? 1).toFixed(2)}</span>
+                <input type="range" min={0} max={1.5} step={0.05} value={fSlot.voice_volume ?? 1}
+                  onChange={(e) => setSlotField(fSlot.ref, { voice_volume: Number(e.target.value) })} className="flex-1" />
+                <span>{(fSlot.voice_volume ?? 1).toFixed(2)}</span>
               </div>
             </div>
-          ))}
+          </div>
+        );
+      })()}
+
+      {/* 音色绑定(仅单形象;多形象的音色在上方聚焦角色配置里) */}
+      {!isMulti && (
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-[var(--cy-text-secondary)]">音色</label>
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
+            <VoicePicker value={voice} onChange={setVoice} />
+          </div>
         </div>
       )}
-
-      {/* 音色绑定 */}
-      <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-[var(--cy-text-secondary)]">音色</label>
-        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
-          <VoicePicker value={voice} onChange={setVoice} />
-        </div>
-      </div>
 
       {/* 操作按钮 */}
       <div className="flex justify-end gap-2">
