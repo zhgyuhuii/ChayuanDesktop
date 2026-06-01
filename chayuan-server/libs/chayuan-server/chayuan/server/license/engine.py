@@ -3,7 +3,7 @@
 import hashlib
 from datetime import datetime, timezone
 
-from . import entstore, entcode
+from . import entstore, entcode, usage
 from .shortcode import verify_shortcode
 from .fingerprint import fingerprint as _fp
 
@@ -46,6 +46,16 @@ def _count_expired(state: dict, now: float) -> bool:
     return bool(ce) and now >= _ts(ce)
 
 
+def _rec(root, app: str, outcome: str, cfg: dict) -> None:
+    """埋点:默认开,cfg.telemetry_enabled=False 关。写失败不影响放行。"""
+    if not cfg.get("telemetry_enabled", True):
+        return
+    try:
+        usage.record(root, app, outcome)
+    except Exception:
+        pass
+
+
 def _rolled_back(state: dict, now: float) -> bool:
     return now < state.get("seenMax", 0) - ROLLBACK_TOLERANCE
 
@@ -74,6 +84,7 @@ def consume(root, app: str, cfg: dict, *, now=None) -> dict:
     now = _now() if now is None else now
     # 免费模块:无条件放行,不扣不记。
     if app in set(cfg.get("free_modules", [])):
+        _rec(root, app, "free", cfg)
         return {"allowed": True, "source": "free", "remainingFree": 0,
                 "counts": 0, "timeExpireAt": None, "free": True}
     state = _normalize(entstore.read_state(root, app), now)
@@ -89,6 +100,7 @@ def consume(root, app: str, cfg: dict, *, now=None) -> dict:
 
     def _ret(source):
         entstore.write_state(root, state)
+        _rec(root, app, source, cfg)
         return {"allowed": True, "source": source,
                 "remainingFree": max(0, daily - state["freeUsedToday"]),
                 "counts": state["counts"], "timeExpireAt": state["timeExpireAt"]}
@@ -106,6 +118,7 @@ def consume(root, app: str, cfg: dict, *, now=None) -> dict:
         return _ret("count")
     # 都没了
     entstore.write_state(root, state)  # 落 seenMax
+    _rec(root, app, "blocked", cfg)
     return {"allowed": False, "source": "none", "remainingFree": 0,
             "counts": state["counts"], "timeExpireAt": state["timeExpireAt"]}
 

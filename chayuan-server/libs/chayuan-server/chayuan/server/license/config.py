@@ -115,8 +115,12 @@ def load_license_config() -> dict:
     elif isinstance(f.get("free_modules"), list):
         free_modules = [str(x) for x in f["free_modules"]]
 
+    tel = pick("LICENSE_TELEMETRY", "telemetry_enabled", "true").strip().lower()
+    telemetry_enabled = tel not in ("0", "false", "no", "off")
+
     return {
         "active_key_id": active,
+        "telemetry_enabled": telemetry_enabled,
         "hmac_keys": hmac_keys,
         "public_key": public_key,
         "buy_base_url": buy_base_url,
