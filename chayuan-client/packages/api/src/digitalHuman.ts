@@ -48,6 +48,7 @@ export interface DigitalHumanPreset {
   layout?: DhLayout;
   video_width?: number;
   video_height?: number;
+  subtitle_enabled?: boolean;
 }
 
 export interface DhAvatar {

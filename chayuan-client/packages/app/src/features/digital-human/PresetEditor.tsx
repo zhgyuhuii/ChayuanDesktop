@@ -13,6 +13,7 @@ import { reportError } from '../../store/errorDialog';
 import { VoicePicker, type VoicePickerValue } from '../video-generation/VoicePicker';
 import { confirmDialog } from '../../store/confirmDialog';
 import { CanvasStage } from './CanvasStage';
+import { GROUPS as ASPECT_GROUPS } from '../video-generation/VgAspectPicker';
 
 interface PresetEditorProps {
   initial?: DigitalHumanPreset;
@@ -39,6 +40,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const [canvas, setCanvas] = React.useState<{ w: number; h: number }>({
     w: initial?.video_width ?? 720, h: initial?.video_height ?? 1280,
   });
+  const [subtitleEnabled, setSubtitleEnabled] = React.useState<boolean>(initial?.subtitle_enabled ?? true);
   const avatarFileRef = React.useRef<HTMLInputElement | null>(null);
 
   const avatarsQ = useQuery({
@@ -138,6 +140,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
             avatars: [],
             video_width: canvas.w,
             video_height: canvas.h,
+            subtitle_enabled: subtitleEnabled,
             voice_provider: voice.voice_provider as DigitalHumanPreset['voice_provider'],
             voice_name: voice.voice_name,
           }
@@ -150,6 +153,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
             avatars: slots,
             video_width: canvas.w,
             video_height: canvas.h,
+            subtitle_enabled: subtitleEnabled,
             voice_provider: voice.voice_provider as DigitalHumanPreset['voice_provider'],
             voice_name: voice.voice_name,
           };
@@ -191,18 +195,36 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
       {/* 画布尺寸 */}
       <div className="flex flex-col gap-1">
         <label className="text-[11px] text-[var(--cy-text-secondary)]">画布</label>
-        <div className="flex gap-1.5 text-[11px]">
-          {(([['竖屏 9:16', 720, 1280], ['横屏 16:9', 1280, 720], ['方形 1:1', 1080, 1080]]) as [string, number, number][]).map(([zh, w, h]) => (
-            <button key={zh} type="button" onClick={() => setCanvas({ w, h })}
-              className={cn('rounded-md border px-2 py-1',
-                canvas.w === w && canvas.h === h
-                  ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                  : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
-              {zh}
-            </button>
+        <div className="flex flex-col gap-1">
+          {ASPECT_GROUPS.map((g) => (
+            <div key={g.title} className="flex flex-wrap items-center gap-1.5">
+              <span className="w-8 text-[10px] text-[var(--cy-text-tertiary)]">{g.title}</span>
+              {g.items.map((it) => (
+                <button key={it.w + 'x' + it.h} type="button" onClick={() => setCanvas({ w: it.w, h: it.h })}
+                  title={`${it.w}×${it.h} (${it.ratio})`}
+                  className={cn('rounded-md border px-2 py-1 text-[11px]',
+                    canvas.w === it.w && canvas.h === it.h
+                      ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                      : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
+                  {it.label}
+                </button>
+              ))}
+            </div>
           ))}
-          <span className="self-center text-[10px] text-[var(--cy-text-tertiary)]">{canvas.w}×{canvas.h}</span>
+          <span className="text-[10px] text-[var(--cy-text-tertiary)]">{canvas.w}×{canvas.h}</span>
         </div>
+      </div>
+
+      {/* 字幕设置 */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-[var(--cy-text-secondary)]">字幕</label>
+        <button type="button" onClick={() => setSubtitleEnabled((v) => !v)}
+          className={cn('self-start rounded-md border px-2 py-1 text-[11px]',
+            subtitleEnabled
+              ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+              : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
+          {subtitleEnabled ? '字幕:开' : '字幕:关'}
+        </button>
       </div>
 
       {/* 合成模式 */}

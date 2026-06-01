@@ -10,8 +10,8 @@ import { ChevronDown, Check } from 'lucide-react';
 import type { VgVideoAspect } from '@chayuan/api';
 import { useVgComposer } from './store/vgComposer';
 
-interface Preset { w: number; h: number; ratio: string; label: string }
-const GROUPS: Array<{ title: string; items: Preset[] }> = [
+export interface Preset { w: number; h: number; ratio: string; label: string }
+export const GROUPS: Array<{ title: string; items: Preset[] }> = [
   { title: '竖屏', items: [
     { w: 1080, h: 1920, ratio: '9:16', label: '短视频' },
     { w: 1080, h: 1350, ratio: '4:5', label: 'Ins 竖图' },
