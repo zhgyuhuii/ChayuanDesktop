@@ -388,6 +388,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
       {/* 聚焦角色 配置(单/多形象统一:显示当前聚焦角色;语言在音色前) */}
       {slots.length > 0 && (() => {
         const fSlot = slots.find((s2) => s2.ref === focusedRef) ?? slots[0];
+        if (!fSlot) return null;
         const fIdx = slots.findIndex((x) => x.ref === fSlot.ref) + 1;
         return (
           <div className="flex flex-col gap-2">
