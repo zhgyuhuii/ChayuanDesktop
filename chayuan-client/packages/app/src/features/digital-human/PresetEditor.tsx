@@ -12,6 +12,7 @@ import { digitalHuman, type DigitalHumanPreset, type DhVoiceProvider, type DhAva
 import { reportError } from '../../store/errorDialog';
 import { VoicePicker, type VoicePickerValue } from '../video-generation/VoicePicker';
 import { confirmDialog } from '../../store/confirmDialog';
+import { CanvasStage } from './CanvasStage';
 
 interface PresetEditorProps {
   initial?: DigitalHumanPreset;
@@ -340,6 +341,16 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                 {zh}
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {isMulti && slots.length >= 1 && (
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-[var(--cy-text-secondary)]">位置(拖拽角色到画面对应处)</label>
+          <div className="h-48">
+            <CanvasStage width={canvas.w} height={canvas.h} roles={slots}
+              onChange={(ref, pos) => setSlotField(ref, pos)} />
           </div>
         </div>
       )}

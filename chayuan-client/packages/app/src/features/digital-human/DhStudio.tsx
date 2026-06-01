@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { digitalHuman, type DigitalHumanPreset } from '@chayuan/api';
 import { GeneratePanel } from './GeneratePanel';
+import { CanvasStage } from './CanvasStage';
 
 /**
  * 数字人工作台(整合编辑器):左实时预览画布 / 右设置+生成面板。
@@ -24,14 +25,14 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
           className="relative max-h-full max-w-full overflow-hidden rounded-lg bg-black shadow-lg"
           style={{ aspectRatio: `${w} / ${h}`, height: '100%' }}
         >
-          {preset && preset.avatar_kind === 'image' ? (
+          {preset && (preset.avatars?.length ?? 0) > 0 ? (
+            <CanvasStage width={w} height={h} roles={preset.avatars!} readOnly />
+          ) : preset && preset.avatar_kind === 'image' ? (
             <img src={url} alt={preset.name} className="h-full w-full object-cover" />
           ) : preset ? (
             <video src={url} muted loop autoPlay playsInline className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-white/40">
-              右侧选择或到「我的数字人」新建一个数字人
-            </div>
+            <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-white/40">右侧选择或到「我的数字人」新建一个数字人</div>
           )}
           <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/50 px-2 py-0.5 text-[10px] text-white/80">
             {w}×{h} · {modeLabel}
