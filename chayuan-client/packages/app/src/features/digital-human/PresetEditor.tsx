@@ -32,16 +32,14 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const [saving, setSaving] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
   const [deleting, setDeleting] = React.useState<string | null>(null);
-  const [replacing, setReplacing] = React.useState<string | null>(null);
   const [composeMode, setComposeMode] = React.useState<DhComposeMode>(initial?.compose_mode ?? 'single');
-  const [layout, setLayout] = React.useState<DhLayout>(initial?.layout ?? 'side');
+  const [layout] = React.useState<DhLayout>(initial?.layout ?? 'side');
   const [slots, setSlots] = React.useState<AvatarSlot[]>(initial?.avatars ?? []);
   const [focusedRef, setFocusedRef] = React.useState<string>('');
   const [canvas, setCanvas] = React.useState<{ w: number; h: number }>({
     w: initial?.video_width ?? 720, h: initial?.video_height ?? 1280,
   });
   const avatarFileRef = React.useRef<HTMLInputElement | null>(null);
-  const composeFileRef = React.useRef<HTMLInputElement | null>(null);
 
   const avatarsQ = useQuery({
     queryKey: ['dh.avatars'],
@@ -60,13 +58,6 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
     setUploading(true);
     try {
       const a = await digitalHuman.uploadAvatar(f);
-      if (replacing) {
-        const old = avatars.find((x) => x.ref === replacing);
-        if (old && old.source === 'user') {
-          try { await digitalHuman.deleteAvatar(old.name); } catch { /* 删旧失败不阻断 */ }
-        }
-        setReplacing(null);
-      }
       await qc.invalidateQueries({ queryKey: ['dh.avatars'] });
       setAvatarRef(a.ref);
     } catch (err) {
@@ -83,6 +74,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
     try {
       await digitalHuman.deleteAvatar(a.name);
       if (avatarRef === a.ref) setAvatarRef('');
+      setSlots((prev) => prev.filter((sl) => sl.ref !== a.ref));
+      setFocusedRef((cur) => (cur === a.ref ? '' : cur));
       await qc.invalidateQueries({ queryKey: ['dh.avatars'] });
     } catch (err) {
       reportError(err as Error, '删除形象失败');
@@ -90,8 +83,6 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
       setDeleting(null);
     }
   };
-
-  const onReplaceClick = (a: DhAvatar) => { setReplacing(a.ref); avatarFileRef.current?.click(); };
 
   const isMulti = composeMode !== 'single';
   const inSlots = (ref: string) => slots.some((x) => x.ref === ref);
@@ -129,26 +120,6 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMulti, slots, avatarRef]);
-
-  const onComposeReference = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = '';
-    if (files.length === 0) return;
-    setUploading(true);
-    try {
-      const a = await digitalHuman.composeReference(files);
-      await qc.invalidateQueries({ queryKey: ['dh.avatars'] });
-      if (isMulti) {
-        setSlots((prev) => [...prev, { ref: a.ref, kind: a.kind, label: a.name, lines: '' }]);
-      } else {
-        setAvatarRef(a.ref);
-      }
-    } catch (err) {
-      reportError(err as Error, '合成参考图失败');
-    } finally {
-      setUploading(false);
-    }
-  };
 
   const canSave = name.trim().length > 0 && !saving && (
     composeMode === 'single' ? avatarRef.length > 0 : slots.length >= 2
@@ -338,40 +309,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
             />
           </div>
         )}
-        {selectedAvatar?.source === 'user' && (
-          <button
-            type="button"
-            onClick={() => selectedAvatar && onReplaceClick(selectedAvatar)}
-            className="self-start text-[11px] text-[var(--cy-brand-600)] hover:underline"
-          >
-            替换当前形象
-          </button>
-        )}
-        <button type="button" onClick={() => composeFileRef.current?.click()} disabled={uploading}
-          className="self-start text-[11px] text-[var(--cy-brand-600)] hover:underline disabled:opacity-50">
-          多照合一(多张照片挑最佳)
-        </button>
-        <input ref={composeFileRef} type="file" accept="image/*" multiple className="hidden"
-          onChange={onComposeReference} />
       </div>
-
-      {/* 同框版式 */}
-      {composeMode === 'coframe' && (
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-[var(--cy-text-secondary)]">版式</label>
-          <div className="flex gap-1.5 text-[11px]">
-            {(([['side', '并排'], ['pip', '画中画'], ['main_minor', '主+角']]) as [DhLayout, string][]).map(([l, zh]) => (
-              <button key={l} type="button" onClick={() => setLayout(l)}
-                className={cn('rounded-md border px-2 py-1',
-                  layout === l
-                    ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                    : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
-                {zh}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {isMulti && slots.length >= 1 && (
         <div className="flex flex-col gap-1">
@@ -394,23 +332,22 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
             </label>
             <div className="flex flex-col gap-2 rounded-md border border-[var(--cy-border-subtle)] p-2">
               <div className="flex items-center gap-2">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-[9px] text-white">{fIdx}</span>
-                <span className="text-[11px] text-[var(--cy-text-secondary)]">{fSlot.label || fSlot.ref}</span>
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-[9px] text-white">{fIdx}</span>
+                <input type="text" value={fSlot.name ?? ''}
+                  onChange={(e) => setSlotField(fSlot.ref, { name: e.target.value })}
+                  placeholder="昵称(如 小李)"
+                  className="h-7 flex-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
+                <select value={fSlot.language ?? ''}
+                  onChange={(e) => setSlotField(fSlot.ref, { language: e.target.value })}
+                  className="h-7 w-24 shrink-0 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1 text-[11px] text-[var(--cy-text-primary)] focus-visible:outline-none">
+                  <option value="">语言:自动</option>
+                  <option value="zh-CN">中文</option>
+                  <option value="en-US">英文</option>
+                  <option value="ja-JP">日文</option>
+                </select>
               </div>
-              <input type="text" value={fSlot.name ?? ''}
-                onChange={(e) => setSlotField(fSlot.ref, { name: e.target.value })}
-                placeholder="昵称(如 小李,会标在视频上)"
-                className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
-              <select value={fSlot.language ?? ''}
-                onChange={(e) => setSlotField(fSlot.ref, { language: e.target.value })}
-                className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] focus-visible:outline-none">
-                <option value="">语言:自动</option>
-                <option value="zh-CN">中文</option>
-                <option value="en-US">英文</option>
-                <option value="ja-JP">日文</option>
-              </select>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--cy-text-tertiary)]">
-                <VoicePicker value={slotVoiceValue(fSlot)} onChange={(v) => setSlotVoice(fSlot.ref, v)} />
+                <VoicePicker value={slotVoiceValue(fSlot)} onChange={(v) => setSlotVoice(fSlot.ref, v)} language={fSlot.language} />
                 <span>语速</span>
                 <input type="range" min={0.5} max={1.5} step={0.05} value={fSlot.voice_rate ?? 1}
                   onChange={(e) => setSlotField(fSlot.ref, { voice_rate: Number(e.target.value) })} className="w-16" />
