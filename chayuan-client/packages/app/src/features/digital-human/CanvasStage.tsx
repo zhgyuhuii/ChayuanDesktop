@@ -14,6 +14,7 @@ export interface CanvasStageProps {
 export const CanvasStage: React.FC<CanvasStageProps> = ({ width, height, roles, onChange, readOnly }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const dragRef = React.useRef<{ ref: string; dx: number; dy: number } | null>(null);
+  const resizeRef = React.useRef<{ ref: string; startX: number; startScale: number } | null>(null);
 
   const onPointerDown = (e: React.PointerEvent, r: AvatarSlot) => {
     if (readOnly || !boxRef.current) return;
@@ -23,7 +24,22 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({ width, height, roles, 
     dragRef.current = { ref: r.ref, dx: e.clientX - box.left - curX, dy: e.clientY - box.top - curY };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
+  const onResizeDown = (e: React.PointerEvent, r: AvatarSlot) => {
+    if (readOnly) return;
+    e.stopPropagation();
+    resizeRef.current = { ref: r.ref, startX: e.clientX, startScale: r.scale ?? 1 };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
   const onPointerMove = (e: React.PointerEvent) => {
+    const rz = resizeRef.current;
+    if (rz && boxRef.current && onChange) {
+      const box = boxRef.current.getBoundingClientRect();
+      const delta = (e.clientX - rz.startX) / box.width;
+      const ns = Math.min(1.0, Math.max(0.05, rz.startScale + delta));
+      const r = roles.find((x) => x.ref === rz.ref);
+      onChange(rz.ref, { x: r?.x ?? 0, y: r?.y ?? 0, scale: ns });
+      return;
+    }
     const d = dragRef.current;
     if (!d || !boxRef.current || !onChange) return;
     const box = boxRef.current.getBoundingClientRect();
@@ -32,7 +48,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({ width, height, roles, 
     const r = roles.find((x) => x.ref === d.ref);
     onChange(d.ref, { x: nx, y: ny, scale: r?.scale ?? 1 });
   };
-  const onPointerUp = () => { dragRef.current = null; };
+  const onPointerUp = () => { dragRef.current = null; resizeRef.current = null; };
 
   return (
     <div ref={boxRef}
@@ -48,6 +64,12 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({ width, height, roles, 
             ? <video src={digitalHuman.avatarFileUrl(r.ref)} muted loop autoPlay playsInline className="w-full rounded" />
             : <img src={digitalHuman.avatarFileUrl(r.ref)} alt={r.name || r.ref} className="w-full rounded" />}
           {r.name ? <span className="absolute -bottom-4 left-0 rounded bg-black/60 px-1 text-[10px] text-white">{r.name}</span> : null}
+          {!readOnly && (
+            <div
+              onPointerDown={(e) => onResizeDown(e, r)}
+              className="absolute bottom-0 right-0 h-3 w-3 cursor-se-resize rounded-sm bg-[var(--cy-brand-500)] opacity-80"
+              title="拖拽调整大小" />
+          )}
         </div>
       ))}
     </div>
