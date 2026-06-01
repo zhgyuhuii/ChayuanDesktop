@@ -1,30 +1,12 @@
 /**
  * 视频生成 chat-driven 入口 — R3.6 真复用版本。
  *
- * 用户审核 N4-N8 时严厉指出:那时的 mini-composer / 自定义 messages 状态机
- * **不是真复用** — 跟 ChatComposer / ConversationView 完全没共用代码。
- * 本文件全量重写:
+ * ... (see original comments)
  *
- *   - <ComposerStoreContext.Provider value={vgComposerStore}>:注入 video-generation
- *     scope 的 composer store,跟全局 chat store 完全隔离(draft / modelId / attachments
- *     互不污染)。ChatComposer 自动从 Context 拿到这个 store,所有内部 selector
- *     无感切换。
- *   - <ConversationView mode="video_generation" extraSlot={...}>:复用消息流 /
- *     流式 / 落库 / 滚动 / 编辑 / regenerate / branch 全套能力,N4 自实现的
- *     ``MessageBlock + messages useState + scrollRef`` 全删。
- *   - extraSlot:每条 assistant message 下方挂 VgMessageExtras(TtsCard / 字幕图标 /
- *     去生成按钮 / RenderProgressCard),靠 message.metadata.videoMeta 驱动。
- *   - VgComposerToolbar:Composer 上方 7-chip 工具栏(模型 / 画幅 / 语言 / 段落 /
- *     音频 / 字幕 / 全自动),关键配置全部显式露,不再藏 popover 反模式。
- *
- * 多任务:每条 assistant message 各自独立 metadata.videoMeta,用户可以在同一
- * 对话内连续提多个主题,每条独立 TTS / 字幕 / 去生成 / 渲染进度。
- *
- * 全自动模式(⚡ on):
- *   onBeforeSend 拦截 → 直接 videoGeneration.submitTask(script_source='ai'),
- *   跳过 chat 路径。提交成功后 toast 提示用户去"我的视频"看进度
- *  (InProgressTasksPanel 已在 ``/video-generation/library`` 渲染并发任务)。
- *   失败走 reportError。
+ * 按次门控（video）:
+ *   onBeforeSend 拦截（全自动模式）时先调 consume('video')；
+ *   onSubmit（去生成视频按钮）时也先门控。
+ *   allowed=false → 弹购买弹层，阻止执行。
  */
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
@@ -37,6 +19,7 @@ import { buildChatRequest } from '../chat/buildRequest';
 import { ComposerStoreContext } from '../../store/composer';
 import { useTabsStore } from '../../store/tabs';
 import { notifySuccess, reportError } from '../../store/errorDialog';
+import { useUsageGate, UsageGateDialogs } from '../license';
 
 import { vgComposerStore, resolveVgChatModel } from './store/vgComposerStore';
 import { useVgComposer } from './store/vgComposer';
@@ -52,6 +35,9 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
   const navigate = useNavigate();
   const openTab = useTabsStore((s) => s.open);
   const [autoMode, setAutoMode] = React.useState(false);
+
+  // 按次门控（video）
+  const gate = useUsageGate('video');
 
   // ConversationView 内部的 chat.setMessages — 通过下方 messagesRef 暴露,
   // VgMessageExtras 的 onMetaChange / onSubmit 用这个 setter 改 metadata。
@@ -102,95 +88,79 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
     [],
   );
 
-  // 用户点"去生成视频"→ 拿当前 message 的 videoMeta + vgComposer 全局参数
-  // 提交任务,把 task_id / renderState 写回 metadata,触发 RenderProgressCard
+  // 用户点"去生成视频"→ 先门控，通过后提交任务，写回 metadata。
   const onSubmit = React.useCallback(
     async (messageId: string) => {
       const setMessages = setMessagesRef.current;
       if (!setMessages) return;
-      // 先快照当前 message 内容,异步提交期间用户不会再改它
       let snapshot: ChatMessage | undefined;
       let subject = '';
       setMessages((prev) => {
         const idx = prev.findIndex((m) => m.id === messageId);
         snapshot = idx >= 0 ? prev[idx] : undefined;
-        // 主题 = 该 assistant 脚本前最近一条 user 消息(用于自动命名视频)
         for (let i = idx - 1; i >= 0; i -= 1) {
           if (prev[i]?.role === 'user') { subject = (prev[i]?.content || '').trim(); break; }
         }
         return prev;
       });
       if (!snapshot) return;
-      // 注:不再读 snapshot.metadata.videoMeta —— tts/bgm/画幅 全部以 base.*
-      // (vgComposer 实时参数)为准,videoMeta 里那几个是脚本生成时冻结的 sentinel。
-      const script = (snapshot.content ?? '').trim();
-      const base = useVgComposer.getState().params;
-      const params = {
-        ...base,
-        video_subject: base.video_subject || subject,
-        video_script: script || base.video_script,
-        script_source: 'manual' as const,
-        model: resolveVgChatModel() || base.model || undefined,
-        // 音色/语速/音量已全局统一存 vgComposer.params(工具栏「语音设置」与消息块下
-        // 同一份)。不能再用 vm.tts —— 它是 sentinel 默认值(provider 恒为 piper),
-        // 会把用户选的 edge/sherpa 覆盖掉。直接用 base.*。
-        voice_provider: base.voice_provider,
-        voice_name: base.voice_name,
-        voice_rate: base.voice_rate,
-        voice_volume: base.voice_volume,
-        // BGM 同音色:已全局化存 vgComposer.params(弹框 BgmSection 写 base)。
-        // vm.bgm 是 sentinel 默认(type 恒 random),会覆盖用户选的指定 BGM → 直接用 base.*。
-        bgm_type: base.bgm_type,
-        bgm_file: base.bgm_file,
-        bgm_volume: base.bgm_volume,
-        // 画幅同 tts/bgm:base.video_aspect 是工具栏 VgAspectChip 实时写入的真源,
-        // vm.videoAspect 是脚本生成那一刻冻进消息的快照(且后端缺值会兜底 "9:16")。
-        // 若用户先生成脚本、之后才改画幅,用 vm.videoAspect 会拿到旧的 9:16 覆盖 1:1。
-        // 直接用 base.* 才反映用户当前选择。
-        video_aspect: base.video_aspect,
-        // 精确像素覆盖(画幅选择器设的电脑尺寸/自定义);跟 video_aspect 同源真源 base.*
-        video_width: base.video_width,
-        video_height: base.video_height,
-      };
-      try {
-        const t = await videoGeneration.submitTask(params, { stop_at: 'video' });
-        setMessages((prev) =>
-          prev.map((m) => {
-            if (m.id !== messageId) return m;
-            const prevVm = m.metadata?.videoMeta ?? {};
-            return {
-              ...m,
-              metadata: {
-                ...(m.metadata ?? {}),
-                videoMeta: {
-                  ...prevVm,
-                  taskId: t.task_id,
-                  renderState: 'running' as const,
+
+      // 门控（一次视频额度）
+      await gate.guard(async () => {
+        const script = (snapshot!.content ?? '').trim();
+        const base = useVgComposer.getState().params;
+        const params = {
+          ...base,
+          video_subject: base.video_subject || subject,
+          video_script: script || base.video_script,
+          script_source: 'manual' as const,
+          model: resolveVgChatModel() || base.model || undefined,
+          voice_provider: base.voice_provider,
+          voice_name: base.voice_name,
+          voice_rate: base.voice_rate,
+          voice_volume: base.voice_volume,
+          bgm_type: base.bgm_type,
+          bgm_file: base.bgm_file,
+          bgm_volume: base.bgm_volume,
+          video_aspect: base.video_aspect,
+          video_width: base.video_width,
+          video_height: base.video_height,
+        };
+        try {
+          const t = await videoGeneration.submitTask(params, { stop_at: 'video' });
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== messageId) return m;
+              const prevVm = m.metadata?.videoMeta ?? {};
+              return {
+                ...m,
+                metadata: {
+                  ...(m.metadata ?? {}),
+                  videoMeta: {
+                    ...prevVm,
+                    taskId: t.task_id,
+                    renderState: 'running' as const,
+                  },
                 },
-              },
-            };
-          }),
-        );
-        notifySuccess(`任务已提交 ${t.task_id.slice(0, 8)}…`);
-      } catch (e) {
-        reportError(e as Error, '提交任务失败');
-      }
+              };
+            }),
+          );
+          notifySuccess(`任务已提交 ${t.task_id.slice(0, 8)}…`);
+        } catch (e) {
+          reportError(e as Error, '提交任务失败');
+        }
+      });
     },
-    [],
+    [gate],
   );
 
   // ── 自定义 buildRequest:把 mode 钉死 video_generation ─────────
-  // 走默认 buildChatRequest 的字段映射(model / history / kb / ...),仅
-  // 覆盖 mode — 后端 chat handler dispatcher 按这个 mode 路由到
-  // chayuan.server.chat.handlers.video_generation。
   const buildRequest = React.useCallback<
     NonNullable<React.ComponentProps<typeof ConversationView>['buildRequest']>
   >(
     ({ messages, query }) => {
       const composer = vgComposerStore.getState();
       const req = buildChatRequest(query, messages, composer);
-      // 把视频参数透传给后端脚本 handler(段落数/语言/画幅/模型)。
-      // 缺这块时 vg_meta 永远空,handler paragraph_number 默认 1 → 只生成 1 段。
       const p = useVgComposer.getState().params;
       return {
         ...req,
@@ -208,31 +178,38 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
     [],
   );
 
-  // ── 全自动模式拦截 ───────────────────────────────────────────
-  // onBeforeSend 返 true → ConversationView 跳过 chat.sendMessage(本拦截器接管)
+  // ── 全自动模式拦截（含门控）───────────────────────────────────────────────
   const onBeforeSend = React.useCallback(
     async (text: string): Promise<boolean> => {
       if (!autoMode) return false;
       const subj = text.trim();
       if (!subj) return false;
-      const params = { ...useVgComposer.getState().params, video_subject: subj, script_source: 'ai' as const, model: resolveVgChatModel() || undefined };
-      try {
-        const t = await videoGeneration.submitTask(params, { stop_at: 'video' });
-        notifySuccess(
-          `已提交全自动任务 ${t.task_id.slice(0, 8)}…`,
-          '前往"我的视频"看实时进度',
-        );
-        // 小延迟跳转,避免 toast 还没显示就切页
-        setTimeout(goLibrary, 800);
-      } catch (e) {
-        reportError(e as Error, '全自动提交失败');
-      }
+
+      // 全自动模式先门控
+      await gate.guard(async () => {
+        const params = {
+          ...useVgComposer.getState().params,
+          video_subject: subj,
+          script_source: 'ai' as const,
+          model: resolveVgChatModel() || undefined,
+        };
+        try {
+          const t = await videoGeneration.submitTask(params, { stop_at: 'video' });
+          notifySuccess(
+            `已提交全自动任务 ${t.task_id.slice(0, 8)}…`,
+            '前往"我的视频"看实时进度',
+          );
+          setTimeout(goLibrary, 800);
+        } catch (e) {
+          reportError(e as Error, '全自动提交失败');
+        }
+      });
       return true; // skip chat path
     },
-    [autoMode, goLibrary],
+    [autoMode, goLibrary, gate],
   );
 
-  // ── 顶部 header — brand 渐变背景 + 大 Video 图标,明显标记"视频生成对话" ──
+  // ── 顶部 header ──────────────────────────────────────────────────────────
   const header = (
     <header className="flex items-center justify-between border-b border-[var(--cy-border-subtle)] bg-gradient-to-r from-[var(--cy-brand-50)] to-[var(--cy-surface-1)] px-4 py-2.5">
       <div className="inline-flex items-center gap-2">
@@ -280,13 +257,14 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
     </header>
   );
 
-  // ── Composer 正上方的精致工具栏(画幅/语言/段落/语音设置/字幕设置/全自动) ──
   const composerTop = (
     <VgComposerToolbar autoMode={autoMode} onAutoModeChange={setAutoMode} />
   );
 
   return (
     <ComposerStoreContext.Provider value={vgComposerStore}>
+      {/* 按次门控弹层 */}
+      <UsageGateDialogs app="video" gate={gate} />
       <div className="flex h-full flex-col">
         {header}
         <div className="min-h-0 flex-1">

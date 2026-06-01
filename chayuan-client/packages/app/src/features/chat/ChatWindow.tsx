@@ -17,6 +17,11 @@
  *   <ChatWindow scope="lane-y" conversationId={y.conversationId} />
  *
  * 这是模型对抗(Lane)的承载体,也可以被 KbBoard / Skill 等场景任意复用。
+ *
+ * 按次门控（chat）:
+ *   每次 send 前调 consume('chat')。allowed=false → 弹购买弹层并阻止发送；
+ *   allowed=true+source='free' → 允许发送，同日首次弹分享二维码；
+ *   allowed=true+source!='free' → 直接发送。网络异常 fail-open。
  */
 import * as React from 'react';
 import {
@@ -24,9 +29,17 @@ import {
   type ComposerSeed,
 } from '../../store/composer';
 import { useModelArenaStore } from '../../store/modelArena';
+import { useLicenseStore, LicenseDialog, ShareDialog } from '../license';
 import { ConversationView } from './ConversationView';
 import { ModelPicker } from './ModelPicker';
 import { AdvancedParams } from './AdvancedParams';
+
+/** 同 app 同日首次弹分享弹层的 localStorage key */
+function shareShownKey(app: string): string {
+  const d = new Date();
+  const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `usagegate:${app}:${ymd}`;
+}
 
 interface Props {
   /** 唯一 scope id;不传 → 用全局 useComposerStore(老 ChatPage 行为零回归) */
@@ -48,7 +61,7 @@ interface Props {
 
 export const ChatWindow: React.FC<Props> = ({
   scope, conversationId, onConversationCreated, showHeader = true,
-  headerExtra, className, onBeforeSend, sendMessageRef,
+  headerExtra, className, onBeforeSend: outerOnBeforeSend, sendMessageRef,
 }) => {
   // 同一 scope 同一实例 — 用 useMemo 在 scope 不变时复用
   // 96 题:scope 给定时,从 ArenaStore.lastTouchedSeed 读 seed 初始化
@@ -82,8 +95,54 @@ export const ChatWindow: React.FC<Props> = ({
     return () => unsub();
   }, [scope, store]);
 
+  // ── 按次门控状态（chat）────────────────────────────────────────────────────
+  const consume = useLicenseStore((s) => s.consume);
+  const [buyOpen, setBuyOpen] = React.useState(false);
+  const [shareOpen, setShareOpen] = React.useState(false);
+  const [remaining, setRemaining] = React.useState(0);
+
+  // onBeforeSend 包装:先跑 Arena 统一发送拦截，再跑 chat 门控。
+  const onBeforeSend = React.useCallback(
+    async (text: string): Promise<boolean> => {
+      // Arena 统一发送拦截（unifiedSend ON 时，Lane 的 onBeforeSend 会抢先返回 true）。
+      // 如果外部已经说"跳过本道"，我们也跳过（不重复门控）。
+      if (outerOnBeforeSend) {
+        const skip = await outerOnBeforeSend(text);
+        if (skip) return true;
+      }
+
+      // chat 按次门控：fail-open（网络异常时允许发送）。
+      try {
+        const r = await consume('chat');
+        if (!r.allowed) {
+          // 额度耗尽 → 弹购买对话框，阻止发送。
+          setBuyOpen(true);
+          return true;
+        }
+        if (r.source === 'free') {
+          setRemaining(r.remainingFree);
+          // 同日首次免费执行 → 弹分享对话框。
+          const key = shareShownKey('chat');
+          const shown = (() => { try { return localStorage.getItem(key) === '1'; } catch { return false; } })();
+          if (!shown) {
+            try { localStorage.setItem(key, '1'); } catch { /* ignore */ }
+            setShareOpen(true);
+          }
+        }
+        return false; // 允许发送
+      } catch {
+        // fail-open：网络异常时不阻止发送。
+        return false;
+      }
+    },
+    [outerOnBeforeSend, consume],
+  );
+
   return (
     <ComposerStoreContext.Provider value={store}>
+      {/* 按次门控弹层 */}
+      <LicenseDialog app="chat" open={buyOpen} onOpenChange={setBuyOpen} />
+      <ShareDialog app="chat" open={shareOpen} onOpenChange={setShareOpen} remainingFree={remaining} />
       <ConversationView
         conversationId={conversationId ?? null}
         onConversationCreated={onConversationCreated}

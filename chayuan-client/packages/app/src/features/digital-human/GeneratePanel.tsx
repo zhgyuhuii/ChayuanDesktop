@@ -5,6 +5,7 @@ import { digitalHuman } from '@chayuan/api';
 import type { DigitalHumanPreset } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
 import { promptDialog } from '../../store/promptDialog';
+import { useUsageGate, UsageGateDialogs } from '../license';
 import { DhProgressCard } from './DhProgressCard';
 
 type Template = 'corner' | 'bg' | 'side';
@@ -41,6 +42,9 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   // matte (green-screen keying) — only relevant when productRef is set
   const [matte, setMatte] = React.useState(false);
+
+  // 按次门控（avatar: 数字人合成）
+  const gate = useUsageGate('avatar');
 
   const navigate = useNavigate();
   const [scripting, setScripting] = React.useState(false);
@@ -104,7 +108,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     setMatte(false);
   };
 
-  const gen = async () => {
+  // 实际生成逻辑（门控通过后执行）
+  const doGen = async () => {
     setBusy(true);
     try {
       const opts = {
@@ -118,11 +123,17 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     finally { setBusy(false); }
   };
 
+  // 带门控的生成入口
+  const gen = () => gate.guard(doGen);
+
   if (presets.length === 0)
     return <div className="text-sm text-[var(--cy-text-tertiary)]">先到「我的数字人」新建一个数字人。</div>;
 
   return (
     <div className="space-y-3">
+      {/* 按次门控弹层 */}
+      <UsageGateDialogs app="avatar" gate={gate} />
+
       {/* Engine picker row */}
       <div>
         <div className="mb-1 text-xs text-[var(--cy-text-tertiary)]">画质引擎</div>

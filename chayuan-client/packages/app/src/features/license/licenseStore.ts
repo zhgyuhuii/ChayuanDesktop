@@ -8,14 +8,16 @@
  */
 
 import {
+  type ConsumeResult,
   type LicenseStatus,
   licenseActivate,
   licenseActivateToken,
+  licenseConsume,
   licenseStatus,
 } from '@chayuan/api';
 import { create } from 'zustand';
 
-export type { LicenseStatus } from '@chayuan/api';
+export type { ConsumeResult, LicenseStatus } from '@chayuan/api';
 
 interface LicenseState {
   statusByApp: Record<string, LicenseStatus>;
@@ -31,6 +33,11 @@ interface LicenseState {
   activateSerial(app: string, serial: string): Promise<LicenseStatus>;
   /** 同 activateSerial：异常上抛由调用方处理。 */
   activateToken(app: string, token: string): Promise<LicenseStatus>;
+  /**
+   * 按次门控：执行前调用扣减一次额度，直接转发 licenseConsume，不缓存结果。
+   * 网络异常会向上抛（调用方负责 fail-open 或错误处理）。
+   */
+  consume(app: string): Promise<ConsumeResult>;
   isLicensed(app: string): boolean;
   isReady(app: string): boolean;
   reset(): void;
@@ -71,6 +78,10 @@ export const useLicenseStore = create<LicenseState>((set, get) => {
       const s = await licenseActivateToken(app, token);
       put(app, s);
       return s;
+    },
+
+    async consume(app) {
+      return licenseConsume(app);
     },
 
     isLicensed(app) {

@@ -87,3 +87,51 @@ export function licenseEntitlements(): Promise<EntitlementsResp> {
 export function licenseReset(app: string): Promise<{ ok: boolean; removed: boolean; app: string }> {
   return http.post<{ ok: boolean; removed: boolean; app: string }>(`${BASE}/reset`, { app });
 }
+
+// ── 按次门控 ────────────────────────────────────────────────────────────────
+
+/** consume 接口返回值。 */
+export interface ConsumeResult {
+  /** 是否允许执行(false → 需弹购买对话框)。 */
+  allowed: boolean;
+  /** 本次消耗来源:'free'|'count'|'time'|'none' */
+  source: 'free' | 'count' | 'time' | 'none';
+  /** 今日剩余免费次数。 */
+  remainingFree: number;
+  /** 购买剩余次数。 */
+  counts: number;
+  /** 购买时间授权到期时间(ISO);无时间授权时为 null。 */
+  timeExpireAt: string | null;
+  /** 不通过时的原因说明(可选)。 */
+  reason?: string;
+}
+
+/**
+ * 执行前门控:扣减一次使用额度,返回是否允许执行及来源。
+ * - allowed=true, source='free' → 用的免费额度,建议弹分享对话框。
+ * - allowed=true, source='count'|'time' → 用的购买额度,直接执行无需弹窗。
+ * - allowed=false → 额度耗尽,弹购买对话框。
+ */
+export function licenseConsume(app: string): Promise<ConsumeResult> {
+  return http.post<ConsumeResult>(`${BASE}/consume`, { app });
+}
+
+// ── 分享素材 ────────────────────────────────────────────────────────────────
+
+/** 分享素材(裂变邀请链接 + QR 码原始 URL + 海报)。 */
+export interface ShareMaterial {
+  /** 邀请码。 */
+  inviteCode: string;
+  /** 分享链接(encode 成二维码给好友扫)。 */
+  shareUrl: string;
+  /** 海报图地址(可选,当前前端自行生成 QR 不强依赖)。 */
+  posterUrl: string;
+}
+
+/**
+ * 获取分享素材。需要本机指纹 mid(通过 licenseFingerprint() 取得)。
+ * shareUrl 形如 /buy?app=&ref=<inviteCode>,前端本地生成 QR 码展示。
+ */
+export function shareMaterial(app: string, mid: string): Promise<ShareMaterial> {
+  return http.get<ShareMaterial>('/api/share/material', { query: { app, mid } });
+}
