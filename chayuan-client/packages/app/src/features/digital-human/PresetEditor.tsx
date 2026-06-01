@@ -270,7 +270,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                   title={a.name}
                   className={cn(
                     'h-16 w-16 overflow-hidden rounded-lg border transition-colors',
-                    (isMulti ? inSlots(a.ref) : avatarRef === a.ref)
+                    (isMulti ? focusedRef === a.ref : avatarRef === a.ref)
                       ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-400)]'
                       : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-brand-300)]',
                     isMulti && focusedRef === a.ref && 'ring-[var(--cy-brand-600)] ring-offset-1',
@@ -401,10 +401,14 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                 onChange={(e) => setSlotField(fSlot.ref, { name: e.target.value })}
                 placeholder="昵称(如 小李,会标在视频上)"
                 className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
-              <input type="text" value={fSlot.language ?? ''}
+              <select value={fSlot.language ?? ''}
                 onChange={(e) => setSlotField(fSlot.ref, { language: e.target.value })}
-                placeholder="语言(zh/en…,可空)"
-                className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
+                className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] focus-visible:outline-none">
+                <option value="">语言:自动</option>
+                <option value="zh-CN">中文</option>
+                <option value="en-US">英文</option>
+                <option value="ja-JP">日文</option>
+              </select>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--cy-text-tertiary)]">
                 <VoicePicker value={slotVoiceValue(fSlot)} onChange={(v) => setSlotVoice(fSlot.ref, v)} />
                 <span>语速</span>
