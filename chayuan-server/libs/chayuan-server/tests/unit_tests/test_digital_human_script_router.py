@@ -25,10 +25,17 @@ def test_plan_sequential_skips_empty():
     assert len(u) == 1 and u[0].text == "甲词" and u[0].role_index == 0
 
 
-def test_plan_coframe_whole_script_per_role():
-    u = plan("coframe", "整套台词", None, _roles())
-    assert len(u) == 2 and all(x.text == "整套台词" for x in u)
+def test_plan_coframe_round_robin_sentences():
+    u = plan("coframe", "你好。今天天气好!很高兴见到你。", None, _roles())
+    assert len(u) == 3
+    assert u[0].role_index == 0 and u[1].role_index == 1 and u[2].role_index == 0
     assert u[0].voice_name == "v1" and u[1].voice_name == "v2"
+    assert all(x.text.strip() for x in u)
+
+
+def test_plan_coframe_single_sentence():
+    u = plan("coframe", "只有一句话", None, _roles())
+    assert len(u) == 1 and u[0].role_index == 0
 
 
 def test_plan_no_roles():

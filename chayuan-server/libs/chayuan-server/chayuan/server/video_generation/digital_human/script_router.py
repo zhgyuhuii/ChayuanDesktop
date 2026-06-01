@@ -38,5 +38,13 @@ def plan(dh_type: str, script: Optional[str], role_scripts: Optional[List[str]],
                 out.append(_unit(i, role, t))
         return out
     if dh_type == "coframe":
-        return [_unit(i, role, script or "") for i, role in enumerate(roles)]
+        from chayuan.server.video_generation.steps.subtitle import _split_string_by_punctuations
+        sents = [s.strip() for s in _split_string_by_punctuations(script or "") if s.strip()]
+        if not sents:
+            sents = [(script or "")]
+        out = []
+        for j, sent in enumerate(sents):
+            i = j % len(roles)
+            out.append(_unit(i, roles[i], sent))
+        return out
     return [_unit(0, roles[0], script or "")]
