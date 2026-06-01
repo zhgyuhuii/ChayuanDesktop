@@ -33,6 +33,7 @@ import {
   type ChineseScript,
 } from './chineseScript';
 import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
+import { useUsageGate, UsageGateDialogs } from '../license';
 
 const defaultTitle = () => {
   const d = new Date();
@@ -48,6 +49,7 @@ export interface NoteEditorProps {
 }
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => {
+  const gate = useUsageGate('note');
   const draft = useNoteDraft(draftKey);
   const initial = React.useMemo(() => draft.load(), [draft]);
   const [title, setTitle] = React.useState(() => initial?.title ?? defaultTitle());
@@ -90,9 +92,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
 
   const onGenerateSummary = React.useCallback(async () => {
     if (!editor) return;
-    setSummaryOpen(true);
-    await summaryHook.generate(editor.getJSON(), { title });
-  }, [editor, title, summaryHook]);
+    await gate.guard(async () => {
+      setSummaryOpen(true);
+      await summaryHook.generate(editor.getJSON(), { title });
+    });
+  }, [editor, title, summaryHook, gate]);
 
   // 标题变化也写草稿(连带 summary 一起,防止改标题时丢摘要)
   React.useEffect(() => {
@@ -275,6 +279,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ onSaved, draftKey }) => 
 
   return (
     <div className="flex h-full bg-[var(--cy-surface-base)]">
+      {/* 按次门控弹层（AI笔记生成）*/}
+      <UsageGateDialogs app="note" gate={gate} />
       <div className="flex h-full flex-1 flex-col min-w-0">
       <header className="flex flex-wrap items-center gap-2 border-b border-[var(--cy-border-subtle)] px-4 py-2">
         <input

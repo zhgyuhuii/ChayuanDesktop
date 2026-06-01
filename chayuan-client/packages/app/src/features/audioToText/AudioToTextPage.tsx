@@ -34,6 +34,7 @@ import {
 } from '@chayuan/ui';
 import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
 import { resolveLocale, useSettingsStore } from '../../store/settings';
+import { useUsageGate, UsageGateDialogs } from '../license';
 
 /**
  * 把 chayuan UI locale 映射成 whisper / FunASR 能识别的 ASR 语言码。
@@ -85,6 +86,7 @@ const isAudioFile = (f: File) =>
   f.type.startsWith('audio/') || AUDIO_EXT_RE.test(f.name);
 
 export const AudioToTextPage: React.FC = () => {
+  const gate = useUsageGate('asr');
   const [items, setItems] = React.useState<AsrItem[]>([]);
   const [title, setTitle] = React.useState(() => defaultTitle());
   const [busy, setBusy] = React.useState(false);
@@ -238,8 +240,8 @@ export const AudioToTextPage: React.FC = () => {
       status: 'queued',
     }));
     setItems((prev) => [...prev, ...fresh]);
-    void runAsr(fresh);
-  }, [runAsr]);
+    void gate.guard(() => runAsr(fresh));
+  }, [runAsr, gate]);
 
   const onPickFiles = React.useCallback(async () => {
     try {
@@ -272,8 +274,8 @@ export const AudioToTextPage: React.FC = () => {
   const onRetryItem = React.useCallback((id: string) => {
     const it = items.find((x) => x.id === id);
     if (!it) return;
-    void runAsr([it]);
-  }, [items, runAsr]);
+    void gate.guard(() => runAsr([it]));
+  }, [items, runAsr, gate]);
 
   const onClearAll = React.useCallback(async () => {
     // 走 platform.dialog.confirm — 见 ImageToTextPage 同处注释
@@ -288,6 +290,8 @@ export const AudioToTextPage: React.FC = () => {
 
   return (
     <div className="flex h-full flex-col bg-[var(--cy-surface-base)]">
+      {/* 按次门控弹层（音转文 ASR）*/}
+      <UsageGateDialogs app="asr" gate={gate} />
       <Header
         title={title}
         onTitleChange={setTitle}

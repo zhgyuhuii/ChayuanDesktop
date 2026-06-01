@@ -55,6 +55,7 @@ import { getPlatform, uuid } from '@chayuan/platform-shared';
 import { annotationApi, kb as kbApi, knowledgeSource, knowledgeUniverse, type AskResponse, type KuDetail, type KuItem, type KuKind } from '@chayuan/api';
 import { MessageSquarePlus, LogOut } from 'lucide-react';
 import { reportError } from '../../store/errorDialog';
+import { useUsageGate, UsageGateDialogs } from '../license';
 import { KbAskResultPanel } from './KbAskResultPanel';
 import { useComposerStore } from '../../store/composer';
 import { useTabsStore } from '../../store/tabs';
@@ -136,6 +137,7 @@ type ViewMode = KbView;
 export const KbBoard: React.FC = () => {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const gate = useUsageGate('kb');
   const activeConversationId = useComposerStore((s) => s.activeConversationId);
   const setActive = useComposerStore((s) => s.setActive);
   const modelId = useComposerStore((s) => s.modelId);
@@ -535,49 +537,51 @@ export const KbBoard: React.FC = () => {
   }, [activeConversationId, setChatMessages]);
 
   const onSend = async (text: string) => {
-    // 跨类型 ask:含任何非 document 的选中 → 走 universe.askStream(SSE 流式)
-    if (selectedKuIds.length > 0 && hasNonDocSelected) {
-      setAskQuery(text);
-      setAskResult(null);
-      setAskKuIds([...selectedKuIds]);
+    await gate.guard(async () => {
+      // 跨类型 ask:含任何非 document 的选中 → 走 universe.askStream(SSE 流式)
+      if (selectedKuIds.length > 0 && hasNonDocSelected) {
+        setAskQuery(text);
+        setAskResult(null);
+        setAskKuIds([...selectedKuIds]);
+        setChatStarted(true);
+        setPickerOpen(false);
+        void startAskStream(text, selectedKuIds);
+        return;
+      }
+      // 否则走原 chat(纯文档 KB 或无 KB)
+      if (!activeConversationId) {
+        const id = uuid();
+        const now = Date.now();
+        // 先打标记再 setActive:reset effect 看到这个 id 就知道是自建会话,不回退。
+        selfCreatedConvRef.current = id;
+        setActive(id);
+        void upsertConversation({
+          id,
+          remote_id: null,
+          title: text.slice(0, 40) || t('chat.newConversation'),
+          model: modelId,
+          mode: selectedKuIds.length ? 'kb' : 'plain',
+          created_at: now,
+          updated_at: now,
+        })
+          .then(() => qc.invalidateQueries({ queryKey: CONVERSATION_KEYS.list }))
+          .catch((e) => console.error('[chayuan] kb 新建会话写库失败:', e));
+      }
       setChatStarted(true);
       setPickerOpen(false);
-      void startAskStream(text, selectedKuIds);
-      return;
-    }
-    // 否则走原 chat(纯文档 KB 或无 KB)
-    if (!activeConversationId) {
-      const id = uuid();
-      const now = Date.now();
-      // 先打标记再 setActive:reset effect 看到这个 id 就知道是自建会话,不回退。
-      selfCreatedConvRef.current = id;
-      setActive(id);
-      void upsertConversation({
-        id,
-        remote_id: null,
-        title: text.slice(0, 40) || t('chat.newConversation'),
-        model: modelId,
-        mode: selectedKuIds.length ? 'kb' : 'plain',
-        created_at: now,
-        updated_at: now,
-      })
-        .then(() => qc.invalidateQueries({ queryKey: CONVERSATION_KEYS.list }))
-        .catch((e) => console.error('[chayuan] kb 新建会话写库失败:', e));
-    }
-    setChatStarted(true);
-    setPickerOpen(false);
-    await chat.sendMessage(text);
-    const cid = activeConversationId;
-    if (cid) {
-      const last = chat.messages[chat.messages.length - 1];
-      const second = chat.messages[chat.messages.length - 2];
-      try {
-        if (second) await appendMessage(cid, second);
-        if (last) await appendMessage(cid, last);
-      } catch (e) {
-        console.error('[chayuan] kb 落库失败:', e);
+      await chat.sendMessage(text);
+      const cid = activeConversationId;
+      if (cid) {
+        const last = chat.messages[chat.messages.length - 1];
+        const second = chat.messages[chat.messages.length - 2];
+        try {
+          if (second) await appendMessage(cid, second);
+          if (last) await appendMessage(cid, last);
+        } catch (e) {
+          console.error('[chayuan] kb 落库失败:', e);
+        }
       }
-    }
+    });
   };
 
   const showPicker = !chatStarted || pickerOpen;
@@ -585,6 +589,8 @@ export const KbBoard: React.FC = () => {
 
   return (
     <div className="flex h-full">
+      {/* 按次门控弹层（知识库检索）*/}
+      <UsageGateDialogs app="kb" gate={gate} />
       <div className="flex h-full min-w-0 flex-1 flex-col">
         {showPicker && (
           <div className="flex flex-col gap-3 border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-6 py-4">

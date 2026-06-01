@@ -32,6 +32,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@chayuan/ui';
 import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
+import { useUsageGate, UsageGateDialogs } from '../license';
 
 interface OcrItem {
   /** UUID,React key */
@@ -55,6 +56,7 @@ const defaultTitle = () => {
 };
 
 export const ImageToTextPage: React.FC = () => {
+  const gate = useUsageGate('ocr');
   const [items, setItems] = React.useState<OcrItem[]>([]);
   const [title, setTitle] = React.useState(() => defaultTitle());
   const [busy, setBusy] = React.useState(false);
@@ -144,7 +146,7 @@ export const ImageToTextPage: React.FC = () => {
     setBusy(false);
   }, [insertOcrText]);
 
-  /** 添加文件 → 进队列 → 自动启动 OCR */
+  /** 添加文件 → 进队列 → 自动启动 OCR（经按次门控） */
   const addFiles = React.useCallback((files: File[]) => {
     if (files.length === 0) return;
     // 1. MIME 优先 — 浏览器原生 File 走这里
@@ -166,8 +168,8 @@ export const ImageToTextPage: React.FC = () => {
       status: 'queued',
     }));
     setItems((prev) => [...prev, ...fresh]);
-    void runOcr(fresh);
-  }, [runOcr]);
+    void gate.guard(() => runOcr(fresh));
+  }, [runOcr, gate]);
 
   const onPickFiles = React.useCallback(async () => {
     try {
@@ -197,12 +199,12 @@ export const ImageToTextPage: React.FC = () => {
     }
   };
 
-  // 重新识别单条
+  // 重新识别单条（也走门控）
   const onRetryItem = React.useCallback((id: string) => {
     const it = items.find((x) => x.id === id);
     if (!it) return;
-    void runOcr([it]);
-  }, [items, runOcr]);
+    void gate.guard(() => runOcr([it]));
+  }, [items, runOcr, gate]);
 
   const onClearAll = React.useCallback(async () => {
     // 走 platform.dialog.confirm(plugin-dialog.ask),不要裸 confirm():
@@ -219,6 +221,8 @@ export const ImageToTextPage: React.FC = () => {
 
   return (
     <div className="flex h-full flex-col bg-[var(--cy-surface-base)]">
+      {/* 按次门控弹层（图转文 OCR）*/}
+      <UsageGateDialogs app="ocr" gate={gate} />
       <Header
         title={title}
         onTitleChange={setTitle}
