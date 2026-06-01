@@ -25,6 +25,13 @@ export interface AvatarSlot {
   lines?: string;
   voice_provider?: DhVoiceProvider;  // 空=继承预设级音色
   voice_name?: string;
+  name?: string;
+  voice_rate?: number;
+  voice_volume?: number;
+  language?: string;
+  x?: number;
+  y?: number;
+  scale?: number;
 }
 
 export interface DigitalHumanPreset {
@@ -193,6 +200,8 @@ export async function dhGenerate(
     engine?: 'wav2lip' | 'sadtalker' | 'musetalk';
     width?: number;
     height?: number;
+    script?: string;
+    role_scripts?: string[];
   },
 ): Promise<{ task_id: string }> {
   return rd<{ task_id: string }>('/api/v1/digital-human/generate', {
@@ -205,6 +214,8 @@ export async function dhGenerate(
       template: opts?.template ?? 'none',
       matte: opts?.matte ?? false,
       engine: opts?.engine ?? 'wav2lip',
+      script: opts?.script,
+      role_scripts: opts?.role_scripts,
     },
   });
 }
