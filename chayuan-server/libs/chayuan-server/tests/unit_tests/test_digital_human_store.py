@@ -159,3 +159,9 @@ def test_generate_request_scripts():
     assert g.script == "一套台词" and g.role_scripts == ["甲词", "乙词"]
     g2 = _Gen(preset_id="p", text="x")
     assert g2.script is None and g2.role_scripts is None
+
+
+def test_preset_subtitle_enabled_default(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    p = dh_store.create_preset(name="m", avatar_ref="user:a", avatar_kind="video")
+    assert p.subtitle_enabled is True

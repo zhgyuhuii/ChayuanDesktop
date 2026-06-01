@@ -209,6 +209,29 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, 
     return clips
 
 
+def _apply_overlays(result_path, td, preset, slots, text, width, height):
+    """成片叠昵称标签+字幕(fail-safe);返回新成片路径(失败返原 result_path)。"""
+    try:
+        from chayuan.server.video_generation.digital_human import overlay as _ov
+        from chayuan.server.video_generation.digital_human.timeline_bridge import build_cues_from_script
+        from chayuan.server.video_generation.steps.subtitle import _probe_audio_duration_ms
+        labels = [((getattr(s, "name", "") or ""),
+                   float(getattr(s, "x", 0.0) or 0.0),
+                   min(0.95, float(getattr(s, "y", 0.0) or 0.0))) for s in (slots or []) if getattr(s, "name", "")]
+        cues = []
+        if getattr(preset, "subtitle_enabled", True):
+            dur = _probe_audio_duration_ms(result_path) or 0
+            cues = build_cues_from_script(text or "", dur)
+        if not labels and not cues:
+            return result_path
+        ov_out = os.path.join(td, "with_overlay.mp4")
+        r2 = _ov.add_overlays(result_path, ov_out, labels=labels, cues=cues, width=width, height=height)
+        return r2 if (r2 and os.path.isfile(r2)) else result_path
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh] overlay 接入失败(忽略): %r", e)
+        return result_path
+
+
 def _run_pipeline(tid: str) -> None:
     args = _PENDING.get(tid) or {}
     try:
@@ -248,6 +271,7 @@ def _run_pipeline(tid: str) -> None:
                 logger.warning("[dh] %s 合成失败,回退首个形象片段: %r", mode, e)
                 import shutil
                 shutil.copyfile(clips[0], out_path)
+            out_path = _apply_overlays(out_path, td, preset, slots, args.get("text"), args["width"], args["height"])
             _set(tid, state="complete", progress=100, result_path=out_path,
                  script=args.get("text", ""))
             return
@@ -282,6 +306,7 @@ def _run_pipeline(tid: str) -> None:
                 dur_ms=dur_ms,
             )
             result_path = final_path
+        result_path = _apply_overlays(result_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), args["width"], args["height"])
         _set(tid, state="complete", progress=100, result_path=result_path,
              script=args.get("text", ""))
     except Exception as e:  # noqa: BLE001

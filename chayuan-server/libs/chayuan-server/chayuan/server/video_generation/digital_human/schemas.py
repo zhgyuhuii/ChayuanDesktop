@@ -40,6 +40,7 @@ class DigitalHumanPreset(BaseModel):
     avatars: List[AvatarSlot] = Field(default_factory=list)
     compose_mode: Literal["single", "coframe", "sequential"] = "single"
     layout: Literal["side", "pip", "main_minor"] = "side"
+    subtitle_enabled: bool = True
     video_width: int = 720    # 画布尺寸(竖屏默认);生成沿用,前端可选常用比例
     video_height: int = 1280
 
