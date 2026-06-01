@@ -19,6 +19,18 @@ import json
 from pathlib import Path
 
 
+# 默认每日免费额度(模块 id 与网站商品 id 一致:对话/视频/知识库/数字人/图转文/音转文)。
+# env LICENSE_DAILY_FREE / 文件 daily_free 可覆盖。
+DEFAULT_DAILY_FREE = {
+    "chat": 60,     # 对话
+    "video": 20,    # 视频生成
+    "kb": 30,       # 知识库
+    "avatar": 10,   # 数字人
+    "ocr": 50,      # 图转文
+    "asr": 30,      # 音转文
+}
+
+
 def _root() -> Path:
     env = os.environ.get("CHAYUAN_ROOT")
     if env:
@@ -91,8 +103,8 @@ def load_license_config() -> dict:
         except ValueError:
             public_key = b""
 
-    # 每日免费配额:env(JSON)优先,其次文件 daily_free,默认空。
-    daily_free = {}
+    # 每日免费配额:env(JSON)优先,其次文件 daily_free,最后默认 DEFAULT_DAILY_FREE。
+    daily_free = dict(DEFAULT_DAILY_FREE)
     env_df = os.environ.get("LICENSE_DAILY_FREE")
     if env_df:
         try:
