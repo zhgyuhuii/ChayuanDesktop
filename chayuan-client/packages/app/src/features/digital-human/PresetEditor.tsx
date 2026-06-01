@@ -134,8 +134,9 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
 
   // 默认聚焦:单/多形象统一 -> 第一个 slot(单形象=恰好 1 个 slot)。
   React.useEffect(() => {
-    if (slots.length && !slots.some((s2) => s2.ref === focusedRef)) {
-      setFocusedRef(slots[0].ref);
+    const first = slots[0];
+    if (first && !slots.some((s2) => s2.ref === focusedRef)) {
+      setFocusedRef(first.ref);
     } else if (!slots.length && focusedRef) {
       setFocusedRef('');
     }
