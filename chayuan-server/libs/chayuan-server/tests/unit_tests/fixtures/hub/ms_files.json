@@ -1,0 +1,77 @@
+{
+  "Code": 200,
+  "Data": {
+    "Files": [
+      {
+        "CommitMessage": "merge main",
+        "CommittedDate": 1726842501,
+        "CommitterName": "ai-modelscope",
+        "InCheck": false,
+        "IsLFS": false,
+        "Mode": "33188",
+        "Name": ".gitattributes",
+        "Path": ".gitattributes",
+        "Revision": "cbee0850956aeb6fd9ac074a0270da820788ada7",
+        "Sha256": "c04fe798248680304f09bdd123b107f87a982ab46bb8a4286864c465adf7f486",
+        "Size": 1630,
+        "Type": "blob"
+      },
+      {
+        "CommitMessage": "System init configuration.json",
+        "CommittedDate": 1726629451,
+        "CommitterName": "Cherrytest",
+        "InCheck": false,
+        "IsLFS": false,
+        "Mode": "33188",
+        "Name": "configuration.json",
+        "Path": "configuration.json",
+        "Revision": "596698734ef1bab52cae3d7e588d3ba4ae1438fb",
+        "Sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "Size": 2,
+        "Type": "blob"
+      },
+      {
+        "CommitMessage": "Update README.md",
+        "CommittedDate": 1726673820,
+        "CommitterName": "ai-modelscope",
+        "InCheck": false,
+        "IsLFS": false,
+        "Mode": "33188",
+        "Name": "LICENSE",
+        "Path": "LICENSE",
+        "Revision": "ace2cc6fa91e5d19531ed4a497529d4db9c7213d",
+        "Sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+        "Size": 11343,
+        "Type": "blob"
+      },
+      {
+        "CommitMessage": "merge main",
+        "CommittedDate": 1726842501,
+        "CommitterName": "ai-modelscope",
+        "InCheck": false,
+        "IsLFS": true,
+        "Mode": "33188",
+        "Name": "qwen2.5-0.5b-instruct-fp16.gguf",
+        "Path": "qwen2.5-0.5b-instruct-fp16.gguf",
+        "Revision": "cbee0850956aeb6fd9ac074a0270da820788ada7",
+        "Sha256": "8e0ae26000627ed62de0e78e41860af70094558b9d2913385c842a6aa06cf3fc",
+        "Size": 1266425696,
+        "Type": "blob"
+      },
+      {
+        "CommitMessage": "upload weights",
+        "CommittedDate": 1726665606,
+        "CommitterName": "ai-modelscope",
+        "InCheck": false,
+        "IsLFS": true,
+        "Mode": "33188",
+        "Name": "qwen2.5-0.5b-instruct-q2_k.gguf",
+        "Path": "qwen2.5-0.5b-instruct-q2_k.gguf",
+        "Revision": "2e50b77b0eee3083842019e257b74854323d880a",
+        "Sha256": "9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8",
+        "Size": 415182688,
+        "Type": "blob"
+      }
+    ]
+  }
+}

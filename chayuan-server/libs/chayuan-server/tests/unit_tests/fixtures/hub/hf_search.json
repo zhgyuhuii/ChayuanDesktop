@@ -1,0 +1,434 @@
+[
+  {
+    "_id": "6981f3a909190d1015f75eeb",
+    "id": "unsloth/Qwen3-Coder-Next-GGUF",
+    "author": "unsloth",
+    "gated": false,
+    "lastModified": "2026-03-06T14:38:33.000Z",
+    "likes": 670,
+    "private": false,
+    "sha": "ce09c67b53bc8739eef83fe67b2f5d293c270632",
+    "downloads": 3064698,
+    "tags": [
+      "gguf",
+      "qwen3_next",
+      "unsloth",
+      "qwen",
+      "qwen3",
+      "text-generation",
+      "base_model:Qwen/Qwen3-Coder-Next",
+      "base_model:quantized:Qwen/Qwen3-Coder-Next",
+      "license:apache-2.0",
+      "endpoints_compatible",
+      "region:us",
+      "imatrix",
+      "conversational"
+    ],
+    "pipeline_tag": "text-generation",
+    "createdAt": "2026-02-03T13:10:01.000Z",
+    "modelId": "unsloth/Qwen3-Coder-Next-GGUF",
+    "siblings": [
+      {
+        "rfilename": ".gitattributes"
+      },
+      {
+        "rfilename": "BF16/Qwen3-Coder-Next-BF16-00001-of-00004.gguf"
+      },
+      {
+        "rfilename": "BF16/Qwen3-Coder-Next-BF16-00002-of-00004.gguf"
+      },
+      {
+        "rfilename": "BF16/Qwen3-Coder-Next-BF16-00003-of-00004.gguf"
+      },
+      {
+        "rfilename": "BF16/Qwen3-Coder-Next-BF16-00004-of-00004.gguf"
+      },
+      {
+        "rfilename": "Q4_1/Qwen3-Coder-Next-Q4_1-00001-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q4_1/Qwen3-Coder-Next-Q4_1-00002-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q4_1/Qwen3-Coder-Next-Q4_1-00003-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q5_K_M/Qwen3-Coder-Next-Q5_K_M-00001-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q5_K_M/Qwen3-Coder-Next-Q5_K_M-00002-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q5_K_M/Qwen3-Coder-Next-Q5_K_M-00003-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q5_K_S/Qwen3-Coder-Next-Q5_K_S-00001-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q5_K_S/Qwen3-Coder-Next-Q5_K_S-00002-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q5_K_S/Qwen3-Coder-Next-Q5_K_S-00003-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q6_K/Qwen3-Coder-Next-Q6_K-00001-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q6_K/Qwen3-Coder-Next-Q6_K-00002-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q6_K/Qwen3-Coder-Next-Q6_K-00003-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q8_0/Qwen3-Coder-Next-Q8_0-00001-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q8_0/Qwen3-Coder-Next-Q8_0-00002-of-00003.gguf"
+      },
+      {
+        "rfilename": "Q8_0/Qwen3-Coder-Next-Q8_0-00003-of-00003.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-IQ4_NL.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-IQ4_XS.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-MXFP4_MOE.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-Q2_K.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-Q2_K_L.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-Q3_K_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-Q3_K_S.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-Q4_0.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-Q4_K_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-Q4_K_S.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-IQ1_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-IQ1_S.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-IQ2_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-IQ2_XXS.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-IQ3_S.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-IQ3_XXS.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-IQ4_NL.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-IQ4_XS.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-Q2_K_XL.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-Q3_K_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-Q3_K_S.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-Q3_K_XL.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-Q4_K_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-Q4_K_S.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-Q4_K_XL.gguf"
+      },
+      {
+        "rfilename": "Qwen3-Coder-Next-UD-TQ1_0.gguf"
+      },
+      {
+        "rfilename": "README.md"
+      },
+      {
+        "rfilename": "UD-Q5_K_M/Qwen3-Coder-Next-UD-Q5_K_M-00001-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q5_K_M/Qwen3-Coder-Next-UD-Q5_K_M-00002-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q5_K_M/Qwen3-Coder-Next-UD-Q5_K_M-00003-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q5_K_S/Qwen3-Coder-Next-UD-Q5_K_S-00001-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q5_K_S/Qwen3-Coder-Next-UD-Q5_K_S-00002-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q5_K_S/Qwen3-Coder-Next-UD-Q5_K_S-00003-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q5_K_XL/Qwen3-Coder-Next-UD-Q5_K_XL-00001-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q5_K_XL/Qwen3-Coder-Next-UD-Q5_K_XL-00002-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q5_K_XL/Qwen3-Coder-Next-UD-Q5_K_XL-00003-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q6_K/Qwen3-Coder-Next-UD-Q6_K-00001-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q6_K/Qwen3-Coder-Next-UD-Q6_K-00002-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q6_K/Qwen3-Coder-Next-UD-Q6_K-00003-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q6_K_XL/Qwen3-Coder-Next-UD-Q6_K_XL-00001-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q6_K_XL/Qwen3-Coder-Next-UD-Q6_K_XL-00002-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q6_K_XL/Qwen3-Coder-Next-UD-Q6_K_XL-00003-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q8_K_XL/Qwen3-Coder-Next-UD-Q8_K_XL-00001-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q8_K_XL/Qwen3-Coder-Next-UD-Q8_K_XL-00002-of-00003.gguf"
+      },
+      {
+        "rfilename": "UD-Q8_K_XL/Qwen3-Coder-Next-UD-Q8_K_XL-00003-of-00003.gguf"
+      },
+      {
+        "rfilename": "imatrix_unsloth.gguf_file"
+      }
+    ]
+  },
+  {
+    "_id": "69e17b9e48b1ac4c5ec71427",
+    "id": "HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive",
+    "author": "HauhauCS",
+    "gated": false,
+    "lastModified": "2026-04-17T02:59:21.000Z",
+    "likes": 1213,
+    "private": false,
+    "sha": "f12a584fecbeb5f20001130d8ecd66c9327ae685",
+    "downloads": 2533393,
+    "tags": [
+      "gguf",
+      "uncensored",
+      "qwen3.6",
+      "moe",
+      "vision",
+      "multimodal",
+      "image-text-to-text",
+      "en",
+      "zh",
+      "multilingual",
+      "base_model:Qwen/Qwen3.6-35B-A3B",
+      "base_model:quantized:Qwen/Qwen3.6-35B-A3B",
+      "license:apache-2.0",
+      "endpoints_compatible",
+      "region:us",
+      "imatrix",
+      "conversational"
+    ],
+    "pipeline_tag": "image-text-to-text",
+    "createdAt": "2026-04-17T00:15:26.000Z",
+    "modelId": "HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive",
+    "siblings": [
+      {
+        "rfilename": ".gitattributes"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ2_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ3_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_NL.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q2_K_P.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q3_K_P.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q5_K_P.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q6_K_P.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf"
+      },
+      {
+        "rfilename": "README.md"
+      },
+      {
+        "rfilename": "mmproj-Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-f16.gguf"
+      }
+    ]
+  },
+  {
+    "_id": "69e066230bd313faad5d76e7",
+    "id": "unsloth/Qwen3.6-35B-A3B-GGUF",
+    "author": "unsloth",
+    "gated": false,
+    "lastModified": "2026-04-20T12:42:25.000Z",
+    "likes": 1159,
+    "private": false,
+    "sha": "a483e9e6cbd595906af30beda3187c2663a1118c",
+    "downloads": 2091596,
+    "tags": [
+      "transformers",
+      "gguf",
+      "unsloth",
+      "qwen",
+      "qwen3_5_moe",
+      "image-text-to-text",
+      "base_model:Qwen/Qwen3.6-35B-A3B",
+      "base_model:quantized:Qwen/Qwen3.6-35B-A3B",
+      "license:apache-2.0",
+      "endpoints_compatible",
+      "deploy:azure",
+      "region:us",
+      "imatrix",
+      "conversational"
+    ],
+    "pipeline_tag": "image-text-to-text",
+    "library_name": "transformers",
+    "createdAt": "2026-04-16T04:31:31.000Z",
+    "modelId": "unsloth/Qwen3.6-35B-A3B-GGUF",
+    "siblings": [
+      {
+        "rfilename": ".gitattributes"
+      },
+      {
+        "rfilename": "BF16/Qwen3.6-35B-A3B-BF16-00001-of-00002.gguf"
+      },
+      {
+        "rfilename": "BF16/Qwen3.6-35B-A3B-BF16-00002-of-00002.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-MXFP4_MOE.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-Q8_0.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-IQ1_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-IQ2_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-IQ2_XXS.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-IQ3_S.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-IQ4_NL.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-IQ4_NL_XL.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q3_K_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q3_K_S.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q4_K_S.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q5_K_M.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q5_K_S.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q6_K.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf"
+      },
+      {
+        "rfilename": "Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf"
+      },
+      {
+        "rfilename": "README.md"
+      },
+      {
+        "rfilename": "imatrix_unsloth.gguf_file"
+      },
+      {
+        "rfilename": "mmproj-BF16.gguf"
+      },
+      {
+        "rfilename": "mmproj-F16.gguf"
+      },
+      {
+        "rfilename": "mmproj-F32.gguf"
+      }
+    ]
+  }
+]

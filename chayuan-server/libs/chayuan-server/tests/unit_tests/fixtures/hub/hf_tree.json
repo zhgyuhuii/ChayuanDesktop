@@ -1,0 +1,44 @@
+[
+  {
+    "type": "file",
+    "oid": "e79ce6a89353fed9e05c6bd0e566fbd82c8d6d5f",
+    "size": 1561,
+    "path": ".gitattributes"
+  },
+  {
+    "type": "file",
+    "oid": "6634c8cc3133b3848ec74b9f275acaaa1ea618ab",
+    "size": 11343,
+    "path": "LICENSE"
+  },
+  {
+    "type": "file",
+    "oid": "6c5b52e47b307cc84626fe22508f95e1cf617488",
+    "size": 4856,
+    "path": "README.md"
+  },
+  {
+    "type": "file",
+    "oid": "8a56296b52e3eaf9dbd1784787e6c9d577b15b30",
+    "size": 1266425696,
+    "lfs": {
+      "oid": "8e0ae26000627ed62de0e78e41860af70094558b9d2913385c842a6aa06cf3fc",
+      "size": 1266425696,
+      "pointerSize": 135
+    },
+    "xetHash": "3506faf16cbb9eb015f6041ecbcf9147fdc8fbccb682d63662329ff183fcd23e",
+    "path": "qwen2.5-0.5b-instruct-fp16.gguf"
+  },
+  {
+    "type": "file",
+    "oid": "659a8466c1c05ebe6773277318042ac10e070bd8",
+    "size": 415182688,
+    "lfs": {
+      "oid": "9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8",
+      "size": 415182688,
+      "pointerSize": 134
+    },
+    "xetHash": "e3545da244065b001a228bb6fce131405cb600be4d4a56057957aa83ef9deed9",
+    "path": "qwen2.5-0.5b-instruct-q2_k.gguf"
+  }
+]
