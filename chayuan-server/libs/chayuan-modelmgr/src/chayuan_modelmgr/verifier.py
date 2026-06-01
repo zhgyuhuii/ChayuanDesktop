@@ -30,7 +30,20 @@ def iter_files(root: Path) -> list[Path]:
     return out
 
 
-def write_manifest(model_dir: Path, *, source: str = "imported") -> Path:
+def write_manifest(
+    model_dir: Path,
+    *,
+    source: str = "imported",
+    origin: dict | None = None,
+) -> Path:
+    """写入 ``.chayuan-manifest.json``。
+
+    Args:
+        source: 来源标签(``imported`` / ``downloaded`` / ``bundled`` 等)。
+        origin: 可选的下载溯源信息(下载安装时记 ``{"source","repo_id",
+            "revision"}``)。``None`` 时写入 ``null``,供 P2 已安装集合扫描时
+            回退按目录名还原 repo_id。
+    """
     files = iter_files(model_dir)
     items = []
     total = 0
@@ -45,6 +58,7 @@ def write_manifest(model_dir: Path, *, source: str = "imported") -> Path:
     payload = {
         "version": 1,
         "source": source,
+        "origin": origin,
         "files": items,
         "total_bytes": total,
     }

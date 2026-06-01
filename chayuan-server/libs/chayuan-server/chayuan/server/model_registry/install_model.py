@@ -498,6 +498,37 @@ class InstallModelJobManager:
             self._fail_with_traceback(job, "下载失败", e, target_dir)
             return
 
+        # 2.5 写入 manifest(记 origin{source,repo_id,revision})——
+        # P2 「已安装集合」靠扫描各模型目录的 manifest origin 来判定某张 Hub
+        # 卡片是否已装。下载成功后立即落盘,无 origin 的老模型由扫描端回退按
+        # 目录名还原 repo_id。chayuan_modelmgr 可能没装(用户只装 chayuan-server)
+        # → ImportError 时跳过,不阻塞 job(仅丢失精确 origin,回退仍可用)。
+        try:
+            from chayuan_modelmgr.verifier import write_manifest
+            write_manifest(
+                target_dir,
+                source="downloaded",
+                origin={
+                    "source": job.source,
+                    "repo_id": job.model_id,
+                    "revision": getattr(job, "revision", None),
+                },
+            )
+            with self._lock:
+                job.log_tail.append(
+                    f"[install_model] manifest written (origin={job.source}:{job.model_id})"
+                )
+        except ImportError:
+            with self._lock:
+                job.log_tail.append(
+                    "[install_model] chayuan_modelmgr 未安装,跳过 manifest 写入"
+                    "(已安装态将按目录名回退识别)"
+                )
+        except Exception as e:  # noqa: BLE001 — manifest 写失败不阻塞 job
+            logger.warning("[install_model] write_manifest 失败(不阻塞): %r", e)
+            with self._lock:
+                job.log_tail.append(f"[install_model] write_manifest 失败(不阻塞): {e!r}")
+
         # 3. 扫盘 + 完成
         with self._lock:
             job.step = "finalizing"
