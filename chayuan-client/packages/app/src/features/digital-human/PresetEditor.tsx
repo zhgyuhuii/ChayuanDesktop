@@ -405,15 +405,15 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                 onChange={(e) => setSlotField(fSlot.ref, { language: e.target.value })}
                 placeholder="语言(zh/en…,可空)"
                 className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
-              <VoicePicker value={slotVoiceValue(fSlot)} onChange={(v) => setSlotVoice(fSlot.ref, v)} />
-              <div className="flex items-center gap-2 text-[10px] text-[var(--cy-text-tertiary)]">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--cy-text-tertiary)]">
+                <VoicePicker value={slotVoiceValue(fSlot)} onChange={(v) => setSlotVoice(fSlot.ref, v)} />
                 <span>语速</span>
                 <input type="range" min={0.5} max={1.5} step={0.05} value={fSlot.voice_rate ?? 1}
-                  onChange={(e) => setSlotField(fSlot.ref, { voice_rate: Number(e.target.value) })} className="flex-1" />
+                  onChange={(e) => setSlotField(fSlot.ref, { voice_rate: Number(e.target.value) })} className="w-16" />
                 <span>{(fSlot.voice_rate ?? 1).toFixed(2)}</span>
                 <span>音量</span>
                 <input type="range" min={0} max={1.5} step={0.05} value={fSlot.voice_volume ?? 1}
-                  onChange={(e) => setSlotField(fSlot.ref, { voice_volume: Number(e.target.value) })} className="flex-1" />
+                  onChange={(e) => setSlotField(fSlot.ref, { voice_volume: Number(e.target.value) })} className="w-16" />
                 <span>{(fSlot.voice_volume ?? 1).toFixed(2)}</span>
               </div>
             </div>
