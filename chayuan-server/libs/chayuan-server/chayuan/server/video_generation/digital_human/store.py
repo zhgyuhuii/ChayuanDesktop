@@ -39,6 +39,10 @@ def get_preset(pid: str) -> Optional[DigitalHumanPreset]:
     return None
 
 
+_SUB_KEYS = ("subtitle_enabled", "subtitle_position", "font_name", "font_size",
+             "text_fore_color", "text_background_color", "stroke_color", "stroke_width")
+
+
 def create_preset(*, name: str, avatar_ref: str = "", avatar_kind: str = "image",
                   voice_provider: str = "piper", voice_name: str = "",
                   is_greenscreen: bool = False,
@@ -48,8 +52,6 @@ def create_preset(*, name: str, avatar_ref: str = "", avatar_kind: str = "image"
                   subtitle: Optional[Dict[str, Any]] = None,
                   video_width: int = 720, video_height: int = 1280) -> DigitalHumanPreset:
     sub = subtitle or {}
-    _SUB_KEYS = ("subtitle_enabled", "subtitle_position", "font_name", "font_size",
-                 "text_fore_color", "text_background_color", "stroke_color", "stroke_width")
     sub_fields = {k: sub[k] for k in _SUB_KEYS if k in sub}
     p = DigitalHumanPreset(
         id=uuid.uuid4().hex[:12], name=name, avatar_ref=avatar_ref,
@@ -65,6 +67,12 @@ def create_preset(*, name: str, avatar_ref: str = "", avatar_kind: str = "image"
 
 
 def update_preset(pid: str, **fields: Any) -> Optional[DigitalHumanPreset]:
+    # 嵌套 subtitle dict 解包到扁平字段(与 create 一致),并丢弃原始 subtitle 键
+    _sub = fields.pop("subtitle", None)
+    if _sub:
+        for _k in _SUB_KEYS:
+            if _k in _sub:
+                fields[_k] = _sub[_k]
     # 不允许改 id/created(否则会改出找不回的孤儿条目)
     safe = {k: v for k, v in fields.items() if v is not None and k not in ("id", "created")}
     rows = _load_raw(); hit = None

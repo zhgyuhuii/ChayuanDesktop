@@ -379,12 +379,33 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         )}
       </div>
 
-      {isMulti && slots.length >= 1 && (
+      {/* 单形象:可视化预览(单形象占满画面,位置无意义,只读预览) */}
+      {!isMulti && avatarRef && (
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-[var(--cy-text-secondary)]">预览</label>
+          <div
+            className="mx-auto h-48 overflow-hidden rounded-lg bg-black"
+            style={{ aspectRatio: `${canvas.w} / ${canvas.h}` }}
+          >
+            {(selectedAvatar?.kind ?? 'image') === 'video'
+              ? <video src={digitalHuman.avatarFileUrl(avatarRef)} muted loop autoPlay playsInline className="h-full w-full object-cover" />
+              : <img src={digitalHuman.avatarFileUrl(avatarRef)} alt={name} className="h-full w-full object-cover" />}
+          </div>
+        </div>
+      )}
+
+      {/* 多形象:位置可视化(始终显示;无角色时给空态提示,避免一片空白) */}
+      {isMulti && (
         <div className="flex flex-col gap-1">
           <label className="text-[11px] text-[var(--cy-text-secondary)]">位置(拖拽角色到画面对应处)</label>
-          <div className="h-48">
+          <div className="relative h-48">
             <CanvasStage width={canvas.w} height={canvas.h} roles={slots}
               onChange={(ref, pos) => setSlotField(ref, pos)} />
+            {slots.length === 0 && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-[11px] text-[var(--cy-text-tertiary)]">
+                点上方形象格子加入角色(数字=出场顺序,需 ≥2 个)
+              </div>
+            )}
           </div>
         </div>
       )}
