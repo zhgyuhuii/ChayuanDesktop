@@ -52,6 +52,7 @@ def create_preset(body: Dict[str, Any],
             compose_mode=body.get("compose_mode", "single"),
             layout=body.get("layout", "side"),
             subtitle_enabled=bool(body.get("subtitle_enabled", True)),
+            subtitle=body.get("subtitle"),
             video_width=int(body.get("video_width", 720) or 720),
             video_height=int(body.get("video_height", 1280) or 1280),
         )

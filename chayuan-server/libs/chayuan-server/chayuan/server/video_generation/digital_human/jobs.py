@@ -232,7 +232,15 @@ def _apply_overlays(result_path, td, preset, slots, text, width, height):
         if not labels and not cues:
             return result_path
         ov_out = os.path.join(td, "with_overlay.mp4")
-        r2 = _ov.add_overlays(result_path, ov_out, labels=labels, cues=cues, width=width, height=height)
+        style = {
+            "subtitle_position": getattr(preset, "subtitle_position", "bottom"),
+            "font_name": getattr(preset, "font_name", ""),
+            "font_size": getattr(preset, "font_size", 0),
+            "text_fore_color": getattr(preset, "text_fore_color", ""),
+            "stroke_color": getattr(preset, "stroke_color", ""),
+            "stroke_width": getattr(preset, "stroke_width", None),
+        }
+        r2 = _ov.add_overlays(result_path, ov_out, labels=labels, cues=cues, width=width, height=height, style=style)
         return r2 if (r2 and os.path.isfile(r2)) else result_path
     except Exception as e:  # noqa: BLE001
         logger.warning("[dh] overlay 接入失败(忽略): %r", e)

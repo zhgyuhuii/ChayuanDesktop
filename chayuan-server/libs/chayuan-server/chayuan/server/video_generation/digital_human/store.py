@@ -45,7 +45,12 @@ def create_preset(*, name: str, avatar_ref: str = "", avatar_kind: str = "image"
                   avatars: Optional[List[Dict[str, Any]]] = None,
                   compose_mode: str = "single", layout: str = "side",
                   subtitle_enabled: bool = True,
+                  subtitle: Optional[Dict[str, Any]] = None,
                   video_width: int = 720, video_height: int = 1280) -> DigitalHumanPreset:
+    sub = subtitle or {}
+    _SUB_KEYS = ("subtitle_enabled", "subtitle_position", "font_name", "font_size",
+                 "text_fore_color", "text_background_color", "stroke_color", "stroke_width")
+    sub_fields = {k: sub[k] for k in _SUB_KEYS if k in sub}
     p = DigitalHumanPreset(
         id=uuid.uuid4().hex[:12], name=name, avatar_ref=avatar_ref,
         avatar_kind=avatar_kind, is_greenscreen=is_greenscreen,
@@ -53,6 +58,7 @@ def create_preset(*, name: str, avatar_ref: str = "", avatar_kind: str = "image"
         avatars=avatars or [], compose_mode=compose_mode, layout=layout,
         subtitle_enabled=subtitle_enabled,
         video_width=video_width, video_height=video_height,
+        **sub_fields,
     )
     rows = _load_raw(); rows.append(p.model_dump()); _save_raw(rows)
     return p

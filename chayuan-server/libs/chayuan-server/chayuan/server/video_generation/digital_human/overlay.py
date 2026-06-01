@@ -20,8 +20,23 @@ def _font() -> Optional[str]:
     return None
 
 
+def _font_for(style):
+    try:
+        import os
+        from chayuan.server.video_generation import binaries
+        fn = (style or {}).get("font_name")
+        if fn:
+            p = os.path.join(binaries.get_fonts_dir(), fn)
+            if os.path.isfile(p):
+                return p
+    except Exception:  # noqa: BLE001
+        pass
+    return _font()
+
+
 def add_overlays(video_path: str, out_path: str, *, labels: Optional[List[Tuple[str, float, float]]] = None,
-                 cues=None, width: int = 720, height: int = 1280) -> str:
+                 cues=None, width: int = 720, height: int = 1280,
+                 style: Optional[dict] = None) -> str:
     """labels: [(text, x_norm, y_norm)] 昵称标签;cues: List[SrtCue] 字幕(底部居中)。
     任一失败 → 返回原 video_path(不阻断出片)。成功 → 写 out_path 并返回它。"""
     if not labels and not cues:
@@ -38,15 +53,22 @@ def add_overlays(video_path: str, out_path: str, *, labels: Optional[List[Tuple[
                           color="white", stroke_color="black", stroke_width=2)
             tc = tc.with_position((float(xn), float(yn)), relative=True).with_duration(base.duration)
             layers.append(tc)
+        cue_font = _font_for(style) if style else font
+        cue_size = int((style or {}).get("font_size") or max(20, int(height * 0.035)))
+        cue_color = (style or {}).get("text_fore_color") or "white"
+        cue_stroke = (style or {}).get("stroke_color") or "black"
+        cue_sw = float(style.get("stroke_width") if style and style.get("stroke_width") is not None else 2)
+        _pos = (style or {}).get("subtitle_position") or "bottom"
+        cue_y = {"top": 0.05, "center": 0.45, "bottom": 0.86}.get(_pos, 0.86)
         for c in (cues or []):
             txt = getattr(c, "text", "") or ""
             if not txt:
                 continue
-            tc = TextClip(text=txt, font=font, font_size=max(20, int(height * 0.035)),
-                          color="white", stroke_color="black", stroke_width=2)
+            tc = TextClip(text=txt, font=cue_font, font_size=cue_size,
+                          color=cue_color, stroke_color=cue_stroke, stroke_width=cue_sw)
             start = getattr(c, "start_ms", 0) / 1000.0
             end = getattr(c, "end_ms", 0) / 1000.0
-            tc = tc.with_position(("center", 0.86), relative=True).with_start(start).with_end(max(start + 0.1, end))
+            tc = tc.with_position(("center", cue_y), relative=True).with_start(start).with_end(max(start + 0.1, end))
             layers.append(tc)
         comp = CompositeVideoClip(layers, size=(width, height)).with_duration(base.duration)
         comp.write_videofile(out_path, codec="libx264", audio_codec="aac", fps=25, threads=2, logger=None)

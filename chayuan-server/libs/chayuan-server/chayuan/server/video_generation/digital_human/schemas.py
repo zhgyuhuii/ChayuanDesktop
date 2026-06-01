@@ -1,6 +1,6 @@
 """数字人 P1 数据契约。"""
 from __future__ import annotations
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 from pydantic import BaseModel, Field, model_validator
 
 AvatarKind = Literal["image", "video"]
@@ -41,6 +41,13 @@ class DigitalHumanPreset(BaseModel):
     compose_mode: Literal["single", "coframe", "sequential"] = "single"
     layout: Literal["side", "pip", "main_minor"] = "side"
     subtitle_enabled: bool = True
+    subtitle_position: Literal["top", "bottom", "center", "custom"] = "bottom"
+    font_name: str = "STHeitiMedium.ttc"
+    font_size: int = 60
+    text_fore_color: str = "#FFFFFF"
+    text_background_color: Union[bool, str] = True
+    stroke_color: str = "#000000"
+    stroke_width: float = 1.5
     video_width: int = 720    # 画布尺寸(竖屏默认);生成沿用,前端可选常用比例
     video_height: int = 1280
 
