@@ -225,7 +225,8 @@ def generate(body: DhGenerateRequest,
     tid = dh_jobs.submit(preset_id=body.preset_id, text=body.text,
                          width=width, height=height,
                          product_ref=body.product_image, template=body.template,
-                         matte=body.matte, engine=body.engine)
+                         matte=body.matte, engine=body.engine,
+                         script=body.script, role_scripts=body.role_scripts)
     return {"task_id": tid}
 
 

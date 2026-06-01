@@ -131,3 +131,13 @@ def test_create_preset_route_accepts_avatars(monkeypatch, tmp_path):
     assert r.status_code == 200
     data = r.json()
     assert data["compose_mode"] == "coframe" and len(data["avatars"]) == 1
+
+
+def test_generate_passes_scripts(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path)
+    seen = {}
+    monkeypatch.setattr(dh_jobs, "submit", lambda **k: (seen.update(k), "tid")[1])
+    r = c.post("/api/v1/digital-human/generate",
+               json={"preset_id": "p", "text": "x", "script": "一套", "role_scripts": ["甲", "乙"]})
+    assert r.status_code == 200
+    assert seen.get("script") == "一套" and seen.get("role_scripts") == ["甲", "乙"]
