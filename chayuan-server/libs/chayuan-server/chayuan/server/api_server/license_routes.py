@@ -53,6 +53,13 @@ def get_buy_url(app: str = Query("video")):
     return {"url": f"{cfg['buy_base_url']}/buy?app={app}&mid={fp}", "channels": channels}
 
 
+@license_router.get("/promo-url")
+def get_promo_url():
+    cfg = load_license_config()
+    fp = _fp(_root())
+    return {"url": f"{cfg['buy_base_url']}/promo?mid={fp}", "fingerprint": fp}
+
+
 @license_router.get("/status")
 def get_status(app: str = Query("video")):
     if not _valid_app(app):
