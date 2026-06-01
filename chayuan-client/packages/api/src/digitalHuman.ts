@@ -49,6 +49,24 @@ export interface DigitalHumanPreset {
   video_width?: number;
   video_height?: number;
   subtitle_enabled?: boolean;
+  subtitle_position?: 'top' | 'bottom' | 'center' | 'custom';
+  font_name?: string;
+  font_size?: number;
+  text_fore_color?: string;
+  text_background_color?: boolean | string;
+  stroke_color?: string;
+  stroke_width?: number;
+  /** 仅用于 create/update 请求体:嵌套字幕样式 dict(后端白名单解包到上面各字段)。 */
+  subtitle?: {
+    subtitle_enabled?: boolean;
+    subtitle_position?: 'top' | 'bottom' | 'center' | 'custom';
+    font_name?: string;
+    font_size?: number;
+    text_fore_color?: string;
+    text_background_color?: boolean | string;
+    stroke_color?: string;
+    stroke_width?: number;
+  };
 }
 
 export interface DhAvatar {

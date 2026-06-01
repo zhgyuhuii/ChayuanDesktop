@@ -14,6 +14,7 @@ import { VoicePicker, type VoicePickerValue } from '../video-generation/VoicePic
 import { confirmDialog } from '../../store/confirmDialog';
 import { CanvasStage } from './CanvasStage';
 import { GROUPS as ASPECT_GROUPS } from '../video-generation/VgAspectPicker';
+import { videoGeneration, type VgFontItem } from '@chayuan/api';
 
 interface PresetEditorProps {
   initial?: DigitalHumanPreset;
@@ -40,7 +41,17 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const [canvas, setCanvas] = React.useState<{ w: number; h: number }>({
     w: initial?.video_width ?? 720, h: initial?.video_height ?? 1280,
   });
-  const [subtitleEnabled, setSubtitleEnabled] = React.useState<boolean>(initial?.subtitle_enabled ?? true);
+  const [sub, setSub] = React.useState({
+    subtitle_enabled: initial?.subtitle_enabled ?? true,
+    subtitle_position: (initial?.subtitle_position ?? 'bottom') as 'top' | 'bottom' | 'center' | 'custom',
+    font_name: initial?.font_name ?? '',
+    font_size: initial?.font_size ?? 60,
+    text_fore_color: initial?.text_fore_color ?? '#FFFFFF',
+    stroke_color: initial?.stroke_color ?? '#000000',
+    stroke_width: initial?.stroke_width ?? 1.5,
+    text_background_color: initial?.text_background_color ?? true,
+  });
+  const setSubF = (patch: Partial<typeof sub>) => setSub((s) => ({ ...s, ...patch }));
   const avatarFileRef = React.useRef<HTMLInputElement | null>(null);
 
   const avatarsQ = useQuery({
@@ -49,6 +60,9 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
     staleTime: 2 * 60 * 1000,
   });
   const avatars = avatarsQ.data?.items ?? [];
+
+  const fontsQ = useQuery({ queryKey: ['vg.fonts'], queryFn: () => videoGeneration.listFonts() });
+  const fonts: VgFontItem[] = fontsQ.data?.items ?? [];
 
   // 找到当前选中形象,用于提交时写 avatar_kind
   const selectedAvatar = avatars.find((a) => a.ref === avatarRef);
@@ -140,7 +154,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
             avatars: [],
             video_width: canvas.w,
             video_height: canvas.h,
-            subtitle_enabled: subtitleEnabled,
+            subtitle: sub,
             voice_provider: voice.voice_provider as DigitalHumanPreset['voice_provider'],
             voice_name: voice.voice_name,
           }
@@ -153,7 +167,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
             avatars: slots,
             video_width: canvas.w,
             video_height: canvas.h,
-            subtitle_enabled: subtitleEnabled,
+            subtitle: sub,
             voice_provider: voice.voice_provider as DigitalHumanPreset['voice_provider'],
             voice_name: voice.voice_name,
           };
@@ -202,10 +216,12 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
               {g.items.map((it) => (
                 <button key={it.w + 'x' + it.h} type="button" onClick={() => setCanvas({ w: it.w, h: it.h })}
                   title={`${it.w}×${it.h} (${it.ratio})`}
-                  className={cn('rounded-md border px-2 py-1 text-[11px]',
+                  className={cn('inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px]',
                     canvas.w === it.w && canvas.h === it.h
                       ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
                       : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
+                  <span className="inline-block rounded-[2px] border border-current opacity-70"
+                    style={{ width: Math.max(8, Math.round(12 * Math.min(1, it.w / it.h))), height: Math.max(8, Math.round(12 * Math.min(1, it.h / it.w))) }} />
                   {it.label}
                 </button>
               ))}
@@ -218,13 +234,43 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
       {/* 字幕设置 */}
       <div className="flex flex-col gap-1">
         <label className="text-[11px] text-[var(--cy-text-secondary)]">字幕</label>
-        <button type="button" onClick={() => setSubtitleEnabled((v) => !v)}
-          className={cn('self-start rounded-md border px-2 py-1 text-[11px]',
-            subtitleEnabled
-              ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-              : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
-          {subtitleEnabled ? '字幕:开' : '字幕:关'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2 text-[10px] text-[var(--cy-text-tertiary)]">
+          <button type="button" onClick={() => setSubF({ subtitle_enabled: !sub.subtitle_enabled })}
+            className={cn('rounded-md border px-2 py-1',
+              sub.subtitle_enabled ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)]')}>
+            {sub.subtitle_enabled ? '字幕:开' : '字幕:关'}
+          </button>
+          {sub.subtitle_enabled && (<>
+            <select value={sub.subtitle_position} onChange={(e) => setSubF({ subtitle_position: e.target.value as typeof sub.subtitle_position })}
+              className="h-6 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1 text-[10px]">
+              <option value="bottom">底部</option>
+              <option value="center">居中</option>
+              <option value="top">顶部</option>
+            </select>
+            <select value={sub.font_name} onChange={(e) => setSubF({ font_name: e.target.value })}
+              title="字体(系统字体)"
+              className="h-6 w-24 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1 text-[10px]">
+              {fonts.length === 0 && <option value={sub.font_name}>{fontsQ.isLoading ? '加载中…' : '(无字体)'}</option>}
+              {fonts.map((f) => <option key={f.name} value={f.name} title={f.label ?? f.name}>{f.label ?? f.name}</option>)}
+            </select>
+            <label className="inline-flex items-center gap-1">字号
+              <input type="number" min={12} max={200} value={sub.font_size}
+                onChange={(e) => setSubF({ font_size: Math.max(12, Math.min(200, parseInt(e.target.value, 10) || 60)) })}
+                className="h-6 w-12 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1 text-[10px]" /></label>
+            <label className="inline-flex items-center gap-1">字色
+              <input type="color" value={sub.text_fore_color} onChange={(e) => setSubF({ text_fore_color: e.target.value })} className="h-6 w-6 rounded" /></label>
+            <label className="inline-flex items-center gap-1">描边
+              <input type="color" value={sub.stroke_color} onChange={(e) => setSubF({ stroke_color: e.target.value })} className="h-6 w-6 rounded" /></label>
+            <label className="inline-flex items-center gap-1">描边宽
+              <input type="number" min={0} max={10} step={0.5} value={sub.stroke_width}
+                onChange={(e) => setSubF({ stroke_width: Math.max(0, Math.min(10, parseFloat(e.target.value) || 0)) })}
+                className="h-6 w-12 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1 text-[10px]" /></label>
+            <button type="button" onClick={() => setSubF({ text_background_color: !(sub.text_background_color === true) })}
+              className={cn('rounded-md border px-2 py-1', sub.text_background_color === true ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'border-[var(--cy-border-subtle)]')}>
+              {sub.text_background_color === true ? '背景:开' : '背景:关'}
+            </button>
+          </>)}
+        </div>
       </div>
 
       {/* 合成模式 */}
