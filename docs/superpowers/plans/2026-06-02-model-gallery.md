@@ -71,15 +71,14 @@
 - Create: `docs/superpowers/notes/2026-06-02-hub-api-probe.md`(记录实测命令+字段观察)
 
 - [ ] **Step 1: 实测 HF(走 hf-mirror,国内可达)搜索** —— 用户/实施者在可联网环境跑:
-  `curl -s 'https://hf-mirror.com/api/models?search=qwen3&filter=gguf&sort=downloads&direction=-1&limit=5&full=false'`
+  `curl -sL 'https://hf-mirror.com/api/models?search=qwen3&filter=gguf&sort=downloads&direction=-1&limit=5&full=false'`(**-L 必须**:hf-mirror 308 重定向。沙箱实测 200,`full=false` 也带 `siblings[{rfilename}]` 可判 runnable/选 quant)
   保存为 `hf_search.json`。观察字段:`id, downloads, likes, tags, pipeline_tag, library_name, createdAt`。
 - [ ] **Step 2: 实测 HF 文件树(取大小)** —— 取上一步某 id(如 `Qwen/Qwen3-4B-Instruct-GGUF`):
   `curl -s 'https://hf-mirror.com/api/models/<id>/tree/main?recursive=true'` 保存 `hf_tree.json`。
   观察:数组,每项 `{path, type, size, oid, lfs:{size,oid}}`。
 - [ ] **Step 3: 实测 ModelScope 搜索** —— ModelScope 列表 API(实测确认确切形态,二选一并记录):
-  `curl -s 'https://www.modelscope.cn/api/v1/models?Name=qwen&PageSize=5&PageNumber=1'`
-  或 `curl -s -X PUT 'https://www.modelscope.cn/api/v1/dolphin/models' -H 'Content-Type: application/json' -d '{"PageSize":5,"PageNumber":1,"Name":"qwen"}'`。
-  保存 `ms_search.json`,记录真实路径(`Data.Model.Models[]` 或 `Data.Models[]`)与每项字段(Name/Path/ChineseName/Tasks/Downloads)。
+  **沙箱已实测确认**:`curl -sL -X PUT 'https://www.modelscope.cn/api/v1/dolphin/models' -H 'Content-Type: application/json' -d '{"PageSize":5,"PageNumber":1,"Name":"qwen","SortBy":"Default"}'`(返 200,`{"Code":200,"Data":{"FiledAgg":{...},...}}`)。GET `/api/v1/models?...` 是 404,**别用**。
+  保存 `ms_search.json`,在 probe 笔记记录 Models 数组真实路径(`Data.Model.Models[]` 或 `Data.Models[]`,实测时打印 Data 顶层 key 确认)与每项字段(Name/Path/ChineseName/Tasks/Downloads)。
 - [ ] **Step 4: 实测 ModelScope 文件列表** —— 取某 owner/name:
   `curl -s 'https://www.modelscope.cn/api/v1/models/<owner>/<name>/repo/files?Revision=master&Root='`
   保存 `ms_files.json`。观察 `Data.Files[]` 每项 `{Path, Name, Size, Type}`。
