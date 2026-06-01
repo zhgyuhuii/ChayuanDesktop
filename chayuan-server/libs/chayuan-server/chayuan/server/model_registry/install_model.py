@@ -313,6 +313,9 @@ class InstallModelJob:
     requested_file: Optional[str]
     status: ModelJobStatus
     started_at: float
+    # 仓库分支/tag/commit;空=源默认分支(HF main / ModelScope master)。
+    # 放在默认值字段区(dataclass 不允许无默认字段排在有默认字段之后)。
+    revision: Optional[str] = None
     ended_at: Optional[float] = None
     exit_code: Optional[int] = None
     step: str = ""
@@ -329,6 +332,7 @@ class InstallModelJob:
             "model_id": self.model_id,
             "capability": self.capability,
             "requested_file": self.requested_file,
+            "revision": self.revision,
             "status": self.status.value,
             "step": self.step,
             "started_at": float(self.started_at),
@@ -355,6 +359,7 @@ class InstallModelJobManager:
         model_id: str,
         capability: str,
         specific_file: Optional[str] = None,
+        revision: Optional[str] = None,
     ) -> InstallModelJob:
         if source not in _ALLOWED_SOURCES:
             raise ValueError(
@@ -363,6 +368,8 @@ class InstallModelJobManager:
         norm_cap = _normalize_cap(capability)
         norm_id = _validate_model_id(model_id)
         norm_file = _validate_filename(specific_file)
+        # revision 不强校验(分支名/tag/commit sha 形态各异);空串归一成 None。
+        norm_rev = (revision or "").strip() or None
 
         with self._lock:
             # 同一 model_id + cap 已经在跑就拒绝(避免重复硬盘竞争)。
@@ -382,6 +389,7 @@ class InstallModelJobManager:
                 model_id=norm_id,
                 capability=norm_cap,
                 requested_file=norm_file,
+                revision=norm_rev,
                 status=ModelJobStatus.QUEUED,
                 started_at=time.time(),
             )
@@ -427,7 +435,8 @@ class InstallModelJobManager:
             job.step = "preparing"
             job.log_tail.append(
                 f"[install_model] start: source={job.source} model={job.model_id} "
-                f"cap={job.capability} file={job.requested_file or '(整仓)'}"
+                f"cap={job.capability} file={job.requested_file or '(整仓)'} "
+                f"revision={job.revision or '(默认分支)'}"
             )
 
         # 1. 准备目录
@@ -511,7 +520,7 @@ class InstallModelJobManager:
                 origin={
                     "source": job.source,
                     "repo_id": job.model_id,
-                    "revision": getattr(job, "revision", None),
+                    "revision": job.revision,
                 },
             )
             with self._lock:
@@ -623,6 +632,7 @@ class InstallModelJobManager:
                         model_id=job.model_id,
                         file_path=job.requested_file,
                         local_dir=str(target_dir),
+                        **({"revision": job.revision} if job.revision else {}),
                     )
                 except TypeError:
                     with self._lock:
@@ -634,6 +644,7 @@ class InstallModelJobManager:
                         model_id=job.model_id,
                         file_path=job.requested_file,
                         cache_dir=str(target_dir),
+                        **({"revision": job.revision} if job.revision else {}),
                     )
                 with self._lock:
                     job.log_tail.append(f"[install_model] downloaded → {local_path}")
@@ -648,14 +659,22 @@ class InstallModelJobManager:
                 # (models/bundled/embedding/BAAI--bge-m3/BAAI/bge-m3),还留 ._____temp。
                 # 老版本 modelscope SDK 不认 local_dir → TypeError,回退 cache_dir。
                 try:
-                    ms_snapshot(model_id=job.model_id, local_dir=str(target_dir))
+                    ms_snapshot(
+                        model_id=job.model_id,
+                        local_dir=str(target_dir),
+                        **({"revision": job.revision} if job.revision else {}),
+                    )
                 except TypeError:
                     with self._lock:
                         job.log_tail.append(
                             "[install_model] modelscope SDK 不支持 local_dir,"
                             "回退 cache_dir(会多套一层 owner/name 目录)"
                         )
-                    ms_snapshot(model_id=job.model_id, cache_dir=str(target_dir))
+                    ms_snapshot(
+                        model_id=job.model_id,
+                        cache_dir=str(target_dir),
+                        **({"revision": job.revision} if job.revision else {}),
+                    )
         except ModelRepoNotFoundError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -699,6 +718,7 @@ class InstallModelJobManager:
                     repo_id=job.model_id,
                     filename=job.requested_file,
                     local_dir=str(target_dir),
+                    **({"revision": job.revision} if job.revision else {}),
                 )
             else:
                 with self._lock:
@@ -710,6 +730,7 @@ class InstallModelJobManager:
                     repo_id=job.model_id,
                     local_dir=str(target_dir),
                     ignore_patterns=["*.msgpack", "*.h5", "*.ot"],
+                    **({"revision": job.revision} if job.revision else {}),
                 )
         except ModelRepoNotFoundError:
             raise

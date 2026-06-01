@@ -630,6 +630,7 @@ export interface InstallModelJob {
   model_id: string;
   capability: InstallModelCapability;
   requested_file: string | null;
+  revision: string | null;           // 仓库分支/tag/commit;null=源默认分支
   status: InstallJobStatus;          // 复用 release job 的状态枚举(同 5 态)
   step: string;                       // preparing / downloading / finalizing / done
   started_at: number;
@@ -656,6 +657,7 @@ export const serverModelsInstallModel = {
     model_id: string;
     capability: InstallModelCapability | string;
     specific_file?: string | null;
+    revision?: string | null;        // 仓库分支/tag/commit;省略=源默认分支
   }): Promise<InstallModelJob> {
     const r = await request<{ data: InstallModelJob }>(MODELS_INSTALL_MODEL, {
       method: 'POST',

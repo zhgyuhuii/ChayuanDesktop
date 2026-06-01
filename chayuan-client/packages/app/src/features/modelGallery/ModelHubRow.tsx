@@ -86,13 +86,14 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
   const [startErr, setStartErr] = React.useState<string | null>(null);
 
   const doStart = React.useCallback(
-    (file: string | undefined) => {
+    (file: string | undefined, revision?: string) => {
       setStartErr(null);
       void start({
         source: card.source as InstallModelSource,
         model_id: card.model_id,
         capability: card.capability,
         requested_file: file ?? null,
+        revision: revision ?? null,
       }).catch((e) => {
         setStartErr(e instanceof Error ? e.message : String(e));
       });
@@ -344,9 +345,9 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
           token={token}
           onPick={(file, revision) => {
             setPicking(false);
-            // revision 目前后端 install_model 不收;选了具体文件即可。透传 revision 暂留作未来扩展。
-            void revision;
-            doStart(file);
+            // revision 一路透传到后端下载器(HF/MS 的 revision= 参数);
+            // 空则后端保持源默认分支(HF main / ModelScope master)。
+            doStart(file, revision ?? undefined);
           }}
           onClose={() => setPicking(false)}
         />

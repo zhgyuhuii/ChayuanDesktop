@@ -27,6 +27,7 @@ export interface StartInstallArgs {
   model_id: string;
   capability: InstallModelCapability | string;
   requested_file?: string | null;
+  revision?: string | null;   // 仓库分支/tag/commit;省略=源默认分支
 }
 
 export interface UseInstallJobResult {
@@ -89,6 +90,7 @@ export function useInstallJob(opts?: {
         model_id: args.model_id,
         capability: args.capability,
         specific_file: args.requested_file ?? null,
+        revision: args.revision ?? null,
       });
       setJob(j);
       // 立即返回的 job 已是终态(极少见)就不开轮询;succeeded 直接回调。

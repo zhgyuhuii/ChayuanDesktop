@@ -1197,6 +1197,10 @@ def admin_models_install_model(
     capability = str(payload.get("capability") or "").strip()
     specific_file = payload.get("specific_file")
     specific_file = str(specific_file).strip() if specific_file else None
+    # revision:仓库分支/tag/commit(前端 HubFilePicker 选具体 revision 时带上)。
+    # 空/缺省 → None,下载器保持源默认分支行为(HF main / ModelScope master)。
+    revision = payload.get("revision")
+    revision = str(revision).strip() if revision else None
 
     try:
         job = get_install_model_manager().start(
@@ -1204,6 +1208,7 @@ def admin_models_install_model(
             model_id=model_id,
             capability=capability,
             specific_file=specific_file,
+            revision=revision,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
