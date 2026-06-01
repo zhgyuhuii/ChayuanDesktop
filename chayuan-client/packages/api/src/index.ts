@@ -5,6 +5,7 @@ export * from './endpoints';
 export * from './marketplace';
 export * from './imageModels';
 export * from './modelPlatform';
+export * from './modelHub';
 export * from './providers';
 export * from './uploadProgress';
 export * from './knowledge-source';
