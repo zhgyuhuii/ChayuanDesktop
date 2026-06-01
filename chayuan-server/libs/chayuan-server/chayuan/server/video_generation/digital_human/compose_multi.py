@@ -107,3 +107,69 @@ def render_coframe(clip_paths: List[str], *, layout: str = "side", out_path: str
                 c.close()
             except Exception:  # noqa: BLE001
                 pass
+
+
+def _turntaking_segments(unit_roles, durations, role_index):
+    """某角色的全长轨分段:每句 (is_speak, duration_ms) -- 属于该角色=说,否则=待机。"""
+    out = []
+    for r, d in zip(unit_roles, durations):
+        out.append((r == role_index, int(d)))
+    return out
+
+
+def _probe_ms(path):
+    try:
+        from moviepy import VideoFileClip
+        c = VideoFileClip(path)
+        try:
+            return int(c.duration * 1000)
+        finally:
+            c.close()
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def render_coframe_turntaking(unit_clips, unit_roles, positions, avatars, *,
+                              out_path, width, height):
+    """同框按句轮流:每角色全长轨(说话句=该句片段,他句=静态待机帧),按 positions 合成。
+    只说话句带音频->叠加即顺序音轨。失败抛异常(caller 兜底)。"""
+    from moviepy import VideoFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
+    n_roles = len(positions)
+    durs = [max(1, _probe_ms(c)) for c in unit_clips]
+    pos_px = _resolve_positions(positions, "side", n_roles, width, height)
+    opened = []
+    try:
+        speak_clips = [VideoFileClip(c) for c in unit_clips]
+        opened.extend(speak_clips)
+        role_tracks = []
+        for ri in range(n_roles):
+            x, y, tw = pos_px[ri]
+            segs = []
+            for j, (r, d) in enumerate(zip(unit_roles, durs)):
+                if r == ri:
+                    segs.append(speak_clips[j].resized(width=tw))
+                else:
+                    src = None
+                    for jj, rr in enumerate(unit_roles):
+                        if rr == ri:
+                            src = speak_clips[jj]
+                            break
+                    if src is not None:
+                        idle = ImageClip(src.get_frame(0))
+                    else:
+                        idle = ImageClip(avatars[ri])
+                    idle = idle.resized(width=tw).with_duration(d / 1000.0)
+                    segs.append(idle)
+            track = concatenate_videoclips(segs, method="compose").with_position((x, y))
+            role_tracks.append(track)
+            opened.append(track)
+        comp = CompositeVideoClip(role_tracks, size=(width, height))
+        comp.write_videofile(out_path, codec="libx264", audio_codec="aac", fps=25, threads=2, logger=None)
+        opened.append(comp)
+        return out_path
+    finally:
+        for c in opened:
+            try:
+                c.close()
+            except Exception:  # noqa: BLE001
+                pass
