@@ -139,3 +139,23 @@ def test_preset_canvas_default(monkeypatch, tmp_path):
     monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
     p = dh_store.create_preset(name="m", avatar_ref="user:a", avatar_kind="video")
     assert p.video_width == 720 and p.video_height == 1280
+
+
+from chayuan.server.video_generation.digital_human.schemas import (
+    AvatarSlot as _Slot, DhGenerateRequest as _Gen,
+)
+
+def test_role_fields_defaults_and_roundtrip():
+    s = _Slot(ref="user:a.png", kind="image", name="小李",
+              voice_provider="sherpa", voice_name="vz",
+              voice_rate=1.1, voice_volume=0.9, language="zh", x=0.1, y=0.2, scale=0.5)
+    d = s.model_dump()
+    assert d["name"] == "小李" and d["voice_rate"] == 1.1 and d["x"] == 0.1
+    s2 = _Slot(ref="user:b.png")
+    assert s2.name == "" and s2.voice_rate == 1.0 and s2.voice_volume == 1.0 and s2.scale == 1.0
+
+def test_generate_request_scripts():
+    g = _Gen(preset_id="p", text="x", script="一套台词", role_scripts=["甲词", "乙词"])
+    assert g.script == "一套台词" and g.role_scripts == ["甲词", "乙词"]
+    g2 = _Gen(preset_id="p", text="x")
+    assert g2.script is None and g2.role_scripts is None
