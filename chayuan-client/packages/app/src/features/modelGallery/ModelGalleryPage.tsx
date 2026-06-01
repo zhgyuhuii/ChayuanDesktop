@@ -18,7 +18,7 @@ import {
   modelHub,
   runtimeModels,
 } from '@chayuan/api';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Loader2, PackageOpen } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from '../../i18n';
@@ -57,11 +57,28 @@ function localToCard(e: LocalModelEntry): HubModelCard {
     updated_at: null,
     tags: [],
     installed: true,
+    // 内置模型不可卸载 —— 后端 local_index 用 source_tag='bundled' 标注。
+    bundled: e.source_tag === 'bundled',
   };
 }
 
+/** HF token 本地存储 key(私有仓 / 限流时附带)。 */
+const HF_TOKEN_KEY = 'chayuan.hf_token';
+
 export const ModelGalleryPage: React.FC = () => {
   const { t } = useTranslation();
+  const qc = useQueryClient();
+
+  const [hfToken, setHfToken] = React.useState<string>(
+    () => (typeof localStorage !== 'undefined' ? localStorage.getItem(HF_TOKEN_KEY) || '' : ''),
+  );
+  const onHfTokenChange = React.useCallback((v: string) => {
+    setHfToken(v);
+    if (typeof localStorage !== 'undefined') {
+      if (v) localStorage.setItem(HF_TOKEN_KEY, v);
+      else localStorage.removeItem(HF_TOKEN_KEY);
+    }
+  }, []);
 
   const [source, setSource] = React.useState<GallerySource>('modelscope');
   const [hfRoute, setHfRoute] = React.useState<HfRoute>('mirror');
@@ -83,22 +100,34 @@ export const ModelGalleryPage: React.FC = () => {
   }, [source, query, capability, runnableOnly]);
 
   const isInstalled = source === 'installed';
+  const route = routeParam(source, hfRoute);
+  // token 仅对 HuggingFace 源生效(ModelScope 首期走公开仓)。
+  const token = source === 'huggingface' ? hfToken || undefined : undefined;
+
+  // 装 / 卸成功后:刷新对话下拉(['v1.models'])、已安装清单(['runtime.models'])、
+  // 本页搜索结果的 installed 标记(['model-hub.search'])。
+  const onMutated = React.useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ['v1.models'] });
+    void qc.invalidateQueries({ queryKey: ['runtime.models'] });
+    void qc.invalidateQueries({ queryKey: ['model-hub.search'] });
+  }, [qc]);
 
   // 远程检索。
   const searchQuery = useQuery({
     queryKey: [
       'model-hub.search',
-      { source, hfRoute, query, capability, runnableOnly, page },
+      { source, hfRoute, query, capability, runnableOnly, page, hasToken: !!token },
     ],
     queryFn: () =>
       modelHub.search({
         source,
-        route: routeParam(source, hfRoute),
+        route,
         query: query || undefined,
         capability: capability ?? undefined,
         runnableOnly,
         page,
         pageSize: PAGE_SIZE,
+        token,
       }),
     enabled: !isInstalled,
     placeholderData: keepPreviousData,
@@ -145,6 +174,8 @@ export const ModelGalleryPage: React.FC = () => {
           onCapabilityChange={setCapability}
           runnableOnly={runnableOnly}
           onRunnableOnlyChange={setRunnableOnly}
+          hfToken={hfToken}
+          onHfTokenChange={onHfTokenChange}
         />
       </div>
 
@@ -186,7 +217,13 @@ export const ModelGalleryPage: React.FC = () => {
               </div>
             )}
             {rows.map((card) => (
-              <ModelHubRow key={`${card.source}::${card.model_id}`} card={card} />
+              <ModelHubRow
+                key={`${card.source}::${card.model_id}`}
+                card={card}
+                route={route}
+                token={token}
+                onMutated={onMutated}
+              />
             ))}
           </div>
         )}

@@ -35,6 +35,9 @@ export interface GalleryFiltersProps {
   onCapabilityChange(c: string | null): void;
   runnableOnly: boolean;
   onRunnableOnlyChange(v: boolean): void;
+  /** HuggingFace 源端可选 token(私有仓 / 限流);仅 HF tab 显示。 */
+  hfToken: string;
+  onHfTokenChange(v: string): void;
 }
 
 export const GalleryFilters: React.FC<GalleryFiltersProps> = ({
@@ -48,6 +51,8 @@ export const GalleryFilters: React.FC<GalleryFiltersProps> = ({
   onCapabilityChange,
   runnableOnly,
   onRunnableOnlyChange,
+  hfToken,
+  onHfTokenChange,
 }) => {
   const isInstalled = source === 'installed';
   const isHf = source === 'huggingface';
@@ -89,6 +94,20 @@ export const GalleryFilters: React.FC<GalleryFiltersProps> = ({
               <option value="mirror">hf-mirror(国内)</option>
               <option value="official">官方</option>
             </select>
+          </label>
+        )}
+
+        {isHf && (
+          <label className="inline-flex items-center gap-1.5 text-xs text-[var(--cy-text-secondary)]">
+            HF Token
+            <input
+              type="password"
+              value={hfToken}
+              onChange={(e) => onHfTokenChange(e.target.value)}
+              placeholder="可选(私有仓 / 限流)"
+              autoComplete="off"
+              className="h-7 w-[180px] rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none"
+            />
           </label>
         )}
       </div>

@@ -38,6 +38,8 @@ export interface HubModelCard {
   tags: string[];
   /** 该 repo 是否已装到本地(后端比对 local_index)。 */
   installed: boolean;
+  /** 是否为内置(bundled)模型 —— 不可卸载。仅已安装 tab 据 source_tag 填充。 */
+  bundled?: boolean;
 }
 
 /** 仓库内单个文件;字段与后端 HubFile 一致。 */
