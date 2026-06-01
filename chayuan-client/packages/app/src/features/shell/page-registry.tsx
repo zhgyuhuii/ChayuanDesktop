@@ -47,6 +47,9 @@ const KbDetailPage = React.lazy(() =>
 const MarketplacePage = React.lazy(() =>
   import('../marketplace/MarketplacePage').then((m) => ({ default: m.MarketplacePage })),
 );
+const ModelGalleryPage = React.lazy(() =>
+  import('../modelGallery/ModelGalleryPage').then((m) => ({ default: m.ModelGalleryPage })),
+);
 const HistoryPage = React.lazy(() =>
   import('../history/HistoryPage').then((m) => ({ default: m.HistoryPage })),
 );
@@ -216,6 +219,12 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     render: (_params, path) => <MarketplaceRoute path={path} />,
     defaultTitle: 'nav.modelMarket',
     defaultIcon: 'box',
+  },
+  {
+    pattern: /^\/model-gallery$/,
+    render: () => <ModelGalleryPage />,
+    defaultTitle: 'nav.modelGallery',
+    defaultIcon: 'store',
   },
   {
     pattern: /^\/history$/,

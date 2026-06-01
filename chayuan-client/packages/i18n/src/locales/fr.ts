@@ -25,6 +25,7 @@ export default {
     newChat: 'Nouvelle conversation',
     knowledge: 'Base de connaissances',
     modelMarket: 'Fournisseurs de modèles',
+    modelGallery: 'Galerie de modèles',
     history: 'Historique',
     settings: 'Paramètres',
     home: 'Accueil',

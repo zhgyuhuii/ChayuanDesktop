@@ -25,6 +25,7 @@ export default {
     newChat: '새 대화',
     knowledge: '지식 베이스',
     modelMarket: '모델 공급업체',
+    modelGallery: '모델 갤러리',
     history: '대화 기록',
     settings: '설정',
     home: '홈',

@@ -27,6 +27,7 @@ export default {
     newChat: '新建对话',
     knowledge: '知识中心',
     modelMarket: '模型厂商',
+    modelGallery: '模型广场',
     mcp: 'MCP服务',
     tools: '工具中心',
     history: '历史对话',

@@ -25,6 +25,7 @@ export default {
     newChat: 'Neues Gespräch',
     knowledge: 'Wissensdatenbank',
     modelMarket: 'Modellanbieter',
+    modelGallery: 'Modellgalerie',
     history: 'Gesprächsverlauf',
     settings: 'Einstellungen',
     home: 'Startseite',

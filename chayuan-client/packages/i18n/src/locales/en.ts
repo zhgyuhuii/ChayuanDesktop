@@ -27,6 +27,7 @@ export default {
     newChat: 'New Chat',
     knowledge: 'Knowledge Hub',
     modelMarket: 'Model Vendors',
+    modelGallery: 'Model Gallery',
     mcp: 'MCP',
     tools: 'Tool Hub',
     history: 'Chat History',

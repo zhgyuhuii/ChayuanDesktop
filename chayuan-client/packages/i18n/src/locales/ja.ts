@@ -25,6 +25,7 @@ export default {
     newChat: '新しい会話',
     knowledge: 'ナレッジベース',
     modelMarket: 'モデルベンダー',
+    modelGallery: 'モデルギャラリー',
     history: '会話履歴',
     settings: '設定',
     home: 'ホーム',

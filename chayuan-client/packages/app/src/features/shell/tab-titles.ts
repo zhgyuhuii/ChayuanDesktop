@@ -9,6 +9,7 @@ const STATIC: Record<string, string> = {
   '/chat': 'nav.newChat',
   '/kb': 'nav.knowledge',
   '/marketplace': 'nav.modelMarket',
+  '/model-gallery': 'nav.modelGallery',
   '/history': 'nav.history',
   '/settings': 'nav.settings',
   '/mcp': 'mcp.title',

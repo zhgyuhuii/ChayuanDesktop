@@ -132,6 +132,7 @@ const workspaceRoutes: ReadonlyArray<{ path: string; id: string }> = [
   { path: '/kb', id: 'kb' },
   { path: '/kb/$kuId', id: 'kb-by-id' },
   { path: '/marketplace', id: 'marketplace' },
+  { path: '/model-gallery', id: 'model-gallery' },
   { path: '/skill/$slug', id: 'skill' },
   { path: '/history', id: 'history' },
   { path: '/annotation', id: 'annotation' },
