@@ -26,7 +26,7 @@ export default {
   nav: {
     newChat: 'New Chat',
     knowledge: 'Knowledge Hub',
-    modelMarket: 'Model Market',
+    modelMarket: 'Model Vendors',
     mcp: 'MCP',
     tools: 'Tool Hub',
     history: 'Chat History',
@@ -136,7 +136,7 @@ export default {
     composerNoScope: 'Pick a knowledge base above, or send to chat without scope',
   },
   modelMarket: {
-    title: 'Model Market',
+    title: 'Model Vendors',
     recommended: 'Recommended',
     manage: 'Manage',
     history: 'History',

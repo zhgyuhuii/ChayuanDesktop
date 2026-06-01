@@ -24,7 +24,7 @@ export default {
   nav: {
     newChat: '新しい会話',
     knowledge: 'ナレッジベース',
-    modelMarket: 'モデル広場',
+    modelMarket: 'モデルベンダー',
     history: '会話履歴',
     settings: '設定',
     home: 'ホーム',
@@ -79,7 +79,7 @@ export default {
     inputPlaceholder: 'ナレッジベースについて何でも聞いてください...',
   },
   modelMarket: {
-    title: 'モデル広場',
+    title: 'モデルベンダー',
     recommended: 'おすすめ',
     manage: '管理',
     history: '履歴',

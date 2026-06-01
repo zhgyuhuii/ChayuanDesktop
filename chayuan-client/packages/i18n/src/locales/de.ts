@@ -24,7 +24,7 @@ export default {
   nav: {
     newChat: 'Neues Gespräch',
     knowledge: 'Wissensdatenbank',
-    modelMarket: 'Modellmarkt',
+    modelMarket: 'Modellanbieter',
     history: 'Gesprächsverlauf',
     settings: 'Einstellungen',
     home: 'Startseite',
@@ -79,7 +79,7 @@ export default {
     inputPlaceholder: 'Fragen Sie mich alles über die Wissensdatenbank...',
   },
   modelMarket: {
-    title: 'Modellmarkt',
+    title: 'Modellanbieter',
     recommended: 'Empfohlen',
     manage: 'Verwalten',
     history: 'Verlauf',

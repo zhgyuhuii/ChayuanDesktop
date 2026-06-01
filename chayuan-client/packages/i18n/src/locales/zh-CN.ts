@@ -26,7 +26,7 @@ export default {
   nav: {
     newChat: '新建对话',
     knowledge: '知识中心',
-    modelMarket: '模型广场',
+    modelMarket: '模型厂商',
     mcp: 'MCP服务',
     tools: '工具中心',
     history: '历史对话',
@@ -153,7 +153,7 @@ export default {
     composerNoScope: '勾选上方知识库后再提问 (或直接发送进入普通对话)',
   },
   modelMarket: {
-    title: '模型广场',
+    title: '模型厂商',
     recommended: '推荐',
     manage: '管理',
     history: '历史',

@@ -24,7 +24,7 @@ export default {
   nav: {
     newChat: '새 대화',
     knowledge: '지식 베이스',
-    modelMarket: '모델 광장',
+    modelMarket: '모델 공급업체',
     history: '대화 기록',
     settings: '설정',
     home: '홈',
@@ -79,7 +79,7 @@ export default {
     inputPlaceholder: '지식 베이스에서 무엇이든 물어보세요...',
   },
   modelMarket: {
-    title: '모델 광장',
+    title: '모델 공급업체',
     recommended: '추천',
     manage: '관리',
     history: '기록',

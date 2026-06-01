@@ -24,7 +24,7 @@ export default {
   nav: {
     newChat: 'Nouvelle conversation',
     knowledge: 'Base de connaissances',
-    modelMarket: 'Marché des modèles',
+    modelMarket: 'Fournisseurs de modèles',
     history: 'Historique',
     settings: 'Paramètres',
     home: 'Accueil',
@@ -79,7 +79,7 @@ export default {
     inputPlaceholder: 'Posez-moi n\'importe quelle question sur la base de connaissances...',
   },
   modelMarket: {
-    title: 'Marché des modèles',
+    title: 'Fournisseurs de modèles',
     recommended: 'Recommandé',
     manage: 'Gérer',
     history: 'Historique',
