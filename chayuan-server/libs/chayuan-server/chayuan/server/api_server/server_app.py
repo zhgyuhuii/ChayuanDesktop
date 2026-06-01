@@ -28,6 +28,7 @@ from chayuan.server.api_server.mcp_routes import mcp_router
 from chayuan.server.api_server.modality_routes import modality_router
 from chayuan.server.api_server.artifacts_routes import artifacts_router
 from chayuan.server.api_server.provider_routes import provider_router
+from chayuan.server.api_server.model_hub_routes import model_hub_router
 from chayuan.server.api_server.runtime_routes import runtime_router
 from chayuan.server.api_server.storage_routes import storage_router
 from chayuan.server.api_server.middleware import (
@@ -135,6 +136,9 @@ def create_app(run_mode: str = None):
     # 鉴权放宽为 optional，全局共享配置，详见 provider_routes.py 模块 docstring。
     app.include_router(provider_router)
     app.include_router(provider_router, prefix="/api")
+    # 模型广场 Hub 搜索/详情（/v1/model-hub/*）—— 复用 provider 的挂载方式（裸 + /api）
+    app.include_router(model_hub_router)
+    app.include_router(model_hub_router, prefix="/api")
     # 运行时端点 / vendor / 本地模型 —— 给"系统服务"页面 + chayuan service info 用
     app.include_router(runtime_router)
     app.include_router(runtime_router, prefix="/api")
