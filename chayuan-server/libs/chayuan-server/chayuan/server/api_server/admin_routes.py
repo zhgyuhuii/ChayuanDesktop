@@ -1242,6 +1242,42 @@ def admin_models_install_model_cancel(job_id: str) -> Dict[str, Any]:
 
 
 @admin_router.post(
+    "/models/uninstall",
+    summary="[gate] 卸载本地已安装模型(删盘+重扫+移出 enabled)",
+    tags=["Admin / Models"],
+)
+def admin_models_uninstall(
+    payload: Dict[str, Any] = Body(
+        ...,
+        description=(
+            '{"source": "modelscope|huggingface", "repo_id": "owner/name", '
+            '"force": false}。删本机模型目录 + 重扫 local_index + 把模型移出 '
+            'local-<cap> 平台清单。三边界:内置(bundled)只读拒卸;模型正被 '
+            'local-runtime 加载时非 force 拒(返 reason=in_use+capability),'
+            'force=true 则先停 sidecar 再删;找不到返 reason=not_found。'
+        ),
+    ),
+) -> Dict[str, Any]:
+    """卸载本地模型。详见 ``model_registry/uninstall.py``。
+
+    返回(包在标准 envelope 的 ``data`` 里):
+      * 成功:``{"ok":True,"freed_bytes":N}``(可能带 ``note``);
+      * 拒绝:``{"ok":False,"reason":"not_found|bundled|in_use|error",...}``。
+    HTTP 始终 200(业务结果在 data.ok),便于前端按 reason 渲染不同提示。
+    """
+    from chayuan.server.model_registry.uninstall import uninstall
+
+    source = str(payload.get("source") or "").strip()
+    repo_id = str(payload.get("repo_id") or "").strip()
+    force = bool(payload.get("force") or False)
+    if not repo_id:
+        raise HTTPException(status_code=400, detail="repo_id 不能为空")
+
+    result = uninstall(source, repo_id, force=force)
+    return {"code": 0, "msg": "ok", "data": result}
+
+
+@admin_router.post(
     "/models/scan_and_mount",
     summary="手动放好模型文件后:扫描 + 自动启动新发现的 cap",
     tags=["Admin / Models"],
