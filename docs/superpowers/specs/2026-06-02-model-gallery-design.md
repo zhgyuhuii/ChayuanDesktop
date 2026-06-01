@@ -19,8 +19,12 @@ ModelScope / HuggingFace 官方模型库(列表式、类型过滤+搜索 AND 联
 2. 新「模型广场」数据 = **实时调各 hub 官方 JSON 接口**(HF `/api/models`、ModelScope
    模型列表 API),非本地维护目录。默认「仅可运行」过滤(只显示本地 sidecar 能跑的格式),
    可切换看全部并标灰「本地不可运行」。
-3. 覆盖**全部本地 sidecar 能跑的能力**:chat / text-embedding / rerank / speech-to-text /
-   text-to-audio / image-embedding / image-to-text(other 兜底)。
+3. 覆盖能力:
+   - **可运行(装完即用,有 sidecar)**:chat / text-embedding / rerank / speech-to-text /
+     text-to-audio / image-embedding / image-to-text(other 兜底)。
+   - **仅浏览+下载+管理(暂无本地运行服务)**:text-to-image / text-to-video。卡片标
+     「暂无本地运行服务」,可下载/卸载/看已装,但不接入任何服务下拉(项目无 diffusion sidecar)。
+   - 归一卡片用 `serveable: bool` 区分二者:可运行类 serveable=true;t2i/t2v serveable=false。
 4. 源 tab = **ModelScope + HuggingFace + 已安装**;HuggingFace tab 内带「线路:hf-mirror
    (国内默认)/官方」切换(同一库,仅域名不同)。
 5. 下载**复用现有 `chayuan-modelmgr`**(进度事件总线 + 取消 + 断点续传)与文件解析;
@@ -63,7 +67,8 @@ class NormalizedModelCard:
     param_size: str | None # "7B"/"0.6B";尽力解析(见下),取不到 None
     file_size_bytes: int | None  # 可下载文件总大小(详情页/懒加载填)
     format: str | None     # gguf/onnx/safetensors/ggml/...
-    runnable: bool         # 本地 sidecar 能否跑(过滤依据)
+    runnable: bool         # 下载格式本地可识别/可跑(过滤依据)
+    serveable: bool        # 是否有本地服务能跑(t2i/t2v=false,仅可下载管理)
     downloads: int
     likes: int
     updated_at: str | None
@@ -163,8 +168,15 @@ class HubFile:
   与字段映射,再落代码。用户环境:ModelScope 可达、HF 官方不可达、hf-mirror 可达。
 - 所有改动沙箱只能 py_compile/读检,真验证靠用户 py312 + 联网。
 
-## 未做(YAGNI / 后续)
+## 已扩入本期(2026-06-02 用户「全部都做」)
 
-- 文生图/文生视频模型(text-to-image/video)的安装与运行(本地推理重,首期不接)。
-- 模型版本/分支(revision)选择(默认 main/master)。
-- 远程私有库鉴权(token)——首期只公开模型。
+- **文生图/文生视频**:纳入浏览+下载+卸载+已装清单,但 serveable=false、标「暂无本地运行
+  服务」,不接入服务下拉。自建 diffusion serving 引擎仍属独立大工程,**不在本期**。
+- **revision/分支选择**:HubFilePickerDialog 增可选 revision 下拉(默认 main/master),
+  detail/install 透传 revision 给下载器。
+- **私有库 token**:HuggingFace tab 设置里可填 HF token(可选),detail/search/install 透传;
+  ModelScope 同理可填 SDK token。存本地配置,不入库、不上报。
+
+## 未做(YAGNI)
+
+- 自建本地 diffusion(文生图/视频)推理服务 sidecar —— 另立项目 brainstorming。
