@@ -371,3 +371,14 @@ def test_coframe_turntaking_dispatch(monkeypatch, tmp_path):
     assert dh_jobs.get_status(tid).state == "complete"
     assert seen.get("roles") == [0, 1, 0]
     assert len(seen.get("positions")) == 2
+
+
+def test_single_narration_uses_role_rate_volume(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(dh_jobs, "_synth_to_wav",
+        lambda text, provider, name, ap, rate=1.0, volume=1.0: (seen.update({"rate": rate, "volume": volume}), ap)[1])
+    from chayuan.server.video_generation.digital_human.schemas import DigitalHumanPreset, AvatarSlot
+    preset = DigitalHumanPreset(id="p", name="m", avatar_ref="user:a", avatar_kind="image",
+        avatars=[AvatarSlot(ref="user:a", kind="image", voice_rate=1.2, voice_volume=0.7)])
+    dh_jobs._synthesize_narration("hi", preset, "/tmp/x.wav")
+    assert seen == {"rate": 1.2, "volume": 0.7}

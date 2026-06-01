@@ -154,8 +154,13 @@ def _synth_to_wav(text: str, provider: str, name: str, audio_path: str, rate: fl
 
 
 def _synthesize_narration(text: str, preset, audio_path: str) -> str:
-    """preset 绑定音色 → 旁白 wav(单形象/默认路径)。"""
-    return _synth_to_wav(text, preset.voice_provider, preset.voice_name, audio_path)
+    """preset 绑定音色 → 旁白 wav(单形象/默认路径)。语速/音量取首个角色(avatars[0]),
+    与多形象路径一致(预设级无 rate/volume,角色级才有)。"""
+    role0 = (getattr(preset, "avatars", None) or [None])[0]
+    rate = float(getattr(role0, "voice_rate", 1.0) or 1.0) if role0 is not None else 1.0
+    volume = float(getattr(role0, "voice_volume", 1.0) or 1.0) if role0 is not None else 1.0
+    return _synth_to_wav(text, preset.voice_provider, preset.voice_name, audio_path,
+                         rate=rate, volume=volume)
 
 
 def _probe_duration_ms(path: str) -> int:
