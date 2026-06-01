@@ -314,3 +314,29 @@ def test_af_filter_builds_string():
     assert dh_jobs._af_filter(1.1, 1.0) == "atempo=1.100"
     assert dh_jobs._af_filter(1.0, 0.8) == "volume=0.800"
     assert dh_jobs._af_filter(1.2, 0.5) == "atempo=1.200,volume=0.500"
+
+
+def test_units_concurrent_synth_per_voice(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    calls = []
+    monkeypatch.setattr(dh_jobs, "_synth_to_wav",
+        lambda text, provider, name, ap, rate=1.0, volume=1.0:
+            (calls.append((text, provider, name, rate, volume)), open(ap, "wb").write(b"w"), ap)[2])
+    class _E:
+        def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
+            open(out_path, "wb").write(b"mp4"); return out_path
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda eid="wav2lip": _E())
+    monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
+    from chayuan.server.video_generation.digital_human import compose_multi as cm
+    monkeypatch.setattr(cm, "render_sequential", lambda clips, **k: (open(k["out_path"], "wb").write(b"s"), k["out_path"])[1])
+    pid = dh_jobs.store.create_preset(name="m", avatar_ref="user:a", avatar_kind="video",
+        avatars=[{"ref": "user:a", "kind": "video", "voice_provider": "sherpa", "voice_name": "v1", "voice_rate": 1.1},
+                 {"ref": "user:b", "kind": "video", "voice_provider": "piper", "voice_name": "v2", "voice_volume": 0.8}],
+        compose_mode="sequential").id
+    tid = uuid.uuid4().hex[:12]
+    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "全局", "width": 720, "height": 1280,
+                             "role_scripts": ["甲词", "乙词"]}
+    dh_jobs._set(tid, state="pending", progress=0)
+    dh_jobs.run_sync(tid)
+    assert ("甲词", "sherpa", "v1", 1.1, 1.0) in calls
+    assert ("乙词", "piper", "v2", 1.0, 0.8) in calls

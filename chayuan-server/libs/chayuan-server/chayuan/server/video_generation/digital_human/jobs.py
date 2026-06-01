@@ -173,30 +173,39 @@ def _probe_duration_ms(path: str) -> int:
 
 
 def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, role_scripts=None):
-    """为每个形象槽各生成一段说话片段(片段自带音频,引擎已 mux)。
-    台词:槽自带 lines,空则用全局 text;某槽形象文件缺失则跳过。全缺则抛异常。"""
+    """按 script_router 规划的合成单元生成片段:并发合成各单元音频(各自音色/语速/音量),
+    再串行跑 wav2lip(引擎模型共享,避免显存争用)。返回片段路径(按单元顺序)。"""
+    from chayuan.server.video_generation.digital_human import script_router as _sr
+    from concurrent.futures import ThreadPoolExecutor
+    dh_type = getattr(preset, "compose_mode", "single") or "single"
+    units = _sr.plan(dh_type, global_text, role_scripts, slots)
+    if not units:
+        raise RuntimeError("无可合成台词")
+
+    def _do_synth(pair):
+        i, u = pair
+        ap = os.path.join(td, "seg%d.wav" % i)
+        _synth_to_wav(u.text, u.provider, u.voice_name, ap, rate=u.rate, volume=u.volume)
+        return i, ap, u
+
+    with ThreadPoolExecutor(max_workers=min(4, len(units))) as ex:
+        synthd = list(ex.map(_do_synth, list(enumerate(units))))
+    synthd.sort(key=lambda t: t[0])
+
     clips = []
-    n = max(1, len(slots))
-    for i, slot in enumerate(slots):
-        av = resolve_avatar_path(slot.ref)
+    n = max(1, len(units))
+    for i, ap, u in synthd:
+        av = resolve_avatar_path(slots[u.role_index].ref)
         if not av:
-            logger.warning("[dh] 槽 %d 形象缺失,跳过: %s", i, slot.ref)
+            logger.warning("[dh] 角色 %d 形象缺失,跳过: %s", u.role_index, slots[u.role_index].ref)
             continue
-        rs = role_scripts or []
-        seg_text = (rs[i] if i < len(rs) and (rs[i] or "").strip() else global_text)
-        a_path = os.path.join(td, f"seg{i}.wav")
-        c_path = os.path.join(td, f"seg{i}.mp4")
-        prov = (getattr(slot, "voice_provider", "") or "") or (preset.voice_provider or "")
-        nm = (getattr(slot, "voice_name", "") or "") or (preset.voice_name or "")
-        _synth_to_wav(seg_text, prov, nm, a_path)
-        get_engine(engine).generate(
-            avatar_path=av, audio_path=a_path, out_path=c_path,
-            width=width, height=height, on_progress=None,
-        )
-        clips.append(c_path)
+        cp = os.path.join(td, "seg%d.mp4" % i)
+        get_engine(engine).generate(avatar_path=av, audio_path=ap, out_path=cp,
+                                    width=width, height=height, on_progress=None)
+        clips.append(cp)
         _set(tid, progress=10 + int((i + 1) * 78 / n))
     if not clips:
-        raise RuntimeError("没有可用形象片段(全部形象文件缺失)")
+        raise RuntimeError("没有可用片段(形象缺失)")
     return clips
 
 
