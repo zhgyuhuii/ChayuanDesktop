@@ -149,7 +149,7 @@ def _probe_duration_ms(path: str) -> int:
         return 0
 
 
-def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height):
+def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, role_scripts=None):
     """为每个形象槽各生成一段说话片段(片段自带音频,引擎已 mux)。
     台词:槽自带 lines,空则用全局 text;某槽形象文件缺失则跳过。全缺则抛异常。"""
     clips = []
@@ -159,7 +159,8 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height):
         if not av:
             logger.warning("[dh] 槽 %d 形象缺失,跳过: %s", i, slot.ref)
             continue
-        seg_text = (getattr(slot, "lines", "") or "").strip() or global_text
+        rs = role_scripts or []
+        seg_text = (rs[i] if i < len(rs) and (rs[i] or "").strip() else global_text)
         a_path = os.path.join(td, f"seg{i}.wav")
         c_path = os.path.join(td, f"seg{i}.mp4")
         prov = (getattr(slot, "voice_provider", "") or "") or (preset.voice_provider or "")
@@ -196,7 +197,8 @@ def _run_pipeline(tid: str) -> None:
         if mode in ("coframe", "sequential") and len(slots) >= 2:
             clips = _gen_slot_clips(tid, preset, slots, args["text"],
                                     args.get("engine") or "wav2lip", td,
-                                    args["width"], args["height"])
+                                    args["width"], args["height"],
+                                    role_scripts=args.get("role_scripts"))
             from chayuan.server.video_generation.digital_human import compose_multi as _cm
             _set(tid, progress=90)
             try:
@@ -255,11 +257,12 @@ def _run_pipeline(tid: str) -> None:
 
 def submit(*, preset_id: str, text: str, width: int, height: int,
            product_ref: Optional[str] = None, template: str = "none",
-           matte: bool = False, engine: str = "wav2lip") -> str:
+           matte: bool = False, engine: str = "wav2lip",
+           role_scripts=None, script=None) -> str:
     tid = uuid.uuid4().hex[:12]
     _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height,
                      "product_ref": product_ref, "template": template, "matte": matte,
-                     "engine": engine}
+                     "engine": engine, "role_scripts": role_scripts, "script": script}
     _set(tid, state="pending", progress=0)
     _POOL.submit(_run_pipeline, tid)
     return tid
