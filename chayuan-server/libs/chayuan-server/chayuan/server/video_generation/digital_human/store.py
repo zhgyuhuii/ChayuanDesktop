@@ -53,12 +53,14 @@ def create_preset(*, name: str, avatar_ref: str = "", avatar_kind: str = "image"
                   video_width: int = 720, video_height: int = 1280) -> DigitalHumanPreset:
     sub = subtitle or {}
     sub_fields = {k: sub[k] for k in _SUB_KEYS if k in sub}
+    # subtitle_enabled 既是显式形参、又可能在嵌套 subtitle 里 → 以嵌套值优先,
+    # 二者只保留一个,避免 DigitalHumanPreset(**) 同名重复 TypeError。
+    sub_fields.setdefault("subtitle_enabled", subtitle_enabled)
     p = DigitalHumanPreset(
         id=uuid.uuid4().hex[:12], name=name, avatar_ref=avatar_ref,
         avatar_kind=avatar_kind, is_greenscreen=is_greenscreen,
         voice_provider=voice_provider, voice_name=voice_name, created=time.time(),
         avatars=avatars or [], compose_mode=compose_mode, layout=layout,
-        subtitle_enabled=subtitle_enabled,
         video_width=video_width, video_height=video_height,
         **sub_fields,
     )

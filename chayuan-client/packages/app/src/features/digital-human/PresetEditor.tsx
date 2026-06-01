@@ -27,7 +27,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
 
   const [name, setName] = React.useState(initial?.name ?? '');
   const [avatarRef, setAvatarRef] = React.useState(initial?.avatar_ref ?? '');
-  const [voice, setVoice] = React.useState<VoicePickerValue>({
+  const [voice] = React.useState<VoicePickerValue>({
     voice_provider: (initial?.voice_provider ?? 'piper') as DhVoiceProvider,
     voice_name: initial?.voice_name ?? '',
   });
@@ -65,7 +65,6 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const fonts: VgFontItem[] = fontsQ.data?.items ?? [];
 
   // 找到当前选中形象,用于提交时写 avatar_kind
-  const selectedAvatar = avatars.find((a) => a.ref === avatarRef);
 
   const onUploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -125,52 +124,46 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
     setFocusedRef((cur) => (cur === ref ? '' : cur));
   };
 
-  // 默认聚焦:多形象 -> 第一个 slot;单形象 -> 当前 avatarRef。
+  // 单形象:点格子 = 替换为该形象(恰好 1 个 slot),并聚焦。统一走 slot 模型,
+  // 复用多形象的聚焦配置(语言在音色前)+ 可拖拽缩放画布。
+  const pickSingle = (a: DhAvatar) => {
+    setSlots([{ ref: a.ref, kind: a.kind, label: a.name, lines: '' }]);
+    setAvatarRef(a.ref);
+    setFocusedRef(a.ref);
+  };
+
+  // 默认聚焦:单/多形象统一 -> 第一个 slot(单形象=恰好 1 个 slot)。
   React.useEffect(() => {
-    if (isMulti) {
-      if (!slots.some((s2) => s2.ref === focusedRef)) {
-        setFocusedRef(slots[0]?.ref ?? '');
-      }
-    } else if (focusedRef !== avatarRef) {
-      setFocusedRef(avatarRef);
+    if (slots.length && !slots.some((s2) => s2.ref === focusedRef)) {
+      setFocusedRef(slots[0].ref);
+    } else if (!slots.length && focusedRef) {
+      setFocusedRef('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMulti, slots, avatarRef]);
+  }, [slots]);
 
   const canSave = name.trim().length > 0 && !saving && (
-    composeMode === 'single' ? avatarRef.length > 0 : slots.length >= 2
+    composeMode === 'single' ? slots.length >= 1 : slots.length >= 2
   );
 
   const onSave = async () => {
     if (!canSave) return;
     setSaving(true);
     try {
-      const body: Partial<DigitalHumanPreset> = composeMode === 'single'
-        ? {
-            name: name.trim(),
-            avatar_ref: avatarRef,
-            avatar_kind: selectedAvatar?.kind ?? 'image',
-            compose_mode: 'single',
-            avatars: [],
-            video_width: canvas.w,
-            video_height: canvas.h,
-            subtitle: sub,
-            voice_provider: voice.voice_provider as DigitalHumanPreset['voice_provider'],
-            voice_name: voice.voice_name,
-          }
-        : {
-            name: name.trim(),
-            avatar_ref: slots[0]?.ref ?? '',
-            avatar_kind: slots[0]?.kind ?? 'image',
-            compose_mode: composeMode,
-            layout,
-            avatars: slots,
-            video_width: canvas.w,
-            video_height: canvas.h,
-            subtitle: sub,
-            voice_provider: voice.voice_provider as DigitalHumanPreset['voice_provider'],
-            voice_name: voice.voice_name,
-          };
+      // 单/多形象统一:avatars=slots(单=1 个),首槽音色镜像到预设级,后端单形象路径读 avatar_ref。
+      const body: Partial<DigitalHumanPreset> = {
+        name: name.trim(),
+        avatar_ref: slots[0]?.ref ?? '',
+        avatar_kind: slots[0]?.kind ?? 'image',
+        compose_mode: composeMode,
+        layout,
+        avatars: slots,
+        video_width: canvas.w,
+        video_height: canvas.h,
+        subtitle: sub,
+        voice_provider: (slots[0]?.voice_provider || voice.voice_provider) as DigitalHumanPreset['voice_provider'],
+        voice_name: slots[0]?.voice_name || voice.voice_name,
+      };
       if (initial) {
         await digitalHuman.updatePreset(initial.id, body);
       } else {
@@ -305,14 +298,13 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
               <div key={a.ref} className="group relative">
                 <button
                   type="button"
-                  onClick={() => (isMulti ? addIfAbsentAndFocus(a) : setAvatarRef(a.ref))}
+                  onClick={() => (isMulti ? addIfAbsentAndFocus(a) : pickSingle(a))}
                   title={a.name}
                   className={cn(
                     'h-16 w-16 overflow-hidden rounded-lg border transition-colors',
-                    (isMulti ? focusedRef === a.ref : avatarRef === a.ref)
+                    focusedRef === a.ref
                       ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-400)]'
                       : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-brand-300)]',
-                    isMulti && focusedRef === a.ref && 'ring-[var(--cy-brand-600)] ring-offset-1',
                   )}
                 >
                   {a.kind === 'video' ? (
@@ -379,39 +371,22 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         )}
       </div>
 
-      {/* 单形象:可视化预览(单形象占满画面,位置无意义,只读预览) */}
-      {!isMulti && avatarRef && (
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-[var(--cy-text-secondary)]">预览</label>
-          <div
-            className="mx-auto h-48 overflow-hidden rounded-lg bg-black"
-            style={{ aspectRatio: `${canvas.w} / ${canvas.h}` }}
-          >
-            {(selectedAvatar?.kind ?? 'image') === 'video'
-              ? <video src={digitalHuman.avatarFileUrl(avatarRef)} muted loop autoPlay playsInline className="h-full w-full object-cover" />
-              : <img src={digitalHuman.avatarFileUrl(avatarRef)} alt={name} className="h-full w-full object-cover" />}
-          </div>
+      {/* 位置可视化:单/多形象统一,拖拽调整位置、四角缩放(单=1 个,多=多个) */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-[var(--cy-text-secondary)]">位置(拖拽调整位置,四角缩放)</label>
+        <div className="relative h-48">
+          <CanvasStage width={canvas.w} height={canvas.h} roles={slots}
+            onChange={(ref, pos) => setSlotField(ref, pos)} />
+          {slots.length === 0 && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-[11px] text-[var(--cy-text-tertiary)]">
+              {isMulti ? '点上方形象格子加入角色(数字=出场顺序,需 ≥2 个)' : '点上方形象选择一个'}
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* 多形象:位置可视化(始终显示;无角色时给空态提示,避免一片空白) */}
-      {isMulti && (
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-[var(--cy-text-secondary)]">位置(拖拽角色到画面对应处)</label>
-          <div className="relative h-48">
-            <CanvasStage width={canvas.w} height={canvas.h} roles={slots}
-              onChange={(ref, pos) => setSlotField(ref, pos)} />
-            {slots.length === 0 && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-[11px] text-[var(--cy-text-tertiary)]">
-                点上方形象格子加入角色(数字=出场顺序,需 ≥2 个)
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 聚焦角色 配置(多形象 master-detail:仅显示当前聚焦角色) */}
-      {isMulti && slots.length > 0 && (() => {
+      {/* 聚焦角色 配置(单/多形象统一:显示当前聚焦角色;语言在音色前) */}
+      {slots.length > 0 && (() => {
         const fSlot = slots.find((s2) => s2.ref === focusedRef) ?? slots[0];
         const fIdx = slots.findIndex((x) => x.ref === fSlot.ref) + 1;
         return (
@@ -448,16 +423,6 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
           </div>
         );
       })()}
-
-      {/* 音色绑定(仅单形象;多形象的音色在上方聚焦角色配置里) */}
-      {!isMulti && (
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-[var(--cy-text-secondary)]">音色</label>
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
-            <VoicePicker value={voice} onChange={setVoice} />
-          </div>
-        </div>
-      )}
 
       {/* 操作按钮 */}
       <div className="flex justify-end gap-2">
