@@ -349,9 +349,6 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         const fIdx = slots.findIndex((x) => x.ref === fSlot.ref) + 1;
         return (
           <div className="flex flex-col gap-2">
-            <label className="text-[11px] text-[var(--cy-text-secondary)]">
-              配置:{fSlot.name || fSlot.label || fSlot.ref}
-            </label>
             <div className="flex flex-col gap-2 rounded-md border border-[var(--cy-border-subtle)] p-2">
               <div className="flex items-center gap-2">
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--cy-brand-500)] text-[9px] text-white">{fIdx}</span>
