@@ -45,15 +45,14 @@ import {
 } from '@chayuan/ui';
 import {
   type InstallModelCapability,
-  type InstallModelJob,
   type InstallModelSource,
   type LocalRuntimeCapability,
   type ScanAndMountResult,
-  serverModelsInstallModel,
   serverModelsScanAndMount,
 } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
 import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
+import { useInstallJob } from '../modelGallery/useInstallJob';
 
 export interface InstallModelDialogProps {
   open: boolean;
@@ -247,19 +246,32 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
   const [source, setSource] = React.useState<InstallModelSource>('modelscope');
   const [modelId, setModelId] = React.useState('');
   const [specificFile, setSpecificFile] = React.useState('');
-  const [job, setJob] = React.useState<InstallModelJob | null>(null);
+  // 下载任务轮询交给共享 hook(单一真源);succeeded 时回调刷新父组件。
+  const {
+    job,
+    isInstalling,
+    start: startInstall,
+    cancel: cancelInstall,
+    reset: resetInstall,
+  } = useInstallJob({
+    onDone: (done) => {
+      notifySuccess('模型下载完成', done.target_dir || '已落入本地模型目录');
+      onSuccess?.();
+    },
+  });
   const [scanResult, setScanResult] = React.useState<ScanAndMountResult | null>(null);
-  const [pending, setPending] = React.useState<'install' | 'scan' | null>(null);
+  // 仅追踪「扫描挂载」的进行态;下载进行态改用 hook 的 isInstalling。
+  const [scanning, setScanning] = React.useState(false);
   const [bundledRoot, setBundledRoot] = React.useState<string>('');
 
   // 打开 Dialog 时重置临时状态(保留 source/modelId 偏好以防用户失误关闭)
   React.useEffect(() => {
     if (!open) {
-      setJob(null);
+      resetInstall();
       setScanResult(null);
-      setPending(null);
+      setScanning(false);
     }
-  }, [open]);
+  }, [open, resetInstall]);
 
   // Dialog 打开 / 切 cap 时,对 verified cap 自动预填 model_id + source +
   // specific_file(从项目 install_job._RELEASE_MANIFEST 同步过来,实测可下)。
@@ -273,83 +285,36 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
     setSpecificFile(verified.file ?? '');
   }, [open, capability]);
 
-  // 轮询 job 状态:running 时每 2s 拉一次
-  React.useEffect(() => {
-    if (!job || !pending) return;
-    if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled') {
-      setPending(null);
-      if (job.status === 'succeeded') {
-        notifySuccess('模型下载完成', job.target_dir || '已落入本地模型目录');
-        onSuccess?.();
-      }
-      return;
-    }
-    const tid = window.setTimeout(async () => {
-      try {
-        const fresh = await serverModelsInstallModel.get(job.id);
-        setJob(fresh);
-      } catch (e) {
-        reportError('查询下载进度失败', e instanceof Error ? e.message : String(e));
-        setPending(null);
-      }
-    }, 2000);
-    return () => window.clearTimeout(tid);
-  }, [job, pending, onSuccess]);
-
   const onStartInstall = async () => {
-    // 防重入兜底:button disabled 已挡常态点击,但 setPending → reconciliation →
+    // 防重入兜底:button disabled 已挡常态点击,但状态 → reconciliation →
     // button disabled 生效之间有一帧 async 窗口,用户连点(或失败后多次重试)会
     // 触发多次后端 job — 现象上就是"服务端下载了好几次"。这里 guard 兜底。
-    if (pending) return;
+    if (isBusy) return;
     const id = modelId.trim();
     if (!id) {
       reportError('请输入 model_id', '形如 owner/name,例如 ' + (hint.examples[0]?.id ?? ''));
       return;
     }
-    setPending('install');
     setScanResult(null);
     try {
-      const j = await serverModelsInstallModel.start({
+      await startInstall({
         source,
         model_id: id,
         capability: CAP_TO_CATALOG[capability],
-        specific_file: specificFile.trim() || null,
+        requested_file: specificFile.trim() || null,
       });
-      setJob(j);
     } catch (e) {
       reportError('启动下载失败', e instanceof Error ? e.message : String(e));
-      setPending(null);
     }
   };
 
-  const onCancelInstall = () => {
-    if (!job) return;
-    // 后端 cancel 只 set _cancel_requested flag,但 modelscope / huggingface 的
-    // snapshot_download 是同步阻塞、不可中断 — 线程要等 SDK 当前下载分片自然结束
-    // 才命中下一个 _check_cancel 退出。所以同步 await cancel API 拿回来的 job
-    // status 一般还是 running,UI 看上去"按了没反应"。
-    //
-    // 修法:前端立即收尾 UI(停轮询 + mock cancelled 状态)给用户即时反馈,后端
-    // cancel 改 fire-and-forget。线程实际何时退出对用户不可见,也无害(target_dir
-    // 用户随时可手动清理)。
-    const jobSnapshot = job;
-    setPending(null);
-    setJob({
-      ...jobSnapshot,
-      status: 'cancelled',
-      log_tail: [
-        ...jobSnapshot.log_tail,
-        '[install_model] 已请求取消;后台 SDK 阻塞调用会在当前下载片段完成后退出',
-      ],
-    });
-    void serverModelsInstallModel.cancel(jobSnapshot.id).catch((e) => {
-      reportError('取消失败', e instanceof Error ? e.message : String(e));
-    });
-  };
+  // 取消逻辑(停轮询 + 立即 mock cancelled + 后端 fire-and-forget)统一由
+  // useInstallJob 持有;这里直接转调,UI 与对外行为不变。
+  const onCancelInstall = () => cancelInstall();
 
   const onScanAndMount = async () => {
-    setPending('scan');
-    setJob(null);
+    setScanning(true);
+    resetInstall();
     try {
       // 对话框是按能力打开的(rerank 对话框 / embedding 对话框 …),
       // 「扫描挂载」只扫当前这个能力对应的 bundled 子目录,不碰别的 cap。
@@ -391,7 +356,7 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
     } catch (e) {
       reportError('扫描失败', e instanceof Error ? e.message : String(e));
     } finally {
-      setPending(null);
+      setScanning(false);
     }
   };
 
@@ -409,9 +374,8 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
       .catch(() => {});
   }, [open, bundledRoot, capability]);
 
-  const isBusy = pending !== null;
-  const installRunning =
-    job && (job.status === 'queued' || job.status === 'running');
+  const isBusy = isInstalling || scanning;
+  const installRunning = isInstalling;
   const installDone = job?.status === 'succeeded';
   const installFailed = job?.status === 'failed' || job?.status === 'cancelled';
 
@@ -513,7 +477,7 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
 
             <div className="flex gap-2">
               <Button size="sm" onClick={onStartInstall} disabled={isBusy || !modelId.trim()}>
-                {pending === 'install' ? (
+                {isInstalling ? (
                   <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                 ) : null}
                 开始下载
@@ -665,7 +629,7 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
             })()}
 
             <Button size="sm" onClick={() => void onScanAndMount()} disabled={isBusy}>
-              {pending === 'scan' ? (
+              {scanning ? (
                 <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
               ) : (
                 <RotateCw className="mr-1 h-3.5 w-3.5" />
