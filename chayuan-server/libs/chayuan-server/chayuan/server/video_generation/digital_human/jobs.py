@@ -193,6 +193,7 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, 
     synthd.sort(key=lambda t: t[0])
 
     clips = []
+    unit_roles = []
     n = max(1, len(units))
     for i, ap, u in synthd:
         av = resolve_avatar_path(slots[u.role_index].ref)
@@ -203,10 +204,11 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, 
         get_engine(engine).generate(avatar_path=av, audio_path=ap, out_path=cp,
                                     width=width, height=height, on_progress=None)
         clips.append(cp)
+        unit_roles.append(u.role_index)
         _set(tid, progress=10 + int((i + 1) * 78 / n))
     if not clips:
         raise RuntimeError("没有可用片段(形象缺失)")
-    return clips
+    return clips, unit_roles
 
 
 def _apply_overlays(result_path, td, preset, slots, text, width, height):
@@ -250,7 +252,7 @@ def _run_pipeline(tid: str) -> None:
         slots = list(getattr(preset, "avatars", None) or [])
         mode = getattr(preset, "compose_mode", "single") or "single"
         if mode in ("coframe", "sequential") and len(slots) >= 2:
-            clips = _gen_slot_clips(tid, preset, slots, args["text"],
+            clips, unit_roles = _gen_slot_clips(tid, preset, slots, args["text"],
                                     args.get("engine") or "wav2lip", td,
                                     args["width"], args["height"],
                                     role_scripts=args.get("role_scripts"))
@@ -261,12 +263,15 @@ def _run_pipeline(tid: str) -> None:
                     positions = [(float(getattr(s, "x", 0.0) or 0.0),
                                   float(getattr(s, "y", 0.0) or 0.0),
                                   float(getattr(s, "scale", 1.0) or 1.0)) for s in slots]
-                    _cm.render_coframe(clips, layout=getattr(preset, "layout", "side") or "side",
-                                       out_path=out_path, width=args["width"], height=args["height"],
-                                       positions=positions)
+                    avatars = [resolve_avatar_path(s.ref) for s in slots]
+                    try:
+                        _cm.render_coframe_turntaking(clips, unit_roles, positions, avatars,
+                                                      out_path=out_path, width=args["width"], height=args["height"])
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("[dh] 同框轮流合成失败,回退按句顺序: %r", e)
+                        _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"])
                 else:
-                    _cm.render_sequential(clips, out_path=out_path,
-                                          width=args["width"], height=args["height"])
+                    _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"])
             except Exception as e:  # noqa: BLE001
                 logger.warning("[dh] %s 合成失败,回退首个形象片段: %r", mode, e)
                 import shutil

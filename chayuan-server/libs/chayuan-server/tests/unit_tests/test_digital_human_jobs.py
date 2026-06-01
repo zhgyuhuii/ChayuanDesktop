@@ -237,8 +237,9 @@ def test_gen_slot_clips_uses_per_slot_voice(monkeypatch, tmp_path):
         voice_provider="piper", voice_name="default",
         avatars=[AvatarSlot(ref="user:a", kind="video", voice_provider="sherpa", voice_name="vz"),
                  AvatarSlot(ref="user:b", kind="video")])  # 第二槽继承预设
-    clips = dh_jobs._gen_slot_clips("t", preset, preset.avatars, "全局", "wav2lip", str(tmp_path), 720, 1280)
+    clips, unit_roles = dh_jobs._gen_slot_clips("t", preset, preset.avatars, "全局", "wav2lip", str(tmp_path), 720, 1280)
     assert len(clips) == 2
+    assert unit_roles == [0, 1]
     assert seen[0] == ("sherpa", "vz")
     assert seen[1] == ("piper", "default")
 
@@ -296,8 +297,9 @@ def test_coframe_passes_positions(monkeypatch, tmp_path):
     monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
     from chayuan.server.video_generation.digital_human import compose_multi as cm
     seen = {}
-    monkeypatch.setattr(cm, "render_coframe",
-        lambda clips, **k: (seen.update(k), open(k["out_path"], "wb").write(b"c"), k["out_path"])[2])
+    monkeypatch.setattr(cm, "render_coframe_turntaking",
+        lambda unit_clips, unit_roles, positions, avatars, **k:
+            (seen.update({"positions": positions}), open(k["out_path"], "wb").write(b"c"), k["out_path"])[2])
     pid = dh_jobs.store.create_preset(name="m", avatar_ref="user:a", avatar_kind="video",
         avatars=[{"ref": "user:a", "kind": "video", "x": 0.1, "y": 0.2, "scale": 0.5},
                  {"ref": "user:b", "kind": "video", "x": 0.6, "y": 0.2, "scale": 0.5}],
@@ -307,6 +309,7 @@ def test_coframe_passes_positions(monkeypatch, tmp_path):
     dh_jobs._set(tid, state="pending", progress=0)
     dh_jobs.run_sync(tid)
     assert seen.get("positions") == [(0.1, 0.2, 0.5), (0.6, 0.2, 0.5)]
+    assert len(seen.get("positions")) == 2
 
 
 def test_af_filter_builds_string():
@@ -340,3 +343,31 @@ def test_units_concurrent_synth_per_voice(monkeypatch, tmp_path):
     dh_jobs.run_sync(tid)
     assert ("甲词", "sherpa", "v1", 1.1, 1.0) in calls
     assert ("乙词", "piper", "v2", 1.0, 0.8) in calls
+
+
+def test_coframe_turntaking_dispatch(monkeypatch, tmp_path):
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    monkeypatch.setattr(dh_jobs, "_synth_to_wav",
+        lambda text, provider, name, ap, rate=1.0, volume=1.0: (open(ap, "wb").write(b"w"), ap)[1])
+    class _E:
+        def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
+            open(out_path, "wb").write(b"mp4"); return out_path
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda eid="wav2lip": _E())
+    monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
+    from chayuan.server.video_generation.digital_human import compose_multi as cm
+    seen = {}
+    monkeypatch.setattr(cm, "render_coframe_turntaking",
+        lambda unit_clips, unit_roles, positions, avatars, **k:
+            (seen.update({"roles": unit_roles, "positions": positions, "n": len(unit_clips)}),
+             open(k["out_path"], "wb").write(b"c"), k["out_path"])[2])
+    pid = dh_jobs.store.create_preset(name="m", avatar_ref="user:a", avatar_kind="video",
+        avatars=[{"ref": "user:a", "kind": "video", "voice_name": "v1", "x": 0.0},
+                 {"ref": "user:b", "kind": "video", "voice_name": "v2", "x": 0.5}],
+        compose_mode="coframe").id
+    tid = uuid.uuid4().hex[:12]
+    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "甲说。乙说。再甲说。", "width": 720, "height": 1280}
+    dh_jobs._set(tid, state="pending", progress=0)
+    dh_jobs.run_sync(tid)
+    assert dh_jobs.get_status(tid).state == "complete"
+    assert seen.get("roles") == [0, 1, 0]
+    assert len(seen.get("positions")) == 2
