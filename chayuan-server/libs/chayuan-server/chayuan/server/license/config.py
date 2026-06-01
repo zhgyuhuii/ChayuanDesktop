@@ -23,9 +23,10 @@ from pathlib import Path
 # env LICENSE_DAILY_FREE / 文件 daily_free 可覆盖。
 DEFAULT_DAILY_FREE = {
     "chat": 60,     # 对话
-    "video": 20,    # 视频生成
+    "video": 5,     # 视频生成
+    "avatar": 5,    # 数字人
+    "note": 30,     # AI笔记
     "kb": 30,       # 知识库
-    "avatar": 10,   # 数字人
     "ocr": 50,      # 图转文
     "asr": 30,      # 音转文
 }
