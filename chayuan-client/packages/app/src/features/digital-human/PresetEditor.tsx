@@ -359,16 +359,17 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                   onChange={(e) => setSlotField(fSlot.ref, { name: e.target.value })}
                   placeholder="昵称(如 小李)"
                   className="h-7 flex-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
+              </div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--cy-text-tertiary)]">
                 <select value={fSlot.language ?? ''}
                   onChange={(e) => setSlotField(fSlot.ref, { language: e.target.value })}
-                  className="h-7 w-24 shrink-0 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1 text-[11px] text-[var(--cy-text-primary)] focus-visible:outline-none">
-                  <option value="">语言:自动</option>
+                  title="语言(影响可选音色)"
+                  className="h-6 w-16 shrink-0 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1 text-[10px] text-[var(--cy-text-primary)] focus-visible:outline-none">
+                  <option value="">自动</option>
                   <option value="zh-CN">中文</option>
                   <option value="en-US">英文</option>
                   <option value="ja-JP">日文</option>
                 </select>
-              </div>
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--cy-text-tertiary)]">
                 <VoicePicker value={slotVoiceValue(fSlot)} onChange={(v) => setSlotVoice(fSlot.ref, v)} language={fSlot.language} />
                 <span>语速</span>
                 <input type="range" min={0.5} max={1.5} step={0.05} value={fSlot.voice_rate ?? 1}
