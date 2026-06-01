@@ -379,10 +379,11 @@ export const VoicePicker: React.FC<{
         type="button"
         onClick={onPreview}
         disabled={previewing}
-        className="inline-flex h-6 items-center gap-1 rounded-md bg-[var(--cy-brand-500)] px-2 text-[10px] text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50"
+        title="试听"
+        aria-label="试听"
+        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50"
       >
-        {previewing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-        试听
+        {previewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
       </button>
     </>
   );
