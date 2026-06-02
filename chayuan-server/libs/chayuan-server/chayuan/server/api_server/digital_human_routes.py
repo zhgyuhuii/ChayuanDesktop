@@ -322,6 +322,15 @@ def script_generate(body: Dict[str, Any],
     }
 
 
+@digital_human_router.get("/script/templates")
+def script_templates() -> Dict[str, Any]:
+    """内置脚本结构模板(只读常量):自由 / 带货四段 / 问题方案。"""
+    from chayuan.server.video_generation.digital_human.script_templates import (
+        list_templates,
+    )
+    return {"templates": list_templates()}
+
+
 @digital_human_router.post("/script/from-video")
 async def script_from_video(
     file: UploadFile = File(...),

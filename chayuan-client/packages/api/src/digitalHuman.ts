@@ -192,6 +192,17 @@ export async function dhGenerateScript(
   });
 }
 
+/** 内置脚本结构模板(自由 / 带货四段 / 问题方案);多角色生成时选其一推进结构。 */
+export interface DhScriptTemplate {
+  id: string;
+  name: string;
+  sections: string[];
+}
+
+export async function listScriptTemplates(): Promise<{ templates: DhScriptTemplate[] }> {
+  return rd<{ templates: DhScriptTemplate[] }>('/api/v1/digital-human/script/templates');
+}
+
 export async function dhScriptFromVideo(
   file: File,
   opts?: { model?: string; kuIds?: string[] },
@@ -335,6 +346,7 @@ export const digitalHuman = {
   taskToTimeline: dhTaskToTimeline,
   generateScript: dhGenerateScript,
   scriptFromVideo: dhScriptFromVideo,
+  listScriptTemplates,
   deleteAvatar: dhDeleteAvatar,
   uploadProduct: dhUploadProduct,
   listEngines: dhListEngines,
