@@ -17,6 +17,7 @@ import { KnowledgePickerPill } from '../composer/KnowledgePickerPill';
 import { KbResultsView } from '../kb/components/KbResultsView';
 import { DhProgressCard } from './DhProgressCard';
 import { BindingHint, bindingStateOf, normKuIds, dhSourcesToRetrieval } from './dhBinding';
+import { estimateDurationMs, fmtSec } from './estimateDuration';
 import {
   effectiveModel,
   effectiveKuIds,
@@ -105,6 +106,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const [coframeScripts, setCoframeScripts] = React.useState<string[]>([]);
   // sequential(#7):外层 index=角色,内层=该角色的多个段
   const [seqSegments, setSeqSegments] = React.useState<string[][]>([]);
+  // 多角色 AI 生成产出的有序对话(role_index 标定说话角色,顺序即对话顺序);
+  // 非空时多角色生成统一以此为真源提交(coframe/sequential 都发 role_segments)。
+  const [roleSegments, setRoleSegments] = React.useState<Array<{ role_index: number; text: string }>>([]);
+  // 文案结构模板(多角色生成时推进结构);'free'=自由。
+  const [templateId, setTemplateId] = React.useState<string>('free');
   const [taskId, setTaskId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
@@ -133,6 +139,13 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     queryFn: () => models.list(),
     staleTime: 5 * 60 * 1000,
   });
+  // 脚本结构模板(自由 / 带货四段 / 问题方案);多角色生成时选其一推进结构。
+  const tplQ = useQuery({
+    queryKey: ['dh.templates'],
+    queryFn: () => digitalHuman.listScriptTemplates(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const scriptTemplates = tplQ.data?.templates ?? [];
   // 失效绑定检测用:列当前可用知识库
   const kbsQ = useQuery({
     queryKey: ['v1.knowledgeUniverse.list'],
@@ -177,20 +190,68 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       const next = Array.from({ length: roleCount }, (_, i) =>
         sents.slice(i * chunkSize, (i + 1) * chunkSize).join(''));
       setCoframeScripts(next);
+      setRoleSegments([]);
     } else if (mode === 'sequential') {
       const next = Array.from({ length: roleCount }, (_, i) => {
         const mine = sents.filter((_, k) => k % roleCount === i);
         return mine.length ? mine : [''];
       });
       setSeqSegments(next);
+      setRoleSegments([]);
     }
   };
+  // 多角色 AI 生成产出的有序 role_segments 回填到现有承载多角色台词的状态:
+  // coframe -> 每角色一段(同角色多段按出现顺序拼接);
+  // sequential -> 每角色按出现顺序收集为多段。两种模式都额外把原始有序段存 roleSegments,
+  // 提交时直接发它(保留 AI 编排的交错顺序)。
+  const applyRoleSegments = (segs: Array<{ role_index: number; text: string }>) => {
+    setRoleSegments(segs);
+    if (mode === 'coframe') {
+      const next = Array.from({ length: roleCount }, () => '');
+      for (const s2 of segs) {
+        if (s2.role_index >= 0 && s2.role_index < roleCount) {
+          const cur = next[s2.role_index] ?? '';
+          next[s2.role_index] = cur ? `${cur}\n${s2.text}` : s2.text;
+        }
+      }
+      setCoframeScripts(next);
+    } else if (mode === 'sequential') {
+      const next: string[][] = Array.from({ length: roleCount }, () => []);
+      for (const s2 of segs) {
+        if (s2.role_index >= 0 && s2.role_index < roleCount) next[s2.role_index]?.push(s2.text);
+      }
+      setSeqSegments(next.map((a) => (a.length ? a : [''])));
+    }
+  };
+
   const onAiScript = async () => {
     const subject = await promptDialog('输入主题,AI 生成口播文案:');
     if (!subject || !subject.trim()) return;
     setScripting(true);
     try {
       const preset = presets.find((p) => p.id === pid);
+      // 多角色模式:走 generate-multi,后端按各角色 persona + 专属/预设库逐角色检索,
+      // 产出交错对话 role_segments。single 仍走单篇 generateScript。
+      if (mode !== 'single') {
+        const rm = await digitalHuman.generateMultiRoleScript({
+          preset_id: pid,
+          subject: subject.trim(),
+          template_id: templateId,
+          productRef: productRef ?? undefined,
+        });
+        setScriptSources(rm.sources ?? []);
+        setKbMissed(effectiveKuIds(preset, scriptKuIds).length > 0 && rm.kb_used === false);
+        const hasManual =
+          mode === 'coframe'
+            ? coframeScripts.some((t) => (t ?? '').trim())
+            : seqSegments.some((segs) => segs.some((t) => (t ?? '').trim()));
+        if (hasManual) {
+          const ok = await confirmDialog('AI 生成将覆盖各角色框已填内容,继续?');
+          if (!ok) return;
+        }
+        applyRoleSegments(rm.role_segments ?? []);
+        return;
+      }
       const r = await digitalHuman.generateScript(subject.trim(), {
         model: effectiveModel(preset, scriptModel ?? '') || undefined,
         productRef: productRef ?? undefined,
@@ -246,6 +307,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     setScriptKuIds(p?.ku_ids ?? []);
     setScriptSources([]);
     setKbMissed(false);
+    setRoleSegments([]);
     // 仅在预设切换时预填,避免覆盖用户手动改动
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid]);
@@ -305,20 +367,24 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       // effectiveText:发给后端的全局 text(过 max_length 校验 + 派生字幕/时间轴)。
       // 多角色模式 text 全局为空,这里按模式拼出有效文案。
       let effectiveText: string;
-      if (mode === 'coframe') {
+      if (mode !== 'single' && roleSegments.length > 0) {
+        // 多角色 AI 生成产出的有序对话作真源,直接发 role_segments(保留交错顺序)。
+        modeFields = { role_segments: roleSegments };
+        effectiveText = roleSegments.map((s) => s.text).join('\n');
+      } else if (mode === 'coframe') {
         modeFields = { role_scripts: coframeScripts };
         effectiveText = coframeScripts.filter((s) => s.trim()).join('\n');
       } else if (mode === 'sequential') {
         const maxLen = Math.max(0, ...seqSegments.map((a) => a.length));
-        const roleSegments: { role_index: number; text: string }[] = [];
+        const segs: { role_index: number; text: string }[] = [];
         for (let k = 0; k < maxLen; k++) {
           for (let i = 0; i < seqSegments.length; i++) {
             const t = (seqSegments[i]?.[k] ?? '').trim();
-            if (t) roleSegments.push({ role_index: i, text: t });
+            if (t) segs.push({ role_index: i, text: t });
           }
         }
-        modeFields = { role_segments: roleSegments };
-        effectiveText = roleSegments.map((s) => s.text).join('\n');
+        modeFields = { role_segments: segs };
+        effectiveText = segs.map((s) => s.text).join('\n');
       } else {
         modeFields = { script: text };
         effectiveText = text;
@@ -398,6 +464,25 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [mode, coframeScripts, seqSegments, roleNames.join('\u0001')],
   );
+  // 每角色语速(用于时长估算);roleName -> voice_rate。
+  const rateByRole = React.useMemo(() => {
+    const m: Record<string, number> = {};
+    roles.forEach((r, i) => { m[r.name || ('角色' + (i + 1))] = r.voice_rate ?? 1; });
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roles]);
+  // 对话脚本时长:每段估时 + 每角色累计 + 总时长。
+  const durationStats = React.useMemo(() => {
+    const perItem = orderPreview.map((it) => estimateDurationMs(it.text, rateByRole[it.roleName] ?? 1));
+    const perRole: Record<string, number> = {};
+    let total = 0;
+    orderPreview.forEach((it, i) => {
+      const ms = perItem[i] ?? 0;
+      perRole[it.roleName] = (perRole[it.roleName] ?? 0) + ms;
+      total += ms;
+    });
+    return { perItem, perRole, total };
+  }, [orderPreview, rateByRole]);
 
   // 各 mode 是否有可生成内容
   const canGenerate =
@@ -457,6 +542,18 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4}
           placeholder="输入口播文案…"
           className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)]" />
+      )}
+      {/* 脚本结构模板 — 仅多角色模式;推进多角色生成结构(自由 / 带货四段 / 问题方案)。 */}
+      {mode !== 'single' && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-[var(--cy-text-tertiary)]">脚本结构</span>
+          <select value={templateId} onChange={(e) => setTemplateId(e.target.value)}
+            title="多角色 AI 生成时推进的脚本结构"
+            className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-xs text-[var(--cy-text-primary)]">
+            {scriptTemplates.length === 0 && <option value="free">{tplQ.isLoading ? '加载中…' : '自由'}</option>}
+            {scriptTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
       )}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <button type="button" onClick={onAiScript} disabled={scripting || noVlmModel}
@@ -550,7 +647,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             <div key={r.ref} className="flex flex-col gap-1">
               <div className="text-xs font-medium text-[var(--cy-text-secondary)]">{r.name || ('角色' + (i + 1))}</div>
               <textarea value={coframeScripts[i] ?? ''} rows={2}
-                onChange={(e) => setCoframeScripts((prev) => { const n = [...prev]; n[i] = e.target.value; return n; })}
+                onChange={(e) => { setRoleSegments([]); setCoframeScripts((prev) => { const n = [...prev]; n[i] = e.target.value; return n; }); }}
                 placeholder={`${r.name || ('角色' + (i + 1))} 的台词`}
                 className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
             </div>
@@ -577,9 +674,9 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
               {(seqSegments[i] ?? ['']).map((seg, k) => (
                 <div key={k} className="flex items-start gap-1">
                   <textarea value={seg} rows={2}
-                    onChange={(e) => setSeqSegments((prev) => prev.map((segs, ri) => (
+                    onChange={(e) => { setRoleSegments([]); setSeqSegments((prev) => prev.map((segs, ri) => (
                       ri === i ? segs.map((sv, sk) => (sk === k ? e.target.value : sv)) : segs
-                    )))}
+                    ))); }}
                     placeholder={`第 ${k + 1} 段`}
                     className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
                   {(seqSegments[i]?.length ?? 0) > 1 && (
@@ -606,13 +703,21 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           </div>
           <div className="flex flex-col gap-0.5 text-xs text-[var(--cy-text-secondary)]">
             {orderPreview.map((it, i) => (
-              <div key={i} className="truncate">
-                <span className="text-[var(--cy-text-tertiary)]">{'\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468\u2469'[i] ?? (i + 1) + '.'}</span>{' '}
+              <div key={i} className="flex items-baseline gap-1">
+                <span className="text-[var(--cy-text-tertiary)]">{'\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468\u2469'[i] ?? (i + 1) + '.'}</span>
                 <span className="font-medium text-[var(--cy-text-primary)]">{it.roleName}</span>
-                <span className="text-[var(--cy-text-tertiary)]">: </span>
-                {it.text}
+                <span className="text-[var(--cy-text-tertiary)]">:</span>
+                <span className="min-w-0 flex-1 truncate">{it.text}</span>
+                <span className="shrink-0 text-[var(--cy-text-tertiary)]">{fmtSec(durationStats.perItem[i] ?? 0)}</span>
               </div>
             ))}
+          </div>
+          {/* 每角色累计 + 总时长 */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-[var(--cy-border-subtle)] pt-1.5 text-xs text-[var(--cy-text-tertiary)]">
+            {Object.entries(durationStats.perRole).map(([rn, ms]) => (
+              <span key={rn}><span className="text-[var(--cy-text-secondary)]">{rn}</span> {fmtSec(ms)}</span>
+            ))}
+            <span className="ml-auto font-medium text-[var(--cy-text-primary)]">总时长 {fmtSec(durationStats.total)}</span>
           </div>
         </div>
       )}

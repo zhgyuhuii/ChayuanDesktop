@@ -203,6 +203,31 @@ export async function listScriptTemplates(): Promise<{ templates: DhScriptTempla
   return rd<{ templates: DhScriptTemplate[] }>('/api/v1/digital-human/script/templates');
 }
 
+/**
+ * 多角色文案生成 — 后端按各角色 persona + 专属/预设知识库逐角色检索,
+ * 产出交错的 role_segments(role_index 标定说话角色,顺序即对话顺序)。
+ */
+export async function generateMultiRoleScript(args: {
+  preset_id: string;
+  subject: string;
+  template_id?: string;
+  productRef?: string;
+}): Promise<{
+  role_segments: Array<{ role_index: number; text: string }>;
+  kb_used?: boolean;
+  sources?: DhScriptSource[];
+}> {
+  return rd('/api/v1/digital-human/script/generate-multi', {
+    method: 'POST',
+    body: {
+      preset_id: args.preset_id,
+      subject: args.subject,
+      template_id: args.template_id,
+      product_ref: args.productRef,
+    },
+  });
+}
+
 export async function dhScriptFromVideo(
   file: File,
   opts?: { model?: string; kuIds?: string[] },
@@ -347,6 +372,7 @@ export const digitalHuman = {
   generateScript: dhGenerateScript,
   scriptFromVideo: dhScriptFromVideo,
   listScriptTemplates,
+  generateMultiRoleScript,
   deleteAvatar: dhDeleteAvatar,
   uploadProduct: dhUploadProduct,
   listEngines: dhListEngines,
