@@ -25,9 +25,10 @@ import {
   DialogTitle,
 } from '@chayuan/ui';
 import { useQuery } from '@tanstack/react-query';
-import { FileDown, Loader2 } from 'lucide-react';
+import { FileDown, Loader2, Sparkles } from 'lucide-react';
 import * as React from 'react';
 import { formatBytes } from './ModelHubRow';
+import { annotateQuants } from './quantInfo';
 
 export interface HubFilePickerDialogProps {
   card: HubModelCard;
@@ -59,8 +60,14 @@ export const HubFilePickerDialog: React.FC<HubFilePickerDialogProps> = ({
       }),
   });
 
-  const runnableFiles = React.useMemo(
-    () => (detailQuery.data ?? []).filter((f) => f.runnable),
+  // 只列可运行文件;再按量化档标注「内存估算 / 推荐档」并从小到大排序。
+  const annotated = React.useMemo(
+    () =>
+      annotateQuants(
+        (detailQuery.data ?? []).filter((f) => f.runnable),
+        (f) => f.rfilename,
+        (f) => f.size_bytes,
+      ),
     [detailQuery.data],
   );
 
@@ -109,13 +116,13 @@ export const HubFilePickerDialog: React.FC<HubFilePickerDialogProps> = ({
                   ? detailQuery.error.message
                   : '文件清单获取失败'}
               </div>
-            ) : runnableFiles.length === 0 ? (
+            ) : annotated.length === 0 ? (
               <div className="px-3 py-6 text-center text-xs text-[var(--cy-text-tertiary)]">
                 未发现可运行文件
               </div>
             ) : (
               <ul className="divide-y divide-[var(--cy-border-subtle)]">
-                {runnableFiles.map((f) => {
+                {annotated.map(({ file: f, info }) => {
                   const active = selected === f.rfilename;
                   return (
                     <li key={f.rfilename}>
@@ -130,10 +137,28 @@ export const HubFilePickerDialog: React.FC<HubFilePickerDialogProps> = ({
                         )}
                       >
                         <FileDown className="h-3.5 w-3.5 shrink-0 text-[var(--cy-text-tertiary)]" />
-                        <span className="min-w-0 flex-1 truncate" title={f.rfilename}>
-                          {f.rfilename}
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="flex items-center gap-1.5">
+                            <span className="min-w-0 truncate" title={f.rfilename}>
+                              {f.rfilename}
+                            </span>
+                            {info.recommended && (
+                              <span
+                                className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200/70"
+                                title="质量与体积平衡,新手推荐"
+                              >
+                                <Sparkles className="h-2.5 w-2.5" />
+                                推荐
+                              </span>
+                            )}
+                          </span>
+                          {info.approxRamBytes != null && (
+                            <span className="mt-0.5 text-[10px] text-[var(--cy-text-tertiary)]">
+                              约需 {formatBytes(info.approxRamBytes)} 内存
+                            </span>
+                          )}
                         </span>
-                        <span className="shrink-0 text-[var(--cy-text-tertiary)]">
+                        <span className="shrink-0 self-start text-[var(--cy-text-tertiary)]">
                           {formatBytes(f.size_bytes)}
                         </span>
                       </button>
@@ -158,7 +183,7 @@ export const HubFilePickerDialog: React.FC<HubFilePickerDialogProps> = ({
             disabled={!selected}
             onClick={() => {
               if (!selected) return;
-              const picked = runnableFiles.find((f) => f.rfilename === selected);
+              const picked = annotated.find((a) => a.file.rfilename === selected)?.file;
               onPick(selected, rev, picked?.size_bytes ?? null);
             }}
             className="rounded-lg bg-[var(--cy-brand-500)] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[var(--cy-brand-600)] disabled:cursor-not-allowed disabled:opacity-50"
