@@ -579,6 +579,13 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           🎬 参考视频生成稿
         </button>
         <input ref={refVideoRef} type="file" accept="video/*,audio/*" className="hidden" onChange={onRefVideo} />
+        {/* 文案生成知识库选择(受控);预设锁定知识源时隐藏。 */}
+        {showKbPicker(curPreset) && (
+          <KnowledgePickerPill side="bottom" align="start" value={scriptKuIds} onChange={setScriptKuIds} />
+        )}
+        {showKbPicker(curPreset) && (curPreset?.ku_ids?.length || missingKuIds.length > 0) ? (
+          <BindingHint state={kbBindState} label={kbLabel} noun="知识库" />
+        ) : null}
         {/* 文案生成模型选择 — 复用会话里的分组折叠 + 厂商图标选择器(ModelMenuList)。
             挂商品图时(hasImage)收窄到 VLM,让文案能"看图说话"。预设锁定模型时隐藏。 */}
         {showModelPicker(curPreset) && (curPreset?.model || modelInvalid) && (
@@ -623,13 +630,6 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {/* 文案生成知识库选择(受控);预设锁定知识源时隐藏。 */}
-        {showKbPicker(curPreset) && (
-          <KnowledgePickerPill side="bottom" align="start" value={scriptKuIds} onChange={setScriptKuIds} />
-        )}
-        {showKbPicker(curPreset) && (curPreset?.ku_ids?.length || missingKuIds.length > 0) ? (
-          <BindingHint state={kbBindState} label={kbLabel} noun="知识库" />
-        ) : null}
       </div>
       {/* 失效绑定明确提示(模型被卸 / 知识库被删) */}
       {(modelInvalid || missingKuIds.length > 0) && (

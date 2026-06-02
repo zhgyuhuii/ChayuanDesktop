@@ -165,3 +165,9 @@ def test_preset_subtitle_enabled_default(monkeypatch, tmp_path):
     monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
     p = dh_store.create_preset(name="m", avatar_ref="user:a", avatar_kind="video")
     assert p.subtitle_enabled is True
+
+
+def test_avatar_slot_schema_has_no_role_ku_ids():
+    """角色级 ku_ids 应已彻底移除(知识库收敛为 preset 单一真源)。"""
+    from chayuan.server.video_generation.digital_human.schemas import AvatarSlotSchema
+    assert "ku_ids" not in AvatarSlotSchema.model_fields

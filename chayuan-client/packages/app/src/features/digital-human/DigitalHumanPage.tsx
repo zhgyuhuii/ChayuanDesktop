@@ -21,7 +21,7 @@ export const DigitalHumanPage: React.FC = () => {
 
   const goGenerate = React.useCallback((presetId?: string) => {
     setGenPresetId(presetId);
-    setTab('generate');
+    setTab('studio');
   }, []);
 
   return (

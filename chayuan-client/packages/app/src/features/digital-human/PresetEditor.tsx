@@ -257,6 +257,25 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         />
       </div>
 
+      {/* 合成模式 */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-[var(--cy-text-secondary)]">合成模式</label>
+        <div className="flex gap-1.5 text-[11px]">
+          {(([['single', '单形象'], ['coframe', '多人同框'], ['sequential', '分段轮流']]) as [DhComposeMode, string][]).map(([m, zh]) => (
+            <button key={m} type="button" onClick={() => setComposeMode(m)}
+              className={cn('rounded-md border px-2 py-1',
+                composeMode === m
+                  ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
+                  : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
+              {zh}
+            </button>
+          ))}
+        </div>
+        {isMulti && (
+          <span className="text-[10px] text-[var(--cy-text-tertiary)]">点形象格子多选(数字=出场顺序),需 ≥2 个</span>
+        )}
+      </div>
+
       {/* 画布尺寸 */}
       <div className="flex flex-col gap-1">
         <label className="text-[11px] text-[var(--cy-text-secondary)]">画布</label>
@@ -324,80 +343,67 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         </div>
       </div>
 
-      {/* 合成模式 */}
-      <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-[var(--cy-text-secondary)]">合成模式</label>
-        <div className="flex gap-1.5 text-[11px]">
-          {(([['single', '单形象'], ['coframe', '多人同框'], ['sequential', '分段轮流']]) as [DhComposeMode, string][]).map(([m, zh]) => (
-            <button key={m} type="button" onClick={() => setComposeMode(m)}
-              className={cn('rounded-md border px-2 py-1',
-                composeMode === m
-                  ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                  : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
-              {zh}
-            </button>
-          ))}
-        </div>
-        {isMulti && (
-          <span className="text-[10px] text-[var(--cy-text-tertiary)]">点形象格子多选(数字=出场顺序),需 ≥2 个</span>
-        )}
-      </div>
-
-      {/* 对话模型 + 知识库绑定(预设全局区,各角色配置之上) */}
-      <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-[var(--cy-text-secondary)]">对话模型</label>
-        <div className="flex flex-wrap items-center gap-2">
-          <DropdownMenu open={modelPickOpen} onOpenChange={setModelPickOpen}>
-            <DropdownMenuTrigger asChild>
-              <button type="button"
-                className="inline-flex h-8 min-w-[10em] items-center gap-1.5 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
-                title="绑定默认对话模型(留空=用全局默认)">
-                <span className="max-w-[160px] truncate">{bindModelLabel}</span>
-                <ChevronDown className="ml-auto h-3 w-3 opacity-60" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" sideOffset={6} collisionPadding={12}
-              className="z-[260] w-80 overflow-hidden p-0">
-              <ModelMenuList
-                models={allModels}
-                currentId={curBindModel.id}
-                currentPlatform={curBindModel.platform}
-                allowCapabilities={chatCapFilter}
-                resolveLogo={resolveLogo}
-                emptyLabel={modelsQ.isLoading ? '加载中…' : '无可用模型'}
-                onPick={(m) => { if (m.available === false) return; setBindModel(encodeModel(m)); setModelPickOpen(false); }}
-              />
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {bindModel && (
-            <button type="button" onClick={() => setBindModel('')}
-              className="text-[11px] text-[var(--cy-text-tertiary)] hover:text-[var(--cy-text-primary)]">清除</button>
+      {/* 知识库 | 对话模型 | 允许更改 — 一行(预设全局区,各角色配置之上) */}
+      <div className="flex flex-wrap items-start gap-4">
+        {/* 知识库(在模型前) */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-[var(--cy-text-secondary)]">知识库</label>
+          <div className="flex flex-wrap items-center gap-2">
+            <KnowledgePickerPill value={bindKuIds} onChange={setBindKuIds} />
+          </div>
+          {missingKuIds.length > 0 && (
+            <span className="text-[11px] text-[var(--cy-danger-500)]">⚠ 绑定的知识库已失效(被删除 {missingKuIds.length} 个),请重新绑定。</span>
           )}
         </div>
-        {modelInvalid && (
-          <span className="text-[11px] text-[var(--cy-danger-500)]">⚠ 绑定的模型已失效(被卸载),请重新绑定。</span>
-        )}
-        <label className="mt-0.5 inline-flex items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
-          <input type="checkbox" checked={allowModelOverride} onChange={(e) => setAllowModelOverride(e.target.checked)}
-            className="h-3.5 w-3.5 accent-[var(--cy-brand-500)]" />
-          允许实时/生成时更改
-        </label>
-      </div>
-
-      {/* 知识库绑定 */}
-      <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-[var(--cy-text-secondary)]">知识库</label>
-        <div className="flex flex-wrap items-center gap-2">
-          <KnowledgePickerPill value={bindKuIds} onChange={setBindKuIds} />
+        {/* 对话模型 */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-[var(--cy-text-secondary)]">对话模型</label>
+          <div className="flex flex-wrap items-center gap-2">
+            <DropdownMenu open={modelPickOpen} onOpenChange={setModelPickOpen}>
+              <DropdownMenuTrigger asChild>
+                <button type="button"
+                  className="inline-flex h-8 min-w-[10em] items-center gap-1.5 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
+                  title="绑定默认对话模型(留空=用全局默认)">
+                  <span className="max-w-[160px] truncate">{bindModelLabel}</span>
+                  <ChevronDown className="ml-auto h-3 w-3 opacity-60" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" sideOffset={6} collisionPadding={12}
+                className="z-[260] w-80 overflow-hidden p-0">
+                <ModelMenuList
+                  models={allModels}
+                  currentId={curBindModel.id}
+                  currentPlatform={curBindModel.platform}
+                  allowCapabilities={chatCapFilter}
+                  resolveLogo={resolveLogo}
+                  emptyLabel={modelsQ.isLoading ? '加载中…' : '无可用模型'}
+                  onPick={(m) => { if (m.available === false) return; setBindModel(encodeModel(m)); setModelPickOpen(false); }}
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {bindModel && (
+              <button type="button" onClick={() => setBindModel('')}
+                className="text-[11px] text-[var(--cy-text-tertiary)] hover:text-[var(--cy-text-primary)]">清除</button>
+            )}
+          </div>
+          {modelInvalid && (
+            <span className="text-[11px] text-[var(--cy-danger-500)]">⚠ 绑定的模型已失效(被卸载),请重新绑定。</span>
+          )}
         </div>
-        {missingKuIds.length > 0 && (
-          <span className="text-[11px] text-[var(--cy-danger-500)]">⚠ 绑定的知识库已失效(被删除 {missingKuIds.length} 个),请重新绑定。</span>
-        )}
-        <label className="mt-0.5 inline-flex items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
-          <input type="checkbox" checked={allowKbOverride} onChange={(e) => setAllowKbOverride(e.target.checked)}
-            className="h-3.5 w-3.5 accent-[var(--cy-brand-500)]" />
-          允许实时/生成时更改
-        </label>
+        {/* 允许更改(两个独立开关,放模型后) */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-[var(--cy-text-secondary)]">允许更改</label>
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
+            <input type="checkbox" checked={allowModelOverride} onChange={(e) => setAllowModelOverride(e.target.checked)}
+              className="h-3.5 w-3.5 accent-[var(--cy-brand-500)]" />
+            实时/生成时改模型
+          </label>
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
+            <input type="checkbox" checked={allowKbOverride} onChange={(e) => setAllowKbOverride(e.target.checked)}
+              className="h-3.5 w-3.5 accent-[var(--cy-brand-500)]" />
+            实时/生成时改知识库
+          </label>
+        </div>
       </div>
 
       {/* 形象选择器 */}
@@ -544,14 +550,6 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                   placeholder="人设/语气,如:热情主播,口语化"
                   rows={2}
                   className="rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 py-1 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
-              </div>
-              {/* 角色专属知识库(留空=用预设级) */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-[var(--cy-text-tertiary)]">该角色知识库</label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <KnowledgePickerPill value={fSlot.ku_ids ?? []} onChange={(ids) => setSlotField(fSlot.ref, { ku_ids: ids })} />
-                </div>
-                <span className="text-[10px] text-[var(--cy-text-tertiary)]">留空=用预设知识库</span>
               </div>
             </div>
           </div>
