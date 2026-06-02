@@ -116,6 +116,10 @@ def _voice_string(provider: str, name: str):
         # sherpa voice_name 是裸 id,synthesize 按前缀分派,不补 sherpa: 会被当 piper id
         # 去找/下载 → 音色不对、piper 失败甚至空音频致 wav2lip 口型不动。
         return "sherpa:" + voice
+    if provider == "edge" and voice and not voice.startswith("edge:"):
+        # edge 音色必须带 edge: 前缀:否则 synthesize 先试 piper,piper 见 *Neural
+        # 名字会被替换成默认音色并返回,edge 永远走不到 → 选 edge 音色不生效。
+        return "edge:" + voice
     return voice or None
 
 

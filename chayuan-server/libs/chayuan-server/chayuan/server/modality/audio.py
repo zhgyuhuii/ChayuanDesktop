@@ -609,10 +609,17 @@ class AudioPipeline:
             # 失败 fallback 到 piper —— 同理清空 "sherpa:..." 前缀,别喂给 piper
             logger.warning("[tts] sherpa 不可用,回退 piper 默认音色")
             voice = None
-        # 0) piper-tts(离线优先)— 模型 ≤ 60 MB,装好后没网也能用
-        piper_bytes = self._synthesize_via_piper(text, voice=voice, fmt=fmt)
-        if piper_bytes:
-            return piper_bytes
+        # -0.5) edge-tts 显式前缀(provider=edge)— 必须在 piper 之前剥离并跳过 piper,
+        #       否则 _resolve_piper_voice_path 见 *Neural 名字会替换成默认音色并返回,
+        #       edge 永远走不到(数字人选 edge 音色不生效的真因)。
+        _force_edge = isinstance(voice, str) and voice.startswith("edge:")
+        if _force_edge:
+            voice = voice[len("edge:"):]
+        # 0) piper-tts(离线优先)— 模型 ≤ 60 MB,装好后没网也能用;edge: 前缀时跳过
+        if not _force_edge:
+            piper_bytes = self._synthesize_via_piper(text, voice=voice, fmt=fmt)
+            if piper_bytes:
+                return piper_bytes
         # 1) edge-tts(联网,微软免费)
         try:
             import asyncio

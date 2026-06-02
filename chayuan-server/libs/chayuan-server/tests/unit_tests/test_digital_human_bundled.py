@@ -96,3 +96,13 @@ def test_selector_state_machine():
     assert s.selected == set()
     s.move(-1)                     # 在顶部上移不越界
     assert s.cursor == 0
+
+
+def test_voice_string_edge_gets_prefix():
+    """edge 音色必须带 edge: 前缀,否则 synthesize 先试 piper,piper 见 *Neural
+    名字会替换成默认音色并返回,edge 永远走不到 → 选 edge 音色不生效。"""
+    from chayuan.server.video_generation.digital_human.jobs import _voice_string
+    assert _voice_string("edge", "zh-CN-YunxiNeural") == "edge:zh-CN-YunxiNeural"
+    assert _voice_string("edge", "edge:zh-CN-YunxiNeural") == "edge:zh-CN-YunxiNeural"  # 幂等
+    assert _voice_string("sherpa", "vits-zh-aishell3") == "sherpa:vits-zh-aishell3"
+    assert _voice_string("piper", "zh_CN-huayan-medium") == "zh_CN-huayan-medium"
