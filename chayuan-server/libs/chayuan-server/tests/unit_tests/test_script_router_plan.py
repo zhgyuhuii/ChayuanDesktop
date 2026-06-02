@@ -48,3 +48,14 @@ def test_sequential_out_of_range_skipped():
     segs = [{"role_index": 0, "text": "A"}, {"role_index": 5, "text": "X"}, {"role_index": 1, "text": "B"}]
     u = plan("sequential", role_segments=segs, roles=_roles(2))
     assert [(x.role_index, x.text) for x in u] == [(0, "A"), (1, "B")]
+
+
+def test_coframe_uses_role_segments_when_present():
+    segs = [{"role_index": 0, "text": "甲一"}, {"role_index": 1, "text": "乙一"}, {"role_index": 0, "text": "甲二"}]
+    u = plan("coframe", script=None, role_scripts=None, role_segments=segs, roles=_roles(2))
+    assert [(x.role_index, x.text) for x in u] == [(0, "甲一"), (1, "乙一"), (0, "甲二")]
+
+
+def test_coframe_falls_back_to_role_scripts_when_no_segments():
+    u = plan("coframe", script=None, role_scripts=["甲一。甲二。", "乙一。"], role_segments=None, roles=_roles(2))
+    assert [x.role_index for x in u] == [0, 1, 0]  # 按句交织(回退)

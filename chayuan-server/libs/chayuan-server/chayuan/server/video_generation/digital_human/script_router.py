@@ -31,7 +31,8 @@ def plan(dh_type: str, script: Optional[str] = None,
          *, roles) -> List[SynthUnit]:
     """规划合成单元。
     - single:全局 script 整段,角色 0。
-    - coframe:role_scripts 每角色一串,各自按句切分后按句序轮流交织(甲1,乙1,甲2,...)。
+    - coframe:role_segments 为有序 [{role_index,text}] 时按序逐段产出(AI 多角色产物);
+      无 segments 时回退 role_scripts(每角色一串,各自按句切分后按句序轮流交织 甲1,乙1,甲2,...)。
     - sequential:role_segments 为有序 [{role_index,text}],逐段产出;无 segments 时回退
       role_scripts(每角色整串,跳过空串)。
     roles 为 keyword-only,避免位置参数误传。"""
@@ -46,6 +47,15 @@ def plan(dh_type: str, script: Optional[str] = None,
             out.append(_unit(0, roles[0], t))
         return out
     if dh_type == "coframe":
+        segs = role_segments or []
+        if segs:
+            # AI 多角色产物:按 role_segments 顺序逐段产出,越界跳过。
+            for seg in segs:
+                idx = int(seg.get("role_index", 0))
+                t = (seg.get("text") or "").strip()
+                if 0 <= idx < n and t:
+                    out.append(_unit(idx, roles[idx], t))
+            return out
         from chayuan.server.video_generation.steps.subtitle import _split_string_by_punctuations
         rs = role_scripts or []
         per = []
