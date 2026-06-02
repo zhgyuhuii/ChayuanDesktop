@@ -57,8 +57,9 @@ function localToCard(e: LocalModelEntry): HubModelCard {
     updated_at: null,
     tags: [],
     installed: true,
-    // 内置模型不可卸载 —— 后端 local_index 用 source_tag='bundled' 标注。
-    bundled: e.source_tag === 'bundled',
+    // 内置模型不可卸载 —— bundled 身份在 relpath 前缀 'bundled/'(真实 source_tag
+    // 是 'models',因 bundled 模型经顶层 models 根扫到,详见后端 local_index)。
+    bundled: (e.relpath ?? '').startsWith('bundled/'),
   };
 }
 
