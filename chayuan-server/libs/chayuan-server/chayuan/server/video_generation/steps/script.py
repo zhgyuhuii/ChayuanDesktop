@@ -198,46 +198,126 @@ def _ffmpeg_exe() -> str:
         return "ffmpeg"
 
 
-def _video_frames_data_urls(path: str, *, frames: int = 4) -> List[str]:
-    """ffmpeg 均匀抽 ``frames`` 帧 -> base64 data URL 列表。失败/超时返 []。"""
+# 抽帧上限:VLM token 可控(每帧一张图,过多会撑爆上下文/拖慢推理)。
+_VIDEO_FRAMES_MAX = 6
+# 场景帧少于此阈值视为"没抽够",转走时长自适应均匀兜底。
+_VIDEO_SCENE_MIN = 3
+
+
+def _probe_duration_seconds(path: str) -> Optional[float]:
+    """ffprobe 取视频时长(秒);失败/拿不到返 None(调用方走旧均匀逻辑)。
+
+    复用 digital_human/jobs.py 同款 ffprobe 解析范式(ffmpeg 路径替换出 ffprobe)。
+    """
+
+    import json as _json
+    import subprocess
+
+    try:
+        ff = _ffmpeg_exe()
+        ffprobe = ff.replace("ffmpeg", "ffprobe")
+        # timeout 兜底:损坏视频也别让 ffprobe 挂死请求线程。
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration",
+             "-of", "json", path],
+            capture_output=True, text=True, timeout=20,
+        )
+        dur = float((_json.loads(out.stdout or "{}").get("format") or {}).get("duration") or 0)
+        return dur if dur > 0 else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[script] ffprobe 取时长失败 path=%s: %r — 走旧均匀逻辑", path, e)
+        return None
+
+
+def _collect_jpgs_as_data_urls(tmpdir: str, *, limit: int) -> List[str]:
+    """从 tmpdir 收 .jpg(按文件名排序),编成 data URL 列表(取前 limit 张)。"""
 
     import base64
     import os
+
+    urls: List[str] = []
+    names = sorted(n for n in os.listdir(tmpdir) if n.endswith(".jpg"))
+    for n in names[:max(1, limit)]:
+        with open(os.path.join(tmpdir, n), "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode("ascii")
+        urls.append(f"data:image/jpeg;base64,{b64}")
+    return urls
+
+
+def _video_frames_data_urls(path: str, *, frames: int = _VIDEO_FRAMES_MAX) -> List[str]:
+    """商品视频抽帧 -> base64 data URL 列表(供 VLM 看图出文案)。失败/超时返 []。
+
+    策略:**场景切变帧优先 + 时长自适应均匀兜底**。
+      1. 先抽"画面明显变化"处(``select='gt(scene,0.3)'``),更可能是产品特写/
+         不同卖点,自动跳过片头转场。
+      2. 场景帧 < ``_VIDEO_SCENE_MIN`` 张时(短视频/画面平稳),按 ffprobe 拿到的
+         时长**均匀覆盖全片**抽(采样间隔=时长/frames),保证覆盖整段而非只前 12 秒;
+         拿不到时长则回退老的 ``fps=1/3`` 均匀逻辑。
+
+    两条 ffmpeg 命令都带 timeout + 异常兜底(后端无 --reload 的同步 worker,
+    损坏/超长视频会卡死请求线程),任一步失败/超时即放弃 -> 回退纯文本路径。
+    """
+
+    import os
+    import shutil
     import subprocess
     import tempfile
 
-    out: List[str] = []
-    tmpdir = tempfile.mkdtemp(prefix="dh_prod_frames_")
+    cap = max(1, min(frames, _VIDEO_FRAMES_MAX))
+    ff = _ffmpeg_exe()
+
+    # --- 步骤 1:场景切变帧优先 ---
+    scene_dir = tempfile.mkdtemp(prefix="dh_prod_scene_")
     try:
-        ff = _ffmpeg_exe()
-        # 每 3 秒取一帧,最多 frames 张(短视频也至少能取到首帧)
-        pattern = os.path.join(tmpdir, "f_%02d.jpg")
-        # timeout 兜底:损坏/超长视频会让 ffmpeg 卡死,进而挂死整个请求线程
-        # (后端无 --reload 的同步 worker)。超时即放弃抽帧,回退纯文本路径。
-        subprocess.run(
-            [ff, "-y", "-i", path, "-vf", "fps=1/3",
-             "-frames:v", str(max(1, frames)), pattern],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=60,
-        )
-        names = sorted(n for n in os.listdir(tmpdir) if n.endswith(".jpg"))
-        for n in names[:max(1, frames)]:
-            with open(os.path.join(tmpdir, n), "rb") as fh:
-                b64 = base64.b64encode(fh.read()).decode("ascii")
-            out.append(f"data:image/jpeg;base64,{b64}")
-    except subprocess.TimeoutExpired as e:
-        logger.warning("[script] 视频抽帧超时(>60s) path=%s: %r — 回退纯文本", path, e)
-        return []
-    except Exception as e:  # noqa: BLE001
-        logger.warning("[script] 视频抽帧失败 path=%s: %r", path, e)
-        return []
-    finally:
+        pattern = os.path.join(scene_dir, "f_%02d.jpg")
         try:
-            import shutil
-            shutil.rmtree(tmpdir, ignore_errors=True)
-        except Exception:  # noqa: BLE001
-            pass
-    return out
+            subprocess.run(
+                [ff, "-y", "-i", path,
+                 "-vf", "select='gt(scene,0.3)',scale=512:-1",
+                 "-frames:v", str(cap), "-vsync", "vfr", pattern],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=60,
+            )
+            scene_urls = _collect_jpgs_as_data_urls(scene_dir, limit=cap)
+        except subprocess.TimeoutExpired as e:
+            logger.warning("[script] 场景帧抽取超时(>60s) path=%s: %r — 回退纯文本", path, e)
+            return []
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[script] 场景帧抽取失败 path=%s: %r — 转均匀兜底", path, e)
+            scene_urls = []
+        if len(scene_urls) >= _VIDEO_SCENE_MIN:
+            return scene_urls[:cap]
+    finally:
+        shutil.rmtree(scene_dir, ignore_errors=True)
+
+    # --- 步骤 2:时长自适应均匀兜底(覆盖全片) ---
+    uni_dir = tempfile.mkdtemp(prefix="dh_prod_uni_")
+    try:
+        pattern = os.path.join(uni_dir, "f_%02d.jpg")
+        duration = _probe_duration_seconds(path)
+        if duration and duration > 0:
+            # 采样间隔=时长/帧数,首帧落在区间中点附近,均匀铺满整段。
+            interval = max(0.5, duration / cap)
+            vf = "fps=1/%g,scale=512:-1" % interval
+        else:
+            # 拿不到时长 -> 回退老的 fps=1/3 均匀逻辑(短视频也至少取首帧)。
+            vf = "fps=1/3,scale=512:-1"
+        try:
+            subprocess.run(
+                [ff, "-y", "-i", path, "-vf", vf,
+                 "-frames:v", str(cap), pattern],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=60,
+            )
+            return _collect_jpgs_as_data_urls(uni_dir, limit=cap)
+        except subprocess.TimeoutExpired as e:
+            logger.warning("[script] 均匀抽帧超时(>60s) path=%s: %r — 回退纯文本", path, e)
+            return []
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[script] 均匀抽帧失败 path=%s: %r — 回退纯文本", path, e)
+            return []
+    finally:
+        shutil.rmtree(uni_dir, ignore_errors=True)
 
 
 def _product_image_data_urls(product_ref: str) -> List[str]:

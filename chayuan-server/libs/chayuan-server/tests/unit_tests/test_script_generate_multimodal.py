@@ -157,6 +157,190 @@ def test_video_timeout_falls_back_to_text(monkeypatch, tmp_path):
 
 
 # ──────────────────────────────────────────────────────────────
+# P2 抽帧策略:场景切变帧优先 + 时长自适应均匀兜底
+# ──────────────────────────────────────────────────────────────
+
+
+def _is_scene_cmd(cmd):  # noqa: ANN001
+    """场景帧命令:-vf 含 select='gt(scene,...)'。"""
+    s = " ".join(cmd)
+    return "gt(scene" in s
+
+
+def _is_uniform_cmd(cmd):  # noqa: ANN001
+    """均匀兜底命令:-vf 含 fps=。"""
+    s = " ".join(cmd)
+    return "fps=" in s
+
+
+def _is_ffprobe_cmd(cmd):  # noqa: ANN001
+    return "ffprobe" in cmd[0] or "format=duration" in " ".join(cmd)
+
+
+def test_scene_frames_preferred_caps_at_max(monkeypatch, tmp_path):
+    """① 场景帧充足(>=阈值) -> 直接用场景帧,且帧数不超过上限。"""
+    import subprocess
+
+    calls = {"scene": 0, "uniform": 0}
+
+    def _fake_run(cmd, **kw):  # noqa: ANN001
+        assert kw.get("timeout"), "subprocess.run 必须带 timeout 兜底"
+        if _is_scene_cmd(cmd):
+            calls["scene"] += 1
+            pattern = cmd[-1]
+            outdir = os.path.dirname(pattern)
+            # 模拟场景帧抽出 8 张(超过上限 _VIDEO_FRAMES_MAX),验证会被截断
+            for i in range(1, 9):
+                with open(os.path.join(outdir, "f_%02d.jpg" % i), "wb") as fh:
+                    fh.write(b"\xff\xd8\xff" + bytes([i]))
+        else:
+            calls["uniform"] += 1
+        class _R:
+            returncode = 0
+        return _R()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    fid = "1700000000-scene.mp4"
+    (tmp_path / fid).write_bytes(b"fakevideo")
+    urls = script_mod._video_frames_data_urls(str(tmp_path / fid))
+
+    assert calls["scene"] == 1
+    assert calls["uniform"] == 0, "场景帧充足时不应走均匀兜底"
+    assert len(urls) <= script_mod._VIDEO_FRAMES_MAX
+    assert len(urls) == script_mod._VIDEO_FRAMES_MAX
+    assert all(u.startswith("data:image/jpeg;base64,") for u in urls)
+
+
+def test_scene_insufficient_falls_back_to_duration_uniform(monkeypatch, tmp_path):
+    """② 场景帧不足 -> 走时长自适应均匀兜底(调 ffprobe + 第二条 ffmpeg)。"""
+    import subprocess
+
+    calls = {"scene": 0, "uniform": 0, "probe": 0}
+    seen_uniform_vf = []
+
+    def _fake_run(cmd, **kw):  # noqa: ANN001
+        assert kw.get("timeout"), "subprocess.run 必须带 timeout 兜底"
+        if _is_ffprobe_cmd(cmd):
+            calls["probe"] += 1
+            class _P:
+                returncode = 0
+                stdout = '{"format": {"duration": "30.0"}}'
+            return _P()
+        if _is_scene_cmd(cmd):
+            calls["scene"] += 1
+            # 场景帧只抽出 1 张(< _VIDEO_SCENE_MIN=3),应触发兜底
+            pattern = cmd[-1]
+            outdir = os.path.dirname(pattern)
+            with open(os.path.join(outdir, "f_01.jpg"), "wb") as fh:
+                fh.write(b"\xff\xd8\xff\x01")
+        else:
+            calls["uniform"] += 1
+            # 记录均匀 vf(应基于时长 30s/6=5s 间隔 -> fps=1/5)
+            vf = cmd[cmd.index("-vf") + 1]
+            seen_uniform_vf.append(vf)
+            pattern = cmd[-1]
+            outdir = os.path.dirname(pattern)
+            for i in range(1, 5):
+                with open(os.path.join(outdir, "f_%02d.jpg" % i), "wb") as fh:
+                    fh.write(b"\xff\xd8\xff" + bytes([i]))
+        class _R:
+            returncode = 0
+        return _R()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    fid = "1700000000-stable.mp4"
+    (tmp_path / fid).write_bytes(b"fakevideo")
+    urls = script_mod._video_frames_data_urls(str(tmp_path / fid))
+
+    assert calls["scene"] == 1
+    assert calls["probe"] == 1, "兜底应先 ffprobe 探时长"
+    assert calls["uniform"] == 1, "场景帧不足应走第二条均匀 ffmpeg"
+    # 30s / 6 帧 = 5s 间隔 -> fps=1/5(基于时长而非写死 1/3)
+    assert seen_uniform_vf and "fps=1/5" in seen_uniform_vf[0], seen_uniform_vf
+    assert len(urls) == 4
+    assert all(u.startswith("data:image/jpeg;base64,") for u in urls)
+
+
+def test_uniform_fallback_when_probe_fails_uses_legacy_fps(monkeypatch, tmp_path):
+    """ffprobe 拿不到时长 -> 均匀兜底回退老的 fps=1/3。"""
+    import subprocess
+
+    seen_uniform_vf = []
+
+    def _fake_run(cmd, **kw):  # noqa: ANN001
+        assert kw.get("timeout")
+        if _is_ffprobe_cmd(cmd):
+            class _P:
+                returncode = 0
+                stdout = "{}"  # 没有 duration
+            return _P()
+        if _is_scene_cmd(cmd):
+            pass  # 场景帧抽出 0 张 -> 触发兜底
+        else:
+            vf = cmd[cmd.index("-vf") + 1]
+            seen_uniform_vf.append(vf)
+            pattern = cmd[-1]
+            outdir = os.path.dirname(pattern)
+            with open(os.path.join(outdir, "f_01.jpg"), "wb") as fh:
+                fh.write(b"\xff\xd8\xff\x01")
+        class _R:
+            returncode = 0
+        return _R()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    fid = "1700000000-nodur.mp4"
+    (tmp_path / fid).write_bytes(b"fakevideo")
+    urls = script_mod._video_frames_data_urls(str(tmp_path / fid))
+
+    assert seen_uniform_vf and "fps=1/3" in seen_uniform_vf[0], seen_uniform_vf
+    assert len(urls) == 1
+
+
+def test_scene_step_timeout_returns_empty(monkeypatch, tmp_path):
+    """③a 场景帧命令超时 -> 返 [] 不抛(回退纯文本)。"""
+    import subprocess
+
+    def _fake_run(cmd, **kw):  # noqa: ANN001
+        assert kw.get("timeout")
+        if _is_scene_cmd(cmd):
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=kw.get("timeout"))
+        class _R:
+            returncode = 0
+        return _R()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    fid = "1700000000-slow.mp4"
+    (tmp_path / fid).write_bytes(b"corrupt")
+    assert script_mod._video_frames_data_urls(str(tmp_path / fid)) == []
+
+
+def test_uniform_step_failure_returns_empty(monkeypatch, tmp_path):
+    """③b 场景帧失败 + 均匀兜底 ffmpeg 抛错 -> 返 [] 不抛。"""
+    import subprocess
+
+    def _fake_run(cmd, **kw):  # noqa: ANN001
+        assert kw.get("timeout")
+        if _is_ffprobe_cmd(cmd):
+            class _P:
+                returncode = 0
+                stdout = '{"format": {"duration": "12.0"}}'
+            return _P()
+        if _is_scene_cmd(cmd):
+            raise RuntimeError("scene filter unsupported")  # 转兜底
+        raise subprocess.CalledProcessError(1, cmd)  # 均匀也炸
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    fid = "1700000000-bad.mp4"
+    (tmp_path / fid).write_bytes(b"corrupt")
+    assert script_mod._video_frames_data_urls(str(tmp_path / fid)) == []
+
+
+# ──────────────────────────────────────────────────────────────
 # P2: 多模态 VLM 能力校验 — 本地索引判定非视觉模型 -> 明确报错
 # ──────────────────────────────────────────────────────────────
 
