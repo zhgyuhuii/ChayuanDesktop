@@ -1,6 +1,6 @@
 """数字人 P1 数据契约。"""
 from __future__ import annotations
-from typing import List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field, model_validator
 
 AvatarKind = Literal["image", "video"]
@@ -71,8 +71,9 @@ class DhGenerateRequest(BaseModel):
     template: DhTemplate = "none"
     matte: bool = False
     engine: DhEngine = "wav2lip"
-    script: Optional[str] = None
-    role_scripts: Optional[List[str]] = None
+    script: Optional[str] = None              # single 用
+    role_scripts: Optional[List[str]] = None  # coframe 用:每角色一串,plan 按句轮流交织
+    role_segments: Optional[List[Dict[str, Any]]] = None  # sequential 用:有序 [{role_index,text}]
 
 
 class DhTaskStatus(BaseModel):
