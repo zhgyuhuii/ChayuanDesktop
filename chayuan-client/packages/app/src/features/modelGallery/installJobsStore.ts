@@ -47,6 +47,8 @@ export interface StartInstallArgs {
   capability: string;
   requested_file?: string | null;
   revision?: string | null;
+  /** 预估下载体积(选中文件大小 / 仓库总大小);后端据此做磁盘空间预检。 */
+  expected_bytes?: number | null;
 }
 
 export interface InstallJobsStoreState {
@@ -136,6 +138,7 @@ export const useInstallJobsStore = create<InstallJobsStoreState>((set, get) => {
         capability: args.capability,
         specific_file: args.requested_file ?? null,
         revision: args.revision ?? null,
+        expected_bytes: args.expected_bytes ?? null,
       });
       set((s) => ({ jobs: { ...s.jobs, [key]: job } }));
       if (job.status === 'succeeded') notifyDone(job);

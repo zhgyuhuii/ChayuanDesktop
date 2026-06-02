@@ -33,6 +33,8 @@ export interface StartInstallArgs {
   capability: InstallModelCapability | string;
   requested_file?: string | null;
   revision?: string | null;   // 仓库分支/tag/commit;省略=源默认分支
+  /** 预估下载体积(选中文件大小 / 仓库总大小);后端据此做磁盘空间预检。 */
+  expected_bytes?: number | null;
 }
 
 export interface UseInstallJobResult {
@@ -78,6 +80,7 @@ export function useInstallJobFor(
         capability: args.capability,
         requested_file: args.requested_file ?? null,
         revision: args.revision ?? null,
+        expected_bytes: args.expected_bytes ?? null,
       });
     },
     [storeStart],
@@ -139,6 +142,7 @@ export function useInstallJob(opts?: {
         capability: args.capability,
         specific_file: args.requested_file ?? null,
         revision: args.revision ?? null,
+        expected_bytes: args.expected_bytes ?? null,
       });
       setJob(j);
       if (TERMINAL.has(j.status)) {

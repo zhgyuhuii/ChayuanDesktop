@@ -630,6 +630,8 @@ export interface InstallModelJob {
   model_id: string;
   capability: InstallModelCapability;
   requested_file: string | null;
+  /** 预估下载体积(前端 start 时从 Hub detail 传入);用于磁盘空间预检。 */
+  expected_bytes: number | null;
   revision: string | null;           // 仓库分支/tag/commit;null=源默认分支
   status: InstallJobStatus;          // 复用 release job 的状态枚举(同 5 态)
   step: string;                       // preparing / downloading / finalizing / done
@@ -658,6 +660,8 @@ export const serverModelsInstallModel = {
     capability: InstallModelCapability | string;
     specific_file?: string | null;
     revision?: string | null;        // 仓库分支/tag/commit;省略=源默认分支
+    /** 预估下载体积(选中文件大小 / 仓库总大小);后端据此做磁盘空间预检。 */
+    expected_bytes?: number | null;
   }): Promise<InstallModelJob> {
     const r = await request<{ data: InstallModelJob }>(MODELS_INSTALL_MODEL, {
       method: 'POST',

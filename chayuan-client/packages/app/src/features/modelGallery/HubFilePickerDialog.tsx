@@ -10,7 +10,8 @@
  *   - card:    目标模型卡片(取 source / model_id)
  *   - route:   HF 线路提示(hf-mirror / official),透传给 detail
  *   - token:   可选源端 token(私有仓 / 限流),透传给 detail
- *   - onPick:  用户确认选择 → (file, revision)。file=具体 rfilename。
+ *   - onPick:  用户确认选择 → (file, revision, sizeBytes)。file=具体 rfilename,
+ *              sizeBytes=该文件大小(用于下载前磁盘空间预检,可能为 null)。
  *   - onClose: 关闭(取消)。
  */
 
@@ -32,7 +33,7 @@ export interface HubFilePickerDialogProps {
   card: HubModelCard;
   route?: string;
   token?: string;
-  onPick(file: string | undefined, revision?: string): void;
+  onPick(file: string | undefined, revision?: string, sizeBytes?: number | null): void;
   onClose(): void;
 }
 
@@ -155,7 +156,11 @@ export const HubFilePickerDialog: React.FC<HubFilePickerDialogProps> = ({
           <button
             type="button"
             disabled={!selected}
-            onClick={() => selected && onPick(selected, rev)}
+            onClick={() => {
+              if (!selected) return;
+              const picked = runnableFiles.find((f) => f.rfilename === selected);
+              onPick(selected, rev, picked?.size_bytes ?? null);
+            }}
             className="rounded-lg bg-[var(--cy-brand-500)] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[var(--cy-brand-600)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             下载该文件

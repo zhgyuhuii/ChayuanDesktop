@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import threading
 import time
 import uuid
@@ -323,7 +324,13 @@ class InstallModelJob:
     progress_message: str = ""
     log_tail: Deque[str] = field(default_factory=lambda: deque(maxlen=200))
     target_dir: Optional[str] = None   # 完成后的实际落地路径
+    # 前端从 Hub detail 已知的预估下载体积(选中文件大小 / 仓库总大小),
+    # 用于下载前磁盘空间预检;拿不到则为 None → 跳过预检(不阻断)。
+    expected_bytes: Optional[int] = None
     _cancel_requested: bool = field(default=False, repr=False)
+    # target_dir 是否本次新建(预检时目录不存在);失败/取消清理残目录只删本次
+    # 新建的,不碰用户已有的完整模型目录(避免误删)。
+    _target_dir_created: bool = field(default=False, repr=False)
 
     def to_dict(self) -> dict:
         return {
@@ -332,6 +339,7 @@ class InstallModelJob:
             "model_id": self.model_id,
             "capability": self.capability,
             "requested_file": self.requested_file,
+            "expected_bytes": self.expected_bytes,
             "revision": self.revision,
             "status": self.status.value,
             "step": self.step,
@@ -360,6 +368,7 @@ class InstallModelJobManager:
         capability: str,
         specific_file: Optional[str] = None,
         revision: Optional[str] = None,
+        expected_bytes: Optional[int] = None,
     ) -> InstallModelJob:
         if source not in _ALLOWED_SOURCES:
             raise ValueError(
@@ -370,6 +379,12 @@ class InstallModelJobManager:
         norm_file = _validate_filename(specific_file)
         # revision 不强校验(分支名/tag/commit sha 形态各异);空串归一成 None。
         norm_rev = (revision or "").strip() or None
+        # expected_bytes:前端从 Hub detail 传来的预估体积;非正数/None 归一成 None。
+        norm_expected = (
+            int(expected_bytes)
+            if (isinstance(expected_bytes, (int, float)) and expected_bytes > 0)
+            else None
+        )
 
         with self._lock:
             # 同一 model_id + cap 已经在跑就拒绝(避免重复硬盘竞争)。
@@ -390,6 +405,7 @@ class InstallModelJobManager:
                 capability=norm_cap,
                 requested_file=norm_file,
                 revision=norm_rev,
+                expected_bytes=norm_expected,
                 status=ModelJobStatus.QUEUED,
                 started_at=time.time(),
             )
@@ -459,6 +475,9 @@ class InstallModelJobManager:
         bundled_root = _user_bundled_root()
         cap_subdir = _CAP_TO_BUNDLED_DIR.get(job.capability, "custom")
         target_dir = bundled_root / cap_subdir / _repo_safe_name(job.model_id)
+        # 记录目录是否本次新建 —— 失败/取消清理残目录只删本次新建的,不碰用户
+        # 已有的完整模型目录(避免误删)。
+        created_now = not target_dir.exists()
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
         except OSError as e:
@@ -468,11 +487,19 @@ class InstallModelJobManager:
             return
         with self._lock:
             job.target_dir = str(target_dir)
+            job._target_dir_created = created_now
             job.progress_message = f"下载到 {target_dir}"
             job.log_tail.append(f"[install_model] target_dir={target_dir}")
             if job._cancel_requested:
                 self._set_cancelled(job)
+                self._cleanup_residual_dir(job)
                 return
+
+        # 1.5 磁盘空间预检:有预估体积才查;不足则不开下载,直接 FAILED 给人话。
+        #     预估体积拿不到(前端没传 / detail 无大小)→ 跳过预检,不阻断。
+        if not self._disk_precheck(job, bundled_root):
+            self._cleanup_residual_dir(job)
+            return
 
         # 2. 调对应 SDK
         with self._lock:
@@ -484,6 +511,7 @@ class InstallModelJobManager:
                 self._download_huggingface(job, target_dir)
         except _Cancelled:
             self._set_cancelled(job)
+            self._cleanup_residual_dir(job)
             return
         except ModelRepoNotFoundError:
             # 主源 404 → **自动换另一个源重试**。同一个 model 在 ModelScope /
@@ -504,6 +532,7 @@ class InstallModelJobManager:
                     self._download_huggingface(job, target_dir)
             except _Cancelled:
                 self._set_cancelled(job)
+                self._cleanup_residual_dir(job)
                 return
             except ModelRepoNotFoundError as e2:
                 # 两个源都没有 → 这才是真不存在。给人话,不刷堆栈。
@@ -513,14 +542,17 @@ class InstallModelJobManager:
                 with self._lock:
                     job.progress_message = msg
                 self._fail(job, msg)
+                self._cleanup_residual_dir(job)
                 return
             except Exception as e2:  # noqa: BLE001
                 logger.exception("install_model %s 换源下载失败", job.model_id)
                 self._fail_with_traceback(job, "换源下载失败", e2, target_dir)
+                self._cleanup_residual_dir(job)
                 return
         except Exception as e:  # noqa: BLE001
             logger.exception("install_model %s 下载失败", job.model_id)
             self._fail_with_traceback(job, "下载失败", e, target_dir)
+            self._cleanup_residual_dir(job)
             return
 
         # 2.5 写入 manifest(记 origin{source,repo_id,revision})——
@@ -840,6 +872,108 @@ class InstallModelJobManager:
                     )
         except Exception as e:  # noqa: BLE001
             logger.debug("[install_model] _verify_runtime_match 异常(忽略): %r", e)
+
+    @staticmethod
+    def _fmt_gb(num_bytes: float) -> str:
+        return f"{num_bytes / (1024 ** 3):.2f} GB"
+
+    def _disk_precheck(self, job: InstallModelJob, bundled_root: Path) -> bool:
+        """下载前磁盘空间预检。
+
+        Returns:
+            True  = 可以继续(空间够,或无预估体积/无法测算 → 跳过预检不阻断);
+            False = 空间不足,已把 job 置 FAILED 并写人话 message。
+
+        预估体积来自前端从 Hub detail 传入的 ``expected_bytes``(选中文件大小或
+        仓库总大小)。预留 10% + 512MB 余量给临时文件 / SDK cache / 校验副本。
+        """
+        expected = job.expected_bytes
+        if not expected or expected <= 0:
+            with self._lock:
+                job.log_tail.append(
+                    "[install_model] 无预估体积,跳过磁盘空间预检"
+                )
+            return True
+        try:
+            usage = shutil.disk_usage(str(bundled_root))
+        except OSError as e:  # noqa: BLE001 — 测不出可用空间时不阻断下载
+            with self._lock:
+                job.log_tail.append(
+                    f"[install_model] 磁盘空间预检跳过(无法读取可用空间: {e!r})"
+                )
+            return True
+        free = usage.free
+        # 留 10% + 512MB 余量(临时文件 / SDK cache / 校验副本)。
+        needed = int(expected * 1.10) + 512 * 1024 * 1024
+        with self._lock:
+            job.log_tail.append(
+                f"[install_model] 磁盘预检:预估需 {self._fmt_gb(expected)}"
+                f"(含余量 {self._fmt_gb(needed)}),可用 {self._fmt_gb(free)}"
+            )
+        if free >= needed:
+            return True
+        msg = (
+            f"磁盘空间不足:本次下载约需 {self._fmt_gb(needed)}"
+            f"(含临时文件余量),当前磁盘仅剩 {self._fmt_gb(free)}。"
+            f"请清理磁盘后重试,或把 CHAYUAN_ROOT 换到空间更大的磁盘。"
+        )
+        with self._lock:
+            job.progress_message = msg
+        self._fail(job, msg)
+        return False
+
+    def _has_valid_manifest(self, target_dir: Path) -> bool:
+        """目录是否已有有效 manifest(代表下完整的模型,不能当残目录删)。"""
+        try:
+            from chayuan_modelmgr.verifier import read_manifest  # type: ignore
+        except Exception:  # noqa: BLE001 — modelmgr 未装则按文件存在性判定
+            return (target_dir / "manifest.json").exists() or (
+                target_dir / ".chayuan_manifest.json"
+            ).exists()
+        try:
+            m = read_manifest(target_dir)
+            return bool(m)
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _cleanup_residual_dir(self, job: InstallModelJob) -> None:
+        """下载失败 / 取消后,清掉本次新建且没下完(无有效 manifest)的残目录。
+
+        只在以下全部满足时删,避免误删用户已有完整模型:
+          - target_dir 是**本次**新建的(``_target_dir_created``);
+          - 目录里没有有效 manifest(没下完 / 中途中断)。
+        删失败只记日志,不抛(清理是 best-effort)。
+        """
+        td_str = job.target_dir
+        if not td_str:
+            return
+        target_dir = Path(td_str)
+        if not job._target_dir_created:
+            with self._lock:
+                job.log_tail.append(
+                    "[install_model] target_dir 非本次新建,保留(不清理)"
+                )
+            return
+        if not target_dir.exists():
+            return
+        if self._has_valid_manifest(target_dir):
+            with self._lock:
+                job.log_tail.append(
+                    "[install_model] 残目录已有有效 manifest(疑似完整模型),保留不删"
+                )
+            return
+        try:
+            shutil.rmtree(target_dir, ignore_errors=False)
+            with self._lock:
+                job.log_tail.append(
+                    f"[install_model] 已清理未下完的残目录 {target_dir}"
+                )
+        except OSError as e:  # noqa: BLE001 — best-effort
+            logger.warning("[install_model] 清理残目录失败(忽略): %r", e)
+            with self._lock:
+                job.log_tail.append(
+                    f"[install_model] 清理残目录失败(忽略): {e!r}"
+                )
 
     def _check_cancel(self, job: InstallModelJob) -> None:
         with self._lock:

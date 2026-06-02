@@ -90,7 +90,7 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
   const [startErr, setStartErr] = React.useState<string | null>(null);
 
   const doStart = React.useCallback(
-    (file: string | undefined, revision?: string) => {
+    (file: string | undefined, revision?: string, expectedBytes?: number | null) => {
       setStartErr(null);
       void start({
         source: card.source as InstallModelSource,
@@ -98,11 +98,13 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
         capability: card.capability,
         requested_file: file ?? null,
         revision: revision ?? null,
+        // 单文件下载用选中文件大小;整仓下载回退到卡片上的仓库总大小(可能为 null)。
+        expected_bytes: expectedBytes ?? card.file_size_bytes ?? null,
       }).catch((e) => {
         setStartErr(e instanceof Error ? e.message : String(e));
       });
     },
-    [start, card.source, card.model_id, card.capability],
+    [start, card.source, card.model_id, card.capability, card.file_size_bytes],
   );
 
   /** 点「安装」:先取文件清单判断是否需要让用户挑 quant。 */
@@ -347,11 +349,12 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
           card={card}
           route={route}
           token={token}
-          onPick={(file, revision) => {
+          onPick={(file, revision, sizeBytes) => {
             setPicking(false);
             // revision 一路透传到后端下载器(HF/MS 的 revision= 参数);
             // 空则后端保持源默认分支(HF main / ModelScope master)。
-            doStart(file, revision ?? undefined);
+            // sizeBytes=选中文件大小,透传给后端做磁盘空间预检。
+            doStart(file, revision ?? undefined, sizeBytes);
           }}
           onClose={() => setPicking(false)}
         />

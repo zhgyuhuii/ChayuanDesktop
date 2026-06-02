@@ -1201,6 +1201,13 @@ def admin_models_install_model(
     # 空/缺省 → None,下载器保持源默认分支行为(HF main / ModelScope master)。
     revision = payload.get("revision")
     revision = str(revision).strip() if revision else None
+    # expected_bytes:前端从 Hub detail 已知的预估下载体积(选中文件大小 / 仓库
+    # 总大小),用于下载前磁盘空间预检。缺省/非数值 → None,后端跳过预检。
+    expected_bytes = payload.get("expected_bytes")
+    try:
+        expected_bytes = int(expected_bytes) if expected_bytes is not None else None
+    except (TypeError, ValueError):
+        expected_bytes = None
 
     try:
         job = get_install_model_manager().start(
@@ -1209,6 +1216,7 @@ def admin_models_install_model(
             capability=capability,
             specific_file=specific_file,
             revision=revision,
+            expected_bytes=expected_bytes,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
