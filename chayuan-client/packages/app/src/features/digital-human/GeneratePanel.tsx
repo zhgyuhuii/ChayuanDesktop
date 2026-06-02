@@ -8,6 +8,7 @@ import type { ModalityCapability } from '@chayuan/transport';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@chayuan/ui';
 import { reportError } from '../../store/errorDialog';
 import { promptDialog } from '../../store/promptDialog';
+import { confirmDialog } from '../../store/confirmDialog';
 import { useUsageGate, UsageGateDialogs } from '../license';
 import { ModelMenuList, displayLabel } from '../composer/ModelMenuList';
 import { CHAT_CAPABILITIES, inferCapability } from '../composer/modelCapabilityChip';
@@ -50,6 +51,49 @@ function splitSentences(s: string): string[] {
     .split(/(?<=[。！？!?\n])/)
     .map((x) => x.trim())
     .filter(Boolean);
+}
+
+/** 与后端 _split_string_by_punctuations 对齐:按中英文标点切句(标点不保留),
+    用于「播放顺序预览」让所见即所得。coframe 后端按此切句再交织。 */
+function splitByPunct(s: string): string[] {
+  if (!s) return [];
+  return s
+    .split(/[?,.、;:!…？，。；：！]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+export type PreviewItem = { roleName: string; text: string };
+/** 算最终播放顺序(只读预览):
+    - coframe:各角色框各自按句切分,再按句序在角色间交织(甲1,乙1,甲2,乙2,…),与后端 plan 一致。
+    - sequential:已拼的段序(按段轮流,跳过空段),与 doGen role_segments 顺序一致。 */
+export function previewOrder(
+  mode: string,
+  coframeScripts: string[],
+  seqSegments: string[][],
+  roleNames: string[],
+): PreviewItem[] {
+  const out: PreviewItem[] = [];
+  const nm = (i: number) => roleNames[i] || ('角色' + (i + 1));
+  if (mode === 'coframe') {
+    const per = roleNames.map((_, i) => splitByPunct(coframeScripts[i] ?? ''));
+    const maxk = per.reduce((m, p) => Math.max(m, p.length), 0);
+    for (let k = 0; k < maxk; k++) {
+      for (let i = 0; i < per.length; i++) {
+        const seg = per[i]?.[k];
+        if (seg !== undefined) out.push({ roleName: nm(i), text: seg });
+      }
+    }
+  } else if (mode === 'sequential') {
+    const maxLen = seqSegments.reduce((m, a) => Math.max(m, a.length), 0);
+    for (let k = 0; k < maxLen; k++) {
+      for (let i = 0; i < seqSegments.length; i++) {
+        const t = (seqSegments[i]?.[k] ?? '').trim();
+        if (t) out.push({ roleName: nm(i), text: t });
+      }
+    }
+  }
+  return out;
 }
 
 export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void }> = ({ presets, initialPresetId, onPresetChange }) => {
@@ -97,14 +141,29 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const [scripting, setScripting] = React.useState(false);
   const refVideoRef = React.useRef<HTMLInputElement>(null);
   // AI 生成/参考视频得到整篇文案后,按当前合成模式分发:
-  // single 写全局 text;coframe/sequential 把整篇按句轮流分到各角色框,同时保留原始稿。
-  const distributeScript = (script: string) => {
+  // single 写全局 text;coframe 把整篇按句切分后【均分成 N 段连续块】,角色 i 拿第 i 段连贯段落
+  //   (后端 plan 仍按句交织作单一真源,角色框是连贯段落使交织结果可预期 / 所见即所得);
+  // sequential 仍按段序轮流进各角色段(分段轮流本就交替)。
+  // 覆盖前若各角色框已有非空内容,先确认,避免冲掉用户手改。
+  const distributeScript = async (script: string) => {
     setText(script);
     if (roleCount <= 0) return;
+    const hasManual =
+      mode === 'coframe'
+        ? coframeScripts.some((t) => (t ?? '').trim())
+        : mode === 'sequential'
+          ? seqSegments.some((segs) => segs.some((t) => (t ?? '').trim()))
+          : false;
+    if (hasManual) {
+      const ok = await confirmDialog('AI 生成将覆盖各角色框已填内容,继续?');
+      if (!ok) return;
+    }
     const sents = splitSentences(script);
     if (mode === 'coframe') {
+      const M = sents.length;
+      const chunkSize = Math.max(1, Math.ceil(M / roleCount));
       const next = Array.from({ length: roleCount }, (_, i) =>
-        sents.filter((_, k) => k % roleCount === i).join(''));
+        sents.slice(i * chunkSize, (i + 1) * chunkSize).join(''));
       setCoframeScripts(next);
     } else if (mode === 'sequential') {
       const next = Array.from({ length: roleCount }, (_, i) => {
@@ -125,7 +184,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         productRef: productRef ?? undefined,
         kuIds: effectiveKuIds(preset, scriptKuIds),
       });
-      if (r.script) distributeScript(r.script);
+      if (r.script) await distributeScript(r.script);
     } catch (e) {
       reportError(
         e as Error,
@@ -141,7 +200,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     setScripting(true);
     try {
       const r = await digitalHuman.scriptFromVideo(f);
-      if (r.script) distributeScript(r.script);
+      if (r.script) await distributeScript(r.script);
     } catch (err) { reportError(err as Error, '参考视频生成文案失败'); }
     finally { setScripting(false); }
   };
@@ -280,6 +339,14 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const currentModelLabel = currentModel
     ? displayLabel(currentModel)
     : (curModel.id || (modelsQ.isLoading ? '加载中…' : '默认模型'));
+
+  // 播放顺序预览(只读):反映最终合成后片段播放顺序,让用户「所见即所得」。
+  const roleNames = roles.map((r, i) => r.name || ('角色' + (i + 1)));
+  const orderPreview = React.useMemo(
+    () => previewOrder(mode, coframeScripts, seqSegments, roleNames),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mode, coframeScripts, seqSegments, roleNames.join('\u0001')],
+  );
 
   // 各 mode 是否有可生成内容
   const canGenerate =
@@ -453,6 +520,25 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
               ))}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 播放顺序预览(只读):同框=按句交织顺序;分段=段序轮流。反映最终「所得」。 */}
+      {mode !== 'single' && roles.length > 0 && orderPreview.length > 0 && (
+        <div className="rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-2)] p-2">
+          <div className="mb-1 text-xs text-[var(--cy-text-tertiary)]">
+            {mode === 'coframe' ? '播放顺序预览(同框按句交织)' : '播放顺序预览(分段轮流)'}
+          </div>
+          <div className="flex flex-col gap-0.5 text-xs text-[var(--cy-text-secondary)]">
+            {orderPreview.map((it, i) => (
+              <div key={i} className="truncate">
+                <span className="text-[var(--cy-text-tertiary)]">{'\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468\u2469'[i] ?? (i + 1) + '.'}</span>{' '}
+                <span className="font-medium text-[var(--cy-text-primary)]">{it.roleName}</span>
+                <span className="text-[var(--cy-text-tertiary)]">: </span>
+                {it.text}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
