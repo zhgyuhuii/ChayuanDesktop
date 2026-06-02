@@ -212,6 +212,8 @@ export async function generateMultiRoleScript(args: {
   subject: string;
   template_id?: string;
   productRef?: string;
+  /** 用户临时选的文案模型(provider::model);空=用预设绑定模型/默认。 */
+  model?: string;
 }): Promise<{
   role_segments: Array<{ role_index: number; text: string }>;
   kb_used?: boolean;
@@ -224,6 +226,7 @@ export async function generateMultiRoleScript(args: {
       subject: args.subject,
       template_id: args.template_id,
       product_ref: args.productRef,
+      model: args.model,
     },
   });
 }

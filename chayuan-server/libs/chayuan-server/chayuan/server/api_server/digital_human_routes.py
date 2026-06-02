@@ -328,8 +328,11 @@ def script_generate_multi(body: Dict[str, Any],
     """多角色脚本生成:逐角色检索各自知识源 -> 合成一个多角色 prompt ->
     一次 LLM -> ``[角色名] 台词`` 容错解析成有序 ``role_segments``。
 
-    body: ``preset_id`` / ``subject`` / ``template_id``(可选) / ``product_ref``(可选)。
-    每角色用 ``role.ku_ids or preset.ku_ids`` 检索;模型用 ``preset.model``(空=默认)。
+    body: ``preset_id`` / ``subject`` / ``template_id``(可选) / ``product_ref``(可选) /
+    ``model``(可选,用户临时选的文案模型;空=用 ``preset.model``=默认)。
+    每角色用 ``role.ku_ids or preset.ku_ids`` 检索;有 ``product_ref`` 时复用单篇
+    ``script.py`` 的商品图/视频抽帧 -> data URL -> 多模态 VLM 看图逻辑(与
+    ``/script/generate`` 对齐),让多角色文案也能"看图说话"。
     返回 ``{role_segments, kb_used, sources}``,sources 每条标 ``role``=角色名。
     """
     from chayuan.server.video_generation.digital_human.multirole import (
@@ -338,6 +341,11 @@ def script_generate_multi(body: Dict[str, Any],
     )
     from chayuan.server.video_generation.digital_human.script_templates import (
         get_template,
+    )
+    from chayuan.server.video_generation.steps.script import (
+        VlmCapabilityError,
+        _invoke_llm_multimodal,
+        _product_image_data_urls,
     )
 
     preset_id = (body.get("preset_id") or "").strip()
@@ -386,7 +394,8 @@ def script_generate_multi(body: Dict[str, Any],
         logger.error("[dh] generate-multi 依赖 import 失败: %r", e)
         raise HTTPException(502, "多角色文案生成依赖缺失(检查 langchain 安装)") from e
 
-    eff_model = model
+    # Med4:用户临时选的文案模型优先于 preset.model;都空再走 capability_router。
+    eff_model = (body.get("model") or "").strip() or model
     if not eff_model:
         try:
             from chayuan.server.capability_router import resolve_model
@@ -396,9 +405,27 @@ def script_generate_multi(body: Dict[str, Any],
     if not eff_model:
         raise HTTPException(502, "文案生成失败(LLM 不可用?先在模型配置里设默认 chat 模型)")
 
+    # Med3:有商品图/视频时,复用单篇 script.py 的抽帧 -> data URL + 多模态
+    # HumanMessage 构造逻辑(VLM 看图);解析不到可用图像则降级纯文本。
+    image_data_urls: List[str] = []
+    if product_ref:
+        try:
+            image_data_urls = _product_image_data_urls(product_ref) or []
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[dh] generate-multi 商品图解析失败,降级纯文本: %r", e)
+            image_data_urls = []
+
     try:
-        llm = get_ChatOpenAI(model_name=eff_model, temperature=0.7, streaming=False)
-        out = str(llm.invoke([HumanMessage(content=prompt)]).content)
+        if image_data_urls:
+            # _invoke_llm_multimodal 内部做 best-effort VLM 能力校验 + 构造
+            # content=[{text},{image_url}...] 的多模态 HumanMessage。
+            out = _invoke_llm_multimodal(prompt, image_data_urls, model=eff_model)
+        else:
+            llm = get_ChatOpenAI(model_name=eff_model, temperature=0.7, streaming=False)
+            out = str(llm.invoke([HumanMessage(content=prompt)]).content)
+    except VlmCapabilityError as e:
+        # 所选模型不支持图像输入 -> 转人话给用户(对齐 /script/generate)。
+        raise HTTPException(422, str(e)) from e
     except Exception as e:  # noqa: BLE001
         logger.warning("[dh] generate-multi LLM 调用失败 model=%s: %r", eff_model, e)
         raise HTTPException(502, "多角色文案生成失败(LLM 调用出错,请检查模型配置)") from e

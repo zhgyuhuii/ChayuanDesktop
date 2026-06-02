@@ -110,3 +110,90 @@ def test_generate_multi_missing_preset(monkeypatch, tmp_path):
     r = c.post("/api/v1/digital-human/script/generate-multi",
                json={"preset_id": "nope", "subject": "x"})
     assert r.status_code == 404
+
+
+def test_generate_multi_model_override(monkeypatch, tmp_path):
+    """body.model 优先于 preset.model 透传到 get_ChatOpenAI(Med4)。"""
+    c = _client(monkeypatch, tmp_path)
+    import chayuan.server.api_server.digital_human_routes as routes
+    from chayuan.server.video_generation.digital_human import store as dh_store
+
+    preset = _Preset(avatars=[_Role("小李"), _Role("小周")], model="preset::base")
+    monkeypatch.setattr(dh_store, "get_preset", lambda pid: preset)
+    monkeypatch.setattr(routes, "_retrieve_kb_context", lambda *a, **k: (None, []))
+
+    seen = {"model": None}
+
+    def _fake_get_chat(**kwargs):
+        seen["model"] = kwargs.get("model_name")
+        return _FakeLLM("[小李] 甲\n[小周] 乙")
+
+    monkeypatch.setattr("chayuan.server.utils.get_ChatOpenAI", _fake_get_chat)
+
+    r = c.post("/api/v1/digital-human/script/generate-multi",
+               json={"preset_id": "p1", "subject": "主题", "model": "user::override"})
+    assert r.status_code == 200, r.text
+    assert seen["model"] == "user::override"
+
+
+def test_generate_multi_product_ref_multimodal(monkeypatch, tmp_path):
+    """有 product_ref 时复用 script.py 的抽帧 + 多模态 VLM 路径(Med3)。"""
+    c = _client(monkeypatch, tmp_path)
+    import chayuan.server.api_server.digital_human_routes as routes
+    from chayuan.server.video_generation.digital_human import store as dh_store
+    from chayuan.server.video_generation.steps import script as script_mod
+
+    preset = _Preset(avatars=[_Role("小李"), _Role("小周")], model="vl::model")
+    monkeypatch.setattr(dh_store, "get_preset", lambda pid: preset)
+    monkeypatch.setattr(routes, "_retrieve_kb_context", lambda *a, **k: (None, []))
+
+    seen = {"urls": None, "model": None, "called": False}
+
+    monkeypatch.setattr(
+        script_mod, "_product_image_data_urls",
+        lambda ref: ["data:image/jpeg;base64,AAAA"],
+    )
+
+    def _fake_mm(prompt, urls, *, model=None):
+        seen["called"] = True
+        seen["urls"] = urls
+        seen["model"] = model
+        return "[小李] 看图说点。\n[小周] 我也看。"
+
+    monkeypatch.setattr(script_mod, "_invoke_llm_multimodal", _fake_mm)
+    # 纯文本路径不应被走到:断言它若被调用直接失败。
+    monkeypatch.setattr(
+        "chayuan.server.utils.get_ChatOpenAI",
+        lambda **k: (_ for _ in ()).throw(AssertionError("不应走纯文本 invoke")),
+    )
+
+    r = c.post("/api/v1/digital-human/script/generate-multi",
+               json={"preset_id": "p1", "subject": "卖货", "product_ref": "product:abc.jpg"})
+    assert r.status_code == 200, r.text
+    assert seen["called"] is True
+    assert seen["urls"] == ["data:image/jpeg;base64,AAAA"]
+    assert seen["model"] == "vl::model"
+    body = r.json()
+    assert [s["role_index"] for s in body["role_segments"]] == [0, 1]
+
+
+def test_generate_multi_product_ref_no_image_falls_back_text(monkeypatch, tmp_path):
+    """product_ref 解析不到可用图像 -> 降级纯文本 invoke(不报错)。"""
+    c = _client(monkeypatch, tmp_path)
+    import chayuan.server.api_server.digital_human_routes as routes
+    from chayuan.server.video_generation.digital_human import store as dh_store
+    from chayuan.server.video_generation.steps import script as script_mod
+
+    preset = _Preset(avatars=[_Role("小李"), _Role("小周")], model="m1")
+    monkeypatch.setattr(dh_store, "get_preset", lambda pid: preset)
+    monkeypatch.setattr(routes, "_retrieve_kb_context", lambda *a, **k: (None, []))
+    monkeypatch.setattr(script_mod, "_product_image_data_urls", lambda ref: [])
+    monkeypatch.setattr(
+        "chayuan.server.utils.get_ChatOpenAI",
+        lambda **k: _FakeLLM("[小李] 甲\n[小周] 乙"),
+    )
+
+    r = c.post("/api/v1/digital-human/script/generate-multi",
+               json={"preset_id": "p1", "subject": "x", "product_ref": "product:missing.jpg"})
+    assert r.status_code == 200, r.text
+    assert len(r.json()["role_segments"]) == 2
