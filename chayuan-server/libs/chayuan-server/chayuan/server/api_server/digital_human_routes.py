@@ -7,7 +7,7 @@ import time
 import uuid
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi import Path as FPath
 from fastapi.responses import FileResponse
 
@@ -190,6 +190,42 @@ def _format_kb_context(res: Dict[str, Any]) -> "str | None":
     return "\n\n".join(blocks)
 
 
+def _retrieve_kb_context(
+    user: Dict[str, Any], ku_ids: List[str], query_text: str,
+) -> "str | None":
+    """按绑定知识源走统一 kb_query 检索，把命中拼成 grounding 上下文块。
+
+    ``/script/generate``（主题）和 ``/script/from-video``（转写稿）共用此逻辑：
+    建 Subject + kb_query.search（synthesize 关掉，只要原始命中）+ _format_kb_context。
+    ku_ids 空或检索失败时返回 None（让 generate_script 不注入 grounding 头，不阻断文案生成）。
+    """
+    ku_ids = [str(x) for x in (ku_ids or []) if str(x).strip()]
+    if not ku_ids or not (query_text or "").strip():
+        return None
+    try:
+        from chayuan.server.kb_query.authz import subject_from_user
+        from chayuan.server.kb_query.schemas import (
+            QueryContent,
+            QueryOptions,
+            SearchRequest,
+        )
+        from chayuan.server.kb_query.service import search as kb_search
+
+        kb_subject = subject_from_user(user)
+        req = SearchRequest(
+            ku_ids=ku_ids,
+            contents=[QueryContent(text=query_text.strip())],
+            # 只要原始命中喂 _format_kb_context，丢弃综合 summary，因此关掉
+            # 检索后的综合 LLM 调用，避免「检索->综合（白跑）->写文案」三段链路。
+            options=QueryOptions(top_k=3, synthesize=False),
+        )
+        res = kb_search(kb_subject, req)
+        return _format_kb_context(res)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh] KB grounding 检索失败，降级: %r", e)
+        return None
+
+
 @digital_human_router.post("/script/generate")
 def script_generate(body: Dict[str, Any],
                     user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
@@ -207,31 +243,7 @@ def script_generate(body: Dict[str, Any],
         raise HTTPException(422, "缺 subject(主题)")
     product_ref = (body.get("product_ref") or "").strip() or None
 
-    kb_context = None
-    ku_ids = [str(x) for x in (body.get("ku_ids") or []) if str(x).strip()]
-    if ku_ids:
-        try:
-            from chayuan.server.kb_query.authz import subject_from_user
-            from chayuan.server.kb_query.schemas import (
-                QueryContent,
-                QueryOptions,
-                SearchRequest,
-            )
-            from chayuan.server.kb_query.service import search as kb_search
-
-            kb_subject = subject_from_user(user)
-            req = SearchRequest(
-                ku_ids=ku_ids,
-                contents=[QueryContent(text=subject_text)],
-                # 只要原始命中喂 _format_kb_context,丢弃综合 summary,因此关掉
-                # 检索后的综合 LLM 调用,避免「检索->综合(白跑)->写文案」三段链路。
-                options=QueryOptions(top_k=3, synthesize=False),
-            )
-            res = kb_search(kb_subject, req)
-            kb_context = _format_kb_context(res)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("[dh] KB grounding 检索失败,降级: %r", e)
-            kb_context = None
+    kb_context = _retrieve_kb_context(user, body.get("ku_ids") or [], subject_text)
 
     try:
         text = generate_script(
@@ -255,12 +267,21 @@ def script_generate(body: Dict[str, Any],
 
 
 @digital_human_router.post("/script/from-video")
-async def script_from_video(file: UploadFile = File(...),
-                            user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
-    """参考视频 -> 抽音轨 -> ASR 转写 -> LLM 改写成口播文案。"""
+async def script_from_video(
+    file: UploadFile = File(...),
+    model: "str | None" = Form(default=None),
+    ku_ids: List[str] = Form(default=[]),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    """参考视频 -> 抽音轨 -> ASR 转写 -> LLM 改写成口播文案。
+
+    与 /script/generate 共用绑定逻辑:ku_ids 非空时先走统一 kb_query 检索拼
+    grounding,转写稿当作 subject 喂 generate_script(model=...),让参考视频
+    文案同样跟随预设绑定的对话模型与知识库(而非裸调 _invoke_llm)。
+    """
     import subprocess, tempfile
     from chayuan.server.modality.audio import AudioPipeline
-    from chayuan.server.video_generation.steps.script import _invoke_llm
+    from chayuan.server.video_generation.steps.script import generate_script
     ext = os.path.splitext(file.filename or "")[1].lower() or ".mp4"
     tf = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
     tf.write(await file.read()); tf.close()
@@ -276,12 +297,15 @@ async def script_from_video(file: UploadFile = File(...),
         transcript = (AudioPipeline()._transcribe_via_sidecar(wav) or "").strip()  # noqa: SLF001
         if not transcript:
             raise HTTPException(502, "参考视频转写为空(无人声?或 ASR 运行时未就绪)")
-        prompt = (
-            "下面是一段参考视频的语音转写。请据其主题与风格,改写成一段适合数字人口播"
-            "朗读的短视频文案。只输出文案本身,不要前言后语/引号/markdown。原文如下:"
+        # 转写稿作为「改写主题」,复用 generate_script(同一套 model + grounding)。
+        kb_context = _retrieve_kb_context(user, ku_ids, transcript)
+        subject = (
+            "下面是一段参考视频的语音转写,请据其主题与风格改写成适合数字人口播朗读的短视频文案。"
             + chr(10) + chr(10) + transcript
         )
-        script = (_invoke_llm(prompt) or "").strip()
+        script = (generate_script(
+            subject, model=(model or None), kb_context=kb_context,
+        ) or "").strip()
         return {"script": script or transcript, "transcript": transcript}
     finally:
         for pth in (tf.name, wav):

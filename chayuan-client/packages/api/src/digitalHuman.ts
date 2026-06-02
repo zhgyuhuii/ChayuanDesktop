@@ -179,9 +179,14 @@ export async function dhGenerateScript(
   });
 }
 
-export async function dhScriptFromVideo(file: File): Promise<{ script: string; transcript: string }> {
+export async function dhScriptFromVideo(
+  file: File,
+  opts?: { model?: string; kuIds?: string[] },
+): Promise<{ script: string; transcript: string }> {
   const fd = new FormData();
   fd.append('file', file);
+  if (opts?.model) fd.append('model', opts.model);
+  (opts?.kuIds ?? []).forEach((id) => fd.append('ku_ids', id));
   return rd('/api/v1/digital-human/script/from-video', { method: 'POST', body: fd });
 }
 

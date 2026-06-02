@@ -141,3 +141,87 @@ def test_generate_passes_scripts(monkeypatch, tmp_path):
                json={"preset_id": "p", "text": "x", "script": "一套", "role_scripts": ["甲", "乙"]})
     assert r.status_code == 200
     assert seen.get("script") == "一套" and seen.get("role_scripts") == ["甲", "乙"]
+
+
+def test_retrieve_kb_context_helper(monkeypatch):
+    """_retrieve_kb_context: ku_ids 非空走 kb_query.search 并把命中拼成 grounding。
+    空 ku_ids / 空 query / 检索抛错时返回 None(降级,不阻断文案)。"""
+    import chayuan.server.api_server.digital_human_routes as routes
+
+    # 空 ku_ids -> None,且不调检索
+    assert routes._retrieve_kb_context({}, [], "主题") is None
+    # 空 query -> None
+    assert routes._retrieve_kb_context({}, ["doc:kb1"], "  ") is None
+
+    seen = {}
+
+    def _fake_search(subject, req):
+        seen["ku_ids"] = list(req.ku_ids)
+        seen["query"] = req.contents[0].text
+        return {"data": {"items": [{"results": [
+            {"text": "命中正文", "citation": {"file_name": "f.pdf"}},
+        ]}]}}
+
+    monkeypatch.setattr("chayuan.server.kb_query.service.search", _fake_search)
+    out = routes._retrieve_kb_context({"sub": "u1"}, ["doc:kb1", " "], "主题X")
+    assert seen["ku_ids"] == ["doc:kb1"]  # 空白项被过滤
+    assert seen["query"] == "主题X"
+    assert out is not None and "命中正文" in out and "f.pdf" in out
+
+    # 检索抛错 -> 降级 None
+    def _boom(subject, req):
+        raise RuntimeError("kb down")
+
+    monkeypatch.setattr("chayuan.server.kb_query.service.search", _boom)
+    assert routes._retrieve_kb_context({}, ["doc:kb1"], "主题") is None
+
+
+def test_script_from_video_passes_model_and_kb(monkeypatch, tmp_path):
+    """/script/from-video: model / ku_ids 经表单透传 ->
+    _retrieve_kb_context 拿到 ku_ids,generate_script 拿到 model + kb_context。
+    mock 掉 ffmpeg 抽音轨 / ASR 转写 / KB 检索 / generate_script。"""
+    c = _client(monkeypatch, tmp_path)
+    import chayuan.server.api_server.digital_human_routes as routes
+
+    # 抽音轨直接成功(不真跑 ffmpeg)
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: None)
+    # ASR 转写返回固定 transcript
+    monkeypatch.setattr(
+        "chayuan.server.modality.audio.AudioPipeline._transcribe_via_sidecar",
+        lambda self, wav: "这是参考视频的转写文本",
+    )
+    # KB 检索:断言拿到 ku_ids + transcript,返回 grounding 块
+    kb_seen = {}
+
+    def _fake_retrieve(user, ku_ids, query_text):
+        kb_seen["ku_ids"] = list(ku_ids)
+        kb_seen["query"] = query_text
+        return "GROUND"
+
+    monkeypatch.setattr(routes, "_retrieve_kb_context", _fake_retrieve)
+    # generate_script:断言 model + kb_context 透传
+    gen_seen = {}
+
+    def _fake_gen(subject, *, model=None, kb_context=None, **kw):
+        gen_seen["subject"] = subject
+        gen_seen["model"] = model
+        gen_seen["kb_context"] = kb_context
+        return "改写后的口播文案"
+
+    monkeypatch.setattr(
+        "chayuan.server.video_generation.steps.script.generate_script", _fake_gen,
+    )
+
+    r = c.post(
+        "/api/v1/digital-human/script/from-video",
+        files={"file": ("ref.mp4", b"\x00\x01", "video/mp4")},
+        data={"model": "openai::gpt-4o", "ku_ids": ["doc:kb1", "src:s2"]},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["script"] == "改写后的口播文案"
+    assert kb_seen["ku_ids"] == ["doc:kb1", "src:s2"]
+    assert "这是参考视频的转写文本" in kb_seen["query"]
+    assert gen_seen["model"] == "openai::gpt-4o"
+    assert gen_seen["kb_context"] == "GROUND"
+    assert "这是参考视频的转写文本" in gen_seen["subject"]
+
