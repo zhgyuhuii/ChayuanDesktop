@@ -26,6 +26,7 @@ from chayuan.server.model_registry.hub_catalog.capability import (
     capability_from_hf_pipeline,
     is_runnable_format,
     parse_param_size,
+    parse_param_size_from_tags,
 )
 
 _HOST_MIRROR = "https://hf-mirror.com"
@@ -85,14 +86,17 @@ class HuggingFaceAdapter(HubAdapter):
         page_size: int = 20,
         route: Optional[str] = None,
         token: Optional[str] = None,
+        sort: str = "downloads",
     ) -> SearchPage:
         host = self._host(route)
         page = max(1, int(page or 1))
         page_size = max(1, int(page_size or 20))
         offset = (page - 1) * page_size
 
+        # HF 原生支持 sort=downloads / sort=lastModified（实测）。
+        hf_sort = "lastModified" if sort == "updated" else "downloads"
         params: Dict[str, Any] = {
-            "sort": "downloads",
+            "sort": hf_sort,
             "direction": -1,
             "limit": page_size,
             "offset": offset,
@@ -156,13 +160,17 @@ class HuggingFaceAdapter(HubAdapter):
                 fmt = cand.lstrip(".")
                 break
 
+        # 参数量：先从 model_id 抠；抠不到再从 tags 兜底（HF tags 常含 7B/13B）。
+        param_size = parse_param_size(model_id) or parse_param_size_from_tags(
+            r.get("tags") or []
+        )
         return NormalizedModelCard(
             source="huggingface",
             model_id=model_id,
             display_name=display_name,
             owner=owner,
             capability=capability,
-            param_size=parse_param_size(model_id),
+            param_size=param_size,
             file_size_bytes=None,  # 列表页无 size，detail 再求和
             format=fmt,
             runnable=runnable,

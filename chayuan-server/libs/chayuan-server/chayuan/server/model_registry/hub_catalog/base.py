@@ -85,8 +85,13 @@ class HubAdapter(abc.ABC):
         page_size: int = 20,
         route: Optional[str] = None,
         token: Optional[str] = None,
+        sort: str = "downloads",
     ) -> SearchPage:
-        """搜索模型，返回一页 :class:`NormalizedModelCard`。"""
+        """搜索模型，返回一页 :class:`NormalizedModelCard`。
+
+        ``sort``：``"downloads"``（默认，按下载量）/ ``"updated"``（按最近更新）。
+        不支持 ``updated`` 的源（如 ModelScope）按下载量返回并由上层兜底排序。
+        """
         raise NotImplementedError
 
     @abc.abstractmethod

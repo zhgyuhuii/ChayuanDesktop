@@ -47,6 +47,7 @@ def search_models(
     page_size: int = Query(20, ge=1, le=100, description="每页条数"),
     route: str = Query("mirror", description="HF 线路：mirror / official；ModelScope 忽略"),
     token: Optional[str] = Query(None, description="可选鉴权 token（私有 / 限流）"),
+    sort: str = Query("downloads", description="排序：downloads（下载量）/ updated（最近更新）；ModelScope 仅本页本地排序"),
 ) -> SearchPage:
     """搜索某个 Hub 的模型，返回一页归一模型卡。"""
     adapter = _adapter(source)
@@ -59,6 +60,7 @@ def search_models(
             page_size=page_size,
             route=route,
             token=token,
+            sort=sort,
         )
     except HTTPException:
         raise

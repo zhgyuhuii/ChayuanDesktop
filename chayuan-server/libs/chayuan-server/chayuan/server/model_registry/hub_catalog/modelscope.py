@@ -28,6 +28,7 @@ from chayuan.server.model_registry.hub_catalog.capability import (
     capability_from_ms_tasks,
     is_runnable_format,
     parse_param_size,
+    parse_param_size_from_tags,
 )
 
 _HOST = "https://www.modelscope.cn"
@@ -84,14 +85,18 @@ class ModelScopeAdapter(HubAdapter):
         page_size: int = 20,
         route: Optional[str] = None,
         token: Optional[str] = None,
+        sort: str = "downloads",
     ) -> SearchPage:
         page = max(1, int(page or 1))
         page_size = max(1, int(page_size or 20))
+        # ModelScope dolphin 接口实测 SortBy 只接受 "Default"（Downloads/lastModified
+        # 会 400），故 sort 无法下发到服务端。sort=="updated" 时只能对**当前页**
+        # 按 updated_at 本地排序（前端也会针对 ModelScope 隐藏排序切换，二者皆兜底）。
         body = {
             "PageSize": page_size,
             "PageNumber": page,
             "Name": query or "",
-            "SortBy": "Default",  # 实测只接受 Default，Downloads 会 400
+            "SortBy": "Default",
         }
         data = self._put_json(f"{_HOST}/api/v1/dolphin/models", body, token=token)
         model = ((data or {}).get("Data") or {}).get("Model") or {}
@@ -108,6 +113,11 @@ class ModelScopeAdapter(HubAdapter):
             if runnable_only and not card.runnable:
                 continue
             items.append(card)
+
+        # ModelScope 不支持服务端按更新时间排序，sort=="updated" 时对本页本地排序
+        # （updated_at 为 None 的排到最后）。
+        if sort == "updated":
+            items.sort(key=lambda c: c.updated_at or "", reverse=True)
 
         return SearchPage(
             items=items,
@@ -133,7 +143,9 @@ class ModelScopeAdapter(HubAdapter):
             display_name=display_name,
             owner=owner,
             capability=capability,
-            param_size=parse_param_size(name),
+            param_size=parse_param_size(name) or parse_param_size_from_tags(
+                r.get("Tags") or []
+            ),
             file_size_bytes=None,
             format=None,
             runnable=runnable,

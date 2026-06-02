@@ -12,7 +12,7 @@ capability 取值与 :mod:`chayuan.server.model_registry.identifier` 对齐，
 from __future__ import annotations
 
 import re
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Sequence
 
 from chayuan.server.model_registry import identifier as _ident
 
@@ -84,6 +84,22 @@ def parse_param_size(model_id: Optional[str]) -> Optional[str]:
     return f"{m.group(1)}B"
 
 
+def parse_param_size_from_tags(tags: Optional[Sequence[Any]]) -> Optional[str]:
+    """从 tags 列表里抠参数量,如 HF 仓库标签常含 ``"7B"`` / ``"13b"``。
+
+    作为 :func:`parse_param_size`(从 model_id 抠)的兜底:model_id 里抠不到
+    时,逐个 tag 用同一套 ``_PARAM_RE`` 匹配,命中第一个就返回。
+    无法识别返回 ``None``。返回值统一大写 ``B`` 后缀。
+    """
+    for t in (tags or []):
+        if not isinstance(t, str):
+            continue
+        m = _PARAM_RE.search(t)
+        if m:
+            return f"{m.group(1)}B"
+    return None
+
+
 def is_runnable_format(exts: List[str]) -> bool:
     """给定一组扩展名（含点，如 ``".gguf"``），命中 gguf/onnx 即可跑。"""
     for e in (exts or []):
@@ -96,5 +112,6 @@ __all__ = [
     "capability_from_hf_pipeline",
     "capability_from_ms_tasks",
     "parse_param_size",
+    "parse_param_size_from_tags",
     "is_runnable_format",
 ]

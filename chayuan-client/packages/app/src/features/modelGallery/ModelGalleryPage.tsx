@@ -29,6 +29,7 @@ import { useInstallJobsStore } from './installJobsStore';
 
 export type GallerySource = 'modelscope' | 'huggingface' | 'installed';
 export type HfRoute = 'mirror' | 'official';
+export type GallerySort = 'downloads' | 'updated';
 
 const PAGE_SIZE = 20;
 const DEBOUNCE_MS = 300;
@@ -92,8 +93,10 @@ export const ModelGalleryPage: React.FC = () => {
   const [hfRoute, setHfRoute] = React.useState<HfRoute>('mirror');
   const [queryInput, setQueryInput] = React.useState('');
   const [query, setQuery] = React.useState('');
-  const [capability, setCapability] = React.useState<string | null>(null);
+  // 默认预选「对话」能力 —— 进来先给对话模型,而非全能力杂烩;用户可在 chips 切「全部」。
+  const [capability, setCapability] = React.useState<string | null>('chat');
   const [runnableOnly, setRunnableOnly] = React.useState(true);
+  const [sort, setSort] = React.useState<GallerySort>('downloads');
   const [page, setPage] = React.useState(1);
 
   // 搜索框 300ms 防抖 → query。
@@ -105,7 +108,7 @@ export const ModelGalleryPage: React.FC = () => {
   // 任一过滤变化(source / 防抖后的 query / capability / runnableOnly)→ page 复位 1。
   React.useEffect(() => {
     setPage(1);
-  }, [source, query, capability, runnableOnly]);
+  }, [source, query, capability, runnableOnly, sort]);
 
   const isInstalled = source === 'installed';
   const route = routeParam(source, hfRoute);
@@ -124,7 +127,7 @@ export const ModelGalleryPage: React.FC = () => {
   const searchQuery = useQuery({
     queryKey: [
       'model-hub.search',
-      { source, hfRoute, query, capability, runnableOnly, page, hasToken: !!token },
+      { source, hfRoute, query, capability, runnableOnly, sort, page, hasToken: !!token },
     ],
     queryFn: () =>
       modelHub.search({
@@ -133,6 +136,7 @@ export const ModelGalleryPage: React.FC = () => {
         query: query || undefined,
         capability: capability ?? undefined,
         runnableOnly,
+        sort,
         page,
         pageSize: PAGE_SIZE,
         token,
@@ -182,6 +186,8 @@ export const ModelGalleryPage: React.FC = () => {
           onCapabilityChange={setCapability}
           runnableOnly={runnableOnly}
           onRunnableOnlyChange={setRunnableOnly}
+          sort={sort}
+          onSortChange={setSort}
           hfToken={hfToken}
           onHfTokenChange={onHfTokenChange}
         />

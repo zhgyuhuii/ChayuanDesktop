@@ -8,6 +8,7 @@ from chayuan.server.model_registry.hub_catalog.capability import (
     capability_from_ms_tasks,
     is_runnable_format,
     parse_param_size,
+    parse_param_size_from_tags,
 )
 
 
@@ -84,3 +85,19 @@ def test_parse_param_size(model_id, expected):
 )
 def test_is_runnable_format(exts, expected):
     assert is_runnable_format(exts) is expected
+
+
+@pytest.mark.parametrize(
+    "tags,expected",
+    [
+        (["text-generation", "7B", "chat"], "7B"),
+        (["13b", "gguf"], "13B"),
+        (["0.5B"], "0.5B"),
+        (["text-generation", "instruct"], None),  # 无参数量 tag
+        ([], None),
+        (None, None),
+        ([123, "70B"], "70B"),  # 跳过非 str
+    ],
+)
+def test_parse_param_size_from_tags(tags, expected):
+    assert parse_param_size_from_tags(tags) == expected

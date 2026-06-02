@@ -71,3 +71,13 @@ def test_detail_sizes(monkeypatch):
     gguf = [f for f in files if f.rfilename.endswith(".gguf")]
     assert gguf
     assert all(f.runnable for f in gguf)
+
+
+def test_search_sort_updated_local_orders_by_updated_at(monkeypatch):
+    # ModelScope 服务端不支持 updated 排序；sort='updated' 时本页按 updated_at 降序。
+    a = ModelScopeAdapter()
+    fixture = _load("ms_search.json")
+    monkeypatch.setattr(a, "_put_json", lambda *args, **kw: fixture)
+    page = a.search(page=1, page_size=3, sort="updated")
+    ups = [c.updated_at or "" for c in page.items]
+    assert ups == sorted(ups, reverse=True)

@@ -15,7 +15,7 @@ import { cn } from '@chayuan/ui';
 import { Search } from 'lucide-react';
 import * as React from 'react';
 import { GalleryCapabilityChips } from './GalleryCapabilityChips';
-import type { GallerySource, HfRoute } from './ModelGalleryPage';
+import type { GallerySort, GallerySource, HfRoute } from './ModelGalleryPage';
 
 const SOURCE_TABS: ReadonlyArray<{ value: GallerySource; label: string }> = [
   { value: 'modelscope', label: 'ModelScope' },
@@ -35,6 +35,9 @@ export interface GalleryFiltersProps {
   onCapabilityChange(c: string | null): void;
   runnableOnly: boolean;
   onRunnableOnlyChange(v: boolean): void;
+  /** 排序:下载量 / 最近更新。 */
+  sort: GallerySort;
+  onSortChange(s: GallerySort): void;
   /** HuggingFace 源端可选 token(私有仓 / 限流);仅 HF tab 显示。 */
   hfToken: string;
   onHfTokenChange(v: string): void;
@@ -51,6 +54,8 @@ export const GalleryFilters: React.FC<GalleryFiltersProps> = ({
   onCapabilityChange,
   runnableOnly,
   onRunnableOnlyChange,
+  sort,
+  onSortChange,
   hfToken,
   onHfTokenChange,
 }) => {
@@ -126,6 +131,25 @@ export const GalleryFilters: React.FC<GalleryFiltersProps> = ({
             className="h-8 w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] pl-8 pr-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none"
           />
         </div>
+
+        {!isInstalled && (
+          <label className="inline-flex items-center gap-1.5 text-xs text-[var(--cy-text-secondary)]">
+            排序
+            <select
+              value={sort}
+              onChange={(e) => onSortChange(e.target.value as GallerySort)}
+              title={
+                source === 'modelscope'
+                  ? 'ModelScope 仅支持按当前页本地排序最近更新;按下载量为源端默认顺序'
+                  : undefined
+              }
+              className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-primary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none"
+            >
+              <option value="downloads">下载量</option>
+              <option value="updated">最近更新</option>
+            </select>
+          </label>
+        )}
 
         {!isInstalled && (
           <button

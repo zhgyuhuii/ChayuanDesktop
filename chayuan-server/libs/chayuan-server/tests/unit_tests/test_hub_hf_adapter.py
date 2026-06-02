@@ -71,3 +71,22 @@ def test_detail_sizes(monkeypatch):
     assert gguf, "expected at least one .gguf file"
     assert all(f.runnable for f in gguf)
     assert all((f.size_bytes or 0) > 0 for f in gguf)
+
+
+def test_search_sort_param_maps_to_hf(monkeypatch):
+    # sort='updated' 应下发 HF 原生 sort=lastModified；默认 downloads。
+    a = HuggingFaceAdapter()
+    fixture = _load("hf_search.json")
+    captured = {}
+
+    def fake(url, *, token=None, **kw):
+        captured["params"] = kw.get("params")
+        return fixture
+
+    monkeypatch.setattr(a, "_get_json", fake)
+
+    a.search(query="q", sort="updated", page_size=3)
+    assert captured["params"]["sort"] == "lastModified"
+
+    a.search(query="q", page_size=3)  # 默认
+    assert captured["params"]["sort"] == "downloads"

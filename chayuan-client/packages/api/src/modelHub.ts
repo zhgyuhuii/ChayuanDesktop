@@ -87,6 +87,8 @@ export const modelHub = {
     pageSize?: number;
     route?: string;
     token?: string;
+    /** 排序:downloads(下载量,默认)/ updated(最近更新)。不传则后端按 downloads。 */
+    sort?: 'downloads' | 'updated';
   }): Promise<HubSearchPage> {
     const r = await request<HubSearchPage>(HUB_SEARCH, {
       query: {
@@ -98,6 +100,7 @@ export const modelHub = {
         page_size: params.pageSize,
         route: params.route,
         token: params.token,
+        sort: params.sort,
       },
     });
     return (
