@@ -322,6 +322,95 @@ def script_generate(body: Dict[str, Any],
     }
 
 
+@digital_human_router.post("/script/generate-multi")
+def script_generate_multi(body: Dict[str, Any],
+                          user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    """多角色脚本生成:逐角色检索各自知识源 -> 合成一个多角色 prompt ->
+    一次 LLM -> ``[角色名] 台词`` 容错解析成有序 ``role_segments``。
+
+    body: ``preset_id`` / ``subject`` / ``template_id``(可选) / ``product_ref``(可选)。
+    每角色用 ``role.ku_ids or preset.ku_ids`` 检索;模型用 ``preset.model``(空=默认)。
+    返回 ``{role_segments, kb_used, sources}``,sources 每条标 ``role``=角色名。
+    """
+    from chayuan.server.video_generation.digital_human.multirole import (
+        build_multirole_prompt,
+        parse_multirole_output,
+    )
+    from chayuan.server.video_generation.digital_human.script_templates import (
+        get_template,
+    )
+
+    preset_id = (body.get("preset_id") or "").strip()
+    subject_text = (body.get("subject") or "").strip()
+    if not preset_id:
+        raise HTTPException(422, "缺 preset_id")
+    if not subject_text:
+        raise HTTPException(422, "缺 subject(主题)")
+    product_ref = (body.get("product_ref") or "").strip() or None
+
+    preset = store.get_preset(preset_id)
+    if preset is None:
+        raise HTTPException(404, "数字人不存在")
+    roles = list(getattr(preset, "avatars", None) or [])
+    if not roles:
+        raise HTTPException(422, "该预设没有角色(avatars 为空)")
+    model = (getattr(preset, "model", "") or "") or None
+    preset_ku_ids = list(getattr(preset, "ku_ids", None) or [])
+
+    kb_top_k = int(body.get("kb_top_k", 5) or 5)
+    all_sources: List[Dict[str, Any]] = []
+    role_dicts: List[Dict[str, Any]] = []
+    for role in roles:
+        eff = list(getattr(role, "ku_ids", None) or []) or preset_ku_ids
+        ctx_i, src_i = _retrieve_kb_context(user, eff, subject_text, top_k=kb_top_k)
+        role_name = getattr(role, "name", "") or ""
+        for s in (src_i or []):
+            all_sources.append({**s, "role": role_name})
+        role_dicts.append({
+            "name": role_name,
+            "persona": getattr(role, "persona", "") or "",
+            "context": ctx_i or "",
+        })
+
+    tpl = get_template((body.get("template_id") or "").strip()) or {}
+    paragraph_number = int(body.get("paragraphs", len(roles)) or len(roles))
+    prompt = build_multirole_prompt(
+        subject_text, role_dicts, tpl.get("sections", []),
+        paragraph_number=paragraph_number,
+    )
+
+    try:
+        from chayuan.server.utils import get_ChatOpenAI, get_default_llm
+        from langchain_core.messages import HumanMessage
+    except Exception as e:  # noqa: BLE001
+        logger.error("[dh] generate-multi 依赖 import 失败: %r", e)
+        raise HTTPException(502, "多角色文案生成依赖缺失(检查 langchain 安装)") from e
+
+    eff_model = model
+    if not eff_model:
+        try:
+            from chayuan.server.capability_router import resolve_model
+            eff_model = resolve_model("chat") or get_default_llm()
+        except Exception:  # noqa: BLE001
+            eff_model = get_default_llm()
+    if not eff_model:
+        raise HTTPException(502, "文案生成失败(LLM 不可用?先在模型配置里设默认 chat 模型)")
+
+    try:
+        llm = get_ChatOpenAI(model_name=eff_model, temperature=0.7, streaming=False)
+        out = str(llm.invoke([HumanMessage(content=prompt)]).content)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh] generate-multi LLM 调用失败 model=%s: %r", eff_model, e)
+        raise HTTPException(502, "多角色文案生成失败(LLM 调用出错,请检查模型配置)") from e
+
+    role_segments = parse_multirole_output(out, [getattr(r, "name", "") or "" for r in roles])
+    return {
+        "role_segments": role_segments,
+        "kb_used": bool(all_sources),
+        "sources": all_sources,
+    }
+
+
 @digital_human_router.get("/script/templates")
 def script_templates() -> Dict[str, Any]:
     """内置脚本结构模板(只读常量):自由 / 带货四段 / 问题方案。"""
