@@ -16,24 +16,56 @@
  * 视觉:复用 marketplace/ProviderCard 同款 --cy-* 配色 + 圆角卡片风格。
  */
 
-import { type HubModelCard, type InstallModelSource, modelHub } from '@chayuan/api';
+import {
+  type HubModelCard,
+  type InstallModelSource,
+  modelHub,
+  serverCapabilityDefaults,
+} from '@chayuan/api';
 import { cn } from '@chayuan/ui';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import {
   CheckCircle2,
   Download,
   Heart,
   Loader2,
+  MessageSquare,
   RotateCw,
+  Star,
   Trash2,
   X,
 } from 'lucide-react';
 import * as React from 'react';
 import { confirmDialog } from '../../store/confirmDialog';
 import { reportError, useErrorDialog } from '../../store/errorDialog';
+import { useTabsStore } from '../../store/tabs';
 import { capabilityLabel } from './GalleryCapabilityChips';
 import { HubFilePickerDialog } from './HubFilePickerDialog';
 import { jobKey } from './installJobsStore';
 import { useInstallJobFor } from './useInstallJob';
+
+/**
+ * hub capability(连字符词表)→ capability_defaults 的 cap key(chat/embedding/
+ * clip/rerank/t2i/t2v/tts/asr/ocr)。用于「设为默认」时把模型写到对应 DEFAULT_*。
+ * 未映射的能力(本机无运行服务)不显示「设为默认」。
+ */
+const HUB_CAP_TO_DEFAULT_CAP: Record<string, string> = {
+  chat: 'chat',
+  'text-embedding': 'embedding',
+  rerank: 'rerank',
+  'speech-to-text': 'asr',
+  'text-to-audio': 'tts',
+  'image-embedding': 'clip',
+  'image-to-text': 'ocr',
+  'text-to-image': 't2i',
+  'text-to-video': 't2v',
+};
+
+/** 仓库 id 的末段(basename),用于把已装模型匹配到 capability_defaults 候选。 */
+function repoBasename(modelId: string): string {
+  return modelId.split('/').filter(Boolean).pop() ?? modelId;
+}
 
 /** 把字节数格式化成人类可读;null/0 → '—'。 */
 export function formatBytes(bytes: number | null): string {
@@ -85,9 +117,89 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
 
   const [picking, setPicking] = React.useState(false);
   const [uninstalling, setUninstalling] = React.useState(false);
+  const navigate = useNavigate();
 
   // start 失败(start() reject)记一次,跟 job.status==='failed' 一起展示重试。
   const [startErr, setStartErr] = React.useState<string | null>(null);
+
+  // 列表大小懒加载:HF search 结果常无 file_size_bytes(siblings 无 size)。
+  // hover 时拉一次 detail 求和补大小;只对远程未安装、当前无大小、有 owner 的行启用。
+  const isRemote = card.source === 'huggingface' || card.source === 'modelscope';
+  const [hovered, setHovered] = React.useState(false);
+  const needSizeProbe = isRemote && (card.file_size_bytes == null || card.file_size_bytes <= 0);
+  const sizeQuery = useQuery({
+    queryKey: ['model-hub.detail-size', card.source, card.model_id, route ?? null],
+    queryFn: async () => {
+      const files = await modelHub.detail({
+        source: card.source,
+        modelId: card.model_id,
+        route,
+        token,
+      });
+      return files.reduce((sum, f) => sum + (f.size_bytes ?? 0), 0);
+    },
+    enabled: needSizeProbe && hovered,
+    staleTime: 5 * 60_000,
+  });
+  const shownSize =
+    card.file_size_bytes && card.file_size_bytes > 0
+      ? card.file_size_bytes
+      : sizeQuery.data && sizeQuery.data > 0
+        ? sizeQuery.data
+        : null;
+
+  // 「设为默认」:把刚装好的模型写到对应 capability 的 DEFAULT_*。
+  const defaultCap = HUB_CAP_TO_DEFAULT_CAP[card.capability];
+  const isChat = card.capability === 'chat';
+  const [settingDefault, setSettingDefault] = React.useState(false);
+
+  const onGoChat = React.useCallback(() => {
+    // 复用主 /chat tab:开(或聚焦)一个 /chat tab 再路由过去。
+    useTabsStore.getState().open('/chat', {
+      title: '对话',
+      icon: 'message-square',
+    });
+    void navigate({ to: '/chat' });
+  }, [navigate]);
+
+  const onSetDefault = React.useCallback(async () => {
+    if (!defaultCap) return;
+    setSettingDefault(true);
+    try {
+      // 解析要写入的真实模型 id:优先 capability_defaults 候选里匹配本仓的那条
+      // (候选 id 可能是 local_index 归一 id,未必等于 hub repo id),匹配不到
+      // 退回 hub repo id(后端按字符串落盘,扫描后仍能命中本地落地目录)。
+      let modelId = card.model_id;
+      try {
+        const list = await serverCapabilityDefaults.list();
+        const cands = list.candidates?.[defaultCap] ?? [];
+        const base = repoBasename(card.model_id).toLowerCase();
+        const hit =
+          cands.find((c) => c.id === card.model_id) ??
+          cands.find((c) => repoBasename(c.id).toLowerCase() === base) ??
+          cands.find((c) => (c.path ?? '').toLowerCase().includes(base));
+        if (hit) modelId = hit.id;
+      } catch {
+        // 候选拉取失败:用 hub repo id 兜底。
+      }
+      const res = await serverCapabilityDefaults.setMany({ [defaultCap]: modelId });
+      const ok = res.results?.[defaultCap]?.ok;
+      if (ok) {
+        useErrorDialog
+          .getState()
+          .show('已设为默认', `${card.display_name || card.model_id} 已设为${capabilityLabel(card.capability)}默认模型`, undefined, 2500, 'success');
+        onMutated?.();
+      } else {
+        useErrorDialog
+          .getState()
+          .show('设置失败', res.results?.[defaultCap]?.error || '未知错误', undefined, undefined, 'error');
+      }
+    } catch (e) {
+      reportError(e, '设为默认失败');
+    } finally {
+      setSettingDefault(false);
+    }
+  }, [defaultCap, card.model_id, card.display_name, card.capability, onMutated]);
 
   const doStart = React.useCallback(
     (file: string | undefined, revision?: string, expectedBytes?: number | null) => {
@@ -186,6 +298,8 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
   // 任务状态展示:失败(job.status==='failed' 或 startErr)/ 取消可重试。
   const failed = startErr !== null || job?.status === 'failed';
   const cancelled = job?.status === 'cancelled';
+  // 装完闭环:job 成功但行还没回到 installed 态(invalidate 刷新前)时展示 CTA。
+  const justSucceeded = job?.status === 'succeeded' && !card.installed;
   const showJob = isInstalling || failed || cancelled;
   const pct = Math.max(0, Math.min(100, Math.round(job?.progress_pct ?? 0)));
   const jobMsg =
@@ -194,8 +308,41 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
       ? (job.log_tail?.[job.log_tail.length - 1] ?? '安装失败')
       : job?.progress_message || '');
 
+  // 装完 / 已安装态的行动入口:chat 能力 -> [去对话使用];可服务能力 -> [设为默认]。
+  const ctaButtons = (
+    <>
+      {isChat && (
+        <button
+          type="button"
+          onClick={onGoChat}
+          className="inline-flex items-center gap-1 rounded-full border border-[var(--cy-brand-300)] bg-[var(--cy-brand-50)] px-2.5 py-1 text-[11px] font-medium text-[var(--cy-brand-600)] transition-colors hover:bg-[var(--cy-brand-100)]"
+        >
+          <MessageSquare className="h-3 w-3" />
+          去对话使用
+        </button>
+      )}
+      {defaultCap && (
+        <button
+          type="button"
+          disabled={settingDefault}
+          onClick={onSetDefault}
+          title={`设为${capabilityLabel(card.capability)}默认模型`}
+          className="inline-flex items-center gap-1 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2.5 py-1 text-[11px] font-medium text-[var(--cy-text-secondary)] transition-colors hover:border-[var(--cy-brand-300)] hover:text-[var(--cy-brand-600)] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {settingDefault ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Star className="h-3 w-3" />
+          )}
+          设为默认
+        </button>
+      )}
+    </>
+  );
+
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
       className={cn(
         'flex items-center gap-3 rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-4 py-3 transition-all',
         'hover:border-[var(--cy-brand-300)] hover:shadow-[var(--cy-shadow-sm)]',
@@ -225,8 +372,14 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
           {/* 参数大小 */}
           <span title="参数规模">{card.param_size ?? '—'}</span>
           <span aria-hidden>·</span>
-          {/* 文件大小 */}
-          <span title="文件大小">{formatBytes(card.file_size_bytes)}</span>
+          {/* 文件大小(列表常无 → hover 懒加载 detail 求和补上) */}
+          <span title="文件大小" className="inline-flex items-center gap-1">
+            {needSizeProbe && sizeQuery.isFetching && shownSize == null ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              formatBytes(shownSize)
+            )}
+          </span>
           {card.format && (
             <>
               <span aria-hidden>·</span>
@@ -310,26 +463,31 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
               </div>
             )}
           </div>
-        ) : card.installed ? (
-          <div className="flex items-center gap-2">
+        ) : card.installed || justSucceeded ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200/70">
               <CheckCircle2 className="h-3.5 w-3.5" />
               已安装
             </span>
-            <button
-              type="button"
-              disabled={card.bundled || uninstalling}
-              onClick={onUninstall}
-              title={card.bundled ? '内置模型不可卸载' : '卸载该模型'}
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2.5 py-1 text-[11px] font-medium text-[var(--cy-text-secondary)] transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--cy-border-subtle)] disabled:hover:bg-[var(--cy-surface-base)] disabled:hover:text-[var(--cy-text-secondary)]"
-            >
-              {uninstalling ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Trash2 className="h-3 w-3" />
-              )}
-              卸载
-            </button>
+            {/* 装完闭环 CTA:去对话(chat)/ 设为默认(可服务能力) */}
+            {ctaButtons}
+            {/* 卸载:仅在行已确认 installed 时给(刚装完未刷新时先不显示,避免误删进行中态) */}
+            {card.installed && (
+              <button
+                type="button"
+                disabled={card.bundled || uninstalling}
+                onClick={onUninstall}
+                title={card.bundled ? '内置模型不可卸载' : '卸载该模型'}
+                className="inline-flex items-center gap-1 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2.5 py-1 text-[11px] font-medium text-[var(--cy-text-secondary)] transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--cy-border-subtle)] disabled:hover:bg-[var(--cy-surface-base)] disabled:hover:text-[var(--cy-text-secondary)]"
+              >
+                {uninstalling ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3 w-3" />
+                )}
+                卸载
+              </button>
+            )}
           </div>
         ) : (
           <button
