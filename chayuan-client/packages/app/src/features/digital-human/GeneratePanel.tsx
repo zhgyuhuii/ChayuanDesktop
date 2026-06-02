@@ -24,7 +24,10 @@ const DEFAULT_ENGINES: Array<{ id: EngineId; label: string; kind: 'cpu' | 'gpu';
 export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void }> = ({ presets, initialPresetId, onPresetChange }) => {
   const [pid, setPid] = React.useState(initialPresetId ?? '');
   const [text, setText] = React.useState('');
-  const [roleScripts, setRoleScripts] = React.useState<string[]>([]);
+  // coframe(#6):每角色一串文案,index 对应角色
+  const [coframeScripts, setCoframeScripts] = React.useState<string[]>([]);
+  // sequential(#7):外层 index=角色,内层=该角色的多个段
+  const [seqSegments, setSeqSegments] = React.useState<string[][]>([]);
   const [taskId, setTaskId] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
@@ -84,6 +87,23 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   React.useEffect(() => { if (!pid && presets[0]) setPid(presets[0].id); }, [presets, pid]);
   React.useEffect(() => { if (pid) onPresetChange?.(pid); }, [pid, onPresetChange]);
 
+  // 角色数变化时对齐多角色脚本状态长度(coframe / sequential)
+  const roleCount = roles.length;
+  React.useEffect(() => {
+    setCoframeScripts((prev) => {
+      if (prev.length === roleCount) return prev;
+      const next = prev.slice(0, roleCount);
+      while (next.length < roleCount) next.push('');
+      return next;
+    });
+    setSeqSegments((prev) => {
+      if (prev.length === roleCount) return prev;
+      const next = prev.slice(0, roleCount);
+      while (next.length < roleCount) next.push(['']);
+      return next;
+    });
+  }, [roleCount]);
+
   const handleProductFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -112,10 +132,30 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const doGen = async () => {
     setBusy(true);
     try {
+      let modeFields: {
+        script?: string;
+        role_scripts?: string[];
+        role_segments?: Array<{ role_index: number; text: string }>;
+      };
+      if (mode === 'coframe') {
+        modeFields = { role_scripts: coframeScripts };
+      } else if (mode === 'sequential') {
+        const maxLen = Math.max(0, ...seqSegments.map((a) => a.length));
+        const roleSegments: { role_index: number; text: string }[] = [];
+        for (let k = 0; k < maxLen; k++) {
+          for (let i = 0; i < seqSegments.length; i++) {
+            const t = (seqSegments[i]?.[k] ?? '').trim();
+            if (t) roleSegments.push({ role_index: i, text: t });
+          }
+        }
+        modeFields = { role_segments: roleSegments };
+      } else {
+        modeFields = { script: text };
+      }
       const opts = {
         engine,
         ...(productRef ? { product_image: productRef, template, matte } : {}),
-        ...(mode === 'sequential' ? { role_scripts: roleScripts } : { script: text }),
+        ...modeFields,
       };
       const r = await digitalHuman.generate(pid, text, opts);
       setTaskId(r.task_id);
@@ -125,6 +165,14 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   // 带门控的生成入口
   const gen = () => gate.guard(doGen);
+
+  // 各 mode 是否有可生成内容
+  const canGenerate =
+    mode === 'coframe'
+      ? coframeScripts.some((t) => t.trim())
+      : mode === 'sequential'
+        ? seqSegments.some((segs) => segs.some((t) => t.trim()))
+        : text.trim().length > 0;
 
   if (presets.length === 0)
     return <div className="text-sm text-[var(--cy-text-tertiary)]">先到「我的数字人」新建一个数字人。</div>;
@@ -184,14 +232,57 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         <input ref={refVideoRef} type="file" accept="video/*,audio/*" className="hidden" onChange={onRefVideo} />
       </div>
 
-      {mode === 'sequential' && roles.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <div className="text-xs text-[var(--cy-text-tertiary)]">分段台词(每角色一段,各用各自音色)</div>
+      {mode === 'coframe' && roles.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="text-xs text-[var(--cy-text-tertiary)]">同框台词(每角色一段,各用各自音色)</div>
           {roles.map((r, i) => (
-            <input key={r.ref} type="text" value={roleScripts[i] ?? ''}
-              onChange={(e) => setRoleScripts((s) => { const n = [...s]; n[i] = e.target.value; return n; })}
-              placeholder={`${r.name || ('角色' + (i + 1))} 的台词`}
-              className="h-8 w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
+            <div key={r.ref} className="flex flex-col gap-1">
+              <div className="text-xs font-medium text-[var(--cy-text-secondary)]">{r.name || ('角色' + (i + 1))}</div>
+              <textarea value={coframeScripts[i] ?? ''} rows={2}
+                onChange={(e) => setCoframeScripts((prev) => { const n = [...prev]; n[i] = e.target.value; return n; })}
+                placeholder={`${r.name || ('角色' + (i + 1))} 的台词`}
+                className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {mode === 'sequential' && roles.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <div className="text-xs text-[var(--cy-text-tertiary)]">分段台词(每角色可加多段,按段序在角色间轮流播放)</div>
+          {roles.map((r, i) => (
+            <div key={r.ref} className="flex flex-col gap-1 rounded-md border border-[var(--cy-border-subtle)] p-2">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-medium text-[var(--cy-text-secondary)]">{r.name || ('角色' + (i + 1))}</div>
+                <button type="button"
+                  onClick={() => setSeqSegments((prev) => {
+                    const next = prev.map((segs, ri) => (ri === i ? [...segs, ''] : segs));
+                    return next;
+                  })}
+                  className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-0.5 text-xs text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)]">
+                  + 添加一段
+                </button>
+              </div>
+              {(seqSegments[i] ?? ['']).map((seg, k) => (
+                <div key={k} className="flex items-start gap-1">
+                  <textarea value={seg} rows={2}
+                    onChange={(e) => setSeqSegments((prev) => prev.map((segs, ri) => (
+                      ri === i ? segs.map((sv, sk) => (sk === k ? e.target.value : sv)) : segs
+                    )))}
+                    placeholder={`第 ${k + 1} 段`}
+                    className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
+                  {(seqSegments[i]?.length ?? 0) > 1 && (
+                    <button type="button"
+                      onClick={() => setSeqSegments((prev) => prev.map((segs, ri) => (
+                        ri === i ? segs.filter((_, sk) => sk !== k) : segs
+                      )))}
+                      className="mt-1 shrink-0 rounded-md border border-[var(--cy-border-subtle)] px-2 py-0.5 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                      删
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           ))}
         </div>
       )}
@@ -254,7 +345,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         </label>
       )}
 
-      <button onClick={() => void gen()} disabled={!pid || !text.trim() || busy || !engineInstalled}
+      <button onClick={() => void gen()} disabled={!pid || !canGenerate || busy || !engineInstalled}
         className="inline-flex h-8 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
         生成数字人视频
       </button>

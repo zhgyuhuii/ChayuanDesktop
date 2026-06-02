@@ -221,6 +221,7 @@ export async function dhGenerate(
     height?: number;
     script?: string;
     role_scripts?: string[];
+    role_segments?: Array<{ role_index: number; text: string }>;
   },
 ): Promise<{ task_id: string }> {
   return rd<{ task_id: string }>('/api/v1/digital-human/generate', {
@@ -235,6 +236,7 @@ export async function dhGenerate(
       engine: opts?.engine ?? 'wav2lip',
       script: opts?.script,
       role_scripts: opts?.role_scripts,
+      role_segments: opts?.role_segments,
     },
   });
 }
