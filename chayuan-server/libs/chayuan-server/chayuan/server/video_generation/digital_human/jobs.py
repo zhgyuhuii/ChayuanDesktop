@@ -177,13 +177,14 @@ def _probe_duration_ms(path: str) -> int:
         return 0
 
 
-def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, role_scripts=None):
+def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, role_scripts=None, role_segments=None):
     """按 script_router 规划的合成单元生成片段:并发合成各单元音频(各自音色/语速/音量),
     再串行跑 wav2lip(引擎模型共享,避免显存争用)。返回片段路径(按单元顺序)。"""
     from chayuan.server.video_generation.digital_human import script_router as _sr
     from concurrent.futures import ThreadPoolExecutor
     dh_type = getattr(preset, "compose_mode", "single") or "single"
-    units = _sr.plan(dh_type, global_text, role_scripts, slots)
+    units = _sr.plan(dh_type, script=global_text, role_scripts=role_scripts,
+                     role_segments=role_segments, roles=slots)
     if not units:
         raise RuntimeError("无可合成台词")
 
@@ -268,7 +269,8 @@ def _run_pipeline(tid: str) -> None:
             clips, unit_roles = _gen_slot_clips(tid, preset, slots, args["text"],
                                     args.get("engine") or "wav2lip", td,
                                     args["width"], args["height"],
-                                    role_scripts=args.get("role_scripts"))
+                                    role_scripts=args.get("role_scripts"),
+                                    role_segments=args.get("role_segments"))
             from chayuan.server.video_generation.digital_human import compose_multi as _cm
             _set(tid, progress=90)
             try:
@@ -337,11 +339,12 @@ def _run_pipeline(tid: str) -> None:
 def submit(*, preset_id: str, text: str, width: int, height: int,
            product_ref: Optional[str] = None, template: str = "none",
            matte: bool = False, engine: str = "wav2lip",
-           role_scripts=None, script=None) -> str:
+           role_scripts=None, role_segments=None, script=None) -> str:
     tid = uuid.uuid4().hex[:12]
     _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height,
                      "product_ref": product_ref, "template": template, "matte": matte,
-                     "engine": engine, "role_scripts": role_scripts, "script": script}
+                     "engine": engine, "role_scripts": role_scripts,
+                     "role_segments": role_segments, "script": script}
     _set(tid, state="pending", progress=0)
     _POOL.submit(_run_pipeline, tid)
     return tid

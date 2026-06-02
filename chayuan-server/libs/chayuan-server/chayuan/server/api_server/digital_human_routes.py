@@ -228,7 +228,8 @@ def generate(body: DhGenerateRequest,
                          width=width, height=height,
                          product_ref=body.product_image, template=body.template,
                          matte=body.matte, engine=body.engine,
-                         script=body.script, role_scripts=body.role_scripts)
+                         script=body.script, role_scripts=body.role_scripts,
+                         role_segments=body.role_segments)
     return {"task_id": tid}
 
 
