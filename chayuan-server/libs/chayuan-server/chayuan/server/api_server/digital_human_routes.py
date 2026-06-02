@@ -195,15 +195,27 @@ async def script_from_video(file: UploadFile = File(...),
                 pass
 
 
+_PRODUCT_IMG_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+_PRODUCT_VIDEO_EXTS = {".mp4", ".mov", ".webm", ".mkv"}
+
+
 @digital_human_router.post("/products")
 async def upload_product(file: UploadFile = File(...),
                          user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    """商品资料上传 —— 图片或短视频(VLM 看图/抽帧出带货文案用)。
+    保留真实后缀(ref 末段含后缀,后续按后缀判图/视频)。"""
     ext = os.path.splitext(file.filename or "")[1].lower() or ".png"
+    if ext not in _PRODUCT_IMG_EXTS and ext not in _PRODUCT_VIDEO_EXTS:
+        raise HTTPException(
+            422,
+            f"不支持的商品文件类型 {ext}(图片: jpg/jpeg/png/webp/bmp;视频: mp4/mov/webm/mkv)",
+        )
     fid = f"{int(time.time())}-{uuid.uuid4().hex[:6]}{ext}"
     dest = os.path.join(dh_products_dir(create=True), fid)
     with open(dest, "wb") as f:
         f.write(await file.read())
-    return {"ref": f"product:{fid}", "name": fid}
+    kind = "image" if ext in _PRODUCT_IMG_EXTS else "video"
+    return {"ref": f"product:{fid}", "name": fid, "kind": kind}
 
 
 @digital_human_router.delete("/avatars/{name}")
