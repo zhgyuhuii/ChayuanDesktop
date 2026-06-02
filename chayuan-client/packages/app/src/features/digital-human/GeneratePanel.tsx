@@ -238,6 +238,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           subject: subject.trim(),
           template_id: templateId,
           productRef: productRef ?? undefined,
+          // 用户临时选的文案模型透传给后端;预设锁定时 effectiveModel 退回预设值。
+          model: effectiveModel(preset, scriptModel ?? '') || undefined,
         });
         setScriptSources(rm.sources ?? []);
         setKbMissed(effectiveKuIds(preset, scriptKuIds).length > 0 && rm.kb_used === false);
@@ -460,9 +462,21 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   // 播放顺序预览(只读):反映最终合成后片段播放顺序,让用户「所见即所得」。
   const roleNames = roles.map((r, i) => r.name || ('角色' + (i + 1)));
   const orderPreview = React.useMemo(
-    () => previewOrder(mode, coframeScripts, seqSegments, roleNames),
+    () => {
+      // 多角色 AI 生成产出的有序 role_segments 是「即将提交」的真源:预览与
+      // 时长直接基于它(保留 AI 编排的交错顺序/分段),避免 coframe 把有序段
+      // 折叠成每角色一框后再按句 round-robin 重切导致顺序/分段/每段时长全错。
+      // roleSegments 为空(手写台词)时仍按各角色框 round-robin 预览。
+      if (mode !== 'single' && roleSegments.length > 0) {
+        return roleSegments.map((s) => ({
+          roleName: roleNames[s.role_index] ?? ('角色' + (s.role_index + 1)),
+          text: s.text,
+        }));
+      }
+      return previewOrder(mode, coframeScripts, seqSegments, roleNames);
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, coframeScripts, seqSegments, roleNames.join('\u0001')],
+    [mode, roleSegments, coframeScripts, seqSegments, roleNames.join('\u0001')],
   );
   // 每角色语速(用于时长估算);roleName -> voice_rate。
   const rateByRole = React.useMemo(() => {
