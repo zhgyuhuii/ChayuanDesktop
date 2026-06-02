@@ -23,7 +23,7 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
       <div className="flex min-w-0 flex-1 items-center justify-center rounded-xl bg-[var(--cy-ink-900,#0b0d12)] p-4">
         <div
           className="relative max-h-full max-w-full overflow-hidden rounded-lg bg-black shadow-lg"
-          style={{ aspectRatio: `${w} / ${h}`, height: '100%' }}
+          style={{ aspectRatio: `${w} / ${h}`, maxWidth: '100%', maxHeight: '100%', ...(w >= h ? { width: '100%', height: 'auto' } : { height: '100%', width: 'auto' }) }}
         >
           {preset && (preset.avatars?.length ?? 0) > 0 ? (
             <CanvasStage width={w} height={h} roles={preset.avatars!} readOnly />

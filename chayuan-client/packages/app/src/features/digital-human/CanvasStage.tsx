@@ -74,7 +74,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({ width, height, roles, 
   return (
     <div ref={boxRef}
       className="relative mx-auto select-none overflow-hidden rounded-lg bg-black"
-      style={{ aspectRatio: `${width} / ${height}`, height: '100%', maxWidth: '100%' }}>
+      style={{ aspectRatio: `${width} / ${height}`, maxWidth: '100%', maxHeight: '100%', ...(width >= height ? { width: '100%', height: 'auto' } : { height: '100%', width: 'auto' }) }}>
       {roles.map((r) => (
         <div key={r.ref}
           onPointerDown={(e) => startMove(e, r)}
