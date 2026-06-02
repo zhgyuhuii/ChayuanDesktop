@@ -87,9 +87,25 @@ def _entry_for_path(path: Path):
     return None
 
 
-def is_bundled_readonly(source_tag: str) -> bool:
-    """内置(装机自带)模型只读,不允许卸载。"""
-    return source_tag == "bundled"
+def is_bundled_readonly(entry) -> bool:
+    """内置(装机自带)模型只读,不允许卸载。
+
+    判定依据是 **entry.relpath 是否以 ``bundled/`` 开头**,而非 source_tag。
+    原因:bundled 模型被 ``seed_bundled_models`` 拷到
+    ``<CHAYUAN_ROOT>/models/bundled/`` 后,经顶层 ``models`` 根扫到,真实
+    ``source_tag`` 是 ``"models"``,bundled 身份只体现在 relpath 前缀
+    (见 local_index._candidate_roots 注释)。
+
+    兼容性:接受 entry 对象(读 relpath),也兼容直接传 str(当作 relpath
+    判,且冗余兼容历史 ``"bundled"`` source_tag)。
+    """
+    if isinstance(entry, str):
+        return entry.startswith("bundled/") or entry == "bundled"
+    relpath = getattr(entry, "relpath", "") or ""
+    if relpath.startswith("bundled/"):
+        return True
+    # 冗余兜底:历史/异常数据若真带 source_tag=="bundled" 也拒卸。
+    return getattr(entry, "source_tag", "") == "bundled"
 
 
 # catalog cap(local_index.capability)→ LocalRuntimeRegistry 运行时短名。
@@ -136,12 +152,11 @@ def uninstall(source: str, repo_id: str, *, force: bool = False) -> Dict[str, An
         return {"ok": False, "reason": "not_found"}
 
     entry = _entry_for_path(model_dir)
-    source_tag = getattr(entry, "source_tag", "") if entry else ""
     catalog_cap = getattr(entry, "capability", "") if entry else ""
     entry_model_id = getattr(entry, "model_id", None) if entry else None
 
-    # ② 内置只读
-    if is_bundled_readonly(source_tag):
+    # ② 内置只读(按 entry.relpath 前缀 bundled/ 判,非 source_tag)
+    if entry is not None and is_bundled_readonly(entry):
         return {"ok": False, "reason": "bundled"}
 
     # ③ 在用检查(真实接口:status.model_id)
@@ -173,6 +188,10 @@ def uninstall(source: str, repo_id: str, *, force: bool = False) -> Dict[str, An
             logger.warning("[uninstall] force stop sidecar 失败(继续删盘): %r", e)
 
     # ④ 删盘(rmtree 前先量大小;删失败不半删 → 返 error)
+    # 单文件模型(gguf/onnx)的 entry.path 指向文件,rmtree 对文件抛
+    # NotADirectoryError → 删其所在目录(install_model 单文件也是落在独立目录内)。
+    if model_dir.is_file():
+        model_dir = model_dir.parent
     freed = getattr(entry, "size_bytes", 0) if entry else 0
     if not freed:
         freed = _dir_size_bytes(model_dir)

@@ -100,9 +100,18 @@ class HuggingFaceAdapter(HubAdapter):
         }
         if query:
             params["search"] = query
-        # runnable_only：HF 支持 filter=gguf（onnx 仓库较少，gguf 是可跑主力）。
+        # runnable_only 与 capability 是**两个独立条件**,必须都生效(AND),
+        # 与 modelscope adapter 一致。
+        #   * runnable_only → HF 支持 filter=gguf(onnx 仓库较少,gguf 是可跑主力);
+        #   * capability → 用 pipeline_tag 收窄;但 runnable_only 已占用 filter
+        #     时无法同时下发 pipeline_tag(HF API 不支持二者叠加可靠生效),
+        #     此时把 capability 留到 post-filter 阶段按 card.capability 过滤。
+        post_filter_capability = False
         if runnable_only:
             params["filter"] = "gguf"
+            if capability:
+                # 不下发 pipeline_tag,改在返回后 post-filter。
+                post_filter_capability = True
         elif capability and capability in _CAP_TO_PIPELINE:
             params["pipeline_tag"] = _CAP_TO_PIPELINE[capability]
 
@@ -111,7 +120,12 @@ class HuggingFaceAdapter(HubAdapter):
 
         items: List[NormalizedModelCard] = []
         for r in rows:
-            items.append(self._normalize(r))
+            card = self._normalize(r)
+            # 勾「仅可运行」+ 指定 capability 时,filter=gguf 已收窄到 gguf,
+            # capability 仍需在此 post-filter(否则选 chat 也会返回所有 gguf)。
+            if post_filter_capability and card.capability != capability:
+                continue
+            items.append(card)
 
         return SearchPage(
             items=items,

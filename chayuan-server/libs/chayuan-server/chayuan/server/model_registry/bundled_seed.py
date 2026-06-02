@@ -8,8 +8,10 @@
   时跳过,保留用户在数据目录里手动替换 / 覆盖的版本;
 * **不污染源目录**: bundled 是只读约定(打包时来自 ``_MEIPASS``,无法写回),
   本模块只从 bundled 读,只往 ``<CHAYUAN_ROOT>/models/bundled/`` 写;
-* **目录结构对齐**: 与 ``vendor/bundled_models/<cap>/...`` 一致,
-  ``local_index`` 扫描时会拿到 ``source_tag = "bundled"``。
+* **目录结构对齐**: 与 ``vendor/bundled_models/<cap>/...`` 一致。注意
+  ``local_index`` 扫描这些模型时走的是顶层 ``models`` 根,真实
+  ``source_tag = "models"``;**bundled 身份只体现在 ``relpath`` 前缀
+  ``bundled/``**(UI 与卸载只读判定均据此前缀,非 source_tag)。
 
 返回 :class:`SeedReport`,首启钩子据此填 ``FirstLaunchReport.seeded*``;
 所有失败被吞,写入 ``report.errors``。
