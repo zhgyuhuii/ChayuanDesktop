@@ -114,6 +114,60 @@ def _invoke_llm(prompt: str, *, model: Optional[str] = None) -> str:
 _PRODUCT_IMG_EXTS = {"jpg", "jpeg", "png", "webp", "bmp"}
 _PRODUCT_VIDEO_EXTS = {"mp4", "mov", "webm", "mkv"}
 
+# 本地模型索引(model_registry.local_index)里,支持「看图」的 capability。
+# identifier.py 把 VL/LLaVA/Qwen2-VL/带 vision_config 的模型判成 image-to-text。
+_VISION_CAPABILITIES = {"image-to-text"}
+# 明确「不支持图像输入」的纯文本/工具型 capability — 命中即可判定非 VLM。
+# (chat 是最常见的误锁场景:用户锁了纯文本 chat 模型又挂了商品图。)
+_NON_VISION_CAPABILITIES = {
+    "chat", "text-embedding", "rerank", "speech-to-text", "text-to-audio",
+    "text-to-image", "text-to-video", "image-embedding",
+}
+
+
+class VlmCapabilityError(ValueError):
+    """所选模型经本地索引判定不支持图像输入。由路由层转人话给用户。"""
+
+
+def _model_supports_vision(model: str) -> Optional[bool]:
+    """尽力(best-effort)判断 model 是否支持图像输入。
+
+    返回:
+        * ``True``  — 本地索引判定为 image-to-text(VL 看图)
+        * ``False`` — 本地索引判定为纯文本/工具型 capability(明确不支持图像)
+        * ``None``  — 无法可靠判定(模型不在本地索引里,如远程 API 模型;
+          或索引读取失败)。此时调用方不应据此拦截,继续 invoke。
+
+    说明:本项目没有「给一个 model_id 同步问它支不支持视觉」的统一入口;
+    唯一可靠的同步 capability 真源是 ``LocalModelIndex``(已下载模型的
+    ``models.json``)。它能覆盖「用户锁了本地非 VLM 模型 + 挂图」这个最
+    常见的误用场景。远程 API 模型(deepseek-chat / claude-* 等)不在索引里
+    → 返回 None 不拦截,避免误伤真正支持视觉的 API 模型(交给 invoke 失败
+    时的可读报错兜底)。
+    """
+
+    if not model:
+        return None
+    try:
+        from chayuan.server.model_registry.local_index import LocalModelIndex
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[script] LocalModelIndex import 失败,跳过 VLM 前置校验: %r", e)
+        return None
+    try:
+        entry = LocalModelIndex().get(model)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[script] 本地索引查询失败,跳过 VLM 前置校验 model=%s: %r", model, e)
+        return None
+    if entry is None:
+        # 不在本地索引(远程/API 模型,或仅 metadata 未下载) → 无法可靠判定
+        return None
+    cap = (entry.capability or "").strip()
+    if cap in _VISION_CAPABILITIES:
+        return True
+    if cap in _NON_VISION_CAPABILITIES:
+        return False
+    return None
+
 
 def _resolve_product_file(product_ref: str) -> Optional[str]:
     """``product:<fid>`` -> 商品目录下真实文件绝对路径(fid 末段含后缀)。"""
@@ -145,7 +199,7 @@ def _ffmpeg_exe() -> str:
 
 
 def _video_frames_data_urls(path: str, *, frames: int = 4) -> List[str]:
-    """ffmpeg 均匀抽 ``frames`` 帧 -> base64 data URL 列表。失败返 []。"""
+    """ffmpeg 均匀抽 ``frames`` 帧 -> base64 data URL 列表。失败/超时返 []。"""
 
     import base64
     import os
@@ -158,16 +212,22 @@ def _video_frames_data_urls(path: str, *, frames: int = 4) -> List[str]:
         ff = _ffmpeg_exe()
         # 每 3 秒取一帧,最多 frames 张(短视频也至少能取到首帧)
         pattern = os.path.join(tmpdir, "f_%02d.jpg")
+        # timeout 兜底:损坏/超长视频会让 ffmpeg 卡死,进而挂死整个请求线程
+        # (后端无 --reload 的同步 worker)。超时即放弃抽帧,回退纯文本路径。
         subprocess.run(
             [ff, "-y", "-i", path, "-vf", "fps=1/3",
              "-frames:v", str(max(1, frames)), pattern],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=60,
         )
         names = sorted(n for n in os.listdir(tmpdir) if n.endswith(".jpg"))
         for n in names[:max(1, frames)]:
             with open(os.path.join(tmpdir, n), "rb") as fh:
                 b64 = base64.b64encode(fh.read()).decode("ascii")
             out.append(f"data:image/jpeg;base64,{b64}")
+    except subprocess.TimeoutExpired as e:
+        logger.warning("[script] 视频抽帧超时(>60s) path=%s: %r — 回退纯文本", path, e)
+        return []
     except Exception as e:  # noqa: BLE001
         logger.warning("[script] 视频抽帧失败 path=%s: %r", path, e)
         return []
@@ -219,7 +279,11 @@ def _invoke_llm_multimodal(
 ) -> str:
     """构造含 image_url 的多模态 HumanMessage,走 get_ChatOpenAI VLM 看图出文案。
 
-    模型不支持视觉/超时等异常 -> 记日志返空串,由 route 转可读错误。
+    invoke 前先做 best-effort VLM 能力校验(见 :func:`_model_supports_vision`):
+    本地索引明确判定为「非视觉模型」时,直接抛 :class:`VlmCapabilityError`,
+    由路由层转成可读错误「该模型不支持图像输入,请改用支持视觉(VLM)的模型」,
+    而不是盲目 invoke 等一个笼统的下游错误。无法可靠判定(远程 API 模型)时
+    照常 invoke,失败的报错信息里也带上「可能不支持图像」的可读提示。
     """
 
     if not image_data_urls:
@@ -241,6 +305,14 @@ def _invoke_llm_multimodal(
         logger.error("[script] 多模态:没拿到可用 chat 模型")
         return ""
 
+    # 前置 VLM 能力校验(best-effort,只在本地索引可靠判定为非视觉时拦截)
+    supports = _model_supports_vision(model)
+    if supports is False:
+        logger.warning("[script] 多模态:模型 %s 经本地索引判定不支持图像输入", model)
+        raise VlmCapabilityError(
+            f"该模型({model})不支持图像输入,请改用支持视觉(VLM)的模型"
+        )
+
     content: List[dict] = [{"type": "text", "text": _PRODUCT_PROMPT_PREFIX + prompt}]
     for url in image_data_urls:
         content.append({"type": "image_url", "image_url": {"url": url}})
@@ -251,9 +323,16 @@ def _invoke_llm_multimodal(
         if hasattr(msg, "content"):
             return str(msg.content).strip()
         return str(msg).strip()
+    except VlmCapabilityError:
+        raise
     except Exception as e:  # noqa: BLE001
+        # 没能前置判定(远程 API 模型) → invoke 失败时把报错包装得更明确:
+        # 多模态调用挂掉最常见的原因就是所选模型不支持图像。
         logger.warning("[script] 多模态 LLM 调用失败 model=%s: %r", model, e)
-        return ""
+        raise VlmCapabilityError(
+            f"多模态调用失败(model={model}):可能所选模型不支持图像输入,"
+            f"请改用支持视觉(VLM)的模型。原始错误:{e}"
+        ) from e
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -278,6 +357,10 @@ def generate_script(
     ``kb_context`` 非空时(由路由层从绑定知识库检索拼好),前置注入到
     prompt 主题提示前,作为「企业知识/参考话术」grounding。与 product_ref
     多模态分支可并存(都拼进同一段 prompt 文本)。
+
+    多模态分支若判定所选模型不支持图像输入,会抛 :class:`VlmCapabilityError`
+    给路由层转人话(不静默回退纯文本,避免「锁了非 VLM 还挂图」时用户拿到
+    一段没看图的文案却不知道为什么)。
     """
 
     if not video_subject.strip():

@@ -114,3 +114,113 @@ def test_no_product_ref_text_only(tmp_path):
     # 纯文本路径 invoke 收到的是 str prompt
     assert isinstance(content, str)
     assert not _has_image_url(content)
+
+
+# ──────────────────────────────────────────────────────────────
+# P1: ffmpeg 抽帧 timeout — 损坏/超长视频不挂死请求线程
+# ──────────────────────────────────────────────────────────────
+
+
+def test_video_frames_timeout(monkeypatch, tmp_path):
+    """ffmpeg 抽帧超时 -> _video_frames_data_urls 返 [] 不抛(回退纯文本)。"""
+    import subprocess
+
+    def _raise_timeout(cmd, **kw):  # noqa: ANN001
+        # 断言确实传了 timeout(防止回归删掉 timeout 参数)
+        assert kw.get("timeout"), "subprocess.run 必须带 timeout 兜底"
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=kw.get("timeout"))
+
+    monkeypatch.setattr(subprocess, "run", _raise_timeout)
+
+    fid = "1700000000-broken.mp4"
+    (tmp_path / fid).write_bytes(b"corrupt")
+    urls = script_mod._video_frames_data_urls(str(tmp_path / fid))
+    assert urls == []
+
+
+def test_video_timeout_falls_back_to_text(monkeypatch, tmp_path):
+    """端到端:视频抽帧超时 -> generate_script 回退纯文本路径。"""
+    import subprocess
+
+    def _raise_timeout(cmd, **kw):  # noqa: ANN001
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=kw.get("timeout", 60))
+
+    monkeypatch.setattr(subprocess, "run", _raise_timeout)
+
+    fid = "1700000000-broken2.mp4"
+    (tmp_path / fid).write_bytes(b"corrupt")
+    out = script_mod.generate_script("商品介绍", product_ref=f"product:{fid}")
+    assert out == "桩文案"
+    content = _content_of(_FakeLLM.last_invoke)
+    assert isinstance(content, str)
+    assert not _has_image_url(content)
+
+
+# ──────────────────────────────────────────────────────────────
+# P2: 多模态 VLM 能力校验 — 本地索引判定非视觉模型 -> 明确报错
+# ──────────────────────────────────────────────────────────────
+
+
+def test_multimodal_rejects_non_vl_model(tmp_path, monkeypatch):
+    """本地索引把所选模型判成 chat(纯文本) + 挂图 -> 抛 VlmCapabilityError。"""
+
+    class _FakeEntry:
+        capability = "chat"
+
+    class _FakeIndex:
+        def get(self, model_id):  # noqa: ANN001
+            return _FakeEntry()
+
+    import chayuan.server.model_registry.local_index as li_mod
+    monkeypatch.setattr(li_mod, "LocalModelIndex", _FakeIndex)
+
+    fid = "1700000000-prod.png"
+    (tmp_path / fid).write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    with pytest.raises(script_mod.VlmCapabilityError):
+        script_mod.generate_script(
+            "连衣裙", product_ref=f"product:{fid}", model="some-text-only-llm"
+        )
+
+
+def test_multimodal_allows_vl_model(tmp_path, monkeypatch):
+    """本地索引判成 image-to-text(VL) -> 不拦截,正常构造 image_url。"""
+
+    class _FakeEntry:
+        capability = "image-to-text"
+
+    class _FakeIndex:
+        def get(self, model_id):  # noqa: ANN001
+            return _FakeEntry()
+
+    import chayuan.server.model_registry.local_index as li_mod
+    monkeypatch.setattr(li_mod, "LocalModelIndex", _FakeIndex)
+
+    fid = "1700000000-prod2.png"
+    (tmp_path / fid).write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    out = script_mod.generate_script(
+        "连衣裙", product_ref=f"product:{fid}", model="qwen2-vl-local"
+    )
+    assert out == "桩文案"
+    content = _content_of(_FakeLLM.last_invoke)
+    assert _has_image_url(content)
+
+
+def test_multimodal_unknown_model_not_blocked(tmp_path, monkeypatch):
+    """模型不在本地索引(远程 API 模型) -> 不前置拦截,照常 invoke。"""
+
+    class _FakeIndex:
+        def get(self, model_id):  # noqa: ANN001
+            return None
+
+    import chayuan.server.model_registry.local_index as li_mod
+    monkeypatch.setattr(li_mod, "LocalModelIndex", _FakeIndex)
+
+    fid = "1700000000-prod3.png"
+    (tmp_path / fid).write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    out = script_mod.generate_script(
+        "连衣裙", product_ref=f"product:{fid}", model="claude-vision-remote"
+    )
+    assert out == "桩文案"
+    content = _content_of(_FakeLLM.last_invoke)
+    assert _has_image_url(content)

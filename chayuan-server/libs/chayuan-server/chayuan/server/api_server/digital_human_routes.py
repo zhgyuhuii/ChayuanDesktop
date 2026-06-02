@@ -198,7 +198,10 @@ def script_generate(body: Dict[str, Any],
     ``ku_ids`` 非空时,先走统一 kb_query 检索绑定知识库,把命中文本拼成
     grounding 上下文注入 prompt(检索失败降级,不阻断文案生成)。
     """
-    from chayuan.server.video_generation.steps.script import generate_script
+    from chayuan.server.video_generation.steps.script import (
+        VlmCapabilityError,
+        generate_script,
+    )
     subject_text = (body.get("subject") or "").strip()
     if not subject_text:
         raise HTTPException(422, "缺 subject(主题)")
@@ -230,13 +233,17 @@ def script_generate(body: Dict[str, Any],
             logger.warning("[dh] KB grounding 检索失败,降级: %r", e)
             kb_context = None
 
-    text = generate_script(
-        subject_text, language=str(body.get("language", "") or ""),
-        paragraph_number=int(body.get("paragraphs", 1) or 1),
-        model=body.get("model"),
-        product_ref=product_ref,
-        kb_context=kb_context,
-    )
+    try:
+        text = generate_script(
+            subject_text, language=str(body.get("language", "") or ""),
+            paragraph_number=int(body.get("paragraphs", 1) or 1),
+            model=body.get("model"),
+            product_ref=product_ref,
+            kb_context=kb_context,
+        )
+    except VlmCapabilityError as e:
+        # 多模态分支判定/调用出所选模型不支持图像 -> 转人话给用户
+        raise HTTPException(422, str(e))
     if not text:
         if product_ref:
             raise HTTPException(
