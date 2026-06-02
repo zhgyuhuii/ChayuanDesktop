@@ -29,8 +29,26 @@ def test_parse_untagged_falls_back_to_first_role():
     assert len(segs) >= 1 and segs[0]["role_index"] == 0
 
 
-def test_parse_unknown_tag_merges_into_prev():
+def test_parse_unknown_tag_strips_label_merges_text():
     out = "[小李] 第一句。\n[路人] 接着说。"
     segs = parse_multirole_output(out, ["小李", "小周"])
-    # 未知标签 → 并入上一段(role 0),不丢
-    assert segs[0]["role_index"] == 0 and "接着说" in " ".join(s["text"] for s in segs)
+    # 未知标签 → 剥掉 [路人] 字面,只并入后面的 text(不把标签当台词念出来)。
+    joined = " ".join(s["text"] for s in segs)
+    assert segs[0]["role_index"] == 0
+    assert "接着说" in joined
+    assert "路人" not in joined and "[" not in joined
+
+
+def test_parse_unknown_colon_tag_strips_label():
+    # `名:` 前缀同理剥(未知说话人),只留正文。
+    out = "[小李] 开场。\n旁白: 画外音。"
+    segs = parse_multirole_output(out, ["小李", "小周"])
+    joined = " ".join(s["text"] for s in segs)
+    assert "画外音" in joined
+    assert "旁白" not in joined
+
+
+def test_parse_substring_names_no_misassign():
+    # 昵称互为子串:`小李哥` 不能被先出现的 `小李`(index0)误中(最长匹配优先)。
+    segs = parse_multirole_output("[小李] a\n[小李哥] b", ["小李", "小李哥"])
+    assert [(s["role_index"], s["text"]) for s in segs] == [(0, "a"), (1, "b")]

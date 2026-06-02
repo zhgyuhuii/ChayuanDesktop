@@ -24,11 +24,27 @@ _TAG = re.compile(r"^\s*(?:\[(?P<b>[^\]]{1,20})\]|(?P<c>[^：:\n]{1,20})[：:])\
 def parse_multirole_output(text: str, role_names: List[str]) -> List[Dict]:
     names = [(n or "").strip() for n in role_names]
     def match_role(tag: str) -> Optional[int]:
+        """匹配优先级:精确 > 最长子串。
+
+        先全表找 ``tag == name``(精确);无精确时在所有 ``name in tag`` /
+        ``tag in name`` 候选里取**最长 name**(len 最大)那个 —— 避免
+        ``[小李哥]`` 被先出现的子串 ``小李`` 误中。都不中返 None。
+        """
         tag = (tag or "").strip()
+        if not tag:
+            return None
+        # 1) 精确匹配优先
         for i, n in enumerate(names):
-            if n and (tag == n or n in tag or tag in n):
+            if n and tag == n:
                 return i
-        return None
+        # 2) 子串候选里取最长 name(len 最大)
+        best_i: Optional[int] = None
+        best_len = -1
+        for i, n in enumerate(names):
+            if n and (n in tag or tag in n) and len(n) > best_len:
+                best_i = i
+                best_len = len(n)
+        return best_i
     segs: List[Dict] = []
     for raw in (text or "").splitlines():
         line = raw.strip()
@@ -42,11 +58,12 @@ def parse_multirole_output(text: str, role_names: List[str]) -> List[Dict]:
             if ri is not None:
                 segs.append({"role_index": ri, "text": body})
                 continue
-            # 未知标签 → 并入上一段(连同标签文本),无上一段则归角色0
+            # 未知标签 → 剥掉 `[xxx]` / `名:` 前缀,只并入后面的 text(不把
+            # 字面标签当台词念出来);无上一段则用剥后的 body 起新段(归角色0)。
             if segs:
-                segs[-1]["text"] = (segs[-1]["text"] + " " + line).strip()
+                segs[-1]["text"] = (segs[-1]["text"] + " " + body).strip()
             else:
-                segs.append({"role_index": 0, "text": line})
+                segs.append({"role_index": 0, "text": body})
             continue
         # 无标签行:并入上一段;无则归角色0
         if segs:
