@@ -37,6 +37,14 @@ function decodeModel(v: string | null): { platform?: string; id: string } {
   return i >= 0 ? { platform: v.slice(0, i), id: v.slice(i + 2) } : { id: v };
 }
 
+/** 按中文/英文句末标点和换行切句,去掉空白片段(标点保留在句尾)。 */
+function splitSentences(s: string): string[] {
+  return (s || '')
+    .split(/(?<=[。！？!?\n])/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
 export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void }> = ({ presets, initialPresetId, onPresetChange }) => {
   const [pid, setPid] = React.useState(initialPresetId ?? '');
   const [text, setText] = React.useState('');
@@ -79,6 +87,24 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const navigate = useNavigate();
   const [scripting, setScripting] = React.useState(false);
   const refVideoRef = React.useRef<HTMLInputElement>(null);
+  // AI 生成/参考视频得到整篇文案后,按当前合成模式分发:
+  // single 写全局 text;coframe/sequential 把整篇按句轮流分到各角色框,同时保留原始稿。
+  const distributeScript = (script: string) => {
+    setText(script);
+    if (roleCount <= 0) return;
+    const sents = splitSentences(script);
+    if (mode === 'coframe') {
+      const next = Array.from({ length: roleCount }, (_, i) =>
+        sents.filter((_, k) => k % roleCount === i).join(''));
+      setCoframeScripts(next);
+    } else if (mode === 'sequential') {
+      const next = Array.from({ length: roleCount }, (_, i) => {
+        const mine = sents.filter((_, k) => k % roleCount === i);
+        return mine.length ? mine : [''];
+      });
+      setSeqSegments(next);
+    }
+  };
   const onAiScript = async () => {
     const subject = await promptDialog('输入主题,AI 生成口播文案:');
     if (!subject || !subject.trim()) return;
@@ -88,7 +114,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         model: scriptModel ?? undefined,
         productRef: productRef ?? undefined,
       });
-      if (r.script) setText(r.script);
+      if (r.script) distributeScript(r.script);
     } catch (e) {
       reportError(
         e as Error,
@@ -104,7 +130,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     setScripting(true);
     try {
       const r = await digitalHuman.scriptFromVideo(f);
-      if (r.script) setText(r.script);
+      if (r.script) distributeScript(r.script);
     } catch (err) { reportError(err as Error, '参考视频生成文案失败'); }
     finally { setScripting(false); }
   };
