@@ -148,12 +148,19 @@ def script_generate(body: Dict[str, Any],
     subject = (body.get("subject") or "").strip()
     if not subject:
         raise HTTPException(422, "缺 subject(主题)")
+    product_ref = (body.get("product_ref") or "").strip() or None
     text = generate_script(
         subject, language=str(body.get("language", "") or ""),
         paragraph_number=int(body.get("paragraphs", 1) or 1),
         model=body.get("model"),
+        product_ref=product_ref,
     )
     if not text:
+        if product_ref:
+            raise HTTPException(
+                502,
+                "图像对话失败,请选支持视觉(VLM)的模型或去模型广场安装",
+            )
         raise HTTPException(502, "文案生成失败(LLM 不可用?先在模型配置里设默认 chat 模型)")
     return {"script": text}
 
