@@ -25,7 +25,7 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Send, Bot, Mic, Square, ChevronDown, ChevronUp, Settings } from 'lucide-react';
 
-import { digitalHuman, modality, type DigitalHumanPreset } from '@chayuan/api';
+import { digitalHuman, modality, knowledgeUniverse, type DigitalHumanPreset, type KuItem } from '@chayuan/api';
 import { uuid } from '@chayuan/platform-shared';
 import { createChayuanTransport } from '@chayuan/transport';
 import type { ChatRequestV2 } from '@chayuan/transport';
@@ -45,6 +45,7 @@ import {
   showModelPicker,
   showKbPicker,
 } from './usePresetBinding';
+import { BindingHint, bindingStateOf, normKuIds } from './dhBinding';
 
 // 独立 composer store，与全局 chat store 完全隔离
 const dhComposerStore = createComposerStore('live-avatar');
@@ -91,6 +92,24 @@ const LiveAvatarInner: React.FC = () => {
 
   // ── KB 选择态（从 dhComposerStore 读；KnowledgePickerPill 通过 Context 写入）──
   const kuIds = dhComposerStore((s) => s.selectedKuIds);
+
+  // ── 绑定来源标签 + 失效检测 ──────────────────────────────────────────────
+  const kbsQ = useQuery({ queryKey: ['v1.knowledgeUniverse.list'], queryFn: () => knowledgeUniverse.list(), staleTime: 5 * 60 * 1000 });
+  const kbList: KuItem[] = kbsQ.data ?? [];
+  const missingKuIds = React.useMemo(() => {
+    const bound = preset?.ku_ids ?? [];
+    if (!bound.length || kbsQ.isLoading) return [];
+    const avail = new Set(kbList.map((k) => k.ku_id));
+    return bound.filter((id) => !avail.has(id));
+  }, [preset?.ku_ids, kbList, kbsQ.isLoading]);
+  const sessionModel = model ? (platformName ? `${platformName}::${model}` : model) : '';
+  const modelBindState = bindingStateOf(preset?.model ?? '', sessionModel);
+  const kbBindState = bindingStateOf(normKuIds(preset?.ku_ids), normKuIds(kuIds), missingKuIds.length > 0);
+  const kbHintLabel = (() => {
+    if (!kuIds.length) return '';
+    const names = kuIds.map((id) => kbList.find((k) => k.ku_id === id)?.display_name || kbList.find((k) => k.ku_id === id)?.name || id);
+    return names.length <= 2 ? names.join('、') : `${names.slice(0, 2).join('、')} 等 ${names.length} 个`;
+  })();
 
   // ── 选/切预设时,用预设绑定预填模型与知识库 ──────────────────────────────
   React.useEffect(() => {
@@ -377,9 +396,18 @@ const LiveAvatarInner: React.FC = () => {
                 onChange={handleModelChange}
               />
             )}
+            {showModelPicker(preset) && preset?.model ? (
+              <BindingHint state={modelBindState} noun="模型" />
+            ) : null}
 
             {/* 知识库选择（通过 ComposerStoreContext 读写 dhComposerStore）;锁定时隐藏 */}
             {showKbPicker(preset) && <KnowledgePickerPill side="bottom" align="start" />}
+            {showKbPicker(preset) && (preset?.ku_ids?.length || missingKuIds.length > 0) ? (
+              <BindingHint state={kbBindState} label={kbHintLabel} noun="知识库" />
+            ) : null}
+            {missingKuIds.length > 0 && (
+              <span className="text-[11px] text-[var(--cy-danger-500)]">⚠ 绑定的知识库已失效,请重新绑定。</span>
+            )}
 
             {/* 人设 prompt */}
             <input

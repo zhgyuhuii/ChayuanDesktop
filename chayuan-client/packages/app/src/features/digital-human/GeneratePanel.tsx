@@ -2,8 +2,8 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
-import { digitalHuman, models } from '@chayuan/api';
-import type { DigitalHumanPreset, RawModelItem } from '@chayuan/api';
+import { digitalHuman, models, knowledgeUniverse } from '@chayuan/api';
+import type { DigitalHumanPreset, RawModelItem, KuItem, DhScriptSource } from '@chayuan/api';
 import type { ModalityCapability } from '@chayuan/transport';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@chayuan/ui';
 import { reportError } from '../../store/errorDialog';
@@ -14,7 +14,9 @@ import { ModelMenuList, displayLabel } from '../composer/ModelMenuList';
 import { CHAT_CAPABILITIES, inferCapability } from '../composer/modelCapabilityChip';
 import { useResolveLogo } from '../catalog/useLogos';
 import { KnowledgePickerPill } from '../composer/KnowledgePickerPill';
+import { KbResultsView } from '../kb/components/KbResultsView';
 import { DhProgressCard } from './DhProgressCard';
+import { BindingHint, bindingStateOf, normKuIds, dhSourcesToRetrieval } from './dhBinding';
 import {
   effectiveModel,
   effectiveKuIds,
@@ -120,11 +122,21 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const [scriptModel, setScriptModel] = React.useState<string | null>(null);
   // 文案生成知识库选择(受控);选预设时预填预设 ku_ids
   const [scriptKuIds, setScriptKuIds] = React.useState<string[]>([]);
+  // 文案「依据来源」——AI 生成 / 参考视频后从后端 sources 填充
+  const [scriptSources, setScriptSources] = React.useState<DhScriptSource[]>([]);
+  // 选了知识库但本次未命中(kb_used===false)
+  const [kbMissed, setKbMissed] = React.useState(false);
   const [pickOpen, setPickOpen] = React.useState(false);
   const resolveLogo = useResolveLogo();
   const modelsQ = useQuery({
     queryKey: ['v1.models'],
     queryFn: () => models.list(),
+    staleTime: 5 * 60 * 1000,
+  });
+  // 失效绑定检测用:列当前可用知识库
+  const kbsQ = useQuery({
+    queryKey: ['v1.knowledgeUniverse.list'],
+    queryFn: () => knowledgeUniverse.list(),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -184,6 +196,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         productRef: productRef ?? undefined,
         kuIds: effectiveKuIds(preset, scriptKuIds),
       });
+      setScriptSources(r.sources ?? []);
+      setKbMissed(effectiveKuIds(preset, scriptKuIds).length > 0 && r.kb_used === false);
       if (r.script) await distributeScript(r.script);
     } catch (e) {
       reportError(
@@ -204,6 +218,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         model: effectiveModel(preset, scriptModel ?? '') || undefined,
         kuIds: effectiveKuIds(preset, scriptKuIds),
       });
+      setScriptSources(r.sources ?? []);
+      setKbMissed(effectiveKuIds(preset, scriptKuIds).length > 0 && r.kb_used === false);
       if (r.script) await distributeScript(r.script);
     } catch (err) { reportError(err as Error, '参考视频生成文案失败'); }
     finally { setScripting(false); }
@@ -228,6 +244,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     const p = presets.find((x) => x.id === pid);
     setScriptModel(p?.model ?? null);
     setScriptKuIds(p?.ku_ids ?? []);
+    setScriptSources([]);
+    setKbMissed(false);
     // 仅在预设切换时预填,避免覆盖用户手动改动
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid]);
@@ -344,6 +362,35 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     ? displayLabel(currentModel)
     : (curModel.id || (modelsQ.isLoading ? '加载中…' : '默认模型'));
 
+  // ── 绑定来源标签 + 失效检测 ───────────────────────────────────
+  // 模型失效:预设绑了 model,但在可用模型列表里找不到(被卸载)。
+  const modelInvalid = React.useMemo(() => {
+    const pm = curPreset?.model;
+    if (!pm || modelsQ.isLoading) return false;
+    const d = decodeModel(pm);
+    return !allModels.some(
+      (m) => m.id === d.id && (d.platform ? m.platform_name === d.platform : true),
+    );
+  }, [curPreset?.model, allModels, modelsQ.isLoading]);
+  // 知识库失效:预设绑的 ku_id 在可用列表里缺失(被删)。
+  const kbList: KuItem[] = kbsQ.data ?? [];
+  const missingKuIds = React.useMemo(() => {
+    const bound = curPreset?.ku_ids ?? [];
+    if (!bound.length || kbsQ.isLoading) return [];
+    const avail = new Set(kbList.map((k) => k.ku_id));
+    return bound.filter((id) => !avail.has(id));
+  }, [curPreset?.ku_ids, kbList, kbsQ.isLoading]);
+  const modelBindState = bindingStateOf(curPreset?.model ?? '', scriptModel ?? '', modelInvalid);
+  const kbBindState = bindingStateOf(
+    normKuIds(curPreset?.ku_ids), normKuIds(scriptKuIds), missingKuIds.length > 0,
+  );
+  const kbLabel = (() => {
+    if (!scriptKuIds.length) return '';
+    const names = scriptKuIds.map((id) => kbList.find((k) => k.ku_id === id)?.display_name || kbList.find((k) => k.ku_id === id)?.name || id);
+    return names.length <= 2 ? names.join('、') : `${names.slice(0, 2).join('、')} 等 ${names.length} 个`;
+  })();
+  const retrievalSources = React.useMemo(() => dhSourcesToRetrieval(scriptSources), [scriptSources]);
+
   // 播放顺序预览(只读):反映最终合成后片段播放顺序,让用户「所见即所得」。
   const roleNames = roles.map((r, i) => r.name || ('角色' + (i + 1)));
   const orderPreview = React.useMemo(
@@ -423,6 +470,9 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         <input ref={refVideoRef} type="file" accept="video/*,audio/*" className="hidden" onChange={onRefVideo} />
         {/* 文案生成模型选择 — 复用会话里的分组折叠 + 厂商图标选择器(ModelMenuList)。
             挂商品图时(hasImage)收窄到 VLM,让文案能"看图说话"。预设锁定模型时隐藏。 */}
+        {showModelPicker(curPreset) && (curPreset?.model || modelInvalid) && (
+          <BindingHint state={modelBindState} label={currentModelLabel} noun="模型" />
+        )}
         {showModelPicker(curPreset) && (
           <DropdownMenu open={pickOpen} onOpenChange={setPickOpen}>
             <DropdownMenuTrigger asChild>
@@ -466,7 +516,23 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         {showKbPicker(curPreset) && (
           <KnowledgePickerPill side="bottom" align="start" value={scriptKuIds} onChange={setScriptKuIds} />
         )}
+        {showKbPicker(curPreset) && (curPreset?.ku_ids?.length || missingKuIds.length > 0) ? (
+          <BindingHint state={kbBindState} label={kbLabel} noun="知识库" />
+        ) : null}
       </div>
+      {/* 失效绑定明确提示(模型被卸 / 知识库被删) */}
+      {(modelInvalid || missingKuIds.length > 0) && (
+        <div className="text-xs text-[var(--cy-danger-500)]">
+          ⚠ 预设绑定的{[modelInvalid ? '模型' : '', missingKuIds.length > 0 ? '知识库' : ''].filter(Boolean).join(' / ')}已失效(被卸载或删除),请到「我的数字人」重新绑定。
+        </div>
+      )}
+      {/* 文案「依据来源」——优先复用统一来源展示组件 KbResultsView */}
+      {retrievalSources.length > 0 && (
+        <KbResultsView sources={retrievalSources} title="依据来源" />
+      )}
+      {kbMissed && retrievalSources.length === 0 && (
+        <div className="text-xs text-[var(--cy-text-tertiary)]">本次未命中知识库内容,文案由模型自由生成。</div>
+      )}
       {noVlmModel && (
         <div className="flex items-center gap-2 text-xs text-[var(--cy-text-secondary)]">
           <span>未检测到图像对话(VLM)模型,无法基于商品图生成文案。</span>

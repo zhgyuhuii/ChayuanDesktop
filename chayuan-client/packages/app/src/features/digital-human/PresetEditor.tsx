@@ -7,8 +7,8 @@ import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Loader2, Plus, X } from 'lucide-react';
 import { cn, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@chayuan/ui';
-import { digitalHuman, models, type DigitalHumanPreset, type DhVoiceProvider, type DhAvatar,
-  type AvatarSlot, type DhComposeMode, type DhLayout, type RawModelItem } from '@chayuan/api';
+import { digitalHuman, models, knowledgeUniverse, type DigitalHumanPreset, type DhVoiceProvider, type DhAvatar,
+  type AvatarSlot, type DhComposeMode, type DhLayout, type RawModelItem, type KuItem } from '@chayuan/api';
 import type { ModalityCapability } from '@chayuan/transport';
 import { reportError } from '../../store/errorDialog';
 import { VoicePicker, type VoicePickerValue } from '../video-generation/VoicePicker';
@@ -97,9 +97,21 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const currentBindModel = allModels.find(
     (m) => m.id === curBindModel.id && (curBindModel.platform ? m.platform_name === curBindModel.platform : true),
   );
+  // 失效检测:绑了 model 但在可用列表里找不到(被卸载)。
+  const modelInvalid = !!bindModel && !modelsQ.isLoading && !currentBindModel;
   const bindModelLabel = currentBindModel
     ? displayLabel(currentBindModel)
-    : (curBindModel.id || (modelsQ.isLoading ? '加载中…' : '默认对话模型'));
+    : (curBindModel.id
+        ? (modelInvalid ? `⚠ ${curBindModel.id}(已失效)` : curBindModel.id)
+        : (modelsQ.isLoading ? '加载中…' : '默认对话模型'));
+  // 失效检测:绑的 ku_id 在可用列表里缺失(被删)。
+  const kbsQ = useQuery({ queryKey: ['v1.knowledgeUniverse.list'], queryFn: () => knowledgeUniverse.list(), staleTime: 5 * 60 * 1000 });
+  const kbList: KuItem[] = kbsQ.data ?? [];
+  const missingKuIds = React.useMemo(() => {
+    if (!bindKuIds.length || kbsQ.isLoading) return [];
+    const avail = new Set(kbList.map((k) => k.ku_id));
+    return bindKuIds.filter((id) => !avail.has(id));
+  }, [bindKuIds, kbList, kbsQ.isLoading]);
 
   // 找到当前选中形象,用于提交时写 avatar_kind
 
@@ -362,6 +374,9 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
               className="text-[11px] text-[var(--cy-text-tertiary)] hover:text-[var(--cy-text-primary)]">清除</button>
           )}
         </div>
+        {modelInvalid && (
+          <span className="text-[11px] text-[var(--cy-danger-500)]">⚠ 绑定的模型已失效(被卸载),请重新绑定。</span>
+        )}
         <label className="mt-0.5 inline-flex items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
           <input type="checkbox" checked={allowModelOverride} onChange={(e) => setAllowModelOverride(e.target.checked)}
             className="h-3.5 w-3.5 accent-[var(--cy-brand-500)]" />
@@ -375,6 +390,9 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         <div className="flex flex-wrap items-center gap-2">
           <KnowledgePickerPill value={bindKuIds} onChange={setBindKuIds} />
         </div>
+        {missingKuIds.length > 0 && (
+          <span className="text-[11px] text-[var(--cy-danger-500)]">⚠ 绑定的知识库已失效(被删除 {missingKuIds.length} 个),请重新绑定。</span>
+        )}
         <label className="mt-0.5 inline-flex items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
           <input type="checkbox" checked={allowKbOverride} onChange={(e) => setAllowKbOverride(e.target.checked)}
             className="h-3.5 w-3.5 accent-[var(--cy-brand-500)]" />

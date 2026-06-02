@@ -165,10 +165,18 @@ export async function dhTaskToTimeline(
   return rd(`/api/v1/digital-human/tasks/${encodeURIComponent(taskId)}/to-timeline`, { method: 'POST' });
 }
 
+/** 文案生成的「依据来源」——后端命中知识库时透传(kb_used + sources)。 */
+export interface DhScriptSource {
+  file_name: string;
+  snippet: string;
+  kb_name?: string;
+  kind?: string;
+}
+
 export async function dhGenerateScript(
   subject: string,
   opts?: { language?: string; paragraphs?: number; model?: string; productRef?: string; kuIds?: string[] },
-): Promise<{ script: string }> {
+): Promise<{ script: string; kb_used?: boolean; sources?: DhScriptSource[] }> {
   return rd('/api/v1/digital-human/script/generate', {
     method: 'POST',
     body: {
@@ -185,7 +193,7 @@ export async function dhGenerateScript(
 export async function dhScriptFromVideo(
   file: File,
   opts?: { model?: string; kuIds?: string[] },
-): Promise<{ script: string; transcript: string }> {
+): Promise<{ script: string; transcript: string; kb_used?: boolean; sources?: DhScriptSource[] }> {
   const fd = new FormData();
   fd.append('file', file);
   if (opts?.model) fd.append('model', opts.model);
