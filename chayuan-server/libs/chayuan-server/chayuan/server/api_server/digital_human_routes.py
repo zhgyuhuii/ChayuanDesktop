@@ -1,6 +1,7 @@
 """数字人 REST —— 薄路由,逻辑在 digital_human/{store,jobs}。"""
 from __future__ import annotations
 
+import logging
 import os
 import time
 import uuid
@@ -18,6 +19,8 @@ from chayuan.server.video_generation.digital_human import store
 from chayuan.server.video_generation.digital_human.schemas import DhGenerateRequest
 
 digital_human_router = APIRouter(prefix="/api/v1/digital-human", tags=["digital-human"])
+
+logger = logging.getLogger("chayuan.digital_human.routes")
 
 _REALTIME_PORT = 18880
 
@@ -144,20 +147,93 @@ async def compose_reference(files: List[UploadFile] = File(...),
                 pass
 
 
+def _format_kb_context(res: Dict[str, Any]) -> "str | None":
+    """从 kb_query 统一响应里取命中文本,拼成 grounding 上下文块。
+
+    响应结构:``res["data"]["items"][*]["results"][*]`` 是命中列表,每个
+    命中 dict 有 ``text``(片段正文)和 ``citation.file_name``(来源文件)。
+    取这些命中文本,带来源标题拼成多段文本,总长截到 ~1500 字。空命中返
+    None(让 generate_script 不注入 grounding 头)。
+    """
+    data = res.get("data") if isinstance(res, dict) else None
+    if not isinstance(data, dict):
+        return None
+    blocks: List[str] = []
+    total = 0
+    limit = 1500
+    seen = set()
+    for item in data.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        for hit in item.get("results") or []:
+            if not isinstance(hit, dict):
+                continue
+            text = str(hit.get("text") or hit.get("snippet") or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            citation = hit.get("citation") if isinstance(hit.get("citation"), dict) else {}
+            title = str(citation.get("file_name") or hit.get("kb_name") or "").strip()
+            piece = f"[{title}] {text}" if title else text
+            if total + len(piece) > limit:
+                piece = piece[: max(0, limit - total)]
+            if not piece:
+                break
+            blocks.append(piece)
+            total += len(piece)
+            if total >= limit:
+                break
+        if total >= limit:
+            break
+    if not blocks:
+        return None
+    return "\n\n".join(blocks)
+
+
 @digital_human_router.post("/script/generate")
 def script_generate(body: Dict[str, Any],
                     user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
-    """主题 -> LLM 生成口播文案(复用 VG steps/script.generate_script)。"""
+    """主题 -> LLM 生成口播文案(复用 VG steps/script.generate_script)。
+
+    ``ku_ids`` 非空时,先走统一 kb_query 检索绑定知识库,把命中文本拼成
+    grounding 上下文注入 prompt(检索失败降级,不阻断文案生成)。
+    """
     from chayuan.server.video_generation.steps.script import generate_script
-    subject = (body.get("subject") or "").strip()
-    if not subject:
+    subject_text = (body.get("subject") or "").strip()
+    if not subject_text:
         raise HTTPException(422, "缺 subject(主题)")
     product_ref = (body.get("product_ref") or "").strip() or None
+
+    kb_context = None
+    ku_ids = [str(x) for x in (body.get("ku_ids") or []) if str(x).strip()]
+    if ku_ids:
+        try:
+            from chayuan.server.kb_query.authz import subject_from_user
+            from chayuan.server.kb_query.schemas import (
+                QueryContent,
+                QueryOptions,
+                SearchRequest,
+            )
+            from chayuan.server.kb_query.service import search as kb_search
+
+            kb_subject = subject_from_user(user)
+            req = SearchRequest(
+                ku_ids=ku_ids,
+                contents=[QueryContent(text=subject_text)],
+                options=QueryOptions(top_k=3),
+            )
+            res = kb_search(kb_subject, req)
+            kb_context = _format_kb_context(res)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[dh] KB grounding 检索失败,降级: %r", e)
+            kb_context = None
+
     text = generate_script(
-        subject, language=str(body.get("language", "") or ""),
+        subject_text, language=str(body.get("language", "") or ""),
         paragraph_number=int(body.get("paragraphs", 1) or 1),
         model=body.get("model"),
         product_ref=product_ref,
+        kb_context=kb_context,
     )
     if not text:
         if product_ref:
