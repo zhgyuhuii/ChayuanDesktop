@@ -682,6 +682,20 @@ export const serverModelsInstallModel = {
     );
     return r.data?.data ?? ({} as InstallModelJob);
   },
+
+  /**
+   * 列出全部(最近 N 个)单模型下载任务。
+   *
+   * 前端「全局下载 store」靠它在进入模型广场 / 刷新时回填正在下载的任务,
+   * 这样切菜单 / 翻页 / 搜索导致行 unmount 也不丢进度。
+   */
+  async list(): Promise<InstallModelJob[]> {
+    const r = await request<{ data: { jobs: InstallModelJob[] } }>(
+      MODELS_INSTALL_MODEL,
+      { raw: true },
+    );
+    return r.data?.data?.jobs ?? [];
+  },
 };
 
 

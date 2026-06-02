@@ -1218,6 +1218,23 @@ def admin_models_install_model(
 
 
 @admin_router.get(
+    "/models/install_model",
+    summary="[gate] 列出全部 install_model 任务（前端全局下载 store 回填）",
+    tags=["Admin / Models"],
+)
+def admin_models_install_model_list() -> Dict[str, Any]:
+    """返回全部（最近 N 个）单模型下载任务。
+
+    前端「全局下载 store」靠它在进入模型广场 / 刷新时回填正在下载的任务，
+    这样行 unmount / 翻页 / 搜索都不会丢失进度。
+    """
+    from chayuan.server.model_registry.install_model import get_install_model_manager
+
+    jobs = get_install_model_manager().list_jobs()
+    return {"code": 0, "msg": "ok", "data": {"jobs": [j.to_dict() for j in jobs]}}
+
+
+@admin_router.get(
     "/models/install_model/{job_id}",
     summary="[gate] 查询 install_model 任务状态",
     tags=["Admin / Models"],

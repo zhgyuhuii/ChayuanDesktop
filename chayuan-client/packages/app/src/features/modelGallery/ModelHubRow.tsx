@@ -32,7 +32,8 @@ import { confirmDialog } from '../../store/confirmDialog';
 import { reportError, useErrorDialog } from '../../store/errorDialog';
 import { capabilityLabel } from './GalleryCapabilityChips';
 import { HubFilePickerDialog } from './HubFilePickerDialog';
-import { useInstallJob } from './useInstallJob';
+import { jobKey } from './installJobsStore';
+import { useInstallJobFor } from './useInstallJob';
 
 /** 把字节数格式化成人类可读;null/0 → '—'。 */
 export function formatBytes(bytes: number | null): string {
@@ -75,7 +76,10 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
   const downloads = formatCount(card.downloads);
   const likes = formatCount(card.likes);
 
-  const { job, isInstalling, start, cancel, reset } = useInstallJob({
+  // 全局下载 store 索引 key = `source::model_id`(与本行的 React key 同构)。
+  // 行 unmount / 翻页 / 搜索都不会丢进度 —— job state 与轮询都在全局 store。
+  const key = jobKey(card.source, card.model_id);
+  const { job, isInstalling, start, cancel, reset } = useInstallJobFor(key, {
     onDone: () => onMutated?.(),
   });
 

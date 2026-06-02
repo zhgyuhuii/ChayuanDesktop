@@ -25,6 +25,7 @@ import { useTranslation } from '../../i18n';
 import { GalleryFilters } from './GalleryFilters';
 import { GalleryPagination } from './GalleryPagination';
 import { ModelHubRow } from './ModelHubRow';
+import { useInstallJobsStore } from './installJobsStore';
 
 export type GallerySource = 'modelscope' | 'huggingface' | 'installed';
 export type HfRoute = 'mirror' | 'official';
@@ -69,6 +70,12 @@ const HF_TOKEN_KEY = 'chayuan.hf_token';
 export const ModelGalleryPage: React.FC = () => {
   const { t } = useTranslation();
   const qc = useQueryClient();
+
+  // 进入模型广场时拉一次后端全部下载任务,回填全局 store —— 让刷新 / 重进
+  // 后仍能看到正在下载的任务(进度不随行卸载丢失)。store 内部按需起单点轮询。
+  React.useEffect(() => {
+    void useInstallJobsStore.getState().hydrate();
+  }, []);
 
   const [hfToken, setHfToken] = React.useState<string>(
     () => (typeof localStorage !== 'undefined' ? localStorage.getItem(HF_TOKEN_KEY) || '' : ''),

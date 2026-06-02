@@ -406,6 +406,22 @@ class InstallModelJobManager:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def list_jobs(self, limit: int = 100) -> "list[InstallModelJob]":
+        """列出全部（或最近 ``limit`` 个）job，按 started_at 倒序。
+
+        给前端「全局下载 store」回填用：页面加载 / 进入模型广场时拉一次，
+        让刷新 / 重进后仍能看到正在下载的任务（进度不随行 unmount 丢）。
+        """
+        with self._lock:
+            jobs = sorted(
+                self._jobs.values(),
+                key=lambda j: j.started_at,
+                reverse=True,
+            )
+        if limit and limit > 0:
+            jobs = jobs[:limit]
+        return jobs
+
     def cancel(self, job_id: str) -> InstallModelJob:
         with self._lock:
             job = self._jobs.get(job_id)
