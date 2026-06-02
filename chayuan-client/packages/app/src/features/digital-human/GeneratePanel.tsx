@@ -85,7 +85,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     setScripting(true);
     try {
       const r = await digitalHuman.generateScript(subject.trim(), {
-        model: scriptModel ? decodeModel(scriptModel).id : undefined,
+        model: scriptModel ?? undefined,
         productRef: productRef ?? undefined,
       });
       if (r.script) setText(r.script);
@@ -175,8 +175,12 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         role_scripts?: string[];
         role_segments?: Array<{ role_index: number; text: string }>;
       };
+      // effectiveText:发给后端的全局 text(过 max_length 校验 + 派生字幕/时间轴)。
+      // 多角色模式 text 全局为空,这里按模式拼出有效文案。
+      let effectiveText: string;
       if (mode === 'coframe') {
         modeFields = { role_scripts: coframeScripts };
+        effectiveText = coframeScripts.filter((s) => s.trim()).join('\n');
       } else if (mode === 'sequential') {
         const maxLen = Math.max(0, ...seqSegments.map((a) => a.length));
         const roleSegments: { role_index: number; text: string }[] = [];
@@ -187,15 +191,17 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           }
         }
         modeFields = { role_segments: roleSegments };
+        effectiveText = roleSegments.map((s) => s.text).join('\n');
       } else {
         modeFields = { script: text };
+        effectiveText = text;
       }
       const opts = {
         engine,
         ...(productRef ? { product_image: productRef, template, matte } : {}),
         ...modeFields,
       };
-      const r = await digitalHuman.generate(pid, text, opts);
+      const r = await digitalHuman.generate(pid, effectiveText, opts);
       setTaskId(r.task_id);
     } catch (e) { reportError(e as Error, '数字人生成失败'); }
     finally { setBusy(false); }
@@ -206,7 +212,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   // ── 文案生成模型选择 ─────────────────────────────────────────
   // 挂了商品图时,文案生成需要看图 → 只允许视觉语言(VLM)模型;否则允许 chat+vl。
-  const hasImage = !!productRef && productKind !== 'video';
+  const hasImage = !!productRef;
   const allModels: RawModelItem[] = React.useMemo(
     () => (modelsQ.data ?? []).filter((m) => !m.model_type || m.model_type === 'llm'),
     [modelsQ.data],

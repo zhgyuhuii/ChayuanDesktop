@@ -82,6 +82,7 @@ export interface DhTaskStatus {
   progress: number;
   error: string;
   result_path: string;
+  script?: string;
 }
 
 export interface DhEngineInfo {

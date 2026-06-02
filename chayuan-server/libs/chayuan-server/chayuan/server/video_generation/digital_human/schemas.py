@@ -65,7 +65,7 @@ class DigitalHumanPreset(BaseModel):
 
 class DhGenerateRequest(BaseModel):
     preset_id: str
-    text: str = Field(min_length=1, max_length=5000)
+    text: str = Field(default="", max_length=5000)
     # 以下 P1 不消费,占位以便 P2/P3 前向兼容:
     product_image: Optional[str] = None
     template: DhTemplate = "none"
