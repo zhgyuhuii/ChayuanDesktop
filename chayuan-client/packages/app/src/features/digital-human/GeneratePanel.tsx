@@ -12,7 +12,14 @@ import { useUsageGate, UsageGateDialogs } from '../license';
 import { ModelMenuList, displayLabel } from '../composer/ModelMenuList';
 import { CHAT_CAPABILITIES, inferCapability } from '../composer/modelCapabilityChip';
 import { useResolveLogo } from '../catalog/useLogos';
+import { KnowledgePickerPill } from '../composer/KnowledgePickerPill';
 import { DhProgressCard } from './DhProgressCard';
+import {
+  effectiveModel,
+  effectiveKuIds,
+  showModelPicker,
+  showKbPicker,
+} from './usePresetBinding';
 
 type Template = 'corner' | 'bg' | 'side';
 const TEMPLATE_LABELS: Record<Template, string> = {
@@ -67,6 +74,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   // 文案生成模型选择(挂商品图时收窄到 VLM)
   const [scriptModel, setScriptModel] = React.useState<string | null>(null);
+  // 文案生成知识库选择(受控);选预设时预填预设 ku_ids
+  const [scriptKuIds, setScriptKuIds] = React.useState<string[]>([]);
   const [pickOpen, setPickOpen] = React.useState(false);
   const resolveLogo = useResolveLogo();
   const modelsQ = useQuery({
@@ -110,9 +119,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     if (!subject || !subject.trim()) return;
     setScripting(true);
     try {
+      const preset = presets.find((p) => p.id === pid);
       const r = await digitalHuman.generateScript(subject.trim(), {
-        model: scriptModel ?? undefined,
+        model: effectiveModel(preset, scriptModel ?? '') || undefined,
         productRef: productRef ?? undefined,
+        kuIds: effectiveKuIds(preset, scriptKuIds),
       });
       if (r.script) distributeScript(r.script);
     } catch (e) {
@@ -148,6 +159,15 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   React.useEffect(() => { if (!pid && presets[0]) setPid(presets[0].id); }, [presets, pid]);
   React.useEffect(() => { if (pid) onPresetChange?.(pid); }, [pid, onPresetChange]);
+
+  // 选/切预设时,用预设绑定预填文案生成模型与知识库
+  React.useEffect(() => {
+    const p = presets.find((x) => x.id === pid);
+    setScriptModel(p?.model ?? null);
+    setScriptKuIds(p?.ku_ids ?? []);
+    // 仅在预设切换时预填,避免覆盖用户手动改动
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pid]);
 
   // 角色数变化时对齐多角色脚本状态长度(coframe / sequential)
   const roleCount = roles.length;
@@ -326,44 +346,50 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         </button>
         <input ref={refVideoRef} type="file" accept="video/*,audio/*" className="hidden" onChange={onRefVideo} />
         {/* 文案生成模型选择 — 复用会话里的分组折叠 + 厂商图标选择器(ModelMenuList)。
-            挂商品图时(hasImage)收窄到 VLM,让文案能"看图说话"。 */}
-        <DropdownMenu open={pickOpen} onOpenChange={setPickOpen}>
-          <DropdownMenuTrigger asChild>
-            <button type="button"
-              className="inline-flex h-7 min-w-[10em] items-center gap-1.5 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
-              title={hasImage ? '挂商品图时仅可选视觉(VLM)模型' : '文案生成模型'}>
-              <span className="max-w-[140px] truncate">{currentModelLabel}</span>
-              <ChevronDown className="ml-auto h-3 w-3 opacity-60" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" sideOffset={6} collisionPadding={12}
-            className="z-[260] w-80 overflow-hidden p-0">
-            <ModelMenuList
-              models={allModels}
-              currentId={curModel.id}
-              currentPlatform={curModel.platform}
-              allowCapabilities={capFilter}
-              resolveLogo={resolveLogo}
-              emptyLabel={
-                modelsQ.isLoading
-                  ? '加载中…'
-                  : hasImage
-                    ? '未检测到图像对话(VLM)模型'
-                    : '无可用模型'
-              }
-              emptyAction={
-                hasImage ? (
-                  <button type="button"
-                    onClick={() => { setPickOpen(false); void navigate({ to: '/model-gallery' as never }); }}
-                    className="text-[var(--cy-brand-500)] hover:underline">
-                    去模型广场安装
-                  </button>
-                ) : undefined
-              }
-              onPick={(m) => { if (m.available === false) return; setScriptModel(encodeModel(m)); setPickOpen(false); }}
-            />
-          </DropdownMenuContent>
-        </DropdownMenu>
+            挂商品图时(hasImage)收窄到 VLM,让文案能"看图说话"。预设锁定模型时隐藏。 */}
+        {showModelPicker(curPreset) && (
+          <DropdownMenu open={pickOpen} onOpenChange={setPickOpen}>
+            <DropdownMenuTrigger asChild>
+              <button type="button"
+                className="inline-flex h-7 min-w-[10em] items-center gap-1.5 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
+                title={hasImage ? '挂商品图时仅可选视觉(VLM)模型' : '文案生成模型'}>
+                <span className="max-w-[140px] truncate">{currentModelLabel}</span>
+                <ChevronDown className="ml-auto h-3 w-3 opacity-60" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" sideOffset={6} collisionPadding={12}
+              className="z-[260] w-80 overflow-hidden p-0">
+              <ModelMenuList
+                models={allModels}
+                currentId={curModel.id}
+                currentPlatform={curModel.platform}
+                allowCapabilities={capFilter}
+                resolveLogo={resolveLogo}
+                emptyLabel={
+                  modelsQ.isLoading
+                    ? '加载中…'
+                    : hasImage
+                      ? '未检测到图像对话(VLM)模型'
+                      : '无可用模型'
+                }
+                emptyAction={
+                  hasImage ? (
+                    <button type="button"
+                      onClick={() => { setPickOpen(false); void navigate({ to: '/model-gallery' as never }); }}
+                      className="text-[var(--cy-brand-500)] hover:underline">
+                      去模型广场安装
+                    </button>
+                  ) : undefined
+                }
+                onPick={(m) => { if (m.available === false) return; setScriptModel(encodeModel(m)); setPickOpen(false); }}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {/* 文案生成知识库选择(受控);预设锁定知识源时隐藏。 */}
+        {showKbPicker(curPreset) && (
+          <KnowledgePickerPill side="bottom" align="start" value={scriptKuIds} onChange={setScriptKuIds} />
+        )}
       </div>
       {noVlmModel && (
         <div className="flex items-center gap-2 text-xs text-[var(--cy-text-secondary)]">
