@@ -48,6 +48,14 @@ export interface DigitalHumanPreset {
   layout?: DhLayout;
   video_width?: number;
   video_height?: number;
+  /** 绑定默认对话模型(provider::model);空=用全局默认 chat 模型。 */
+  model?: string;
+  /** 绑定知识源(doc:* / src:* / office:*);空=不挂知识库。 */
+  ku_ids?: string[];
+  /** 允许对话时临时切换模型(false=锁定为预设 model)。 */
+  allow_model_override?: boolean;
+  /** 允许对话时临时改知识源(false=锁定为预设 ku_ids)。 */
+  allow_kb_override?: boolean;
   subtitle_enabled?: boolean;
   subtitle_position?: 'top' | 'bottom' | 'center' | 'custom';
   font_name?: string;
