@@ -39,9 +39,21 @@ import {
 import { reportError } from '../../store/errorDialog';
 import { useSentenceTts } from './useSentenceTts';
 import { useMicSimpleRecorder } from '../composer/useMicSimpleRecorder';
+import {
+  effectiveModel,
+  effectiveKuIds,
+  showModelPicker,
+  showKbPicker,
+} from './usePresetBinding';
 
 // 独立 composer store，与全局 chat store 完全隔离
 const dhComposerStore = createComposerStore('live-avatar');
+
+/** 拆 "provider::id" 为 { platform, id };无 :: 时整串当 id。 */
+function decodeModel(v: string): { platform?: string; id: string } {
+  const i = v.indexOf('::');
+  return i >= 0 ? { platform: v.slice(0, i), id: v.slice(i + 2) } : { id: v };
+}
 
 // 模块级 transport 单例（无状态，复用同一连接配置）
 const transport = createChayuanTransport();
@@ -79,6 +91,19 @@ const LiveAvatarInner: React.FC = () => {
 
   // ── KB 选择态（从 dhComposerStore 读；KnowledgePickerPill 通过 Context 写入）──
   const kuIds = dhComposerStore((s) => s.selectedKuIds);
+
+  // ── 选/切预设时,用预设绑定预填模型与知识库 ──────────────────────────────
+  React.useEffect(() => {
+    if (!preset) return;
+    if (preset.model) {
+      const { id, platform } = decodeModel(preset.model);
+      setModel(id);
+      setPlatformName(platform);
+    }
+    dhComposerStore.setState({ selectedKuIds: preset.ku_ids ?? [] });
+    // 仅在预设切换时预填,避免覆盖用户手动改动
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetId]);
 
   // ── 人设 prompt ──────────────────────────────────────────────────────────
   const [persona, setPersona] = React.useState('');
@@ -178,18 +203,21 @@ const LiveAvatarInner: React.FC = () => {
     let full = '';
     try {
       // 用 platformName::modelId 格式传 model，跟 buildChatRequest 保持一致
-      const modelField = model
+      const sessionModel = model
         ? platformName
           ? `${platformName}::${model}`
           : model
-        : undefined;
+        : '';
+      // 有效值:预设锁定时强制预设值,否则会话值优先(effective* 解析)
+      const modelField = effectiveModel(preset, sessionModel) || undefined;
+      const effKuIds = effectiveKuIds(preset, kuIds);
 
       const req: ChatRequestV2 = {
         query: q,
         // 有选知识库时走 'kb' 模式，否则纯 LLM
-        mode: kuIds.length > 0 ? 'kb' : 'llm',
+        mode: effKuIds.length > 0 ? 'kb' : 'llm',
         ...(modelField ? { model: modelField } : {}),
-        ...(kuIds.length > 0 ? { ku_ids: kuIds } : {}),
+        ...(effKuIds.length > 0 ? { ku_ids: effKuIds } : {}),
         // 人设通过 metadata.system 传递（后端 ChatGraph 在 build_messages 时注入
         // system message；后端版本不支持时静默忽略，不影响基础对话）
         ...(persona.trim()
@@ -213,7 +241,7 @@ const LiveAvatarInner: React.FC = () => {
     } finally {
       setBusy(false);
     }
-  }, [input, busy, liveVideo, model, platformName, kuIds, persona, tts]);
+  }, [input, busy, liveVideo, model, platformName, kuIds, persona, tts, preset]);
 
   // 回答增长时滚到底
   React.useEffect(() => {
@@ -342,14 +370,16 @@ const LiveAvatarInner: React.FC = () => {
               ))}
             </select>
 
-            {/* 模型选择（受控 props，不写全局 composer store）*/}
-            <ModelPicker
-              value={{ modelId: model, platformName }}
-              onChange={handleModelChange}
-            />
+            {/* 模型选择（受控 props，不写全局 composer store）;锁定时隐藏 */}
+            {showModelPicker(preset) && (
+              <ModelPicker
+                value={{ modelId: model, platformName }}
+                onChange={handleModelChange}
+              />
+            )}
 
-            {/* 知识库选择（通过 ComposerStoreContext 读写 dhComposerStore）*/}
-            <KnowledgePickerPill side="bottom" align="start" />
+            {/* 知识库选择（通过 ComposerStoreContext 读写 dhComposerStore）;锁定时隐藏 */}
+            {showKbPicker(preset) && <KnowledgePickerPill side="bottom" align="start" />}
 
             {/* 人设 prompt */}
             <input
