@@ -164,7 +164,7 @@ export async function dhTaskToTimeline(taskId: string): Promise<{ material: { id
 
 export async function dhGenerateScript(
   subject: string,
-  opts?: { language?: string; paragraphs?: number; model?: string; productRef?: string },
+  opts?: { language?: string; paragraphs?: number; model?: string; productRef?: string; kuIds?: string[] },
 ): Promise<{ script: string }> {
   return rd('/api/v1/digital-human/script/generate', {
     method: 'POST',
@@ -174,6 +174,7 @@ export async function dhGenerateScript(
       paragraphs: opts?.paragraphs,
       model: opts?.model,
       product_ref: opts?.productRef,
+      ku_ids: opts?.kuIds,
     },
   });
 }
