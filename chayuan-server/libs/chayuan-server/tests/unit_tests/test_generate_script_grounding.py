@@ -32,6 +32,9 @@ def test_kb_context_injected_into_prompt(monkeypatch):
     assert kb_ctx in prompt
     # grounding 必须前置(出现在主题提示之前)
     assert prompt.index("企业知识/参考话术") < prompt.index("空调推广")
+    # Requirements 段内补了明确「参照」指令(评审:仅前置易被后文冲淡)
+    assert "请严格参照上述【企业知识/参考话术】" in prompt
+    assert "保持与企业实际话术一致" in prompt
 
 
 def test_no_kb_context_no_grounding_header(monkeypatch):

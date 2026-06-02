@@ -144,36 +144,117 @@ def test_generate_passes_scripts(monkeypatch, tmp_path):
 
 
 def test_retrieve_kb_context_helper(monkeypatch):
-    """_retrieve_kb_context: ku_ids 非空走 kb_query.search 并把命中拼成 grounding。
-    空 ku_ids / 空 query / 检索抛错时返回 None(降级,不阻断文案)。"""
+    """_retrieve_kb_context: ku_ids 非空走 kb_query.search,返回 (context, sources)。
+    透传 top_k;命中含来源清单;空 ku_ids / 空 query / 检索抛错时返回 (None, [])。"""
     import chayuan.server.api_server.digital_human_routes as routes
 
-    # 空 ku_ids -> None,且不调检索
-    assert routes._retrieve_kb_context({}, [], "主题") is None
-    # 空 query -> None
-    assert routes._retrieve_kb_context({}, ["doc:kb1"], "  ") is None
+    # 空 ku_ids -> (None, []),且不调检索
+    assert routes._retrieve_kb_context({}, [], "主题") == (None, [])
+    # 空 query -> (None, [])
+    assert routes._retrieve_kb_context({}, ["doc:kb1"], "  ") == (None, [])
 
     seen = {}
 
     def _fake_search(subject, req):
         seen["ku_ids"] = list(req.ku_ids)
         seen["query"] = req.contents[0].text
+        seen["top_k"] = req.options.top_k
         return {"data": {"items": [{"results": [
-            {"text": "命中正文", "citation": {"file_name": "f.pdf"}},
+            {"source_type": "document", "text": "命中正文",
+             "citation": {"file_name": "f.pdf", "kb_name": "kb1"}},
         ]}]}}
 
     monkeypatch.setattr("chayuan.server.kb_query.service.search", _fake_search)
-    out = routes._retrieve_kb_context({"sub": "u1"}, ["doc:kb1", " "], "主题X")
+    context, sources = routes._retrieve_kb_context(
+        {"sub": "u1"}, ["doc:kb1", " "], "主题X", top_k=7,
+    )
     assert seen["ku_ids"] == ["doc:kb1"]  # 空白项被过滤
     assert seen["query"] == "主题X"
-    assert out is not None and "命中正文" in out and "f.pdf" in out
+    assert seen["top_k"] == 7  # top_k 透传
+    assert context is not None and "命中正文" in context and "f.pdf" in context
+    assert len(sources) == 1
+    assert sources[0]["file_name"] == "f.pdf"
+    assert sources[0]["kind"] == "document"
 
-    # 检索抛错 -> 降级 None
+    # 检索抛错 -> 降级 (None, [])
     def _boom(subject, req):
         raise RuntimeError("kb down")
 
     monkeypatch.setattr("chayuan.server.kb_query.service.search", _boom)
-    assert routes._retrieve_kb_context({}, ["doc:kb1"], "主题") is None
+    assert routes._retrieve_kb_context({}, ["doc:kb1"], "主题") == (None, [])
+
+
+def test_format_kb_context_nondoc_fallback():
+    """非文档源(向量 text 空)用 metadata/payload 兜底拼文本;结构化用 text;
+    来源清单始终记一条(含 kind)。"""
+    import chayuan.server.api_server.digital_human_routes as routes
+
+    res = {"data": {"items": [
+        {"kind": "vector", "results": [
+            # vector text 空 -> 用 metadata 兜底
+            {"source_type": "vector", "text": "",
+             "metadata": {"name": "省电空调", "price": 1999, "blank": ""},
+             "citation": {"collection": "products", "source_name": "向量库A"}},
+        ]},
+        {"kind": "structured", "results": [
+            {"source_type": "structured", "text": "命中 3 行结构化数据",
+             "citation": {"source_name": "订单库", "table": "orders"}},
+        ]},
+    ]}}
+    context, sources = routes._format_kb_context(res)
+    assert context is not None
+    assert "name=省电空调" in context and "price=1999" in context
+    assert "blank" not in context  # 空值被跳过
+    assert "命中 3 行结构化数据" in context
+    assert len(sources) == 2
+    kinds = {s["kind"] for s in sources}
+    assert kinds == {"vector", "structured"}
+
+    # 既无 text 又无可读 metadata 的向量命中:跳过正文但 sources 仍记一条
+    res2 = {"data": {"items": [
+        {"kind": "vector", "results": [
+            {"source_type": "vector", "text": "", "metadata": {},
+             "citation": {"collection": "c1", "source_name": "向量库B"}},
+        ]},
+    ]}}
+    context2, sources2 = routes._format_kb_context(res2)
+    assert context2 is None  # 无可读文本 -> 不注入 grounding 头
+    assert len(sources2) == 1 and sources2[0]["kind"] == "vector"
+
+
+def test_script_generate_returns_kb_used_and_sources(monkeypatch, tmp_path):
+    """/script/generate 响应含 kb_used + sources;kb_top_k 透传到检索。"""
+    c = _client(monkeypatch, tmp_path)
+    import chayuan.server.api_server.digital_human_routes as routes
+
+    seen = {}
+
+    def _fake_retrieve(user, ku_ids, query_text, *, top_k=5):
+        seen["ku_ids"] = list(ku_ids)
+        seen["top_k"] = top_k
+        return "GROUND", [{"file_name": "f.pdf", "snippet": "x", "kb_name": "kb1", "kind": "document"}]
+
+    monkeypatch.setattr(routes, "_retrieve_kb_context", _fake_retrieve)
+    monkeypatch.setattr(
+        "chayuan.server.video_generation.steps.script.generate_script",
+        lambda *a, **k: "文案",
+    )
+    r = c.post("/api/v1/digital-human/script/generate",
+               json={"subject": "空调推广", "ku_ids": ["doc:kb1"], "kb_top_k": 8})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["script"] == "文案"
+    assert data["kb_used"] is True
+    assert len(data["sources"]) == 1 and data["sources"][0]["file_name"] == "f.pdf"
+    assert seen["top_k"] == 8
+
+    # 空命中 -> kb_used False, sources []
+    monkeypatch.setattr(routes, "_retrieve_kb_context",
+                        lambda *a, **k: (None, []))
+    r2 = c.post("/api/v1/digital-human/script/generate",
+                json={"subject": "空调推广"})
+    assert r2.status_code == 200 and r2.json()["kb_used"] is False
+    assert r2.json()["sources"] == []
 
 
 def test_script_from_video_passes_model_and_kb(monkeypatch, tmp_path):
@@ -193,10 +274,11 @@ def test_script_from_video_passes_model_and_kb(monkeypatch, tmp_path):
     # KB 检索:断言拿到 ku_ids + transcript,返回 grounding 块
     kb_seen = {}
 
-    def _fake_retrieve(user, ku_ids, query_text):
+    def _fake_retrieve(user, ku_ids, query_text, *, top_k=5):
         kb_seen["ku_ids"] = list(ku_ids)
         kb_seen["query"] = query_text
-        return "GROUND"
+        kb_seen["top_k"] = top_k
+        return "GROUND", [{"file_name": "f.pdf", "snippet": "s", "kb_name": "kb1", "kind": "document"}]
 
     monkeypatch.setattr(routes, "_retrieve_kb_context", _fake_retrieve)
     # generate_script:断言 model + kb_context 透传
@@ -224,6 +306,8 @@ def test_script_from_video_passes_model_and_kb(monkeypatch, tmp_path):
     assert gen_seen["model"] == "openai::gpt-4o"
     assert gen_seen["kb_context"] == "GROUND"
     assert "这是参考视频的转写文本" in gen_seen["subject"]
+    assert r.json()["kb_used"] is True
+    assert len(r.json()["sources"]) == 1 and r.json()["sources"][0]["file_name"] == "f.pdf"
 
 
 

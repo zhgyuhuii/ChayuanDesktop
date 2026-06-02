@@ -5,7 +5,7 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi import Path as FPath
@@ -147,17 +147,31 @@ async def compose_reference(files: List[UploadFile] = File(...),
                 pass
 
 
-def _format_kb_context(res: Dict[str, Any]) -> "str | None":
-    """从 kb_query 统一响应里取命中文本,拼成 grounding 上下文块。
+def _format_kb_context(
+    res: Dict[str, Any],
+) -> "Tuple[str | None, List[Dict[str, Any]]]":
+    """从 kb_query 统一响应里取命中,拼成 grounding 上下文块 + 来源清单。
 
-    响应结构:``res["data"]["items"][*]["results"][*]`` 是命中列表,每个
-    命中 dict 有 ``text``(片段正文)和 ``citation.file_name``(来源文件)。
-    取这些命中文本,带来源标题拼成多段文本,总长截到 ~1500 字。空命中返
-    None(让 generate_script 不注入 grounding 头)。
+    响应结构:``res["data"]["items"][*]["results"][*]`` 是命中列表。命中按来源
+    类型(``source_type``)字段不同:
+
+      - document:有 ``text`` / ``snippet`` 正文,``citation.file_name`` 来源文件。
+      - structured:``text`` 由 summary/SQL/结果行拼好(基本不空)。
+      - vector:``text`` 取自 payload 的 content,可能为空;空时用 ``metadata``
+        (payload)里的键值对兜底拼一段简短文本。
+
+    返回 ``(context, sources)``:
+
+      - ``context``:多段命中文本拼接(总长截到 ~1500 字),全空时为 None
+        (让 generate_script 不注入 grounding 头)。
+      - ``sources``:每条命中记一条 ``{file_name, snippet, kb_name, kind}``,
+        即便该命中没有可读正文(被跳过不进 context)也记一条,便于前端展示
+        「依据来源 N 条」并知道这次到底用没用上知识库。
     """
     data = res.get("data") if isinstance(res, dict) else None
+    sources: List[Dict[str, Any]] = []
     if not isinstance(data, dict):
-        return None
+        return None, sources
     blocks: List[str] = []
     total = 0
     limit = 1500
@@ -168,40 +182,75 @@ def _format_kb_context(res: Dict[str, Any]) -> "str | None":
         for hit in item.get("results") or []:
             if not isinstance(hit, dict):
                 continue
+            kind = str(hit.get("source_type") or item.get("kind") or "").strip() or "document"
+            citation = hit.get("citation") if isinstance(hit.get("citation"), dict) else {}
+            # 来源标题:文档取文件名;结构化/向量取来源名 / collection / 表。
+            title = str(
+                citation.get("file_name")
+                or citation.get("source_name")
+                or citation.get("collection")
+                or citation.get("table")
+                or hit.get("kb_name")
+                or citation.get("kb_name")
+                or ""
+            ).strip()
+            kb_name = str(hit.get("kb_name") or citation.get("kb_name") or citation.get("source_name") or "").strip()
+
             text = str(hit.get("text") or hit.get("snippet") or "").strip()
+            if not text and kind in ("vector", "structured"):
+                # 非文档源 text 可能空:用 payload/metadata 键值对兜底拼简短文本。
+                meta = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
+                if not meta and isinstance(citation.get("metadata"), dict):
+                    meta = citation.get("metadata")
+                if isinstance(meta, dict) and meta:
+                    pairs = []
+                    for k, v in meta.items():
+                        if v in (None, "", [], {}):
+                            continue
+                        pairs.append(f"{k}={v}")
+                        if len(pairs) >= 8:
+                            break
+                    text = ", ".join(pairs).strip()
+
+            # 来源清单始终记一条(含 kind),即便正文为空被跳过也不漏。
+            sources.append({
+                "file_name": title,
+                "snippet": (text[:200] if text else ""),
+                "kb_name": kb_name or title,
+                "kind": kind,
+            })
+
             if not text or text in seen:
                 continue
             seen.add(text)
-            citation = hit.get("citation") if isinstance(hit.get("citation"), dict) else {}
-            title = str(citation.get("file_name") or hit.get("kb_name") or "").strip()
             piece = f"[{title}] {text}" if title else text
             if total + len(piece) > limit:
                 piece = piece[: max(0, limit - total)]
             if not piece:
-                break
+                continue
             blocks.append(piece)
             total += len(piece)
             if total >= limit:
                 break
         if total >= limit:
             break
-    if not blocks:
-        return None
-    return "\n\n".join(blocks)
+    context = "\n\n".join(blocks) if blocks else None
+    return context, sources
 
 
 def _retrieve_kb_context(
-    user: Dict[str, Any], ku_ids: List[str], query_text: str,
-) -> "str | None":
-    """按绑定知识源走统一 kb_query 检索，把命中拼成 grounding 上下文块。
+    user: Dict[str, Any], ku_ids: List[str], query_text: str, *, top_k: int = 5,
+) -> "Tuple[str | None, List[Dict[str, Any]]]":
+    """按绑定知识源走统一 kb_query 检索，把命中拼成 grounding 上下文 + 来源清单。
 
     ``/script/generate``（主题）和 ``/script/from-video``（转写稿）共用此逻辑：
     建 Subject + kb_query.search（synthesize 关掉，只要原始命中）+ _format_kb_context。
-    ku_ids 空或检索失败时返回 None（让 generate_script 不注入 grounding 头，不阻断文案生成）。
+    ``top_k`` 由调用方透传(默认 5)。ku_ids 空或检索失败时返回 ``(None, [])``
+    （让 generate_script 不注入 grounding 头，不阻断文案生成）。
     """
     ku_ids = [str(x) for x in (ku_ids or []) if str(x).strip()]
     if not ku_ids or not (query_text or "").strip():
-        return None
+        return None, []
     try:
         from chayuan.server.kb_query.authz import subject_from_user
         from chayuan.server.kb_query.schemas import (
@@ -217,13 +266,13 @@ def _retrieve_kb_context(
             contents=[QueryContent(text=query_text.strip())],
             # 只要原始命中喂 _format_kb_context，丢弃综合 summary，因此关掉
             # 检索后的综合 LLM 调用，避免「检索->综合（白跑）->写文案」三段链路。
-            options=QueryOptions(top_k=3, synthesize=False),
+            options=QueryOptions(top_k=max(1, int(top_k or 5)), synthesize=False),
         )
         res = kb_search(kb_subject, req)
         return _format_kb_context(res)
     except Exception as e:  # noqa: BLE001
         logger.warning("[dh] KB grounding 检索失败，降级: %r", e)
-        return None
+        return None, []
 
 
 @digital_human_router.post("/script/generate")
@@ -243,7 +292,10 @@ def script_generate(body: Dict[str, Any],
         raise HTTPException(422, "缺 subject(主题)")
     product_ref = (body.get("product_ref") or "").strip() or None
 
-    kb_context = _retrieve_kb_context(user, body.get("ku_ids") or [], subject_text)
+    kb_top_k = int(body.get("kb_top_k", 5) or 5)
+    kb_context, kb_sources = _retrieve_kb_context(
+        user, body.get("ku_ids") or [], subject_text, top_k=kb_top_k,
+    )
 
     try:
         text = generate_script(
@@ -263,7 +315,11 @@ def script_generate(body: Dict[str, Any],
                 "图像对话失败,请选支持视觉(VLM)的模型或去模型广场安装",
             )
         raise HTTPException(502, "文案生成失败(LLM 不可用?先在模型配置里设默认 chat 模型)")
-    return {"script": text}
+    return {
+        "script": text,
+        "kb_used": bool(kb_sources),
+        "sources": kb_sources,
+    }
 
 
 @digital_human_router.post("/script/from-video")
@@ -271,6 +327,7 @@ async def script_from_video(
     file: UploadFile = File(...),
     model: "str | None" = Form(default=None),
     ku_ids: List[str] = Form(default=[]),
+    kb_top_k: int = Form(default=5),
     user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     """参考视频 -> 抽音轨 -> ASR 转写 -> LLM 改写成口播文案。
@@ -298,7 +355,9 @@ async def script_from_video(
         if not transcript:
             raise HTTPException(502, "参考视频转写为空(无人声?或 ASR 运行时未就绪)")
         # 转写稿作为「改写主题」,复用 generate_script(同一套 model + grounding)。
-        kb_context = _retrieve_kb_context(user, ku_ids, transcript)
+        kb_context, kb_sources = _retrieve_kb_context(
+            user, ku_ids, transcript, top_k=int(kb_top_k or 5),
+        )
         subject = (
             "下面是一段参考视频的语音转写,请据其主题与风格改写成适合数字人口播朗读的短视频文案。"
             + chr(10) + chr(10) + transcript
@@ -306,7 +365,12 @@ async def script_from_video(
         script = (generate_script(
             subject, model=(model or None), kb_context=kb_context,
         ) or "").strip()
-        return {"script": script or transcript, "transcript": transcript}
+        return {
+            "script": script or transcript,
+            "transcript": transcript,
+            "kb_used": bool(kb_sources),
+            "sources": kb_sources,
+        }
     finally:
         for pth in (tf.name, wav):
             try:

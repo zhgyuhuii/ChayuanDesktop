@@ -451,6 +451,15 @@ def generate_script(
         paragraph_number=max(1, min(paragraph_number, 10)),
     )
     if kb_context and kb_context.strip():
+        # 前置注入企业知识/话术作为 grounding;并在 Requirements 段补一句明确指令,
+        # 避免被靠后的主题/段落指令冲淡 —— 评审指出仅前置易被后文盖过。
+        anchor = "## Requirements:\n"
+        directive = (
+            "- 请严格参照上述【企业知识/参考话术】的措辞与卖点来撰写,"
+            "保持与企业实际话术一致\n"
+        )
+        if anchor in prompt:
+            prompt = prompt.replace(anchor, anchor + directive, 1)
         prompt = f"【企业知识/参考话术】\n{kb_context.strip()}\n\n" + prompt
     if product_ref:
         data_urls = _product_image_data_urls(product_ref)
