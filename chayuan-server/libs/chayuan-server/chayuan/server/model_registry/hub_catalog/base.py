@@ -106,6 +106,21 @@ class HubAdapter(abc.ABC):
         """返回该模型仓库的文件清单。"""
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def readme(
+        self,
+        *,
+        model_id: str,
+        route: Optional[str] = None,
+        token: Optional[str] = None,
+    ) -> str:
+        """返回该模型仓库的 README（Markdown 源文本）。
+
+        取不到（仓库无 README / 不可达 / 鉴权失败等）一律返回空串 ""，
+        交由上层「无 README」处理，不抛异常打断 UI。
+        """
+        raise NotImplementedError
+
 
 __all__ = [
     "HubFile",

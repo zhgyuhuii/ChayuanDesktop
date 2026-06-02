@@ -105,3 +105,25 @@ def model_detail(
         raise
     except Exception as e:  # noqa: BLE001 — 单源错误隔离：收敛成 502
         raise HTTPException(status_code=502, detail=f"{source} 源不可达: {e}")
+
+
+@model_hub_router.get("/readme", summary="Hub 模型 README（Markdown 源）")
+def model_readme(
+    source: str = Query(..., description="模型源：modelscope / huggingface"),
+    model_id: str = Query(..., description="owner/repo 形式的模型 id"),
+    route: str = Query("mirror", description="HF 线路：mirror / official；ModelScope 忽略"),
+    token: Optional[str] = Query(None, description="可选鉴权 token"),
+) -> dict:
+    """返回该模型仓库的 README Markdown 源文本（取不到为空串）。
+
+    适配器内部已把「无 README / 取不到」吞成 ""，这里只在适配器**实例化失败**
+    （未知 source -> 400）或意外异常时按 search/detail 同样的单源 502 隔离。
+    """
+    adapter = _adapter(source)
+    try:
+        readme = adapter.readme(model_id=model_id, route=route, token=token)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001 — 单源错误隔离：收敛成 502
+        raise HTTPException(status_code=502, detail=f"{source} 源不可达: {e}")
+    return {"readme": readme or ""}

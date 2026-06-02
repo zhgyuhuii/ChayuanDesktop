@@ -90,3 +90,34 @@ def test_search_sort_param_maps_to_hf(monkeypatch):
 
     a.search(query="q", page_size=3)  # 默认
     assert captured["params"]["sort"] == "downloads"
+
+
+def test_readme_uses_route_host_and_returns_text(monkeypatch):
+    a = HuggingFaceAdapter()
+    captured = {}
+
+    def fake_get_text(url, *, token=None, **kw):
+        captured["url"] = url
+        captured["token"] = token
+        return "# Hello\n\nbody"
+
+    monkeypatch.setattr(a, "_get_text", fake_get_text)
+
+    md = a.readme(model_id="Qwen/Qwen2-0.5B-Instruct", route="official", token="t")
+    assert md == "# Hello\n\nbody"
+    assert captured["url"] == "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/raw/main/README.md"
+    assert captured["token"] == "t"
+
+    # mirror 路线（默认）。
+    md2 = a.readme(model_id="Qwen/Qwen2-0.5B-Instruct")
+    assert captured["url"].startswith("https://hf-mirror.com/")
+
+
+def test_readme_swallows_errors(monkeypatch):
+    a = HuggingFaceAdapter()
+
+    def boom(url, *, token=None, **kw):
+        raise RuntimeError("401")
+
+    monkeypatch.setattr(a, "_get_text", boom)
+    assert a.readme(model_id="x/y") == ""

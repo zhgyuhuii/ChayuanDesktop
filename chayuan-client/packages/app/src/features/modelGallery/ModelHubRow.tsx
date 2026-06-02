@@ -28,6 +28,7 @@ import { useNavigate } from '@tanstack/react-router';
 import {
   CheckCircle2,
   Download,
+  FileText,
   Heart,
   Loader2,
   MessageSquare,
@@ -42,6 +43,7 @@ import { reportError, useErrorDialog } from '../../store/errorDialog';
 import { useTabsStore } from '../../store/tabs';
 import { capabilityLabel } from './GalleryCapabilityChips';
 import { HubFilePickerDialog } from './HubFilePickerDialog';
+import { HubReadmeDialog } from './HubReadmeDialog';
 import { jobKey } from './installJobsStore';
 import { useInstallJobFor } from './useInstallJob';
 
@@ -116,6 +118,7 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
   });
 
   const [picking, setPicking] = React.useState(false);
+  const [readmeOpen, setReadmeOpen] = React.useState(false);
   const [uninstalling, setUninstalling] = React.useState(false);
   const navigate = useNavigate();
 
@@ -406,6 +409,16 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
               暂无本地运行服务
             </span>
           )}
+          {/* 详情:懒加载该仓 README(点开才取),弹窗 markdown 预览 */}
+          <button
+            type="button"
+            onClick={() => setReadmeOpen(true)}
+            title="查看模型说明(README)"
+            className="inline-flex items-center gap-0.5 text-[var(--cy-text-tertiary)] transition-colors hover:text-[var(--cy-brand-600)]"
+          >
+            <FileText className="h-3 w-3" />
+            详情
+          </button>
         </div>
       </div>
 
@@ -515,6 +528,16 @@ export const ModelHubRow: React.FC<ModelHubRowProps> = ({
             doStart(file, revision ?? undefined, sizeBytes);
           }}
           onClose={() => setPicking(false)}
+        />
+      )}
+
+      {/* README 详情预览(懒加载:打开才取) */}
+      {readmeOpen && (
+        <HubReadmeDialog
+          card={card}
+          route={route}
+          token={token}
+          onClose={() => setReadmeOpen(false)}
         />
       )}
     </div>

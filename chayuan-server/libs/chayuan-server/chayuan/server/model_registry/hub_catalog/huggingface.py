@@ -76,6 +76,17 @@ class HuggingFaceAdapter(HubAdapter):
         resp.raise_for_status()
         return resp.json()
 
+    def _get_text(self, url: str, *, token: Optional[str] = None, **kw: Any) -> str:
+        """GET 纯文本（README raw 用），抽出便于单测 monkeypatch。"""
+        import httpx
+
+        headers: Dict[str, str] = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        resp = httpx.get(url, headers=headers, follow_redirects=True, timeout=10, **kw)
+        resp.raise_for_status()
+        return resp.text
+
     def search(
         self,
         *,
@@ -212,6 +223,25 @@ class HuggingFaceAdapter(HubAdapter):
                 )
             )
         return files
+
+    def readme(
+        self,
+        *,
+        model_id: str,
+        route: Optional[str] = None,
+        token: Optional[str] = None,
+    ) -> str:
+        """取 HF 仓库 README 原文：``{host}/{model_id}/raw/main/README.md``。
+
+        host 由 route 决定（mirror=hf-mirror.com / official=huggingface.co）。
+        仓库无 README / 不可达 / 401 等任何异常都吞掉返回 ""。
+        """
+        host = self._host(route)
+        url = f"{host}/{model_id}/raw/main/README.md"
+        try:
+            return self._get_text(url, token=token) or ""
+        except Exception:  # noqa: BLE001 — README 取不到不应打断 UI
+            return ""
 
 
 __all__ = ["HuggingFaceAdapter"]

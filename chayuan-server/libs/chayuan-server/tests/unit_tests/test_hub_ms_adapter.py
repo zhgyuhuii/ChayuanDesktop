@@ -81,3 +81,32 @@ def test_search_sort_updated_local_orders_by_updated_at(monkeypatch):
     page = a.search(page=1, page_size=3, sort="updated")
     ups = [c.updated_at or "" for c in page.items]
     assert ups == sorted(ups, reverse=True)
+
+
+def test_readme_uses_repo_api_and_returns_text(monkeypatch):
+    from chayuan.server.model_registry.hub_catalog.modelscope import ModelScopeAdapter
+    a = ModelScopeAdapter()
+    captured = {}
+
+    def fake_get_text(url, *, token=None, **kw):
+        captured["url"] = url
+        captured["params"] = kw.get("params")
+        return "# MS README"
+
+    monkeypatch.setattr(a, "_get_text", fake_get_text)
+    md = a.readme(model_id="qwen/Qwen2-0.5B-Instruct")
+    assert md == "# MS README"
+    assert captured["url"].endswith("/api/v1/models/qwen/Qwen2-0.5B-Instruct/repo")
+    assert captured["params"]["Revision"] == "master"
+    assert captured["params"]["FilePath"] == "README.md"
+
+
+def test_readme_swallows_errors(monkeypatch):
+    from chayuan.server.model_registry.hub_catalog.modelscope import ModelScopeAdapter
+    a = ModelScopeAdapter()
+
+    def boom(url, *, token=None, **kw):
+        raise RuntimeError("404")
+
+    monkeypatch.setattr(a, "_get_text", boom)
+    assert a.readme(model_id="x/y") == ""

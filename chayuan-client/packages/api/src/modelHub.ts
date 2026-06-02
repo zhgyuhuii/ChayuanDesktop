@@ -7,6 +7,8 @@
  *        → HubSearchPage { items: HubModelCard[], page, page_size, has_more, total }
  *   GET  /v1/model-hub/detail   (query: source,model_id,revision,route,token)
  *        → HubFile[]
+ *   GET  /v1/model-hub/readme   (query: source,model_id,route,token)
+ *        → { readme: string }   (取不到为空串;懒加载,点开详情才调)
  *   POST /admin/models/uninstall  (body { source, repo_id, force? })
  *        → { ok, reason?, capability?, freed_bytes? }
  *
@@ -68,6 +70,7 @@ export interface UninstallResult {
 
 const HUB_SEARCH = '/v1/model-hub/search';
 const HUB_DETAIL = '/v1/model-hub/detail';
+const HUB_README = '/v1/model-hub/readme';
 const MODELS_UNINSTALL = '/admin/models/uninstall';
 
 export const modelHub = {
@@ -126,6 +129,27 @@ export const modelHub = {
       },
     });
     return r.data ?? [];
+  },
+
+  /**
+   * 拉取仓库 README(Markdown 源文本);取不到为空串。懒加载:用户点开详情才调。
+   * 后端单源不可达会 502;调用方应捕获并退化为「README 加载失败 / 暂无」。
+   */
+  async readme(params: {
+    source: string;
+    modelId: string;
+    route?: string;
+    token?: string;
+  }): Promise<string> {
+    const r = await request<{ readme: string }>(HUB_README, {
+      query: {
+        source: params.source,
+        model_id: params.modelId,
+        route: params.route,
+        token: params.token,
+      },
+    });
+    return r.data?.readme ?? '';
   },
 
   /**

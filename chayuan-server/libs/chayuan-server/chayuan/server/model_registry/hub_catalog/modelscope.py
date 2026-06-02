@@ -75,6 +75,18 @@ class ModelScopeAdapter(HubAdapter):
         resp.raise_for_status()
         return resp.json()
 
+    def _get_text(self, url: str, *, token: Optional[str] = None, **kw: Any) -> str:
+        """GET 纯文本（README raw 用），抽出便于单测 monkeypatch。"""
+        import httpx
+
+        headers: Dict[str, str] = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        params = kw.pop("params", None)
+        resp = httpx.get(url, params=params, headers=headers, follow_redirects=True, timeout=10, **kw)
+        resp.raise_for_status()
+        return resp.text
+
     def search(
         self,
         *,
@@ -189,6 +201,32 @@ class ModelScopeAdapter(HubAdapter):
                 )
             )
         return files
+
+    def readme(
+        self,
+        *,
+        model_id: str,
+        route: Optional[str] = None,
+        token: Optional[str] = None,
+    ) -> str:
+        """取 ModelScope 仓库 README 原文。
+
+        实测 ``/models/{owner}/{name}/raw/master/README.md`` 返回的是 SPA HTML
+        外壳（前端路由页），**不是** markdown 源；真正的 raw 文本走仓库文件 API：
+        ``GET /api/v1/models/{owner}/{name}/repo?Revision=master&FilePath=README.md``
+        （直接返回文件原文）。仓库无 README / 不可达 / 404 等异常都吞掉返回 ""。
+        """
+        owner, _, name = model_id.partition("/")
+        if not name:
+            owner, name = "", model_id
+        rev = "master"
+        url = f"{_HOST}/api/v1/models/{owner}/{name}/repo"
+        try:
+            return self._get_text(
+                url, params={"Revision": rev, "FilePath": "README.md"}, token=token
+            ) or ""
+        except Exception:  # noqa: BLE001 — README 取不到不应打断 UI
+            return ""
 
 
 __all__ = ["ModelScopeAdapter"]

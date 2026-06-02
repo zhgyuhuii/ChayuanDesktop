@@ -48,12 +48,19 @@ class _StubAdapter:
         self.last_detail = kwargs
         return [HubFile(rfilename="model.gguf", size_bytes=4096, runnable=True)]
 
+    def readme(self, **kwargs) -> str:
+        self.last_readme = kwargs
+        return "# Stub README"
+
 
 class _BoomAdapter:
     def search(self, **kwargs) -> SearchPage:
         raise RuntimeError("connection refused")
 
     def detail(self, **kwargs) -> list:
+        raise RuntimeError("connection refused")
+
+    def readme(self, **kwargs) -> str:
         raise RuntimeError("connection refused")
 
 
@@ -118,5 +125,29 @@ def test_detail_bad_source_400(client, monkeypatch):
 def test_detail_adapter_raises_502(client, monkeypatch):
     monkeypatch.setattr(model_hub_routes, "_adapter", lambda source: _BoomAdapter())
     resp = client.get("/v1/model-hub/detail?source=modelscope&model_id=a/b")
+    assert resp.status_code == 502
+    assert "modelscope" in resp.json()["detail"]
+
+
+def test_readme_ok(client, monkeypatch):
+    stub = _StubAdapter()
+    monkeypatch.setattr(model_hub_routes, "_adapter", lambda source: stub)
+
+    resp = client.get("/v1/model-hub/readme?source=huggingface&model_id=a/b&route=mirror")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["readme"] == "# Stub README"
+    assert stub.last_readme["model_id"] == "a/b"
+    assert stub.last_readme["route"] == "mirror"
+
+
+def test_readme_bad_source_400(client, monkeypatch):
+    resp = client.get("/v1/model-hub/readme?source=nope&model_id=a/b")
+    assert resp.status_code == 400
+
+
+def test_readme_adapter_raises_502(client, monkeypatch):
+    monkeypatch.setattr(model_hub_routes, "_adapter", lambda source: _BoomAdapter())
+    resp = client.get("/v1/model-hub/readme?source=modelscope&model_id=a/b")
     assert resp.status_code == 502
     assert "modelscope" in resp.json()["detail"]
