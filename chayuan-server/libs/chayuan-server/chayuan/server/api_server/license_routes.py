@@ -60,6 +60,17 @@ def get_promo_url():
     return {"url": f"{cfg['buy_base_url']}/promo?mid={fp}", "fingerprint": fp}
 
 
+@license_router.get("/share-url")
+def get_share_url(app: str = Query("video")):
+    # 本地拼接的裂变分享链接(离线可用):buy_base_url 打包内置 + 本机指纹当 ref。
+    # 复用 promo-url 模式,不发任何外网请求。ref=分享者 mid,买家页带 ?ref= 归因。
+    if not _valid_app(app):
+        return {"url": "", "fingerprint": ""}
+    cfg = load_license_config()
+    fp = _fp(_root())
+    return {"url": f"{cfg['buy_base_url']}/buy?app={app}&ref={fp}", "fingerprint": fp}
+
+
 @license_router.get("/status")
 def get_status(app: str = Query("video")):
     if not _valid_app(app):

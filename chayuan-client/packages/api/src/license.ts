@@ -135,3 +135,12 @@ export interface ShareMaterial {
 export function shareMaterial(app: string, mid: string): Promise<ShareMaterial> {
   return http.get<ShareMaterial>('/api/share/material', { query: { app, mid } });
 }
+
+/** 本地拼接的分享链接(离线可用),对应 GET /api/v1/license/share-url。 */
+export interface ShareUrl {
+  url: string;
+  fingerprint: string;
+}
+export function shareUrl(app: string): Promise<ShareUrl> {
+  return http.get<ShareUrl>(`${BASE}/share-url`, { query: { app } });
+}

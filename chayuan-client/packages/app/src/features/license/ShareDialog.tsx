@@ -10,7 +10,7 @@
  * 用 qrcode 库本地生成二维码，不依赖外部图片服务。
  */
 
-import { licenseFingerprint, shareMaterial } from '@chayuan/api';
+import { shareUrl as fetchShareUrl } from '@chayuan/api';
 import {
   Button,
   Dialog,
@@ -47,13 +47,12 @@ export function ShareDialog({ app, open, onOpenChange, remainingFree }: ShareDia
 
     (async () => {
       try {
-        const { fingerprint } = await licenseFingerprint();
+        const { url } = await fetchShareUrl(app);
         if (!alive) return;
-        const mat = await shareMaterial(app, fingerprint);
-        if (!alive) return;
-        setShareUrl(mat.shareUrl);
+        if (!url) { setLoadErr('暂不支持该模块的分享'); return; }
+        setShareUrl(url);
       } catch {
-        if (alive) setLoadErr('获取分享链接失败，请稍后再试');
+        if (alive) setLoadErr('生成分享链接失败，请重试');
       }
     })();
 
