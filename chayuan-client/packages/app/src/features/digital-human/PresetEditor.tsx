@@ -143,7 +143,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slots]);
 
-  const canSave = name.trim().length > 0 && !saving && (
+  const allNamed = slots.every((s) => (s.name ?? '').trim().length > 0);
+  const canSave = name.trim().length > 0 && !saving && allNamed && (
     composeMode === 'single' ? slots.length >= 1 : slots.length >= 2
   );
 
@@ -399,7 +400,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                 <input type="text" value={fSlot.name ?? ''}
                   onChange={(e) => setSlotField(fSlot.ref, { name: e.target.value })}
                   placeholder="昵称(如 小李)"
-                  className="h-7 flex-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
+                  className={cn('h-7 flex-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none',
+                    !(fSlot.name ?? '').trim() && 'border-[var(--cy-danger-500)]')} />
               </div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--cy-text-tertiary)]">
                 <select value={fSlot.language ?? ''}
@@ -427,7 +429,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
       })()}
 
       {/* 操作按钮 */}
-      <div className="flex justify-end gap-2">
+      <div className="flex items-center justify-end gap-2">
+        {!allNamed && <span className="text-[10px] text-[var(--cy-danger-500)]">每个形象必须填昵称</span>}
         <button
           type="button"
           onClick={onCancel}
