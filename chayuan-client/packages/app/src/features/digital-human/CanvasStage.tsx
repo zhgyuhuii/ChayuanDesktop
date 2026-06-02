@@ -82,7 +82,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({ width, height, roles, 
           style={{ left: `${(r.x ?? 0) * 100}%`, top: `${(r.y ?? 0) * 100}%`, width: `${(r.scale ?? 1) * 100}%`, touchAction: 'none' }}>
           {r.kind === 'video'
             ? <video src={digitalHuman.avatarFileUrl(r.ref)} muted loop autoPlay playsInline className="pointer-events-none w-full rounded" />
-            : <img src={digitalHuman.avatarFileUrl(r.ref)} alt={r.name || r.ref} className="pointer-events-none w-full rounded" draggable={false} />}
+            : <img src={digitalHuman.avatarFileUrl(r.ref)} alt={r.name || '角色'} className="pointer-events-none w-full rounded" draggable={false} />}
           {r.name ? <span className="pointer-events-none absolute -bottom-4 left-0 rounded bg-black/60 px-1 text-[10px] text-white">{r.name}</span> : null}
           {!readOnly && corners.map(([c, cls]) => (
             <div key={c} onPointerDown={(e) => startResize(e, r, c)}

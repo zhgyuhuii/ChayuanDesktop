@@ -190,7 +190,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           {roles.map((r, i) => (
             <input key={r.ref} type="text" value={roleScripts[i] ?? ''}
               onChange={(e) => setRoleScripts((s) => { const n = [...s]; n[i] = e.target.value; return n; })}
-              placeholder={`${r.name || r.label || ('角色' + (i + 1))} 的台词`}
+              placeholder={`${r.name || ('角色' + (i + 1))} 的台词`}
               className="h-8 w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
           ))}
         </div>
