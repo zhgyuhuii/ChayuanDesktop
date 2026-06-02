@@ -172,8 +172,9 @@ def test_job_pipeline_engine_passthrough(monkeypatch, tmp_path):
 
 def _setup_multi(monkeypatch, tmp_path, mode):
     monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
-    monkeypatch.setattr(dh_jobs, "_synthesize_narration",
-                        lambda text, preset, ap: (open(ap, "wb").write(b"wav"), ap)[1])
+    # 多形象走 _gen_slot_clips → _synth_to_wav(自 R3 起带 rate/volume kwargs),mock 须收 **kwargs
+    monkeypatch.setattr(dh_jobs, "_synth_to_wav",
+                        lambda text, provider, name, ap, **kwargs: (open(ap, "wb").write(b"wav"), ap)[1])
     class _E:
         def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
             open(out_path, "wb").write(b"mp4"); return out_path
@@ -185,7 +186,9 @@ def _setup_multi(monkeypatch, tmp_path, mode):
                  {"ref": "user:b.mp4", "kind": "video", "lines": "乙"}],
         compose_mode=mode, layout="side").id
     tid = uuid.uuid4().hex[:12]
-    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "全局", "width": 720, "height": 1280}
+    # coframe/sequential 现按角色读 role_scripts(每角色一串),不再用共享 text 当台词
+    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "全局", "width": 720, "height": 1280,
+                             "role_scripts": ["甲的台词", "乙的台词"]}
     dh_jobs._set(tid, state="pending", progress=0)
     return tid
 
@@ -203,13 +206,15 @@ def test_job_dispatch_sequential(monkeypatch, tmp_path):
 def test_job_dispatch_coframe(monkeypatch, tmp_path):
     from chayuan.server.video_generation.digital_human import compose_multi as cm
     called = {}
-    monkeypatch.setattr(cm, "render_coframe",
-                        lambda clips, **k: (open(k["out_path"], "wb").write(b"cf"),
-                                            called.setdefault("cf", k.get("layout")))[0] or k["out_path"])
+    # coframe 现派发到 render_coframe_turntaking(按句轮流 PIP),不再走 render_coframe(layout)
+    monkeypatch.setattr(cm, "render_coframe_turntaking",
+                        lambda unit_clips, unit_roles, positions, avatars, **k:
+                            (open(k["out_path"], "wb").write(b"cf"),
+                             called.setdefault("cf", len(unit_clips)))[0] or k["out_path"])
     tid = _setup_multi(monkeypatch, tmp_path, "coframe")
     dh_jobs.run_sync(tid)
     st = dh_jobs.get_status(tid)
-    assert st.state == "complete" and called.get("cf") == "side"
+    assert st.state == "complete" and called.get("cf") == 2
 
 
 def test_voice_string_prefixes():
@@ -223,7 +228,8 @@ def test_voice_string_prefixes():
 def test_gen_slot_clips_uses_per_slot_voice(monkeypatch, tmp_path):
     monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
     seen = []
-    def fake_synth(text, provider, name, ap):
+    # _synth_to_wav 自 R3 起带 rate/volume kwargs,mock 须收 **kwargs(否则 ThreadPool 内抛 TypeError)
+    def fake_synth(text, provider, name, ap, **kwargs):
         seen.append((provider, name)); open(ap, "wb").write(b"w"); return ap
     monkeypatch.setattr(dh_jobs, "_synth_to_wav", fake_synth)
     class _E:
@@ -232,16 +238,21 @@ def test_gen_slot_clips_uses_per_slot_voice(monkeypatch, tmp_path):
     monkeypatch.setattr(dh_jobs, "get_engine", lambda eid="wav2lip": _E())
     monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
     from chayuan.server.video_generation.digital_human.schemas import DigitalHumanPreset, AvatarSlot
+    # 多形象现经 script_router.plan 规划单元:sequential + 每角色 role_scripts → 每槽一单元,
+    # 各单元音色取自所属槽(script_router._unit 只读槽,故每槽须显式配音色)。
     preset = DigitalHumanPreset(
-        id="p", name="m", avatar_ref="user:a", avatar_kind="video",
+        id="p", name="m", avatar_ref="user:a", avatar_kind="video", compose_mode="sequential",
         voice_provider="piper", voice_name="default",
         avatars=[AvatarSlot(ref="user:a", kind="video", voice_provider="sherpa", voice_name="vz"),
-                 AvatarSlot(ref="user:b", kind="video")])  # 第二槽继承预设
-    clips, unit_roles = dh_jobs._gen_slot_clips("t", preset, preset.avatars, "全局", "wav2lip", str(tmp_path), 720, 1280)
+                 AvatarSlot(ref="user:b", kind="video", voice_provider="piper", voice_name="default")])
+    clips, unit_roles = dh_jobs._gen_slot_clips(
+        "t", preset, preset.avatars, "全局", "wav2lip", str(tmp_path), 720, 1280,
+        role_scripts=["甲词", "乙词"])
     assert len(clips) == 2
     assert unit_roles == [0, 1]
-    assert seen[0] == ("sherpa", "vz")
-    assert seen[1] == ("piper", "default")
+    # ThreadPoolExecutor 并发合成,seen 顺序不保证;验证两槽各自音色都出现
+    assert ("sherpa", "vz") in seen
+    assert ("piper", "default") in seen
 
 
 def test_task_persistence_survives_restart(monkeypatch, tmp_path):
@@ -266,7 +277,7 @@ def test_sequential_uses_role_scripts(monkeypatch, tmp_path):
     monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
     seen = []
     monkeypatch.setattr(dh_jobs, "_synth_to_wav",
-        lambda text, provider, name, ap: (seen.append((text, provider, name)), open(ap, "wb").write(b"w"), ap)[2])
+        lambda text, provider, name, ap, **kwargs: (seen.append((text, provider, name)), open(ap, "wb").write(b"w"), ap)[2])
     class _E:
         def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
             open(out_path, "wb").write(b"mp4"); return out_path
@@ -289,7 +300,7 @@ def test_sequential_uses_role_scripts(monkeypatch, tmp_path):
 def test_coframe_passes_positions(monkeypatch, tmp_path):
     monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
     monkeypatch.setattr(dh_jobs, "_synth_to_wav",
-        lambda text, provider, name, ap: (open(ap, "wb").write(b"w"), ap)[1])
+        lambda text, provider, name, ap, **kwargs: (open(ap, "wb").write(b"w"), ap)[1])
     class _E:
         def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
             open(out_path, "wb").write(b"mp4"); return out_path
@@ -305,7 +316,9 @@ def test_coframe_passes_positions(monkeypatch, tmp_path):
                  {"ref": "user:b", "kind": "video", "x": 0.6, "y": 0.2, "scale": 0.5}],
         compose_mode="coframe").id
     tid = uuid.uuid4().hex[:12]
-    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "全局", "width": 720, "height": 1280}
+    # coframe 现按角色读 role_scripts(每角色一串),须给台词才会产出单元、触发 turntaking 合成
+    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "全局", "width": 720, "height": 1280,
+                             "role_scripts": ["甲词", "乙词"]}
     dh_jobs._set(tid, state="pending", progress=0)
     dh_jobs.run_sync(tid)
     assert seen.get("positions") == [(0.1, 0.2, 0.5), (0.6, 0.2, 0.5)]
@@ -365,7 +378,10 @@ def test_coframe_turntaking_dispatch(monkeypatch, tmp_path):
                  {"ref": "user:b", "kind": "video", "voice_name": "v2", "x": 0.5}],
         compose_mode="coframe").id
     tid = uuid.uuid4().hex[:12]
-    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "甲说。乙说。再甲说。", "width": 720, "height": 1280}
+    # coframe 现按角色读 role_scripts,各自按句切分后按句序交织(甲1,乙1,甲2,...)。
+    # 甲两句、乙一句 → 句序交织得 roles=[0,1,0]。
+    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "", "width": 720, "height": 1280,
+                             "role_scripts": ["甲说。再甲说。", "乙说。"]}
     dh_jobs._set(tid, state="pending", progress=0)
     dh_jobs.run_sync(tid)
     assert dh_jobs.get_status(tid).state == "complete"
