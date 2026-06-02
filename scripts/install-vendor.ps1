@@ -275,7 +275,7 @@ if ($doModels) {
     # bge-m3 GGUF,留着会被 build.py 误打进 installer + 运行时被 llama-server 拒绝)。
     # canonical 名单真源:chayuan-server/packaging/bundle_manifest.py CANONICAL_MODEL_SUBDIRS。
     $modelArgs = @((Join-Path $here 'install-bundled-models.py'),
-                   '--source', $Source, '--clean-stale')
+                   '--source', $Source, '--clean-stale', '--no-menu')
     if ($Flavor -eq 'lite') { $modelArgs += '--lite' }
     $stageSpecs.Add(@{
         Stage = 'models'

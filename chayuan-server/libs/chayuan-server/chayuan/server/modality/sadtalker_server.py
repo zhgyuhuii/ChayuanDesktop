@@ -7,7 +7,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from chayuan.server.modality._runtime_server_base import (
     make_runtime_app,
@@ -24,6 +25,35 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 
+def _pick_sadtalker_dir(bases) -> Optional[str]:
+    """在每个 base 的 ``sadtalker/`` 子目录里找非空权重目录,返回首个命中。"""
+    for base in bases:
+        cand = Path(base) / "sadtalker"
+        if cand.is_dir() and any(
+            p.is_file() and p.suffix.lower() in (".pth", ".safetensors", ".bin", ".tar")
+            for p in cand.rglob("*")
+        ):
+            return str(cand)
+    return None
+
+
+def _resolve_sadtalker_dir() -> Optional[str]:
+    """本地 SadTalker 权重目录:CHAYUAN_ROOT/models/bundled/digital_human/sadtalker
+    → vendor/bundled_models/digital_human/sadtalker。未命中返回 None(回退联网)。"""
+    bases = []
+    try:
+        from chayuan.settings import CHAYUAN_ROOT
+        bases.append(Path(CHAYUAN_ROOT) / "models" / "bundled" / "digital_human")
+    except Exception:  # noqa: BLE001
+        pass
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        vd = parent / "vendor" / "bundled_models" / "digital_human"
+        if vd.is_dir():
+            bases.append(vd); break
+    return _pick_sadtalker_dir(bases)
+
+
 def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
     from fastapi import HTTPException, Request
 
@@ -36,10 +66,12 @@ def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
             app.state.lib_error = "modelscope 未安装,请装 SadTalker 运行时"
             raise HTTPException(status_code=503, detail=app.state.lib_error) from e
         try:
+            local_dir = _resolve_sadtalker_dir()
+            model_arg = local_dir or cfg.get("model_id", "wwd123/sadtalker")
             handle = pipeline(
                 task=cfg.get("task", "talking-head"),
-                model=cfg.get("model_id", "wwd123/sadtalker"),
-                model_revision=cfg.get("model_revision", "v1.0.0"),
+                model=model_arg,
+                model_revision=None if local_dir else cfg.get("model_revision", "v1.0.0"),
             )
         except Exception as e:  # noqa: BLE001
             app.state.lib_error = f"SadTalker pipeline 初始化失败: {e}"

@@ -1005,6 +1005,11 @@ bash scripts/install-vendor.sh --flavor full
 | 服务二进制 | `vendor/services/<engine>/<platform>/` | llama-server / whisper-server |
 | torch wheels | `vendor/torch_wheels/<platform_py>/` | 离线装 torch 兜底 |
 
+> **数字人引擎(仅 full)**:`vendor/bundled_models/digital_human/wav2lip/`(CPU)+
+> `digital_human/sadtalker/`(GPU)。直接跑 `python scripts/install-bundled-models.py`
+> (无 flag)会进**控制台多选菜单**(up/down 移动、空格选/取消、`a` 全选、回车下载);
+> `--lite` / `--only` / 非 TTY(被 install-vendor 调用)时按 flag 下载,不弹菜单。
+
 **墙内网络**:
 
 - `github.com` 不通时,脚本**自动探测可用镜像**(内置 `gh-proxy.com` / `ghfast.top`);也可手动指定:

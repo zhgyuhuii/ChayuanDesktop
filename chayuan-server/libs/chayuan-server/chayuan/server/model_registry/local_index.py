@@ -105,7 +105,7 @@ def _atomic_replace_with_retry(tmp: str, dst: Path, *, attempts: int = 6) -> Non
 
 
 # bundled_models 子目录约定（与 vendor/bundled_models/README.md 对齐）。
-BUNDLED_CAPABILITY_DIRS = ("chat", "embedding", "rerank", "asr", "tts", "ocr", "image", "custom")
+BUNDLED_CAPABILITY_DIRS = ("chat", "embedding", "rerank", "asr", "tts", "ocr", "image", "custom", "digital_human")
 BUNDLED_DIRNAME = "bundled_models"
 
 

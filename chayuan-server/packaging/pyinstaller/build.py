@@ -316,7 +316,7 @@ _REDUNDANT_WEIGHT_SUFFIXES = (".bin", ".onnx_data", ".pt", ".pth")
 # 允许出现的合法 cap 目录名。出现在这之外的目录(如 vendor/bundled_models/bge-m3/
 # 直接挂根级)十有八九是用户/老 install 脚本把"模型目录"放错了一级。
 _KNOWN_CAP_DIRS = frozenset(
-    ("chat", "embedding", "rerank", "asr", "tts", "ocr", "image", "custom")
+    ("chat", "embedding", "rerank", "asr", "tts", "ocr", "image", "custom", "digital_human")
 )
 
 # vendor 根级"非法子目录"被跳过时,如果体积超过这个阈值就拉警报(疑似误放),

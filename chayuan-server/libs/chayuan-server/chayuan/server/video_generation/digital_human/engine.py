@@ -22,25 +22,33 @@ class DigitalHumanEngine(Protocol):
                  on_progress: Optional[ProgressCb] = None) -> str: ...
 
 
+def _pick_weights_dir(bases) -> Optional[str]:
+    """在每个 base 及其 ``wav2lip/`` 子目录里找 wav2lip_gan.pth,返回首个命中目录。
+    兼容两种布局:旧平铺 ``digital_human/`` 与新 ``digital_human/wav2lip/``。"""
+    for base in bases:
+        for cand in (Path(base), Path(base) / "wav2lip"):
+            if (cand / "wav2lip_gan.pth").is_file():
+                return str(cand)
+    return None
+
+
 def _resolve_wav2lip_dir() -> Optional[str]:
     """含 wav2lip_gan.pth + s3fd 的本地权重目录。
     顺序:CHAYUAN_ROOT/models/bundled/digital_human → vendor/bundled_models/digital_human。
+    每个根都同时探平铺与 wav2lip/ 子目录。
     """
-    roots = []
+    bases = []
     try:
         from chayuan.settings import CHAYUAN_ROOT
-        roots.append(Path(CHAYUAN_ROOT) / "models" / "bundled" / "digital_human")
+        bases.append(Path(CHAYUAN_ROOT) / "models" / "bundled" / "digital_human")
     except Exception:  # noqa: BLE001
         pass
     here = Path(__file__).resolve()
     for parent in here.parents:
         vd = parent / "vendor" / "bundled_models" / "digital_human"
         if vd.is_dir():
-            roots.append(vd); break
-    for r in roots:
-        if (Path(r) / "wav2lip_gan.pth").is_file():
-            return str(r)
-    return None
+            bases.append(vd); break
+    return _pick_weights_dir(bases)
 
 
 class Wav2LipEngine:

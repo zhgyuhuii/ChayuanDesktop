@@ -766,3 +766,15 @@ git 默认会忽略 `*.gguf` / `*.safetensors` / `*.onnx`,以及本目录下的
 
 要在 CI 跑集成测试或本地复现打包,先用 `chayuan_packaging fetch
 <release>` 把模型预拉到这里,再跑 pytest / pyinstaller。
+
+---
+
+## digital_human(数字人引擎,仅 full)
+
+    digital_human/
+      wav2lip/    { wav2lip_gan.pth, s3fd-619a316812.pth }   # CPU,engine.py 直读
+      sadtalker/  { wwd123/sadtalker@v1.0.0 快照 }            # GPU,sadtalker_server 本地加载
+
+运行时镜像:`<CHAYUAN_ROOT>/models/bundled/digital_human/{wav2lip,sadtalker}/`。
+LITE 不打(无 torch);只随 full 包发。来源 ModelScope
+`silveroxides/ComfyUI_wav2lip-models` + `wwd123/sadtalker`。

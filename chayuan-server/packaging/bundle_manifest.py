@@ -41,6 +41,7 @@ LITE_CAPS: tuple[str, ...] = (
 FULL_CAPS: tuple[str, ...] = LITE_CAPS + (
     "chat",
     "image",          # 图像嵌入(image-embedding 的短名,跟 install-bundled-models MANIFEST 一致)
+    "digital_human",  # 数字人引擎权重(Wav2Lip CPU + SadTalker GPU);只进 full,LITE 不打 torch
 )
 
 #: 集成清单 alias 表,便于按 flavor 字符串拿对应清单
@@ -71,6 +72,8 @@ CANONICAL_MODEL_SUBDIRS: dict[str, tuple[str, ...]] = {
     "ocr":       ("RapidOCR",),
     "tts":       ("piper",),
     "image":     ("clip-vit-base-patch32",),
+    # 数字人:一个 cap 两个引擎子目录共存(wav2lip CPU / sadtalker GPU)
+    "digital_human": ("wav2lip", "sadtalker"),
 }
 
 

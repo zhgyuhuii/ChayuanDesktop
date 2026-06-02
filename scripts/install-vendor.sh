@@ -171,7 +171,7 @@ if want models; then
     step "1/4 模型 → vendor/bundled_models/"
     MODEL_ARGS=()
     [ "$FLAVOR" = "lite" ] && MODEL_ARGS+=(--lite)
-    MODEL_ARGS+=(--source "$SOURCE")
+    MODEL_ARGS+=(--source "$SOURCE" --no-menu)
     if run "$PY" "$HERE/install-bundled-models.py" "${MODEL_ARGS[@]}"; then
         record "models($FLAVOR)" OK
     else

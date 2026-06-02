@@ -279,6 +279,33 @@ MANIFEST: dict[str, dict[str, Any]] = {
              ]},
         ],
     },
+    "digital_human": {
+        "approx_mb": 2500,
+        "note": "数字人引擎权重(仅 full):Wav2Lip(CPU)+ SadTalker(GPU)",
+        "dest_subdir": ".",   # 占位;多模型 cap 实际用 models 列表
+        "hf": [], "ms": [],
+        "models": [
+            {
+                "dest_subdir": "wav2lip",
+                "approx_mb": 510,
+                "note": "Wav2Lip 推理权重 wav2lip_gan.pth(~416MB)+ s3fd 人脸检测(~86MB)",
+                "hf": [],
+                "ms": [
+                    {"repo": "silveroxides/ComfyUI_wav2lip-models",
+                     "allow_patterns": ["wav2lip_gan.pth", "s3fd-619a316812.pth"]},
+                ],
+            },
+            {
+                "dest_subdir": "sadtalker",
+                "approx_mb": 2000,   # [GPU-VERIFY] 实测体积后回填
+                "note": "SadTalker talking-head checkpoints(wwd123/sadtalker@v1.0.0)",
+                "hf": [],
+                "ms": [
+                    {"repo": "wwd123/sadtalker", "revision": "v1.0.0"},
+                ],
+            },
+        ],
+    },
 }
 
 
@@ -404,11 +431,11 @@ def _download_via_hf(spec: dict, dest_dir: Path) -> None:
 
 def _download_via_ms(spec: dict, dest_dir: Path) -> None:
     from modelscope import snapshot_download as ms_snapshot_download
-    ms_snapshot_download(
-        model_id=spec["repo"],
-        allow_patterns=spec.get("allow_patterns"),
-        local_dir=str(dest_dir),
-    )
+    kwargs = dict(model_id=spec["repo"], allow_patterns=spec.get("allow_patterns"),
+                  local_dir=str(dest_dir))
+    if spec.get("revision"):
+        kwargs["revision"] = spec["revision"]
+    ms_snapshot_download(**kwargs)
 
 
 def _download_via_url(url: str, dest_dir: Path, filename: str) -> None:
@@ -758,6 +785,113 @@ def _download_one(
     raise RuntimeError("\n".join(summary_lines))
 
 
+# ──────────────────────────── 交互式多选 ────────────────────────────
+
+def _enumerate_units(caps):
+    """把 cap 列表展开成可下载单元。多模型 cap(有 models 键)展开成每个子模型一个单元。
+    返回 [{"cap":str, "label":str, "spec":dict}, ...]。"""
+    units = []
+    for cap in caps:
+        spec = MANIFEST[cap]
+        models = spec.get("models")
+        if models:
+            for m in models:
+                units.append({"cap": cap, "label": f"{cap}/{m['dest_subdir']}", "spec": m})
+        else:
+            units.append({"cap": cap, "label": cap, "spec": spec})
+    return units
+
+
+class _SelectState:
+    def __init__(self, labels, preselected=None):
+        self.labels = list(labels)
+        self.cursor = 0
+        self.selected = set(preselected or set())
+
+    def move(self, delta):
+        self.cursor = max(0, min(len(self.labels) - 1, self.cursor + delta))
+
+    def toggle(self):
+        if self.cursor in self.selected:
+            self.selected.discard(self.cursor)
+        else:
+            self.selected.add(self.cursor)
+
+    def select_all(self):
+        if len(self.selected) == len(self.labels):
+            self.selected = set()
+        else:
+            self.selected = set(range(len(self.labels)))
+
+
+def _read_key():  # pragma: no cover — 终端原始 IO,手动验
+    """返回 'up'/'down'/'space'/'enter'/'all'/'quit'/None。Unix termios / Windows msvcrt。"""
+    if os.name == "nt":
+        import msvcrt
+        ch = msvcrt.getwch()
+        if ch in ("\r", "\n"): return "enter"
+        if ch == " ": return "space"
+        if ch in ("\x03", "q", "Q"): return "quit"
+        if ch in ("a", "A"): return "all"
+        if ch == "\xe0":  # 方向键前缀
+            ch2 = msvcrt.getwch()
+            return {"H": "up", "P": "down"}.get(ch2)
+        if ch in ("k", "K"): return "up"
+        if ch in ("j", "J"): return "down"
+        return None
+    import termios, tty
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+        if ch in ("\r", "\n"): return "enter"
+        if ch == " ": return "space"
+        if ch in ("\x03", "q", "Q"): return "quit"
+        if ch in ("a", "A"): return "all"
+        if ch in ("k", "K"): return "up"
+        if ch in ("j", "J"): return "down"
+        if ch == "\x1b":
+            seq = sys.stdin.read(2)
+            return {"[A": "up", "[B": "down"}.get(seq)
+        return None
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def _render(state, sizes, ready):  # pragma: no cover — 终端绘制,手动验
+    lines = ["请选择要下载的模型(up/down 移动,空格选/取消,a 全选,回车确认,q 取消):", ""]
+    for i, label in enumerate(state.labels):
+        box = "[x]" if i in state.selected else "[ ]"
+        arrow = ">" if i == state.cursor else " "
+        tag = " (已就绪)" if ready[i] else ""
+        lines.append(f" {arrow} {box} {label}  (~{sizes[i]} MB){tag}")
+    sys.stdout.write("\r" + "\n".join(lines) + "\n")
+    sys.stdout.flush()
+    return len(lines)
+
+
+def _interactive_select(units):  # pragma: no cover — 整合 IO,手动验
+    labels = [u["label"] for u in units]
+    sizes = [u["spec"].get("approx_mb", 0) for u in units]
+    ready = [False] * len(units)  # 就绪检测交给下载时的 skip-if-exists
+    preselected = set(range(len(units)))
+    state = _SelectState(labels, preselected)
+    n = 0
+    while True:
+        if n:
+            sys.stdout.write(f"\x1b[{n}A")  # 光标上移 n 行重绘
+        n = _render(state, sizes, ready)
+        key = _read_key()
+        if key == "up": state.move(-1)
+        elif key == "down": state.move(1)
+        elif key == "space": state.toggle()
+        elif key == "all": state.select_all()
+        elif key == "enter": break
+        elif key == "quit": return []
+    return [units[i] for i in sorted(state.selected)]
+
+
 # ──────────────────────────── 入口 ────────────────────────────
 
 def main() -> int:
@@ -801,6 +935,11 @@ def main() -> int:
               "省去 chat (~1.85 GB) 和 image-embedding (~605 MB)。"
               "与 --only 互斥(--only 已经显式指定单 cap 时无须再加 --lite)。"
               "清单真源:chayuan-server/packaging/bundle_manifest.py LITE_CAPS"),
+    )
+    parser.add_argument(
+        "--no-menu",
+        action="store_true",
+        help="禁用控制台交互式多选,直接按 plan 下载(install-vendor / CI / 脚本调用时传此项)。",
     )
     parser.add_argument(
         "--source",
@@ -879,10 +1018,19 @@ def main() -> int:
         plan = list(MANIFEST.keys())
     failures: list[tuple[str, str]] = []
     pruned_total = 0
-    for cap in plan:
-        spec = MANIFEST[cap]
-        # --clean-stale:在尝试下载前,清掉 cap_dir 里非 canonical 的旧子目录
-        # (比如 embedding/gte-multilingual-base → 当前 canonical 已换成 bge-m3 GGUF)。
+    units = _enumerate_units(plan)
+    # 交互式多选:仅当 TTY 且未显式给 --only/--lite(plan 是默认全集)时弹菜单。
+    interactive = (sys.stdin.isatty() and sys.stdout.isatty()
+                   and not args.only and not args.lite and not args.no_menu)
+    if interactive:
+        chosen = _interactive_select(units)
+        if not chosen:
+            _print("[install] 未选择任何模型,退出。")
+            return 0
+        units = chosen
+    for u in units:
+        cap, spec = u["cap"], u["spec"]
+        # --clean-stale:在尝试下载前,清掉 cap_dir 里非 canonical 的旧子目录。
         if args.clean_stale:
             canonical = _load_canonical_subdirs(cap)
             if canonical:
@@ -899,7 +1047,7 @@ def main() -> int:
             _print("[install] 用户中断,退出。已下载的部分文件保留(下次跑会续传)。")
             return 130
         except Exception as e:  # noqa: BLE001
-            failures.append((cap, str(e)))
+            failures.append((u["label"], str(e)))
         _print("")
 
     if args.clean_stale and pruned_total > 0:
