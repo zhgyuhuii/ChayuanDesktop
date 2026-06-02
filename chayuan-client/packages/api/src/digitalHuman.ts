@@ -27,6 +27,8 @@ export interface AvatarSlot {
   voice_provider?: DhVoiceProvider;  // 空=继承预设级音色
   voice_name?: string;
   name?: string;
+  persona?: string;       // 该角色人设/语气(多角色生成时注入 prompt)
+  ku_ids?: string[];      // 该角色专属知识源;空=用预设级 ku_ids
   voice_rate?: number;
   voice_volume?: number;
   language?: string;

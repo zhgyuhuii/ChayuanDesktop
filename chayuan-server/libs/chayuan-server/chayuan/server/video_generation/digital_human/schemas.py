@@ -14,6 +14,8 @@ class AvatarSlot(BaseModel):
     voice_provider: str = ""  # 该形象音色;空=继承预设级 voice_provider
     voice_name: str = ""      # 空=继承预设级 voice_name
     name: str = ""           # 角色昵称
+    persona: str = ""        # 该角色人设/语气(多角色生成时注入 prompt)
+    ku_ids: List[str] = Field(default_factory=list)  # 该角色专属知识源;空=用预设级 ku_ids
     voice_rate: float = 1.0
     voice_volume: float = 1.0
     language: str = ""
