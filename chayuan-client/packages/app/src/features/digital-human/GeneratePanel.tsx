@@ -199,7 +199,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     if (!f) return;
     setScripting(true);
     try {
-      const r = await digitalHuman.scriptFromVideo(f);
+      const preset = presets.find((p) => p.id === pid);
+      const r = await digitalHuman.scriptFromVideo(f, {
+        model: effectiveModel(preset, scriptModel ?? '') || undefined,
+        kuIds: effectiveKuIds(preset, scriptKuIds),
+      });
       if (r.script) await distributeScript(r.script);
     } catch (err) { reportError(err as Error, '参考视频生成文案失败'); }
     finally { setScripting(false); }
@@ -399,9 +403,14 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
 
-      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4}
-        placeholder="输入口播文案…"
-        className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)]" />
+      {/* 全局文案框仅 single 模式显示。coframe/sequential 下用户敲的字不进 body
+          (多角色发 role_scripts/role_segments),显示可编辑会误导,故隐藏;两个
+          生成按钮的产物经 distributeScript 分发到各角色框。 */}
+      {mode === 'single' && (
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4}
+          placeholder="输入口播文案…"
+          className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)]" />
+      )}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <button type="button" onClick={onAiScript} disabled={scripting || noVlmModel}
           className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-1 text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
