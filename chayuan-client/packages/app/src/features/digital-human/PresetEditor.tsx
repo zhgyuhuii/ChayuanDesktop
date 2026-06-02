@@ -536,6 +536,23 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                   onChange={(e) => setSlotField(fSlot.ref, { voice_volume: Number(e.target.value) })} className="w-16" />
                 <span>{(fSlot.voice_volume ?? 1).toFixed(2)}</span>
               </div>
+              {/* 角色人设/语气(多角色生成时注入 prompt) */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-[var(--cy-text-tertiary)]">人设/语气</label>
+                <textarea value={fSlot.persona ?? ''}
+                  onChange={(e) => setSlotField(fSlot.ref, { persona: e.target.value })}
+                  placeholder="人设/语气,如:热情主播,口语化"
+                  rows={2}
+                  className="rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 py-1 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
+              </div>
+              {/* 角色专属知识库(留空=用预设级) */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-[var(--cy-text-tertiary)]">该角色知识库</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <KnowledgePickerPill value={fSlot.ku_ids ?? []} onChange={(ids) => setSlotField(fSlot.ref, { ku_ids: ids })} />
+                </div>
+                <span className="text-[10px] text-[var(--cy-text-tertiary)]">留空=用预设知识库</span>
+              </div>
             </div>
           </div>
         );
