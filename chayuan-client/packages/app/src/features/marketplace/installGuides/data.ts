@@ -6,7 +6,7 @@
  *   - 命令、yaml 全部"复制即用"(带常用参数 / 镜像 tag / 端口),不要让用户自己再查文档
  *   - 推荐模型 id 用各家服务的 namespace(Ollama 用 ``qwen2.5:7b``,Infinity 用
  *     ``BAAI/bge-m3`` 这种 HF id),保证用户拷过去能跑
- *   - 「在察元里配置」一栏给具体路径(模型广场 → 厂商 → ⚙️ → 测试连通 → 设置默认),
+ *   - 「在察元里配置」一栏给具体路径(模型厂商 → 厂商 → ⚙️ → 测试连通 → 设置默认),
  *     连接外部安装与产品内配置
  *
  * 覆盖范围(2026-05):Ollama / Infinity / Xinference / LM Studio / vLLM / llama.cpp。
@@ -81,7 +81,7 @@ export interface InstallGuide {
   recommendedModels: RecommendedModel[];
   /**
    * "在察元里如何接入" 的步骤(纯文字,2-4 步)。
-   * 显式描述模型广场 → 厂商 → 测试连通 → 设置默认这条路径。
+   * 显式描述模型厂商 → 厂商 → 测试连通 → 设置默认这条路径。
    */
   chayuanConfigSteps: string[];
   /** 完整官方文档链接,放在 dialog 底部"查看完整文档"按钮 */
@@ -208,7 +208,7 @@ const ollama: InstallGuide = {
     { kind: 'embed', name: 'nomic-embed-text',    command: 'ollama pull nomic-embed-text',    description: '英文长文本嵌入,768 维,275 MB' },
   ],
   chayuanConfigSteps: [
-    '打开「模型广场」→ 找到 Ollama 卡片 → 点右下角 ⚙️ 设置',
+    '打开「模型厂商」→ 找到 Ollama 卡片 → 点右下角 ⚙️ 设置',
     'API Base URL 默认填 ``http://127.0.0.1:11434/v1``(本地默认端口),Docker 部署也是这个',
     '点击「测试连通 / 刷新模型」,会自动列出已 pull 的模型',
     '到「设置 → 默认模型」把对话模型选 ``qwen2.5:7b``、嵌入模型选 ``bge-m3``,新对话和知识库就会用本地模型',
@@ -314,7 +314,7 @@ const infinity: InstallGuide = {
     { kind: 'vision', name: 'jinaai/jina-clip-v1',           command: '--model-id jinaai/jina-clip-v1',          description: '图文 CLIP,文本与图像同向量空间' },
   ],
   chayuanConfigSteps: [
-    '打开「模型广场」→ 找到 Infinity 卡片 → 点右下角 ⚙️ 设置',
+    '打开「模型厂商」→ 找到 Infinity 卡片 → 点右下角 ⚙️ 设置',
     'API Base URL 填 ``http://127.0.0.1:7997/v1``,API Key 留空',
     '点击「测试连通 / 刷新模型」,会列出 ``--model-id`` 启动时挂载的所有模型',
     '到「设置 → 默认模型」把嵌入指到 ``BAAI/bge-m3``、重排指到 ``BAAI/bge-reranker-v2-m3``',
@@ -424,7 +424,7 @@ const xinference: InstallGuide = {
   ],
   chayuanConfigSteps: [
     '在 Xinference Web UI(http://127.0.0.1:9997)用 Launch Model 把要用的模型起起来',
-    '打开察元「模型广场」→ Xinference 卡片 → 点右下角 ⚙️ 设置',
+    '打开察元「模型厂商」→ Xinference 卡片 → 点右下角 ⚙️ 设置',
     'API Base URL 填 ``http://127.0.0.1:9997/v1``,API Key 留空',
     '「测试连通 / 刷新模型」拉模型列表(只显示 Xinference 已 Launch 的)',
     '「设置 → 默认模型」按需选对话 / 嵌入 / 重排',
@@ -501,7 +501,7 @@ const lmStudio: InstallGuide = {
   ],
   chayuanConfigSteps: [
     '在 LM Studio → Local Server 标签 → 选好模型 → Start Server',
-    '察元「模型广场」→ LM Studio 卡片 → 右下角 ⚙️ 设置',
+    '察元「模型厂商」→ LM Studio 卡片 → 右下角 ⚙️ 设置',
     'API Base URL 填 ``http://127.0.0.1:1234/v1``,API Key 留空',
     '「测试连通」OK 后,LM Studio 当前加载的模型就是察元能用的;切模型直接在 LM Studio 切,察元这边不用改配置',
   ],
@@ -591,7 +591,7 @@ const vllm: InstallGuide = {
   ],
   chayuanConfigSteps: [
     '在 GPU 机器上启 vLLM(参考左侧 Linux / Docker tab)',
-    '察元「模型广场」→ vLLM 卡片 → ⚙️ 设置',
+    '察元「模型厂商」→ vLLM 卡片 → ⚙️ 设置',
     'API Base URL 填 ``http://127.0.0.1:8000/v1``(远程机器把 127.0.0.1 改成对方 IP),API Key 留空',
     '「测试连通 / 刷新模型」会看到启动时 ``--model`` 指定的那一个模型',
   ],
@@ -693,7 +693,7 @@ cmake --build build --config Release -j`,
   ],
   chayuanConfigSteps: [
     '本地启动 llama-server -m model.gguf 之后',
-    '察元「模型广场」→ llama.cpp 卡片 → ⚙️ 设置',
+    '察元「模型厂商」→ llama.cpp 卡片 → ⚙️ 设置',
     'API Base URL 填 ``http://127.0.0.1:8080/v1``,API Key 留空',
     '「测试连通」拉到的就是启动时 ``-m`` 指定的那个模型',
   ],

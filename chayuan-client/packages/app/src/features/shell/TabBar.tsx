@@ -16,7 +16,7 @@
  */
 
 import * as React from 'react';
-import { Home, Settings, MessageSquare, Library, Box, Grid3x3, Clock, Plug, Wrench, Shield, Briefcase, UserRound, X } from 'lucide-react';
+import { Home, Settings, MessageSquare, Library, Box, Server, Store, Grid3x3, Clock, Plug, Wrench, Shield, Briefcase, UserRound, X } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { cn } from '@chayuan/ui';
 import {
@@ -34,6 +34,8 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   'message-square': MessageSquare,
   library: Library,
   box: Box,
+  server: Server,
+  store: Store,
   'grid-3x3': Grid3x3,
   clock: Clock,
   plug: Plug,

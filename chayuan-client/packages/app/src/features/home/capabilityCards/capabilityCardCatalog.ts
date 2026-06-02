@@ -27,7 +27,7 @@ export interface CapabilityCardSpec {
   hint: string;
   /**
    * 没有任何可用模型时的引导短语 — CapabilityCard 拼在"未配置"按钮 tooltip 里。
-   * 不需要再写"去模型广场",按钮自带文字。
+   * 不需要再写"去模型厂商",按钮自带文字。
    */
   empty_hint: string;
 }
@@ -39,7 +39,7 @@ export const HOME_CAPABILITY_CARDS: ReadonlyArray<CapabilityCardSpec> = [
     title: '对话',
     subtitle: '通用聊天 + 推理 + 工具调用',
     hint: '示例:写一篇关于 RAG 的入门科普',
-    empty_hint: '在「模型广场」接入任意一家云厂商或本地推理服务即可启用',
+    empty_hint: '在「模型厂商」接入任意一家云厂商或本地推理服务即可启用',
   },
   {
     cap: 'vl',

@@ -215,7 +215,7 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
               }}
             >
               <Cpu className="h-3.5 w-3.5" />
-              去模型广场
+              去模型厂商
             </Button>
           }
           maxHeight={menuMaxHeight}

@@ -129,7 +129,7 @@ export const DocumentKbForm: React.FC<{ onSubmitted(kbName: string): void }> = (
           <div className="min-w-0 flex-1">
             <p className="font-medium">尚未配置文本向量(embedding)模型</p>
             <p className="mt-0.5 text-[11px] text-amber-800/80">
-              在「模型广场」选择任一支持 embedding 的厂商并启用一个 embedding 模型后,即可创建文档库。
+              在「模型厂商」选择任一支持 embedding 的厂商并启用一个 embedding 模型后,即可创建文档库。
             </p>
           </div>
           <Button
@@ -139,7 +139,7 @@ export const DocumentKbForm: React.FC<{ onSubmitted(kbName: string): void }> = (
             onClick={() => void navigate({ to: '/marketplace' })}
           >
             <Cpu className="h-3.5 w-3.5" />
-            去模型广场
+            去模型厂商
           </Button>
         </div>
       )}

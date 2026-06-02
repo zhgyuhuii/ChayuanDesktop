@@ -32,7 +32,7 @@ import {
 export interface CapabilityCardGridProps {
   /** 没任何配置时,主页可能把卡片整片隐藏走另一条 onboarding;不传默认始终显示 */
   hideWhenAllEmpty?: boolean;
-  /** 传入则在本组末尾追加一张「模型广场」卡(点击 → 此回调)。 */
+  /** 传入则在本组末尾追加一张「模型厂商」卡(点击 → 此回调)。 */
   onMarketplace?: () => void;
 }
 
@@ -101,7 +101,7 @@ export const CapabilityCardGrid: React.FC<CapabilityCardGridProps> = ({
         </div>
       </header>
 
-      {/* 7 张能力卡(+末尾可选「模型广场」)。窄屏 2、lg 4、2xl 起 8(单行)。 */}
+      {/* 7 张能力卡(+末尾可选「模型厂商」)。窄屏 2、lg 4、2xl 起 8(单行)。 */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
         {isLoading && !isFetched ? (
           // 骨架 — 不阻塞首屏,等 react-query 跑完自动替换
@@ -126,7 +126,7 @@ export const CapabilityCardGrid: React.FC<CapabilityCardGridProps> = ({
             );
           })
         )}
-        {/* 末尾追加:模型广场(放在"按模型类型开始对话"这一组最后一个) */}
+        {/* 末尾追加:模型厂商(放在"按模型类型开始对话"这一组最后一个) */}
         {onMarketplace && (
           <button
             type="button"
@@ -137,7 +137,7 @@ export const CapabilityCardGrid: React.FC<CapabilityCardGridProps> = ({
               <Layers3 className="h-5 w-5" />
             </span>
             <span>
-              <span className="block text-sm font-semibold text-[var(--cy-text-primary)]">模型广场</span>
+              <span className="block text-sm font-semibold text-[var(--cy-text-primary)]">模型厂商</span>
               <span className="block text-[11px] text-[var(--cy-text-tertiary)]">云端 / 本地 / 聚合厂商一键接入</span>
             </span>
           </button>

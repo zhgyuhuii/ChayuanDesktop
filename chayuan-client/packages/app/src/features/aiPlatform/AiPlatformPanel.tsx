@@ -652,14 +652,14 @@ export const AiPlatformPanel: React.FC = () => {
           </div>
 
           {/*
-            第三行：8 个模型供应商（云）+ 类似 chayuan-client 模型广场。
+            第三行：8 个模型供应商（云）+ 类似 chayuan-client 模型厂商。
             本地推理服务（Ollama / vLLM / LM Studio / Xinference / GPUStack）
             已经在最上面的 RuntimeCenter 里管理过了，这里把 ``excludeLocal``
             打开避免与之重复；``embedded`` 关掉外层 max-w 留白让它贴合面板宽度。
           */}
           <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
             <div className="mb-2 flex items-baseline justify-between">
-              <h3 className="text-sm font-semibold">模型供应商 & 模型广场</h3>
+              <h3 className="text-sm font-semibold">模型供应商 & 模型厂商</h3>
               <span className="text-[11px] text-zinc-500">
                 云端 8 大供应商一行展示，"更多"看全部；下方按能力 / 来源筛选模型。
               </span>

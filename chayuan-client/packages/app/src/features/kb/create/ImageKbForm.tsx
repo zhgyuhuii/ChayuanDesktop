@@ -35,7 +35,7 @@ export const ImageKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({
   const onSubmit = async () => {
     if (!validName) return;
 
-    // 守卫:无 clip(图像嵌入)模型时,显示内联横幅引导到模型广场。
+    // 守卫:无 clip(图像嵌入)模型时,显示内联横幅引导到模型厂商。
     // 不用 window.confirm — Tauri 下会触发 dialog plugin ACL 错误。
     setChecking(true);
     setMissingModel(false);
@@ -121,7 +121,7 @@ export const ImageKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({
           <div className="min-w-0 flex-1">
             <p className="font-medium">尚未配置图像嵌入(clip)模型</p>
             <p className="mt-0.5 text-[11px] text-amber-800/80">
-              在「模型广场」选择支持 image2text / clip 的厂商并启用一个图像 embedding 模型后,即可创建图像库。
+              在「模型厂商」选择支持 image2text / clip 的厂商并启用一个图像 embedding 模型后,即可创建图像库。
             </p>
           </div>
           <Button
@@ -131,7 +131,7 @@ export const ImageKbForm: React.FC<{ onSubmitted(sourceId: number): void }> = ({
             onClick={() => void navigate({ to: '/marketplace' })}
           >
             <Cpu className="h-3.5 w-3.5" />
-            去模型广场
+            去模型厂商
           </Button>
         </div>
       )}

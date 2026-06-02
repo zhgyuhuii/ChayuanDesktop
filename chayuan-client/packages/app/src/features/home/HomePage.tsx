@@ -2,8 +2,8 @@
  * HomePage — 主页(单机版重构 2026-05-09):
  *
  *   1. Greeting(早/午/晚 + 用户名 + Logo)
- *   2. [可选 banner] 还没配模型 → 跳模型广场
- *   3. 5 张炫酷功能入口卡(知识库 / 模型广场 / 图转文 / 音转文 / AI 笔记)
+ *   2. [可选 banner] 还没配模型 → 跳模型厂商
+ *   3. 5 张炫酷功能入口卡(知识库 / 模型厂商 / 图转文 / 音转文 / AI 笔记)
  *   4. 按模型类型开始对话(CapabilityCardGrid)
  *   5. 流式产品介绍气泡(进首页跑一次,流完即静止)
  *   6. 招商合作 banner
@@ -156,7 +156,7 @@ export const HomePage: React.FC = () => {
   };
 
   const onConfigureModel = () => {
-    open('/marketplace', { title: '模型广场', icon: 'box' });
+    open('/marketplace', { title: '模型厂商', icon: 'server' });
     void navigate({ to: '/marketplace' as never });
   };
 
@@ -287,7 +287,7 @@ export const HomePage: React.FC = () => {
               还没配置任何可用模型
             </p>
             <p className="text-xs text-amber-700/90 dark:text-amber-200/80">
-              先去模型广场接入云厂商或本地推理服务(Ollama / Infinity / vLLM 等),才能开始对话。
+              先去模型厂商接入云厂商或本地推理服务(Ollama / Infinity / vLLM 等),才能开始对话。
             </p>
           </div>
           <button
@@ -370,7 +370,7 @@ export const HomePage: React.FC = () => {
               className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]"
               title={introError}
             >
-              (LLM 不可用,已用本地文案兜底 — 可前往模型广场配置)
+              (LLM 不可用,已用本地文案兜底 — 可前往模型厂商配置)
             </p>
           )}
         </div>

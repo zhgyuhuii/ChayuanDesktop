@@ -1,5 +1,5 @@
 /**
- * 模型广场后台对接层。
+ * 模型厂商后台对接层。
  *
  * 后端端点(chayuan-server):
  *   GET /v1/models                                      → { data: RawModelItem[] }
@@ -201,7 +201,7 @@ export async function listEmbeddingModels(): Promise<RawModelItem[]> {
  * 同 id 不同 platform 去重(保留首个;platform 加入 vendor 字段)。
  *
  * 仅返回**对话用**(model_type='llm')模型;embed/rerank/tts/stt 等不该出现在
- * 模型广场和 chat 选择器里。后端 /v1/models 也支持 ?type=llm 过滤,但部分端点
+ * 模型厂商和 chat 选择器里。后端 /v1/models 也支持 ?type=llm 过滤,但部分端点
  * 走过滤、部分要全集(例如 catalog 渲染),所以前端再过一次以保险。
  * 老版本后端不返回 model_type 字段时按"未知"放行(向后兼容)。
  */

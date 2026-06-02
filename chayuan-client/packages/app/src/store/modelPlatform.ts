@@ -2,7 +2,7 @@
  * 模型平台状态层 — RQ keys + 写后热生效编排。
  *
  * 核心:写操作成功后**先 setQueryData 局部更新**(零闪烁),**再** invalidate models query
- * 让 ChatComposer / 模型广场 cards 自动用上最新平台配置。
+ * 让 ChatComposer / 模型厂商 cards 自动用上最新平台配置。
  *
  * 后端契约:`bump_platform_version()` + `get_OpenAIClient` 不缓存
  *  → 任何后续 chat/embedding 调用都会读到最新 platform,无需重启服务。

@@ -1,7 +1,7 @@
 /**
  * 模型厂商公开 API（``/v1/providers/*``）。
  *
- * 单机版前端「模型广场」专用入口；底层与 ``modelPlatform``(``/admin/model_platforms``)
+ * 单机版前端「模型厂商」专用入口；底层与 ``modelPlatform``(``/admin/model_platforms``)
  * 复用同一组 repository / utils，但路由对游客开放（CLAUDE.md §1）。
  *
  * 路由契约（与后端 ``provider_routes.py`` 对齐）:

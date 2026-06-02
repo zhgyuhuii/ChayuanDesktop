@@ -145,7 +145,7 @@ export const SettingsAsPage: React.FC = () => {
       {/* 本地模型服务(spec: 2026-05-16) */}
       <LocalRuntimeServicesSection />
 
-      {/* 默认模型 — 模型广场配好厂商后,这里挑哪一个用做默认 */}
+      {/* 默认模型 — 模型厂商配好厂商后,这里挑哪一个用做默认 */}
       <DefaultModelsSection />
 
       {/* AI 键已下线(2026-05-24);触发链路待重做,不再在设置页暴露 */}
@@ -283,7 +283,7 @@ const THEME_OPTS: Array<{
   { value: 'system', icon: Monitor },
 ];
 
-// 设置页"默认模型"分组 — 与模型广场保持单向数据流:
+// 设置页"默认模型"分组 — 与模型厂商保持单向数据流:
 // 广场配好厂商/模型 → list() 候选刷新 → 这里挑选 → setMany() 写盘 → 业务读真源。
 //
 // 显示哪几类:聊天 / 文本嵌入 / 重排 三类高频。
@@ -404,7 +404,7 @@ const DefaultModelsSection: React.FC = () => {
                     onClick={() => void navigate({ to: '/marketplace' })}
                   >
                     <Cpu className="h-3.5 w-3.5" />
-                    去模型广场
+                    去模型厂商
                   </Button>
                 }
               />

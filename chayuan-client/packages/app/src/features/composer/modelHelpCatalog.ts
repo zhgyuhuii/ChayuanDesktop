@@ -28,7 +28,7 @@ export interface VendorEntry {
   /** 一句话说明 — 价格档位 / 中文优势 / 注意事项 */
   note?: string;
   /**
-   * 对应「模型广场」厂商目录(`/admin/model_platforms/catalog`)里的 ``pid``。
+   * 对应「模型厂商」厂商目录(`/admin/model_platforms/catalog`)里的 ``pid``。
    *
    * 填了这个字段,帮助面板该厂商行就会多出一个「去配置」按钮 —— 点击后跳到
    * ``/marketplace?configure=<platformId>`` 并自动弹出该厂商的 PlatformSettingsDialog

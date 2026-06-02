@@ -76,7 +76,7 @@ const TONE_HINT: Record<Tone, string> = {
   pending:     '启停中…',
   failed:      '异常',
   configured:  '已配置可用,本地未启动',
-  unavailable: '完全不可用 — 请去模型广场配置',
+  unavailable: '完全不可用 — 请去模型厂商配置',
   missing:     '未随包(轻量版)',
 };
 
@@ -150,8 +150,8 @@ export const AppFooter: React.FC = () => {
     };
   }, [reachable]);
 
-  // 系统默认模型(设置面板 / 模型广场配置 → /admin/capability_defaults)。
-  // 用 React Query 共享 ['serverCapabilityDefaults'] key:模型广场保存厂商时
+  // 系统默认模型(设置面板 / 模型厂商配置 → /admin/capability_defaults)。
+  // 用 React Query 共享 ['serverCapabilityDefaults'] key:模型厂商保存厂商时
   // (store/modelPlatform.ts applyPlatformWriteThrough)会 invalidate 这个 key,
   // 设置页 DefaultModelsSection + 本 footer 同步立即拿到新默认,不用等 60s 轮询。
   // 任何 cap 的 defaults[key] 非 null/空 → 视为"已配置可用",footer 显示黄色
@@ -248,11 +248,11 @@ export const AppFooter: React.FC = () => {
           // 三态优先级(按用户口径 "完全不可用=既没启动模型服务又没配默认模型"):
           //   1. 实际 ready → 绿 (运行中)
           //   2. 实际 starting/restarting → pending (启停中,amber pulse)
-          //   3. 已配置(本地装了 / 设置面板/模型广场配了 default) → 黄
+          //   3. 已配置(本地装了 / 设置面板/模型厂商配了 default) → 黄
           //      — 即使本地 sidecar failed,只要有云端 default 就视为系统可用
           //   4. failed 且毫无 fallback → 红 (异常,sidecar 报错且没配默认)
           //   5. lite 包未随包 + 啥都没 → missing (灰斜线)
-          //   6. 完全没配置 → unavailable (红 — 提示去模型广场)
+          //   6. 完全没配置 → unavailable (红 — 提示去模型厂商)
           const backendCap = BACKEND_CAP_KEY[ind.key];
           const hasInstalled =
             ind.key !== 'ocr' && installedCaps.has(ind.key as LocalRuntimeCapability);

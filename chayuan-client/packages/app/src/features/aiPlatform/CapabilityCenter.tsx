@@ -17,7 +17,7 @@
  * 与 marketplace 的关系
  * ---------------------
  *
- * `MarketplacePage` 是"全网模型广场"——按厂商展开，列出云 / 内网模型；
+ * `MarketplacePage` 是"模型厂商"——按厂商展开，列出云 / 内网模型；
  * 这里是"本地能跑的引擎栈"——是 chayuan-server / 适配器层认识的那批；
  * 二者公用同一份 ``aiPlatform`` API、共享 react-query 缓存键。
  */

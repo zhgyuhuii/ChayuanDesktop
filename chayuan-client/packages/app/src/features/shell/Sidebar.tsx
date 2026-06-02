@@ -4,7 +4,7 @@
  * 段:
  *   1. 用户区:头像 + 昵称 + 编辑 icon(右) + 折叠键
  *   2. + 新建对话(Ctrl K)
- *   3. 一级入口 4 项:知识库 / 模型广场 / AI Space / 历史对话
+ *   3. 一级入口 4 项:知识库 / 模型厂商 / AI Space / 历史对话
  *   4. 二级:最近对话(展开后显示;折叠态隐藏)
  *   5. 底部:Admin(角色为 admin 时显示)
  *
@@ -21,7 +21,7 @@ import {
   Trash2,
   MessageSquareText,
   Library,
-  Box,
+  Server,
   Clock,
   Shield,
   Plug,
@@ -72,7 +72,7 @@ interface NavItem {
 
 const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { to: '/kb', labelKey: 'nav.knowledge', icon: Library },
-  { to: '/marketplace', labelKey: 'nav.modelMarket', icon: Box },
+  { to: '/marketplace', labelKey: 'nav.modelMarket', icon: Server },
   { to: '/model-gallery', labelKey: 'nav.modelGallery', icon: Store },
   { to: '/mcp', labelKey: 'nav.mcp', icon: Plug },
   { to: '/tools', labelKey: 'nav.tools', icon: Wrench },
@@ -303,7 +303,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
 
 function iconKeyFor(path: string): string {
   if (path === '/kb') return 'library';
-  if (path === '/marketplace') return 'box';
+  if (path === '/marketplace') return 'server';
   if (path === '/model-gallery') return 'store';
   if (path === '/mcp') return 'plug';
   if (path === '/tools') return 'wrench';

@@ -63,7 +63,7 @@ config.toml           用户配置
 
 ## 三、模型配置(重点 Ollama)
 
-察元采用「模型广场 = 厂商配置中心」的思路:在模型广场里配置一个或多个**厂商**,每个厂商背后挂着一组**模型**(对话 / 嵌入 / 重排 / 视觉等)。配置完成后,在对话框、知识库等所有需要选模型的地方都会自动看到。
+察元采用「模型厂商 = 厂商配置中心」的思路:在模型厂商里配置一个或多个**厂商**,每个厂商背后挂着一组**模型**(对话 / 嵌入 / 重排 / 视觉等)。配置完成后,在对话框、知识库等所有需要选模型的地方都会自动看到。
 
 ### 3.1 用本地模型还是云端模型?
 
@@ -119,7 +119,7 @@ ollama pull dengcao/bge-reranker-v2-m3:latest
 
 ### 3.4 在察元里配置 Ollama 厂商
 
-1. 顶部导航点「**模型广场**」。
+1. 顶部导航点「**模型厂商**」。
 2. 顶部 Tab 切到「**本地**」分类(也可在「**推荐**」里直接看到 Ollama)。
 3. 点 Ollama 卡片 → 进详情抽屉。
 4. 字段填写(本机一般默认即可):
@@ -134,14 +134,14 @@ ollama pull dengcao/bge-reranker-v2-m3:latest
 
 ### 3.5 配云端厂商(可选)
 
-模型广场顶部 Tab:
+模型厂商顶部 Tab:
 
 - **国内**:DeepSeek、通义千问、智谱、Moonshot、百川、字节豆包、SiliconFlow…
 - **国外**:OpenAI、Anthropic、Google、Mistral、xAI、Groq、OpenRouter…
 - **聚合**:OpenRouter / OneAPI / NewAPI(一个 key 打多个模型)
 - **自定义**:任何 OpenAI 兼容 endpoint 自填
 
-每张卡片点进详情 → 填 API base + API key → 测试连通性 → 启用所需模型即可。**模型广场只管配置,在哪里使用模型由对话框等具体场景的「模型选择器」决定。**
+每张卡片点进详情 → 填 API base + API key → 测试连通性 → 启用所需模型即可。**模型厂商只管配置,在哪里使用模型由对话框等具体场景的「模型选择器」决定。**
 
 ---
 
@@ -183,7 +183,7 @@ ollama pull dengcao/bge-reranker-v2-m3:latest
 3. 把 PDF / Word / Markdown / Excel / 图片 等文件**拖**进卡片即开始入库:
    - 文档解析(PyMuPDF / Mammoth / pandoc)
    - 切片(按段 / 表格独立)
-   - 嵌入(用你在模型广场启用的 `bge-m3:latest`)
+   - 嵌入(用你在模型厂商启用的 `bge-m3:latest`)
    - 写入本地 `sqlite-vec` 向量库
 
 进度通过 SSE 推送实时显示,无需刷新。

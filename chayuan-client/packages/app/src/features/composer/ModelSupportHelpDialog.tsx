@@ -62,7 +62,7 @@ export const ModelSupportHelpDialog: React.FC<ModelSupportHelpDialogProps> = ({
   const help = React.useMemo(() => listCapabilityHelp(), []);
   const navigate = useNavigate();
 
-  // 「去配置」:关掉帮助面板,跳到模型广场并通过 ?configure=<pid> 自动弹出该
+  // 「去配置」:关掉帮助面板,跳到模型厂商并通过 ?configure=<pid> 自动弹出该
   // 厂商的 PlatformSettingsDialog(表单已预填,用户只需填 API key)。
   // 路径里直接带 query string —— 跟随本仓 ``navigate({ to: path as never })``
   // 的既有写法(/marketplace 路由未声明 typed search,用 as never 绕过)。
@@ -216,7 +216,7 @@ const VendorRow: React.FC<{
     <div className="flex items-center justify-between gap-2">
       <span className="text-sm font-medium text-[var(--cy-text-primary)]">{v.name}</span>
       <div className="flex flex-shrink-0 items-center gap-1">
-        {/* 「去配置」只在能对应上模型广场 catalog 的厂商显示 —— 点击直接打开
+        {/* 「去配置」只在能对应上模型厂商 catalog 的厂商显示 —— 点击直接打开
             预填好的配置表单(base URL / 模型清单已填),用户只需补 API key。 */}
         {v.platformId && (
           <button

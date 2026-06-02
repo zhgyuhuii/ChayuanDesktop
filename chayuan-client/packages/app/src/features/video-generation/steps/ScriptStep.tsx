@@ -51,7 +51,7 @@ export const ScriptStep: React.FC = () => {
       });
       setScriptSlot('ai', video_script || '');
     } catch (e) {
-      reportError(e as Error, '生成脚本失败 — 请检查模型广场是否有可用 chat 模型');
+      reportError(e as Error, '生成脚本失败 — 请检查模型厂商是否有可用 chat 模型');
     } finally {
       setGenerating(false);
     }

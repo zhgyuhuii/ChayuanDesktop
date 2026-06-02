@@ -120,7 +120,7 @@ const LiveAvatarPage = React.lazy(() =>
 );
 
 /**
- * 模型广场路由包装 —— 把 ``/marketplace?configure=<pid>`` 的 search param
+ * 模型厂商路由包装 —— 把 ``/marketplace?configure=<pid>`` 的 search param
  * 解析出来注入给 ``MarketplacePage``,并在弹窗消费后把 ``configure`` 参数
  * 从当前 Tab 路径里清掉(避免返回 / 刷新重复弹窗)。
  *
@@ -218,7 +218,7 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     pattern: /^\/marketplace$/,
     render: (_params, path) => <MarketplaceRoute path={path} />,
     defaultTitle: 'nav.modelMarket',
-    defaultIcon: 'box',
+    defaultIcon: 'server',
   },
   {
     pattern: /^\/model-gallery$/,

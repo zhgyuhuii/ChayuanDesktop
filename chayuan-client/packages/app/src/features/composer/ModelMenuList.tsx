@@ -181,7 +181,7 @@ export interface ModelMenuListProps {
   resolveLogo(platform?: string, modelId?: string): string | undefined;
   /** 空列表占位文案;不传用默认 */
   emptyLabel?: string;
-  /** 空列表时渲染在 emptyLabel 下方的可选操作(如"去模型广场"按钮) */
+  /** 空列表时渲染在 emptyLabel 下方的可选操作(如"去模型厂商"按钮) */
   emptyAction?: React.ReactNode;
   /** dropdown 容器最大高度(默认 384px) */
   maxHeight?: number;

@@ -110,7 +110,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({ value, onChange }) => 
               }}
             >
               <Cpu className="h-3.5 w-3.5" />
-              去模型广场
+              去模型厂商
             </Button>
           }
           onPick={(m) => {

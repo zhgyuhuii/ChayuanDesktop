@@ -388,7 +388,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             <button
               onClick={() => void navigate({ to: '/marketplace' as never })}
               className="text-[var(--cy-brand-500)] hover:underline">
-              去模型广场安装
+              去模型厂商配置
             </button>
           </div>
         )}
