@@ -365,7 +365,7 @@ def submit(*, preset_id: str, text: str, width: int, height: int,
                      "product_ref": product_ref, "template": template, "matte": matte,
                      "engine": engine, "role_scripts": role_scripts,
                      "role_segments": role_segments, "script": script}
-    _set(tid, state="pending", progress=0)
+    _set(tid, state="pending", progress=0, preset_id=preset_id)
     _POOL.submit(_run_pipeline, tid)
     return tid
 

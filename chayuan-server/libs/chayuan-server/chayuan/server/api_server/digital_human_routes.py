@@ -408,11 +408,51 @@ def task_to_timeline(tid: str = FPath(..., max_length=64),
         owner_id=owner,
         mime="video/mp4",
         size=os.path.getsize(st.result_path),
-        tags=["digital_human"],
+        tags=[f"dh_task_{tid}"],
     )
-    # 构建带「视频轨+字幕轨」的 Timeline EDL,供 VG 时间轴编辑器加载(改字幕→VG 重渲染)
+    result_material_id = row.get("material_id")
+    materials: List[Dict[str, Any]] = [row]
+
+    # 多形象各段(coframe/sequential)逐个注册成素材,供模式相关多轨建轨;
+    # 任一段读盘/注册失败 -> 整体退回单片(segments=[]),不阻断、不 500。
+    segments = list(getattr(st, "segments", None) or [])
+    seg_with_mid: List[Dict[str, Any]] = []
+    try:
+        for seg in segments:
+            sp = seg.get("path") or ""
+            if not sp or not os.path.isfile(sp):
+                raise FileNotFoundError(f"段文件缺失: {sp!r}")
+            m = materials_store.create_material(
+                source="digital_human_role",
+                name=os.path.basename(sp),
+                path=sp,
+                owner_id=owner,
+                mime="video/mp4",
+                size=os.path.getsize(sp),
+                duration_ms=int(seg.get("duration_ms") or 0),
+                tags=[f"dh_task_{tid}", f"role_{seg.get('role_index')}"],
+            )
+            seg_with_mid.append({**seg, "material_id": m.get("material_id")})
+            materials.append(m)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh] to-timeline 段素材注册失败,退回单片: %r", e)
+        seg_with_mid = []
+        materials = [row]
+
+    # 取 compose_mode + slots:status 不存,经关联 preset(preset_id)取。
+    mode = "single"
+    slots: List[Any] = []
+    try:
+        preset = store.get_preset(getattr(st, "preset_id", "") or "")
+        if preset is not None:
+            mode = getattr(preset, "compose_mode", "single") or "single"
+            slots = list(getattr(preset, "avatars", None) or [])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh] to-timeline 取 preset 失败,按 single 建轨: %r", e)
+
+    # 构建按模式分轨的 Timeline EDL,供 VG 时间轴编辑器加载(改字幕/位置→VG 重渲染)
     from chayuan.server.video_generation.digital_human.timeline_bridge import (
-        build_cues_from_script, build_timeline,
+        build_timeline_for_mode,
     )
     dur_ms = 0
     try:
@@ -420,9 +460,17 @@ def task_to_timeline(tid: str = FPath(..., max_length=64),
         dur_ms = _probe_audio_duration_ms(st.result_path) or 0
     except Exception:  # noqa: BLE001
         dur_ms = 0
-    cues = build_cues_from_script(getattr(st, "script", "") or "", dur_ms)
-    timeline = build_timeline(st.result_path, cues, dur_ms)
-    return {"material": row, "timeline": timeline.model_dump()}
+    timeline = build_timeline_for_mode(
+        mode,
+        result_material_id=result_material_id,
+        result_path=st.result_path,
+        segments=seg_with_mid,
+        slots=slots,
+        total_ms=dur_ms,
+        script=getattr(st, "script", "") or "",
+    )
+    tl = timeline.model_dump() if hasattr(timeline, "model_dump") else timeline
+    return {"materials": materials, "timeline": tl}
 
 
 @digital_human_router.get("/live/available")

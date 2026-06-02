@@ -225,3 +225,130 @@ def test_script_from_video_passes_model_and_kb(monkeypatch, tmp_path):
     assert gen_seen["kb_context"] == "GROUND"
     assert "这是参考视频的转写文本" in gen_seen["subject"]
 
+
+
+# ---- /tasks/{tid}/to-timeline: 注册各段 material + 模式建轨 + 失败降级 ----
+
+class _St:
+    """轻量 DhTaskStatus 替身(只带 to-timeline 用到的字段)。"""
+    def __init__(self, **kw):
+        self.task_id = kw.get("task_id", "t1")
+        self.state = kw.get("state", "complete")
+        self.result_path = kw.get("result_path", "/tmp/dh/out.mp4")
+        self.script = kw.get("script", "甲: 你好 乙: 再见")
+        self.preset_id = kw.get("preset_id", "p1")
+        self.segments = kw.get("segments", [])
+
+
+class _Slot:
+    def __init__(self, name="", x=0.0, y=0.0, scale=1.0):
+        self.name, self.x, self.y, self.scale = name, x, y, scale
+
+
+class _Preset:
+    def __init__(self, compose_mode="coframe", avatars=None):
+        self.compose_mode = compose_mode
+        self.avatars = avatars or []
+
+
+def _to_timeline_env(monkeypatch, *, status, preset, create_fail_on=None):
+    """patch get_status / os 文件探测 / create_material / get_preset / 时长探测。
+    create_fail_on: 命中该 source 时 create_material 抛错(模拟段注册失败)。"""
+    import chayuan.server.api_server.digital_human_routes as routes
+    from chayuan.server.video_generation.store import materials as materials_store
+    from chayuan.server.video_generation.digital_human import store as dh_store
+
+    monkeypatch.setattr(dh_jobs, "get_status", lambda tid: status)
+    monkeypatch.setattr(dh_store, "get_preset", lambda pid: preset)
+    # os 文件探测:所有路径都视为存在、固定大小
+    monkeypatch.setattr(routes.os.path, "isfile", lambda p: True)
+    monkeypatch.setattr(routes.os.path, "getsize", lambda p: 1234)
+    # 时长探测
+    monkeypatch.setattr(
+        "chayuan.server.video_generation.steps.subtitle._probe_audio_duration_ms",
+        lambda p: 8000,
+    )
+
+    made = {"calls": []}
+
+    def _fake_create(*, source, name, path, owner_id=None, mime="", size=0,
+                     duration_ms=0, tags=None, **kw):
+        made["calls"].append({"source": source, "tags": list(tags or [])})
+        if create_fail_on and source == create_fail_on:
+            raise RuntimeError("create boom")
+        return {"material_id": f"mid-{source}-{len(made['calls'])}",
+                "source": source, "name": name, "tags": list(tags or [])}
+
+    monkeypatch.setattr(materials_store, "create_material", _fake_create)
+    return made
+
+
+def test_to_timeline_coframe_registers_segments_and_multitrack(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path)
+    segs = [
+        {"role_index": 0, "path": "/tmp/dh/r0.mp4", "text": "你好", "duration_ms": 3000},
+        {"role_index": 1, "path": "/tmp/dh/r1.mp4", "text": "再见", "duration_ms": 5000},
+    ]
+    st = _St(segments=segs, preset_id="p1")
+    preset = _Preset(compose_mode="coframe",
+                     avatars=[_Slot("甲", 0.1, 0.2, 0.5), _Slot("乙", 0.6, 0.2, 0.5)])
+    made = _to_timeline_env(monkeypatch, status=st, preset=preset)
+
+    r = c.post("/api/v1/digital-human/tasks/t1/to-timeline")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    # ① materials = 成片 + 各段
+    mats = data["materials"]
+    assert len(mats) == 3
+    assert mats[0]["source"] == "digital_human"
+    assert mats[1]["source"] == "digital_human_role"
+    assert mats[2]["source"] == "digital_human_role"
+    assert any("role_0" in m["tags"] for m in mats)
+    assert any("role_1" in m["tags"] for m in mats)
+    # ② timeline 多轨:主轨空 + 每角色轨 + 字幕轨
+    tracks = data["timeline"]["tracks"]
+    ids = [t["id"] for t in tracks]
+    assert ids[0] == "dh-main" and not tracks[0]["clips"]
+    assert "dh-role-0" in ids and "dh-role-1" in ids
+    assert any(t["kind"] == "subtitle" for t in tracks)
+    # 段 clip 落到对应角色轨
+    role0 = next(t for t in tracks if t["id"] == "dh-role-0")
+    assert len(role0["clips"]) == 1 and role0["clips"][0]["out_ms"] == 3000
+
+
+def test_to_timeline_segment_create_failure_degrades_to_single(monkeypatch, tmp_path):
+    """某段 create_material 抛错 -> 整体退回单片,不 500;只返成片 material。"""
+    c = _client(monkeypatch, tmp_path)
+    segs = [
+        {"role_index": 0, "path": "/tmp/dh/r0.mp4", "text": "你好", "duration_ms": 3000},
+        {"role_index": 1, "path": "/tmp/dh/r1.mp4", "text": "再见", "duration_ms": 5000},
+    ]
+    st = _St(segments=segs, preset_id="p1")
+    preset = _Preset(compose_mode="coframe", avatars=[_Slot("甲"), _Slot("乙")])
+    _to_timeline_env(monkeypatch, status=st, preset=preset,
+                     create_fail_on="digital_human_role")
+
+    r = c.post("/api/v1/digital-human/tasks/t1/to-timeline")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    # 降级:只剩成片 material
+    assert len(data["materials"]) == 1
+    assert data["materials"][0]["source"] == "digital_human"
+    # timeline 退回单片(单视频轨 + 字幕轨,无 dh-role-*)
+    ids = [t["id"] for t in data["timeline"]["tracks"]]
+    assert "dh-video" in ids
+    assert not any(i.startswith("dh-role-") for i in ids)
+
+
+def test_to_timeline_legacy_no_segments_single(monkeypatch, tmp_path):
+    """旧任务无 segments -> 退回单片,只返成片 material。"""
+    c = _client(monkeypatch, tmp_path)
+    st = _St(segments=[], preset_id="")
+    _to_timeline_env(monkeypatch, status=st, preset=None)
+
+    r = c.post("/api/v1/digital-human/tasks/t1/to-timeline")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert len(data["materials"]) == 1
+    ids = [t["id"] for t in data["timeline"]["tracks"]]
+    assert "dh-video" in ids
