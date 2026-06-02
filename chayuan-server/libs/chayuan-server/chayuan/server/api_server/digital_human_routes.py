@@ -55,6 +55,10 @@ def create_preset(body: Dict[str, Any],
             subtitle=body.get("subtitle"),
             video_width=int(body.get("video_width", 720) or 720),
             video_height=int(body.get("video_height", 1280) or 1280),
+            model=body.get("model", ""),
+            ku_ids=body.get("ku_ids") or [],
+            allow_model_override=bool(body.get("allow_model_override", True)),
+            allow_kb_override=bool(body.get("allow_kb_override", True)),
         )
     except KeyError as e:
         raise HTTPException(422, f"缺字段: {e}") from e

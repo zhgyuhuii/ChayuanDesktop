@@ -50,7 +50,10 @@ def create_preset(*, name: str, avatar_ref: str = "", avatar_kind: str = "image"
                   compose_mode: str = "single", layout: str = "side",
                   subtitle_enabled: bool = True,
                   subtitle: Optional[Dict[str, Any]] = None,
-                  video_width: int = 720, video_height: int = 1280) -> DigitalHumanPreset:
+                  video_width: int = 720, video_height: int = 1280,
+                  model: str = "", ku_ids: Optional[List[str]] = None,
+                  allow_model_override: bool = True,
+                  allow_kb_override: bool = True) -> DigitalHumanPreset:
     sub = subtitle or {}
     sub_fields = {k: sub[k] for k in _SUB_KEYS if k in sub}
     # subtitle_enabled 既是显式形参、又可能在嵌套 subtitle 里 → 以嵌套值优先,
@@ -62,6 +65,9 @@ def create_preset(*, name: str, avatar_ref: str = "", avatar_kind: str = "image"
         voice_provider=voice_provider, voice_name=voice_name, created=time.time(),
         avatars=avatars or [], compose_mode=compose_mode, layout=layout,
         video_width=video_width, video_height=video_height,
+        model=model, ku_ids=ku_ids or [],
+        allow_model_override=allow_model_override,
+        allow_kb_override=allow_kb_override,
         **sub_fields,
     )
     rows = _load_raw(); rows.append(p.model_dump()); _save_raw(rows)

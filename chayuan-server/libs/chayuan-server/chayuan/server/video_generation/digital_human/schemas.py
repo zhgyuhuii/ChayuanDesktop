@@ -50,6 +50,11 @@ class DigitalHumanPreset(BaseModel):
     stroke_width: float = 1.5
     video_width: int = 720    # 画布尺寸(竖屏默认);生成沿用,前端可选常用比例
     video_height: int = 1280
+    # 绑定模型 + 知识库(P1);旧 presets.json 行无这些字段 → 默认值向后兼容
+    model: str = ""
+    ku_ids: List[str] = Field(default_factory=list)
+    allow_model_override: bool = True
+    allow_kb_override: bool = True
 
     @model_validator(mode="after")
     def _sync_avatars(self) -> "DigitalHumanPreset":
