@@ -5,16 +5,31 @@
  */
 import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plus, X } from 'lucide-react';
-import { cn } from '@chayuan/ui';
-import { digitalHuman, type DigitalHumanPreset, type DhVoiceProvider, type DhAvatar,
-  type AvatarSlot, type DhComposeMode, type DhLayout } from '@chayuan/api';
+import { ChevronDown, Loader2, Plus, X } from 'lucide-react';
+import { cn, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@chayuan/ui';
+import { digitalHuman, models, type DigitalHumanPreset, type DhVoiceProvider, type DhAvatar,
+  type AvatarSlot, type DhComposeMode, type DhLayout, type RawModelItem } from '@chayuan/api';
+import type { ModalityCapability } from '@chayuan/transport';
 import { reportError } from '../../store/errorDialog';
 import { VoicePicker, type VoicePickerValue } from '../video-generation/VoicePicker';
 import { confirmDialog } from '../../store/confirmDialog';
 import { CanvasStage } from './CanvasStage';
 import { GROUPS as ASPECT_GROUPS } from '../video-generation/VgAspectPicker';
 import { videoGeneration, type VgFontItem } from '@chayuan/api';
+import { ModelMenuList, displayLabel } from '../composer/ModelMenuList';
+import { CHAT_CAPABILITIES } from '../composer/modelCapabilityChip';
+import { useResolveLogo } from '../catalog/useLogos';
+import { KnowledgePickerPill } from '../composer/KnowledgePickerPill';
+
+/** 对话模型存为 `platform_name::id`(无 platform 退化成裸 id),与后端路由一致。 */
+function encodeModel(m: RawModelItem): string {
+  return m.platform_name ? `${m.platform_name}::${m.id}` : m.id;
+}
+function decodeModel(v: string | null): { platform?: string; id: string } {
+  if (!v) return { id: '' };
+  const i = v.indexOf('::');
+  return i >= 0 ? { platform: v.slice(0, i), id: v.slice(i + 2) } : { id: v };
+}
 
 interface PresetEditorProps {
   initial?: DigitalHumanPreset;
@@ -52,6 +67,13 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
     text_background_color: initial?.text_background_color ?? true,
   });
   const setSubF = (patch: Partial<typeof sub>) => setSub((s) => ({ ...s, ...patch }));
+  // 对话模型 + 知识库绑定 + 两个"允许实时/生成时更改"开关
+  const [bindModel, setBindModel] = React.useState(initial?.model ?? '');       // platform::id
+  const [bindKuIds, setBindKuIds] = React.useState<string[]>(initial?.ku_ids ?? []);
+  const [allowModelOverride, setAllowModelOverride] = React.useState(initial?.allow_model_override ?? true);
+  const [allowKbOverride, setAllowKbOverride] = React.useState(initial?.allow_kb_override ?? true);
+  const [modelPickOpen, setModelPickOpen] = React.useState(false);
+  const resolveLogo = useResolveLogo();
   const avatarFileRef = React.useRef<HTMLInputElement | null>(null);
 
   const avatarsQ = useQuery({
@@ -63,6 +85,21 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
 
   const fontsQ = useQuery({ queryKey: ['vg.fonts'], queryFn: () => videoGeneration.listFonts() });
   const fonts: VgFontItem[] = fontsQ.data?.items ?? [];
+
+  // 对话模型选择 — 复用 GeneratePanel 同款(ModelMenuList + platform::id 编码 + CHAT 能力过滤)。
+  const modelsQ = useQuery({ queryKey: ['v1.models'], queryFn: () => models.list(), staleTime: 5 * 60 * 1000 });
+  const allModels: RawModelItem[] = React.useMemo(
+    () => (modelsQ.data ?? []).filter((m) => !m.model_type || m.model_type === 'llm'),
+    [modelsQ.data],
+  );
+  const chatCapFilter = CHAT_CAPABILITIES as ReadonlySet<ModalityCapability>;
+  const curBindModel = decodeModel(bindModel);
+  const currentBindModel = allModels.find(
+    (m) => m.id === curBindModel.id && (curBindModel.platform ? m.platform_name === curBindModel.platform : true),
+  );
+  const bindModelLabel = currentBindModel
+    ? displayLabel(currentBindModel)
+    : (curBindModel.id || (modelsQ.isLoading ? '加载中…' : '默认对话模型'));
 
   // 找到当前选中形象,用于提交时写 avatar_kind
 
@@ -165,6 +202,10 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         subtitle: sub,
         voice_provider: (slots[0]?.voice_provider || voice.voice_provider) as DigitalHumanPreset['voice_provider'],
         voice_name: slots[0]?.voice_name || voice.voice_name,
+        model: bindModel,
+        ku_ids: bindKuIds,
+        allow_model_override: allowModelOverride,
+        allow_kb_override: allowKbOverride,
       };
       if (initial) {
         await digitalHuman.updatePreset(initial.id, body);
@@ -285,6 +326,57 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         {isMulti && (
           <span className="text-[10px] text-[var(--cy-text-tertiary)]">点形象格子多选(数字=出场顺序),需 ≥2 个</span>
         )}
+      </div>
+
+      {/* 对话模型 + 知识库绑定(预设全局区,各角色配置之上) */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-[var(--cy-text-secondary)]">对话模型</label>
+        <div className="flex flex-wrap items-center gap-2">
+          <DropdownMenu open={modelPickOpen} onOpenChange={setModelPickOpen}>
+            <DropdownMenuTrigger asChild>
+              <button type="button"
+                className="inline-flex h-8 min-w-[10em] items-center gap-1.5 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
+                title="绑定默认对话模型(留空=用全局默认)">
+                <span className="max-w-[160px] truncate">{bindModelLabel}</span>
+                <ChevronDown className="ml-auto h-3 w-3 opacity-60" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" sideOffset={6} collisionPadding={12}
+              className="z-[260] w-80 overflow-hidden p-0">
+              <ModelMenuList
+                models={allModels}
+                currentId={curBindModel.id}
+                currentPlatform={curBindModel.platform}
+                allowCapabilities={chatCapFilter}
+                resolveLogo={resolveLogo}
+                emptyLabel={modelsQ.isLoading ? '加载中…' : '无可用模型'}
+                onPick={(m) => { if (m.available === false) return; setBindModel(encodeModel(m)); setModelPickOpen(false); }}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {bindModel && (
+            <button type="button" onClick={() => setBindModel('')}
+              className="text-[11px] text-[var(--cy-text-tertiary)] hover:text-[var(--cy-text-primary)]">清除</button>
+          )}
+        </div>
+        <label className="mt-0.5 inline-flex items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
+          <input type="checkbox" checked={allowModelOverride} onChange={(e) => setAllowModelOverride(e.target.checked)}
+            className="h-3.5 w-3.5 accent-[var(--cy-brand-500)]" />
+          允许实时/生成时更改
+        </label>
+      </div>
+
+      {/* 知识库绑定 */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-[var(--cy-text-secondary)]">知识库</label>
+        <div className="flex flex-wrap items-center gap-2">
+          <KnowledgePickerPill value={bindKuIds} onChange={setBindKuIds} />
+        </div>
+        <label className="mt-0.5 inline-flex items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
+          <input type="checkbox" checked={allowKbOverride} onChange={(e) => setAllowKbOverride(e.target.checked)}
+            className="h-3.5 w-3.5 accent-[var(--cy-brand-500)]" />
+          允许实时/生成时更改
+        </label>
       </div>
 
       {/* 形象选择器 */}
