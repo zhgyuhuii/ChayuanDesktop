@@ -218,14 +218,17 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, 
 
 
 def _apply_overlays(result_path, td, preset, slots, text, width, height):
-    """成片叠昵称标签+字幕(fail-safe);返回新成片路径(失败返原 result_path)。"""
+    """成片叠昵称标签+字幕(fail-safe);返回新成片路径(失败返原 result_path)。
+    昵称标签仅多角色(coframe/sequential)烧入——single 是干净口播,不烧名字。"""
     try:
         from chayuan.server.video_generation.digital_human import overlay as _ov
         from chayuan.server.video_generation.digital_human.timeline_bridge import build_cues_from_script
         from chayuan.server.video_generation.steps.subtitle import _probe_audio_duration_ms
-        labels = [((getattr(s, "name", "") or ""),
-                   float(getattr(s, "x", 0.0) or 0.0),
-                   min(0.95, float(getattr(s, "y", 0.0) or 0.0))) for s in (slots or []) if getattr(s, "name", "")]
+        compose_mode = getattr(preset, "compose_mode", "single") or "single"
+        labels = ([((getattr(s, "name", "") or ""),
+                    float(getattr(s, "x", 0.0) or 0.0),
+                    min(0.95, float(getattr(s, "y", 0.0) or 0.0))) for s in (slots or []) if getattr(s, "name", "")]
+                  if compose_mode in ("coframe", "sequential") else [])
         cues = []
         if getattr(preset, "subtitle_enabled", True):
             dur = _probe_audio_duration_ms(result_path) or 0

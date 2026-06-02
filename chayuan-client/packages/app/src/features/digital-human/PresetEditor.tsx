@@ -149,10 +149,11 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   });
 
   // 多形象:点格子 = 加入阵容(若未加入)并聚焦;已在阵容则只聚焦,不移除。
+  // 昵称自动预填「角色N」省去强制摩擦(name 必填仅多角色),用户可再改。
   const addIfAbsentAndFocus = (a: DhAvatar) => {
     setSlots((prev) => (prev.some((x) => x.ref === a.ref)
       ? prev
-      : [...prev, { ref: a.ref, kind: a.kind, label: a.name, lines: '' }]));
+      : [...prev, { ref: a.ref, kind: a.kind, label: a.name, lines: '', name: a.name || ('角色' + (prev.length + 1)) }]));
     setFocusedRef(a.ref);
   };
   // 移出阵容(不删除形象资产),点序号徽标触发。
@@ -180,7 +181,9 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slots]);
 
-  const allNamed = slots.every((s) => (s.name ?? '').trim().length > 0);
+  // 昵称必填仅对多角色(coframe/sequential)生效——名字会烧成画面标签区分角色;
+  // 单形象是干净口播,不强制昵称、也不烧名字。
+  const allNamed = composeMode === 'single' ? true : slots.every((s) => (s.name ?? '').trim().length > 0);
   const canSave = name.trim().length > 0 && !saving && allNamed && (
     composeMode === 'single' ? slots.length >= 1 : slots.length >= 2
   );
@@ -493,7 +496,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                   onChange={(e) => setSlotField(fSlot.ref, { name: e.target.value })}
                   placeholder="昵称(如 小李)"
                   className={cn('h-7 flex-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[11px] text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none',
-                    !(fSlot.name ?? '').trim() && 'border-[var(--cy-danger-500)]')} />
+                    composeMode !== 'single' && !(fSlot.name ?? '').trim() && 'border-[var(--cy-danger-500)]')} />
               </div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--cy-text-tertiary)]">
                 <select value={fSlot.language ?? ''}
@@ -522,7 +525,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
 
       {/* 操作按钮 */}
       <div className="flex items-center justify-end gap-2">
-        {!allNamed && <span className="text-[10px] text-[var(--cy-danger-500)]">每个形象必须填昵称</span>}
+        {!allNamed && composeMode !== 'single' && <span className="text-[10px] text-[var(--cy-danger-500)]">每个形象必须填昵称</span>}
         <button
           type="button"
           onClick={onCancel}
