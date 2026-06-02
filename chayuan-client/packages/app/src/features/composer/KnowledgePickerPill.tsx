@@ -11,6 +11,9 @@ export interface KnowledgePickerPillProps {
   align?: 'start' | 'center' | 'end';
   contentClassName?: string;
   includeKinds?: Array<KuItem['kind']>;
+  /** 受控模式:同时传 value+onChange 时使用传入选中值;否则默认走全局 composer store。 */
+  value?: string[];
+  onChange?: (ids: string[]) => void;
 }
 
 export const KnowledgePickerPill: React.FC<KnowledgePickerPillProps> = ({
@@ -19,9 +22,14 @@ export const KnowledgePickerPill: React.FC<KnowledgePickerPillProps> = ({
   align = 'start',
   contentClassName,
   includeKinds,
+  value,
+  onChange,
 }) => {
-  const selectedKuIds = useComposerS((s) => s.selectedKuIds);
-  const setKuIds = useComposerS((s) => s.setKuIds);
+  const storeKuIds = useComposerS((s) => s.selectedKuIds);
+  const storeSetKuIds = useComposerS((s) => s.setKuIds);
+  // 受控(value+onChange)优先;否则默认仍走全局 store(向后兼容)。
+  const selectedKuIds = value ?? storeKuIds;
+  const setKuIds = onChange ?? storeSetKuIds;
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const { data = [], isLoading } = useQuery<KuItem[]>({
