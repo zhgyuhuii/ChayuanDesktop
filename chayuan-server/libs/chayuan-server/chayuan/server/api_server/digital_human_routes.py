@@ -220,7 +220,9 @@ def script_generate(body: Dict[str, Any],
             req = SearchRequest(
                 ku_ids=ku_ids,
                 contents=[QueryContent(text=subject_text)],
-                options=QueryOptions(top_k=3),
+                # 只要原始命中喂 _format_kb_context,丢弃综合 summary,因此关掉
+                # 检索后的综合 LLM 调用,避免「检索->综合(白跑)->写文案」三段链路。
+                options=QueryOptions(top_k=3, synthesize=False),
             )
             res = kb_search(kb_subject, req)
             kb_context = _format_kb_context(res)

@@ -47,6 +47,14 @@ class QueryOptions(BaseModel):
     merge_strategy: Optional[str] = None
     rewrite_strategy: str = "auto"
     return_diagnostics: bool = True
+    synthesize: bool = Field(
+        True,
+        description=(
+            "是否在检索后用 LLM 综合一段答案(summary)。默认 True 保持现有"
+            "调用方行为不变。只取原始命中、不需要综合的调用方(如数字人 grounding)"
+            "传 False 即可跳过这次综合 LLM 调用。"
+        ),
+    )
     timeout_ms: int = Field(30000, ge=1000, le=300000)
     structured_scopes: Dict[str, List[str]] = Field(default_factory=dict)
     vector_scopes: Dict[str, List[str]] = Field(default_factory=dict)

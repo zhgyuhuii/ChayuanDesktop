@@ -148,7 +148,9 @@ def search(subject: Subject, req: SearchRequest, *, request_id: str = "", job_id
     # 拿到一致的展示形态:summary 在顶,源面板默认折叠。
     summary_text = ""
     summary_evidence_count = 0
-    if items:
+    # options.synthesize 默认 True;只取原始命中、不需要综合的调用方(数字人
+    # grounding 等)传 synthesize=False,即可跳过这次白跑的综合 LLM 调用。
+    if items and getattr(req.options, "synthesize", True):
         try:
             from chayuan.server.retrieval.query.synthesis import (
                 build_evidence_from_kb_query_items,

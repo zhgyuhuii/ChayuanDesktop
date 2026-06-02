@@ -89,3 +89,22 @@ def test_search_request_rejects_embedding_model_overrides(payload):
         SearchRequest(**payload)
 
     assert "embedding_model_not_allowed" in str(exc.value)
+
+
+def test_search_request_synthesize_defaults_true():
+    """synthesize 默认 True,保持现有所有调用方行为不变(检索后仍综合 summary)。"""
+    req = SearchRequest(
+        kb_id="doc:samples",
+        contents=[{"text": "查一下"}],
+    )
+    assert req.options.synthesize is True
+
+
+def test_search_request_synthesize_can_be_disabled():
+    """只取原始命中、不需要综合的调用方(如数字人 grounding)可显式关掉综合。"""
+    req = SearchRequest(
+        kb_id="doc:samples",
+        contents=[{"text": "查一下"}],
+        options={"synthesize": False},
+    )
+    assert req.options.synthesize is False
