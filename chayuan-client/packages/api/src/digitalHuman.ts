@@ -155,11 +155,17 @@ export async function dhTaskToTimeline(taskId: string): Promise<{ material: { id
 
 export async function dhGenerateScript(
   subject: string,
-  opts?: { language?: string; paragraphs?: number; model?: string },
+  opts?: { language?: string; paragraphs?: number; model?: string; productRef?: string },
 ): Promise<{ script: string }> {
   return rd('/api/v1/digital-human/script/generate', {
     method: 'POST',
-    body: { subject, language: opts?.language, paragraphs: opts?.paragraphs, model: opts?.model },
+    body: {
+      subject,
+      language: opts?.language,
+      paragraphs: opts?.paragraphs,
+      model: opts?.model,
+      product_ref: opts?.productRef,
+    },
   });
 }
 
@@ -188,10 +194,12 @@ export async function dhDeleteAvatar(name: string): Promise<{ deleted: boolean }
 // Products
 // ─────────────────────────────────────────────────────────────────────
 
-export async function dhUploadProduct(file: File): Promise<{ ref: string; name: string }> {
+export async function dhUploadProduct(
+  file: File,
+): Promise<{ ref: string; name: string; kind: DhAvatarKind }> {
   const fd = new FormData();
   fd.append('file', file);
-  return rd<{ ref: string; name: string }>('/api/v1/digital-human/products', {
+  return rd<{ ref: string; name: string; kind: DhAvatarKind }>('/api/v1/digital-human/products', {
     method: 'POST',
     body: fd,
   });

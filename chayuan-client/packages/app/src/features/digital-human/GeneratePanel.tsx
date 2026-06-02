@@ -1,11 +1,17 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { digitalHuman } from '@chayuan/api';
-import type { DigitalHumanPreset } from '@chayuan/api';
+import { ChevronDown } from 'lucide-react';
+import { digitalHuman, models } from '@chayuan/api';
+import type { DigitalHumanPreset, RawModelItem } from '@chayuan/api';
+import type { ModalityCapability } from '@chayuan/transport';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@chayuan/ui';
 import { reportError } from '../../store/errorDialog';
 import { promptDialog } from '../../store/promptDialog';
 import { useUsageGate, UsageGateDialogs } from '../license';
+import { ModelMenuList, displayLabel } from '../composer/ModelMenuList';
+import { CHAT_CAPABILITIES, inferCapability } from '../composer/modelCapabilityChip';
+import { useResolveLogo } from '../catalog/useLogos';
 import { DhProgressCard } from './DhProgressCard';
 
 type Template = 'corner' | 'bg' | 'side';
@@ -21,6 +27,16 @@ const DEFAULT_ENGINES: Array<{ id: EngineId; label: string; kind: 'cpu' | 'gpu';
   { id: 'wav2lip', label: 'Wav2Lip', kind: 'cpu', installed: true },
 ];
 
+/** 脚本模型存为 `platform_name::id`(无 platform 退化成裸 id),与后端路由一致。 */
+function encodeModel(m: RawModelItem): string {
+  return m.platform_name ? `${m.platform_name}::${m.id}` : m.id;
+}
+function decodeModel(v: string | null): { platform?: string; id: string } {
+  if (!v) return { id: '' };
+  const i = v.indexOf('::');
+  return i >= 0 ? { platform: v.slice(0, i), id: v.slice(i + 2) } : { id: v };
+}
+
 export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void }> = ({ presets, initialPresetId, onPresetChange }) => {
   const [pid, setPid] = React.useState(initialPresetId ?? '');
   const [text, setText] = React.useState('');
@@ -34,11 +50,22 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   // engine state
   const [engine, setEngine] = React.useState<EngineId>('wav2lip');
 
-  // product image state
+  // product image / video state
   const [productRef, setProductRef] = React.useState<string | null>(null);
   const [productName, setProductName] = React.useState<string | null>(null);
+  const [productKind, setProductKind] = React.useState<'image' | 'video' | null>(null);
   const [uploadingProduct, setUploadingProduct] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // 文案生成模型选择(挂商品图时收窄到 VLM)
+  const [scriptModel, setScriptModel] = React.useState<string | null>(null);
+  const [pickOpen, setPickOpen] = React.useState(false);
+  const resolveLogo = useResolveLogo();
+  const modelsQ = useQuery({
+    queryKey: ['v1.models'],
+    queryFn: () => models.list(),
+    staleTime: 5 * 60 * 1000,
+  });
 
   // template state (only relevant when productRef is set)
   const [template, setTemplate] = React.useState<Template>('corner');
@@ -57,10 +84,19 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     if (!subject || !subject.trim()) return;
     setScripting(true);
     try {
-      const r = await digitalHuman.generateScript(subject.trim());
+      const r = await digitalHuman.generateScript(subject.trim(), {
+        model: scriptModel ? decodeModel(scriptModel).id : undefined,
+        productRef: productRef ?? undefined,
+      });
       if (r.script) setText(r.script);
-    } catch (e) { reportError(e as Error, 'AI 生成文案失败'); }
-    finally { setScripting(false); }
+    } catch (e) {
+      reportError(
+        e as Error,
+        productRef
+          ? 'AI 生成文案失败:请选支持视觉(VLM)的模型,或去模型广场安装'
+          : 'AI 生成文案失败:请先在模型厂商配置默认对话模型',
+      );
+    } finally { setScripting(false); }
   };
   const onRefVideo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; e.target.value = '';
@@ -114,9 +150,10 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       const r = await digitalHuman.uploadProduct(file);
       setProductRef(r.ref);
       setProductName(r.name);
+      setProductKind(r.kind === 'video' ? 'video' : 'image');
       setTemplate('corner');
     } catch (err) {
-      reportError(err as Error, '商品图上传失败');
+      reportError(err as Error, '商品上传失败');
     } finally {
       setUploadingProduct(false);
     }
@@ -125,6 +162,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const removeProduct = () => {
     setProductRef(null);
     setProductName(null);
+    setProductKind(null);
     setMatte(false);
   };
 
@@ -165,6 +203,31 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   // 带门控的生成入口
   const gen = () => gate.guard(doGen);
+
+  // ── 文案生成模型选择 ─────────────────────────────────────────
+  // 挂了商品图时,文案生成需要看图 → 只允许视觉语言(VLM)模型;否则允许 chat+vl。
+  const hasImage = !!productRef && productKind !== 'video';
+  const allModels: RawModelItem[] = React.useMemo(
+    () => (modelsQ.data ?? []).filter((m) => !m.model_type || m.model_type === 'llm'),
+    [modelsQ.data],
+  );
+  const capFilter = React.useMemo<ReadonlySet<ModalityCapability>>(
+    () => (hasImage ? new Set<ModalityCapability>(['vl']) : CHAT_CAPABILITIES),
+    [hasImage],
+  );
+  // 当前可选模型(应用 capability 过滤);用于"有无 VLM"判定。
+  const vlModels = React.useMemo(
+    () => allModels.filter((m) => inferCapability(m) === 'vl'),
+    [allModels],
+  );
+  const noVlmModel = hasImage && !modelsQ.isLoading && vlModels.length === 0;
+  const curModel = decodeModel(scriptModel);
+  const currentModel = allModels.find(
+    (m) => m.id === curModel.id && (curModel.platform ? m.platform_name === curModel.platform : true),
+  );
+  const currentModelLabel = currentModel
+    ? displayLabel(currentModel)
+    : (curModel.id || (modelsQ.isLoading ? '加载中…' : '默认模型'));
 
   // 各 mode 是否有可生成内容
   const canGenerate =
@@ -220,8 +283,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4}
         placeholder="输入口播文案…"
         className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)]" />
-      <div className="flex items-center gap-2 text-xs">
-        <button type="button" onClick={onAiScript} disabled={scripting}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <button type="button" onClick={onAiScript} disabled={scripting || noVlmModel}
           className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-1 text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
           {scripting ? '生成中…' : '✨ AI 生成文案'}
         </button>
@@ -230,7 +293,55 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           🎬 参考视频生成稿
         </button>
         <input ref={refVideoRef} type="file" accept="video/*,audio/*" className="hidden" onChange={onRefVideo} />
+        {/* 文案生成模型选择 — 复用会话里的分组折叠 + 厂商图标选择器(ModelMenuList)。
+            挂商品图时(hasImage)收窄到 VLM,让文案能"看图说话"。 */}
+        <DropdownMenu open={pickOpen} onOpenChange={setPickOpen}>
+          <DropdownMenuTrigger asChild>
+            <button type="button"
+              className="inline-flex h-7 min-w-[10em] items-center gap-1.5 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
+              title={hasImage ? '挂商品图时仅可选视觉(VLM)模型' : '文案生成模型'}>
+              <span className="max-w-[140px] truncate">{currentModelLabel}</span>
+              <ChevronDown className="ml-auto h-3 w-3 opacity-60" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" sideOffset={6} collisionPadding={12}
+            className="z-[260] w-80 overflow-hidden p-0">
+            <ModelMenuList
+              models={allModels}
+              currentId={curModel.id}
+              currentPlatform={curModel.platform}
+              allowCapabilities={capFilter}
+              resolveLogo={resolveLogo}
+              emptyLabel={
+                modelsQ.isLoading
+                  ? '加载中…'
+                  : hasImage
+                    ? '未检测到图像对话(VLM)模型'
+                    : '无可用模型'
+              }
+              emptyAction={
+                hasImage ? (
+                  <button type="button"
+                    onClick={() => { setPickOpen(false); void navigate({ to: '/model-gallery' as never }); }}
+                    className="text-[var(--cy-brand-500)] hover:underline">
+                    去模型广场安装
+                  </button>
+                ) : undefined
+              }
+              onPick={(m) => { if (m.available === false) return; setScriptModel(encodeModel(m)); setPickOpen(false); }}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+      {noVlmModel && (
+        <div className="flex items-center gap-2 text-xs text-[var(--cy-text-secondary)]">
+          <span>未检测到图像对话(VLM)模型,无法基于商品图生成文案。</span>
+          <button type="button" onClick={() => void navigate({ to: '/model-gallery' as never })}
+            className="text-[var(--cy-brand-500)] hover:underline">
+            去模型广场安装
+          </button>
+        </div>
+      )}
 
       {mode === 'coframe' && roles.length > 0 && (
         <div className="flex flex-col gap-2">
@@ -292,12 +403,13 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,video/*"
           className="hidden"
           onChange={(e) => void handleProductFileChange(e)}
         />
         {productRef ? (
           <>
+            <span className="text-sm" aria-hidden>{productKind === 'video' ? '🎬' : '🖼️'}</span>
             <span className="max-w-[160px] truncate text-sm text-[var(--cy-text-primary)]">{productName}</span>
             <button
               onClick={removeProduct}
@@ -310,7 +422,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             onClick={() => fileInputRef.current?.click()}
             disabled={uploadingProduct}
             className="inline-flex h-8 items-center rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
-            {uploadingProduct ? '上传中…' : '上传商品图（可选）'}
+            {uploadingProduct ? '上传中…' : '上传商品图 / 视频（可选）'}
           </button>
         )}
       </div>
