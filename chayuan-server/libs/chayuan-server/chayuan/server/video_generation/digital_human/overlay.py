@@ -7,31 +7,54 @@ from typing import List, Optional, Tuple
 logger = logging.getLogger("chayuan.dh.overlay")
 
 
-def _font() -> Optional[str]:
+def _bundled_fonts_dir():
     try:
         from chayuan.server.video_generation import binaries
-        import os
-        d = binaries.get_fonts_dir()
-        for f in sorted(os.listdir(d)):
-            if f.lower().endswith((".ttf", ".otf", ".ttc")):
-                return os.path.join(d, f)
+        return binaries.get_fonts_dir()
     except Exception:  # noqa: BLE001
-        pass
+        return None
+
+
+def _data_fonts_dir():
+    try:
+        from chayuan.server.video_generation import _helpers
+        return _helpers.font_dir()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _resolve_font_path(font_name: Optional[str] = None) -> Optional[str]:
+    """与主合成 steps/compose 对齐:优先数据目录 <root>/video_generation/fonts,
+    再回退 vendor/bundled_fonts。font_name 可为绝对路径 / 文件名 / 空(默认 STHeiti)。
+    之前 overlay 只查 bundled,dev/未打包时 bundled 为空 → 返 None →
+    TextClip(font=None) 触发 pillow "Invalid font None" → 字幕叠加失败。"""
+    import os
+    if font_name and os.path.isabs(font_name) and os.path.isfile(font_name):
+        return font_name
+    name = font_name or "STHeitiMedium.ttc"
+    dirs = [d for d in (_data_fonts_dir(), _bundled_fonts_dir()) if d]
+    # 1) 指定名(或默认 STHeiti)优先
+    for base in dirs:
+        p = os.path.join(base, name)
+        if os.path.isfile(p):
+            return p
+    # 2) 目录里任意可用字体兜底
+    for base in dirs:
+        try:
+            for f in sorted(os.listdir(base)):
+                if f.lower().endswith((".ttf", ".otf", ".ttc")):
+                    return os.path.join(base, f)
+        except Exception:  # noqa: BLE001
+            continue
     return None
 
 
+def _font() -> Optional[str]:
+    return _resolve_font_path()
+
+
 def _font_for(style):
-    try:
-        import os
-        from chayuan.server.video_generation import binaries
-        fn = (style or {}).get("font_name")
-        if fn:
-            p = os.path.join(binaries.get_fonts_dir(), fn)
-            if os.path.isfile(p):
-                return p
-    except Exception:  # noqa: BLE001
-        pass
-    return _font()
+    return _resolve_font_path((style or {}).get("font_name"))
 
 
 def add_overlays(video_path: str, out_path: str, *, labels: Optional[List[Tuple[str, float, float]]] = None,

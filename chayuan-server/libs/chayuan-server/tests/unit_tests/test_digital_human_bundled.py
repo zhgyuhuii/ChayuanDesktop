@@ -106,3 +106,16 @@ def test_voice_string_edge_gets_prefix():
     assert _voice_string("edge", "edge:zh-CN-YunxiNeural") == "edge:zh-CN-YunxiNeural"  # 幂等
     assert _voice_string("sherpa", "vits-zh-aishell3") == "sherpa:vits-zh-aishell3"
     assert _voice_string("piper", "zh_CN-huayan-medium") == "zh_CN-huayan-medium"
+
+
+def test_overlay_font_resolves_data_dir(tmp_path, monkeypatch):
+    """overlay 字幕字体要能从数据目录 <root>/video_generation/fonts 找到;
+    之前只看空的 bundled → font=None → pillow Invalid font None,字幕丢失。"""
+    from chayuan.server.video_generation.digital_human import overlay
+    from chayuan.server.video_generation import _helpers, binaries
+    fdir = tmp_path / "fonts"; fdir.mkdir()
+    (fdir / "STHeitiMedium.ttc").write_bytes(b"x")
+    monkeypatch.setattr(_helpers, "font_dir", lambda: str(fdir))
+    monkeypatch.setattr(binaries, "get_fonts_dir", lambda: None)  # bundled 为空
+    assert overlay._font_for({"font_name": "STHeitiMedium.ttc"}) == str(fdir / "STHeitiMedium.ttc")
+    assert overlay._font() == str(fdir / "STHeitiMedium.ttc")  # 默认也命中数据目录
