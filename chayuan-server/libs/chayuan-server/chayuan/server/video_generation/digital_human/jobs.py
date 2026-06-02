@@ -213,6 +213,7 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, 
 
     clips = []
     unit_roles = []
+    seg_meta = []  # 各段元数据(供模式相关多轨建轨):role_index/path/text/duration_ms
     n = max(1, len(units))
     for i, ap, u in synthd:
         av = resolve_avatar_path(slots[u.role_index].ref)
@@ -224,10 +225,13 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, 
                                     width=width, height=height, on_progress=None)
         clips.append(cp)
         unit_roles.append(u.role_index)
+        seg_meta.append({"role_index": int(u.role_index), "path": cp,
+                         "text": getattr(u, "text", "") or "",
+                         "duration_ms": _probe_duration_ms(cp)})
         _set(tid, progress=10 + int((i + 1) * 78 / n))
     if not clips:
         raise RuntimeError("没有可用片段(形象缺失)")
-    return clips, unit_roles
+    return clips, unit_roles, seg_meta
 
 
 def _apply_overlays(result_path, td, preset, slots, text, width, height):
@@ -282,7 +286,7 @@ def _run_pipeline(tid: str) -> None:
         slots = list(getattr(preset, "avatars", None) or [])
         mode = getattr(preset, "compose_mode", "single") or "single"
         if mode in ("coframe", "sequential") and len(slots) >= 2:
-            clips, unit_roles = _gen_slot_clips(tid, preset, slots, args["text"],
+            clips, unit_roles, seg_meta = _gen_slot_clips(tid, preset, slots, args["text"],
                                     args.get("engine") or "wav2lip", td,
                                     args["width"], args["height"],
                                     role_scripts=args.get("role_scripts"),
@@ -309,7 +313,7 @@ def _run_pipeline(tid: str) -> None:
                 shutil.copyfile(clips[0], out_path)
             out_path = _apply_overlays(out_path, td, preset, slots, args.get("text"), args["width"], args["height"])
             _set(tid, state="complete", progress=100, result_path=out_path,
-                 script=args.get("text", ""))
+                 script=args.get("text", ""), segments=seg_meta)
             return
         # ---- 单形象(原路径)----
         avatar = resolve_avatar_path(preset.avatar_ref)

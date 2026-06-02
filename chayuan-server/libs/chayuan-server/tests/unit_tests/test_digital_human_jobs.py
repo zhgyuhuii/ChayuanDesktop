@@ -245,11 +245,16 @@ def test_gen_slot_clips_uses_per_slot_voice(monkeypatch, tmp_path):
         voice_provider="piper", voice_name="default",
         avatars=[AvatarSlot(ref="user:a", kind="video", voice_provider="sherpa", voice_name="vz"),
                  AvatarSlot(ref="user:b", kind="video", voice_provider="piper", voice_name="default")])
-    clips, unit_roles = dh_jobs._gen_slot_clips(
+    clips, unit_roles, seg_meta = dh_jobs._gen_slot_clips(
         "t", preset, preset.avatars, "全局", "wav2lip", str(tmp_path), 720, 1280,
         role_scripts=["甲词", "乙词"])
     assert len(clips) == 2
     assert unit_roles == [0, 1]
+    # seg_meta 与 clips 对齐(role_index/path/text/duration_ms),供模式建轨用
+    assert len(seg_meta) == 2
+    assert [m["role_index"] for m in seg_meta] == [0, 1]
+    assert seg_meta[0]["path"] == clips[0] and seg_meta[1]["path"] == clips[1]
+    assert all("text" in m and "duration_ms" in m for m in seg_meta)
     # ThreadPoolExecutor 并发合成,seen 顺序不保证;验证两槽各自音色都出现
     assert ("sherpa", "vz") in seen
     assert ("piper", "default") in seen

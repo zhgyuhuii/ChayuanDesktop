@@ -88,3 +88,6 @@ class DhTaskStatus(BaseModel):
     error: str = ""
     result_path: str = ""
     script: str = ""          # 生成所用文案(供"送到时间轴"派生字幕 cue)
+    # 多形象各段元数据(coframe/sequential 才填;single 为 []),供模式相关多轨建轨:
+    # [{"role_index": int, "path": str, "text": str, "duration_ms": int}]
+    segments: List[Dict[str, Any]] = Field(default_factory=list)
