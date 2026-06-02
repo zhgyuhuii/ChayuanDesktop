@@ -6,6 +6,7 @@
  */
 
 import { request, getClientConfig } from './client';
+import type { VgMaterial, VgTimeline } from './videoGeneration';
 
 // ─────────────────────────────────────────────────────────────────────
 // 类型 — 跟后端 schemas.py 对齐,同步定义在 @chayuan/transport types.ts
@@ -158,7 +159,9 @@ export async function dhComposeReference(files: File[]): Promise<DhAvatar> {
   return rd<DhAvatar>('/api/v1/digital-human/avatars/compose', { method: 'POST', body: fd });
 }
 
-export async function dhTaskToTimeline(taskId: string): Promise<{ material: { id: string; name: string }; timeline?: unknown }> {
+export async function dhTaskToTimeline(
+  taskId: string,
+): Promise<{ materials: VgMaterial[]; timeline: VgTimeline }> {
   return rd(`/api/v1/digital-human/tasks/${encodeURIComponent(taskId)}/to-timeline`, { method: 'POST' });
 }
 
