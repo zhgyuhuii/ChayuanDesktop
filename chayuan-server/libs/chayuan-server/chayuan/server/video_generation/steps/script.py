@@ -268,11 +268,16 @@ def generate_script(
     paragraph_number: int = 1,
     model: Optional[str] = None,
     product_ref: Optional[str] = None,
+    kb_context: Optional[str] = None,
 ) -> str:
     """LLM 生成视频文案。失败返空串。
 
     ``product_ref`` 传 ``product:<fid>`` 时,从商品目录解析出图片/视频
     (视频抽多帧),走多模态 VLM 看图出带货文案;无则走纯文本路径。
+
+    ``kb_context`` 非空时(由路由层从绑定知识库检索拼好),前置注入到
+    prompt 主题提示前,作为「企业知识/参考话术」grounding。与 product_ref
+    多模态分支可并存(都拼进同一段 prompt 文本)。
     """
 
     if not video_subject.strip():
@@ -282,6 +287,8 @@ def generate_script(
         language=language or "auto",
         paragraph_number=max(1, min(paragraph_number, 10)),
     )
+    if kb_context and kb_context.strip():
+        prompt = f"【企业知识/参考话术】\n{kb_context.strip()}\n\n" + prompt
     if product_ref:
         data_urls = _product_image_data_urls(product_ref)
         if data_urls:
