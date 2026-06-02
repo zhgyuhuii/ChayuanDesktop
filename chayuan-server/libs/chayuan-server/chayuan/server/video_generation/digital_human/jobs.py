@@ -183,8 +183,21 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, 
     from chayuan.server.video_generation.digital_human import script_router as _sr
     from concurrent.futures import ThreadPoolExecutor
     dh_type = getattr(preset, "compose_mode", "single") or "single"
+    # 空音色的槽继承预设级音色（对齐 schema 注释：voice_provider/voice_name 空=继承预设级）。
+    # 在 jobs 层预处理，plan/_unit 保持纯；浅拷贝以免改原 preset.avatars。
+    eff_slots = []
+    for s in slots:
+        prov = getattr(s, "voice_provider", "") or ""
+        vname = getattr(s, "voice_name", "") or ""
+        if prov and vname:
+            eff_slots.append(s)
+            continue
+        es = s.model_copy()
+        es.voice_provider = prov or (getattr(preset, "voice_provider", "") or "")
+        es.voice_name = vname or (getattr(preset, "voice_name", "") or "")
+        eff_slots.append(es)
     units = _sr.plan(dh_type, script=global_text, role_scripts=role_scripts,
-                     role_segments=role_segments, roles=slots)
+                     role_segments=role_segments, roles=eff_slots)
     if not units:
         raise RuntimeError("无可合成台词")
 

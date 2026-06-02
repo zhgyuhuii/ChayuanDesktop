@@ -389,6 +389,38 @@ def test_coframe_turntaking_dispatch(monkeypatch, tmp_path):
     assert len(seen.get("positions")) == 2
 
 
+def test_empty_slot_voice_inherits_preset(monkeypatch, tmp_path):
+    """R3 重构丢失的回退:槽留空音色时应继承预设级 voice_provider/voice_name
+    (对齐 schema 注释)。第二槽留空 → 合成时用 ("piper","default") 而非默认音色。"""
+    monkeypatch.setattr(_helpers, "_chayuan_root", lambda: tmp_path)
+    seen = []
+    monkeypatch.setattr(dh_jobs, "_synth_to_wav",
+        lambda text, provider, name, ap, **kwargs:
+            (seen.append((text, provider, name)), open(ap, "wb").write(b"w"), ap)[2])
+    class _E:
+        def generate(self, *, avatar_path, audio_path, out_path, width, height, on_progress=None):
+            open(out_path, "wb").write(b"mp4"); return out_path
+    monkeypatch.setattr(dh_jobs, "get_engine", lambda eid="wav2lip": _E())
+    monkeypatch.setattr(dh_jobs, "resolve_avatar_path", lambda ref: "/tmp/a.mp4")
+    from chayuan.server.video_generation.digital_human import compose_multi as cm
+    monkeypatch.setattr(cm, "render_sequential", lambda clips, **k: (open(k["out_path"], "wb").write(b"s"), k["out_path"])[1])
+    # 预设级音色 piper/default;第一槽自带 sherpa/v1,第二槽留空音色 → 应继承预设级。
+    pid = dh_jobs.store.create_preset(name="m", avatar_ref="user:a", avatar_kind="video",
+        voice_provider="piper", voice_name="default",
+        avatars=[{"ref": "user:a", "kind": "video", "voice_provider": "sherpa", "voice_name": "v1"},
+                 {"ref": "user:b", "kind": "video"}],
+        compose_mode="sequential").id
+    tid = uuid.uuid4().hex[:12]
+    dh_jobs._PENDING[tid] = {"preset_id": pid, "text": "全局", "width": 720, "height": 1280,
+                             "role_scripts": ["甲的台词", "乙的台词"]}
+    dh_jobs._set(tid, state="pending", progress=0)
+    dh_jobs.run_sync(tid)
+    assert dh_jobs.get_status(tid).state == "complete"
+    # 第一槽用自己的音色;第二槽留空 → 继承预设级 piper/default(非 voice=None 默认音色)。
+    assert ("甲的台词", "sherpa", "v1") in seen
+    assert ("乙的台词", "piper", "default") in seen
+
+
 def test_single_narration_uses_role_rate_volume(monkeypatch):
     seen = {}
     monkeypatch.setattr(dh_jobs, "_synth_to_wav",
