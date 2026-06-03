@@ -1,12 +1,34 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { digitalHuman, type AvatarSlot, type DigitalHumanPreset } from '@chayuan/api';
 import { GeneratePanel } from './GeneratePanel';
 import { CanvasStage, type CanvasProduct } from './CanvasStage';
 import { DhTaskList } from './DhTaskList';
 
+/** 折叠后的竖条(左设置 / 右预览),点击展开。 */
+const CollapsedSide: React.FC<{ label: string; icon: React.ReactNode; onExpand: () => void }> = ({ label, icon, onExpand }) => (
+  <button type="button" onClick={onExpand} title={`展开${label}`}
+    className="flex h-full w-7 shrink-0 flex-col items-center justify-center gap-2 rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]">
+    {icon}
+    <span className="text-[11px] [writing-mode:vertical-rl]">{label}</span>
+  </button>
+);
+
+/** 折叠后的横条(上区 / 下区列表),点击展开。 */
+const CollapsedBar: React.FC<{ label: string; icon: React.ReactNode; onExpand: () => void }> = ({ label, icon, onExpand }) => (
+  <button type="button" onClick={onExpand} title={`展开${label}`}
+    className="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] text-xs text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]">
+    {icon}{label}
+  </button>
+);
+
+const collapseBtnCls =
+  'absolute right-1.5 top-1.5 z-20 flex h-6 w-6 items-center justify-center rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]/90 text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]';
+
 /**
- * 数字人工作台:左设置 / 可拖拽分隔 / 右预览(画布可拖数字人 + 商品图,松手持久化到 preset);底部全宽任务列表。
+ * 数字人工作台:上区(左设置 / 拖拽分隔 / 右预览)+ 下区全宽任务列表。
+ * 上下可拖拽调高度;上区/下区/左设置/右预览均可折叠成细条,点细条展开。
  */
 export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string }> = ({ presets, initialPresetId }) => {
   const qc = useQueryClient();
@@ -74,43 +96,132 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
     window.addEventListener('pointerup', onUp);
   };
 
+  // 下区任务列表高度,可上下拖拽,clamp 80-700。
+  const [bottomH, setBottomH] = React.useState<number>(() => {
+    const v = Number(localStorage.getItem('dh.studio.bottomH'));
+    return v >= 80 && v <= 700 ? v : 176;
+  });
+  const onResizeV = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = bottomH;
+    const onMove = (ev: PointerEvent) => setBottomH(Math.max(80, Math.min(700, startH - (ev.clientY - startY))));
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      setBottomH((cur) => { localStorage.setItem('dh.studio.bottomH', String(Math.round(cur))); return cur; });
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  // 四向折叠状态;上区与下区不可同时折叠。
+  const [col, setColState] = React.useState<{ top: boolean; bottom: boolean; left: boolean; right: boolean }>(() => {
+    try {
+      const o = JSON.parse(localStorage.getItem('dh.studio.collapse') ?? '');
+      if (o && typeof o === 'object') return { top: !!o.top, bottom: !!o.bottom, left: !!o.left, right: !!o.right };
+    } catch { /* ignore */ }
+    return { top: false, bottom: false, left: false, right: false };
+  });
+  const setCol = (patch: Partial<{ top: boolean; bottom: boolean; left: boolean; right: boolean }>) =>
+    setColState((c) => {
+      const next = { ...c, ...patch };
+      if (next.top && next.bottom) { if (patch.top) next.bottom = false; else next.top = false; }
+      localStorage.setItem('dh.studio.collapse', JSON.stringify(next));
+      return next;
+    });
+
+  const canvas = (
+    <div
+      className="relative max-h-full max-w-full overflow-hidden rounded-lg bg-black shadow-lg ring-1 ring-[var(--cy-border-strong)]"
+      style={{ aspectRatio: `${w} / ${h}`, maxWidth: '100%', maxHeight: '100%', ...(w >= h ? { width: '100%', height: 'auto' } : { height: '100%', width: 'auto' }) }}
+    >
+      {preset && localRoles.length > 0 ? (
+        <CanvasStage width={w} height={h} roles={localRoles} onChange={onRoleChange}
+          product={localProduct} onProductChange={onProductChange} />
+      ) : preset && preset.avatar_kind === 'image' ? (
+        <img src={url} alt={preset.name} className="h-full w-full object-cover" />
+      ) : preset ? (
+        <video src={url} muted loop autoPlay playsInline className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-white/40">在左侧选择或到「我的数字人」新建一个数字人</div>
+      )}
+      <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/50 px-2 py-0.5 text-[10px] text-white/80">
+        {w}×{h} · {modeLabel} · 可拖拽数字人{localProduct ? '/商品图' : ''}
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-full flex-col gap-2">
       {/* 上区:左设置 | 拖拽分隔 | 右预览 */}
-      <div className="flex min-h-0 flex-1 gap-0">
-        <div className="shrink-0 overflow-y-auto pr-1" style={{ width: `${leftPct}%` }}>
-          <GeneratePanel presets={presets} initialPresetId={pid} onPresetChange={setPid} embedded />
-        </div>
-        <div
-          onPointerDown={onResizeDown}
-          title="拖拽调整宽度"
-          className="mx-0.5 w-1.5 shrink-0 cursor-col-resize rounded bg-[var(--cy-border-subtle)] hover:bg-[var(--cy-brand-400)]"
-        />
-        <div className="flex min-w-0 flex-1 items-center justify-center rounded-xl bg-[var(--cy-surface-2)] p-4">
-          <div
-            className="relative max-h-full max-w-full overflow-hidden rounded-lg bg-black shadow-lg ring-1 ring-[var(--cy-border-strong)]"
-            style={{ aspectRatio: `${w} / ${h}`, maxWidth: '100%', maxHeight: '100%', ...(w >= h ? { width: '100%', height: 'auto' } : { height: '100%', width: 'auto' }) }}
-          >
-            {preset && localRoles.length > 0 ? (
-              <CanvasStage width={w} height={h} roles={localRoles} onChange={onRoleChange}
-                product={localProduct} onProductChange={onProductChange} />
-            ) : preset && preset.avatar_kind === 'image' ? (
-              <img src={url} alt={preset.name} className="h-full w-full object-cover" />
-            ) : preset ? (
-              <video src={url} muted loop autoPlay playsInline className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-white/40">在左侧选择或到「我的数字人」新建一个数字人</div>
-            )}
-            <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/50 px-2 py-0.5 text-[10px] text-white/80">
-              {w}×{h} · {modeLabel} · 可拖拽数字人{localProduct ? '/商品图' : ''}
+      {col.top ? (
+        <CollapsedBar label="设置 / 预览" icon={<ChevronDown className="h-4 w-4" />} onExpand={() => setCol({ top: false })} />
+      ) : (
+        <div className="flex min-h-0 flex-1 gap-0">
+          {col.left ? (
+            <CollapsedSide label="设置" icon={<ChevronRight className="h-4 w-4" />} onExpand={() => setCol({ left: false })} />
+          ) : (
+            <div className="relative shrink-0" style={{ width: col.right ? '100%' : `${leftPct}%` }}>
+              <button type="button" title="折叠设置栏" onClick={() => setCol({ left: true })} className={collapseBtnCls}>
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <div className="h-full overflow-y-auto pr-1">
+                <GeneratePanel presets={presets} initialPresetId={pid} onPresetChange={setPid} embedded />
+              </div>
             </div>
-          </div>
+          )}
+
+          {!col.left && !col.right && (
+            <div
+              onPointerDown={onResizeDown}
+              title="拖拽调整宽度"
+              className="mx-0.5 w-1.5 shrink-0 cursor-col-resize rounded bg-[var(--cy-border-subtle)] hover:bg-[var(--cy-brand-400)]"
+            />
+          )}
+
+          {col.right ? (
+            <CollapsedSide label="预览" icon={<ChevronLeft className="h-4 w-4" />} onExpand={() => setCol({ right: false })} />
+          ) : (
+            <div className="relative flex min-w-0 flex-1 items-center justify-center rounded-xl bg-[var(--cy-surface-2)] p-4">
+              <button type="button" title="折叠预览栏" onClick={() => setCol({ right: true })} className={collapseBtnCls}>
+                <ChevronRight className="h-4 w-4" />
+              </button>
+              {canvas}
+            </div>
+          )}
         </div>
-      </div>
+      )}
+
+      {/* 上下分隔:拖拽调高度 + 折叠上/下 */}
+      {!col.top && !col.bottom && (
+        <div className="flex h-3 shrink-0 items-center gap-1">
+          <div onPointerDown={onResizeV} title="拖拽调整高度"
+            className="h-1.5 flex-1 cursor-row-resize rounded bg-[var(--cy-border-subtle)] hover:bg-[var(--cy-brand-400)]" />
+          <button type="button" title="折叠上方(设置/预览)" onClick={() => setCol({ top: true })}
+            className="flex h-4 w-5 items-center justify-center rounded text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]">
+            <ChevronUp className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" title="折叠下方列表" onClick={() => setCol({ bottom: true })}
+            className="flex h-4 w-5 items-center justify-center rounded text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]">
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+          <div onPointerDown={onResizeV} title="拖拽调整高度"
+            className="h-1.5 flex-1 cursor-row-resize rounded bg-[var(--cy-border-subtle)] hover:bg-[var(--cy-brand-400)]" />
+        </div>
+      )}
+
       {/* 下区:全宽任务列表 */}
-      <div className="h-44 shrink-0 overflow-hidden rounded-xl border border-[var(--cy-border-subtle)]">
-        <DhTaskList />
-      </div>
+      {col.bottom ? (
+        <CollapsedBar label="任务列表" icon={<ChevronUp className="h-4 w-4" />} onExpand={() => setCol({ bottom: false })} />
+      ) : (
+        <div
+          className={`shrink-0 overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] ${col.top ? 'flex-1' : ''}`}
+          style={col.top ? undefined : { height: bottomH }}
+        >
+          <DhTaskList />
+        </div>
+      )}
     </div>
   );
 };
