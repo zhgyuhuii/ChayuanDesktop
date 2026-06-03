@@ -51,21 +51,24 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
     persist({ product_x: pos.x, product_y: pos.y, product_scale: pos.scale });
   }, [persist]);
 
-  const [leftW, setLeftW] = React.useState<number>(() => {
-    const v = Number(localStorage.getItem('dh.studio.leftW'));
-    return v >= 320 && v <= 720 ? v : 400;
+  // 左设置宽、右预览窄(默认 4:1 = 80%);可拖拽,clamp 55%-90%。
+  const [leftPct, setLeftPct] = React.useState<number>(() => {
+    const v = Number(localStorage.getItem('dh.studio.leftPct'));
+    return v >= 55 && v <= 90 ? v : 80;
   });
   const onResizeDown = (e: React.PointerEvent) => {
     e.preventDefault();
+    const row = (e.currentTarget as HTMLElement).parentElement;
+    const totalW = row?.offsetWidth || 1000;
     const startX = e.clientX;
-    const startW = leftW;
+    const startPct = leftPct;
     const onMove = (ev: PointerEvent) => {
-      setLeftW(Math.max(320, Math.min(720, startW + (ev.clientX - startX))));
+      setLeftPct(Math.max(55, Math.min(90, startPct + ((ev.clientX - startX) / totalW) * 100)));
     };
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      setLeftW((cur) => { localStorage.setItem('dh.studio.leftW', String(cur)); return cur; });
+      setLeftPct((cur) => { localStorage.setItem('dh.studio.leftPct', String(Math.round(cur))); return cur; });
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -75,7 +78,7 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
     <div className="flex h-full flex-col gap-2">
       {/* 上区:左设置 | 拖拽分隔 | 右预览 */}
       <div className="flex min-h-0 flex-1 gap-0">
-        <div className="shrink-0 overflow-y-auto pr-1" style={{ width: leftW }}>
+        <div className="shrink-0 overflow-y-auto pr-1" style={{ width: `${leftPct}%` }}>
           <GeneratePanel presets={presets} initialPresetId={pid} onPresetChange={setPid} embedded />
         </div>
         <div

@@ -445,7 +445,6 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     const avail = new Set(kbList.map((k) => k.ku_id));
     return bound.filter((id) => !avail.has(id));
   }, [curPreset?.ku_ids, kbList, kbsQ.isLoading]);
-  const modelBindState = bindingStateOf(curPreset?.model ?? '', scriptModel ?? '', modelInvalid);
   const kbBindState = bindingStateOf(
     normKuIds(curPreset?.ku_ids), normKuIds(scriptKuIds), missingKuIds.length > 0,
   );
@@ -511,37 +510,57 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       {/* 按次门控弹层 */}
       <UsageGateDialogs app="avatar" gate={gate} />
 
-      {/* Engine picker row */}
-      <div>
-        <div className="mb-1 text-xs text-[var(--cy-text-tertiary)]">画质引擎</div>
-        <div className="flex flex-wrap gap-2">
-          {engines.map((e) => (
-            <button
-              key={e.id}
-              onClick={() => setEngine(e.id as EngineId)}
-              className={`h-8 rounded-md px-3 text-sm ${engine === e.id
-                ? 'bg-[var(--cy-ink-700)] text-white'
-                : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]'}`}>
-              {e.label}
-              {!e.installed && (
-                <span className="ml-1 text-xs text-[var(--cy-text-tertiary)]">· 未安装</span>
-              )}
-            </button>
-          ))}
-        </div>
-        {!engineInstalled && (
-          <div className="mt-1 text-sm text-[var(--cy-text-secondary)]">
-            该 GPU 引擎随完整版自带、装好即用;若显示未就绪,请运行
-            <code className="mx-1 rounded bg-[var(--cy-surface-2)] px-1 text-xs">python scripts/install-bundled-models.py</code>
-            勾选「数字人」安装后重启。
-          </div>
+      {/* 画质引擎 · 数字人 · 对话模型 · 知识库 — 一行 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={engine} onChange={(e) => setEngine(e.target.value as EngineId)} title="画质引擎"
+          className="h-8 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)]">
+          {engines.map((e) => <option key={e.id} value={e.id}>{e.label}{!e.installed ? ' · 未安装' : ''}</option>)}
+        </select>
+        <select value={pid} onChange={(e) => setPid(e.target.value)} title="数字人"
+          className="h-8 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)]">
+          {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        {showModelPicker(curPreset) && (
+          <DropdownMenu open={pickOpen} onOpenChange={setPickOpen}>
+            <DropdownMenuTrigger asChild>
+              <button type="button"
+                className="inline-flex h-8 min-w-[8em] items-center gap-1.5 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
+                title={hasImage ? '挂商品图时仅可选视觉(VLM)模型' : '文案生成模型'}>
+                <span className="max-w-[140px] truncate">{currentModelLabel}</span>
+                <ChevronDown className="ml-auto h-3 w-3 opacity-60" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" sideOffset={6} collisionPadding={12} className="z-[260] w-80 overflow-hidden p-0">
+              <ModelMenuList
+                models={allModels}
+                currentId={curModel.id}
+                currentPlatform={curModel.platform}
+                allowCapabilities={capFilter}
+                resolveLogo={resolveLogo}
+                emptyLabel={modelsQ.isLoading ? '加载中…' : hasImage ? '未检测到图像对话(VLM)模型' : '无可用模型'}
+                emptyAction={hasImage ? (
+                  <button type="button" onClick={() => { setPickOpen(false); void navigate({ to: '/model-gallery' as never }); }}
+                    className="text-[var(--cy-brand-500)] hover:underline">去模型广场安装</button>
+                ) : undefined}
+                onPick={(m) => { if (m.available === false) return; setScriptModel(encodeModel(m)); setPickOpen(false); }}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
+        {showKbPicker(curPreset) && (
+          <KnowledgePickerPill side="bottom" align="start" value={scriptKuIds} onChange={setScriptKuIds} />
+        )}
+        {showKbPicker(curPreset) && (curPreset?.ku_ids?.length || missingKuIds.length > 0) ? (
+          <BindingHint state={kbBindState} label={kbLabel} noun="知识库" />
+        ) : null}
       </div>
-
-      <select value={pid} onChange={(e) => setPid(e.target.value)}
-        className="h-8 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)]">
-        {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
+      {!engineInstalled && (
+        <div className="text-sm text-[var(--cy-text-secondary)]">
+          该 GPU 引擎随完整版自带、装好即用;若显示未就绪,请运行
+          <code className="mx-1 rounded bg-[var(--cy-surface-2)] px-1 text-xs">python scripts/install-bundled-models.py</code>
+          勾选「数字人」安装后重启。
+        </div>
+      )}
 
       {/* 全局文案框仅 single 模式显示。coframe/sequential 下用户敲的字不进 body
           (多角色发 role_scripts/role_segments),显示可编辑会误导,故隐藏;两个
@@ -573,57 +592,6 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           🎬 参考视频生成稿
         </button>
         <input ref={refVideoRef} type="file" accept="video/*,audio/*" className="hidden" onChange={onRefVideo} />
-        {/* 文案生成知识库选择(受控);预设锁定知识源时隐藏。 */}
-        {showKbPicker(curPreset) && (
-          <KnowledgePickerPill side="bottom" align="start" value={scriptKuIds} onChange={setScriptKuIds} />
-        )}
-        {showKbPicker(curPreset) && (curPreset?.ku_ids?.length || missingKuIds.length > 0) ? (
-          <BindingHint state={kbBindState} label={kbLabel} noun="知识库" />
-        ) : null}
-        {/* 文案生成模型选择 — 复用会话里的分组折叠 + 厂商图标选择器(ModelMenuList)。
-            挂商品图时(hasImage)收窄到 VLM,让文案能"看图说话"。预设锁定模型时隐藏。 */}
-        {showModelPicker(curPreset) && (curPreset?.model || modelInvalid) && (
-          <BindingHint state={modelBindState} label={currentModelLabel} noun="模型" />
-        )}
-        {showModelPicker(curPreset) && (
-          <DropdownMenu open={pickOpen} onOpenChange={setPickOpen}>
-            <DropdownMenuTrigger asChild>
-              <button type="button"
-                className="inline-flex h-7 min-w-[10em] items-center gap-1.5 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
-                title={hasImage ? '挂商品图时仅可选视觉(VLM)模型' : '文案生成模型'}>
-                <span className="max-w-[140px] truncate">{currentModelLabel}</span>
-                <ChevronDown className="ml-auto h-3 w-3 opacity-60" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" sideOffset={6} collisionPadding={12}
-              className="z-[260] w-80 overflow-hidden p-0">
-              <ModelMenuList
-                models={allModels}
-                currentId={curModel.id}
-                currentPlatform={curModel.platform}
-                allowCapabilities={capFilter}
-                resolveLogo={resolveLogo}
-                emptyLabel={
-                  modelsQ.isLoading
-                    ? '加载中…'
-                    : hasImage
-                      ? '未检测到图像对话(VLM)模型'
-                      : '无可用模型'
-                }
-                emptyAction={
-                  hasImage ? (
-                    <button type="button"
-                      onClick={() => { setPickOpen(false); void navigate({ to: '/model-gallery' as never }); }}
-                      className="text-[var(--cy-brand-500)] hover:underline">
-                      去模型广场安装
-                    </button>
-                  ) : undefined
-                }
-                onPick={(m) => { if (m.available === false) return; setScriptModel(encodeModel(m)); setPickOpen(false); }}
-              />
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
       </div>
       {/* 失效绑定明确提示(模型被卸 / 知识库被删) */}
       {(modelInvalid || missingKuIds.length > 0) && (
@@ -757,6 +725,10 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             {uploadingProduct ? '上传中…' : '上传商品图 / 视频（可选）'}
           </button>
         )}
+        <button onClick={() => void gen()} disabled={!pid || !canGenerate || busy || !engineInstalled}
+          className="inline-flex h-8 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
+          生成数字人视频
+        </button>
       </div>
 
       {/* Matte toggle — only shown when a product image is selected */}
@@ -772,11 +744,6 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           <span className="text-xs text-[var(--cy-text-tertiary)]">人像需绿幕底最佳</span>
         </label>
       )}
-
-      <button onClick={() => void gen()} disabled={!pid || !canGenerate || busy || !engineInstalled}
-        className="inline-flex h-8 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
-        生成数字人视频
-      </button>
 
       {!embedded && taskId && <DhProgressCard taskId={taskId} />}
       {!embedded && recentTasks.length > 0 && (
