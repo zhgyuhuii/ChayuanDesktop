@@ -78,20 +78,9 @@ def load_license_config() -> dict:
     pub_hex = pick("LICENSE_ED25519_PUBLIC_KEY", "ed25519_public_key", EMBEDDED["ed25519_public_key"])
     buy_base_url = pick("LICENSE_BUY_BASE_URL", "buy_base_url", EMBEDDED["buy_base_url"])
 
-    # products:模块->位号(0-7)。env JSON 优先,其次文件 dict,最后默认 EMBEDDED["products"]
-    products = dict(EMBEDDED["products"])
-    env_products = os.environ.get("LICENSE_PRODUCTS")
-    if env_products:
-        try:
-            products = json.loads(env_products)
-        except Exception:
-            products = dict(EMBEDDED["products"])
-    elif isinstance(f.get("products"), dict):
-        products = f["products"]
-    try:
-        products = {str(k): int(v) for k, v in products.items()}
-    except (TypeError, ValueError):
-        products = dict(EMBEDDED["products"])
+    # products(模块->位号)是与服务端 modules.js 的全局契约,**只认内嵌 EMBEDDED**,
+    # 不接受 env/yaml 覆盖——避免数据目录残留/不全的 products 配置导致 no-module。
+    products = {str(k): int(v) for k, v in EMBEDDED["products"].items()}
 
     hmac_keys = {}
     if hmac_hex:
