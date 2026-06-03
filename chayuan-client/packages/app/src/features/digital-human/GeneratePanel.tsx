@@ -389,6 +389,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       }
       const opts = {
         engine,
+        script_model: effectiveModel(curPreset, scriptModel ?? '') || undefined,
         ...(productRef ? { product_image: productRef, matte } : {}),
         ...modeFields,
       };

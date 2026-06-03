@@ -87,6 +87,7 @@ class DhGenerateRequest(BaseModel):
     script: Optional[str] = None              # single 用
     role_scripts: Optional[List[str]] = None  # coframe 用:每角色一串,plan 按句轮流交织
     role_segments: Optional[List[Dict[str, Any]]] = None  # sequential 用:有序 [{role_index,text}]
+    script_model: str = ""    # 生成文稿用的对话模型(列表视图显示;手输=空)
 
 
 class DhTaskStatus(BaseModel):
@@ -96,6 +97,9 @@ class DhTaskStatus(BaseModel):
     error: str = ""
     result_path: str = ""
     script: str = ""          # 生成所用文案(供"送到时间轴"派生字幕 cue)
+    script_model: str = ""    # 生成文稿用的对话模型(空=手输/未知)
+    engine: str = ""          # 画质引擎(wav2lip/sadtalker/musetalk)
+    created_at: float = 0.0   # 任务提交时间戳(列表视图显示)
     # 多形象各段元数据(coframe/sequential 才填;single 为 []),供模式相关多轨建轨:
     # [{"role_index": int, "path": str, "text": str, "duration_ms": int}]
     segments: List[Dict[str, Any]] = Field(default_factory=list)

@@ -100,6 +100,9 @@ export interface DhTaskStatus {
   error: string;
   result_path: string;
   script?: string;
+  script_model?: string;   // 生成文稿用的对话模型
+  engine?: string;         // 画质引擎
+  created_at?: number;     // 提交时间戳
 }
 
 export interface DhEngineInfo {
@@ -314,6 +317,7 @@ export async function dhGenerate(
     script?: string;
     role_scripts?: string[];
     role_segments?: Array<{ role_index: number; text: string }>;
+    script_model?: string;
   },
 ): Promise<{ task_id: string }> {
   return rd<{ task_id: string }>('/api/v1/digital-human/generate', {
@@ -329,6 +333,7 @@ export async function dhGenerate(
       script: opts?.script,
       role_scripts: opts?.role_scripts,
       role_segments: opts?.role_segments,
+      script_model: opts?.script_model,
     },
   });
 }

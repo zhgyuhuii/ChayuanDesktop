@@ -4,7 +4,7 @@
 进度走轮询(routes 暴露 GET status),不复用 vg 的 SSE(那条绑 VideoParams)。
 """
 from __future__ import annotations
-import logging, os, threading, uuid
+import logging, os, threading, time, uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Optional
 
@@ -405,13 +405,15 @@ def _run_pipeline(tid: str) -> None:
 def submit(*, preset_id: str, text: str, width: int, height: int,
            product_ref: Optional[str] = None, template: str = "none",
            matte: bool = False, engine: str = "wav2lip",
-           role_scripts=None, role_segments=None, script=None) -> str:
+           role_scripts=None, role_segments=None, script=None,
+           script_model: str = "") -> str:
     tid = uuid.uuid4().hex[:12]
     _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height,
                      "product_ref": product_ref, "template": template, "matte": matte,
                      "engine": engine, "role_scripts": role_scripts,
                      "role_segments": role_segments, "script": script}
-    _set(tid, state="pending", progress=0, preset_id=preset_id)
+    _set(tid, state="pending", progress=0, created_at=time.time(),
+         script_model=script_model, engine=engine)
     _POOL.submit(_run_pipeline, tid)
     return tid
 
