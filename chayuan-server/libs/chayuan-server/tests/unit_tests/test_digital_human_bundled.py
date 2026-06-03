@@ -142,3 +142,11 @@ def test_parse_ffmpeg_duration_ms():
     assert _parse_ffmpeg_duration_ms("  Duration: 00:00:40.80, start: 0.0, bitrate: 234") == 40800
     assert _parse_ffmpeg_duration_ms("Duration: 01:02:03.5,") == 3723500
     assert _parse_ffmpeg_duration_ms("no duration here") == 0
+
+
+def test_dh_delete_task():
+    from chayuan.server.video_generation.digital_human import jobs
+    jobs._STATUS["t_del_x"] = jobs.DhTaskStatus(task_id="t_del_x", state="complete")
+    assert jobs.delete_task("t_del_x", drop_files=False) is True
+    assert "t_del_x" not in jobs._STATUS
+    assert jobs.delete_task("nope_x", drop_files=False) is False

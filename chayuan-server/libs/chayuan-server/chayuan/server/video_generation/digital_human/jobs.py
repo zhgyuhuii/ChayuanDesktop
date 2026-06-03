@@ -167,6 +167,26 @@ def _synthesize_narration(text: str, preset, audio_path: str) -> str:
                          rate=rate, volume=volume)
 
 
+def delete_task(tid: str, *, drop_files: bool = True) -> bool:
+    """删任务记录(+可选删产物目录)。镜像 VG delete_task。"""
+    with _LOCK:
+        st = _STATUS.pop(tid, None)
+        if st is not None:
+            _persist_locked()
+    _PENDING.pop(tid, None)
+    if st is None:
+        return False
+    if drop_files:
+        import shutil
+        try:
+            d = task_dir(f"dh-{tid}")
+            if d and os.path.isdir(d):
+                shutil.rmtree(d, ignore_errors=True)
+        except Exception:  # noqa: BLE001
+            pass
+    return True
+
+
 def _parse_ffmpeg_duration_ms(stderr_text: str) -> int:
     """从 ffmpeg -i 的 stderr 解析 ``Duration: HH:MM:SS.xx`` → 毫秒;无则 0。"""
     import re

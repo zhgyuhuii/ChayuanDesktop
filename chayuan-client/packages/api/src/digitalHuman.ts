@@ -50,6 +50,10 @@ export interface DigitalHumanPreset {
   layout?: DhLayout;
   video_width?: number;
   video_height?: number;
+  /** 商品图/视频归一位置+大小(画布拖拽);空=用 template 摆位。 */
+  product_x?: number;
+  product_y?: number;
+  product_scale?: number;
   /** 绑定默认对话模型(provider::model);空=用全局默认 chat 模型。 */
   model?: string;
   /** 绑定知识源(doc:* / src:* / office:*);空=不挂知识库。 */
@@ -164,6 +168,17 @@ export async function dhTaskToTimeline(
   taskId: string,
 ): Promise<{ materials: VgMaterial[]; timeline: VgTimeline }> {
   return rd(`/api/v1/digital-human/tasks/${encodeURIComponent(taskId)}/to-timeline`, { method: 'POST' });
+}
+
+export async function dhDeleteTask(
+  taskId: string,
+  opts: { drop_file?: boolean } = {},
+): Promise<{ ok: boolean }> {
+  const q = opts.drop_file === false ? '?drop_file=false' : '';
+  return rd<{ ok: boolean }>(
+    `/api/v1/digital-human/tasks/${encodeURIComponent(taskId)}${q}`,
+    { method: 'DELETE' },
+  );
 }
 
 /** 文案生成的「依据来源」——后端命中知识库时透传(kb_used + sources)。 */
@@ -381,6 +396,7 @@ export const digitalHuman = {
   generate: dhGenerate,
   taskStatus: dhTaskStatus,
   listTasks: dhListTasks,
+  deleteTask: dhDeleteTask,
   taskFileUrl: dhTaskFileUrl,
   avatarFileUrl: dhAvatarFileUrl,
   liveAvailable: dhLiveAvailable,

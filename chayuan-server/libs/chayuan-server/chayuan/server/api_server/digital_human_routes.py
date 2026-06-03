@@ -7,7 +7,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Tuple
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FPath
 from fastapi.responses import FileResponse
 
@@ -574,6 +574,12 @@ def task_file(tid: str,
     if st.state != "complete" or not os.path.isfile(st.result_path):
         raise HTTPException(404, "产物未就绪")
     return FileResponse(st.result_path, media_type="video/mp4", filename="digital_human.mp4")
+
+
+@digital_human_router.delete("/tasks/{tid}")
+def delete_task(tid: str, drop_file: bool = Query(True),
+                user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    return {"ok": dh_jobs.delete_task(tid, drop_files=drop_file)}
 
 
 @digital_human_router.post("/tasks/{tid}/to-timeline")

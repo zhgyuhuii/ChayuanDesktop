@@ -99,7 +99,7 @@ export function previewOrder(
   return out;
 }
 
-export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void }> = ({ presets, initialPresetId, onPresetChange }) => {
+export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void; embedded?: boolean }> = ({ presets, initialPresetId, onPresetChange, embedded }) => {
   const [pid, setPid] = React.useState(initialPresetId ?? '');
   const [text, setText] = React.useState('');
   // coframe(#6):每角色一串文案,index 对应角色
@@ -797,8 +797,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         生成数字人视频
       </button>
 
-      {taskId && <DhProgressCard taskId={taskId} />}
-      {recentTasks.length > 0 && (
+      {!embedded && taskId && <DhProgressCard taskId={taskId} />}
+      {!embedded && recentTasks.length > 0 && (
         <div className="flex flex-col gap-2 border-t border-[var(--cy-border-subtle)] pt-2">
           <div className="text-xs text-[var(--cy-text-tertiary)]">最近任务</div>
           {recentTasks.map((t) => (
