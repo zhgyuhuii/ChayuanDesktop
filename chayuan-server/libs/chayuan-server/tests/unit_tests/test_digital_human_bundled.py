@@ -133,3 +133,12 @@ def test_bundled_engine_dir_and_installed(tmp_path, monkeypatch):
     monkeypatch.setattr(engine, "_port_listening", lambda *a, **k: False)
     assert engine._engine_installed("sadtalker") is True
     assert engine._engine_installed("musetalk") is False
+
+
+def test_parse_ffmpeg_duration_ms():
+    """商品图合成黑屏真因:旧 _probe 用不存在的 ffprobe → 返 0 → dur_ms 落 5000 兜底
+    → 成片 5 秒后黑。改用 ffmpeg -i 解析 Duration;此测纯解析函数。"""
+    from chayuan.server.video_generation.digital_human.jobs import _parse_ffmpeg_duration_ms
+    assert _parse_ffmpeg_duration_ms("  Duration: 00:00:40.80, start: 0.0, bitrate: 234") == 40800
+    assert _parse_ffmpeg_duration_ms("Duration: 01:02:03.5,") == 3723500
+    assert _parse_ffmpeg_duration_ms("no duration here") == 0

@@ -167,16 +167,25 @@ def _synthesize_narration(text: str, preset, audio_path: str) -> str:
                          rate=rate, volume=volume)
 
 
+def _parse_ffmpeg_duration_ms(stderr_text: str) -> int:
+    """从 ffmpeg -i 的 stderr 解析 ``Duration: HH:MM:SS.xx`` → 毫秒;无则 0。"""
+    import re
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", stderr_text or "")
+    if not m:
+        return 0
+    h, mnt, s = int(m.group(1)), int(m.group(2)), float(m.group(3))
+    return int((h * 3600 + mnt * 60 + s) * 1000)
+
+
 def _probe_duration_ms(path: str) -> int:
-    """ffprobe 取媒体时长(ms);失败返 0。"""
+    """媒体时长(ms);失败返 0。imageio_ffmpeg 只带 ffmpeg、不带 ffprobe,
+    旧实现 ff.replace("ffmpeg","ffprobe") 得到的 exe 不存在 → 永远返 0 →
+    商品图合成 dur_ms 落 5000 兜底 → 成片 5 秒后黑屏。改用存在的 ffmpeg -i 解析 Duration。"""
     try:
-        import imageio_ffmpeg, subprocess, json as _json
+        import imageio_ffmpeg, subprocess
         ff = imageio_ffmpeg.get_ffmpeg_exe()
-        ffprobe = ff.replace("ffmpeg", "ffprobe")
-        out = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration",
-                              "-of", "json", path], capture_output=True, text=True, timeout=30)
-        dur = float(_json.loads(out.stdout or "{}").get("format", {}).get("duration") or 0)
-        return int(dur * 1000)
+        out = subprocess.run([ff, "-i", path], capture_output=True, text=True, timeout=30)
+        return _parse_ffmpeg_duration_ms(out.stderr or "")
     except Exception:  # noqa: BLE001
         return 0
 
