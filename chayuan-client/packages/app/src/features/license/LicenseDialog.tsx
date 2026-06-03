@@ -9,7 +9,7 @@
  * - 刷新在线授权 → store.refresh（后端内部做偶尔在线自动激活）。
  */
 
-import { type PayChannels, licenseBuyUrl } from '@chayuan/api';
+import { type PayChannels, licenseBuyUrl, licenseFingerprint } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
 import {
   Button,
@@ -37,6 +37,8 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
   const [buyUrl, setBuyUrl] = React.useState<string>('');
   const [channels, setChannels] = React.useState<PayChannels | null>(null);
   const [serial, setSerial] = React.useState('');
+  const [fingerprint, setFingerprint] = React.useState('');
+  const [fpCopied, setFpCopied] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -57,6 +59,26 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
       alive = false;
     };
   }, [open, app]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    licenseFingerprint()
+      .then((r) => { if (alive) setFingerprint(r.fingerprint); })
+      .catch(() => { if (alive) setFingerprint(''); });
+    return () => { alive = false; };
+  }, [open]);
+
+  const onCopyFp = async () => {
+    if (!fingerprint) return;
+    try {
+      await navigator.clipboard.writeText(fingerprint);
+      setFpCopied(true);
+      setTimeout(() => setFpCopied(false), 2000);
+    } catch {
+      // 剪贴板不可用时静默
+    }
+  };
 
   const scanText = channelScanText(channels);
 
@@ -133,6 +155,18 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
             >
               或在手机中打开购买页
             </a>
+          ) : null}
+
+          {fingerprint ? (
+            <div className="w-full rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
+              <div className="flex items-center justify-between gap-2">
+                <span>本机指纹 <code className="font-mono text-foreground">{fingerprint}</code></span>
+                <button type="button" className="underline" onClick={() => void onCopyFp()}>
+                  {fpCopied ? '已复制' : '复制'}
+                </button>
+              </div>
+              <p className="mt-1">在电脑浏览器打开 aidooo.com/buy,粘贴此指纹号下单;付款后把序列号填到下方激活。</p>
+            </div>
           ) : null}
         </div>
 
@@ -226,7 +260,13 @@ function reasonText(reason?: string): string {
     case 'invalid-app':
       return '该授权适用于其他产品，请使用对应产品的授权码。';
     case 'signature':
-      return '授权凭证签名校验失败。';
+      return '序列号校验失败,请核对是否填写完整、购买时是否填对了本机指纹。';
+    case 'no-module':
+      return '此序列号对应的功能模块未在本机授权表中。请确认桌面已更新到最新版本后重试。';
+    case 'unknown-key':
+      return '序列号密钥版本与本机不匹配,请更新桌面版本。';
+    case 'used':
+      return '该序列号已被使用过。';
     default:
       return '激活失败，请核对序列号或稍后重试。';
   }

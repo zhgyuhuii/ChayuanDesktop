@@ -16,6 +16,8 @@ license_settings.yaml 字段:
 """
 import os
 import json
+
+from chayuan.server.license.embedded import EMBEDDED
 from pathlib import Path
 
 
@@ -68,28 +70,28 @@ def load_license_config() -> dict:
         return str(fv) if fv is not None else default
 
     try:
-        active = int(pick("LICENSE_ACTIVE_KEY_ID", "active_key_id", "1"))
+        active = int(pick("LICENSE_ACTIVE_KEY_ID", "active_key_id", str(EMBEDDED["active_key_id"])))
     except ValueError:
         active = 1
 
-    hmac_hex = pick("LICENSE_HMAC_KEY_V1", "hmac_key_v1")
-    pub_hex = pick("LICENSE_ED25519_PUBLIC_KEY", "ed25519_public_key")
-    buy_base_url = pick("LICENSE_BUY_BASE_URL", "buy_base_url", "https://aidooo.com")
+    hmac_hex = pick("LICENSE_HMAC_KEY_V1", "hmac_key_v1", EMBEDDED["hmac_key_v1"])
+    pub_hex = pick("LICENSE_ED25519_PUBLIC_KEY", "ed25519_public_key", EMBEDDED["ed25519_public_key"])
+    buy_base_url = pick("LICENSE_BUY_BASE_URL", "buy_base_url", EMBEDDED["buy_base_url"])
 
-    # products:模块->位号(0-7)。env JSON 优先,其次文件 dict,最后默认 {"video": 0}
-    products = {"video": 0}
+    # products:模块->位号(0-7)。env JSON 优先,其次文件 dict,最后默认 EMBEDDED["products"]
+    products = dict(EMBEDDED["products"])
     env_products = os.environ.get("LICENSE_PRODUCTS")
     if env_products:
         try:
             products = json.loads(env_products)
         except Exception:
-            products = {"video": 0}
+            products = dict(EMBEDDED["products"])
     elif isinstance(f.get("products"), dict):
         products = f["products"]
     try:
         products = {str(k): int(v) for k, v in products.items()}
     except (TypeError, ValueError):
-        products = {"video": 0}
+        products = dict(EMBEDDED["products"])
 
     hmac_keys = {}
     if hmac_hex:
