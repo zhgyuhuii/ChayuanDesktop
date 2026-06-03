@@ -32,11 +32,9 @@ def _pick_weights_dir(bases) -> Optional[str]:
     return None
 
 
-def _resolve_wav2lip_dir() -> Optional[str]:
-    """含 wav2lip_gan.pth + s3fd 的本地权重目录。
-    顺序:CHAYUAN_ROOT/models/bundled/digital_human → vendor/bundled_models/digital_human。
-    每个根都同时探平铺与 wav2lip/ 子目录。
-    """
+def _bundled_dir_bases():
+    """数字人 bundled 根目录候选:CHAYUAN_ROOT/models/bundled/digital_human → vendor。
+    wav2lip/sadtalker/musetalk 的目录解析与「已安装」判定共用唯一来源。"""
     bases = []
     try:
         from chayuan.settings import CHAYUAN_ROOT
@@ -48,7 +46,21 @@ def _resolve_wav2lip_dir() -> Optional[str]:
         vd = parent / "vendor" / "bundled_models" / "digital_human"
         if vd.is_dir():
             bases.append(vd); break
-    return _pick_weights_dir(bases)
+    return bases
+
+
+def _bundled_engine_dir(subdir: str) -> Optional[str]:
+    """某引擎在数据目录/vendor 的 bundled 子目录(非空才算就绪)。"""
+    for base in _bundled_dir_bases():
+        d = Path(base) / subdir
+        if d.is_dir() and any(d.iterdir()):
+            return str(d)
+    return None
+
+
+def _resolve_wav2lip_dir() -> Optional[str]:
+    """含 wav2lip_gan.pth + s3fd 的本地权重目录(平铺或 wav2lip/ 子目录均兼容)。"""
+    return _pick_weights_dir(_bundled_dir_bases())
 
 
 class Wav2LipEngine:
@@ -206,9 +218,9 @@ def _engine_installed(engine_id: str) -> bool:
     if spec.builtin:
         return True
     if engine_id == "sadtalker":
-        return _port_listening(_SADTALKER_PORT)
+        return _port_listening(_SADTALKER_PORT) or _bundled_engine_dir("sadtalker") is not None
     if engine_id == "musetalk":
-        return _port_listening(_MUSETALK_PORT)
+        return _port_listening(_MUSETALK_PORT) or _bundled_engine_dir("musetalk") is not None
     return False
 
 

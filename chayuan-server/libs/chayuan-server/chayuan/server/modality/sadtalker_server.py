@@ -38,20 +38,9 @@ def _pick_sadtalker_dir(bases) -> Optional[str]:
 
 
 def _resolve_sadtalker_dir() -> Optional[str]:
-    """本地 SadTalker 权重目录:CHAYUAN_ROOT/models/bundled/digital_human/sadtalker
-    → vendor/bundled_models/digital_human/sadtalker。未命中返回 None(回退联网)。"""
-    bases = []
-    try:
-        from chayuan.settings import CHAYUAN_ROOT
-        bases.append(Path(CHAYUAN_ROOT) / "models" / "bundled" / "digital_human")
-    except Exception:  # noqa: BLE001
-        pass
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        vd = parent / "vendor" / "bundled_models" / "digital_human"
-        if vd.is_dir():
-            bases.append(vd); break
-    return _pick_sadtalker_dir(bases)
+    """本地 SadTalker 权重目录(复用 engine 单一解析器);未命中返回 None(回退联网)。"""
+    from chayuan.server.video_generation.digital_human.engine import _bundled_engine_dir
+    return _bundled_engine_dir("sadtalker")
 
 
 def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:

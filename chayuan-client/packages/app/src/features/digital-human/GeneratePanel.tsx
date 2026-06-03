@@ -533,13 +533,10 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           ))}
         </div>
         {!engineInstalled && (
-          <div className="mt-1 flex items-center gap-2 text-sm text-[var(--cy-text-secondary)]">
-            <span>该引擎运行时未安装（需 GPU）。</span>
-            <button
-              onClick={() => void navigate({ to: '/marketplace' as never })}
-              className="text-[var(--cy-brand-500)] hover:underline">
-              去模型厂商配置
-            </button>
+          <div className="mt-1 text-sm text-[var(--cy-text-secondary)]">
+            该 GPU 引擎随完整版自带、装好即用;若显示未就绪,请运行
+            <code className="mx-1 rounded bg-[var(--cy-surface-2)] px-1 text-xs">python scripts/install-bundled-models.py</code>
+            勾选「数字人」安装后重启。
           </div>
         )}
       </div>

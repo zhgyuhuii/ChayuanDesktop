@@ -21,10 +21,23 @@ from chayuan.server.modality._runtime_server_base import (
 logger = logging.getLogger("chayuan.modality.musetalk_server")
 
 _DEFAULT_CONFIG: Dict[str, Any] = {
-    "repo_dir": os.path.expanduser("~/MuseTalk"),
+    "repo_dir": "",  # 空=运行时解析(优先 bundled 数据目录,回退 ~/MuseTalk)
     "python_exe": "",
     "infer_module": "scripts.inference",
 }
+
+
+def _resolve_musetalk_repo() -> str:
+    """MuseTalk 仓目录:优先 bundled(CHAYUAN_ROOT/models/bundled/digital_human/musetalk
+    → vendor),未命中回退 ~/MuseTalk(老行为)。"""
+    try:
+        from chayuan.server.video_generation.digital_human.engine import _bundled_engine_dir
+        d = _bundled_engine_dir("musetalk")
+        if d:
+            return d
+    except Exception:  # noqa: BLE001
+        pass
+    return os.path.expanduser("~/MuseTalk")
 
 
 def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
@@ -38,7 +51,7 @@ def _register_routes(app: Any, cfg: Dict[str, Any]) -> None:
         out_path = (payload.get("out_path") or "").strip()
         if not (image_path and audio_path and out_path):
             raise HTTPException(status_code=400, detail="image_path/audio_path/out_path 必填")
-        repo = cfg.get("repo_dir") or os.path.expanduser("~/MuseTalk")
+        repo = cfg.get("repo_dir") or _resolve_musetalk_repo()
         if not os.path.isdir(repo):
             app.state.lib_error = f"MuseTalk 仓未找到: {repo}(先在运行时框架安装)"
             raise HTTPException(status_code=503, detail=app.state.lib_error)

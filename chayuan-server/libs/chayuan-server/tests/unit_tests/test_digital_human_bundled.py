@@ -119,3 +119,17 @@ def test_overlay_font_resolves_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(binaries, "get_fonts_dir", lambda: None)  # bundled 为空
     assert overlay._font_for({"font_name": "STHeitiMedium.ttc"}) == str(fdir / "STHeitiMedium.ttc")
     assert overlay._font() == str(fdir / "STHeitiMedium.ttc")  # 默认也命中数据目录
+
+
+def test_bundled_engine_dir_and_installed(tmp_path, monkeypatch):
+    """单一 _bundled_engine_dir 解析 + 引擎已安装判定加「模型在场即可自启」。"""
+    from chayuan.server.video_generation.digital_human import engine
+    base = tmp_path / "digital_human"
+    (base / "sadtalker").mkdir(parents=True)
+    (base / "sadtalker" / "x.pth").write_bytes(b"x")
+    monkeypatch.setattr(engine, "_bundled_dir_bases", lambda: [base])
+    assert engine._bundled_engine_dir("sadtalker") == str(base / "sadtalker")
+    assert engine._bundled_engine_dir("musetalk") is None
+    monkeypatch.setattr(engine, "_port_listening", lambda *a, **k: False)
+    assert engine._engine_installed("sadtalker") is True
+    assert engine._engine_installed("musetalk") is False

@@ -1,3 +1,7 @@
+> ⚠️ **SUPERSEDED(2026-06-03)**:本方案(framework_routes 运行时 pip-install + 新 RuntimePage)
+> 经架构复盘已作废 —— 数字人引擎属于「模型线②(bundled_models+seed)」,不应新造 HTTP 路由/页面。
+> 新方案见 `docs/superpowers/plans/2026-06-03-dh-engine-model-line.md`。
+
 # 应用内一键安装/启动数字人 GPU 运行时(SadTalker + MuseTalk)
 
 - 日期:2026-06-02
