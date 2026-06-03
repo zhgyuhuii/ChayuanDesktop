@@ -25,13 +25,6 @@ import {
   showKbPicker,
 } from './usePresetBinding';
 
-type Template = 'corner' | 'bg' | 'side';
-const TEMPLATE_LABELS: Record<Template, string> = {
-  corner: '角落小窗',
-  bg: '居中讲解',
-  side: '左侧出镜',
-};
-
 type EngineId = 'wav2lip' | 'sadtalker' | 'musetalk';
 
 const DEFAULT_ENGINES: Array<{ id: EngineId; label: string; kind: 'cpu' | 'gpu'; installed: boolean }> = [
@@ -154,8 +147,6 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     staleTime: 5 * 60 * 1000,
   });
 
-  // template state (only relevant when productRef is set)
-  const [template, setTemplate] = React.useState<Template>('corner');
 
   // matte (green-screen keying) — only relevant when productRef is set
   const [matte, setMatte] = React.useState(false);
@@ -343,7 +334,6 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       setProductRef(r.ref);
       setProductName(r.name);
       setProductKind(r.kind === 'video' ? 'video' : 'image');
-      setTemplate('corner');
       // 持久化到 preset:工作台画布据此预览+拖拽商品图
       if (pid) void digitalHuman.updatePreset(pid, {
         product_ref: r.ref, product_kind: r.kind === 'video' ? 'video' : 'image',
@@ -399,7 +389,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       }
       const opts = {
         engine,
-        ...(productRef ? { product_image: productRef, template, matte } : {}),
+        ...(productRef ? { product_image: productRef, matte } : {}),
         ...modeFields,
       };
       const r = await digitalHuman.generate(pid, effectiveText, opts);
@@ -767,22 +757,6 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           </button>
         )}
       </div>
-
-      {/* Template picker — only shown when a product image is selected */}
-      {productRef && (
-        <div className="flex gap-2">
-          {(Object.keys(TEMPLATE_LABELS) as Template[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTemplate(t)}
-              className={`h-8 rounded-md px-3 text-sm ${template === t
-                ? 'bg-[var(--cy-ink-700)] text-white'
-                : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]'}`}>
-              {TEMPLATE_LABELS[t]}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Matte toggle — only shown when a product image is selected */}
       {productRef && (

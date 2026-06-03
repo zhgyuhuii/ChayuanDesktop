@@ -362,8 +362,9 @@ def _run_pipeline(tid: str) -> None:
         )
         result_path = out_path
         product_ref = args.get("product_ref")
-        template = args.get("template") or "none"
-        if product_ref and template != "none":
+        # 版式 template 已废弃(商品图改用画布拖拽坐标);仅 matte 路径用作 presenter 默认。
+        template = args.get("template") or "corner"
+        if product_ref:
             product_path = resolve_product_path(product_ref)
             if not product_path:
                 raise RuntimeError("商品图缺失")
