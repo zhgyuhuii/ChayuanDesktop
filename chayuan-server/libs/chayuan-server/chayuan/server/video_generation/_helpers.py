@@ -174,6 +174,11 @@ def dh_presets_path() -> str:
     return str(_chayuan_root() / "data" / "digital_human" / "presets.json")
 
 
+def dh_published_path() -> str:
+    """在线数字人发布清单 ``.../data/digital_human/published.json``(只存本机)。"""
+    return str(_chayuan_root() / "data" / "digital_human" / "published.json")
+
+
 def task_dir(task_id: str, *, create: bool = True) -> str:
     """``<CHAYUAN_ROOT>/video_generation/storage/tasks/<task_id>/``。"""
 

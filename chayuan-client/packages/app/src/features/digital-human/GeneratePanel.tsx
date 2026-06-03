@@ -6,7 +6,7 @@ import { digitalHuman, models, knowledgeUniverse } from '@chayuan/api';
 import type { DigitalHumanPreset, RawModelItem, KuItem, DhScriptSource } from '@chayuan/api';
 import type { ModalityCapability } from '@chayuan/transport';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@chayuan/ui';
-import { reportError } from '../../store/errorDialog';
+import { reportError, notifySuccess } from '../../store/errorDialog';
 import { promptDialog } from '../../store/promptDialog';
 import { confirmDialog } from '../../store/confirmDialog';
 import { useUsageGate, UsageGateDialogs } from '../license';
@@ -92,7 +92,7 @@ export function previewOrder(
   return out;
 }
 
-export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void; embedded?: boolean }> = ({ presets, initialPresetId, onPresetChange, embedded }) => {
+export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void; embedded?: boolean; onPublished?: () => void }> = ({ presets, initialPresetId, onPresetChange, embedded, onPublished }) => {
   const [pid, setPid] = React.useState(initialPresetId ?? '');
   const qc = useQueryClient();
   const [text, setText] = React.useState('');
@@ -290,6 +290,23 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const curPreset = presets.find((p) => p.id === pid);
   const mode = curPreset?.compose_mode ?? 'single';
   const roles = curPreset?.avatars ?? [];
+
+  // 发布在线数字人:把当前 preset 快照发布,复制公开链接,切到「在线数字人」tab。
+  const [publishing, setPublishing] = React.useState(false);
+  const doPublish = async () => {
+    if (!curPreset || publishing) return;
+    setPublishing(true);
+    try {
+      const rec = await digitalHuman.publish(curPreset.id);
+      try { await navigator.clipboard?.writeText(rec.url); } catch { /* 复制失败不致命 */ }
+      notifySuccess('已发布在线数字人', `公开链接已复制:${rec.url}`);
+      onPublished?.();
+    } catch (e) {
+      reportError(e as Error, '发布失败');
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   React.useEffect(() => { if (!pid && presets[0]) setPid(presets[0].id); }, [presets, pid]);
   React.useEffect(() => { if (pid) onPresetChange?.(pid); }, [pid, onPresetChange]);
@@ -555,10 +572,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         ) : null}
         <button
           type="button"
-          onClick={() => void navigate({ to: '/digital-human/live' as never })}
-          className="ml-auto inline-flex h-8 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)]"
+          onClick={() => void doPublish()}
+          disabled={publishing || !curPreset}
+          className="ml-auto inline-flex h-8 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50"
         >
-          实时对话
+          {publishing ? '发布中…' : '发布在线数字人'}
         </button>
       </div>
       {!engineInstalled && (

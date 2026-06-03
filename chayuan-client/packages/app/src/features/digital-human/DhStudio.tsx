@@ -30,7 +30,7 @@ const collapseBtnCls =
  * 数字人工作台:上区(左设置 / 拖拽分隔 / 右预览)+ 下区全宽任务列表。
  * 上下可拖拽调高度;上区/下区/左设置/右预览均可折叠成细条,点细条展开。
  */
-export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string }> = ({ presets, initialPresetId }) => {
+export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPublished?: () => void }> = ({ presets, initialPresetId, onPublished }) => {
   const qc = useQueryClient();
   const [pid, setPid] = React.useState(initialPresetId ?? presets[0]?.id ?? '');
   const preset = presets.find((p) => p.id === pid) ?? presets[0] ?? null;
@@ -167,7 +167,7 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <div className="h-full overflow-y-auto pr-1">
-                <GeneratePanel presets={presets} initialPresetId={pid} onPresetChange={setPid} embedded />
+                <GeneratePanel presets={presets} initialPresetId={pid} onPresetChange={setPid} embedded onPublished={onPublished} />
               </div>
             </div>
           )}

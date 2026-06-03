@@ -84,6 +84,8 @@ def post_activate(payload: dict = Body(...)):
     cfg = load_license_config()
     with _mutate_lock:
         r = engine.redeem_shortcode(_root(), payload.get("serial", ""), cfg)
+    # 前端/门控统一按 licensed 判定;redeem_shortcode 返回 ok,这里映射过去。
+    r.setdefault("licensed", bool(r.get("ok")))
     r.setdefault("fingerprint", _fp(_root()))
     return r
 
@@ -109,7 +111,9 @@ def get_diag():
 def post_activate_token(payload: dict = Body(...)):
     cfg = load_license_config()
     with _mutate_lock:
-        return engine.redeem(_root(), payload.get("token", ""), cfg)
+        r = engine.redeem(_root(), payload.get("token", ""), cfg)
+    r.setdefault("licensed", bool(r.get("ok")))
+    return r
 
 
 @license_router.post("/consume")

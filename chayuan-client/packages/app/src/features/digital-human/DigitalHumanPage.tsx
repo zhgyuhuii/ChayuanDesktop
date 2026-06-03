@@ -4,9 +4,13 @@ import { Loader2 } from 'lucide-react';
 import { digitalHuman } from '@chayuan/api';
 import { PresetList } from './PresetList';
 import { DhStudio } from './DhStudio';
+import { OnlineAvatarList } from './OnlineAvatarList';
+
+type DhTab = 'studio' | 'manage' | 'online';
+const TAB_LABEL: Record<DhTab, string> = { studio: '工作台', manage: '我的数字人', online: '在线数字人' };
 
 export const DigitalHumanPage: React.FC = () => {
-  const [tab, setTab] = React.useState<'studio' | 'manage'>('studio');
+  const [tab, setTab] = React.useState<DhTab>('studio');
   const [genPresetId, setGenPresetId] = React.useState<string | undefined>(undefined);
   const presetsQ = useQuery({ queryKey: ['dh.presets'], queryFn: digitalHuman.listPresets });
   const avatarsQ = useQuery({ queryKey: ['dh.avatars'], queryFn: digitalHuman.listAvatars });
@@ -39,18 +43,20 @@ export const DigitalHumanPage: React.FC = () => {
         )}
       </div>
       <div className="mb-3 flex gap-2">
-        {(['studio', 'manage'] as const).map((k) => (
+        {(['studio', 'manage', 'online'] as const).map((k) => (
           <button key={k} onClick={() => setTab(k)}
             className={`h-8 rounded-md px-3 text-sm ${tab === k
               ? 'bg-[var(--cy-ink-700)] text-white'
               : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]'}`}>
-            {k === 'studio' ? '工作台' : '我的数字人'}
+            {TAB_LABEL[k]}
           </button>
         ))}
       </div>
       {tab === 'studio'
-        ? <DhStudio presets={presets} initialPresetId={genPresetId} />
-        : <PresetList presets={presets} onChanged={() => void presetsQ.refetch()} onGenerate={goGenerate} />}
+        ? <DhStudio presets={presets} initialPresetId={genPresetId} onPublished={() => setTab('online')} />
+        : tab === 'manage'
+          ? <PresetList presets={presets} onChanged={() => void presetsQ.refetch()} onGenerate={goGenerate} />
+          : <OnlineAvatarList />}
     </div>
   );
 };

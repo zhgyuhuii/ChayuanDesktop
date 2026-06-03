@@ -103,3 +103,31 @@ class DhTaskStatus(BaseModel):
     # 多形象各段元数据(coframe/sequential 才填;single 为 []),供模式相关多轨建轨:
     # [{"role_index": int, "path": str, "text": str, "duration_ms": int}]
     segments: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class PublishedAvatar(BaseModel):
+    """在线数字人发布记录:发布时对 preset 的配置快照 + 公开 token + owner 控制位。
+
+    用快照(而非引用 preset)的原因:源 preset 之后被改/删不应弄坏已发布的公开页;
+    重新发布(同 preset_id)覆盖快照。
+    """
+    token: str                       # 公开 URL 段(secrets.token_urlsafe)
+    preset_id: str = ""              # 来源 preset(重新发布按此覆盖)
+    owner_id: str = ""               # 发布者(列表过滤 + 公开对话记其额度)
+    created: float = 0.0
+    # ---- 配置快照 ----
+    name: str = ""
+    avatar_ref: str = ""
+    avatar_kind: AvatarKind = "image"
+    video_width: int = 720
+    video_height: int = 1280
+    model: str = ""
+    ku_ids: List[str] = Field(default_factory=list)
+    persona: str = ""                # 人设/系统提示(公开对话注入 metadata.system)
+    voice_provider: str = "piper"
+    voice_name: str = ""
+    # ---- owner 控制 ----
+    enabled: bool = True             # 上线开关;False=公开页显示「已下线」
+    chat_enabled: bool = True        # 允许公开对话;False=公开页纯观看
+    rate_per_min: int = 10           # 每访客 IP 每分钟消息上限
+    daily_cap: int = 500             # 该 token 每日消息总上限

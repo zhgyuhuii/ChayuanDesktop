@@ -1,0 +1,363 @@
+"""在线数字人**公开**路由(无 auth)。
+
+外部浏览器访问 ``/dh/{token}`` → sidecar 直接吐自包含 HTML 公开页;页面内的
+config / avatar / presence(WS) / chat(SSE) / tts 都走 token 网关,免登录。
+对话与 TTS 带进程内限流(按 IP 令牌桶 + 按 token 每日上限)+ owner 开关门控。
+
+公网可达性由部署/网络层负责(public_host + 端口转发/反代),本模块不内置隧道。
+"""
+from __future__ import annotations
+
+import logging
+import mimetypes
+import os
+import time
+from typing import Any, Dict, List, Optional, Tuple
+
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from sse_starlette.sse import EventSourceResponse
+
+from chayuan.server.video_generation.digital_human import jobs as dh_jobs
+from chayuan.server.video_generation.digital_human import online_presence, published_store, store
+
+logger = logging.getLogger("chayuan.digital_human.public")
+
+digital_human_public_router = APIRouter(tags=["digital-human-public"])
+
+_PUB = "/api/v1/digital-human/public"
+
+# ---- 进程内限流(sidecar 单 worker) ----
+_BUCKETS: Dict[Tuple[str, str], List[float]] = {}   # (token, ip) -> [tokens, last_ts]
+_DAILY: Dict[str, List[int]] = {}                    # token -> [day, count]
+
+
+def _client_ip(req: Optional[Request], ws: Optional[WebSocket] = None) -> str:
+    src = req or ws
+    try:
+        return (src.client.host if src and src.client else "") or "-"
+    except Exception:  # noqa: BLE001
+        return "-"
+
+
+def _rate_ok(token: str, ip: str, rate_per_min: int, daily_cap: int) -> bool:
+    now = time.time()
+    # 令牌桶:容量 = rate_per_min,每 60s 回满
+    cap = max(1, int(rate_per_min or 1))
+    b = _BUCKETS.get((token, ip))
+    if b is None:
+        b = [float(cap), now]
+        _BUCKETS[(token, ip)] = b
+    b[0] = min(float(cap), b[0] + (now - b[1]) * (cap / 60.0))
+    b[1] = now
+    if b[0] < 1.0:
+        return False
+    # 每日上限
+    day = int(now // 86400)
+    d = _DAILY.get(token)
+    if d is None or d[0] != day:
+        d = [day, 0]
+        _DAILY[token] = d
+    if d[1] >= max(1, int(daily_cap or 1)):
+        return False
+    b[0] -= 1.0
+    d[1] += 1
+    return True
+
+
+def _live(token: str):
+    """返回已上线的发布记录,否则 404。"""
+    rec = published_store.get_by_token(token)
+    if not rec or not rec.enabled:
+        raise HTTPException(status_code=404, detail="该数字人未发布或已下线")
+    return rec
+
+
+# --------------------------------------------------------------------------
+# 公开页 HTML
+# --------------------------------------------------------------------------
+@digital_human_public_router.get("/dh/{token}", response_class=HTMLResponse)
+def public_page(token: str) -> HTMLResponse:
+    rec = published_store.get_by_token(token)
+    if not rec or not rec.enabled:
+        return HTMLResponse(_OFFLINE_PAGE, status_code=404)
+    return HTMLResponse(_PUBLIC_PAGE.replace("__TOKEN__", token))
+
+
+@digital_human_public_router.get(_PUB + "/{token}/config")
+def public_config(token: str) -> Dict[str, Any]:
+    rec = _live(token)
+    return {
+        "name": rec.name,
+        "ratio": {"w": rec.video_width, "h": rec.video_height},
+        "avatar_kind": rec.avatar_kind,
+        "chat_enabled": bool(rec.chat_enabled),
+        "viewers": online_presence.count(token),
+    }
+
+
+@digital_human_public_router.get(_PUB + "/{token}/avatar")
+def public_avatar(token: str) -> FileResponse:
+    rec = _live(token)
+    path = store.resolve_avatar_path(rec.avatar_ref)
+    if not path or not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="形象资源不存在")
+    mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=mime)
+
+
+@digital_human_public_router.websocket(_PUB + "/{token}/presence")
+async def public_presence(ws: WebSocket, token: str) -> None:
+    rec = published_store.get_by_token(token)
+    if not rec or not rec.enabled:
+        await ws.close(code=4404)
+        return
+    await ws.accept()
+    await online_presence.join(token, ws)
+    try:
+        while True:
+            # 不消费客户端消息,仅借 receive 感知断开;心跳由前端可选发送。
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        await online_presence.leave(token, ws)
+
+
+@digital_human_public_router.get(_PUB + "/{token}/viewers")
+def public_viewers(token: str) -> Dict[str, int]:
+    return {"viewers": online_presence.count(token)}
+
+
+@digital_human_public_router.post(_PUB + "/{token}/chat")
+async def public_chat(token: str, body: Dict[str, Any], request: Request):
+    rec = _live(token)
+    if not rec.chat_enabled:
+        raise HTTPException(status_code=403, detail="该数字人未开放对话")
+    if not _rate_ok(token, _client_ip(request), rec.rate_per_min, rec.daily_cap):
+        raise HTTPException(status_code=429, detail="访问过于频繁,请稍后再试")
+
+    from chayuan.server.chat.graph import ChatRequest, run_chat_stream
+
+    message = str(body.get("message") or "").strip()[:2000]
+    history = body.get("history") or []
+    if not message:
+        raise HTTPException(status_code=400, detail="消息为空")
+
+    metadata: Dict[str, Any] = {}
+    if rec.persona:
+        metadata["system"] = rec.persona
+    uid = int(rec.owner_id) if (rec.owner_id or "").isdigit() else None
+
+    req = ChatRequest(
+        query=message,
+        history=list(history)[-12:],     # 限制上下文长度
+        stream=True,
+        model=rec.model or "",
+        ku_ids=list(rec.ku_ids or []),
+        temperature=0.3,
+        user_id=uid,
+        governance_enabled=True,
+        metadata=metadata,
+    )
+    return EventSourceResponse(run_chat_stream(req))
+
+
+@digital_human_public_router.post(_PUB + "/{token}/tts")
+def public_tts(token: str, body: Dict[str, Any], request: Request) -> Response:
+    rec = _live(token)
+    if not rec.chat_enabled:
+        raise HTTPException(status_code=403, detail="该数字人未开放对话")
+    if not _rate_ok(token, _client_ip(request), rec.rate_per_min, rec.daily_cap):
+        raise HTTPException(status_code=429, detail="访问过于频繁,请稍后再试")
+    text = str(body.get("text") or "").strip()[:1000]
+    if not text:
+        raise HTTPException(status_code=400, detail="文本为空")
+    from chayuan.server.modality.service import get_modality_service
+
+    voice = dh_jobs._voice_string(rec.voice_provider, rec.voice_name) or "zh-CN-XiaoxiaoNeural"
+    try:
+        audio = get_modality_service().tts(text, voice=voice, fmt="mp3")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh-public] tts 失败: %r", e)
+        raise HTTPException(status_code=503, detail="语音合成不可用")
+    return Response(content=audio, media_type="audio/mpeg")
+
+
+# --------------------------------------------------------------------------
+# 自包含公开页(原生 JS;__TOKEN__ 在 public_page 里 .replace 注入)
+# --------------------------------------------------------------------------
+_OFFLINE_PAGE = """<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>数字人已下线</title>
+<style>html,body{height:100%;margin:0;background:#0b0d12;color:#cbd5e1;
+font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+display:flex;align-items:center;justify-content:center}</style></head>
+<body><div>该数字人未发布或已下线。</div></body></html>"""
+
+_PUBLIC_PAGE = """<!doctype html>
+<html lang="zh"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>在线数字人</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:#0b0d12;color:#e5e7eb;
+    font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{max-width:520px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;gap:12px;padding:16px}
+  .head{display:flex;align-items:center;justify-content:space-between}
+  .name{font-size:18px;font-weight:600}
+  .viewers{font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block}
+  .stage{width:100%;background:#000;border-radius:14px;overflow:hidden;
+    box-shadow:0 8px 30px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
+  .stage img,.stage video{width:100%;height:100%;object-fit:contain;display:block}
+  .chat{flex:1;display:flex;flex-direction:column;gap:8px;min-height:0}
+  .msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 0}
+  .msg{max-width:85%;padding:8px 12px;border-radius:12px;white-space:pre-wrap;word-break:break-word}
+  .me{align-self:flex-end;background:#2563eb;color:#fff;border-bottom-right-radius:4px}
+  .ai{align-self:flex-start;background:#1f2937;color:#e5e7eb;border-bottom-left-radius:4px}
+  .bar{display:flex;gap:8px}
+  .bar input{flex:1;height:40px;padding:0 12px;border-radius:10px;border:1px solid #334155;
+    background:#0f172a;color:#e5e7eb;font-size:15px;outline:none}
+  .bar button{height:40px;padding:0 16px;border-radius:10px;border:0;background:#2563eb;color:#fff;
+    font-size:15px;cursor:pointer}
+  .bar button:disabled{opacity:.5;cursor:default}
+  .tip{font-size:12px;color:#64748b;text-align:center}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="name" id="name">在线数字人</div>
+    <div class="viewers"><span class="dot"></span><span id="viewers">0</span> 人在看</div>
+  </div>
+  <div class="stage" id="stage"></div>
+  <div class="chat" id="chat" style="display:none">
+    <div class="msgs" id="msgs"></div>
+    <div class="bar">
+      <input id="inp" placeholder="跟 TA 说点什么…" autocomplete="off"/>
+      <button id="send">发送</button>
+    </div>
+  </div>
+  <div class="tip" id="tip"></div>
+</div>
+<script>
+(function(){
+  var token = "__TOKEN__";
+  var base = "/api/v1/digital-human/public/" + token;
+  var nameEl = document.getElementById("name");
+  var viewersEl = document.getElementById("viewers");
+  var stage = document.getElementById("stage");
+  var chat = document.getElementById("chat");
+  var msgs = document.getElementById("msgs");
+  var inp = document.getElementById("inp");
+  var sendBtn = document.getElementById("send");
+  var tip = document.getElementById("tip");
+  var history = [];
+  var busy = false;
+
+  function fitStage(w, h){
+    var maxH = Math.round(window.innerHeight * 0.55);
+    stage.style.aspectRatio = w + " / " + h;
+    stage.style.maxHeight = maxH + "px";
+    if (w >= h) { stage.style.width = "100%"; }
+    else { stage.style.width = Math.round(maxH * w / h) + "px"; stage.style.margin = "0 auto"; }
+  }
+
+  function addMsg(role, text){
+    var d = document.createElement("div");
+    d.className = "msg " + (role === "user" ? "me" : "ai");
+    d.textContent = text;
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
+    return d;
+  }
+
+  fetch(base + "/config").then(function(r){
+    if(!r.ok) throw new Error("offline");
+    return r.json();
+  }).then(function(cfg){
+    nameEl.textContent = cfg.name || "在线数字人";
+    document.title = cfg.name || "在线数字人";
+    fitStage((cfg.ratio && cfg.ratio.w) || 720, (cfg.ratio && cfg.ratio.h) || 1280);
+    var src = base + "/avatar";
+    if (cfg.avatar_kind === "video") {
+      var v = document.createElement("video");
+      v.src = src; v.autoplay = true; v.muted = true; v.loop = true; v.playsInline = true;
+      v.setAttribute("playsinline",""); stage.appendChild(v);
+    } else {
+      var img = document.createElement("img"); img.src = src; img.alt = cfg.name || ""; stage.appendChild(img);
+    }
+    viewersEl.textContent = cfg.viewers || 0;
+    if (cfg.chat_enabled) { chat.style.display = "flex"; } else { tip.textContent = "该数字人当前仅供观看"; }
+  }).catch(function(){
+    stage.innerHTML = ""; tip.textContent = "该数字人未发布或已下线。";
+  });
+
+  // presence WebSocket
+  try{
+    var proto = location.protocol === "https:" ? "wss" : "ws";
+    var ws = new WebSocket(proto + "://" + location.host + base + "/presence");
+    ws.onmessage = function(ev){
+      try{ var d = JSON.parse(ev.data); if(d && d.op === "viewers") viewersEl.textContent = d.n; }catch(e){}
+    };
+  }catch(e){}
+
+  function playTts(text){
+    if(!text || !text.trim()) return;
+    fetch(base + "/tts", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({text: text})}).then(function(r){
+      if(!r.ok) return null; return r.blob();
+    }).then(function(b){ if(b){ var a = new Audio(URL.createObjectURL(b)); a.play().catch(function(){}); } }).catch(function(){});
+  }
+
+  function send(){
+    var text = (inp.value || "").trim();
+    if(!text || busy) return;
+    busy = true; sendBtn.disabled = true; inp.value = "";
+    addMsg("user", text);
+    history.push({role:"user", content:text});
+    var aiEl = addMsg("assistant", "…");
+    var acc = "";
+    fetch(base + "/chat", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({message:text, history:history})}).then(function(res){
+      if(res.status === 429){ aiEl.textContent = "访问过于频繁,请稍后再试"; throw new Error("rate"); }
+      if(!res.ok || !res.body){ aiEl.textContent = "对话暂不可用"; throw new Error("err"); }
+      var reader = res.body.getReader();
+      var dec = new TextDecoder();
+      var buf = "";
+      function pump(){
+        return reader.read().then(function(res2){
+          if(res2.done){ return; }
+          buf += dec.decode(res2.value, {stream:true}).replace(/\\r/g, "");
+          var idx;
+          while((idx = buf.indexOf("\\n\\n")) >= 0){
+            var block = buf.slice(0, idx); buf = buf.slice(idx + 2);
+            var ev = "message", data = "";
+            block.split("\\n").forEach(function(line){
+              if(line.indexOf("event:") === 0) ev = line.slice(6).trim();
+              else if(line.indexOf("data:") === 0) data += line.slice(5).trim();
+            });
+            if(ev === "token"){
+              try{ var d = JSON.parse(data); if(d && d.delta){ acc += d.delta; aiEl.textContent = acc; msgs.scrollTop = msgs.scrollHeight; } }catch(e){}
+            }
+          }
+          return pump();
+        });
+      }
+      return pump();
+    }).then(function(){
+      if(acc){ history.push({role:"assistant", content:acc}); playTts(acc); }
+      else if(aiEl.textContent === "…"){ aiEl.textContent = "(无回复)"; }
+    }).catch(function(){}).then(function(){
+      busy = false; sendBtn.disabled = false; inp.focus();
+    });
+  }
+  sendBtn.addEventListener("click", send);
+  inp.addEventListener("keydown", function(e){ if(e.key === "Enter") send(); });
+})();
+</script>
+</body></html>"""

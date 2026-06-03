@@ -16,7 +16,9 @@ from chayuan.server.video_generation._helpers import dh_avatars_dir, dh_products
 from chayuan.server.video_generation.digital_human import engine as dh_engine
 from chayuan.server.video_generation.digital_human import jobs as dh_jobs
 from chayuan.server.video_generation.digital_human import store
+from chayuan.server.video_generation.digital_human import online_presence, published_store
 from chayuan.server.video_generation.digital_human.schemas import DhGenerateRequest
+from chayuan.server.utils import api_address
 
 digital_human_router = APIRouter(prefix="/api/v1/digital-human", tags=["digital-human"])
 
@@ -694,3 +696,53 @@ def live_offer(body: Dict[str, Any],
         resp = client.post(f"http://127.0.0.1:{_REALTIME_PORT}/offer", json=body, timeout=30)
         resp.raise_for_status()
         return resp.json()
+
+
+# ── 在线数字人:发布 / 列表 / 删除 / 开关(owner 侧,require_auth) ──────────
+def _pub_dump(rec) -> Dict[str, Any]:
+    """发布记录 → 前端 dict:补 url(基于 public_host)+ 实时在线人数。"""
+    d = rec.model_dump()
+    d["url"] = f"{api_address(is_public=True)}/dh/{rec.token}"
+    d["viewers"] = online_presence.count(rec.token)
+    return d
+
+
+def _uid(user: Dict[str, Any]) -> str:
+    return str((user or {}).get("id") or "") if isinstance(user, dict) else ""
+
+
+@digital_human_router.post("/published")
+def publish_preset(body: Dict[str, Any],
+                   user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    pid = (body or {}).get("preset_id") or ""
+    p = store.get_preset(pid)
+    if not p:
+        raise HTTPException(404, "预设不存在")
+    rec = published_store.publish(p, owner_id=_uid(user))
+    return _pub_dump(rec)
+
+
+@digital_human_router.get("/published")
+def list_published(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    owner = _uid(user)
+    items = [_pub_dump(r) for r in published_store.list_published(owner_id=owner or None)]
+    return {"count": len(items), "items": items}
+
+
+@digital_human_router.delete("/published/{token}")
+def delete_published(token: str,
+                     user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    return {"ok": published_store.delete(token)}
+
+
+@digital_human_router.patch("/published/{token}")
+def patch_published(token: str, body: Dict[str, Any],
+                    user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    rec = published_store.set_flags(
+        token,
+        enabled=(body or {}).get("enabled"),
+        chat_enabled=(body or {}).get("chat_enabled"),
+    )
+    if not rec:
+        raise HTTPException(404, "发布记录不存在")
+    return _pub_dump(rec)

@@ -342,6 +342,63 @@ export async function dhGenerate(
 // Live (WebRTC bridge)
 // ─────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────
+// 在线数字人(发布 / 列表 / 删除 / 开关)
+// ─────────────────────────────────────────────────────────────────────
+
+/** 一条已发布的在线数字人(配置快照 + 公开 token + owner 控制 + 运行态)。 */
+export interface PublishedAvatar {
+  token: string;
+  preset_id: string;
+  owner_id: string;
+  created: number;
+  name: string;
+  avatar_ref: string;
+  avatar_kind: DhAvatarKind;
+  video_width: number;
+  video_height: number;
+  model: string;
+  ku_ids: string[];
+  persona: string;
+  voice_provider: string;
+  voice_name: string;
+  enabled: boolean;
+  chat_enabled: boolean;
+  rate_per_min: number;
+  daily_cap: number;
+  /** 后端补充:公开页完整 URL(基于 public_host)。 */
+  url: string;
+  /** 后端补充:当前并发观看人数。 */
+  viewers: number;
+}
+
+export async function dhPublish(presetId: string): Promise<PublishedAvatar> {
+  return rd<PublishedAvatar>('/api/v1/digital-human/published', {
+    method: 'POST',
+    body: { preset_id: presetId },
+  });
+}
+
+export async function dhListPublished(): Promise<{ count: number; items: PublishedAvatar[] }> {
+  return rd<{ count: number; items: PublishedAvatar[] }>('/api/v1/digital-human/published');
+}
+
+export async function dhDeletePublished(token: string): Promise<{ ok: boolean }> {
+  return rd<{ ok: boolean }>(`/api/v1/digital-human/published/${encodeURIComponent(token)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function dhSetPublishedFlags(
+  token: string,
+  flags: { enabled?: boolean; chat_enabled?: boolean },
+): Promise<PublishedAvatar> {
+  return rd<PublishedAvatar>(`/api/v1/digital-human/published/${encodeURIComponent(token)}`, {
+    method: 'PATCH',
+    body: flags,
+  });
+}
+
 export async function dhLiveAvailable(): Promise<{ available: boolean }> {
   return rd<{ available: boolean }>('/api/v1/digital-human/live/available');
 }
@@ -415,4 +472,8 @@ export const digitalHuman = {
   productFileUrl: dhProductFileUrl,
   liveAvailable: dhLiveAvailable,
   liveOffer: dhLiveOffer,
+  publish: dhPublish,
+  listPublished: dhListPublished,
+  deletePublished: dhDeletePublished,
+  setPublishedFlags: dhSetPublishedFlags,
 };
