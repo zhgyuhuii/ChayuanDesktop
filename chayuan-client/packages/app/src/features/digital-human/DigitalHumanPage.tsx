@@ -4,11 +4,10 @@ import { useNavigate } from '@tanstack/react-router';
 import { Loader2 } from 'lucide-react';
 import { digitalHuman } from '@chayuan/api';
 import { PresetList } from './PresetList';
-import { GeneratePanel } from './GeneratePanel';
 import { DhStudio } from './DhStudio';
 
 export const DigitalHumanPage: React.FC = () => {
-  const [tab, setTab] = React.useState<'studio' | 'manage' | 'generate'>('studio');
+  const [tab, setTab] = React.useState<'studio' | 'manage'>('studio');
   const [genPresetId, setGenPresetId] = React.useState<string | undefined>(undefined);
   const presetsQ = useQuery({ queryKey: ['dh.presets'], queryFn: digitalHuman.listPresets });
   const avatarsQ = useQuery({ queryKey: ['dh.avatars'], queryFn: digitalHuman.listAvatars });
@@ -42,12 +41,12 @@ export const DigitalHumanPage: React.FC = () => {
         )}
       </div>
       <div className="mb-3 flex gap-2">
-        {(['studio', 'manage', 'generate'] as const).map((k) => (
+        {(['studio', 'manage'] as const).map((k) => (
           <button key={k} onClick={() => setTab(k)}
             className={`h-8 rounded-md px-3 text-sm ${tab === k
               ? 'bg-[var(--cy-ink-700)] text-white'
               : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]'}`}>
-            {k === 'studio' ? '工作台' : k === 'manage' ? '我的数字人' : '生成'}
+            {k === 'studio' ? '工作台' : '我的数字人'}
           </button>
         ))}
         <button
@@ -60,9 +59,7 @@ export const DigitalHumanPage: React.FC = () => {
       </div>
       {tab === 'studio'
         ? <DhStudio presets={presets} initialPresetId={genPresetId} />
-        : tab === 'manage'
-          ? <PresetList presets={presets} onChanged={() => void presetsQ.refetch()} onGenerate={goGenerate} />
-          : <GeneratePanel presets={presets} initialPresetId={genPresetId} />}
+        : <PresetList presets={presets} onChanged={() => void presetsQ.refetch()} onGenerate={goGenerate} />}
     </div>
   );
 };
