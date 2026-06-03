@@ -2,12 +2,11 @@ import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { digitalHuman, type AvatarSlot, type DigitalHumanPreset } from '@chayuan/api';
 import { GeneratePanel } from './GeneratePanel';
-import { CanvasStage } from './CanvasStage';
+import { CanvasStage, type CanvasProduct } from './CanvasStage';
 import { DhTaskList } from './DhTaskList';
 
 /**
- * 数字人工作台:左设置 / 可拖拽分隔 / 右预览(画布可拖数字人,松手持久化到 preset);底部全宽任务列表。
- * 复用 GeneratePanel(embedded,任务列表移到底部全宽 DhTaskList)。
+ * 数字人工作台:左设置 / 可拖拽分隔 / 右预览(画布可拖数字人 + 商品图,松手持久化到 preset);底部全宽任务列表。
  */
 export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string }> = ({ presets, initialPresetId }) => {
   const qc = useQueryClient();
@@ -19,20 +18,38 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
   const modeLabel = preset?.compose_mode === 'coframe'
     ? '多人同框' : preset?.compose_mode === 'sequential' ? '分段轮流' : '单形象';
 
-  // 画布拖拽:本地 roles 即时反馈,防抖 600ms 写回 preset(复用 PresetEditor 的 x/y/scale 字段)。
-  const [localRoles, setLocalRoles] = React.useState<AvatarSlot[]>(preset?.avatars ?? []);
-  React.useEffect(() => { setLocalRoles(preset?.avatars ?? []); }, [pid, preset?.avatars]);
   const saveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onRoleChange = React.useCallback((ref: string, pos: { x: number; y: number; scale: number }) => {
-    setLocalRoles((prev) => prev.map((r) => (r.ref === ref ? { ...r, ...pos } : r)));
+  const persist = React.useCallback((patch: Partial<DigitalHumanPreset>) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    const id = pid;
     saveTimer.current = setTimeout(() => {
-      setLocalRoles((cur) => {
-        if (pid) void digitalHuman.updatePreset(pid, { avatars: cur }).then(() => qc.invalidateQueries({ queryKey: ['dh.presets'] }));
-        return cur;
-      });
+      if (id) void digitalHuman.updatePreset(id, patch).then(() => qc.invalidateQueries({ queryKey: ['dh.presets'] }));
     }, 600);
   }, [pid, qc]);
+
+  // 数字人拖拽:本地 roles 即时反馈,防抖写回 preset.avatars。
+  const [localRoles, setLocalRoles] = React.useState<AvatarSlot[]>(preset?.avatars ?? []);
+  React.useEffect(() => { setLocalRoles(preset?.avatars ?? []); }, [pid, preset?.avatars]);
+  const onRoleChange = React.useCallback((ref: string, pos: { x: number; y: number; scale: number }) => {
+    setLocalRoles((prev) => {
+      const next = prev.map((r) => (r.ref === ref ? { ...r, ...pos } : r));
+      persist({ avatars: next });
+      return next;
+    });
+  }, [persist]);
+
+  // 商品图拖拽:本地 product 即时反馈,防抖写回 preset.product_x/y/scale。
+  const [localProduct, setLocalProduct] = React.useState<CanvasProduct | undefined>(undefined);
+  React.useEffect(() => {
+    setLocalProduct(preset?.product_ref
+      ? { ref: preset.product_ref, kind: preset.product_kind ?? 'image',
+          x: preset.product_x ?? 0.66, y: preset.product_y ?? 0.6, scale: preset.product_scale ?? 0.32 }
+      : undefined);
+  }, [pid, preset?.product_ref, preset?.product_kind, preset?.product_x, preset?.product_y, preset?.product_scale]);
+  const onProductChange = React.useCallback((pos: { x: number; y: number; scale: number }) => {
+    setLocalProduct((p) => (p ? { ...p, ...pos } : p));
+    persist({ product_x: pos.x, product_y: pos.y, product_scale: pos.scale });
+  }, [persist]);
 
   const [leftW, setLeftW] = React.useState<number>(() => {
     const v = Number(localStorage.getItem('dh.studio.leftW'));
@@ -72,7 +89,8 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
             style={{ aspectRatio: `${w} / ${h}`, maxWidth: '100%', maxHeight: '100%', ...(w >= h ? { width: '100%', height: 'auto' } : { height: '100%', width: 'auto' }) }}
           >
             {preset && localRoles.length > 0 ? (
-              <CanvasStage width={w} height={h} roles={localRoles} onChange={onRoleChange} />
+              <CanvasStage width={w} height={h} roles={localRoles} onChange={onRoleChange}
+                product={localProduct} onProductChange={onProductChange} />
             ) : preset && preset.avatar_kind === 'image' ? (
               <img src={url} alt={preset.name} className="h-full w-full object-cover" />
             ) : preset ? (
@@ -81,7 +99,7 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
               <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-white/40">在左侧选择或到「我的数字人」新建一个数字人</div>
             )}
             <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/50 px-2 py-0.5 text-[10px] text-white/80">
-              {w}×{h} · {modeLabel} · 可拖拽数字人
+              {w}×{h} · {modeLabel} · 可拖拽数字人{localProduct ? '/商品图' : ''}
             </div>
           </div>
         </div>

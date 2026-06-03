@@ -54,6 +54,9 @@ export interface DigitalHumanPreset {
   product_x?: number;
   product_y?: number;
   product_scale?: number;
+  /** 商品图/视频 ref(persist 进 preset 后工作台画布可预览+拖拽);空=无商品图。 */
+  product_ref?: string;
+  product_kind?: 'image' | 'video';
   /** 绑定默认对话模型(provider::model);空=用全局默认 chat 模型。 */
   model?: string;
   /** 绑定知识源(doc:* / src:* / office:*);空=不挂知识库。 */
@@ -373,6 +376,11 @@ export function dhAvatarFileUrl(ref: string): string {
   return `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/digital-human/avatars/file?ref=${encodeURIComponent(ref)}`;
 }
 
+export function dhProductFileUrl(ref: string): string {
+  const cfg = getClientConfig();
+  return `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/digital-human/products/file?ref=${encodeURIComponent(ref)}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // 命名空间聚合
 // ─────────────────────────────────────────────────────────────────────
@@ -399,6 +407,7 @@ export const digitalHuman = {
   deleteTask: dhDeleteTask,
   taskFileUrl: dhTaskFileUrl,
   avatarFileUrl: dhAvatarFileUrl,
+  productFileUrl: dhProductFileUrl,
   liveAvailable: dhLiveAvailable,
   liveOffer: dhLiveOffer,
 };

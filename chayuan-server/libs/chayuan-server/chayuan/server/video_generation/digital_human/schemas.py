@@ -56,6 +56,13 @@ class DigitalHumanPreset(BaseModel):
     ku_ids: List[str] = Field(default_factory=list)
     allow_model_override: bool = True
     allow_kb_override: bool = True
+    # 商品图/视频(工作台画布可拖拽);product_ref 空=无商品图。
+    # 坐标默认对齐 corner template,无坐标的老 preset 行为不变。
+    product_ref: str = ""
+    product_kind: Literal["image", "video"] = "image"
+    product_x: float = 0.66
+    product_y: float = 0.60
+    product_scale: float = 0.32
 
     @model_validator(mode="after")
     def _sync_avatars(self) -> "DigitalHumanPreset":

@@ -100,6 +100,16 @@ def avatar_file(ref: str,
     return FileResponse(p)
 
 
+@digital_human_router.get("/products/file")
+def product_file(ref: str,
+                 user: Dict[str, Any] = Depends(require_auth_enabled())) -> FileResponse:
+    """按 product ref 返商品图/视频文件,供工作台画布预览。ref 含冒号 → query 参数。"""
+    p = store.resolve_product_path(ref)
+    if not p or not os.path.isfile(p):
+        raise HTTPException(404, "商品文件不存在")
+    return FileResponse(p)
+
+
 @digital_human_router.get("/engines")
 def list_engines(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
     items = dh_engine.list_engines()

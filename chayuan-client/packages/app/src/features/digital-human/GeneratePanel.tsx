@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
 import { digitalHuman, models, knowledgeUniverse } from '@chayuan/api';
@@ -101,6 +101,7 @@ export function previewOrder(
 
 export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void; embedded?: boolean }> = ({ presets, initialPresetId, onPresetChange, embedded }) => {
   const [pid, setPid] = React.useState(initialPresetId ?? '');
+  const qc = useQueryClient();
   const [text, setText] = React.useState('');
   // coframe(#6):每角色一串文案,index 对应角色
   const [coframeScripts, setCoframeScripts] = React.useState<string[]>([]);
@@ -343,6 +344,10 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       setProductName(r.name);
       setProductKind(r.kind === 'video' ? 'video' : 'image');
       setTemplate('corner');
+      // 持久化到 preset:工作台画布据此预览+拖拽商品图
+      if (pid) void digitalHuman.updatePreset(pid, {
+        product_ref: r.ref, product_kind: r.kind === 'video' ? 'video' : 'image',
+      }).then(() => qc.invalidateQueries({ queryKey: ['dh.presets'] }));
     } catch (err) {
       reportError(err as Error, '商品上传失败');
     } finally {
@@ -355,6 +360,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     setProductName(null);
     setProductKind(null);
     setMatte(false);
+    if (pid) void digitalHuman.updatePreset(pid, { product_ref: '' }).then(() => qc.invalidateQueries({ queryKey: ['dh.presets'] }));
   };
 
   // 实际生成逻辑（门控通过后执行）

@@ -372,12 +372,24 @@ def _run_pipeline(tid: str) -> None:
             final_path = os.path.join(td, "digital_human.mp4")
             os.replace(out_path, presenter_keep)  # presenter 让出最终文件名
             dur_ms = _probe_duration_ms(presenter_keep) or _probe_duration_ms(audio_path) or 5000
-            renderer = render_with_product_matte if args.get("matte") else render_with_product
-            renderer(
-                presenter_path=presenter_keep, product_path=product_path, template=template,
-                audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
-                dur_ms=dur_ms,
-            )
+            # 商品图坐标(工作台画布拖拽 → preset);非 matte 按坐标摆位(取代 template)。
+            ppos = None
+            if getattr(preset, "product_ref", "") and getattr(preset, "product_scale", None) is not None:
+                ppos = {"x": float(getattr(preset, "product_x", 0.66)),
+                        "y": float(getattr(preset, "product_y", 0.60)),
+                        "scale": float(getattr(preset, "product_scale", 0.32))}
+            if args.get("matte"):
+                render_with_product_matte(
+                    presenter_path=presenter_keep, product_path=product_path, template=template,
+                    audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
+                    dur_ms=dur_ms,
+                )
+            else:
+                render_with_product(
+                    presenter_path=presenter_keep, product_path=product_path, template=template,
+                    audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
+                    dur_ms=dur_ms, product_pos=ppos,
+                )
             result_path = final_path
         result_path = _apply_overlays(result_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), args["width"], args["height"])
         _set(tid, state="complete", progress=100, result_path=result_path,
