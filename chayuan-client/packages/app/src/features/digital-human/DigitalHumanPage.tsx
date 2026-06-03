@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
 import { Loader2 } from 'lucide-react';
 import { digitalHuman } from '@chayuan/api';
 import { PresetList } from './PresetList';
@@ -16,7 +15,6 @@ export const DigitalHumanPage: React.FC = () => {
   const presetCount = presetsQ.data?.count ?? presets.length;
   const avatarCount = avatarsQ.data?.count ?? 0;
   const activeCount = tasksQ.data?.active ?? 0;
-  const navigate = useNavigate();
 
   const goGenerate = React.useCallback((presetId?: string) => {
     setGenPresetId(presetId);
@@ -49,13 +47,6 @@ export const DigitalHumanPage: React.FC = () => {
             {k === 'studio' ? '工作台' : '我的数字人'}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={() => void navigate({ to: '/digital-human/live' as never })}
-          className="ml-auto h-8 rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)]"
-        >
-          实时对话
-        </button>
       </div>
       {tab === 'studio'
         ? <DhStudio presets={presets} initialPresetId={genPresetId} />
