@@ -28,6 +28,33 @@ def _safe_cleanup(cleanup) -> None:
 
 import re as _re
 
+# ---- TTS 文本清洗:朗读前去掉 markdown 标记 / emoji / 装饰符号,只留可读文字 ----
+# 大模型输出常带 **加粗** * 列表、`代码`、# 标题、😊 等,直接合成会读出 "星号" 或卡顿。
+_TTS_EMOJI_RE = _re.compile(
+    "["
+    "\U0001F000-\U0001FAFF"      # emoji / 符号 / 象形
+    "\U00002600-\U000027BF"      # 杂项符号 + dingbats
+    "\U00002190-\U000021FF"      # 箭头
+    "\U00002B00-\U00002BFF"
+    "\U0000FE00-\U0000FE0F"      # variation selectors
+    "\U00002122\U00002139\U000020E3\U0000203C\U00002049"
+    "]+",
+    flags=_re.UNICODE,
+)
+# 朗读无意义的 markdown / 装饰字符(保留正常中英文标点用于断句/停顿)。
+_TTS_STRIP = set("*#`~|_^={}[]<>\\")
+
+
+def _clean_tts_text(text: str) -> str:
+    if not text:
+        return text
+    t = _TTS_EMOJI_RE.sub("", text)
+    t = "".join(ch for ch in t if ch not in _TTS_STRIP)
+    t = _re.sub(r"[ \t]{2,}", " ", t)
+    t = _re.sub(r"\n{2,}", "\n", t)
+    return t.strip()
+
+
 # whisper / whisper.cpp 在静音 / 低音量 / 纯噪声片段 / 短音频被误判为外语时,
 # 会返这些方括号 marker(`[INAUDIBLE]` `[Spanish]` 等),不是用户实际说的话。
 # 前端拿到这些会把"[INAUDIBLE]"或"[Spanish]"当文字插入笔记 — 错误体感。
@@ -577,6 +604,7 @@ class AudioPipeline:
         "zh-CN-XiaoxiaoNeural"(edge-tts 风格默认名 — piper 收到这种风格名会
         自动改用 zh_CN-huayan-medium 默认音色)。
         """
+        text = _clean_tts_text(text)  # 去 markdown(*#`等)/ emoji,只朗读文字
         if not voice:
             try:
                 from chayuan.server.capability_router import resolve_model
