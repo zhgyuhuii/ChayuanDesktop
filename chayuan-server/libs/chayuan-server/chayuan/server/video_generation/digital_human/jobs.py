@@ -324,6 +324,37 @@ def _apply_overlays(result_path, td, preset, slots, text, width, height):
         return result_path
 
 
+_VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv", ".avi"}
+
+
+def _build_subtitle(td, preset, text, width, height, dur_ms):
+    """构建字幕场景片段 {cues, style, ass_path} 给 ffcompose 烧入;无字幕/失败返 None。"""
+    try:
+        if not getattr(preset, "subtitle_enabled", True):
+            return None
+        from chayuan.server.video_generation.digital_human.timeline_bridge import build_cues_from_script
+        from chayuan.server.video_generation.digital_human import overlay as _ov
+        from chayuan.server.video_generation.digital_human import subtitle_ass as _sa
+        cues = build_cues_from_script(text or "", int(dur_ms or 0))
+        if not cues:
+            return None
+        style = {
+            "subtitle_position": getattr(preset, "subtitle_position", "bottom"),
+            "font_name": getattr(preset, "font_name", ""),
+            "font_size": getattr(preset, "font_size", 0),
+            "text_fore_color": getattr(preset, "text_fore_color", ""),
+            "stroke_color": getattr(preset, "stroke_color", ""),
+            "stroke_width": getattr(preset, "stroke_width", None),
+        }
+        font = _ov._resolve_font_path(getattr(preset, "font_name", "") or None)
+        ass = _sa.build_ass(cues, style, os.path.join(td, "sub.ass"),
+                            width=width, height=height, font_path=font)
+        return {"cues": cues, "style": style, "ass_path": ass}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh] 字幕构建失败(忽略): %r", e)
+        return None
+
+
 def _run_pipeline(tid: str) -> None:
     args = _PENDING.get(tid) or {}
     try:
@@ -404,11 +435,12 @@ def _run_pipeline(tid: str) -> None:
             on_progress=lambda pct: _set(tid, progress=30 + int(pct * 0.7)),
         )
         result_path = out_path
+        W, H = args["width"], args["height"]
         _slot0 = (getattr(preset, "avatars", None) or [None])[0]
-        # 商品图层:优先 preset.products(schema 已从旧 product_ref 迁移),解析成可摆放项。
-        _layers = list(getattr(preset, "products", None) or [])
+        matte = bool(args.get("matte"))
+        # 商品图层解析(preset.products 优先;旧 product_ref 兼容)
         items = []
-        for q in _layers:
+        for q in (getattr(preset, "products", None) or []):
             pp = resolve_product_path(getattr(q, "ref", ""))
             if pp:
                 items.append({"path": pp,
@@ -417,7 +449,6 @@ def _run_pipeline(tid: str) -> None:
                               "scale": float(getattr(q, "scale", 0.32) if getattr(q, "scale", None) is not None else 0.32),
                               "z": getattr(q, "z", None), "opacity": getattr(q, "opacity", None)})
         if not items:
-            # 兼容:请求直接带 product_ref(preset.products 为空,如旧前端/直接调用),按 preset 旧坐标摆位。
             _argref = args.get("product_ref")
             _pp = resolve_product_path(_argref) if _argref else None
             if _pp:
@@ -428,53 +459,74 @@ def _run_pipeline(tid: str) -> None:
                               "z": getattr(preset, "product_z", None),
                               "opacity": getattr(preset, "product_opacity", None)})
 
-        if items:
-            # 有商品:形象 + 商品统一图层合成(各按 x/y/scale/z/opacity 按 z 叠;形象不再强制当全屏底,
-            # 故「全屏置底视频 + 小形象在上」等场景与预览一致)。
-            _set(tid, progress=88)
-            presenter_keep = os.path.join(td, "presenter.mp4")
-            final_path = os.path.join(td, "digital_human.mp4")
-            os.replace(out_path, presenter_keep)  # presenter 让出最终文件名(原始全屏,图层合成里按形象坐标摆)
-            dur_ms = _probe_duration_ms(presenter_keep) or _probe_duration_ms(audio_path) or 5000
-            avatar_layer = {
-                "x": float(getattr(_slot0, "x", 0.0) or 0.0) if _slot0 is not None else 0.0,
-                "y": float(getattr(_slot0, "y", 0.0) or 0.0) if _slot0 is not None else 0.0,
-                "scale": float(getattr(_slot0, "scale", 1.0) or 1.0) if _slot0 is not None else 1.0,
-                "z": getattr(_slot0, "z", None) if _slot0 is not None else None,
-                "opacity": getattr(_slot0, "opacity", None) if _slot0 is not None else None,
-            }
-            if args.get("matte"):
-                # 绿键走 render_with_product_matte(= render_scene_layered(matte=True);保留名供测试 monkeypatch)
-                render_with_product_matte(
-                    presenter_path=presenter_keep, avatar=avatar_layer, products=items,
-                    audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
-                    dur_ms=dur_ms,
-                )
+        avatar_layer = {
+            "x": float(getattr(_slot0, "x", 0.0) or 0.0) if _slot0 is not None else 0.0,
+            "y": float(getattr(_slot0, "y", 0.0) or 0.0) if _slot0 is not None else 0.0,
+            "scale": float(getattr(_slot0, "scale", 1.0) or 1.0) if _slot0 is not None else 1.0,
+            "z": getattr(_slot0, "z", None) if _slot0 is not None else None,
+            "opacity": getattr(_slot0, "opacity", None) if _slot0 is not None else None,
+        }
+        presenter_raw = os.path.join(td, "presenter.mp4")
+        final_path = os.path.join(td, "digital_human.mp4")
+        os.replace(out_path, presenter_raw)   # 原始全屏 presenter 让出最终名
+        dur_ms = _probe_duration_ms(presenter_raw) or _probe_duration_ms(audio_path) or 5000
+        _set(tid, progress=88)
+
+        if matte:
+            # matte(绿键)P0 仍走 moviepy + _apply_overlays(ffmpeg 绿键留后续)
+            if items:
+                render_with_product_matte(presenter_path=presenter_raw, avatar=avatar_layer, products=items,
+                                          audio_path=audio_path, out_path=final_path, width=W, height=H, dur_ms=dur_ms)
             else:
-                render_scene_layered(
-                    presenter_path=presenter_keep, avatar=avatar_layer, products=items,
-                    audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
-                    dur_ms=dur_ms, matte=False,
-                )
-            result_path = final_path
-        elif _slot0 is not None and not args.get("matte"):
-            # 无商品:单形象按画布设置的大小/位置/透明度摆放(否则引擎输出全屏,忽略设置)。
-            _sc = float(getattr(_slot0, "scale", 1.0) or 1.0)
-            _sx = float(getattr(_slot0, "x", 0.0) or 0.0)
-            _sy = float(getattr(_slot0, "y", 0.0) or 0.0)
-            _sop = getattr(_slot0, "opacity", None)
-            if _sc < 0.999 or _sx > 0.001 or _sy > 0.001 or (_sop is not None and float(_sop) < 0.999):
-                try:
-                    from chayuan.server.video_generation.digital_human import compose_multi as _cm
-                    placed = os.path.join(td, "placed.mp4")
-                    _cm.render_coframe([out_path], layout="side", out_path=placed,
-                                       width=args["width"], height=args["height"],
-                                       positions=[(_sx, _sy, _sc)], opacities=[_sop])
-                    os.replace(placed, out_path)
-                    result_path = out_path
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("[dh] 单形象按尺寸摆放失败,回退全屏: %r", e)
-        result_path = _apply_overlays(result_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), args["width"], args["height"])
+                os.replace(presenter_raw, final_path)
+            result_path = _apply_overlays(final_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), W, H)
+        else:
+            # 非 matte:形象 + 商品 + 字幕 一趟 ffcompose;失败回退 moviepy。
+            _t0 = time.perf_counter()
+            sub = _build_subtitle(td, preset, args.get("text"), W, H, dur_ms)
+            _full = (avatar_layer["scale"] >= 0.999 and avatar_layer["x"] < 0.001
+                     and avatar_layer["y"] < 0.001
+                     and (avatar_layer["opacity"] is None or float(avatar_layer["opacity"]) >= 0.999))
+            if not items and sub is None and _full:
+                # 最简单:全屏形象、无商品、无字幕 → 直接用原始 presenter,免无谓重编码。
+                os.replace(presenter_raw, final_path)
+                result_path = final_path
+                _set(tid, state="complete", progress=100, result_path=result_path, script=args.get("text", ""))
+                return
+            layers = [dict(avatar_layer, src=presenter_raw, kind="video", loop=False, windows=None)]
+            for it in items:
+                _kind = "video" if os.path.splitext(it["path"])[1].lower() in _VIDEO_EXT else "image"
+                layers.append({"src": it["path"], "kind": _kind, "x": it["x"], "y": it["y"],
+                               "scale": it["scale"], "z": it["z"], "opacity": it["opacity"],
+                               "loop": (_kind == "video"), "windows": None})
+            scene = {"width": W, "height": H, "duration_ms": dur_ms, "audio_path": audio_path,
+                     "layers": layers, "subtitle": sub}
+            try:
+                from chayuan.server.video_generation.digital_human import ffcompose as _ff
+                _ff.render(scene, final_path)
+                result_path = final_path
+                from chayuan.server.video_generation.compute import get_compute as _gc
+                logger.info("[dh-timing] mode=single compose(ffcompose)=%.1fs encoder=%s",
+                            time.perf_counter() - _t0, _gc().video_encoder)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[dh] ffcompose 失败,回退 moviepy: %r", e)
+                if items:
+                    render_scene_layered(presenter_path=presenter_raw, avatar=avatar_layer, products=items,
+                                         audio_path=audio_path, out_path=final_path, width=W, height=H, dur_ms=dur_ms, matte=False)
+                else:
+                    _sc, _sx, _sy = avatar_layer["scale"], avatar_layer["x"], avatar_layer["y"]
+                    _sop = avatar_layer["opacity"]
+                    if _sc < 0.999 or _sx > 0.001 or _sy > 0.001 or (_sop is not None and float(_sop) < 0.999):
+                        try:
+                            from chayuan.server.video_generation.digital_human import compose_multi as _cm
+                            _cm.render_coframe([presenter_raw], layout="side", out_path=final_path,
+                                               width=W, height=H, positions=[(_sx, _sy, _sc)], opacities=[_sop])
+                        except Exception as e2:  # noqa: BLE001
+                            logger.warning("[dh] 单形象摆放回退失败,用全屏: %r", e2)
+                            os.replace(presenter_raw, final_path)
+                    else:
+                        os.replace(presenter_raw, final_path)
+                result_path = _apply_overlays(final_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), W, H)
         _set(tid, state="complete", progress=100, result_path=result_path,
              script=args.get("text", ""))
     except Exception as e:  # noqa: BLE001

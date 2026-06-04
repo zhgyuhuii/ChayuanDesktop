@@ -24,8 +24,12 @@ def build_filter(scene: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]], str,
     cur = "bg"
     for idx, ly in enumerate(layers):
         in_idx = len(inputs)
+        # 时间窗视频段:把输入延迟到其出场时刻(itsoffset),使 enable 窗口内从该段 t=0 播。
+        wins0 = ly.get("windows")
+        offset_ms = int(wins0[0].get("start_ms", 0)) if (wins0 and ly.get("kind") == "video") else 0
         inputs.append({"path": ly["src"],
-                       "loop": bool(ly.get("loop")) and (ly.get("kind") == "video")})
+                       "loop": bool(ly.get("loop")) and (ly.get("kind") == "video"),
+                       "offset_ms": offset_ms})
         w = max(1, int(round(float(ly.get("scale") or 1.0) * W)))
         x = int(round(float(ly.get("x") or 0.0) * W))
         y = int(round(float(ly.get("y") or 0.0) * H))
@@ -65,6 +69,8 @@ def render(scene: Dict[str, Any], out_path: str, on_progress=None) -> str:
     for ipt in inputs:
         if ipt.get("loop"):
             cmd += ["-stream_loop", "-1"]
+        if ipt.get("offset_ms"):
+            cmd += ["-itsoffset", str(ipt["offset_ms"] / 1000.0)]
         cmd += ["-i", ipt["path"]]
     cmd += ["-i", scene["audio_path"]]            # 最后一个输入 = 音频
     aidx = len(inputs)
