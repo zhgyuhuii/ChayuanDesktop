@@ -21,6 +21,7 @@ class AvatarSlot(BaseModel):
     x: float = 0.0
     y: float = 0.0
     scale: float = 1.0
+    z: Optional[int] = None   # 图层叠放顺序(大=靠前);None=按数组序
 
 
 DhTemplate = Literal["none", "corner", "side", "bg"]  # P1 仅用 none;corner/side/bg 留 P2/P3
@@ -63,6 +64,7 @@ class DigitalHumanPreset(BaseModel):
     product_x: float = 0.66
     product_y: float = 0.60
     product_scale: float = 0.32
+    product_z: Optional[int] = None   # 商品层叠放顺序(同 AvatarSlot.z);None=排在角色之上
 
     @model_validator(mode="after")
     def _sync_avatars(self) -> "DigitalHumanPreset":

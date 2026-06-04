@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { digitalHuman, type AvatarSlot, type DigitalHumanPreset } from '@chayuan/api';
 import { GeneratePanel } from './GeneratePanel';
-import { CanvasStage, type CanvasProduct } from './CanvasStage';
+import { CanvasStage, PRODUCT_REF, type CanvasProduct } from './CanvasStage';
 import { DhTaskList } from './DhTaskList';
 
 /** 折叠后的竖条(左设置 / 右预览),点击展开。 */
@@ -65,12 +65,40 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
   React.useEffect(() => {
     setLocalProduct(preset?.product_ref
       ? { ref: preset.product_ref, kind: preset.product_kind ?? 'image',
-          x: preset.product_x ?? 0.66, y: preset.product_y ?? 0.6, scale: preset.product_scale ?? 0.32 }
+          x: preset.product_x ?? 0.66, y: preset.product_y ?? 0.6, scale: preset.product_scale ?? 0.32,
+          z: preset.product_z }
       : undefined);
-  }, [pid, preset?.product_ref, preset?.product_kind, preset?.product_x, preset?.product_y, preset?.product_scale]);
+  }, [pid, preset?.product_ref, preset?.product_kind, preset?.product_x, preset?.product_y, preset?.product_scale, preset?.product_z]);
   const onProductChange = React.useCallback((pos: { x: number; y: number; scale: number }) => {
     setLocalProduct((p) => (p ? { ...p, ...pos } : p));
     persist({ product_x: pos.x, product_y: pos.y, product_scale: pos.scale });
+  }, [persist]);
+
+  // 图层叠放:右键菜单一次给出受影响图层的新 z;拆分商品层 vs 角色层后一并写回 preset。
+  const onLayerZChange = React.useCallback((updates: Array<{ ref: string; z: number }>) => {
+    const zByRef = new Map(updates.map((u) => [u.ref, u.z]));
+    setLocalRoles((prev) => {
+      const next = prev.map((r) => (zByRef.has(r.ref) ? { ...r, z: zByRef.get(r.ref) } : r));
+      const productZ = zByRef.get(PRODUCT_REF);
+      persist(productZ === undefined ? { avatars: next } : { avatars: next, product_z: productZ });
+      return next;
+    });
+    const pz = zByRef.get(PRODUCT_REF);
+    if (pz !== undefined) setLocalProduct((p) => (p ? { ...p, z: pz } : p));
+  }, [persist]);
+
+  // 删除图层:商品层清空 product_ref;角色层从 avatars 移除。
+  const onLayerDelete = React.useCallback((ref: string) => {
+    if (ref === PRODUCT_REF) {
+      setLocalProduct(undefined);
+      persist({ product_ref: '' });
+      return;
+    }
+    setLocalRoles((prev) => {
+      const next = prev.filter((r) => r.ref !== ref);
+      persist({ avatars: next });
+      return next;
+    });
   }, [persist]);
 
   // 左设置宽、右预览窄(默认 4:1 = 80%);可拖拽,clamp 55%-90%。
@@ -138,7 +166,8 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
     >
       {preset && localRoles.length > 0 ? (
         <CanvasStage width={w} height={h} roles={localRoles} onChange={onRoleChange}
-          product={localProduct} onProductChange={onProductChange} />
+          product={localProduct} onProductChange={onProductChange}
+          onLayerZChange={onLayerZChange} onLayerDelete={onLayerDelete} />
       ) : preset && preset.avatar_kind === 'image' ? (
         <img src={url} alt={preset.name} className="h-full w-full object-cover" />
       ) : preset ? (

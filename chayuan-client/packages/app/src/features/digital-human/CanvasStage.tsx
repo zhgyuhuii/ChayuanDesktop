@@ -7,35 +7,68 @@ export interface CanvasProduct {
   x: number;
   y: number;
   scale: number;
+  z?: number;
 }
 
 export interface CanvasStageProps {
   width: number;          // 画幅像素(仅定比例)
   height: number;
-  roles: AvatarSlot[];    // 每角色 ref/kind/name/x/y/scale(归一)
+  roles: AvatarSlot[];    // 每角色 ref/kind/name/x/y/scale/z(归一)
   onChange?: (ref: string, pos: { x: number; y: number; scale: number }) => void;
   product?: CanvasProduct;        // 商品图/视频层(可选)
   onProductChange?: (pos: { x: number; y: number; scale: number }) => void;
+  /** 图层叠放变更:一次给出受影响图层的新 z(ref 可为 PRODUCT_REF)。 */
+  onLayerZChange?: (updates: Array<{ ref: string; z: number }>) => void;
+  /** 删除某图层(ref===PRODUCT_REF 删商品层,否则删该角色)。 */
+  onLayerDelete?: (ref: string) => void;
   readOnly?: boolean;
 }
 
-const PRODUCT_REF = '__product__';
+export const PRODUCT_REF = '__product__';
 
 type Corner = 'nw' | 'ne' | 'sw' | 'se';
 type Drag =
   | { mode: 'move'; ref: string; mx: number; my: number; x0: number; y0: number }
   | { mode: 'resize'; ref: string; corner: Corner; mx: number; s0: number; x0: number; y0: number };
 
-/** 按画幅比例显示舞台,角色 + 商品图按归一 x/y/scale 摆放。
- *  拖拽改位置(跟手),四角控制点改大小。编辑器(可拖)与生成预览(readOnly)共用。
- *  用 window 级 pointer 监听,避免 pointer-capture/重渲染导致"只动一点点不跟手"。 */
-export const CanvasStage: React.FC<CanvasStageProps> = ({ width, height, roles, onChange, product, onProductChange, readOnly }) => {
+type MenuState = { x: number; y: number; ref: string } | null;
+
+/** 按画幅比例显示舞台,角色 + 商品图按归一 x/y/scale 摆放,显式 zIndex 控制叠放。
+ *  拖拽改位置(跟手),四角控制点改大小,右键菜单调层级 / 删除。
+ *  编辑器(可拖)与生成预览(readOnly)共用。 */
+export const CanvasStage: React.FC<CanvasStageProps> = ({
+  width, height, roles, onChange, product, onProductChange, onLayerZChange, onLayerDelete, readOnly,
+}) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const dragRef = React.useRef<Drag | null>(null);
   const rolesRef = React.useRef(roles);
   rolesRef.current = roles;
-  const productRef = React.useRef<CanvasProduct | undefined>(product);
-  productRef.current = product;
+  const prodRef = React.useRef<CanvasProduct | undefined>(product);
+  prodRef.current = product;
+  const [menu, setMenu] = React.useState<MenuState>(null);
+
+  // 各图层有效 z(缺省:角色按数组序,商品排在角色之上)+ 数组序兜底,保证排序稳定。
+  const layerList = React.useMemo(() => {
+    const list = roles.map((r, i) => ({ ref: r.ref, ez: r.z ?? i, fi: i }));
+    if (product && product.ref) list.push({ ref: PRODUCT_REF, ez: product.z ?? roles.length, fi: roles.length });
+    return list;
+  }, [roles, product]);
+  const ordered = React.useMemo(
+    () => layerList.slice().sort((a, b) => a.ez - b.ez || a.fi - b.fi).map((l) => l.ref),
+    [layerList],
+  );
+
+  const applyOrder = (ref: string, op: 'front' | 'back' | 'up' | 'down') => {
+    const arr = ordered.slice();
+    const i = arr.indexOf(ref);
+    if (i < 0) return;
+    if (op === 'front') { arr.splice(i, 1); arr.push(ref); }
+    else if (op === 'back') { arr.splice(i, 1); arr.unshift(ref); }
+    else if (op === 'up' && i < arr.length - 1) { arr.splice(i, 1); arr.splice(i + 1, 0, ref); }
+    else if (op === 'down' && i > 0) { arr.splice(i, 1); arr.splice(i - 1, 0, ref); }
+    else return;
+    onLayerZChange?.(arr.map((r, idx) => ({ ref: r, z: idx })));
+  };
 
   React.useEffect(() => {
     if (readOnly) return undefined;
@@ -45,9 +78,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({ width, height, roles, 
       if (!d || !box) return;
       const rect = box.getBoundingClientRect();
       const isProduct = d.ref === PRODUCT_REF;
-      const cur = isProduct
-        ? productRef.current
-        : rolesRef.current.find((x) => x.ref === d.ref);
+      const cur = isProduct ? prodRef.current : rolesRef.current.find((x) => x.ref === d.ref);
       if (!cur) return;
       const emit = (pos: { x: number; y: number; scale: number }) => {
         if (isProduct) onProductChange?.(pos);
@@ -73,16 +104,38 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({ width, height, roles, 
     };
   }, [onChange, onProductChange, readOnly]);
 
+  // 右键菜单:点外部 / Esc 关(延迟一帧注册,避免捕获到打开菜单的这次事件)。
+  React.useEffect(() => {
+    if (!menu) return undefined;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(null); };
+    const id = window.setTimeout(() => {
+      window.addEventListener('click', close);
+      window.addEventListener('keydown', onKey);
+    }, 0);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menu]);
+
   const startMove = (e: React.PointerEvent, ref: string, x0: number, y0: number) => {
-    if (readOnly) return;
+    if (readOnly || e.button !== 0) return;   // 右键不拖拽
     e.preventDefault();
     dragRef.current = { mode: 'move', ref, mx: e.clientX, my: e.clientY, x0, y0 };
   };
   const startResize = (e: React.PointerEvent, ref: string, corner: Corner, x0: number, y0: number, s0: number) => {
-    if (readOnly) return;
+    if (readOnly || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     dragRef.current = { mode: 'resize', ref, corner, mx: e.clientX, s0, x0, y0 };
+  };
+  const onCtx = (e: React.MouseEvent, ref: string) => {
+    if (readOnly || (!onLayerZChange && !onLayerDelete)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY, ref });
   };
 
   const corners: Array<[Corner, string]> = [
@@ -92,44 +145,73 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({ width, height, roles, 
     ['se', 'bottom-0 right-0 translate-x-1/2 translate-y-1/2 cursor-se-resize'],
   ];
 
+  const menuPos = menu ? ordered.indexOf(menu.ref) : -1;
+  const menuItem = (label: string, onClick: () => void, disabled = false, danger = false) => (
+    <button type="button" disabled={disabled}
+      onClick={() => { onClick(); setMenu(null); }}
+      className={`block w-full px-3 py-1.5 text-left text-sm disabled:opacity-40 ${
+        danger ? 'text-[var(--cy-danger-500)] hover:bg-[var(--cy-surface-2)]' : 'text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]'}`}>
+      {label}
+    </button>
+  );
+
   return (
-    <div ref={boxRef}
-      className="relative mx-auto select-none overflow-hidden rounded-lg bg-black"
-      style={{ aspectRatio: `${width} / ${height}`, maxWidth: '100%', maxHeight: '100%', ...(width >= height ? { width: '100%', height: 'auto' } : { height: '100%', width: 'auto' }) }}>
-      {roles.map((r) => (
-        <div key={r.ref}
-          onPointerDown={(e) => startMove(e, r.ref, r.x ?? 0, r.y ?? 0)}
-          className={'absolute ' + (readOnly ? '' : 'cursor-move')}
-          style={{ left: `${(r.x ?? 0) * 100}%`, top: `${(r.y ?? 0) * 100}%`, width: `${(r.scale ?? 1) * 100}%`, touchAction: 'none' }}>
-          {r.kind === 'video'
-            ? <video src={digitalHuman.avatarFileUrl(r.ref)} muted loop autoPlay playsInline className="pointer-events-none w-full rounded" />
-            : <img src={digitalHuman.avatarFileUrl(r.ref)} alt={r.name || '角色'} className="pointer-events-none w-full rounded" draggable={false} />}
-          {r.name ? <span className="pointer-events-none absolute -bottom-4 left-0 rounded bg-black/60 px-1 text-[10px] text-white">{r.name}</span> : null}
-          {!readOnly && corners.map(([c, cls]) => (
-            <div key={c} onPointerDown={(e) => startResize(e, r.ref, c, r.x ?? 0, r.y ?? 0, r.scale ?? 1)}
-              title="拖拽缩放"
-              className={'absolute h-2.5 w-2.5 rounded-sm border border-white bg-[var(--cy-brand-500)] ' + cls}
-              style={{ touchAction: 'none' }} />
-          ))}
-        </div>
-      ))}
-      {product && product.ref ? (
+    <>
+      <div ref={boxRef}
+        className="relative mx-auto select-none overflow-hidden rounded-lg bg-black"
+        style={{ aspectRatio: `${width} / ${height}`, maxWidth: '100%', maxHeight: '100%', ...(width >= height ? { width: '100%', height: 'auto' } : { height: '100%', width: 'auto' }) }}>
+        {roles.map((r, i) => (
+          <div key={r.ref}
+            onPointerDown={(e) => startMove(e, r.ref, r.x ?? 0, r.y ?? 0)}
+            onContextMenu={(e) => onCtx(e, r.ref)}
+            className={'absolute ' + (readOnly ? '' : 'cursor-move')}
+            style={{ left: `${(r.x ?? 0) * 100}%`, top: `${(r.y ?? 0) * 100}%`, width: `${(r.scale ?? 1) * 100}%`, zIndex: r.z ?? i, touchAction: 'none' }}>
+            {r.kind === 'video'
+              ? <video src={digitalHuman.avatarFileUrl(r.ref)} muted loop autoPlay playsInline className="pointer-events-none w-full rounded" />
+              : <img src={digitalHuman.avatarFileUrl(r.ref)} alt={r.name || '角色'} className="pointer-events-none w-full rounded" draggable={false} />}
+            {r.name ? <span className="pointer-events-none absolute -bottom-4 left-0 rounded bg-black/60 px-1 text-[10px] text-white">{r.name}</span> : null}
+            {!readOnly && corners.map(([c, cls]) => (
+              <div key={c} onPointerDown={(e) => startResize(e, r.ref, c, r.x ?? 0, r.y ?? 0, r.scale ?? 1)}
+                title="拖拽缩放"
+                className={'absolute h-2.5 w-2.5 rounded-sm border border-white bg-[var(--cy-brand-500)] ' + cls}
+                style={{ touchAction: 'none' }} />
+            ))}
+          </div>
+        ))}
+        {product && product.ref ? (
+          <div
+            onPointerDown={(e) => startMove(e, PRODUCT_REF, product.x ?? 0, product.y ?? 0)}
+            onContextMenu={(e) => onCtx(e, PRODUCT_REF)}
+            className={'absolute ' + (readOnly ? '' : 'cursor-move')}
+            style={{ left: `${(product.x ?? 0) * 100}%`, top: `${(product.y ?? 0) * 100}%`, width: `${(product.scale ?? 0.3) * 100}%`, zIndex: product.z ?? roles.length, touchAction: 'none' }}>
+            {product.kind === 'video'
+              ? <video src={digitalHuman.productFileUrl(product.ref)} muted loop autoPlay playsInline className="pointer-events-none w-full rounded ring-1 ring-white/40" />
+              : <img src={digitalHuman.productFileUrl(product.ref)} alt="商品图" className="pointer-events-none w-full rounded ring-1 ring-white/40" draggable={false} />}
+            <span className="pointer-events-none absolute -top-4 left-0 rounded bg-[var(--cy-brand-600)]/80 px-1 text-[10px] text-white">商品</span>
+            {!readOnly && corners.map(([c, cls]) => (
+              <div key={c} onPointerDown={(e) => startResize(e, PRODUCT_REF, c, product.x ?? 0, product.y ?? 0, product.scale ?? 0.3)}
+                title="拖拽缩放"
+                className={'absolute h-2.5 w-2.5 rounded-sm border border-white bg-[var(--cy-brand-500)] ' + cls}
+                style={{ touchAction: 'none' }} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {menu ? (
         <div
-          onPointerDown={(e) => startMove(e, PRODUCT_REF, product.x ?? 0, product.y ?? 0)}
-          className={'absolute ' + (readOnly ? '' : 'cursor-move')}
-          style={{ left: `${(product.x ?? 0) * 100}%`, top: `${(product.y ?? 0) * 100}%`, width: `${(product.scale ?? 0.3) * 100}%`, touchAction: 'none' }}>
-          {product.kind === 'video'
-            ? <video src={digitalHuman.productFileUrl(product.ref)} muted loop autoPlay playsInline className="pointer-events-none w-full rounded ring-1 ring-white/40" />
-            : <img src={digitalHuman.productFileUrl(product.ref)} alt="商品图" className="pointer-events-none w-full rounded ring-1 ring-white/40" draggable={false} />}
-          <span className="pointer-events-none absolute -top-4 left-0 rounded bg-[var(--cy-brand-600)]/80 px-1 text-[10px] text-white">商品</span>
-          {!readOnly && corners.map(([c, cls]) => (
-            <div key={c} onPointerDown={(e) => startResize(e, PRODUCT_REF, c, product.x ?? 0, product.y ?? 0, product.scale ?? 0.3)}
-              title="拖拽缩放"
-              className={'absolute h-2.5 w-2.5 rounded-sm border border-white bg-[var(--cy-brand-500)] ' + cls}
-              style={{ touchAction: 'none' }} />
-          ))}
+          className="fixed z-[400] min-w-[8rem] overflow-hidden rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] py-1 shadow-lg"
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}>
+          {menuItem('置顶', () => applyOrder(menu.ref, 'front'), menuPos === ordered.length - 1)}
+          {menuItem('上移一层', () => applyOrder(menu.ref, 'up'), menuPos === ordered.length - 1)}
+          {menuItem('下移一层', () => applyOrder(menu.ref, 'down'), menuPos <= 0)}
+          {menuItem('置底', () => applyOrder(menu.ref, 'back'), menuPos <= 0)}
+          <div className="my-1 h-px bg-[var(--cy-border-subtle)]" />
+          {menuItem('删除', () => onLayerDelete?.(menu.ref), false, true)}
         </div>
       ) : null}
-    </div>
+    </>
   );
 };
