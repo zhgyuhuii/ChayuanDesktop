@@ -135,13 +135,13 @@ def _matte_opacity(clip, op):
         return clip
 
 
-def render_with_product_matte(*, presenter_path: str, avatar: dict, products: "list",
-                              audio_path: str, out_path: str, width: int, height: int,
-                              dur_ms: int, green=MATTE_GREEN, threshold: int = 100,
-                              stiffness: int = 5) -> str:
-    """绿幕抠像图层合成:presenter 抠掉绿背景后,与各商品按 canvas 的 x/y/scale/z/opacity
-    在黑底上叠放(z 升序→在上)。商品/形象都用各自坐标(取代旧的「商品全屏底+presenter 固定 PIP」)。
-    直接走 moviepy,自包含。失败抛异常由 caller 兜底。
+def render_scene_layered(*, presenter_path: str, avatar: dict, products: "list",
+                         audio_path: str, out_path: str, width: int, height: int,
+                         dur_ms: int, matte: bool = False, green=MATTE_GREEN,
+                         threshold: int = 100, stiffness: int = 5) -> str:
+    """统一图层合成:presenter(matte=True 时绿键抠像)+ 各商品按 canvas 的 x/y/scale/z/opacity
+    在黑底上**按 z 叠放**。形象不再被强制当全屏底——形象与商品按各自 z 决定上下层
+    (修复:全屏置底视频 + 小形象在上 等场景)。直接走 moviepy,自包含,失败抛异常由 caller 兜底。
     avatar: {x,y,scale,z,opacity};products: [{path,x,y,scale,z,opacity}]。"""
     from moviepy import (
         AudioFileClip, ColorClip, CompositeVideoClip, ImageClip, VideoFileClip, vfx,
@@ -151,10 +151,12 @@ def render_with_product_matte(*, presenter_path: str, avatar: dict, products: "l
     opened = []
     entries = []  # (z, fi, clip)
 
-    # presenter:绿键抠像 → 按形象坐标/大小/透明度摆放。
-    pv = VideoFileClip(presenter_path, audio=False).with_effects([
-        vfx.MaskColor(color=list(green), threshold=threshold, stiffness=stiffness),
-    ])
+    # presenter:matte 时绿键抠像;按形象坐标/大小/透明度摆放(作为一个图层,非强制底)。
+    pv = VideoFileClip(presenter_path, audio=False)
+    if matte:
+        pv = pv.with_effects([
+            vfx.MaskColor(color=list(green), threshold=threshold, stiffness=stiffness),
+        ])
     aw = max(1, int(width * float(avatar.get("scale") or 1.0)))
     pv = pv.resized(width=aw).with_position(
         (int(float(avatar.get("x") or 0.0) * width), int(float(avatar.get("y") or 0.0) * height)))
@@ -190,3 +192,8 @@ def render_with_product_matte(*, presenter_path: str, avatar: dict, products: "l
             except Exception:  # noqa: BLE001
                 pass
     return out_path
+
+
+def render_with_product_matte(**kw) -> str:
+    """绿幕抠像 = 图层合成 + presenter 绿键。薄包装,保留旧名供 jobs/测试引用。"""
+    return render_scene_layered(matte=True, **kw)

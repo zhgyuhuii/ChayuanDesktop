@@ -15,7 +15,7 @@ from chayuan.server.video_generation.digital_human.engine import get_engine
 from chayuan.server.video_generation.digital_human.schemas import DhTaskStatus
 from chayuan.server.video_generation.digital_human.store import resolve_avatar_path, resolve_product_path
 from chayuan.server.video_generation.digital_human.compose import (
-    render_with_product, render_with_product_matte, render_with_products,
+    render_with_product, render_with_product_matte, render_with_products, render_scene_layered,
 )
 
 logger = logging.getLogger("chayuan.dh.jobs")
@@ -372,27 +372,9 @@ def _run_pipeline(tid: str) -> None:
             width=args["width"], height=args["height"],
             on_progress=lambda pct: _set(tid, progress=30 + int(pct * 0.7)),
         )
-        # 单形象按画布设置的大小/位置/透明度摆放:引擎输出是全屏,若 slot 设了缩小/位移/
-        # 透明度,则复用 render_coframe 把它摆到黑底画布上(否则一直全屏,忽略设置)。
-        _slot0 = (getattr(preset, "avatars", None) or [None])[0]
-        if _slot0 is not None and not args.get("matte"):
-            _sc = float(getattr(_slot0, "scale", 1.0) or 1.0)
-            _sx = float(getattr(_slot0, "x", 0.0) or 0.0)
-            _sy = float(getattr(_slot0, "y", 0.0) or 0.0)
-            _sop = getattr(_slot0, "opacity", None)
-            if _sc < 0.999 or _sx > 0.001 or _sy > 0.001 or (_sop is not None and float(_sop) < 0.999):
-                try:
-                    from chayuan.server.video_generation.digital_human import compose_multi as _cm
-                    placed = os.path.join(td, "placed.mp4")
-                    _cm.render_coframe([out_path], layout="side", out_path=placed,
-                                       width=args["width"], height=args["height"],
-                                       positions=[(_sx, _sy, _sc)], opacities=[_sop])
-                    os.replace(placed, out_path)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("[dh] 单形象按尺寸摆放失败,回退全屏: %r", e)
         result_path = out_path
-        template = args.get("template") or "corner"  # 仅 matte 用作 presenter 默认版式
-        # 多商品:优先 preset.products(已由 schema 从旧 product_ref 迁移);解析成可摆放项。
+        _slot0 = (getattr(preset, "avatars", None) or [None])[0]
+        # 商品图层:优先 preset.products(schema 已从旧 product_ref 迁移),解析成可摆放项。
         _layers = list(getattr(preset, "products", None) or [])
         items = []
         for q in _layers:
@@ -414,51 +396,53 @@ def _run_pipeline(tid: str) -> None:
                               "scale": float(getattr(preset, "product_scale", 0.32) or 0.32),
                               "z": getattr(preset, "product_z", None),
                               "opacity": getattr(preset, "product_opacity", None)})
+
         if items:
+            # 有商品:形象 + 商品统一图层合成(各按 x/y/scale/z/opacity 按 z 叠;形象不再强制当全屏底,
+            # 故「全屏置底视频 + 小形象在上」等场景与预览一致)。
             _set(tid, progress=88)
             presenter_keep = os.path.join(td, "presenter.mp4")
             final_path = os.path.join(td, "digital_human.mp4")
-            os.replace(out_path, presenter_keep)  # presenter 让出最终文件名
+            os.replace(out_path, presenter_keep)  # presenter 让出最终文件名(原始全屏,图层合成里按形象坐标摆)
             dur_ms = _probe_duration_ms(presenter_keep) or _probe_duration_ms(audio_path) or 5000
+            avatar_layer = {
+                "x": float(getattr(_slot0, "x", 0.0) or 0.0) if _slot0 is not None else 0.0,
+                "y": float(getattr(_slot0, "y", 0.0) or 0.0) if _slot0 is not None else 0.0,
+                "scale": float(getattr(_slot0, "scale", 1.0) or 1.0) if _slot0 is not None else 1.0,
+                "z": getattr(_slot0, "z", None) if _slot0 is not None else None,
+                "opacity": getattr(_slot0, "opacity", None) if _slot0 is not None else None,
+            }
             if args.get("matte"):
-                _av0 = (getattr(preset, "avatars", None) or [None])[0]
-                avatar_layer = {
-                    "x": float(getattr(_av0, "x", 0.0) or 0.0) if _av0 is not None else 0.0,
-                    "y": float(getattr(_av0, "y", 0.0) or 0.0) if _av0 is not None else 0.0,
-                    "scale": float(getattr(_av0, "scale", 1.0) or 1.0) if _av0 is not None else 1.0,
-                    "z": getattr(_av0, "z", None) if _av0 is not None else None,
-                    "opacity": getattr(_av0, "opacity", None) if _av0 is not None else None,
-                }
+                # 绿键走 render_with_product_matte(= render_scene_layered(matte=True);保留名供测试 monkeypatch)
                 render_with_product_matte(
                     presenter_path=presenter_keep, avatar=avatar_layer, products=items,
                     audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
                     dur_ms=dur_ms,
                 )
-            elif len(items) == 1:
-                it = items[0]
-                # 形象 z 高于商品 z 时,形象按自身坐标叠在商品(全屏底)之上。
-                _av0 = (getattr(preset, "avatars", None) or [None])[0]
-                _avz = getattr(_av0, "z", None) if _av0 is not None else None
-                presenter_on_top = (_avz is not None and it["z"] is not None and _avz > it["z"])
-                presenter_pos = None
-                if presenter_on_top and _av0 is not None:
-                    presenter_pos = {"x": float(getattr(_av0, "x", 0.0) or 0.0),
-                                     "y": float(getattr(_av0, "y", 0.0) or 0.0),
-                                     "scale": float(getattr(_av0, "scale", 1.0) or 1.0)}
-                render_with_product(
-                    presenter_path=presenter_keep, product_path=it["path"], template=template,
-                    audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
-                    dur_ms=dur_ms, product_pos={"x": it["x"], "y": it["y"], "scale": it["scale"]},
-                    presenter_pos=presenter_pos, presenter_on_top=presenter_on_top,
-                    product_opacity=it["opacity"],
-                )
             else:
-                render_with_products(
-                    presenter_path=presenter_keep, products=items,
+                render_scene_layered(
+                    presenter_path=presenter_keep, avatar=avatar_layer, products=items,
                     audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
-                    dur_ms=dur_ms,
+                    dur_ms=dur_ms, matte=False,
                 )
             result_path = final_path
+        elif _slot0 is not None and not args.get("matte"):
+            # 无商品:单形象按画布设置的大小/位置/透明度摆放(否则引擎输出全屏,忽略设置)。
+            _sc = float(getattr(_slot0, "scale", 1.0) or 1.0)
+            _sx = float(getattr(_slot0, "x", 0.0) or 0.0)
+            _sy = float(getattr(_slot0, "y", 0.0) or 0.0)
+            _sop = getattr(_slot0, "opacity", None)
+            if _sc < 0.999 or _sx > 0.001 or _sy > 0.001 or (_sop is not None and float(_sop) < 0.999):
+                try:
+                    from chayuan.server.video_generation.digital_human import compose_multi as _cm
+                    placed = os.path.join(td, "placed.mp4")
+                    _cm.render_coframe([out_path], layout="side", out_path=placed,
+                                       width=args["width"], height=args["height"],
+                                       positions=[(_sx, _sy, _sc)], opacities=[_sop])
+                    os.replace(placed, out_path)
+                    result_path = out_path
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[dh] 单形象按尺寸摆放失败,回退全屏: %r", e)
         result_path = _apply_overlays(result_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), args["width"], args["height"])
         _set(tid, state="complete", progress=100, result_path=result_path,
              script=args.get("text", ""))
