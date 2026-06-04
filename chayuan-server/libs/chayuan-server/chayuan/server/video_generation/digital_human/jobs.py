@@ -486,13 +486,18 @@ def _run_pipeline(tid: str) -> None:
         if not avatar:
             raise RuntimeError("形象文件缺失")
         audio_path = os.path.join(td, "narration.wav")
+        _tt = time.perf_counter()
         _synthesize_narration(args["text"], preset, audio_path)
+        _t_tts = time.perf_counter() - _tt
         _set(tid, progress=30)
+        _tt = time.perf_counter()
         get_engine(args.get("engine") or "wav2lip").generate(
             avatar_path=avatar, audio_path=audio_path, out_path=out_path,
             width=args["width"], height=args["height"],
             on_progress=lambda pct: _set(tid, progress=30 + int(pct * 0.7)),
         )
+        _t_infer = time.perf_counter() - _tt
+        logger.info("[dh-timing] mode=single tts=%.1fs infer(wav2lip)=%.1fs", _t_tts, _t_infer)
         result_path = out_path
         W, H = args["width"], args["height"]
         _slot0 = (getattr(preset, "avatars", None) or [None])[0]
