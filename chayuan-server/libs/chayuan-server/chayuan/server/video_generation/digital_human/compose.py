@@ -125,42 +125,66 @@ def render_with_product(*, presenter_path: str, product_path: str, template: str
 MATTE_GREEN = (0, 255, 0)  # 标准绿幕色;非绿底素材抠像效果有限(UI 注明)
 
 
-def render_with_product_matte(*, presenter_path: str, product_path: str, template: str,
+def _matte_opacity(clip, op):
+    if op is None:
+        return clip
+    try:
+        o = max(0.0, min(1.0, float(op)))
+        return clip.with_opacity(o) if (o < 0.999 and hasattr(clip, "with_opacity")) else clip
+    except Exception:  # noqa: BLE001
+        return clip
+
+
+def render_with_product_matte(*, presenter_path: str, avatar: dict, products: "list",
                               audio_path: str, out_path: str, width: int, height: int,
                               dur_ms: int, green=MATTE_GREEN, threshold: int = 100,
                               stiffness: int = 5) -> str:
-    """绿幕抠像合成:presenter 抠掉绿背景 → 按版式叠在商品图全屏底上。
-    直接走 moviepy(不经 render_from_edl),自包含。失败抛异常由 caller 兜底。
-    """
+    """绿幕抠像图层合成:presenter 抠掉绿背景后,与各商品按 canvas 的 x/y/scale/z/opacity
+    在黑底上叠放(z 升序→在上)。商品/形象都用各自坐标(取代旧的「商品全屏底+presenter 固定 PIP」)。
+    直接走 moviepy,自包含。失败抛异常由 caller 兜底。
+    avatar: {x,y,scale,z,opacity};products: [{path,x,y,scale,z,opacity}]。"""
     from moviepy import (
-        AudioFileClip, CompositeVideoClip, ImageClip, VideoFileClip, vfx,
+        AudioFileClip, ColorClip, CompositeVideoClip, ImageClip, VideoFileClip, vfx,
     )
 
-    tpl = TEMPLATES.get(template) or TEMPLATES["corner"]
     dur_s = max(0.1, dur_ms / 1000.0)
+    opened = []
+    entries = []  # (z, fi, clip)
 
-    # 商品可能是图也可能是视频:视频走 VideoFileClip,否则 ImageClip(否则
-    # ImageClip 读视频会报 "Format FFMPEG cannot read in single_image mode")。
-    if os.path.splitext(product_path)[1].lower() in _VIDEO_EXT:
-        base = VideoFileClip(product_path, audio=False).resized(new_size=(width, height))
-    else:
-        base = ImageClip(product_path).resized(new_size=(width, height)).with_duration(dur_s)
-    presenter = VideoFileClip(presenter_path, audio=False)
-    presenter = presenter.with_effects([
+    # presenter:绿键抠像 → 按形象坐标/大小/透明度摆放。
+    pv = VideoFileClip(presenter_path, audio=False).with_effects([
         vfx.MaskColor(color=list(green), threshold=threshold, stiffness=stiffness),
     ])
-    pip_w = max(1, int(width * float(tpl["scale"])))
-    presenter = presenter.resized(width=pip_w).with_position(
-        (float(tpl["x"]), float(tpl["y"])), relative=True,
-    )
+    aw = max(1, int(width * float(avatar.get("scale") or 1.0)))
+    pv = pv.resized(width=aw).with_position(
+        (int(float(avatar.get("x") or 0.0) * width), int(float(avatar.get("y") or 0.0) * height)))
+    pv = _matte_opacity(pv, avatar.get("opacity"))
+    opened.append(pv)
+    entries.append((avatar.get("z") if avatar.get("z") is not None else 0, -1, pv))
+
+    for i, p in enumerate(products or []):
+        path = p["path"]
+        if os.path.splitext(path)[1].lower() in _VIDEO_EXT:
+            c = VideoFileClip(path, audio=False)
+        else:
+            c = ImageClip(path).with_duration(dur_s)
+        pw = max(1, int(width * float(p.get("scale") or 0.32)))
+        c = c.resized(width=pw).with_position(
+            (int(float(p.get("x") or 0.66) * width), int(float(p.get("y") or 0.60) * height)))
+        c = _matte_opacity(c, p.get("opacity"))
+        opened.append(c)
+        entries.append((p.get("z") if p.get("z") is not None else (i + 1), i, c))
+
+    entries.sort(key=lambda e: (e[0], e[1]))  # z 升序 → 列表越靠后越上层
+    bg = ColorClip(size=(width, height), color=(0, 0, 0)).with_duration(dur_s)
     audio = AudioFileClip(audio_path)
-    comp = CompositeVideoClip([base, presenter], size=(width, height)).with_duration(dur_s)
+    comp = CompositeVideoClip([bg, *[c for _, _, c in entries]], size=(width, height)).with_duration(dur_s)
     comp = comp.with_audio(audio)
     try:
         comp.write_videofile(out_path, codec="libx264", audio_codec="aac",
                              fps=25, threads=2, logger=None)
     finally:
-        for c in (audio, presenter, base, comp):
+        for c in (audio, bg, comp, *opened):
             try:
                 c.close()
             except Exception:  # noqa: BLE001

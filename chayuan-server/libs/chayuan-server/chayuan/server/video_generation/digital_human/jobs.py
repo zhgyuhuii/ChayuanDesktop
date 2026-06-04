@@ -395,6 +395,17 @@ def _run_pipeline(tid: str) -> None:
                               "y": float(getattr(q, "y", 0.60) if getattr(q, "y", None) is not None else 0.60),
                               "scale": float(getattr(q, "scale", 0.32) if getattr(q, "scale", None) is not None else 0.32),
                               "z": getattr(q, "z", None), "opacity": getattr(q, "opacity", None)})
+        if not items:
+            # 兼容:请求直接带 product_ref(preset.products 为空,如旧前端/直接调用),按 preset 旧坐标摆位。
+            _argref = args.get("product_ref")
+            _pp = resolve_product_path(_argref) if _argref else None
+            if _pp:
+                items.append({"path": _pp,
+                              "x": float(getattr(preset, "product_x", 0.66) or 0.66),
+                              "y": float(getattr(preset, "product_y", 0.60) or 0.60),
+                              "scale": float(getattr(preset, "product_scale", 0.32) or 0.32),
+                              "z": getattr(preset, "product_z", None),
+                              "opacity": getattr(preset, "product_opacity", None)})
         if items:
             _set(tid, progress=88)
             presenter_keep = os.path.join(td, "presenter.mp4")
@@ -402,8 +413,16 @@ def _run_pipeline(tid: str) -> None:
             os.replace(out_path, presenter_keep)  # presenter 让出最终文件名
             dur_ms = _probe_duration_ms(presenter_keep) or _probe_duration_ms(audio_path) or 5000
             if args.get("matte"):
+                _av0 = (getattr(preset, "avatars", None) or [None])[0]
+                avatar_layer = {
+                    "x": float(getattr(_av0, "x", 0.0) or 0.0) if _av0 is not None else 0.0,
+                    "y": float(getattr(_av0, "y", 0.0) or 0.0) if _av0 is not None else 0.0,
+                    "scale": float(getattr(_av0, "scale", 1.0) or 1.0) if _av0 is not None else 1.0,
+                    "z": getattr(_av0, "z", None) if _av0 is not None else None,
+                    "opacity": getattr(_av0, "opacity", None) if _av0 is not None else None,
+                }
                 render_with_product_matte(
-                    presenter_path=presenter_keep, product_path=items[0]["path"], template=template,
+                    presenter_path=presenter_keep, avatar=avatar_layer, products=items,
                     audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
                     dur_ms=dur_ms,
                 )
