@@ -332,8 +332,9 @@ def _run_pipeline(tid: str) -> None:
                                   float(getattr(s, "y", 0.0) or 0.0),
                                   float(getattr(s, "scale", 1.0) or 1.0)) for s in slots]
                     avatars = [resolve_avatar_path(s.ref) for s in slots]
+                    zs = [getattr(s, "z", None) for s in slots]  # 工作台调的图层叠放顺序
                     try:
-                        _cm.render_coframe_turntaking(clips, unit_roles, positions, avatars,
+                        _cm.render_coframe_turntaking(clips, unit_roles, positions, avatars, zs=zs,
                                                       out_path=out_path, width=args["width"], height=args["height"])
                     except Exception as e:  # noqa: BLE001
                         logger.warning("[dh] 同框轮流合成失败,回退按句顺序: %r", e)
@@ -379,6 +380,16 @@ def _run_pipeline(tid: str) -> None:
                 ppos = {"x": float(getattr(preset, "product_x", 0.66)),
                         "y": float(getattr(preset, "product_y", 0.60)),
                         "scale": float(getattr(preset, "product_scale", 0.32))}
+            # 图层叠放:工作台把形象 z 调到商品 z 之上时 → 形象按自身坐标叠在商品(全屏底)之上。
+            _av0 = (getattr(preset, "avatars", None) or [None])[0]
+            _avz = getattr(_av0, "z", None) if _av0 is not None else None
+            _pz = getattr(preset, "product_z", None)
+            presenter_on_top = (_avz is not None and _pz is not None and _avz > _pz)
+            presenter_pos = None
+            if presenter_on_top and _av0 is not None:
+                presenter_pos = {"x": float(getattr(_av0, "x", 0.0) or 0.0),
+                                 "y": float(getattr(_av0, "y", 0.0) or 0.0),
+                                 "scale": float(getattr(_av0, "scale", 1.0) or 1.0)}
             if args.get("matte"):
                 render_with_product_matte(
                     presenter_path=presenter_keep, product_path=product_path, template=template,
@@ -390,6 +401,7 @@ def _run_pipeline(tid: str) -> None:
                     presenter_path=presenter_keep, product_path=product_path, template=template,
                     audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
                     dur_ms=dur_ms, product_pos=ppos,
+                    presenter_pos=presenter_pos, presenter_on_top=presenter_on_top,
                 )
             result_path = final_path
         result_path = _apply_overlays(result_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), args["width"], args["height"])

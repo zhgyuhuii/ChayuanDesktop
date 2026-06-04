@@ -22,12 +22,27 @@ TEMPLATES: Dict[str, Dict[str, float]] = {
 
 
 def build_presenter_edl(presenter_path: str, product_path: str, template: str, *, dur_ms: int,
-                        product_pos: "dict | None" = None) -> Timeline:
+                        product_pos: "dict | None" = None,
+                        presenter_pos: "dict | None" = None,
+                        presenter_on_top: bool = False) -> Timeline:
     """合成 EDL。
-    product_pos 非空(工作台画布拖拽的商品图坐标)→ presenter 全屏底 + 商品图按坐标 PIP
-      (商品图可拖拽生效,取代固定 template)。
+    product_pos 非空(工作台画布拖拽的商品图坐标)→ 默认 presenter 全屏底 + 商品图按坐标 PIP。
+      presenter_on_top=True(工作台把形象图层调到商品之上)→ 改为商品图全屏底 + presenter 按
+      presenter_pos 坐标 PIP(render_from_edl 主轨=全屏底,故谁在底=谁当主轨)。
     product_pos 为空 → 旧行为:商品图全屏底 + presenter 按 template PIP。"""
     if product_pos is not None:
+        if presenter_on_top and presenter_pos is not None:
+            base = TimelineTrack(id="dh-base", kind="video", removable=False, clips=[
+                TimelineClip(id="dh-product", source={"path": product_path},
+                             track_start_ms=0, in_ms=0, out_ms=dur_ms),
+            ])
+            pip = TimelineTrack(id="dh-pip", kind="video", removable=True, clips=[
+                TimelineClip(id="dh-presenter", source={"path": presenter_path},
+                             track_start_ms=0, in_ms=0, out_ms=dur_ms,
+                             x=float(presenter_pos["x"]), y=float(presenter_pos["y"]),
+                             scale=float(presenter_pos["scale"]), z=1),
+            ])
+            return Timeline(version=1, duration_ms=dur_ms, tracks=[base, pip])
         base = TimelineTrack(id="dh-base", kind="video", removable=False, clips=[
             TimelineClip(id="dh-presenter", source={"path": presenter_path},
                          track_start_ms=0, in_ms=0, out_ms=dur_ms),
@@ -58,12 +73,17 @@ def _resolver(src: Dict[str, Any]) -> str:
 
 def render_with_product(*, presenter_path: str, product_path: str, template: str,
                         audio_path: str, out_path: str, width: int, height: int,
-                        dur_ms: int, product_pos: "dict | None" = None) -> str:
-    """合成商品讲解视频。product_pos 非空时按坐标摆商品图。失败抛异常(caller 兜底回退 presenter)。"""
+                        dur_ms: int, product_pos: "dict | None" = None,
+                        presenter_pos: "dict | None" = None,
+                        presenter_on_top: bool = False) -> str:
+    """合成商品讲解视频。product_pos 非空时按坐标摆商品图;presenter_on_top 时形象叠在商品之上。
+    失败抛异常(caller 兜底回退 presenter)。"""
     from chayuan.server.video_generation.steps.compose import render_from_edl
     from chayuan.server.video_generation.schemas import VideoParams
 
-    tl = build_presenter_edl(presenter_path, product_path, template, dur_ms=dur_ms, product_pos=product_pos)
+    tl = build_presenter_edl(presenter_path, product_path, template, dur_ms=dur_ms,
+                             product_pos=product_pos, presenter_pos=presenter_pos,
+                             presenter_on_top=presenter_on_top)
     params = VideoParams(video_width=width, video_height=height)
     render_from_edl(tl, audio_path, "", out_path, params, source_resolver=_resolver)
     return out_path

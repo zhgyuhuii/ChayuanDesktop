@@ -15,6 +15,15 @@ from typing import List, Tuple
 logger = logging.getLogger("chayuan.dh.compose_multi")
 
 
+def _sort_by_z(items, zs):
+    """按图层 z 升序重排(列表越靠后越上层 → z 大的在上);zs 为 None / 某元素 None 时回退数组序。"""
+    if not zs:
+        return items
+    order = sorted(range(len(items)),
+                   key=lambda i: (zs[i] if i < len(zs) and zs[i] is not None else i))
+    return [items[i] for i in order]
+
+
 def _coframe_positions(layout: str, n: int, width: int, height: int) -> List[Tuple[int, int, int]]:
     """返回每个片段的 (x_px, y_px, target_width_px)。layout:
       side       并排等分(默认,最稳):横向均分 n 份,各占 width/n。
@@ -79,8 +88,9 @@ def render_sequential(clip_paths: List[str], *, out_path: str, width: int, heigh
 
 
 def render_coframe(clip_paths: List[str], *, layout: str = "side", out_path: str,
-                   width: int, height: int, positions=None) -> str:
-    """各片段按 layout 摆同一画面、同时播放(音轨叠加)。失败抛异常。"""
+                   width: int, height: int, positions=None, zs=None) -> str:
+    """各片段按 layout 摆同一画面、同时播放(音轨叠加)。zs=各角色图层 z(大=在上),
+    None 元素回退数组序。失败抛异常。"""
     from moviepy import VideoFileClip, CompositeVideoClip
     if not clip_paths:
         raise RuntimeError("没有可合成的片段")
@@ -93,6 +103,7 @@ def render_coframe(clip_paths: List[str], *, layout: str = "side", out_path: str
         dur = max((c.duration for c in raw), default=0.1)
         for c, (x, y, tw) in zip(raw, pos):
             placed.append(c.resized(width=tw).with_position((x, y)))
+        placed = _sort_by_z(placed, zs)  # 列表越靠后越上层 → 按 z 升序叠放
         comp = CompositeVideoClip(placed, size=(width, height)).with_duration(dur)
         comp.write_videofile(out_path, codec="libx264", audio_codec="aac",
                             fps=25, threads=2, logger=None)
@@ -130,7 +141,7 @@ def _probe_ms(path):
 
 
 def render_coframe_turntaking(unit_clips, unit_roles, positions, avatars, *,
-                              out_path, width, height):
+                              out_path, width, height, zs=None):
     """同框按句轮流:每角色全长轨(说话句=该句片段,他句=静态待机帧),按 positions 合成。
     只说话句带音频->叠加即顺序音轨。失败抛异常(caller 兜底)。"""
     from moviepy import VideoFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
@@ -163,6 +174,7 @@ def render_coframe_turntaking(unit_clips, unit_roles, positions, avatars, *,
             track = concatenate_videoclips(segs, method="compose").with_position((x, y))
             role_tracks.append(track)
             opened.append(track)
+        role_tracks = _sort_by_z(role_tracks, zs)  # 按角色图层 z 升序叠放(后=上)
         comp = CompositeVideoClip(role_tracks, size=(width, height))
         comp.write_videofile(out_path, codec="libx264", audio_codec="aac", fps=25, threads=2, logger=None)
         opened.append(comp)
