@@ -5,23 +5,20 @@
  *   前端不经手 mid）。
  * - 二维码本地生成（编码后端给的购买链接），手机扫码到在线购买页。
  * - 序列号手输 → store.activateSerial（B1，后端验签）。
- * - 导入 .lic → store.activateToken（Ed25519，后端验签）。
- * - 刷新在线授权 → store.refresh（后端内部做偶尔在线自动激活）。
  */
 
 import { type PayChannels, licenseBuyUrl, licenseFingerprint } from '@chayuan/api';
-import { getPlatform } from '@chayuan/platform-shared';
 import {
   Button,
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   Input,
   SegmentedTabs,
 } from '@chayuan/ui';
+import { Check, Copy, Fingerprint, Gift, KeyRound } from 'lucide-react';
 import QRCode from 'qrcode';
 import * as React from 'react';
 import { useLicenseStore } from './licenseStore';
@@ -115,14 +112,6 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
   }
 
   const onConfirmSerial = () => run(() => store.activateSerial(app, serial.trim()));
-  const onRefreshOnline = () => run(() => store.refresh(app));
-  const onImportFile = () =>
-    run(async () => {
-      const [file] = await getPlatform().fs.pickFiles({ accept: ['.lic', '.txt'] });
-      if (!file) return null; // 用户取消选文件
-      const token = (await file.text()).trim();
-      return store.activateToken(app, token);
-    });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -132,7 +121,7 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
           <DialogDescription>
             {qrTab === 'share'
               ? '用微信「扫一扫」此码打开分享页，分享给好友/朋友圈即可领取使用次数。'
-              : '手机扫码购买后，把序列号填入下方激活；或导入授权文件。'}
+              : '手机扫码购买后，把序列号填入下方激活。'}
           </DialogDescription>
         </DialogHeader>
         <SegmentedTabs
@@ -145,22 +134,39 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
         />
 
         <div className="flex flex-col items-center gap-3 py-2">
-          {qr ? (
-            <img src={qr} alt="购买二维码" width={220} height={220} />
-          ) : (
-            <div className="h-[220px] w-[220px] animate-pulse rounded bg-muted" />
-          )}
-
-          {/* 支持的支付渠道：按后台「支付配置」开关显示官方 logo */}
-          {channels && (channels.wechat || channels.alipay) ? (
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground">{scanText}</span>
-              {channels.wechat ? <WeChatLogo /> : null}
-              {channels.alipay ? <AlipayLogo /> : null}
+          {/* 二维码卡片 */}
+          <div className="flex flex-col items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm">
+            {/* QR 固定白底，深色模式也要能扫 */}
+            <div className="rounded-xl bg-white p-3">
+              {qr ? (
+                <img src={qr} alt="购买二维码" width={200} height={200} />
+              ) : (
+                <div className="h-[200px] w-[200px] animate-pulse rounded bg-muted" />
+              )}
             </div>
-          ) : null}
 
-          {buyUrl ? (
+            {/* buy 态：支付渠道 logo */}
+            {qrTab === 'buy' && channels && (channels.wechat || channels.alipay) ? (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground">{scanText}</span>
+                {channels.wechat ? <WeChatLogo /> : null}
+                {channels.alipay ? <AlipayLogo /> : null}
+              </div>
+            ) : null}
+
+            {/* share 态：分享提示 */}
+            {qrTab === 'share' ? (
+              <div className="flex items-center gap-1.5">
+                <Gift size={16} className="text-primary" />
+                <span className="text-sm font-medium text-primary">
+                  分享给好友 / 朋友圈，免费领使用次数
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          {/* buy 态：手机打开购买页链接 */}
+          {qrTab === 'buy' && buyUrl ? (
             <a
               className="text-xs text-muted-foreground underline"
               href={buyUrl}
@@ -171,21 +177,39 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
             </a>
           ) : null}
 
+          {/* 指纹信息条 */}
           {fingerprint ? (
-            <div className="w-full rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
-              <div className="flex items-center justify-between gap-2">
-                <span>本机指纹 <code className="font-mono text-foreground">{fingerprint}</code></span>
-                <button type="button" className="underline" onClick={() => void onCopyFp()}>
-                  {fpCopied ? '已复制' : '复制'}
+            <div className="w-full">
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs">
+                <Fingerprint className="size-4 shrink-0 text-muted-foreground" />
+                <span className="text-muted-foreground">本机指纹</span>
+                <code className="flex-1 truncate font-mono text-foreground">{fingerprint}</code>
+                <button
+                  type="button"
+                  className="flex shrink-0 items-center gap-1 text-muted-foreground hover:text-primary"
+                  onClick={() => void onCopyFp()}
+                >
+                  {fpCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                  <span>{fpCopied ? '已复制' : '复制'}</span>
                 </button>
               </div>
-              <p className="mt-1">在电脑浏览器打开 aidooo.com/buy,粘贴此指纹号下单;付款后把序列号填到下方激活。</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                在电脑浏览器打开 aidooo.com/buy，粘贴此指纹号下单；付款后把序列号填到下方激活。
+              </p>
             </div>
           ) : null}
         </div>
 
+        {/* 分隔线 */}
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="h-px flex-1 bg-border" />
+          <span>或手动输入序列号</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium" htmlFor="lic-serial">
+          <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor="lic-serial">
+            <KeyRound className="size-4" />
             序列号
           </label>
           <div className="flex gap-2">
@@ -202,15 +226,6 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
           </div>
           {err ? <p className="text-sm text-destructive">{err}</p> : null}
         </div>
-
-        <DialogFooter className="gap-2 sm:justify-between">
-          <Button variant="ghost" onClick={onImportFile} disabled={busy}>
-            导入授权文件
-          </Button>
-          <Button variant="outline" onClick={onRefreshOnline} disabled={busy}>
-            刷新在线授权
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
