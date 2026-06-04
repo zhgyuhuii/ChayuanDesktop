@@ -156,32 +156,21 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const distributeScript = async (script: string) => {
     setText(script);
     if (roleCount <= 0) return;
-    const hasManual =
-      mode === 'coframe'
-        ? coframeScripts.some((t) => (t ?? '').trim())
-        : mode === 'sequential'
-          ? seqSegments.some((segs) => segs.some((t) => (t ?? '').trim()))
-          : false;
-    if (hasManual) {
-      const ok = await confirmDialog('AI 生成将覆盖各角色框已填内容,继续?');
-      if (!ok) return;
-    }
-    const sents = splitSentences(script);
-    if (mode === 'coframe') {
-      const M = sents.length;
-      const chunkSize = Math.max(1, Math.ceil(M / roleCount));
-      const next = Array.from({ length: roleCount }, (_, i) =>
-        sents.slice(i * chunkSize, (i + 1) * chunkSize).join(''));
-      setCoframeScripts(next);
-      setRoleSegments([]);
-    } else if (mode === 'sequential') {
+    // sequential 仍按角色分段;single / coframe 都用单一文案框(text),coframe 由后端按句轮流分给各角色。
+    if (mode === 'sequential') {
+      const hasManual = seqSegments.some((segs) => segs.some((t) => (t ?? '').trim()));
+      if (hasManual) {
+        const ok = await confirmDialog('AI 生成将覆盖各角色框已填内容,继续?');
+        if (!ok) return;
+      }
+      const sents = splitSentences(script);
       const next = Array.from({ length: roleCount }, (_, i) => {
         const mine = sents.filter((_, k) => k % roleCount === i);
         return mine.length ? mine : [''];
       });
       setSeqSegments(next);
-      setRoleSegments([]);
     }
+    setRoleSegments([]);
   };
   // 多角色 AI 生成产出的有序 role_segments 回填到现有承载多角色台词的状态:
   // coframe -> 每角色一段(同角色多段按出现顺序拼接);
@@ -395,8 +384,9 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         modeFields = { role_segments: roleSegments };
         effectiveText = roleSegments.map((s) => s.text).join('\n');
       } else if (mode === 'coframe') {
-        modeFields = { role_scripts: coframeScripts };
-        effectiveText = coframeScripts.filter((s) => s.trim()).join('\n');
+        // 单输入框:整段发 script,后端按句轮流分给各角色(句0→角色0,句1→角色1,…)。
+        modeFields = { script: text };
+        effectiveText = text;
       } else if (mode === 'sequential') {
         const maxLen = Math.max(0, ...seqSegments.map((a) => a.length));
         const segs: { role_index: number; text: string }[] = [];
@@ -494,10 +484,18 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           text: s.text,
         }));
       }
+      // coframe 单输入框:整段按句轮流分给各角色(与后端 plan 一致)。
+      if (mode === 'coframe') {
+        const n = Math.max(1, roleNames.length);
+        return splitByPunct(text).map((s, k) => ({
+          roleName: roleNames[k % n] ?? ('角色' + ((k % n) + 1)),
+          text: s,
+        }));
+      }
       return previewOrder(mode, coframeScripts, seqSegments, roleNames);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, roleSegments, coframeScripts, seqSegments, roleNames.join('\u0001')],
+    [mode, text, roleSegments, coframeScripts, seqSegments, roleNames.join('\u0001')],
   );
   // 每角色语速(用于时长估算);roleName -> voice_rate。
   const rateByRole = React.useMemo(() => {
@@ -519,13 +517,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     return { perItem, perRole, total };
   }, [orderPreview, rateByRole]);
 
-  // 各 mode 是否有可生成内容
+  // 各 mode 是否有可生成内容(coframe 改单输入框 → 看 text;sequential 仍看各角色段)
   const canGenerate =
-    mode === 'coframe'
-      ? coframeScripts.some((t) => t.trim())
-      : mode === 'sequential'
-        ? seqSegments.some((segs) => segs.some((t) => t.trim()))
-        : text.trim().length > 0;
+    mode === 'sequential'
+      ? seqSegments.some((segs) => segs.some((t) => t.trim()))
+      : text.trim().length > 0;
 
   if (presets.length === 0)
     return <div className="text-sm text-[var(--cy-text-tertiary)]">先到「我的数字人」新建一个数字人。</div>;
@@ -590,13 +586,18 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       {/* 全局文案框仅 single 模式显示。coframe/sequential 下用户敲的字不进 body
           (多角色发 role_scripts/role_segments),显示可编辑会误导,故隐藏;两个
           生成按钮的产物经 distributeScript 分发到各角色框。 */}
-      {mode === 'single' && (
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4}
-          placeholder="输入口播文案…"
-          className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)]" />
+      {(mode === 'single' || mode === 'coframe') && (
+        <div className="flex flex-col gap-1">
+          {mode === 'coframe' && (
+            <span className="text-[11px] text-[var(--cy-text-tertiary)]">同框:整段文案按句轮流分配给各角色(句1→角色1,句2→角色2,…循环)</span>
+          )}
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4}
+            placeholder={mode === 'coframe' ? '输入整段对话文案,系统按句轮流分给各角色…' : '输入口播文案…'}
+            className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)]" />
+        </div>
       )}
-      {/* 单形象:整篇 AI 生成 / 参考视频生成稿。多角色已下放到每个角色框各自生成。 */}
-      {mode === 'single' && (
+      {/* 单形象/同框:整篇 AI 生成 / 参考视频生成稿(同框由后端按句分配)。 */}
+      {(mode === 'single' || mode === 'coframe') && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <button type="button" onClick={onAiScript} disabled={scripting || noVlmModel}
             className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-1 text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
@@ -633,30 +634,6 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         </div>
       )}
 
-      {mode === 'coframe' && roles.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <div className="text-xs text-[var(--cy-text-tertiary)]">同框台词(每角色一段,各用各自音色)</div>
-          {roles.map((r, i) => (
-            <div key={r.ref} className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                <div className="text-xs font-medium text-[var(--cy-text-secondary)]">{r.name || ('角色' + (i + 1))}</div>
-                <button type="button" onClick={() => void onAiScriptRole(i)} disabled={scripting || noVlmModel}
-                  className="rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
-                  {scripting ? '生成中…' : '✨ AI 生成'}
-                </button>
-                <button type="button" onClick={() => onRefVideoRole(i)} disabled={scripting}
-                  className="rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
-                  🎬 参考视频
-                </button>
-              </div>
-              <textarea value={coframeScripts[i] ?? ''} rows={2}
-                onChange={(e) => { setRoleSegments([]); setCoframeScripts((prev) => { const n = [...prev]; n[i] = e.target.value; return n; }); }}
-                placeholder={`${r.name || ('角色' + (i + 1))} 的台词`}
-                className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
-            </div>
-          ))}
-        </div>
-      )}
 
       {mode === 'sequential' && roles.length > 0 && (
         <div className="flex flex-col gap-3">

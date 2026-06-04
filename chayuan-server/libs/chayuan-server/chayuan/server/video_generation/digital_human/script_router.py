@@ -58,6 +58,13 @@ def plan(dh_type: str, script: Optional[str] = None,
             return out
         from chayuan.server.video_generation.steps.subtitle import _split_string_by_punctuations
         rs = role_scripts or []
+        # 单输入框:无各角色串(role_scripts)但有整段 script → 整段按句轮流分给各角色
+        # (句 0→角色0,句 1→角色1,… 循环)。
+        if not any((x or "").strip() for x in rs) and (script or "").strip():
+            _sents = [x for x in _split_string_by_punctuations(script) if x.strip()]
+            for k, _s in enumerate(_sents):
+                out.append(_unit(k % n, roles[k % n], _s))
+            return out
         per = []
         for i in range(n):
             sline = (rs[i] if i < len(rs) else "") or ""
