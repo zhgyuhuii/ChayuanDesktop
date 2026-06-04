@@ -160,6 +160,17 @@ def _gen_dims(width: int, height: int):
     return gw - (gw % 2), gh - (gh % 2)
 
 
+def _wav_ms(path: str) -> int:
+    """读 wav 时长 ms(stdlib);失败返 0。"""
+    try:
+        import wave
+        with wave.open(path, "rb") as w:
+            fr = w.getframerate() or 16000
+            return max(1, int(w.getnframes() * 1000 / fr))
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def _write_silence_wav(path: str, ms: int = 250, sr: int = 16000) -> str:
     """写一段静音 wav(stdlib,无依赖)。用于空/失败的 TTS 段兜底,避免下游 load_wav 崩。"""
     import wave
@@ -468,9 +479,13 @@ def _run_pipeline(tid: str) -> None:
                     try:
                         from chayuan.server.video_generation.digital_human import ffcompose as _ff
                         from chayuan.server.video_generation.compute import get_compute as _gc
-                        _durs = [max(1, int(m.get("duration_ms") or 0)) for m in seg_meta]
+                        _wavs = [os.path.splitext(c)[0] + ".wav" for c in clips]
+                        # 时间窗用 wav 时长(与拼接音频严格对齐);mp4 视频时长有帧 padding 偏差,
+                        # 逐段累积会让口型越来越对不上声。wav 读不到则回退该段 mp4 时长。
+                        _durs = [(_wav_ms(_w) or max(1, int(seg_meta[_i].get("duration_ms") or 0) or 1))
+                                 for _i, _w in enumerate(_wavs)]
                         _coaud = os.path.join(td, "coframe_audio.wav")
-                        _concat_wavs([os.path.splitext(c)[0] + ".wav" for c in clips], _coaud, _gc().ffmpeg_exe)
+                        _concat_wavs(_wavs, _coaud, _gc().ffmpeg_exe)
                         _W, _H = args["width"], args["height"]
                         _layers = []
                         for _ri in range(len(slots)):
