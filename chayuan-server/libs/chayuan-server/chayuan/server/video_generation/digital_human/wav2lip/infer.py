@@ -195,6 +195,25 @@ def run(
     # Trim / loop face frames to match mel chunks (official behaviour)
     full_frames = full_frames[: len(mel_chunks)]
 
+    # ── CPU 压榨:把形象帧等比缩到处理上限再跑 ─────────────────────────────
+    # 真正烧 CPU 的是「逐 mel_chunk: frame.copy() + 贴 96x96 口型 + 写 AVI」,全部按
+    # 帧分辨率算量。原生形象常近千像素宽(实测 946x815),在原生上跑纯属白烧。
+    # 这里把帧等比缩到 CHAYUAN_DH_PROC_MAX_WIDTH(默认 540,设 0=不限),仅缩不放;
+    # 输出由末尾 _mux_audio 缩放到 out_size(显示分辨率),口型质量不变(模型恒输出 96x96)。
+    # 面积按 (cap/原宽)^2 下降:946→540 约省 67% 逐帧像素。
+    _proc_max = int(os.environ.get("CHAYUAN_DH_PROC_MAX_WIDTH", "540") or 0)
+    if _proc_max > 0 and full_frames and full_frames[0] is not None:
+        _h0, _w0 = full_frames[0].shape[:2]
+        if _w0 > _proc_max:
+            _nw = _proc_max - (_proc_max % 2)
+            _nh = int(round(_h0 * _nw / _w0))
+            _nh -= _nh % 2
+            if _nw > 0 and _nh > 0:
+                full_frames = [cv2.resize(f, (_nw, _nh), interpolation=cv2.INTER_AREA)
+                               for f in full_frames]
+                logger.info("[wav2lip] proc downscale %dx%d -> %dx%d (cap=%d)",
+                            _w0, _h0, _nw, _nh, _proc_max)
+
     # ------------------------------------------------------------------
     # 3. Face detection (official datagen approach)
     # ------------------------------------------------------------------
