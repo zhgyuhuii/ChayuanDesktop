@@ -15,6 +15,29 @@ from typing import List, Tuple
 logger = logging.getLogger("chayuan.dh.compose_multi")
 
 
+def _mk_logger(on_progress):
+    """把 moviepy write_videofile 的写帧进度(proglog)转成 on_progress(frac 0-1) 回调。
+    长视频合成时让上层能实时上报进度(否则 90→100 间一片空白看着卡死)。"""
+    if on_progress is None:
+        return None
+    try:
+        from proglog import ProgressBarLogger
+
+        class _L(ProgressBarLogger):
+            def bars_callback(self, bar, attr, value, old_value=None):
+                try:
+                    if attr != "index":
+                        return
+                    total = (self.bars.get(bar) or {}).get("total") or 0
+                    if total:
+                        on_progress(min(1.0, float(value) / float(total)))
+                except Exception:  # noqa: BLE001
+                    pass
+        return _L()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _sort_by_z(items, zs):
     """按图层 z 升序重排(列表越靠后越上层 → z 大的在上);zs 为 None / 某元素 None 时回退数组序。"""
     if not zs:
@@ -75,7 +98,8 @@ def _resolve_positions(positions, layout, n, width, height):
     return _coframe_positions(layout, n, width, height)
 
 
-def render_sequential(clip_paths: List[str], *, out_path: str, width: int, height: int) -> str:
+def render_sequential(clip_paths: List[str], *, out_path: str, width: int, height: int,
+                      on_progress=None) -> str:
     """各片段顺序拼接(各形象轮流)。片段自带音频。失败抛异常。"""
     from moviepy import VideoFileClip, concatenate_videoclips
     if not clip_paths:
@@ -86,7 +110,7 @@ def render_sequential(clip_paths: List[str], *, out_path: str, width: int, heigh
             clips.append(VideoFileClip(p).resized(new_size=(width, height)))
         final = concatenate_videoclips(clips, method="compose")
         final.write_videofile(out_path, codec="libx264", audio_codec="aac",
-                              fps=25, threads=2, logger=None)
+                              fps=25, threads=2, logger=_mk_logger(on_progress))
         try:
             final.close()
         except Exception:  # noqa: BLE001
@@ -155,7 +179,7 @@ def _probe_ms(path):
 
 
 def render_coframe_turntaking(unit_clips, unit_roles, positions, avatars, *,
-                              out_path, width, height, zs=None, opacities=None):
+                              out_path, width, height, zs=None, opacities=None, on_progress=None):
     """同框按句轮流:每角色全长轨(说话句=该句片段,他句=静态待机帧),按 positions 合成。
     只说话句带音频->叠加即顺序音轨。失败抛异常(caller 兜底)。"""
     from moviepy import VideoFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
@@ -191,7 +215,8 @@ def render_coframe_turntaking(unit_clips, unit_roles, positions, avatars, *,
             opened.append(track)
         role_tracks = _sort_by_z(role_tracks, zs)  # 按角色图层 z 升序叠放(后=上)
         comp = CompositeVideoClip(role_tracks, size=(width, height))
-        comp.write_videofile(out_path, codec="libx264", audio_codec="aac", fps=25, threads=2, logger=None)
+        comp.write_videofile(out_path, codec="libx264", audio_codec="aac", fps=25, threads=2,
+                             logger=_mk_logger(on_progress))
         opened.append(comp)
         return out_path
     finally:

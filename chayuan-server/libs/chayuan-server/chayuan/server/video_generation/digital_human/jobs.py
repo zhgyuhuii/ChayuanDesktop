@@ -336,6 +336,13 @@ def _run_pipeline(tid: str) -> None:
                                     role_segments=args.get("role_segments"))
             from chayuan.server.video_generation.digital_human import compose_multi as _cm
             _set(tid, progress=90)
+            # 合成写帧进度 90→99(节流:仅整数变化时上报),避免长视频合成看着卡在 90%。
+            _pg = [90]
+            def _op(f):
+                v = 90 + int(max(0.0, min(1.0, f)) * 9)
+                if v != _pg[0]:
+                    _pg[0] = v
+                    _set(tid, progress=v)
             try:
                 if mode == "coframe":
                     positions = [(float(getattr(s, "x", 0.0) or 0.0),
@@ -346,12 +353,13 @@ def _run_pipeline(tid: str) -> None:
                     ops = [getattr(s, "opacity", None) for s in slots]  # 各角色不透明度
                     try:
                         _cm.render_coframe_turntaking(clips, unit_roles, positions, avatars, zs=zs, opacities=ops,
-                                                      out_path=out_path, width=args["width"], height=args["height"])
+                                                      out_path=out_path, width=args["width"], height=args["height"],
+                                                      on_progress=_op)
                     except Exception as e:  # noqa: BLE001
                         logger.warning("[dh] 同框轮流合成失败,回退按句顺序: %r", e)
-                        _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"])
+                        _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"], on_progress=_op)
                 else:
-                    _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"])
+                    _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"], on_progress=_op)
             except Exception as e:  # noqa: BLE001
                 logger.warning("[dh] %s 合成失败,回退首个形象片段: %r", mode, e)
                 import shutil
