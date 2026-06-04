@@ -11,6 +11,9 @@ from __future__ import annotations
 import logging
 import mimetypes
 import os
+import re
+import subprocess
+import tempfile
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -175,15 +178,61 @@ def public_tts(token: str, body: Dict[str, Any], request: Request) -> Response:
     text = str(body.get("text") or "").strip()[:1000]
     if not text:
         raise HTTPException(status_code=400, detail="文本为空")
-    from chayuan.server.modality.service import get_modality_service
 
     voice = dh_jobs._voice_string(rec.voice_provider, rec.voice_name) or "zh-CN-XiaoxiaoNeural"
     try:
-        audio = get_modality_service().tts(text, voice=voice, fmt="mp3")
+        audio = _tts_parallel(text, voice)
     except Exception as e:  # noqa: BLE001
         logger.warning("[dh-public] tts 失败: %r", e)
         raise HTTPException(status_code=503, detail="语音合成不可用")
     return Response(content=audio, media_type="audio/mpeg")
+
+
+def _split_sentences(text: str) -> list:
+    """按中英文句末标点 + 换行切句(标点保留在句尾),去空白片段。"""
+    parts = re.split(r"(?<=[。!?！?\n])", text or "")
+    return [p.strip() for p in parts if p and p.strip()]
+
+
+def _tts_parallel(text: str, voice: str) -> bytes:
+    """多线程并行合成各句 → 按句序 ffmpeg 拼成一段连续音频(并行加速 + 单段播放无卡顿)。
+    单句/拼接失败退回整段单次合成。"""
+    from chayuan.server.modality.service import get_modality_service
+    svc = get_modality_service()
+    sents = _split_sentences(text)
+    if len(sents) <= 1:
+        return svc.tts(text, voice=voice, fmt="mp3")
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(6, len(sents)), thread_name_prefix="dh-tts") as ex:
+        parts = list(ex.map(lambda s: svc.tts(s, voice=voice, fmt="mp3"), sents))  # map 保序=句序
+    parts = [p for p in parts if p]
+    if not parts:
+        return svc.tts(text, voice=voice, fmt="mp3")
+    if len(parts) == 1:
+        return parts[0]
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # noqa: BLE001
+        exe = None
+    if not exe:
+        return b"".join(parts)  # 无 ffmpeg 兜底:裸拼(多数播放器可放)
+    with tempfile.TemporaryDirectory() as d:
+        files = []
+        for i, b in enumerate(parts):
+            fp = os.path.join(d, f"{i:04d}.mp3")
+            with open(fp, "wb") as f:
+                f.write(b)
+            files.append(fp)
+        listf = os.path.join(d, "list.txt")
+        with open(listf, "w", encoding="utf-8") as f:
+            for fp in files:
+                f.write("file '%s'\n" % fp.replace("'", "'\\''"))
+        outf = os.path.join(d, "out.mp3")
+        subprocess.run([exe, "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
+                        "-i", listf, "-c:a", "libmp3lame", "-q:a", "4", outf], check=True)
+        with open(outf, "rb") as f:
+            return f.read()
 
 
 # --------------------------------------------------------------------------

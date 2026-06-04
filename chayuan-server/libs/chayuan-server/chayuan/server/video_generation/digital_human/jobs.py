@@ -20,12 +20,20 @@ from chayuan.server.video_generation.digital_human.compose import (
 
 logger = logging.getLogger("chayuan.dh.jobs")
 
-_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dh")
+def _max_parallel() -> int:
+    # 多任务并行生成:默认 2(均衡 CPU/显存),可用 CHAYUAN_DH_MAX_PARALLEL 调高用于大批量。
+    try:
+        return max(1, int(os.environ.get("CHAYUAN_DH_MAX_PARALLEL", "2")))
+    except Exception:  # noqa: BLE001
+        return 2
+
+
+_POOL = ThreadPoolExecutor(max_workers=_max_parallel(), thread_name_prefix="dh")
 _STATUS: Dict[str, DhTaskStatus] = {}
 _LOCK = threading.Lock()
-# task_id → 入参。单写(submit)单读(单 worker pipeline),GIL 下 dict 操作安全,
-# 故不加锁。注意:别把 _PENDING 操作塞进 _LOCK —— _set() 已持 _LOCK,在 _run_pipeline
-# 内再对 _PENDING 加同一把锁会自死锁。
+# task_id → 入参。多 worker 并行,但每个 task 只读/弹自己的 tid(不同 key),GIL 下 dict
+# 操作安全,故不加锁。注意:别把 _PENDING 操作塞进 _LOCK —— _set() 已持 _LOCK,在
+# _run_pipeline 内再对 _PENDING 加同一把锁会自死锁。
 _PENDING: Dict[str, dict] = {}
 
 
