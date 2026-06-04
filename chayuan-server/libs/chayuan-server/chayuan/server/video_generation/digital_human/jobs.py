@@ -264,8 +264,21 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, 
             logger.warning("[dh] 角色 %d 形象缺失,跳过: %s", u.role_index, slots[u.role_index].ref)
             continue
         cp = os.path.join(td, "seg%d.mp4" % i)
+        # 按形象原始宽高比生成(不再强制画布 9:16,否则形象被拉伸);capped 到画布尺寸。
+        gw, gh = width, height
+        try:
+            from PIL import Image as _Img
+            with _Img.open(av) as _im:
+                _aw, _ah = _im.size
+            if _aw > 0 and _ah > 0:
+                _ratio = min(width / _aw, height / _ah, 1.0)  # 不放大、不超画布
+                gw = max(2, int(round(_aw * _ratio)))
+                gh = max(2, int(round(_ah * _ratio)))
+                gw -= gw % 2; gh -= gh % 2  # 偶数,h264 友好
+        except Exception:  # noqa: BLE001
+            gw, gh = width, height  # 视频形象/读失败 → 回退画布尺寸
         get_engine(engine).generate(avatar_path=av, audio_path=ap, out_path=cp,
-                                    width=width, height=height, on_progress=None)
+                                    width=gw, height=gh, on_progress=None)
         clips.append(cp)
         unit_roles.append(u.role_index)
         seg_meta.append({"role_index": int(u.role_index), "path": cp,
@@ -351,10 +364,20 @@ def _run_pipeline(tid: str) -> None:
                     avatars = [resolve_avatar_path(s.ref) for s in slots]
                     zs = [getattr(s, "z", None) for s in slots]  # 工作台调的图层叠放顺序
                     ops = [getattr(s, "opacity", None) for s in slots]  # 各角色不透明度
+                    # 商品图层(coframe 之前完全没合成商品 → 丢失);解析成可摆放项随角色一起合成。
+                    co_items = []
+                    for _q in (getattr(preset, "products", None) or []):
+                        _pp = resolve_product_path(getattr(_q, "ref", ""))
+                        if _pp:
+                            co_items.append({"path": _pp,
+                                             "x": float(getattr(_q, "x", 0.66) if getattr(_q, "x", None) is not None else 0.66),
+                                             "y": float(getattr(_q, "y", 0.60) if getattr(_q, "y", None) is not None else 0.60),
+                                             "scale": float(getattr(_q, "scale", 0.32) if getattr(_q, "scale", None) is not None else 0.32),
+                                             "z": getattr(_q, "z", None), "opacity": getattr(_q, "opacity", None)})
                     try:
                         _cm.render_coframe_turntaking(clips, unit_roles, positions, avatars, zs=zs, opacities=ops,
                                                       out_path=out_path, width=args["width"], height=args["height"],
-                                                      on_progress=_op)
+                                                      on_progress=_op, products=co_items)
                     except Exception as e:  # noqa: BLE001
                         logger.warning("[dh] 同框轮流合成失败,回退按句顺序: %r", e)
                         _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"], on_progress=_op)

@@ -179,18 +179,21 @@ def _probe_ms(path):
 
 
 def render_coframe_turntaking(unit_clips, unit_roles, positions, avatars, *,
-                              out_path, width, height, zs=None, opacities=None, on_progress=None):
-    """同框按句轮流:每角色全长轨(说话句=该句片段,他句=静态待机帧),按 positions 合成。
-    只说话句带音频->叠加即顺序音轨。失败抛异常(caller 兜底)。"""
-    from moviepy import VideoFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
+                              out_path, width, height, zs=None, opacities=None,
+                              on_progress=None, products=None):
+    """同框按句轮流:每角色全长轨(说话句=该句片段,他句=静态待机帧)+ 商品图层,
+    全部按各自 z/位置/大小/透明度统一合成。只说话句带音频->叠加即顺序音轨。失败抛异常(caller 兜底)。"""
+    import os as _os
+    from moviepy import VideoFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips, vfx
     n_roles = len(positions)
     durs = [max(1, _probe_ms(c)) for c in unit_clips]
+    total_s = max(0.1, sum(durs) / 1000.0)   # 同框总时长(各角色全长轨 = 所有段之和)
     pos_px = _resolve_positions(positions, "side", n_roles, width, height)
     opened = []
+    entries = []  # (z, fi, clip);角色 + 商品统一按 z 叠
     try:
         speak_clips = [VideoFileClip(c) for c in unit_clips]
         opened.extend(speak_clips)
-        role_tracks = []
         for ri in range(n_roles):
             x, y, tw = pos_px[ri]
             segs = []
@@ -211,10 +214,34 @@ def render_coframe_turntaking(unit_clips, unit_roles, positions, avatars, *,
                     segs.append(idle)
             track = concatenate_videoclips(segs, method="compose").with_position((x, y))
             track = _with_opacity(track, opacities[ri] if opacities and ri < len(opacities) else None)
-            role_tracks.append(track)
+            _rz = zs[ri] if (zs and ri < len(zs) and zs[ri] is not None) else ri
+            entries.append((_rz, ri, track))
             opened.append(track)
-        role_tracks = _sort_by_z(role_tracks, zs)  # 按角色图层 z 升序叠放(后=上)
-        comp = CompositeVideoClip(role_tracks, size=(width, height))
+        # 商品图层(视频循环到总时长、图片常显),与角色按 z 统一叠放。
+        for k, p in enumerate(products or []):
+            path = p.get("path")
+            if not path:
+                continue
+            if _os.path.splitext(path)[1].lower() in (".mp4", ".mov", ".webm", ".mkv", ".avi"):
+                pc = VideoFileClip(path, audio=False)
+                try:
+                    pc = pc.with_effects([vfx.Loop(duration=total_s)])
+                except Exception:  # noqa: BLE001
+                    try:
+                        pc = pc.with_duration(min(pc.duration, total_s))
+                    except Exception:  # noqa: BLE001
+                        pass
+            else:
+                pc = ImageClip(path).with_duration(total_s)
+            pw = max(1, int(width * float(p.get("scale") or 0.32)))
+            pc = pc.resized(width=pw).with_position(
+                (int(float(p.get("x") or 0.66) * width), int(float(p.get("y") or 0.60) * height)))
+            pc = _with_opacity(pc, p.get("opacity"))
+            _pz = p.get("z") if p.get("z") is not None else (n_roles + k)
+            entries.append((_pz, n_roles + k, pc))
+            opened.append(pc)
+        entries.sort(key=lambda e: (e[0], e[1]))  # z 升序 → 列表越靠后越上层
+        comp = CompositeVideoClip([c for _, _, c in entries], size=(width, height))
         comp.write_videofile(out_path, codec="libx264", audio_codec="aac", fps=25, threads=2,
                              logger=_mk_logger(on_progress))
         opened.append(comp)
