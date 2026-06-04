@@ -41,11 +41,20 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
     ? '多人同框' : preset?.compose_mode === 'sequential' ? '分段轮流' : '单形象';
 
   const saveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPatch = React.useRef<Partial<DigitalHumanPreset>>({});
   const persist = React.useCallback((patch: Partial<DigitalHumanPreset>) => {
+    // 合并待写补丁:防抖窗口内多次 persist(如先右键改 product_z、再拖拽改 product_x/y/scale)
+    // 必须累积。否则后到的部分补丁会取代前一个 timer → 丢掉先设的字段(典型:resize 丢掉 z,
+    // 重拉后回退默认 z,层级乱跳)。
+    pendingPatch.current = { ...pendingPatch.current, ...patch };
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const id = pid;
     saveTimer.current = setTimeout(() => {
-      if (id) void digitalHuman.updatePreset(id, patch).then(() => qc.invalidateQueries({ queryKey: ['dh.presets'] }));
+      const p = pendingPatch.current;
+      pendingPatch.current = {};
+      if (id && Object.keys(p).length) {
+        void digitalHuman.updatePreset(id, p).then(() => qc.invalidateQueries({ queryKey: ['dh.presets'] }));
+      }
     }, 600);
   }, [pid, qc]);
 
