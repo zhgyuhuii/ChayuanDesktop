@@ -578,14 +578,6 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         {showKbPicker(curPreset) && (curPreset?.ku_ids?.length || missingKuIds.length > 0) ? (
           <BindingHint state={kbBindState} label={kbLabel} noun="知识库" />
         ) : null}
-        <button
-          type="button"
-          onClick={() => void doPublish()}
-          disabled={publishing || !curPreset}
-          className="ml-auto inline-flex h-8 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50"
-        >
-          {publishing ? '发布中…' : '发布在线数字人'}
-        </button>
       </div>
       {!engineInstalled && (
         <div className="text-sm text-[var(--cy-text-secondary)]">
@@ -770,6 +762,10 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         <button onClick={() => void gen()} disabled={!pid || !canGenerate || busy || !engineInstalled}
           className="inline-flex h-8 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
           生成数字人视频
+        </button>
+        <button type="button" onClick={() => void doPublish()} disabled={publishing || !curPreset}
+          className="inline-flex h-8 items-center rounded-md border border-[var(--cy-brand-500)] px-3 text-sm text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+          {publishing ? '发布中…' : '发布在线数字人'}
         </button>
       </div>
 
