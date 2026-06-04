@@ -145,12 +145,34 @@ def _af_filter(rate: float, volume: float) -> str:
     return ",".join(parts)
 
 
+def _write_silence_wav(path: str, ms: int = 250, sr: int = 16000) -> str:
+    """写一段静音 wav(stdlib,无依赖)。用于空/失败的 TTS 段兜底,避免下游 load_wav 崩。"""
+    import wave
+    n = max(1, int(sr * ms / 1000))
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(b"\x00\x00" * n)
+    return path
+
+
 def _synth_to_wav(text: str, provider: str, name: str, audio_path: str, rate: float = 1.0, volume: float = 1.0) -> str:
-    """指定音色合成旁白 wav。"""
+    """指定音色合成旁白 wav。空/失败 → 静音兜底。"""
     from chayuan.server.modality.audio import AudioPipeline
     voice = _voice_string(provider, name)
     logger.info("[dh] narration provider=%s voice=%r", provider, voice)
-    data = AudioPipeline().synthesize(text, voice=voice, fmt="wav")
+    try:
+        data = AudioPipeline().synthesize(text, voice=voice, fmt="wav")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh] TTS 合成异常,用静音兜底: %r", e)
+        data = b""
+    # 空/非法(文本被符号清洗清空、纯标点段、或合成失败)→ 写短静音,避免 wav2lip load_wav
+    # 报 EOFError / Format not recognised,保证流程不中断。
+    if not data or len(data) < 256:
+        logger.warning("[dh] 段音频为空(text=%r),用静音兜底", (text or "")[:20])
+        _write_silence_wav(audio_path)
+        return audio_path
     with open(audio_path, "wb") as f:
         f.write(data)
     af = _af_filter(rate, volume)
