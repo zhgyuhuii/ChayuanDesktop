@@ -75,9 +75,9 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
     setLocalProduct(preset?.product_ref
       ? { ref: preset.product_ref, kind: preset.product_kind ?? 'image',
           x: preset.product_x ?? 0.66, y: preset.product_y ?? 0.6, scale: preset.product_scale ?? 0.32,
-          z: preset.product_z }
+          z: preset.product_z, opacity: preset.product_opacity }
       : undefined);
-  }, [pid, preset?.product_ref, preset?.product_kind, preset?.product_x, preset?.product_y, preset?.product_scale, preset?.product_z]);
+  }, [pid, preset?.product_ref, preset?.product_kind, preset?.product_x, preset?.product_y, preset?.product_scale, preset?.product_z, preset?.product_opacity]);
   const onProductChange = React.useCallback((pos: { x: number; y: number; scale: number }) => {
     setLocalProduct((p) => (p ? { ...p, ...pos } : p));
     persist({ product_x: pos.x, product_y: pos.y, product_scale: pos.scale });
@@ -94,6 +94,20 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
     });
     const pz = zByRef.get(PRODUCT_REF);
     if (pz !== undefined) setLocalProduct((p) => (p ? { ...p, z: pz } : p));
+  }, [persist]);
+
+  // 图层透明度:商品层写 product_opacity;角色层写该 avatar 的 opacity。
+  const onLayerOpacityChange = React.useCallback((ref: string, opacity: number) => {
+    if (ref === PRODUCT_REF) {
+      setLocalProduct((p) => (p ? { ...p, opacity } : p));
+      persist({ product_opacity: opacity });
+      return;
+    }
+    setLocalRoles((prev) => {
+      const next = prev.map((r) => (r.ref === ref ? { ...r, opacity } : r));
+      persist({ avatars: next });
+      return next;
+    });
   }, [persist]);
 
   // 删除图层:商品层清空 product_ref;角色层从 avatars 移除。
@@ -176,7 +190,8 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
       {preset && localRoles.length > 0 ? (
         <CanvasStage width={w} height={h} roles={localRoles} onChange={onRoleChange}
           product={localProduct} onProductChange={onProductChange}
-          onLayerZChange={onLayerZChange} onLayerDelete={onLayerDelete} />
+          onLayerZChange={onLayerZChange} onLayerDelete={onLayerDelete}
+          onLayerOpacityChange={onLayerOpacityChange} />
       ) : preset && preset.avatar_kind === 'image' ? (
         <img src={url} alt={preset.name} className="h-full w-full object-cover" />
       ) : preset ? (

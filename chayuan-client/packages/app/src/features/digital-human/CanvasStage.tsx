@@ -8,6 +8,7 @@ export interface CanvasProduct {
   y: number;
   scale: number;
   z?: number;
+  opacity?: number;
 }
 
 export interface CanvasStageProps {
@@ -21,6 +22,8 @@ export interface CanvasStageProps {
   onLayerZChange?: (updates: Array<{ ref: string; z: number }>) => void;
   /** 删除某图层(ref===PRODUCT_REF 删商品层,否则删该角色)。 */
   onLayerDelete?: (ref: string) => void;
+  /** 设置某图层不透明度(0-1)。 */
+  onLayerOpacityChange?: (ref: string, opacity: number) => void;
   readOnly?: boolean;
 }
 
@@ -37,7 +40,7 @@ type MenuState = { x: number; y: number; ref: string } | null;
  *  拖拽改位置(跟手),四角控制点改大小,右键菜单调层级 / 删除。
  *  编辑器(可拖)与生成预览(readOnly)共用。 */
 export const CanvasStage: React.FC<CanvasStageProps> = ({
-  width, height, roles, onChange, product, onProductChange, onLayerZChange, onLayerDelete, readOnly,
+  width, height, roles, onChange, product, onProductChange, onLayerZChange, onLayerDelete, onLayerOpacityChange, readOnly,
 }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const dragRef = React.useRef<Drag | null>(null);
@@ -132,7 +135,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
     dragRef.current = { mode: 'resize', ref, corner, mx: e.clientX, s0, x0, y0 };
   };
   const onCtx = (e: React.MouseEvent, ref: string) => {
-    if (readOnly || (!onLayerZChange && !onLayerDelete)) return;
+    if (readOnly || (!onLayerZChange && !onLayerDelete && !onLayerOpacityChange)) return;
     e.preventDefault();
     e.stopPropagation();
     setMenu({ x: e.clientX, y: e.clientY, ref });
@@ -146,6 +149,9 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
   ];
 
   const menuPos = menu ? ordered.indexOf(menu.ref) : -1;
+  const menuOpacity = menu
+    ? (menu.ref === PRODUCT_REF ? (product?.opacity ?? 1) : (roles.find((r) => r.ref === menu.ref)?.opacity ?? 1))
+    : 1;
   const menuItem = (label: string, onClick: () => void, disabled = false, danger = false) => (
     <button type="button" disabled={disabled}
       onClick={() => { onClick(); setMenu(null); }}
@@ -165,7 +171,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
             onPointerDown={(e) => startMove(e, r.ref, r.x ?? 0, r.y ?? 0)}
             onContextMenu={(e) => onCtx(e, r.ref)}
             className={'absolute ' + (readOnly ? '' : 'cursor-move')}
-            style={{ left: `${(r.x ?? 0) * 100}%`, top: `${(r.y ?? 0) * 100}%`, width: `${(r.scale ?? 1) * 100}%`, zIndex: r.z ?? i, touchAction: 'none' }}>
+            style={{ left: `${(r.x ?? 0) * 100}%`, top: `${(r.y ?? 0) * 100}%`, width: `${(r.scale ?? 1) * 100}%`, zIndex: r.z ?? i, opacity: r.opacity ?? 1, touchAction: 'none' }}>
             {r.kind === 'video'
               ? <video src={digitalHuman.avatarFileUrl(r.ref)} muted loop autoPlay playsInline className="pointer-events-none w-full rounded" />
               : <img src={digitalHuman.avatarFileUrl(r.ref)} alt={r.name || '角色'} className="pointer-events-none w-full rounded" draggable={false} />}
@@ -183,7 +189,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
             onPointerDown={(e) => startMove(e, PRODUCT_REF, product.x ?? 0, product.y ?? 0)}
             onContextMenu={(e) => onCtx(e, PRODUCT_REF)}
             className={'absolute ' + (readOnly ? '' : 'cursor-move')}
-            style={{ left: `${(product.x ?? 0) * 100}%`, top: `${(product.y ?? 0) * 100}%`, width: `${(product.scale ?? 0.3) * 100}%`, zIndex: product.z ?? roles.length, touchAction: 'none' }}>
+            style={{ left: `${(product.x ?? 0) * 100}%`, top: `${(product.y ?? 0) * 100}%`, width: `${(product.scale ?? 0.3) * 100}%`, zIndex: product.z ?? roles.length, opacity: product.opacity ?? 1, touchAction: 'none' }}>
             {product.kind === 'video'
               ? <video src={digitalHuman.productFileUrl(product.ref)} muted loop autoPlay playsInline className="pointer-events-none w-full rounded ring-1 ring-white/40" />
               : <img src={digitalHuman.productFileUrl(product.ref)} alt="商品图" className="pointer-events-none w-full rounded ring-1 ring-white/40" draggable={false} />}
@@ -208,6 +214,16 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
           {menuItem('上移一层', () => applyOrder(menu.ref, 'up'), menuPos === ordered.length - 1)}
           {menuItem('下移一层', () => applyOrder(menu.ref, 'down'), menuPos <= 0)}
           {menuItem('置底', () => applyOrder(menu.ref, 'back'), menuPos <= 0)}
+          {onLayerOpacityChange ? (
+            <div className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-1 flex justify-between text-xs text-[var(--cy-text-secondary)]">
+                <span>透明度</span><span>{Math.round(menuOpacity * 100)}%</span>
+              </div>
+              <input type="range" min={10} max={100} value={Math.round(menuOpacity * 100)}
+                onChange={(e) => onLayerOpacityChange(menu.ref, Number(e.target.value) / 100)}
+                className="w-full" />
+            </div>
+          ) : null}
           <div className="my-1 h-px bg-[var(--cy-border-subtle)]" />
           {menuItem('删除', () => onLayerDelete?.(menu.ref), false, true)}
         </div>

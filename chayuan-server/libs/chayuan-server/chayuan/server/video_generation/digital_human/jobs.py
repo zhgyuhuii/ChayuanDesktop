@@ -333,8 +333,9 @@ def _run_pipeline(tid: str) -> None:
                                   float(getattr(s, "scale", 1.0) or 1.0)) for s in slots]
                     avatars = [resolve_avatar_path(s.ref) for s in slots]
                     zs = [getattr(s, "z", None) for s in slots]  # 工作台调的图层叠放顺序
+                    ops = [getattr(s, "opacity", None) for s in slots]  # 各角色不透明度
                     try:
-                        _cm.render_coframe_turntaking(clips, unit_roles, positions, avatars, zs=zs,
+                        _cm.render_coframe_turntaking(clips, unit_roles, positions, avatars, zs=zs, opacities=ops,
                                                       out_path=out_path, width=args["width"], height=args["height"])
                     except Exception as e:  # noqa: BLE001
                         logger.warning("[dh] 同框轮流合成失败,回退按句顺序: %r", e)

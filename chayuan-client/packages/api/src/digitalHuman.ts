@@ -35,6 +35,7 @@ export interface AvatarSlot {
   y?: number;
   scale?: number;
   z?: number;             // 图层叠放顺序(大=靠前/在上);缺省按数组序
+  opacity?: number;       // 不透明度 0-1;缺省 1(不透明)
 }
 
 export interface DigitalHumanPreset {
@@ -56,6 +57,7 @@ export interface DigitalHumanPreset {
   product_y?: number;
   product_scale?: number;
   product_z?: number;        // 商品层叠放顺序(同 AvatarSlot.z);缺省排在角色之上
+  product_opacity?: number;  // 商品层不透明度 0-1;缺省 1
   /** 商品图/视频 ref(persist 进 preset 后工作台画布可预览+拖拽);空=无商品图。 */
   product_ref?: string;
   product_kind?: 'image' | 'video';
