@@ -46,6 +46,28 @@ def _resolve_font_path(font_name: Optional[str] = None) -> Optional[str]:
                     return os.path.join(base, f)
         except Exception:  # noqa: BLE001
             continue
+    # 3) 系统自带 CJK 字体兜底(未打包字体 / 数据目录为空时,避免 font=None 致字幕失败)
+    for p in (
+        "C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/msyhbd.ttc", "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/simsun.ttc", "C:/Windows/Fonts/Deng.ttf", "C:/Windows/Fonts/arial.ttf",
+        "/System/Library/Fonts/PingFang.ttc", "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc", "/Library/Fonts/Arial Unicode.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ):
+        if os.path.isfile(p):
+            return p
+    # 4) 扫系统字体目录,取第一个可用字体
+    for sysdir in ("C:/Windows/Fonts", "/System/Library/Fonts", "/Library/Fonts",
+                   "/usr/share/fonts", os.path.expanduser("~/.fonts")):
+        try:
+            for root, _dirs, fs in os.walk(sysdir):
+                for f in sorted(fs):
+                    if f.lower().endswith((".ttc", ".ttf", ".otf")):
+                        return os.path.join(root, f)
+        except Exception:  # noqa: BLE001
+            continue
     return None
 
 
