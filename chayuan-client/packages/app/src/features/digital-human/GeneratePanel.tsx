@@ -313,6 +313,22 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid]);
 
+  // 商品状态从预设同步:否则左侧一直是 null(空态),而右侧画布按 preset.product_ref 显示
+  // 上次残留的商品 → 左右不一致。依赖 [pid, presets] 保证切换/异步加载/重拉都对齐。
+  React.useEffect(() => {
+    const p = presets.find((x) => x.id === pid);
+    const ref = p?.product_ref || '';
+    if (ref) {
+      setProductRef(ref);
+      setProductKind(p?.product_kind === 'video' ? 'video' : 'image');
+      setProductName(ref.replace(/^product:/, '') || '商品');
+    } else {
+      setProductRef(null);
+      setProductKind(null);
+      setProductName(null);
+    }
+  }, [pid, presets]);
+
   // 角色数变化时对齐多角色脚本状态长度(coframe / sequential)
   const roleCount = roles.length;
   React.useEffect(() => {

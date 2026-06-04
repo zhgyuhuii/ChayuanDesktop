@@ -192,12 +192,14 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
           product={localProduct} onProductChange={onProductChange}
           onLayerZChange={onLayerZChange} onLayerDelete={onLayerDelete}
           onLayerOpacityChange={onLayerOpacityChange} />
-      ) : preset && preset.avatar_kind === 'image' ? (
+      ) : preset && preset.avatar_ref && preset.avatar_kind === 'image' ? (
         <img src={url} alt={preset.name} className="h-full w-full object-cover" />
-      ) : preset ? (
+      ) : preset && preset.avatar_ref ? (
         <video src={url} muted loop autoPlay playsInline className="h-full w-full object-cover" />
       ) : (
-        <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-white/40">在左侧选择或到「我的数字人」新建一个数字人</div>
+        <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-white/40">
+          {preset ? '该数字人还没有形象素材,去「我的数字人」编辑添加' : '在左侧选择或到「我的数字人」新建一个数字人'}
+        </div>
       )}
       <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/50 px-2 py-0.5 text-[10px] text-white/80">
         {w}×{h} · {modeLabel} · 可拖拽数字人{localProduct ? '/商品图' : ''}
