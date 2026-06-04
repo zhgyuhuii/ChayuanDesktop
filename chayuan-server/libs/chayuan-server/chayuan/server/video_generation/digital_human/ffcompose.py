@@ -29,6 +29,7 @@ def build_filter(scene: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]], str,
         offset_ms = int(wins0[0].get("start_ms", 0)) if (wins0 and ly.get("kind") == "video") else 0
         inputs.append({"path": ly["src"],
                        "loop": bool(ly.get("loop")) and (ly.get("kind") == "video"),
+                       "is_image": ly.get("kind") != "video",
                        "offset_ms": offset_ms})
         w = max(1, int(round(float(ly.get("scale") or 1.0) * W)))
         x = int(round(float(ly.get("x") or 0.0) * W))
@@ -67,8 +68,10 @@ def render(scene: Dict[str, Any], out_path: str, on_progress=None) -> str:
     dur = max(0.1, int(scene["duration_ms"]) / 1000.0)
     cmd: List[str] = [plan.ffmpeg_exe, "-y", "-loglevel", "error"]
     for ipt in inputs:
-        if ipt.get("loop"):
-            cmd += ["-stream_loop", "-1"]
+        if ipt.get("is_image"):
+            cmd += ["-loop", "1"]            # 静态图片层撑满整段(配合 -t 截断)
+        elif ipt.get("loop"):
+            cmd += ["-stream_loop", "-1"]    # 短视频商品层循环到总时长
         if ipt.get("offset_ms"):
             cmd += ["-itsoffset", str(ipt["offset_ms"] / 1000.0)]
         cmd += ["-i", ipt["path"]]

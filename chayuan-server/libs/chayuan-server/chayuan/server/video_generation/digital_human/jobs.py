@@ -355,6 +355,25 @@ def _build_subtitle(td, preset, text, width, height, dur_ms):
         return None
 
 
+def _concat_wavs(wavs, out_path, ffmpeg_exe):
+    """按顺序拼接 wav → 一条连续音频(coframe 各段轮流即顺序)。失败抛异常。"""
+    import shutil
+    import subprocess
+    wavs = [w for w in (wavs or []) if w and os.path.isfile(w)]
+    if not wavs:
+        raise RuntimeError("无可拼接音频段")
+    if len(wavs) == 1:
+        shutil.copyfile(wavs[0], out_path)
+        return out_path
+    listf = out_path + ".list.txt"
+    with open(listf, "w", encoding="utf-8") as f:
+        for w in wavs:
+            f.write("file '%s'\n" % w.replace("'", "'\\''"))
+    subprocess.run([ffmpeg_exe, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
+                    "-i", listf, "-ar", "44100", "-ac", "1", out_path], check=True)
+    return out_path
+
+
 def _run_pipeline(tid: str) -> None:
     args = _PENDING.get(tid) or {}
     try:
@@ -405,13 +424,53 @@ def _run_pipeline(tid: str) -> None:
                                              "y": float(getattr(_q, "y", 0.60) if getattr(_q, "y", None) is not None else 0.60),
                                              "scale": float(getattr(_q, "scale", 0.32) if getattr(_q, "scale", None) is not None else 0.32),
                                              "z": getattr(_q, "z", None), "opacity": getattr(_q, "opacity", None)})
+                    # 先试 ffcompose 统一图层合成(每角色 idle 底 + 说话段时间窗 + 商品,按 z 叠);
+                    # 失败回退 moviepy turntaking。字幕+昵称仍由后面的 _apply_overlays 处理。
+                    _ff_ok = False
                     try:
-                        _cm.render_coframe_turntaking(clips, unit_roles, positions, avatars, zs=zs, opacities=ops,
-                                                      out_path=out_path, width=args["width"], height=args["height"],
-                                                      on_progress=_op, products=co_items)
+                        from chayuan.server.video_generation.digital_human import ffcompose as _ff
+                        from chayuan.server.video_generation.compute import get_compute as _gc
+                        _durs = [max(1, int(m.get("duration_ms") or 0)) for m in seg_meta]
+                        _coaud = os.path.join(td, "coframe_audio.wav")
+                        _concat_wavs([os.path.splitext(c)[0] + ".wav" for c in clips], _coaud, _gc().ffmpeg_exe)
+                        _W, _H = args["width"], args["height"]
+                        _layers = []
+                        for _ri in range(len(slots)):
+                            _av = avatars[_ri]
+                            if not _av:
+                                continue
+                            _k = "video" if os.path.splitext(_av)[1].lower() in _VIDEO_EXT else "image"
+                            _layers.append({"src": _av, "kind": _k, "x": positions[_ri][0], "y": positions[_ri][1],
+                                            "scale": positions[_ri][2], "z": zs[_ri], "opacity": ops[_ri],
+                                            "loop": (_k == "video"), "windows": None})
+                        _acc = 0
+                        for _i, _c in enumerate(clips):
+                            _ri = unit_roles[_i]
+                            _st = _acc
+                            _acc += _durs[_i]
+                            _layers.append({"src": _c, "kind": "video", "x": positions[_ri][0], "y": positions[_ri][1],
+                                            "scale": positions[_ri][2], "z": zs[_ri], "opacity": ops[_ri],
+                                            "loop": False, "windows": [{"start_ms": _st, "end_ms": _acc}]})
+                        for _it in co_items:
+                            _k = "video" if os.path.splitext(_it["path"])[1].lower() in _VIDEO_EXT else "image"
+                            _layers.append({"src": _it["path"], "kind": _k, "x": _it["x"], "y": _it["y"],
+                                            "scale": _it["scale"], "z": _it["z"], "opacity": _it["opacity"],
+                                            "loop": (_k == "video"), "windows": None})
+                        _scene = {"width": _W, "height": _H, "duration_ms": _acc or 5000,
+                                  "audio_path": _coaud, "layers": _layers, "subtitle": None}
+                        _ff.render(_scene, out_path, on_progress=_op)
+                        _ff_ok = True
+                        logger.info("[dh-timing] mode=coframe compose=ffcompose encoder=%s", _gc().video_encoder)
                     except Exception as e:  # noqa: BLE001
-                        logger.warning("[dh] 同框轮流合成失败,回退按句顺序: %r", e)
-                        _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"], on_progress=_op)
+                        logger.warning("[dh] coframe ffcompose 失败,回退 moviepy turntaking: %r", e)
+                    if not _ff_ok:
+                        try:
+                            _cm.render_coframe_turntaking(clips, unit_roles, positions, avatars, zs=zs, opacities=ops,
+                                                          out_path=out_path, width=args["width"], height=args["height"],
+                                                          on_progress=_op, products=co_items)
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning("[dh] 同框轮流合成失败,回退按句顺序: %r", e)
+                            _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"], on_progress=_op)
                 else:
                     _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"], on_progress=_op)
             except Exception as e:  # noqa: BLE001
