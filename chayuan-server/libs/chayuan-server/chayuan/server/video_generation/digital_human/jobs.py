@@ -362,6 +362,24 @@ def _run_pipeline(tid: str) -> None:
             width=args["width"], height=args["height"],
             on_progress=lambda pct: _set(tid, progress=30 + int(pct * 0.7)),
         )
+        # 单形象按画布设置的大小/位置/透明度摆放:引擎输出是全屏,若 slot 设了缩小/位移/
+        # 透明度,则复用 render_coframe 把它摆到黑底画布上(否则一直全屏,忽略设置)。
+        _slot0 = (getattr(preset, "avatars", None) or [None])[0]
+        if _slot0 is not None and not args.get("matte"):
+            _sc = float(getattr(_slot0, "scale", 1.0) or 1.0)
+            _sx = float(getattr(_slot0, "x", 0.0) or 0.0)
+            _sy = float(getattr(_slot0, "y", 0.0) or 0.0)
+            _sop = getattr(_slot0, "opacity", None)
+            if _sc < 0.999 or _sx > 0.001 or _sy > 0.001 or (_sop is not None and float(_sop) < 0.999):
+                try:
+                    from chayuan.server.video_generation.digital_human import compose_multi as _cm
+                    placed = os.path.join(td, "placed.mp4")
+                    _cm.render_coframe([out_path], layout="side", out_path=placed,
+                                       width=args["width"], height=args["height"],
+                                       positions=[(_sx, _sy, _sc)], opacities=[_sop])
+                    os.replace(placed, out_path)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[dh] 单形象按尺寸摆放失败,回退全屏: %r", e)
         result_path = out_path
         product_ref = args.get("product_ref")
         # 版式 template 已废弃(商品图改用画布拖拽坐标);仅 matte 路径用作 presenter 默认。

@@ -83,6 +83,10 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
       const isProduct = d.ref === PRODUCT_REF;
       const cur = isProduct ? prodRef.current : rolesRef.current.find((x) => x.ref === d.ref);
       if (!cur) return;
+      // 点击抖动阈值:位移 < 3px 视为点击,不写回(否则点一下就 emit→重拉→层级/位置跳)。
+      const _dx = Math.abs(e.clientX - d.mx);
+      const _dy = d.mode === 'move' ? Math.abs(e.clientY - d.my) : 0;
+      if (_dx < 3 && _dy < 3) return;
       const emit = (pos: { x: number; y: number; scale: number }) => {
         if (isProduct) onProductChange?.(pos);
         else onChange?.(d.ref, pos);

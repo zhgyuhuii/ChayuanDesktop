@@ -8,7 +8,10 @@
 """
 from __future__ import annotations
 import logging
+import os
 from typing import Any, Dict
+
+_VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv", ".avi"}
 
 from chayuan.server.video_generation.schemas import Timeline, TimelineTrack, TimelineClip
 
@@ -106,7 +109,12 @@ def render_with_product_matte(*, presenter_path: str, product_path: str, templat
     tpl = TEMPLATES.get(template) or TEMPLATES["corner"]
     dur_s = max(0.1, dur_ms / 1000.0)
 
-    base = ImageClip(product_path).resized(new_size=(width, height)).with_duration(dur_s)
+    # 商品可能是图也可能是视频:视频走 VideoFileClip,否则 ImageClip(否则
+    # ImageClip 读视频会报 "Format FFMPEG cannot read in single_image mode")。
+    if os.path.splitext(product_path)[1].lower() in _VIDEO_EXT:
+        base = VideoFileClip(product_path, audio=False).resized(new_size=(width, height))
+    else:
+        base = ImageClip(product_path).resized(new_size=(width, height)).with_duration(dur_s)
     presenter = VideoFileClip(presenter_path, audio=False)
     presenter = presenter.with_effects([
         vfx.MaskColor(color=list(green), threshold=threshold, stiffness=stiffness),
