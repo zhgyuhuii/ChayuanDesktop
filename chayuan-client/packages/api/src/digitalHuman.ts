@@ -38,6 +38,17 @@ export interface AvatarSlot {
   opacity?: number;       // 不透明度 0-1;缺省 1(不透明)
 }
 
+/** 一个商品图/视频图层(可多个);ref 形如 "product:<file>"。 */
+export interface ProductLayer {
+  ref: string;
+  kind: 'image' | 'video';
+  x?: number;
+  y?: number;
+  scale?: number;
+  z?: number;
+  opacity?: number;
+}
+
 export interface DigitalHumanPreset {
   id: string;
   name: string;
@@ -58,6 +69,8 @@ export interface DigitalHumanPreset {
   product_scale?: number;
   product_z?: number;        // 商品层叠放顺序(同 AvatarSlot.z);缺省排在角色之上
   product_opacity?: number;  // 商品层不透明度 0-1;缺省 1
+  /** 多商品图层(新);非空时取代单个 product_ref。后端从旧 product_* 自动迁移一条。 */
+  products?: ProductLayer[];
   /** 商品图/视频 ref(persist 进 preset 后工作台画布可预览+拖拽);空=无商品图。 */
   product_ref?: string;
   product_kind?: 'image' | 'video';

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
 import { digitalHuman, models, knowledgeUniverse } from '@chayuan/api';
-import type { DigitalHumanPreset, RawModelItem, KuItem, DhScriptSource } from '@chayuan/api';
+import type { DigitalHumanPreset, RawModelItem, KuItem, DhScriptSource, ProductLayer } from '@chayuan/api';
 import type { ModalityCapability } from '@chayuan/transport';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@chayuan/ui';
 import { reportError, notifySuccess } from '../../store/errorDialog';
@@ -109,10 +109,10 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   // engine state
   const [engine, setEngine] = React.useState<EngineId>('wav2lip');
 
-  // product image / video state
-  const [productRef, setProductRef] = React.useState<string | null>(null);
-  const [productName, setProductName] = React.useState<string | null>(null);
-  const [productKind, setProductKind] = React.useState<'image' | 'video' | null>(null);
+  // 多商品图层(可上传多个图/视频);从 preset.products 同步,上传追加。
+  const [products, setProducts] = React.useState<ProductLayer[]>([]);
+  // VLM 文案/兼容生成用的主商品:优先首个图片,否则第一个。
+  const primaryProductRef = products.find((p) => p.kind === 'image')?.ref ?? products[0]?.ref ?? null;
   const [uploadingProduct, setUploadingProduct] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -212,7 +212,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       const preset = presets.find((p) => p.id === pid);
       const r = await digitalHuman.generateScript(roleSubject(i, subject.trim()), {
         model: effectiveModel(preset, scriptModel ?? '') || undefined,
-        productRef: productRef ?? undefined,
+        productRef: primaryProductRef ?? undefined,
         kuIds: effectiveKuIds(preset, scriptKuIds),
       });
       setScriptSources(r.sources ?? []);
@@ -234,7 +234,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       const preset = presets.find((p) => p.id === pid);
       const r = await digitalHuman.generateScript(subject.trim(), {
         model: effectiveModel(preset, scriptModel ?? '') || undefined,
-        productRef: productRef ?? undefined,
+        productRef: primaryProductRef ?? undefined,
         kuIds: effectiveKuIds(preset, scriptKuIds),
       });
       setScriptSources(r.sources ?? []);
@@ -243,7 +243,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     } catch (e) {
       reportError(
         e as Error,
-        productRef
+        primaryProductRef
           ? 'AI 生成文案失败:请选支持视觉(VLM)的模型,或去模型广场安装'
           : 'AI 生成文案失败:请先在模型厂商配置默认对话模型',
       );
@@ -313,21 +313,26 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid]);
 
-  // 商品状态从预设同步:否则左侧一直是 null(空态),而右侧画布按 preset.product_ref 显示
-  // 上次残留的商品 → 左右不一致。依赖 [pid, presets] 保证切换/异步加载/重拉都对齐。
+  // 商品列表从预设同步:否则左侧空态、右侧画布按 preset 显示残留 → 左右不一致。
+  // 优先 preset.products(多商品);旧 preset 只有 product_ref 时迁移成一条。
   React.useEffect(() => {
     const p = presets.find((x) => x.id === pid);
-    const ref = p?.product_ref || '';
-    if (ref) {
-      setProductRef(ref);
-      setProductKind(p?.product_kind === 'video' ? 'video' : 'image');
-      setProductName(ref.replace(/^product:/, '') || '商品');
+    if (p?.products?.length) {
+      setProducts(p.products);
+    } else if (p?.product_ref) {
+      setProducts([{ ref: p.product_ref, kind: p.product_kind === 'video' ? 'video' : 'image',
+        x: p.product_x ?? 0.66, y: p.product_y ?? 0.6, scale: p.product_scale ?? 0.32,
+        z: p.product_z, opacity: p.product_opacity }]);
     } else {
-      setProductRef(null);
-      setProductKind(null);
-      setProductName(null);
+      setProducts([]);
     }
   }, [pid, presets]);
+
+  const persistProducts = (arr: ProductLayer[]) => {
+    setProducts(arr);
+    if (pid) void digitalHuman.updatePreset(pid, { products: arr })
+      .then(() => qc.invalidateQueries({ queryKey: ['dh.presets'] }));
+  };
 
   // 角色数变化时对齐多角色脚本状态长度(coframe / sequential)
   const roleCount = roles.length;
@@ -349,18 +354,17 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const handleProductFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // reset so the same file can be re-selected after removal
-    e.target.value = '';
+    e.target.value = '';  // 允许再次选同一文件
     setUploadingProduct(true);
     try {
       const r = await digitalHuman.uploadProduct(file);
-      setProductRef(r.ref);
-      setProductName(r.name);
-      setProductKind(r.kind === 'video' ? 'video' : 'image');
-      // 持久化到 preset:工作台画布据此预览+拖拽商品图
-      if (pid) void digitalHuman.updatePreset(pid, {
-        product_ref: r.ref, product_kind: r.kind === 'video' ? 'video' : 'image',
-      }).then(() => qc.invalidateQueries({ queryKey: ['dh.presets'] }));
+      // 追加到商品列表;各自略微错位避免完全重叠,用户可再拖拽。
+      const n = products.length;
+      const next: ProductLayer[] = [...products, {
+        ref: r.ref, kind: r.kind === 'video' ? 'video' : 'image',
+        x: Math.min(0.85, 0.6 + (n % 3) * 0.08), y: Math.min(0.8, 0.5 + (n % 3) * 0.08), scale: 0.32,
+      }];
+      persistProducts(next);
     } catch (err) {
       reportError(err as Error, '商品上传失败');
     } finally {
@@ -368,12 +372,10 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     }
   };
 
-  const removeProduct = () => {
-    setProductRef(null);
-    setProductName(null);
-    setProductKind(null);
-    setMatte(false);
-    if (pid) void digitalHuman.updatePreset(pid, { product_ref: '' }).then(() => qc.invalidateQueries({ queryKey: ['dh.presets'] }));
+  const removeProduct = (ref: string) => {
+    const next = products.filter((p) => p.ref !== ref);
+    if (!next.length) setMatte(false);
+    persistProducts(next);
   };
 
   // 实际生成逻辑（门控通过后执行）
@@ -413,7 +415,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       const opts = {
         engine,
         script_model: effectiveModel(curPreset, scriptModel ?? '') || undefined,
-        ...(productRef ? { product_image: productRef, matte } : {}),
+        ...(primaryProductRef ? { product_image: primaryProductRef, matte } : {}),
         ...modeFields,
       };
       const r = await digitalHuman.generate(pid, effectiveText, opts);
@@ -427,7 +429,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   // ── 文案生成模型选择 ─────────────────────────────────────────
   // 挂了商品图时,文案生成需要看图 → 只允许视觉语言(VLM)模型;否则允许 chat+vl。
-  const hasImage = !!productRef;
+  const hasImage = products.some((p) => p.kind === 'image');
   const allModels: RawModelItem[] = React.useMemo(
     () => (modelsQ.data ?? []).filter((m) => !m.model_type || m.model_type === 'llm'),
     [modelsQ.data],
@@ -741,8 +743,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         </div>
       )}
 
-      {/* Product image upload row */}
-      <div className="flex items-center gap-2">
+      {/* 多商品上传行:可上传多个图/视频,逐个展示+移除,「+ 添加」继续追加 */}
+      <div className="flex flex-wrap items-center gap-2">
         <input
           ref={fileInputRef}
           type="file"
@@ -750,32 +752,29 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           className="hidden"
           onChange={(e) => void handleProductFileChange(e)}
         />
-        {productRef ? (
-          <>
-            <span className="text-sm" aria-hidden>{productKind === 'video' ? '🎬' : '🖼️'}</span>
-            <span className="max-w-[160px] truncate text-sm text-[var(--cy-text-primary)]">{productName}</span>
-            <button
-              onClick={removeProduct}
-              className="text-sm text-[var(--cy-text-secondary)] hover:text-[var(--cy-text-primary)]">
-              移除
-            </button>
-          </>
-        ) : (
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploadingProduct}
-            className="inline-flex h-8 items-center rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
-            {uploadingProduct ? '上传中…' : '上传商品图 / 视频（可选）'}
-          </button>
-        )}
+        {products.map((p) => (
+          <span key={p.ref}
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)]">
+            <span aria-hidden>{p.kind === 'video' ? '🎬' : '🖼️'}</span>
+            <span className="max-w-[110px] truncate">{p.ref.replace(/^product:/, '')}</span>
+            <button type="button" title="移除" onClick={() => removeProduct(p.ref)}
+              className="text-[var(--cy-text-tertiary)] hover:text-[var(--cy-danger-500)]">×</button>
+          </span>
+        ))}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploadingProduct}
+          className="inline-flex h-8 items-center rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+          {uploadingProduct ? '上传中…' : (products.length ? '+ 添加商品' : '上传商品图 / 视频（可选,可多个）')}
+        </button>
         <button onClick={() => void gen()} disabled={!pid || !canGenerate || busy || !engineInstalled}
           className="inline-flex h-8 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
           生成数字人视频
         </button>
       </div>
 
-      {/* Matte toggle — only shown when a product image is selected */}
-      {productRef && (
+      {/* Matte toggle — only shown when a product is present */}
+      {products.length > 0 && (
         <label className="flex cursor-pointer items-center gap-2">
           <input
             type="checkbox"

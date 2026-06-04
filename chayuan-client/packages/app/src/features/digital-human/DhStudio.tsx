@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { digitalHuman, type AvatarSlot, type DigitalHumanPreset } from '@chayuan/api';
 import { GeneratePanel } from './GeneratePanel';
-import { CanvasStage, PRODUCT_REF, type CanvasProduct } from './CanvasStage';
+import { CanvasStage, type CanvasProduct } from './CanvasStage';
 import { DhTaskList } from './DhTaskList';
 
 /** 折叠后的竖条(左设置 / 右预览),点击展开。 */
@@ -69,59 +69,66 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
     });
   }, [persist]);
 
-  // 商品图拖拽:本地 product 即时反馈,防抖写回 preset.product_x/y/scale。
-  const [localProduct, setLocalProduct] = React.useState<CanvasProduct | undefined>(undefined);
-  React.useEffect(() => {
-    setLocalProduct(preset?.product_ref
-      ? { ref: preset.product_ref, kind: preset.product_kind ?? 'image',
-          x: preset.product_x ?? 0.66, y: preset.product_y ?? 0.6, scale: preset.product_scale ?? 0.32,
-          z: preset.product_z, opacity: preset.product_opacity }
-      : undefined);
-  }, [pid, preset?.product_ref, preset?.product_kind, preset?.product_x, preset?.product_y, preset?.product_scale, preset?.product_z, preset?.product_opacity]);
-  const onProductChange = React.useCallback((pos: { x: number; y: number; scale: number }) => {
-    setLocalProduct((p) => (p ? { ...p, ...pos } : p));
-    persist({ product_x: pos.x, product_y: pos.y, product_scale: pos.scale });
+  // 多商品图层:从 preset.products 读;旧 preset(只有 product_ref)兜底迁移成一条。
+  const productsOf = React.useCallback((p: DigitalHumanPreset | null): CanvasProduct[] => {
+    if (p?.products?.length) {
+      return p.products.map((q) => ({
+        ref: q.ref, kind: q.kind === 'video' ? 'video' : 'image',
+        x: q.x ?? 0.66, y: q.y ?? 0.6, scale: q.scale ?? 0.32, z: q.z, opacity: q.opacity,
+      }));
+    }
+    if (p?.product_ref) {
+      return [{ ref: p.product_ref, kind: p.product_kind ?? 'image',
+        x: p.product_x ?? 0.66, y: p.product_y ?? 0.6, scale: p.product_scale ?? 0.32,
+        z: p.product_z, opacity: p.product_opacity }];
+    }
+    return [];
+  }, []);
+  const [localProducts, setLocalProducts] = React.useState<CanvasProduct[]>(() => productsOf(preset));
+  React.useEffect(() => { setLocalProducts(productsOf(preset)); },
+    [pid, preset?.products, preset?.product_ref, productsOf]);
+
+  // refs 跟随最新本地值,供跨状态写回(避免 useCallback 闭包陈旧 / 嵌套 setState)。
+  const rolesNowRef = React.useRef(localRoles); rolesNowRef.current = localRoles;
+  const prodsNowRef = React.useRef(localProducts); prodsNowRef.current = localProducts;
+  const serializeProducts = (arr: CanvasProduct[]) =>
+    arr.map((p) => ({ ref: p.ref, kind: p.kind, x: p.x, y: p.y, scale: p.scale, z: p.z, opacity: p.opacity }));
+  const isProd = (ref: string) => ref.startsWith('product:');
+
+  const onProductChange = React.useCallback((ref: string, pos: { x: number; y: number; scale: number }) => {
+    const next = prodsNowRef.current.map((p) => (p.ref === ref ? { ...p, ...pos } : p));
+    setLocalProducts(next);
+    persist({ products: serializeProducts(next) });
   }, [persist]);
 
-  // 图层叠放:右键菜单一次给出受影响图层的新 z;拆分商品层 vs 角色层后一并写回 preset。
+  // 图层叠放:拆分角色 z(avatars)与商品 z(products),用最新本地值一并写回。
   const onLayerZChange = React.useCallback((updates: Array<{ ref: string; z: number }>) => {
-    const zByRef = new Map(updates.map((u) => [u.ref, u.z]));
-    setLocalRoles((prev) => {
-      const next = prev.map((r) => (zByRef.has(r.ref) ? { ...r, z: zByRef.get(r.ref) } : r));
-      const productZ = zByRef.get(PRODUCT_REF);
-      persist(productZ === undefined ? { avatars: next } : { avatars: next, product_z: productZ });
-      return next;
-    });
-    const pz = zByRef.get(PRODUCT_REF);
-    if (pz !== undefined) setLocalProduct((p) => (p ? { ...p, z: pz } : p));
+    const z = new Map(updates.map((u) => [u.ref, u.z]));
+    const nr = rolesNowRef.current.map((r) => (z.has(r.ref) ? { ...r, z: z.get(r.ref) } : r));
+    const np = prodsNowRef.current.map((p) => (z.has(p.ref) ? { ...p, z: z.get(p.ref) } : p));
+    setLocalRoles(nr);
+    setLocalProducts(np);
+    persist({ avatars: nr, products: serializeProducts(np) });
   }, [persist]);
 
-  // 图层透明度:商品层写 product_opacity;角色层写该 avatar 的 opacity。
   const onLayerOpacityChange = React.useCallback((ref: string, opacity: number) => {
-    if (ref === PRODUCT_REF) {
-      setLocalProduct((p) => (p ? { ...p, opacity } : p));
-      persist({ product_opacity: opacity });
-      return;
+    if (isProd(ref)) {
+      const np = prodsNowRef.current.map((p) => (p.ref === ref ? { ...p, opacity } : p));
+      setLocalProducts(np); persist({ products: serializeProducts(np) });
+    } else {
+      const nr = rolesNowRef.current.map((r) => (r.ref === ref ? { ...r, opacity } : r));
+      setLocalRoles(nr); persist({ avatars: nr });
     }
-    setLocalRoles((prev) => {
-      const next = prev.map((r) => (r.ref === ref ? { ...r, opacity } : r));
-      persist({ avatars: next });
-      return next;
-    });
   }, [persist]);
 
-  // 删除图层:商品层清空 product_ref;角色层从 avatars 移除。
   const onLayerDelete = React.useCallback((ref: string) => {
-    if (ref === PRODUCT_REF) {
-      setLocalProduct(undefined);
-      persist({ product_ref: '' });
-      return;
+    if (isProd(ref)) {
+      const np = prodsNowRef.current.filter((p) => p.ref !== ref);
+      setLocalProducts(np); persist({ products: serializeProducts(np) });
+    } else {
+      const nr = rolesNowRef.current.filter((r) => r.ref !== ref);
+      setLocalRoles(nr); persist({ avatars: nr });
     }
-    setLocalRoles((prev) => {
-      const next = prev.filter((r) => r.ref !== ref);
-      persist({ avatars: next });
-      return next;
-    });
   }, [persist]);
 
   // 左设置宽、右预览窄(默认 4:1 = 80%);可拖拽,clamp 55%-90%。
@@ -189,7 +196,7 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
     >
       {preset && localRoles.length > 0 ? (
         <CanvasStage width={w} height={h} roles={localRoles} onChange={onRoleChange}
-          product={localProduct} onProductChange={onProductChange}
+          products={localProducts} onProductChange={onProductChange}
           onLayerZChange={onLayerZChange} onLayerDelete={onLayerDelete}
           onLayerOpacityChange={onLayerOpacityChange} />
       ) : preset && preset.avatar_ref && preset.avatar_kind === 'image' ? (
@@ -202,7 +209,7 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
         </div>
       )}
       <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/50 px-2 py-0.5 text-[10px] text-white/80">
-        {w}×{h} · {modeLabel} · 可拖拽数字人{localProduct ? '/商品图' : ''}
+        {w}×{h} · {modeLabel} · 可拖拽数字人{localProducts.length ? '/商品图' : ''}
       </div>
     </div>
   );

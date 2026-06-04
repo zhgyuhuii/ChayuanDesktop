@@ -70,6 +70,32 @@ def build_presenter_edl(presenter_path: str, product_path: str, template: str, *
     return Timeline(version=1, duration_ms=dur_ms, tracks=[base, pip])
 
 
+def render_with_products(*, presenter_path: str, products: "list", audio_path: str,
+                         out_path: str, width: int, height: int, dur_ms: int) -> str:
+    """presenter 全屏底 + 多个商品按各自 x/y/scale 作 PIP 叠放(按 z 排序)。
+    products: [{path,x,y,scale,z}]。render_from_edl 的 PIP 轨「轨序小=上层」,故按 z
+    降序建轨(z 大的先建=在上)。失败抛异常(caller 兜底)。"""
+    from chayuan.server.video_generation.steps.compose import render_from_edl
+    from chayuan.server.video_generation.schemas import VideoParams
+
+    base = TimelineTrack(id="dh-base", kind="video", removable=False, clips=[
+        TimelineClip(id="dh-presenter", source={"path": presenter_path},
+                     track_start_ms=0, in_ms=0, out_ms=dur_ms),
+    ])
+    ordered = sorted(products, key=lambda p: -(p.get("z") if p.get("z") is not None else 0))
+    tracks = [base]
+    for i, p in enumerate(ordered):
+        tracks.append(TimelineTrack(id=f"dh-prod-{i}", kind="video", removable=True, clips=[
+            TimelineClip(id=f"dh-product-{i}", source={"path": p["path"]},
+                         track_start_ms=0, in_ms=0, out_ms=dur_ms,
+                         x=float(p["x"]), y=float(p["y"]), scale=float(p["scale"]), z=1),
+        ]))
+    tl = Timeline(version=1, duration_ms=dur_ms, tracks=tracks)
+    params = VideoParams(video_width=width, video_height=height)
+    render_from_edl(tl, audio_path, "", out_path, params, source_resolver=_resolver)
+    return out_path
+
+
 def _resolver(src: Dict[str, Any]) -> str:
     return (src or {}).get("path") or (src or {}).get("url") or ""
 

@@ -16,18 +16,16 @@ export interface CanvasStageProps {
   height: number;
   roles: AvatarSlot[];    // 每角色 ref/kind/name/x/y/scale/z(归一)
   onChange?: (ref: string, pos: { x: number; y: number; scale: number }) => void;
-  product?: CanvasProduct;        // 商品图/视频层(可选)
-  onProductChange?: (pos: { x: number; y: number; scale: number }) => void;
-  /** 图层叠放变更:一次给出受影响图层的新 z(ref 可为 PRODUCT_REF)。 */
+  products?: CanvasProduct[];     // 商品图/视频层(可多个),按各自 ref 标识
+  onProductChange?: (ref: string, pos: { x: number; y: number; scale: number }) => void;
+  /** 图层叠放变更:一次给出受影响图层的新 z(ref=角色 ref 或商品 ref)。 */
   onLayerZChange?: (updates: Array<{ ref: string; z: number }>) => void;
-  /** 删除某图层(ref===PRODUCT_REF 删商品层,否则删该角色)。 */
+  /** 删除某图层(商品 ref 删该商品,否则删该角色)。 */
   onLayerDelete?: (ref: string) => void;
   /** 设置某图层不透明度(0-1)。 */
   onLayerOpacityChange?: (ref: string, opacity: number) => void;
   readOnly?: boolean;
 }
-
-export const PRODUCT_REF = '__product__';
 
 type Corner = 'nw' | 'ne' | 'sw' | 'se';
 type Drag =
@@ -36,26 +34,29 @@ type Drag =
 
 type MenuState = { x: number; y: number; ref: string } | null;
 
-/** 按画幅比例显示舞台,角色 + 商品图按归一 x/y/scale 摆放,显式 zIndex 控制叠放。
- *  拖拽改位置(跟手),四角控制点改大小,右键菜单调层级 / 删除。
+/** 按画幅比例显示舞台,角色 + 多商品图按归一 x/y/scale 摆放,显式 zIndex 控制叠放。
+ *  拖拽改位置(跟手),四角控制点改大小,右键菜单调层级 / 透明度 / 删除。
  *  编辑器(可拖)与生成预览(readOnly)共用。 */
 export const CanvasStage: React.FC<CanvasStageProps> = ({
-  width, height, roles, onChange, product, onProductChange, onLayerZChange, onLayerDelete, onLayerOpacityChange, readOnly,
+  width, height, roles, onChange, products, onProductChange, onLayerZChange, onLayerDelete, onLayerOpacityChange, readOnly,
 }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const dragRef = React.useRef<Drag | null>(null);
   const rolesRef = React.useRef(roles);
   rolesRef.current = roles;
-  const prodRef = React.useRef<CanvasProduct | undefined>(product);
-  prodRef.current = product;
+  const prodsRef = React.useRef<CanvasProduct[]>(products ?? []);
+  prodsRef.current = products ?? [];
   const [menu, setMenu] = React.useState<MenuState>(null);
 
-  // 各图层有效 z(缺省:角色按数组序,商品排在角色之上)+ 数组序兜底,保证排序稳定。
+  const prods = products ?? [];
+  const isProductRef = (ref: string) => prodsRef.current.some((p) => p.ref === ref);
+
+  // 各图层有效 z(缺省:角色按数组序,商品排在角色之上、彼此按数组序)+ 数组序兜底稳定排序。
   const layerList = React.useMemo(() => {
     const list = roles.map((r, i) => ({ ref: r.ref, ez: r.z ?? i, fi: i }));
-    if (product && product.ref) list.push({ ref: PRODUCT_REF, ez: product.z ?? roles.length, fi: roles.length });
+    prods.forEach((p, j) => list.push({ ref: p.ref, ez: p.z ?? (roles.length + j), fi: roles.length + j }));
     return list;
-  }, [roles, product]);
+  }, [roles, prods]);
   const ordered = React.useMemo(
     () => layerList.slice().sort((a, b) => a.ez - b.ez || a.fi - b.fi).map((l) => l.ref),
     [layerList],
@@ -80,15 +81,15 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
       const box = boxRef.current;
       if (!d || !box) return;
       const rect = box.getBoundingClientRect();
-      const isProduct = d.ref === PRODUCT_REF;
-      const cur = isProduct ? prodRef.current : rolesRef.current.find((x) => x.ref === d.ref);
+      const isProduct = isProductRef(d.ref);
+      const cur = isProduct ? prodsRef.current.find((x) => x.ref === d.ref) : rolesRef.current.find((x) => x.ref === d.ref);
       if (!cur) return;
       // 点击抖动阈值:位移 < 3px 视为点击,不写回(否则点一下就 emit→重拉→层级/位置跳)。
       const _dx = Math.abs(e.clientX - d.mx);
       const _dy = d.mode === 'move' ? Math.abs(e.clientY - d.my) : 0;
       if (_dx < 3 && _dy < 3) return;
       const emit = (pos: { x: number; y: number; scale: number }) => {
-        if (isProduct) onProductChange?.(pos);
+        if (isProduct) onProductChange?.(d.ref, pos);
         else onChange?.(d.ref, pos);
       };
       if (d.mode === 'move') {
@@ -154,7 +155,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
 
   const menuPos = menu ? ordered.indexOf(menu.ref) : -1;
   const menuOpacity = menu
-    ? (menu.ref === PRODUCT_REF ? (product?.opacity ?? 1) : (roles.find((r) => r.ref === menu.ref)?.opacity ?? 1))
+    ? ((prods.find((p) => p.ref === menu.ref)?.opacity) ?? (roles.find((r) => r.ref === menu.ref)?.opacity) ?? 1)
     : 1;
   const menuItem = (label: string, onClick: () => void, disabled = false, danger = false) => (
     <button type="button" disabled={disabled}
@@ -188,10 +189,10 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
             ))}
           </div>
         ))}
-        {product && product.ref ? (
-          <div
-            onPointerDown={(e) => startMove(e, PRODUCT_REF, product.x ?? 0, product.y ?? 0)}
-            onContextMenu={(e) => onCtx(e, PRODUCT_REF)}
+        {prods.map((product) => (
+          <div key={product.ref}
+            onPointerDown={(e) => startMove(e, product.ref, product.x ?? 0, product.y ?? 0)}
+            onContextMenu={(e) => onCtx(e, product.ref)}
             className={'absolute ' + (readOnly ? '' : 'cursor-move')}
             style={{ left: `${(product.x ?? 0) * 100}%`, top: `${(product.y ?? 0) * 100}%`, width: `${(product.scale ?? 0.3) * 100}%`, zIndex: product.z ?? roles.length, opacity: product.opacity ?? 1, touchAction: 'none' }}>
             {product.kind === 'video'
@@ -199,13 +200,13 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
               : <img src={digitalHuman.productFileUrl(product.ref)} alt="商品图" className="pointer-events-none w-full rounded ring-1 ring-white/40" draggable={false} />}
             <span className="pointer-events-none absolute -top-4 left-0 rounded bg-[var(--cy-brand-600)]/80 px-1 text-[10px] text-white">商品</span>
             {!readOnly && corners.map(([c, cls]) => (
-              <div key={c} onPointerDown={(e) => startResize(e, PRODUCT_REF, c, product.x ?? 0, product.y ?? 0, product.scale ?? 0.3)}
+              <div key={c} onPointerDown={(e) => startResize(e, product.ref, c, product.x ?? 0, product.y ?? 0, product.scale ?? 0.3)}
                 title="拖拽缩放"
                 className={'absolute h-2.5 w-2.5 rounded-sm border border-white bg-[var(--cy-brand-500)] ' + cls}
                 style={{ touchAction: 'none' }} />
             ))}
           </div>
-        ) : null}
+        ))}
       </div>
 
       {menu ? (

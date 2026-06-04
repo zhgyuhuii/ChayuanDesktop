@@ -30,6 +30,17 @@ DhEngine = Literal["wav2lip", "sadtalker", "musetalk"]
 DhState = Literal["pending", "running", "complete", "failed", "canceled"]
 
 
+class ProductLayer(BaseModel):
+    """一个商品图/视频图层(可多个);ref 形如 "product:<file>"。"""
+    ref: str
+    kind: AvatarKind = "image"
+    x: float = 0.66
+    y: float = 0.60
+    scale: float = 0.32
+    z: Optional[int] = None
+    opacity: Optional[float] = None
+
+
 class DigitalHumanPreset(BaseModel):
     id: str
     name: str = Field(min_length=1, max_length=40)
@@ -67,6 +78,8 @@ class DigitalHumanPreset(BaseModel):
     product_scale: float = 0.32
     product_z: Optional[int] = None   # 商品层叠放顺序(同 AvatarSlot.z);None=排在角色之上
     product_opacity: Optional[float] = None   # 商品层不透明度 0-1;None=1
+    # 多商品图层(新);非空时取代单个 product_ref。旧行只有 product_ref → validator 迁移一条。
+    products: List[ProductLayer] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _sync_avatars(self) -> "DigitalHumanPreset":
@@ -77,6 +90,12 @@ class DigitalHumanPreset(BaseModel):
         if self.avatars:
             self.avatar_ref = self.avatars[0].ref
             self.avatar_kind = self.avatars[0].kind
+        # 多商品:旧行只有单个 product_ref → 迁移成 products 一条(读侧始终有 products)。
+        if not self.products and self.product_ref:
+            self.products = [ProductLayer(
+                ref=self.product_ref, kind=self.product_kind,
+                x=self.product_x, y=self.product_y, scale=self.product_scale,
+                z=self.product_z, opacity=self.product_opacity)]
         return self
 
 

@@ -14,7 +14,9 @@ from chayuan.server.video_generation.digital_human import store
 from chayuan.server.video_generation.digital_human.engine import get_engine
 from chayuan.server.video_generation.digital_human.schemas import DhTaskStatus
 from chayuan.server.video_generation.digital_human.store import resolve_avatar_path, resolve_product_path
-from chayuan.server.video_generation.digital_human.compose import render_with_product, render_with_product_matte
+from chayuan.server.video_generation.digital_human.compose import (
+    render_with_product, render_with_product_matte, render_with_products,
+)
 
 logger = logging.getLogger("chayuan.dh.jobs")
 
@@ -381,46 +383,52 @@ def _run_pipeline(tid: str) -> None:
                 except Exception as e:  # noqa: BLE001
                     logger.warning("[dh] 单形象按尺寸摆放失败,回退全屏: %r", e)
         result_path = out_path
-        product_ref = args.get("product_ref")
-        # 版式 template 已废弃(商品图改用画布拖拽坐标);仅 matte 路径用作 presenter 默认。
-        template = args.get("template") or "corner"
-        if product_ref:
-            product_path = resolve_product_path(product_ref)
-            if not product_path:
-                raise RuntimeError("商品图缺失")
+        template = args.get("template") or "corner"  # 仅 matte 用作 presenter 默认版式
+        # 多商品:优先 preset.products(已由 schema 从旧 product_ref 迁移);解析成可摆放项。
+        _layers = list(getattr(preset, "products", None) or [])
+        items = []
+        for q in _layers:
+            pp = resolve_product_path(getattr(q, "ref", ""))
+            if pp:
+                items.append({"path": pp,
+                              "x": float(getattr(q, "x", 0.66) if getattr(q, "x", None) is not None else 0.66),
+                              "y": float(getattr(q, "y", 0.60) if getattr(q, "y", None) is not None else 0.60),
+                              "scale": float(getattr(q, "scale", 0.32) if getattr(q, "scale", None) is not None else 0.32),
+                              "z": getattr(q, "z", None)})
+        if items:
             _set(tid, progress=88)
             presenter_keep = os.path.join(td, "presenter.mp4")
             final_path = os.path.join(td, "digital_human.mp4")
             os.replace(out_path, presenter_keep)  # presenter 让出最终文件名
             dur_ms = _probe_duration_ms(presenter_keep) or _probe_duration_ms(audio_path) or 5000
-            # 商品图坐标(工作台画布拖拽 → preset);非 matte 按坐标摆位(取代 template)。
-            ppos = None
-            if getattr(preset, "product_ref", "") and getattr(preset, "product_scale", None) is not None:
-                ppos = {"x": float(getattr(preset, "product_x", 0.66)),
-                        "y": float(getattr(preset, "product_y", 0.60)),
-                        "scale": float(getattr(preset, "product_scale", 0.32))}
-            # 图层叠放:工作台把形象 z 调到商品 z 之上时 → 形象按自身坐标叠在商品(全屏底)之上。
-            _av0 = (getattr(preset, "avatars", None) or [None])[0]
-            _avz = getattr(_av0, "z", None) if _av0 is not None else None
-            _pz = getattr(preset, "product_z", None)
-            presenter_on_top = (_avz is not None and _pz is not None and _avz > _pz)
-            presenter_pos = None
-            if presenter_on_top and _av0 is not None:
-                presenter_pos = {"x": float(getattr(_av0, "x", 0.0) or 0.0),
-                                 "y": float(getattr(_av0, "y", 0.0) or 0.0),
-                                 "scale": float(getattr(_av0, "scale", 1.0) or 1.0)}
             if args.get("matte"):
                 render_with_product_matte(
-                    presenter_path=presenter_keep, product_path=product_path, template=template,
+                    presenter_path=presenter_keep, product_path=items[0]["path"], template=template,
                     audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
                     dur_ms=dur_ms,
                 )
-            else:
+            elif len(items) == 1:
+                it = items[0]
+                # 形象 z 高于商品 z 时,形象按自身坐标叠在商品(全屏底)之上。
+                _av0 = (getattr(preset, "avatars", None) or [None])[0]
+                _avz = getattr(_av0, "z", None) if _av0 is not None else None
+                presenter_on_top = (_avz is not None and it["z"] is not None and _avz > it["z"])
+                presenter_pos = None
+                if presenter_on_top and _av0 is not None:
+                    presenter_pos = {"x": float(getattr(_av0, "x", 0.0) or 0.0),
+                                     "y": float(getattr(_av0, "y", 0.0) or 0.0),
+                                     "scale": float(getattr(_av0, "scale", 1.0) or 1.0)}
                 render_with_product(
-                    presenter_path=presenter_keep, product_path=product_path, template=template,
+                    presenter_path=presenter_keep, product_path=it["path"], template=template,
                     audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
-                    dur_ms=dur_ms, product_pos=ppos,
+                    dur_ms=dur_ms, product_pos={"x": it["x"], "y": it["y"], "scale": it["scale"]},
                     presenter_pos=presenter_pos, presenter_on_top=presenter_on_top,
+                )
+            else:
+                render_with_products(
+                    presenter_path=presenter_keep, products=items,
+                    audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
+                    dur_ms=dur_ms,
                 )
             result_path = final_path
         result_path = _apply_overlays(result_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), args["width"], args["height"])
