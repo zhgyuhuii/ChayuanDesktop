@@ -259,6 +259,50 @@ def _tts_parallel(text: str, voice: str) -> bytes:
             return f.read()
 
 
+# ---- 口型一致:把回复交给生成管线生成「该形象对口型说这句」的视频(含商品/场景合成) ----
+_TALK: Dict[str, list] = {}   # token -> [tid,...];仅本 token 生成的任务可查/取,防枚举
+
+
+@digital_human_public_router.post(_PUB + "/{token}/talk")
+def public_talk(token: str, body: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    rec = _live(token)
+    if not rec.chat_enabled:
+        raise HTTPException(status_code=403, detail="该数字人未开放对话")
+    if not _rate_ok(token, _client_ip(request), rec.rate_per_min, rec.daily_cap):
+        raise HTTPException(status_code=429, detail="访问过于频繁,请稍后再试")
+    text = str(body.get("text") or "").strip()[:1000]
+    if not text:
+        raise HTTPException(status_code=400, detail="文本为空")
+    if not rec.preset_id:
+        raise HTTPException(status_code=404, detail="无法生成口型(发布来源缺失)")
+    # 复用生成管线:用发布来源 preset 生成该形象对口型说这句的视频(含商品/位置合成)。
+    tid = dh_jobs.submit(preset_id=rec.preset_id, text=text,
+                         width=rec.video_width, height=rec.video_height)
+    lst = _TALK.setdefault(token, [])
+    lst.append(tid)
+    if len(lst) > 30:
+        del lst[:-30]
+    return {"task_id": tid}
+
+
+@digital_human_public_router.get(_PUB + "/{token}/talk/{tid}")
+def public_talk_status(token: str, tid: str) -> Dict[str, Any]:
+    if tid not in _TALK.get(token, []):
+        raise HTTPException(status_code=404, detail="任务不存在")
+    st = dh_jobs.get_status(tid)
+    return {"state": st.state, "progress": st.progress}
+
+
+@digital_human_public_router.get(_PUB + "/{token}/talk/{tid}/file")
+def public_talk_file(token: str, tid: str) -> FileResponse:
+    if tid not in _TALK.get(token, []):
+        raise HTTPException(status_code=404, detail="任务不存在")
+    st = dh_jobs.get_status(tid)
+    if st.state != "complete" or not st.result_path or not os.path.isfile(st.result_path):
+        raise HTTPException(status_code=404, detail="视频未就绪")
+    return FileResponse(st.result_path, media_type="video/mp4")
+
+
 # --------------------------------------------------------------------------
 # 自包含公开页(原生 JS;__TOKEN__ 在 public_page 里 .replace 注入)
 # --------------------------------------------------------------------------
@@ -405,6 +449,41 @@ _PUBLIC_PAGE = """<!doctype html>
     }).then(function(b){ if(b){ var a = new Audio(URL.createObjectURL(b)); a.play().catch(function(){}); } }).catch(function(){});
   }
 
+  // 口型一致:把回复交给后端生成「该形象对口型说这句话」的视频(含商品/场景),播完恢复 idle。
+  // 失败/超时回退纯音频 playTts。
+  function showTalkVideo(url){
+    var ov = document.createElement("video");
+    ov.src = url; ov.autoplay = true; ov.playsInline = true; ov.setAttribute("playsinline","");
+    ov.style.position = "absolute"; ov.style.inset = "0"; ov.style.width = "100%";
+    ov.style.height = "100%"; ov.style.objectFit = "contain"; ov.style.background = "#000";
+    ov.style.zIndex = "999";
+    ov.onended = function(){ try{ ov.remove(); }catch(e){} };
+    stage.appendChild(ov);
+    ov.play().catch(function(){});
+  }
+  function playTalk(text){
+    if(!text || !text.trim()) return;
+    tip.textContent = "生成口型中…";
+    fetch(base + "/talk", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({text: text})}).then(function(r){
+      return r.ok ? r.json() : Promise.reject();
+    }).then(function(j){
+      var tid = j && j.task_id;
+      if(!tid){ tip.textContent = ""; playTts(text); return; }
+      var tries = 0;
+      function poll(){
+        tries++;
+        if(tries > 600){ tip.textContent = ""; playTts(text); return; }  // ~15min 上限兜底
+        fetch(base + "/talk/" + tid).then(function(r){ return r.json(); }).then(function(s){
+          if(s.state === "complete"){ tip.textContent = ""; showTalkVideo(base + "/talk/" + tid + "/file"); }
+          else if(s.state === "failed" || s.state === "canceled"){ tip.textContent = ""; playTts(text); }
+          else { tip.textContent = "生成口型中… " + (s.progress || 0) + "%"; setTimeout(poll, 1500); }
+        }).catch(function(){ tip.textContent = ""; playTts(text); });
+      }
+      poll();
+    }).catch(function(){ tip.textContent = ""; playTts(text); });
+  }
+
   function send(){
     var text = (inp.value || "").trim();
     if(!text || busy) return;
@@ -441,7 +520,7 @@ _PUBLIC_PAGE = """<!doctype html>
       }
       return pump();
     }).then(function(){
-      if(acc){ history.push({role:"assistant", content:acc}); playTts(acc); }
+      if(acc){ history.push({role:"assistant", content:acc}); playTalk(acc); }
       else if(aiEl.textContent === "…"){ aiEl.textContent = "(无回复)"; }
     }).catch(function(){}).then(function(){
       busy = false; sendBtn.disabled = false; inp.focus();
