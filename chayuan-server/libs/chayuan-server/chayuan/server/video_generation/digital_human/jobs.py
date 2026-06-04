@@ -145,6 +145,21 @@ def _af_filter(rate: float, volume: float) -> str:
     return ",".join(parts)
 
 
+def _gen_dims(width: int, height: int):
+    """生成分辨率上限(CPU 压榨):引擎按 ≤cap 宽生成,ffcompose/compose 再放大到显示尺寸,
+    每帧贴回+写盘像素量骤降(CPU 主要开销在此,推理本体 96x96 很小)。
+    env CHAYUAN_DH_GEN_MAX_WIDTH(默认 720;0=不限,全分辨率)。保持宽高比、取偶数。"""
+    try:
+        cap = int(os.environ.get("CHAYUAN_DH_GEN_MAX_WIDTH", "720"))
+    except Exception:  # noqa: BLE001
+        cap = 720
+    if cap <= 0 or width <= cap:
+        return int(width), int(height)
+    gw = cap
+    gh = max(2, int(round(height * cap / float(width))))
+    return gw - (gw % 2), gh - (gh % 2)
+
+
 def _write_silence_wav(path: str, ms: int = 250, sr: int = 16000) -> str:
     """写一段静音 wav(stdlib,无依赖)。用于空/失败的 TTS 段兜底,避免下游 load_wav 崩。"""
     import wave
@@ -299,6 +314,7 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, 
                 gw -= gw % 2; gh -= gh % 2  # 偶数,h264 友好
         except Exception:  # noqa: BLE001
             gw, gh = width, height  # 视频形象/读失败 → 回退画布尺寸
+        gw, gh = _gen_dims(gw, gh)   # CPU 压榨:再封顶到 max gen 宽
         get_engine(engine).generate(avatar_path=av, audio_path=ap, out_path=cp,
                                     width=gw, height=gh, on_progress=None)
         clips.append(cp)
@@ -513,9 +529,10 @@ def _run_pipeline(tid: str) -> None:
         _t_tts = time.perf_counter() - _tt
         _set(tid, progress=30)
         _tt = time.perf_counter()
+        _gw, _gh = _gen_dims(args["width"], args["height"])   # CPU 压榨:按 ≤cap 宽生成,后续放大
         get_engine(args.get("engine") or "wav2lip").generate(
             avatar_path=avatar, audio_path=audio_path, out_path=out_path,
-            width=args["width"], height=args["height"],
+            width=_gw, height=_gh,
             on_progress=lambda pct: _set(tid, progress=30 + int(pct * 0.7)),
         )
         _t_infer = time.perf_counter() - _tt

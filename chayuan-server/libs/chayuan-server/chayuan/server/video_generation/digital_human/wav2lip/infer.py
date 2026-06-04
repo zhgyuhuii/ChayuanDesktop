@@ -47,6 +47,11 @@ def load_models(weights_dir: str) -> dict:
         raise FileNotFoundError(f"S3FD weights not found: {s3fd_path}")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cpu":
+        try:
+            torch.set_num_threads(max(1, os.cpu_count() or 1))   # CPU 吃满核数
+        except Exception:  # noqa: BLE001
+            pass
     logger.info("Wav2Lip: loading models on device=%s", device)
 
     # Load Wav2Lip generator (official checkpoint format)
