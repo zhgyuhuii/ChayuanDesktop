@@ -149,6 +149,12 @@ class PublishedAvatar(BaseModel):
     persona: str = ""                # 人设/系统提示(公开对话注入 metadata.system)
     voice_provider: str = "piper"
     voice_name: str = ""
+    # ---- 场景快照(公开页按此摆放形象 + 商品)----
+    avatar_x: float = 0.0
+    avatar_y: float = 0.0
+    avatar_scale: float = 1.0
+    avatar_opacity: Optional[float] = None
+    products: List[ProductLayer] = Field(default_factory=list)
     # ---- owner 控制 ----
     enabled: bool = True             # 上线开关;False=公开页显示「已下线」
     chat_enabled: bool = True        # 允许公开对话;False=公开页纯观看

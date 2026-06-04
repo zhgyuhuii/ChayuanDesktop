@@ -43,6 +43,7 @@ def _persona_of(preset: DigitalHumanPreset) -> str:
 
 
 def _snapshot(preset: DigitalHumanPreset, owner_id: str) -> Dict[str, Any]:
+    _av0 = (preset.avatars or [None])[0]
     return dict(
         preset_id=preset.id,
         owner_id=owner_id,
@@ -56,6 +57,12 @@ def _snapshot(preset: DigitalHumanPreset, owner_id: str) -> Dict[str, Any]:
         persona=_persona_of(preset),
         voice_provider=preset.voice_provider,
         voice_name=preset.voice_name,
+        # 场景:形象位置/大小/透明度 + 商品图层(公开页 idle 按此摆放)。
+        avatar_x=float(getattr(_av0, "x", 0.0) or 0.0) if _av0 is not None else 0.0,
+        avatar_y=float(getattr(_av0, "y", 0.0) or 0.0) if _av0 is not None else 0.0,
+        avatar_scale=float(getattr(_av0, "scale", 1.0) or 1.0) if _av0 is not None else 1.0,
+        avatar_opacity=getattr(_av0, "opacity", None) if _av0 is not None else None,
+        products=[p.model_dump() for p in (preset.products or [])],
     )
 
 

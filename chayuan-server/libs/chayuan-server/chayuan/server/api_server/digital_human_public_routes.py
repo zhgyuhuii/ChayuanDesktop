@@ -90,13 +90,37 @@ def public_page(token: str) -> HTMLResponse:
 @digital_human_public_router.get(_PUB + "/{token}/config")
 def public_config(token: str) -> Dict[str, Any]:
     rec = _live(token)
+    from urllib.parse import quote
+    base = _PUB + "/" + token
+    prods = [{
+        "kind": p.kind, "x": p.x, "y": p.y, "scale": p.scale,
+        "z": p.z, "opacity": p.opacity,
+        "url": base + "/product?ref=" + quote(p.ref),
+    } for p in (rec.products or [])]
     return {
         "name": rec.name,
         "ratio": {"w": rec.video_width, "h": rec.video_height},
-        "avatar_kind": rec.avatar_kind,
         "chat_enabled": bool(rec.chat_enabled),
         "viewers": online_presence.count(token),
+        "avatar": {
+            "kind": rec.avatar_kind, "x": rec.avatar_x, "y": rec.avatar_y,
+            "scale": rec.avatar_scale, "opacity": rec.avatar_opacity,
+            "url": base + "/avatar",
+        },
+        "products": prods,
     }
+
+
+@digital_human_public_router.get(_PUB + "/{token}/product")
+def public_product(token: str, ref: str = "") -> FileResponse:
+    rec = _live(token)
+    if not ref or ref not in [p.ref for p in (rec.products or [])]:
+        raise HTTPException(status_code=404, detail="商品资源不存在")
+    path = store.resolve_product_path(ref)
+    if not path or not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="商品资源不存在")
+    mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=mime)
 
 
 @digital_human_public_router.get(_PUB + "/{token}/avatar")
@@ -325,6 +349,28 @@ _PUBLIC_PAGE = """<!doctype html>
     return d;
   }
 
+  function addLayer(L, i, isAvatar){
+    // 按归一 x/y/scale/z/opacity 绝对定位的图层(与工作台预览一致);视频循环、图片常显。
+    var el = document.createElement("div");
+    el.style.position = "absolute";
+    el.style.left = ((L.x || 0) * 100) + "%";
+    el.style.top = ((L.y || 0) * 100) + "%";
+    el.style.width = ((L.scale != null ? L.scale : (isAvatar ? 1 : 0.32)) * 100) + "%";
+    el.style.zIndex = (L.z != null ? L.z : i);
+    el.style.opacity = (L.opacity != null ? L.opacity : 1);
+    var m;
+    if (L.kind === "video") {
+      m = document.createElement("video");
+      m.src = L.url; m.autoplay = true; m.muted = true; m.loop = true; m.playsInline = true;
+      m.setAttribute("playsinline", "");
+    } else {
+      m = document.createElement("img"); m.src = L.url;
+    }
+    m.style.width = "100%"; m.style.display = "block";
+    el.appendChild(m);
+    stage.appendChild(el);
+  }
+
   fetch(base + "/config").then(function(r){
     if(!r.ok) throw new Error("offline");
     return r.json();
@@ -332,14 +378,10 @@ _PUBLIC_PAGE = """<!doctype html>
     nameEl.textContent = cfg.name || "在线数字人";
     document.title = cfg.name || "在线数字人";
     fitStage((cfg.ratio && cfg.ratio.w) || 720, (cfg.ratio && cfg.ratio.h) || 1280);
-    var src = base + "/avatar";
-    if (cfg.avatar_kind === "video") {
-      var v = document.createElement("video");
-      v.src = src; v.autoplay = true; v.muted = true; v.loop = true; v.playsInline = true;
-      v.setAttribute("playsinline",""); stage.appendChild(v);
-    } else {
-      var img = document.createElement("img"); img.src = src; img.alt = cfg.name || ""; stage.appendChild(img);
-    }
+    stage.style.position = "relative";
+    stage.innerHTML = "";
+    if (cfg.avatar) addLayer(cfg.avatar, 0, true);     // 形象按设置的大小/位置 idle 展示
+    (cfg.products || []).forEach(function(p, i){ addLayer(p, i + 1, false); });  // 商品图/视频
     viewersEl.textContent = cfg.viewers || 0;
     if (cfg.chat_enabled) { chat.style.display = "flex"; } else { tip.textContent = "该数字人当前仅供观看"; }
   }).catch(function(){
