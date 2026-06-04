@@ -763,10 +763,12 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           className="inline-flex h-8 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
           生成数字人视频
         </button>
-        <button type="button" onClick={() => void doPublish()} disabled={publishing || !curPreset}
-          className="inline-flex h-8 items-center rounded-md border border-[var(--cy-brand-500)] px-3 text-sm text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
-          {publishing ? '发布中…' : '发布在线数字人'}
-        </button>
+        {mode === 'single' && (
+          <button type="button" onClick={() => void doPublish()} disabled={publishing || !curPreset}
+            className="inline-flex h-8 items-center rounded-md border border-[var(--cy-brand-500)] px-3 text-sm text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+            {publishing ? '发布中…' : '发布在线数字人'}
+          </button>
+        )}
       </div>
 
       {/* Matte toggle — only shown when a product is present */}

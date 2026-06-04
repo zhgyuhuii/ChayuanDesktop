@@ -718,6 +718,9 @@ def publish_preset(body: Dict[str, Any],
     p = store.get_preset(pid)
     if not p:
         raise HTTPException(404, "预设不存在")
+    # 仅单形象可发布:多人同框/分段轮流是多角色对话编排,不适用单形象 idle + 对话的公开页。
+    if getattr(p, "compose_mode", "single") != "single":
+        raise HTTPException(400, "仅单形象数字人可发布为在线数字人")
     rec = published_store.publish(p, owner_id=_uid(user))
     return _pub_dump(rec)
 
