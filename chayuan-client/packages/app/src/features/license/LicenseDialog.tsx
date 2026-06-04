@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
+  SegmentedTabs,
 } from '@chayuan/ui';
 import QRCode from 'qrcode';
 import * as React from 'react';
@@ -39,6 +40,8 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
   const [serial, setSerial] = React.useState('');
   const [fingerprint, setFingerprint] = React.useState('');
   const [fpCopied, setFpCopied] = React.useState(false);
+  const [qrTab, setQrTab] = React.useState<'buy' | 'share'>('buy');
+  const shareUrl = buyUrl ? new URL(buyUrl).origin + '/share?mid=' + fingerprint : '';
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -83,14 +86,15 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
   const scanText = channelScanText(channels);
 
   React.useEffect(() => {
-    if (!buyUrl) {
+    const url = qrTab === 'buy' ? buyUrl : shareUrl;
+    if (!url) {
       setQr('');
       return;
     }
-    QRCode.toDataURL(buyUrl, { margin: 1, width: 220 })
+    QRCode.toDataURL(url, { margin: 1, width: 220 })
       .then(setQr)
       .catch(() => setQr(''));
-  }, [buyUrl]);
+  }, [buyUrl, shareUrl, qrTab]);
 
   // fn 返回 null = 无操作（如用户取消选文件），不报错、不关窗。
   async function run(
@@ -126,9 +130,19 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
         <DialogHeader>
           <DialogTitle>激活授权</DialogTitle>
           <DialogDescription>
-            手机扫码购买后，把序列号填入下方激活；或导入授权文件。
+            {qrTab === 'share'
+              ? '用微信「扫一扫」此码打开分享页，分享给好友/朋友圈即可领取使用次数。'
+              : '手机扫码购买后，把序列号填入下方激活；或导入授权文件。'}
           </DialogDescription>
         </DialogHeader>
+        <SegmentedTabs
+          value={qrTab}
+          onChange={(v) => setQrTab(v as 'buy' | 'share')}
+          items={[
+            { value: 'buy', label: '扫码购买' },
+            { value: 'share', label: '分享获取使用次数' },
+          ]}
+        />
 
         <div className="flex flex-col items-center gap-3 py-2">
           {qr ? (
