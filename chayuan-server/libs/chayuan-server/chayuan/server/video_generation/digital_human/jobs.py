@@ -394,7 +394,7 @@ def _run_pipeline(tid: str) -> None:
                               "x": float(getattr(q, "x", 0.66) if getattr(q, "x", None) is not None else 0.66),
                               "y": float(getattr(q, "y", 0.60) if getattr(q, "y", None) is not None else 0.60),
                               "scale": float(getattr(q, "scale", 0.32) if getattr(q, "scale", None) is not None else 0.32),
-                              "z": getattr(q, "z", None)})
+                              "z": getattr(q, "z", None), "opacity": getattr(q, "opacity", None)})
         if items:
             _set(tid, progress=88)
             presenter_keep = os.path.join(td, "presenter.mp4")
@@ -423,6 +423,7 @@ def _run_pipeline(tid: str) -> None:
                     audio_path=audio_path, out_path=final_path, width=args["width"], height=args["height"],
                     dur_ms=dur_ms, product_pos={"x": it["x"], "y": it["y"], "scale": it["scale"]},
                     presenter_pos=presenter_pos, presenter_on_top=presenter_on_top,
+                    product_opacity=it["opacity"],
                 )
             else:
                 render_with_products(

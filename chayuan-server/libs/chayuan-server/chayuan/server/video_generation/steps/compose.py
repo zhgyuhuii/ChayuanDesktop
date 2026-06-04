@@ -404,6 +404,7 @@ def _build_pip_layers(timeline, *, source_resolver) -> list:
                 "dur": dur,
                 "is_image": is_image,
                 "transition": (getattr(c, "transition", "none") or "none"),
+                "opacity": float(getattr(c, "opacity", 1.0) or 1.0),
             })
     # ti 小的(上层)要排到列表末尾 → 降序
     layers.sort(key=lambda ly: ly["z"], reverse=True)
@@ -581,6 +582,11 @@ def render_from_edl(
                 oc = oc.resized(width=w).with_position(
                     (int(ly["x"] * video_width), int(ly["y"] * video_height))
                 ).with_start(ly["start_s"])
+                _op = ly.get("opacity", 1.0)
+                if _op is not None and _op < 0.999 and hasattr(oc, "with_opacity"):
+                    try: oc = oc.with_opacity(float(_op))
+                    except Exception:  # noqa: BLE001
+                        pass
                 if ly.get("transition", "none") not in ("none", ""):
                     try: oc = video_effects.fadein_transition(oc, 1)  # PIP 用淡入(slide 会覆盖定位)
                     except Exception:  # noqa: BLE001

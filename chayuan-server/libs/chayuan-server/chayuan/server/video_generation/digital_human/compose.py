@@ -27,7 +27,8 @@ TEMPLATES: Dict[str, Dict[str, float]] = {
 def build_presenter_edl(presenter_path: str, product_path: str, template: str, *, dur_ms: int,
                         product_pos: "dict | None" = None,
                         presenter_pos: "dict | None" = None,
-                        presenter_on_top: bool = False) -> Timeline:
+                        presenter_on_top: bool = False,
+                        product_opacity: "float | None" = None) -> Timeline:
     """合成 EDL。
     product_pos 非空(工作台画布拖拽的商品图坐标)→ 默认 presenter 全屏底 + 商品图按坐标 PIP。
       presenter_on_top=True(工作台把形象图层调到商品之上)→ 改为商品图全屏底 + presenter 按
@@ -54,7 +55,8 @@ def build_presenter_edl(presenter_path: str, product_path: str, template: str, *
             TimelineClip(id="dh-product", source={"path": product_path},
                          track_start_ms=0, in_ms=0, out_ms=dur_ms,
                          x=float(product_pos["x"]), y=float(product_pos["y"]),
-                         scale=float(product_pos["scale"]), z=1),
+                         scale=float(product_pos["scale"]), z=1,
+                         opacity=float(product_opacity if product_opacity is not None else 1.0)),
         ])
         return Timeline(version=1, duration_ms=dur_ms, tracks=[base, pip])
     tpl = TEMPLATES.get(template) or TEMPLATES["corner"]
@@ -88,7 +90,8 @@ def render_with_products(*, presenter_path: str, products: "list", audio_path: s
         tracks.append(TimelineTrack(id=f"dh-prod-{i}", kind="video", removable=True, clips=[
             TimelineClip(id=f"dh-product-{i}", source={"path": p["path"]},
                          track_start_ms=0, in_ms=0, out_ms=dur_ms,
-                         x=float(p["x"]), y=float(p["y"]), scale=float(p["scale"]), z=1),
+                         x=float(p["x"]), y=float(p["y"]), scale=float(p["scale"]), z=1,
+                         opacity=float(p.get("opacity") if p.get("opacity") is not None else 1.0)),
         ]))
     tl = Timeline(version=1, duration_ms=dur_ms, tracks=tracks)
     params = VideoParams(video_width=width, video_height=height)
@@ -104,15 +107,16 @@ def render_with_product(*, presenter_path: str, product_path: str, template: str
                         audio_path: str, out_path: str, width: int, height: int,
                         dur_ms: int, product_pos: "dict | None" = None,
                         presenter_pos: "dict | None" = None,
-                        presenter_on_top: bool = False) -> str:
-    """合成商品讲解视频。product_pos 非空时按坐标摆商品图;presenter_on_top 时形象叠在商品之上。
-    失败抛异常(caller 兜底回退 presenter)。"""
+                        presenter_on_top: bool = False,
+                        product_opacity: "float | None" = None) -> str:
+    """合成商品讲解视频。product_pos 非空时按坐标摆商品图;presenter_on_top 时形象叠在商品之上;
+    product_opacity 设商品层不透明度。失败抛异常(caller 兜底回退 presenter)。"""
     from chayuan.server.video_generation.steps.compose import render_from_edl
     from chayuan.server.video_generation.schemas import VideoParams
 
     tl = build_presenter_edl(presenter_path, product_path, template, dur_ms=dur_ms,
                              product_pos=product_pos, presenter_pos=presenter_pos,
-                             presenter_on_top=presenter_on_top)
+                             presenter_on_top=presenter_on_top, product_opacity=product_opacity)
     params = VideoParams(video_width=width, video_height=height)
     render_from_edl(tl, audio_path, "", out_path, params, source_resolver=_resolver)
     return out_path

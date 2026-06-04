@@ -143,6 +143,7 @@ class TimelineClip(BaseModel):
     y: float = 0.0
     scale: float = 1.0
     z: int = 0
+    opacity: float = 1.0                            # 画中画层不透明度 0-1(1=不透明)
 
 
 class TimelineTrack(BaseModel):
