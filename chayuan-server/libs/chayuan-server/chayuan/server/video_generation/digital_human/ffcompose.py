@@ -40,8 +40,10 @@ def build_filter(scene: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]], str,
         mk = ly.get("matte_key")
         if mk:
             _r, _g, _b = int(mk[0]), int(mk[1]), int(mk[2])
-            _sim = float(ly.get("matte_sim") or 0.30)
-            chain += ",format=rgba,colorkey=0x%02X%02X%02X:%.2f:0.10" % (_r, _g, _b, _sim)
+            # 相似度默认收紧到 0.10(范围太大会把接近背景的肤色/高光一起抠透 → 脸变透明);
+            # 调用方按背景饱和度传 matte_sim(绿/蓝幕可大些)。blend 0.05 边缘更紧、少外扩。
+            _sim = float(ly.get("matte_sim") or 0.10)
+            chain += ",format=rgba,colorkey=0x%02X%02X%02X:%.2f:0.05" % (_r, _g, _b, _sim)
         op = ly.get("opacity")
         if op is not None and float(op) < 0.999:
             chain += f",format=yuva420p,colorchannelmixer=aa={float(op)}"

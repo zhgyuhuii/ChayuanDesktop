@@ -465,6 +465,25 @@ def _probe_wh(path):
         return 0, 0
 
 
+def _matte_sim_for(key):
+    """按背景纯色饱和度给 colorkey 相似度:绿/蓝幕(高饱和、离肤色远)可大些抠得干净;
+    白/灰/接近肤色(低饱和)收很紧,否则会把脸的高光/肤色一起抠透(用户报「脸变透明」)。
+    可用 CHAYUAN_DH_MATTE_SIM 强制覆盖。"""
+    _forced = os.environ.get("CHAYUAN_DH_MATTE_SIM", "")
+    if _forced:
+        try:
+            return float(_forced)
+        except ValueError:
+            pass
+    try:
+        r, g, b = int(key[0]), int(key[1]), int(key[2])
+        mx, mn = max(r, g, b), min(r, g, b)
+        sat = (mx - mn) / mx if mx > 0 else 0.0
+        return 0.22 if sat > 0.35 else 0.10
+    except Exception:  # noqa: BLE001
+        return 0.10
+
+
 def _detect_bg_key(video_path):
     """探视频首帧四角的背景纯色 (r,g,b),作抠像键色;失败返 None(ffcompose 不加 colorkey)。"""
     try:
@@ -757,7 +776,7 @@ def _run_pipeline(tid: str) -> None:
                 from chayuan.server.video_generation.digital_human import ffcompose as _ff
                 from chayuan.server.video_generation.compute import get_compute as _gc
                 _layers = [dict(avatar_layer, src=presenter_raw, kind="video", loop=False,
-                                windows=None, matte_key=_key, z=_az)]
+                                windows=None, matte_key=_key, matte_sim=_matte_sim_for(_key), z=_az)]
                 for _it in items:
                     _k = "video" if os.path.splitext(_it["path"])[1].lower() in _VIDEO_EXT else "image"
                     _layers.append({"src": _it["path"], "kind": _k, "x": _it["x"], "y": _it["y"],
