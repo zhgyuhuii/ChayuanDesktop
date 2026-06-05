@@ -122,7 +122,42 @@ def render_with_product(*, presenter_path: str, product_path: str, template: str
     return out_path
 
 
-MATTE_GREEN = (0, 255, 0)  # 标准绿幕色;非绿底素材抠像效果有限(UI 注明)
+MATTE_GREEN = (0, 255, 0)  # 探测失败时的兜底键色
+
+
+def _detect_key_color(clip):
+    """从画面四角探测背景纯色(绿/白/蓝/任意纯底)→ 作为抠像键色。取四角内缩区域中位数,
+    抗噪。失败回退绿色。这样「抠像」对绿幕/白幕/蓝幕等任意纯色背景都适用,无需分割模型。"""
+    try:
+        import numpy as np
+        f = clip.get_frame(0)
+        if f is None:
+            return MATTE_GREEN
+        f = np.asarray(f)
+        h, w = f.shape[:2]
+        m = max(2, int(min(h, w) * 0.04))
+        corners = np.concatenate([
+            f[:m, :m].reshape(-1, 3), f[:m, w - m:].reshape(-1, 3),
+            f[h - m:, :m].reshape(-1, 3), f[h - m:, w - m:].reshape(-1, 3),
+        ], axis=0)
+        med = np.median(corners, axis=0)
+        return (int(med[0]), int(med[1]), int(med[2]))
+    except Exception:  # noqa: BLE001
+        return MATTE_GREEN
+
+
+def _matte_threshold_for(key) -> int:
+    """按键色自适应抠像阈值:亮色背景(白幕)离肤色高光近,阈值要小以免抠穿脸;
+    绿/蓝等远离肤色可大些。"""
+    try:
+        s = sum(int(c) for c in key)
+        if s > 620:        # 接近白
+            return 55
+        if s > 430:        # 偏亮
+            return 80
+        return 110         # 绿/蓝等
+    except Exception:  # noqa: BLE001
+        return 100
 
 
 def _matte_opacity(clip, op):
@@ -137,8 +172,8 @@ def _matte_opacity(clip, op):
 
 def render_scene_layered(*, presenter_path: str, avatar: dict, products: "list",
                          audio_path: str, out_path: str, width: int, height: int,
-                         dur_ms: int, matte: bool = False, green=MATTE_GREEN,
-                         threshold: int = 100, stiffness: int = 5) -> str:
+                         dur_ms: int, matte: bool = False, green=None,
+                         threshold: int = 0, stiffness: int = 5) -> str:
     """统一图层合成:presenter(matte=True 时绿键抠像)+ 各商品按 canvas 的 x/y/scale/z/opacity
     在黑底上**按 z 叠放**。形象不再被强制当全屏底——形象与商品按各自 z 决定上下层
     (修复:全屏置底视频 + 小形象在上 等场景)。直接走 moviepy,自包含,失败抛异常由 caller 兜底。
@@ -154,8 +189,11 @@ def render_scene_layered(*, presenter_path: str, avatar: dict, products: "list",
     # presenter:matte 时绿键抠像;按形象坐标/大小/透明度摆放(作为一个图层,非强制底)。
     pv = VideoFileClip(presenter_path, audio=False)
     if matte:
+        # 抠像:自动探测背景纯色(绿/白/蓝/任意纯底)→ 键掉,仅留形象。绿幕不再是必须。
+        key = green if green is not None else _detect_key_color(pv)
+        thr = threshold if threshold and threshold > 0 else _matte_threshold_for(key)
         pv = pv.with_effects([
-            vfx.MaskColor(color=list(green), threshold=threshold, stiffness=stiffness),
+            vfx.MaskColor(color=list(key), threshold=thr, stiffness=stiffness),
         ])
     aw = max(1, int(width * float(avatar.get("scale") or 1.0)))
     pv = pv.resized(width=aw).with_position(

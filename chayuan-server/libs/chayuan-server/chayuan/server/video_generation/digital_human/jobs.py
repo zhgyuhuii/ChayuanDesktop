@@ -736,11 +736,14 @@ def _run_pipeline(tid: str) -> None:
         _set(tid, progress=88)
 
         if matte:
-            # matte(绿键)P0 仍走 moviepy + _apply_overlays(ffmpeg 绿键留后续)
-            if items:
-                render_with_product_matte(presenter_path=presenter_raw, avatar=avatar_layer, products=items,
-                                          audio_path=audio_path, out_path=final_path, width=W, height=H, dur_ms=dur_ms)
-            else:
+            # 抠像:自动探测背景纯色键掉、仅留形象(render_scene_layered green=None 自动探测)。
+            # 无商品时也要抠(之前直接复制 presenter = 没抠);抠完形象叠在黑底上。失败兜底复制原片。
+            try:
+                render_scene_layered(presenter_path=presenter_raw, avatar=avatar_layer, products=items,
+                                     audio_path=audio_path, out_path=final_path, width=W, height=H,
+                                     dur_ms=dur_ms, matte=True)
+            except Exception as _me:  # noqa: BLE001
+                logger.warning("[dh] 抠像合成失败,回退原片: %r", _me)
                 os.replace(presenter_raw, final_path)
             result_path = _apply_overlays(final_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), W, H)
         else:

@@ -744,8 +744,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             onChange={(e) => setMatte(e.target.checked)}
             className="h-4 w-4 accent-[var(--cy-brand-500)]"
           />
-          <span className="text-sm text-[var(--cy-text-primary)]">绿幕抠像</span>
-          <span className="text-xs text-[var(--cy-text-tertiary)]">人像需绿幕底最佳</span>
+          <span className="text-sm text-[var(--cy-text-primary)]">抠像</span>
+          <span className="text-xs text-[var(--cy-text-tertiary)]">自动识别背景(绿/白/蓝等纯色底)抠出形象,仅留人像</span>
         </label>
       )}
 
