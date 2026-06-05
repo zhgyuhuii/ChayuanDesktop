@@ -382,16 +382,18 @@ _PUBLIC_PAGE = """<!doctype html>
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;background:#0b0d12;color:#e5e7eb;
     font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
-  .wrap{max-width:520px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;gap:12px;padding:16px}
-  .head{display:flex;align-items:center;justify-content:space-between}
+  /* 直播式固定布局:整页恰好一屏(height:100%,不随消息增长撑高/滚动 → 视频不会被顶走);
+     视频固定(flex-shrink:0 不被压扁),文字在下方区域内部滚屏。 */
+  .wrap{max-width:520px;height:100%;margin:0 auto;display:flex;flex-direction:column;gap:10px;padding:12px;overflow:hidden}
+  .head{flex-shrink:0;display:flex;align-items:center;justify-content:space-between}
   .name{font-size:18px;font-weight:600}
   .viewers{font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px}
   .dot{width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block}
-  .stage{width:100%;background:#000;border-radius:14px;overflow:hidden;
+  .stage{flex-shrink:0;background:#000;border-radius:14px;overflow:hidden;
     box-shadow:0 8px 30px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
   .stage img,.stage video{width:100%;height:100%;object-fit:contain;display:block}
-  .chat{flex:1;display:flex;flex-direction:column;gap:8px;min-height:0}
-  .msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 0}
+  .chat{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+  .msgs{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 0}
   .msg{max-width:85%;padding:8px 12px;border-radius:12px;white-space:pre-wrap;word-break:break-word}
   .me{align-self:flex-end;background:#2563eb;color:#fff;border-bottom-right-radius:4px}
   .ai{align-self:flex-start;background:#1f2937;color:#e5e7eb;border-bottom-left-radius:4px}
@@ -438,7 +440,7 @@ _PUBLIC_PAGE = """<!doctype html>
     // 显式像素宽高(不依赖 CSS aspect-ratio —— 舞台内全是绝对定位子元素,无内容高度;
     // 若引擎不支持 aspect-ratio,舞台高度会塌成 0 → 形象/一切都看不见,这是「没有形象」根因)。
     w = w || 720; h = h || 1280;
-    var maxH = Math.round(window.innerHeight * 0.6);
+    var maxH = Math.round(window.innerHeight * 0.5);  // 视频占上半屏,下半屏留给滚屏文字(直播感)
     var maxW = (stage.parentElement && stage.parentElement.clientWidth) || 480;
     var scale = Math.min(maxW / w, maxH / h);
     if (!(scale > 0)) scale = maxH / h;
