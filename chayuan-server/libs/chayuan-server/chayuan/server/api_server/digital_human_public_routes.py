@@ -361,21 +361,29 @@ def _say_dims(avatar: str, cap_w: int) -> tuple:
 
 def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
     """为单句即时生成「该形象对口型说这句」的短视频片段(仅形象口型,不合成商品/场景)。
-    GPU 快;CPU 也跑(用户要真口型),用小分辨率压低耗时,队列边播边预取。返回 mp4 字节;
-    无形象 / 失败 → None(调用方回退纯音频)。可用 CHAYUAN_DH_SAY_MAX_WIDTH 调清晰度/速度。"""
+    返回 mp4 字节;返 None → 调用方回退「纯音频连续播」(阶段0:语音/口型解耦,语音优先连贯)。
+
+    口型路线(见 docs/.../2026-06-05-dh-realtime-scale-arch.md):
+    - GPU:跑 wav2lip 出真口型(快)。
+    - CPU:默认**不跑** wav2lip(逐句几秒→「说一句停很久」),返 None 走连续音频。
+      想在 CPU 上要真口型(接受卡顿)→ 设 CHAYUAN_DH_SAY_FORCE_LIPS=1。
+    清晰度/速度:CHAYUAN_DH_SAY_MAX_WIDTH。"""
     try:
         avatar = store.resolve_avatar_path(getattr(rec, "avatar_ref", "") or "")
         if not avatar:
             return None
+        from chayuan.server.video_generation.compute import get_compute
+        _force = os.environ.get("CHAYUAN_DH_SAY_FORCE_LIPS", "") in ("1", "true", "True")
+        if not get_compute().has_cuda and not _force:
+            return None   # CPU 默认走连续音频(语音连贯),不逐句 wav2lip 卡顿
         voice = dh_jobs._voice_string(rec.voice_provider, rec.voice_name) or "zh-CN-XiaoxiaoNeural"
         from chayuan.server.modality.service import get_modality_service
         wav = get_modality_service().tts(text, voice=voice, fmt="wav")
         if not wav:
             return None
         wav = _apply_atempo(wav, rate, "wav")   # 语速:口型跟着变速后的音频对齐
-        from chayuan.server.video_generation.compute import get_compute
         from chayuan.server.video_generation.digital_human.engine import get_engine
-        # 在线小窗:CPU 默认 360 宽求快,GPU 可大些(720)。
+        # 在线小窗:CPU(强制口型时)默认 360 宽求快,GPU 可大些(720)。
         cap_w = int(os.environ.get("CHAYUAN_DH_SAY_MAX_WIDTH", "0") or 0) \
             or (720 if get_compute().has_cuda else 360)
         gw, gh = _say_dims(avatar, cap_w)
