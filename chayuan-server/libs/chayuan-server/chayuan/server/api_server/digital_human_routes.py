@@ -757,7 +757,8 @@ def publish_preset(body: Dict[str, Any],
     # 仅单形象可发布:多人同框/分段轮流是多角色对话编排,不适用单形象 idle + 对话的公开页。
     if getattr(p, "compose_mode", "single") != "single":
         raise HTTPException(400, "仅单形象数字人可发布为在线数字人")
-    rec = published_store.publish(p, owner_id=_uid(user))
+    # new=True:一个 preset 发布多个在线数字人(各自独立 token/链接);默认幂等覆盖同 preset。
+    rec = published_store.publish(p, owner_id=_uid(user), new=bool((body or {}).get("new")))
     return _pub_dump(rec)
 
 

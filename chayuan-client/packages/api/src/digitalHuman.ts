@@ -433,10 +433,11 @@ export interface PublishedAvatar {
   viewers: number;
 }
 
-export async function dhPublish(presetId: string): Promise<PublishedAvatar> {
+/** 发布在线数字人。new=true 时每次新建一条(一个 preset 可发布多个,各自独立链接)。 */
+export async function dhPublish(presetId: string, opts: { new?: boolean } = {}): Promise<PublishedAvatar> {
   return rd<PublishedAvatar>('/api/v1/digital-human/published', {
     method: 'POST',
-    body: { preset_id: presetId },
+    body: { preset_id: presetId, new: opts.new === true },
   });
 }
 

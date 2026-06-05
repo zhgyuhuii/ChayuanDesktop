@@ -80,17 +80,22 @@ def get_by_token(token: str) -> Optional[PublishedAvatar]:
     return None
 
 
-def publish(preset: DigitalHumanPreset, *, owner_id: str = "") -> PublishedAvatar:
-    """从 preset 快照发布;同 preset_id 已存在 → 覆盖快照,保留 token/控制位/created。"""
+def publish(preset: DigitalHumanPreset, *, owner_id: str = "", new: bool = False) -> PublishedAvatar:
+    """从 preset 快照发布。
+
+    - ``new=False``(默认/兼容):同 preset_id 已存在 → 覆盖快照,保留 token/控制位/created(幂等更新)。
+    - ``new=True``:总是新建一条(新 token)→ **一个 preset 可发布多个在线数字人**(各自独立链接/控制位)。
+    """
     rows = _load_raw()
     snap = _snapshot(preset, owner_id)
-    for i, r in enumerate(rows):
-        if r.get("preset_id") == preset.id:
-            r.update(snap)            # 覆盖快照字段,保留 token/enabled/chat_enabled/限流/created
-            rec = PublishedAvatar(**r)
-            rows[i] = rec.model_dump()
-            _save_raw(rows)
-            return rec
+    if not new:
+        for i, r in enumerate(rows):
+            if r.get("preset_id") == preset.id:
+                r.update(snap)        # 覆盖快照字段,保留 token/enabled/chat_enabled/限流/created
+                rec = PublishedAvatar(**r)
+                rows[i] = rec.model_dump()
+                _save_raw(rows)
+                return rec
     rec = PublishedAvatar(token=secrets.token_urlsafe(9), created=time.time(), **snap)
     rows.append(rec.model_dump())
     _save_raw(rows)
