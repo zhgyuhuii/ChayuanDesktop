@@ -285,13 +285,34 @@ def _apply_atempo(audio: bytes, rate: float, fmt: str) -> bytes:
         return audio
 
 
-def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
-    """GPU 路径:为单句即时生成「该形象对口型说这句」的短视频片段(仅形象口型,不合成
-    商品/场景,实时优先)。返回 mp4 字节;无 GPU / 无形象 / 失败 → None(调用方回退纯音频)。"""
+def _say_dims(avatar: str, cap_w: int) -> tuple:
+    """该句口型片段尺寸:按形象「原生宽高比」(不拉伸)+ 封顶到 cap_w 宽(在线小窗,压低 CPU 耗时)。"""
+    aw = ah = 0
     try:
-        from chayuan.server.video_generation.compute import get_compute
-        if not get_compute().has_cuda:
-            return None  # CPU:不跑 wav2lip(逐句也太慢),走音频流式 + 前端口型动画
+        if os.path.splitext(avatar)[1].lower() in (".mp4", ".mov", ".webm", ".mkv", ".avi"):
+            import cv2 as _cv2
+            _c = _cv2.VideoCapture(avatar)
+            aw = int(_c.get(_cv2.CAP_PROP_FRAME_WIDTH) or 0); ah = int(_c.get(_cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+            _c.release()
+        else:
+            from PIL import Image as _Img
+            with _Img.open(avatar) as _im:
+                aw, ah = _im.size
+    except Exception:  # noqa: BLE001
+        aw = ah = 0
+    if aw <= 0 or ah <= 0:
+        return cap_w, int(cap_w * 16 / 9)
+    if aw > cap_w:
+        ah = int(round(ah * cap_w / aw)); aw = cap_w
+    aw -= aw % 2; ah -= ah % 2
+    return max(2, aw), max(2, ah)
+
+
+def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
+    """为单句即时生成「该形象对口型说这句」的短视频片段(仅形象口型,不合成商品/场景)。
+    GPU 快;CPU 也跑(用户要真口型),用小分辨率压低耗时,队列边播边预取。返回 mp4 字节;
+    无形象 / 失败 → None(调用方回退纯音频)。可用 CHAYUAN_DH_SAY_MAX_WIDTH 调清晰度/速度。"""
+    try:
         avatar = store.resolve_avatar_path(getattr(rec, "avatar_ref", "") or "")
         if not avatar:
             return None
@@ -301,13 +322,17 @@ def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
         if not wav:
             return None
         wav = _apply_atempo(wav, rate, "wav")   # 语速:口型跟着变速后的音频对齐
+        from chayuan.server.video_generation.compute import get_compute
         from chayuan.server.video_generation.digital_human.engine import get_engine
+        # 在线小窗:CPU 默认 360 宽求快,GPU 可大些(720)。
+        cap_w = int(os.environ.get("CHAYUAN_DH_SAY_MAX_WIDTH", "0") or 0) \
+            or (720 if get_compute().has_cuda else 360)
+        gw, gh = _say_dims(avatar, cap_w)
         with tempfile.TemporaryDirectory() as d:
             ap = os.path.join(d, "say.wav")
             with open(ap, "wb") as f:
                 f.write(wav)
             out = os.path.join(d, "say.mp4")
-            gw, gh = dh_jobs._gen_dims(rec.video_width, rec.video_height)
             get_engine("wav2lip").generate(avatar_path=avatar, audio_path=ap,
                                            out_path=out, width=gw, height=gh)
             with open(out, "rb") as f:
@@ -569,23 +594,10 @@ _PUBLIC_PAGE = """<!doctype html>
   var sentQ = [], fetching = false, playQ = [], playing = false, audioCtx = null;
   function once(fn){ var c = false; return function(){ if(c) return; c = true; fn(); }; }
 
+  // 纯音频兜底(口型片段生成失败时):只播音频,不再加边框辉光(用户反馈像「窗口震动」)。
   function playAudio(blob, done){
     var url = URL.createObjectURL(blob), a = new Audio(url);
-    var raf = 0, fin = once(function(){ if(raf) cancelAnimationFrame(raf); stage.style.boxShadow=""; try{URL.revokeObjectURL(url);}catch(e){} done&&done(); });
-    try{
-      audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
-      if(audioCtx.state === "suspended") audioCtx.resume();
-      var srcN = audioCtx.createMediaElementSource(a), an = audioCtx.createAnalyser();
-      an.fftSize = 256; srcN.connect(an); an.connect(audioCtx.destination);
-      var data = new Uint8Array(an.frequencyBinCount);
-      (function tick(){
-        an.getByteTimeDomainData(data);
-        var sum=0; for(var i=0;i<data.length;i++){ var v=(data[i]-128)/128; sum+=v*v; }
-        var rms = Math.sqrt(sum/data.length), g = Math.min(30, 6 + rms*95);
-        stage.style.boxShadow = "0 0 " + g.toFixed(0) + "px rgba(56,189,248,0.55)";
-        raf = requestAnimationFrame(tick);
-      })();
-    }catch(e){ /* WebAudio 不可用:仍播音频,只是没有辉光律动 */ }
+    var fin = once(function(){ try{URL.revokeObjectURL(url);}catch(e){} done&&done(); });
     a.onended = fin; a.onerror = fin;
     a.play().catch(fin);
   }
