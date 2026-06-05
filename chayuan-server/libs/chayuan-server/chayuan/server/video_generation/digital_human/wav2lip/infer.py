@@ -91,8 +91,61 @@ def load_models(weights_dir: str) -> dict:
     detector.face_detector.face_detector.to(device)
     detector.face_detector.face_detector.eval()
 
-    logger.info("Wav2Lip: models loaded")
-    return {"model": model, "detector": detector, "device": device}
+    onnx = _ensure_onnx(model, weights_dir, device)
+    logger.info("Wav2Lip: models loaded (onnx=%s)", "on" if onnx else "off")
+    return {"model": model, "detector": detector, "device": device, "onnx": onnx}
+
+
+def _ensure_onnx(model, weights_dir, device):
+    """CPU 提速:把 wav2lip 模型导出 ONNX(+int8 量化)用 onnxruntime 跑 forward(实测瓶颈)。
+    首次导出后缓存到 weights_dir,后续直接加载。任何环节失败 → 返 None 回退 torch(不影响出片)。
+    GPU 不走(torch.cuda 已快)。开关:CHAYUAN_DH_WAV2LIP_ONNX(默认开)/ _INT8(默认开)。"""
+    if device != "cpu":
+        return None
+    if os.environ.get("CHAYUAN_DH_WAV2LIP_ONNX", "1") not in ("1", "true", "True"):
+        return None
+    try:
+        import onnxruntime as ort
+    except Exception:  # noqa: BLE001
+        logger.info("[wav2lip] onnxruntime 不可用,用 torch(pip install onnxruntime 可提速 2-5x)")
+        return None
+    try:
+        import torch
+        want_int8 = os.environ.get("CHAYUAN_DH_WAV2LIP_INT8", "1") in ("1", "true", "True")
+        base = os.path.join(weights_dir, "wav2lip_cpu.onnx")
+        int8p = os.path.join(weights_dir, "wav2lip_cpu.int8.onnx")
+        target = int8p if want_int8 else base
+        if not os.path.isfile(target):
+            if not os.path.isfile(base):
+                _img = torch.zeros(1, 6, _IMG_SIZE, _IMG_SIZE, dtype=torch.float32)
+                _mel = torch.zeros(1, 1, 80, _MEL_STEP_SIZE, dtype=torch.float32)
+                with torch.no_grad():
+                    torch.onnx.export(
+                        model, (_mel, _img), base,
+                        input_names=["mel", "img"], output_names=["out"],
+                        dynamic_axes={"mel": {0: "b"}, "img": {0: "b"}, "out": {0: "b"}},
+                        opset_version=17, do_constant_folding=True)
+                logger.info("[wav2lip] 已导出 ONNX → %s", base)
+            if want_int8:
+                try:
+                    from onnxruntime.quantization import quantize_dynamic, QuantType
+                    quantize_dynamic(base, int8p, weight_type=QuantType.QInt8)
+                    logger.info("[wav2lip] 已 int8 量化 → %s", int8p)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[wav2lip] int8 量化失败,用 fp32 onnx: %r", e)
+                    target = base
+        so = ort.SessionOptions()
+        try:
+            so.intra_op_num_threads = int(torch.get_num_threads() or 0) or 0
+        except Exception:  # noqa: BLE001
+            pass
+        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        sess = ort.InferenceSession(target, sess_options=so, providers=["CPUExecutionProvider"])
+        logger.info("[wav2lip] ONNX forward 就绪: %s (int8=%s)", os.path.basename(target), want_int8)
+        return {"sess": sess}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[wav2lip] ONNX 构建失败,回退 torch: %r", e)
+        return None
 
 
 def run(
@@ -127,6 +180,7 @@ def run(
     model = handle["model"]
     detector = handle["detector"]
     device = handle["device"]
+    onnx = handle.get("onnx")
 
     _prog(on_progress, 0)
 
@@ -270,7 +324,7 @@ def run(
         if len(img_batch_buf) >= batch_size:
             img_b, mel_b, frames_b, coords_b = _flush_batch(
                 img_batch_buf, mel_batch_buf, frame_buf, coord_buf,
-                model, device, _tm
+                model, device, _tm, onnx
             )
             gen_frames.extend(frames_b)
             gen_coords.extend(coords_b)
@@ -282,7 +336,7 @@ def run(
     if img_batch_buf:
         img_b, mel_b, frames_b, coords_b = _flush_batch(
             img_batch_buf, mel_batch_buf, frame_buf, coord_buf,
-            model, device, _tm
+            model, device, _tm, onnx
         )
         gen_frames.extend(frames_b)
         gen_coords.extend(coords_b)
@@ -390,11 +444,11 @@ def _face_detect(images, detector, static: bool):
     return face_det_results
 
 
-def _flush_batch(img_batch, mel_batch, frame_batch, coords_batch, model, device, timings=None):
+def _flush_batch(img_batch, mel_batch, frame_batch, coords_batch, model, device, timings=None, onnx=None):
     """Run one batch through the Wav2Lip model and paste predictions back.
-    timings(可选 dict):累加 prep/fwd/paste 各阶段秒数,供诊断 CPU 瓶颈在模型还是贴帧。"""
+    timings(可选 dict):累加 prep/fwd/paste 各阶段秒数,供诊断 CPU 瓶颈在模型还是贴帧。
+    onnx(可选):{'sess':InferenceSession} 时用 onnxruntime 跑 forward(CPU 提速;瓶颈在此)。"""
     import numpy as np
-    import torch
     import cv2
 
     _t0 = time.perf_counter()
@@ -406,22 +460,30 @@ def _flush_batch(img_batch, mel_batch, frame_batch, coords_batch, model, device,
     img_masked[:, _IMG_SIZE // 2 :] = 0
 
     # Concat masked + original along axis=3 (channels), then normalise
-    # Official: np.concatenate((img_masked, img_batch), axis=3) / 255.
     img_input = np.concatenate((img_masked, img_arr), axis=3) / 255.0  # [B, H, W, 6]
-    # Official: mel_batch = np.reshape(mel_batch, [B, 80, 16, 1])
     mel_input = np.reshape(mel_arr, [len(mel_arr), mel_arr.shape[1], mel_arr.shape[2], 1])  # [B, 80, 16, 1]
-
-    # Transpose to [B, C, H, W] (official: (0, 3, 1, 2))
-    img_t = torch.FloatTensor(np.transpose(img_input, (0, 3, 1, 2))).to(device)  # [B, 6, H, W]
-    mel_t = torch.FloatTensor(np.transpose(mel_input, (0, 3, 1, 2))).to(device)  # [B, 1, 80, 16]
+    # Transpose to [B, C, H, W]
+    img_np = np.transpose(img_input, (0, 3, 1, 2)).astype(np.float32)  # [B, 6, H, W]
+    mel_np = np.transpose(mel_input, (0, 3, 1, 2)).astype(np.float32)  # [B, 1, 80, 16]
     if timings is not None:
         timings["prep"] += time.perf_counter() - _t0
 
     _t1 = time.perf_counter()
-    with torch.no_grad():
-        pred = model(mel_t, img_t)  # [B, 3, H, W]
-    # Official: pred.cpu().numpy().transpose(0,2,3,1) * 255.
-    pred_np = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.0  # [B, H, W, 3]
+    pred_np = None
+    if onnx is not None:
+        try:
+            out = onnx["sess"].run(None, {"mel": mel_np, "img": img_np})[0]  # [B, 3, H, W]
+            pred_np = out.transpose(0, 2, 3, 1) * 255.0
+        except Exception as _oe:  # noqa: BLE001
+            logger.warning("[wav2lip] onnx forward 失败,本批回退 torch: %r", _oe)
+            pred_np = None
+    if pred_np is None:
+        import torch
+        img_t = torch.from_numpy(img_np).to(device)
+        mel_t = torch.from_numpy(mel_np).to(device)
+        with torch.no_grad():
+            pred = model(mel_t, img_t)  # [B, 3, H, W]
+        pred_np = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.0  # [B, H, W, 3]
     if timings is not None:
         timings["fwd"] += time.perf_counter() - _t1
 
