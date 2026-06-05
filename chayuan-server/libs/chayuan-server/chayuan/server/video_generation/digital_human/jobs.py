@@ -745,28 +745,35 @@ def _run_pipeline(tid: str) -> None:
         _set(tid, progress=88)
 
         if matte:
-            # 抠像:优先走 ffcompose colorkey(ffmpeg 单趟,快);失败回退 moviepy MaskColor(慢)。
-            # 自动探测形象背景纯色(presenter 首帧四角)作键色。无商品也抠(形象叠黑底)。
+            # 抠像:走 ffcompose colorkey(ffmpeg 单趟,快)。**字幕并进 ffcompose**(免再起一趟 moviepy
+            # _apply_overlays 逐帧重编码,那是之前抠像「还慢」的真因)。**按 z 排层**:全宽背景商品视频
+            # 在底、形象在上,否则全宽视频会盖住形象。失败才回退 moviepy MaskColor + _apply_overlays。
             _key = _detect_bg_key(presenter_raw)
+            _sub = _build_subtitle(td, preset, args.get("text"), W, H, dur_ms)
+            _az = getattr(_slot0, "z", None)
+            _az = float(_az) if _az is not None else 1.0
             _ok = False
             try:
                 from chayuan.server.video_generation.digital_human import ffcompose as _ff
                 from chayuan.server.video_generation.compute import get_compute as _gc
                 _layers = [dict(avatar_layer, src=presenter_raw, kind="video", loop=False,
-                                windows=None, matte_key=_key)]
+                                windows=None, matte_key=_key, z=_az)]
                 for _it in items:
                     _k = "video" if os.path.splitext(_it["path"])[1].lower() in _VIDEO_EXT else "image"
                     _layers.append({"src": _it["path"], "kind": _k, "x": _it["x"], "y": _it["y"],
                                     "scale": _it["scale"], "z": _it["z"], "opacity": _it["opacity"],
                                     "loop": (_k == "video"), "windows": None})
+                _layers.sort(key=lambda L: (L.get("z") if L.get("z") is not None else 0))  # 低 z 在底
                 _scene = {"width": W, "height": H, "duration_ms": dur_ms, "audio_path": audio_path,
-                          "layers": _layers, "subtitle": None}
+                          "layers": _layers, "subtitle": _sub}
                 _ff.render(_scene, final_path)
                 _ok = True
-                logger.info("[dh-timing] mode=single 抠像 compose=ffcompose(colorkey) encoder=%s", _gc().video_encoder)
+                logger.info("[dh-timing] mode=single 抠像 compose=ffcompose(colorkey+字幕) encoder=%s", _gc().video_encoder)
             except Exception as e:  # noqa: BLE001
                 logger.warning("[dh] 抠像 ffcompose 失败,回退 moviepy: %r", e)
-            if not _ok:
+            if _ok:
+                result_path = final_path
+            else:
                 try:
                     render_scene_layered(presenter_path=presenter_raw, avatar=avatar_layer, products=items,
                                          audio_path=audio_path, out_path=final_path, width=W, height=H,
@@ -774,7 +781,7 @@ def _run_pipeline(tid: str) -> None:
                 except Exception as _me:  # noqa: BLE001
                     logger.warning("[dh] 抠像 moviepy 也失败,回退原片: %r", _me)
                     os.replace(presenter_raw, final_path)
-            result_path = _apply_overlays(final_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), W, H)
+                result_path = _apply_overlays(final_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), W, H)
         else:
             # 非 matte:形象 + 商品 + 字幕 一趟 ffcompose;失败回退 moviepy。
             _t0 = time.perf_counter()
@@ -788,12 +795,15 @@ def _run_pipeline(tid: str) -> None:
                 result_path = final_path
                 _set(tid, state="complete", progress=100, result_path=result_path, script=args.get("text", ""))
                 return
-            layers = [dict(avatar_layer, src=presenter_raw, kind="video", loop=False, windows=None)]
+            _az = getattr(_slot0, "z", None)
+            _az = float(_az) if _az is not None else 1.0
+            layers = [dict(avatar_layer, src=presenter_raw, kind="video", loop=False, windows=None, z=_az)]
             for it in items:
                 _kind = "video" if os.path.splitext(it["path"])[1].lower() in _VIDEO_EXT else "image"
                 layers.append({"src": it["path"], "kind": _kind, "x": it["x"], "y": it["y"],
                                "scale": it["scale"], "z": it["z"], "opacity": it["opacity"],
                                "loop": (_kind == "video"), "windows": None})
+            layers.sort(key=lambda L: (L.get("z") if L.get("z") is not None else 0))  # 低 z 在底,全宽商品不盖形象
             scene = {"width": W, "height": H, "duration_ms": dur_ms, "audio_path": audio_path,
                      "layers": layers, "subtitle": sub}
             try:

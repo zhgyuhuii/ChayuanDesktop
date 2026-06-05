@@ -119,12 +119,16 @@ def _ensure_onnx(model, weights_dir, device):
             if not os.path.isfile(base):
                 _img = torch.zeros(1, 6, _IMG_SIZE, _IMG_SIZE, dtype=torch.float32)
                 _mel = torch.zeros(1, 1, 80, _MEL_STEP_SIZE, dtype=torch.float32)
+                _kw = dict(input_names=["mel", "img"], output_names=["out"],
+                           dynamic_axes={"mel": {0: "b"}, "img": {0: "b"}, "out": {0: "b"}},
+                           opset_version=17, do_constant_folding=True)
                 with torch.no_grad():
-                    torch.onnx.export(
-                        model, (_mel, _img), base,
-                        input_names=["mel", "img"], output_names=["out"],
-                        dynamic_axes={"mel": {0: "b"}, "img": {0: "b"}, "out": {0: "b"}},
-                        opset_version=17, do_constant_folding=True)
+                    try:
+                        # 新版 torch onnx.export 默认走 dynamo 路径(需 onnxscript,常缺)→ 显式
+                        # dynamo=False 用 TorchScript 导出器,无需 onnxscript。老 torch 无此参数则回退。
+                        torch.onnx.export(model, (_mel, _img), base, dynamo=False, **_kw)
+                    except TypeError:
+                        torch.onnx.export(model, (_mel, _img), base, **_kw)
                 logger.info("[wav2lip] 已导出 ONNX → %s", base)
             if want_int8:
                 try:
