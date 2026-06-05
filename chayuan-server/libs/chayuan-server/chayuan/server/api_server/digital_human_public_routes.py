@@ -435,11 +435,16 @@ _PUBLIC_PAGE = """<!doctype html>
   var busy = false;
 
   function fitStage(w, h){
-    var maxH = Math.round(window.innerHeight * 0.55);
-    stage.style.aspectRatio = w + " / " + h;
-    stage.style.maxHeight = maxH + "px";
-    if (w >= h) { stage.style.width = "100%"; }
-    else { stage.style.width = Math.round(maxH * w / h) + "px"; stage.style.margin = "0 auto"; }
+    // 显式像素宽高(不依赖 CSS aspect-ratio —— 舞台内全是绝对定位子元素,无内容高度;
+    // 若引擎不支持 aspect-ratio,舞台高度会塌成 0 → 形象/一切都看不见,这是「没有形象」根因)。
+    w = w || 720; h = h || 1280;
+    var maxH = Math.round(window.innerHeight * 0.6);
+    var maxW = (stage.parentElement && stage.parentElement.clientWidth) || 480;
+    var scale = Math.min(maxW / w, maxH / h);
+    if (!(scale > 0)) scale = maxH / h;
+    stage.style.width = Math.round(w * scale) + "px";
+    stage.style.height = Math.round(h * scale) + "px";
+    stage.style.margin = "0 auto";
   }
 
   function addMsg(role, text){
@@ -470,9 +475,20 @@ _PUBLIC_PAGE = """<!doctype html>
     } else {
       m = document.createElement("img"); m.src = L.url;
     }
-    // 关键:显式 height:auto 覆盖全局 `.stage img/video{height:100%}` —— 图层 el 是 auto 高度,
-    // height:100% 在部分引擎相对 auto 父高会塌成 0 → 形象 0 高、看不见(「没有形象」根因)。
-    // 用自然比例(width:100% + height:auto)渲染,与工作台预览一致。
+    // 加载失败(典型:/avatar 404、形象文件缺失)→ 可见兜底,别再「空白看不出原因」。
+    m.onerror = function(){
+      try{ console.error("[dh-public] 图层加载失败 kind=" + L.kind + " url=" + L.url); }catch(e){}
+      if(isAvatar){
+        try{
+          el.style.width="64%"; el.style.left="18%"; el.style.top="42%"; el.innerHTML="";
+          var ph=document.createElement("div");
+          ph.textContent="形象加载失败(/avatar)";
+          ph.style.cssText="color:#f87171;background:#1f2937;padding:10px 14px;border-radius:10px;font-size:13px;text-align:center";
+          el.appendChild(ph);
+        }catch(e){}
+      }
+    };
+    // height:auto 覆盖全局 `.stage img/video{height:100%}`(相对 auto 高度父容器会塌成 0)。
     m.style.width = "100%"; m.style.height = "auto"; m.style.display = "block";
     el.appendChild(m);
     stage.appendChild(el);
@@ -482,6 +498,7 @@ _PUBLIC_PAGE = """<!doctype html>
     if(!r.ok) throw new Error("offline");
     return r.json();
   }).then(function(cfg){
+    try{ console.log("[dh-public] config", JSON.stringify(cfg.avatar), "products=" + ((cfg.products||[]).length)); }catch(e){}
     nameEl.textContent = cfg.name || "在线数字人";
     document.title = cfg.name || "在线数字人";
     fitStage((cfg.ratio && cfg.ratio.w) || 720, (cfg.ratio && cfg.ratio.h) || 1280);
