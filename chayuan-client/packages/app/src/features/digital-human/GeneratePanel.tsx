@@ -525,8 +525,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     return <div className="text-sm text-[var(--cy-text-tertiary)]">先到「我的数字人」新建一个数字人。</div>;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
       {/* 按次门控弹层 */}
       <UsageGateDialogs app="avatar" gate={gate} />
 
