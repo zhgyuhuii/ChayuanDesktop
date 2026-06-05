@@ -484,6 +484,37 @@ def _matte_sim_for(key):
         return 0.10
 
 
+def _maybe_bgm(video_path, args):
+    """按生成请求把背景音乐混进成片(复用 VG steps.compose.get_bgm_file 选曲:内置 29 首 + 用户上传)。
+    视频流 -c:v copy 不重编码(快),只重混音轨:bgm 循环铺满、按 bgm_volume 压低、随旁白时长截断。
+    bgm_type=none/空 或 无曲/失败 → 不动原片。"""
+    bgm_type = (args.get("bgm_type") or "none")
+    if not bgm_type or bgm_type == "none":
+        return
+    try:
+        from chayuan.server.video_generation.steps.compose import get_bgm_file
+        bgm = get_bgm_file(bgm_type=bgm_type, bgm_file=args.get("bgm_file") or "")
+        if not bgm or not os.path.isfile(bgm) or not os.path.isfile(video_path):
+            logger.info("[dh] BGM 跳过(无曲/无成片) type=%s file=%s", bgm_type, args.get("bgm_file"))
+            return
+        import subprocess
+        import imageio_ffmpeg
+        ff = imageio_ffmpeg.get_ffmpeg_exe()
+        _v = args.get("bgm_volume")
+        vol = max(0.0, min(1.0, float(_v if _v is not None else 0.2)))
+        out = video_path + ".bgm.mp4"
+        cmd = [ff, "-y", "-loglevel", "error",
+               "-i", video_path, "-stream_loop", "-1", "-i", bgm,
+               "-filter_complex",
+               f"[1:a]volume={vol}[b];[0:a][b]amix=inputs=2:duration=first:dropout_transition=0[a]",
+               "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-shortest", out]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.replace(out, video_path)
+        logger.info("[dh] BGM 混音完成: %s vol=%.2f", os.path.basename(bgm), vol)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh] BGM 混音失败,保留无 BGM 成片: %r", e)
+
+
 def _detect_bg_key(video_path):
     """探视频首帧四角的背景纯色 (r,g,b),作抠像键色;失败返 None(ffcompose 不加 colorkey)。"""
     try:
@@ -701,6 +732,7 @@ def _run_pipeline(tid: str) -> None:
                 shutil.copyfile(clips[0], out_path)
             out_path = _apply_overlays(out_path, td, preset, slots, args.get("text"), args["width"], args["height"],
                                        skip_subtitle=_sub_burned)
+            _maybe_bgm(out_path, args)
             _set(tid, state="complete", progress=100, result_path=out_path,
                  script=args.get("text", ""), segments=seg_meta)
             return
@@ -812,6 +844,7 @@ def _run_pipeline(tid: str) -> None:
                 # 最简单:全屏形象、无商品、无字幕 → 直接用原始 presenter,免无谓重编码。
                 os.replace(presenter_raw, final_path)
                 result_path = final_path
+                _maybe_bgm(result_path, args)
                 _set(tid, state="complete", progress=100, result_path=result_path, script=args.get("text", ""))
                 return
             _az = getattr(_slot0, "z", None)
@@ -851,6 +884,7 @@ def _run_pipeline(tid: str) -> None:
                     else:
                         os.replace(presenter_raw, final_path)
                 result_path = _apply_overlays(final_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), W, H)
+        _maybe_bgm(result_path, args)
         _set(tid, state="complete", progress=100, result_path=result_path,
              script=args.get("text", ""))
     except Exception as e:  # noqa: BLE001
@@ -864,12 +898,14 @@ def submit(*, preset_id: str, text: str, width: int, height: int,
            product_ref: Optional[str] = None, template: str = "none",
            matte: bool = False, engine: str = "wav2lip",
            role_scripts=None, role_segments=None, script=None,
-           script_model: str = "", fps: Optional[float] = None) -> str:
+           script_model: str = "", fps: Optional[float] = None,
+           bgm_type: str = "none", bgm_file: str = "", bgm_volume: float = 0.2) -> str:
     tid = uuid.uuid4().hex[:12]
     _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height,
                      "product_ref": product_ref, "template": template, "matte": matte,
                      "engine": engine, "role_scripts": role_scripts,
-                     "role_segments": role_segments, "script": script, "fps": fps}
+                     "role_segments": role_segments, "script": script, "fps": fps,
+                     "bgm_type": bgm_type, "bgm_file": bgm_file, "bgm_volume": bgm_volume}
     _set(tid, state="pending", progress=0, created_at=time.time(),
          script_model=script_model, engine=engine, preset_id=preset_id)
     _POOL.submit(_run_pipeline, tid)

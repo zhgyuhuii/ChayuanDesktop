@@ -2,8 +2,8 @@ import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
-import { digitalHuman, models, knowledgeUniverse } from '@chayuan/api';
-import type { DigitalHumanPreset, RawModelItem, KuItem, DhScriptSource, ProductLayer } from '@chayuan/api';
+import { digitalHuman, models, knowledgeUniverse, videoGeneration } from '@chayuan/api';
+import type { DigitalHumanPreset, RawModelItem, KuItem, DhScriptSource, ProductLayer, VgBgmItem } from '@chayuan/api';
 import type { ModalityCapability } from '@chayuan/transport';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Dialog, DialogContent, DialogTitle } from '@chayuan/ui';
 import { reportError, notifySuccess } from '../../store/errorDialog';
@@ -143,6 +143,12 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const [matte, setMatte] = React.useState(false);
   // 速度档:静态形象生成帧率。25=标准,18=快速,12=极速(降 fps=减帧=等比提速,时长不变、口型刷新率略降)。
   const [genFps, setGenFps] = React.useState<number>(25);
+  // 背景音乐(复用 VG 内置 29 首 + 用户上传):none=无 / random=随机 / file=指定。混进成片旁白下。
+  const [bgmType, setBgmType] = React.useState<'none' | 'random' | 'file'>('none');
+  const [bgmFile, setBgmFile] = React.useState('');
+  const [bgmVolume, setBgmVolume] = React.useState(0.2);
+  const bgmQ = useQuery({ queryKey: ['vg.bgm'], queryFn: () => videoGeneration.listBgm(), staleTime: 5 * 60 * 1000 });
+  const bgmItems: VgBgmItem[] = bgmQ.data?.items ?? [];
 
   // 按次门控（avatar: 数字人合成）
   const gate = useUsageGate('avatar');
@@ -410,6 +416,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         engine,
         script_model: effectiveModel(curPreset, scriptModel ?? '') || undefined,
         ...(genFps && genFps < 25 ? { fps: genFps } : {}),  // 速度档:<25 才传(默认 25 不传)
+        ...(bgmType !== 'none' ? { bgm_type: bgmType, bgm_file: bgmFile, bgm_volume: bgmVolume } : {}),
         ...(primaryProductRef ? { product_image: primaryProductRef, matte } : {}),
         ...modeFields,
       };
@@ -727,6 +734,32 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           )}
         </div>
       )}
+
+      {/* 背景音乐:复用 VG 内置 + 上传;无/随机/指定 + 音量。混进成片旁白下方。 */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-[var(--cy-text-secondary)]">背景音乐</span>
+        <select value={bgmType} onChange={(e) => setBgmType(e.target.value as 'none' | 'random' | 'file')}
+          className="h-7 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1.5 text-xs text-[var(--cy-text-primary)]">
+          <option value="none">无</option>
+          <option value="random">随机</option>
+          <option value="file">指定</option>
+        </select>
+        {bgmType === 'file' && (
+          <select value={bgmFile} onChange={(e) => setBgmFile(e.target.value)}
+            className="h-7 min-w-[10rem] max-w-[16rem] rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1.5 text-xs text-[var(--cy-text-primary)]">
+            <option value="">（选择乐曲）</option>
+            {bgmItems.map((b) => <option key={b.path} value={b.path}>{b.name}{b.source === 'upload' ? ' · 上传' : ''}</option>)}
+          </select>
+        )}
+        {bgmType !== 'none' && (
+          <>
+            <span className="text-[var(--cy-text-tertiary)]">音量</span>
+            <input type="range" min={0} max={1} step={0.05} value={bgmVolume}
+              onChange={(e) => setBgmVolume(Number(e.target.value))} className="w-20" />
+            <span className="w-8 text-[var(--cy-text-tertiary)]">{bgmVolume.toFixed(2)}</span>
+          </>
+        )}
+      </div>
 
       {/* 商品:列表式展示(点行=选中,与右侧预览联动;预览里点商品图也会高亮这一行) */}
       <div className="flex flex-col gap-1.5">

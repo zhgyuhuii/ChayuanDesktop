@@ -380,6 +380,9 @@ export async function dhGenerate(
     role_segments?: Array<{ role_index: number; text: string }>;
     script_model?: string;
     fps?: number;
+    bgm_type?: 'none' | 'random' | 'file';
+    bgm_file?: string;
+    bgm_volume?: number;
   },
 ): Promise<{ task_id: string }> {
   return rd<{ task_id: string }>('/api/v1/digital-human/generate', {
@@ -397,6 +400,9 @@ export async function dhGenerate(
       role_segments: opts?.role_segments,
       script_model: opts?.script_model,
       fps: opts?.fps,
+      bgm_type: opts?.bgm_type ?? 'none',
+      bgm_file: opts?.bgm_file ?? '',
+      bgm_volume: opts?.bgm_volume ?? 0.2,
     },
   });
 }

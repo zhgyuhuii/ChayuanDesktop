@@ -112,6 +112,10 @@ class DhGenerateRequest(BaseModel):
     role_segments: Optional[List[Dict[str, Any]]] = None  # sequential 用:有序 [{role_index,text}]
     script_model: str = ""    # 生成文稿用的对话模型(列表视图显示;手输=空)
     fps: Optional[float] = None  # 速度档:静态形象生成帧率(降 fps=减帧=提速);None=默认(env/25)
+    # 背景音乐(复用 VG 内置 29 首 + 用户上传):none=无 / random=随机 / file=指定 bgm_file 路径。
+    bgm_type: str = "none"
+    bgm_file: str = ""
+    bgm_volume: float = 0.2
 
 
 class DhTaskStatus(BaseModel):
