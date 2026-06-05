@@ -49,6 +49,18 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
     }, 600);
   }, [pid, qc]);
 
+  // 立即落库待写的拖拽改动(位置/缩放/层级),并等服务端写完 —— 生成前调用,避免「拖完马上点生成,
+  // 防抖 600ms 还没落库 → 服务端读到旧/默认位置 → 商品跑右下角默认大小」。
+  const flushPersist = React.useCallback(async () => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    const p = pendingPatch.current;
+    pendingPatch.current = {};
+    if (pid && Object.keys(p).length) {
+      await digitalHuman.updatePreset(pid, p);
+      await qc.invalidateQueries({ queryKey: ['dh.presets'] });
+    }
+  }, [pid, qc]);
+
   // 数字人拖拽:本地 roles 即时反馈,防抖写回 preset.avatars。
   const [localRoles, setLocalRoles] = React.useState<AvatarSlot[]>(preset?.avatars ?? []);
   React.useEffect(() => { setLocalRoles(preset?.avatars ?? []); }, [pid, preset?.avatars]);
@@ -197,7 +209,7 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
               <ChevronLeft className="h-4 w-4" />
             </button>
             <div className="h-full overflow-y-auto pr-1">
-              <GeneratePanel presets={presets} initialPresetId={pid} onPresetChange={setPid} embedded onPublished={onPublished} />
+              <GeneratePanel presets={presets} initialPresetId={pid} onPresetChange={setPid} embedded onPublished={onPublished} onBeforeGenerate={flushPersist} />
             </div>
           </div>
         )}

@@ -92,7 +92,7 @@ export function previewOrder(
   return out;
 }
 
-export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void; embedded?: boolean; onPublished?: () => void }> = ({ presets, initialPresetId, onPresetChange, embedded, onPublished }) => {
+export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void; embedded?: boolean; onPublished?: () => void; onBeforeGenerate?: () => Promise<void> | void }> = ({ presets, initialPresetId, onPresetChange, embedded, onPublished, onBeforeGenerate }) => {
   const [pid, setPid] = React.useState(initialPresetId ?? '');
   const qc = useQueryClient();
   const [text, setText] = React.useState('');
@@ -370,6 +370,9 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const doGen = async () => {
     setBusy(true);
     try {
+      // 先把拖拽中待写的形象/商品位置/缩放/层级落库(等服务端写完),否则「拖完马上点生成」时
+      // 防抖还没落库 → 后端读旧 preset.products → 商品跑右下角默认大小。
+      try { await onBeforeGenerate?.(); } catch { /* 落库失败不阻断生成 */ }
       let modeFields: {
         script?: string;
         role_scripts?: string[];
