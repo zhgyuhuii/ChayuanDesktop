@@ -425,6 +425,7 @@ export interface PublishedAvatar {
   voice_name: string;
   enabled: boolean;
   chat_enabled: boolean;
+  matte: boolean;
   rate_per_min: number;
   daily_cap: number;
   /** 后端补充:公开页完整 URL(基于 public_host)。 */
@@ -453,7 +454,7 @@ export async function dhDeletePublished(token: string): Promise<{ ok: boolean }>
 
 export async function dhSetPublishedFlags(
   token: string,
-  flags: { enabled?: boolean; chat_enabled?: boolean },
+  flags: { enabled?: boolean; chat_enabled?: boolean; matte?: boolean },
 ): Promise<PublishedAvatar> {
   return rd<PublishedAvatar>(`/api/v1/digital-human/published/${encodeURIComponent(token)}`, {
     method: 'PATCH',

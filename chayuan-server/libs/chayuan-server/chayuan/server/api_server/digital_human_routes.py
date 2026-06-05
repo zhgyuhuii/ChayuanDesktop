@@ -782,6 +782,7 @@ def patch_published(token: str, body: Dict[str, Any],
         token,
         enabled=(body or {}).get("enabled"),
         chat_enabled=(body or {}).get("chat_enabled"),
+        matte=(body or {}).get("matte"),
     )
     if not rec:
         raise HTTPException(404, "发布记录不存在")

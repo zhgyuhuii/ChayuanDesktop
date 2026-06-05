@@ -29,6 +29,7 @@ logger = logging.getLogger("chayuan.digital_human.public")
 digital_human_public_router = APIRouter(tags=["digital-human-public"])
 
 _PUB = "/api/v1/digital-human/public"
+_VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv", ".avi"}
 
 # ---- 进程内限流(sidecar 单 worker) ----
 _BUCKETS: Dict[Tuple[str, str], List[float]] = {}   # (token, ip) -> [tokens, last_ts]
@@ -126,12 +127,62 @@ def public_product(token: str, ref: str = "") -> FileResponse:
     return FileResponse(path, media_type=mime)
 
 
+def _bg_key_color(path: str):
+    """从图片四角探测背景纯色 (r,g,b);+ 按亮度自适应阈值。失败返 None。"""
+    try:
+        from PIL import Image
+        import numpy as np
+        im = Image.open(path).convert("RGB")
+        arr = np.asarray(im).astype(int)
+        h, w = arr.shape[:2]
+        m = max(2, int(min(h, w) * 0.04))
+        corners = np.concatenate([
+            arr[:m, :m].reshape(-1, 3), arr[:m, w - m:].reshape(-1, 3),
+            arr[h - m:, :m].reshape(-1, 3), arr[h - m:, w - m:].reshape(-1, 3)])
+        key = np.median(corners, axis=0)
+        s = float(key.sum())
+        thr = 55 if s > 620 else (80 if s > 430 else 110)
+        return (int(key[0]), int(key[1]), int(key[2])), thr
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _matte_png_bytes(path: str):
+    """抠像:把图片背景纯色键成透明,返回 PNG 字节(仅留人像)。失败返 None。"""
+    try:
+        from PIL import Image
+        import numpy as np
+        kc = _bg_key_color(path)
+        if not kc:
+            return None
+        key, thr = kc
+        im = Image.open(path).convert("RGBA")
+        arr = np.asarray(im).astype(int)
+        rgb = arr[:, :, :3]
+        dist = np.sqrt(((rgb - np.array(key)) ** 2).sum(axis=2))
+        a = arr[:, :, 3]
+        arr[:, :, 3] = np.where(dist < thr, 0, a)
+        import io as _io
+        out = _io.BytesIO()
+        Image.fromarray(arr.astype("uint8"), "RGBA").save(out, format="PNG")
+        return out.getvalue()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh-public] 形象抠像失败,用原图: %r", e)
+        return None
+
+
 @digital_human_public_router.get(_PUB + "/{token}/avatar")
-def public_avatar(token: str) -> FileResponse:
+def public_avatar(token: str):
     rec = _live(token)
     path = store.resolve_avatar_path(rec.avatar_ref)
     if not path or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="形象资源不存在")
+    # 抠像开 + 图片形象 → 返回去背景的透明 PNG(视频形象暂不在 idle 抠,口型片段那条会抠)。
+    if getattr(rec, "matte", False) and os.path.splitext(path)[1].lower() not in _VIDEO_EXT:
+        png = _matte_png_bytes(path)
+        if png:
+            return Response(content=png, media_type="image/png",
+                            headers={"Cache-Control": "no-store"})
     mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
     return FileResponse(path, media_type=mime)
 
@@ -335,10 +386,37 @@ def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
             out = os.path.join(d, "say.mp4")
             get_engine("wav2lip").generate(avatar_path=avatar, audio_path=ap,
                                            out_path=out, width=gw, height=gh)
+            if getattr(rec, "matte", False):
+                webm = _matte_clip_to_webm(out, avatar, d)
+                if webm:
+                    with open(webm, "rb") as f:
+                        return f.read()
             with open(out, "rb") as f:
                 return f.read()
     except Exception as e:  # noqa: BLE001
         logger.warning("[dh-public] say clip 失败,回退音频: %r", e)
+        return None
+
+
+def _matte_clip_to_webm(mp4: str, avatar: str, d: str):
+    """抠像:把口型片段按形象背景纯色 colorkey 成透明 webm(vp9 alpha)。失败返 None(用原 mp4)。"""
+    try:
+        kc = _bg_key_color(avatar)
+        if not kc:
+            return None
+        (r, g, b), thr = kc
+        import imageio_ffmpeg
+        ff = imageio_ffmpeg.get_ffmpeg_exe()
+        sim = max(0.10, min(0.50, thr / 255.0))
+        webm = os.path.join(d, "say.webm")
+        vf = "colorkey=0x%02X%02X%02X:%.2f:0.10,format=yuva420p" % (r, g, b, sim)
+        subprocess.run([ff, "-y", "-loglevel", "error", "-i", mp4, "-vf", vf,
+                        "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p",
+                        "-deadline", "realtime", "-cpu-used", "8",  # vp9 提速(质量略降),否则编码很慢
+                        "-c:a", "libopus", webm], check=True)
+        return webm if os.path.isfile(webm) and os.path.getsize(webm) > 1000 else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh-public] 口型片段抠像失败,用原片: %r", e)
         return None
 
 
@@ -363,7 +441,9 @@ def public_say(token: str, body: Dict[str, Any], request: Request) -> Response:
         rate = 1.0
     clip = _say_clip_bytes(rec, text, rate)
     if clip:
-        return Response(content=clip, media_type="video/mp4", headers={"X-Talk-Kind": "video"})
+        # 抠像开 → webm(vp9 alpha 透明);否则 mp4。两者前端 <video> 都能播。
+        _mt = "video/webm" if getattr(rec, "matte", False) else "video/mp4"
+        return Response(content=clip, media_type=_mt, headers={"X-Talk-Kind": "video"})
     voice = dh_jobs._voice_string(rec.voice_provider, rec.voice_name) or "zh-CN-XiaoxiaoNeural"
     try:
         audio = _tts_parallel(text, voice)

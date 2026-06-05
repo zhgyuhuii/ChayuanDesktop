@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getPlatform } from '@chayuan/platform-shared';
 import { digitalHuman, type PublishedAvatar } from '@chayuan/api';
-import { Link2, ExternalLink, Trash2, MessageSquare, MessageSquareOff } from 'lucide-react';
+import { Link2, ExternalLink, Trash2, MessageSquare, MessageSquareOff, Scissors } from 'lucide-react';
 import { reportError, notifySuccess } from '../../store/errorDialog';
 import { confirmDialog } from '../../store/confirmDialog';
 
@@ -35,7 +35,7 @@ export const OnlineAvatarList: React.FC = () => {
     try { await digitalHuman.deletePublished(it.token); } catch (e) { reportError(e as Error, '删除失败'); }
     refresh();
   };
-  const toggle = async (it: PublishedAvatar, flags: { enabled?: boolean; chat_enabled?: boolean }) => {
+  const toggle = async (it: PublishedAvatar, flags: { enabled?: boolean; chat_enabled?: boolean; matte?: boolean }) => {
     try { await digitalHuman.setPublishedFlags(it.token, flags); } catch (e) { reportError(e as Error, '更新失败'); }
     refresh();
   };
@@ -93,6 +93,10 @@ export const OnlineAvatarList: React.FC = () => {
                   onClick={() => void toggle(it, { chat_enabled: !it.chat_enabled })}>
                   {it.chat_enabled ? <MessageSquare className="h-4 w-4" /> : <MessageSquareOff className="h-4 w-4" />}
                 </button>
+                <button type="button" title={it.matte ? '关闭抠像' : '开启抠像(去背景纯色,仅留人像)'} className={iconBtn}
+                  onClick={() => void toggle(it, { matte: !it.matte })}>
+                  <Scissors className={`h-4 w-4 ${it.matte ? 'text-[var(--cy-brand-500)]' : ''}`} />
+                </button>
                 <button type="button" title="删除" className={`${iconBtn} hover:text-[var(--cy-danger-500)]`} onClick={() => void del(it)}><Trash2 className="h-4 w-4" /></button>
                 <label className="ml-auto inline-flex cursor-pointer items-center gap-1 text-[11px] text-[var(--cy-text-secondary)]">
                   <input type="checkbox" checked={it.enabled} onChange={(e) => void toggle(it, { enabled: e.target.checked })} />上线
@@ -135,6 +139,10 @@ export const OnlineAvatarList: React.FC = () => {
                     <div className="flex gap-1.5">
                       <button type="button" title="复制链接" className={iconBtn} onClick={() => void copy(it.url)}><Link2 className="h-4 w-4" /></button>
                       <button type="button" title="打开公开页" className={iconBtn} onClick={() => open(it.url)}><ExternalLink className="h-4 w-4" /></button>
+                      <button type="button" title={it.matte ? '关闭抠像' : '开启抠像(去背景纯色,仅留人像)'} className={iconBtn}
+                        onClick={() => void toggle(it, { matte: !it.matte })}>
+                        <Scissors className={`h-4 w-4 ${it.matte ? 'text-[var(--cy-brand-500)]' : ''}`} />
+                      </button>
                       <button type="button" title="删除" className={`${iconBtn} hover:text-[var(--cy-danger-500)]`} onClick={() => void del(it)}><Trash2 className="h-4 w-4" /></button>
                     </div>
                   </td>
