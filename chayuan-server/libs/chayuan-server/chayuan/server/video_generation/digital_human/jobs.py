@@ -465,6 +465,28 @@ def _probe_wh(path):
         return 0, 0
 
 
+def _detect_bg_key(video_path):
+    """探视频首帧四角的背景纯色 (r,g,b),作抠像键色;失败返 None(ffcompose 不加 colorkey)。"""
+    try:
+        import cv2
+        import numpy as np
+        cap = cv2.VideoCapture(video_path)
+        ok, f = cap.read()
+        cap.release()
+        if not ok or f is None:
+            return None
+        f = f[:, :, ::-1].astype(int)   # BGR→RGB
+        h, w = f.shape[:2]
+        m = max(2, int(min(h, w) * 0.04))
+        corners = np.concatenate([
+            f[:m, :m].reshape(-1, 3), f[:m, w - m:].reshape(-1, 3),
+            f[h - m:, :m].reshape(-1, 3), f[h - m:, w - m:].reshape(-1, 3)])
+        med = np.median(corners, axis=0)
+        return (int(med[0]), int(med[1]), int(med[2]))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _resolve_products(preset, product_ref=None):
     """商品图层解析(preset.products 优先;旧 product_ref + preset.product_* 兼容)→ [item]。
     single/coframe/resubtitle 共用,保证全链路商品摆放一致。"""
@@ -736,15 +758,35 @@ def _run_pipeline(tid: str) -> None:
         _set(tid, progress=88)
 
         if matte:
-            # 抠像:自动探测背景纯色键掉、仅留形象(render_scene_layered green=None 自动探测)。
-            # 无商品时也要抠(之前直接复制 presenter = 没抠);抠完形象叠在黑底上。失败兜底复制原片。
+            # 抠像:优先走 ffcompose colorkey(ffmpeg 单趟,快);失败回退 moviepy MaskColor(慢)。
+            # 自动探测形象背景纯色(presenter 首帧四角)作键色。无商品也抠(形象叠黑底)。
+            _key = _detect_bg_key(presenter_raw)
+            _ok = False
             try:
-                render_scene_layered(presenter_path=presenter_raw, avatar=avatar_layer, products=items,
-                                     audio_path=audio_path, out_path=final_path, width=W, height=H,
-                                     dur_ms=dur_ms, matte=True)
-            except Exception as _me:  # noqa: BLE001
-                logger.warning("[dh] 抠像合成失败,回退原片: %r", _me)
-                os.replace(presenter_raw, final_path)
+                from chayuan.server.video_generation.digital_human import ffcompose as _ff
+                from chayuan.server.video_generation.compute import get_compute as _gc
+                _layers = [dict(avatar_layer, src=presenter_raw, kind="video", loop=False,
+                                windows=None, matte_key=_key)]
+                for _it in items:
+                    _k = "video" if os.path.splitext(_it["path"])[1].lower() in _VIDEO_EXT else "image"
+                    _layers.append({"src": _it["path"], "kind": _k, "x": _it["x"], "y": _it["y"],
+                                    "scale": _it["scale"], "z": _it["z"], "opacity": _it["opacity"],
+                                    "loop": (_k == "video"), "windows": None})
+                _scene = {"width": W, "height": H, "duration_ms": dur_ms, "audio_path": audio_path,
+                          "layers": _layers, "subtitle": None}
+                _ff.render(_scene, final_path)
+                _ok = True
+                logger.info("[dh-timing] mode=single 抠像 compose=ffcompose(colorkey) encoder=%s", _gc().video_encoder)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[dh] 抠像 ffcompose 失败,回退 moviepy: %r", e)
+            if not _ok:
+                try:
+                    render_scene_layered(presenter_path=presenter_raw, avatar=avatar_layer, products=items,
+                                         audio_path=audio_path, out_path=final_path, width=W, height=H,
+                                         dur_ms=dur_ms, matte=True)
+                except Exception as _me:  # noqa: BLE001
+                    logger.warning("[dh] 抠像 moviepy 也失败,回退原片: %r", _me)
+                    os.replace(presenter_raw, final_path)
             result_path = _apply_overlays(final_path, td, preset, getattr(preset, "avatars", None) or [], args.get("text"), W, H)
         else:
             # 非 matte:形象 + 商品 + 字幕 一趟 ffcompose;失败回退 moviepy。

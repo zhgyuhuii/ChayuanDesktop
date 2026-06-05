@@ -35,6 +35,13 @@ def build_filter(scene: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]], str,
         x = int(round(float(ly.get("x") or 0.0) * W))
         y = int(round(float(ly.get("y") or 0.0) * H))
         chain = f"[{in_idx}:v]scale={w}:-2"
+        # 抠像:把该层背景纯色(matte_key=(r,g,b))colorkey 成透明 → 露出下层/黑底,仅留人像。
+        # 走 ffmpeg 单趟,替代 moviepy MaskColor(逐帧极慢、卡 88%)。
+        mk = ly.get("matte_key")
+        if mk:
+            _r, _g, _b = int(mk[0]), int(mk[1]), int(mk[2])
+            _sim = float(ly.get("matte_sim") or 0.30)
+            chain += ",format=rgba,colorkey=0x%02X%02X%02X:%.2f:0.10" % (_r, _g, _b, _sim)
         op = ly.get("opacity")
         if op is not None and float(op) < 0.999:
             chain += f",format=yuva420p,colorchannelmixer=aa={float(op)}"
