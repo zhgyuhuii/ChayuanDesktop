@@ -668,7 +668,28 @@ def _run_pipeline(tid: str) -> None:
         _t_tts = time.perf_counter() - _tt
         _set(tid, progress=30)
         _tt = time.perf_counter()
-        _gw, _gh = _gen_dims(args["width"], args["height"])   # CPU 压榨:按 ≤cap 宽生成,后续放大
+        # 按形象「原生宽高比」生成(不再强制画布 9:16,否则非 9:16 形象被拉伸 → 合成后仍是拉伸的)。
+        # capped 到画布尺寸 + CPU 压榨封顶。与同框 _gen_slot_clips 一致;ffcompose 再按 scale/位置摆放。
+        _gw, _gh = args["width"], args["height"]
+        try:
+            _aw = _ah = 0
+            if os.path.splitext(avatar)[1].lower() in _VIDEO_EXT:
+                import cv2 as _cv2
+                _cap = _cv2.VideoCapture(avatar)
+                _aw = int(_cap.get(_cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                _ah = int(_cap.get(_cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                _cap.release()
+            else:
+                from PIL import Image as _Img
+                with _Img.open(avatar) as _im:
+                    _aw, _ah = _im.size
+            if _aw > 0 and _ah > 0:
+                _r = min(args["width"] / _aw, args["height"] / _ah, 1.0)  # 不放大、不超画布
+                _gw = max(2, int(round(_aw * _r))); _gh = max(2, int(round(_ah * _r)))
+                _gw -= _gw % 2; _gh -= _gh % 2
+        except Exception:  # noqa: BLE001
+            _gw, _gh = args["width"], args["height"]
+        _gw, _gh = _gen_dims(_gw, _gh)   # CPU 压榨:再按 ≤cap 宽封顶
         get_engine(args.get("engine") or "wav2lip").generate(
             avatar_path=avatar, audio_path=audio_path, out_path=out_path,
             width=_gw, height=_gh,
