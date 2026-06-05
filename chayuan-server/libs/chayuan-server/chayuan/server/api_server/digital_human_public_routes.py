@@ -298,7 +298,9 @@ def public_say(token: str, body: Dict[str, Any], request: Request) -> Response:
     rec = _live(token)
     if not rec.chat_enabled:
         raise HTTPException(status_code=403, detail="该数字人未开放对话")
-    if not _rate_ok(token, _client_ip(request), rec.rate_per_min, rec.daily_cap):
+    # /say 是一次对话回复按句扇出的多次调用,不能用「每条消息」的 per-min 预算卡它,否则
+    # 一句一句被 429 截断、中间没声音。放宽 per-min(×30,至少 300),daily_cap 仍兜底防滥用。
+    if not _rate_ok(token, _client_ip(request), max(rec.rate_per_min * 30, 300), rec.daily_cap):
         raise HTTPException(status_code=429, detail="访问过于频繁,请稍后再试")
     text = str(body.get("text") or "").strip()[:300]
     if not text:
@@ -497,28 +499,17 @@ _PUBLIC_PAGE = """<!doctype html>
     };
   }catch(e){}
 
-  // ── 实时口型:句级流式 /say,生产者(取)/消费者(播)分离,各自严格顺序 ────────
-  // 后端自适应:GPU 返回该句口型 mp4(覆盖播放),CPU 返回该句音频(振幅实时驱动口型)。
-  // 一个 fetcher 顺序取、一个 player 顺序播,边播当前句边预取下一句(流畅且不乱序)。
-  var sentQ = [], fetching = false, playQ = [], playing = false, audioCtx = null, mouthEl = null;
+  // ── 实时对话:句级流式 /say,生产者(取)/消费者(播)分离,各自严格顺序 ────────
+  // 后端自适应:GPU 返回该句口型 mp4(覆盖播放,真口型);CPU 返回该句音频实时播。
+  // CPU 上无人脸关键点做不出真口型,故不在脸上画假嘴(会「只剩下嘴」),改用边框辉光按
+  // 音量律动提示「正在说话」,形象始终完整保留。一个 fetcher 顺序取、一个 player 顺序播,
+  // 边播当前句边预取下一句(流畅且不乱序)。
+  var sentQ = [], fetching = false, playQ = [], playing = false, audioCtx = null;
   function once(fn){ var c = false; return function(){ if(c) return; c = true; fn(); }; }
 
-  function ensureMouth(){
-    if (mouthEl) return mouthEl;
-    mouthEl = document.createElement("div");
-    var s = mouthEl.style;
-    s.position="absolute"; s.left="50%"; s.top="72%"; s.width="14%"; s.height="6%";
-    s.transform="translate(-50%,-50%) scaleY(0.12)"; s.background="rgba(24,10,10,0.8)";
-    s.borderRadius="50%"; s.zIndex="900"; s.pointerEvents="none"; s.transition="transform 55ms linear";
-    s.display="none";
-    stage.appendChild(mouthEl);
-    return mouthEl;
-  }
-
-  function playAudioWithMouth(blob, done){
-    var url = URL.createObjectURL(blob), a = new Audio(url), mouth = ensureMouth();
-    mouth.style.display = "block";
-    var raf = 0, fin = once(function(){ if(raf) cancelAnimationFrame(raf); mouth.style.display="none"; try{URL.revokeObjectURL(url);}catch(e){} done&&done(); });
+  function playAudio(blob, done){
+    var url = URL.createObjectURL(blob), a = new Audio(url);
+    var raf = 0, fin = once(function(){ if(raf) cancelAnimationFrame(raf); stage.style.boxShadow=""; try{URL.revokeObjectURL(url);}catch(e){} done&&done(); });
     try{
       audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
       if(audioCtx.state === "suspended") audioCtx.resume();
@@ -528,11 +519,11 @@ _PUBLIC_PAGE = """<!doctype html>
       (function tick(){
         an.getByteTimeDomainData(data);
         var sum=0; for(var i=0;i<data.length;i++){ var v=(data[i]-128)/128; sum+=v*v; }
-        var rms = Math.sqrt(sum/data.length), open = Math.min(1, 0.1 + rms*3.4);
-        mouth.style.transform = "translate(-50%,-50%) scaleY(" + open.toFixed(2) + ")";
+        var rms = Math.sqrt(sum/data.length), g = Math.min(30, 6 + rms*95);
+        stage.style.boxShadow = "0 0 " + g.toFixed(0) + "px rgba(56,189,248,0.55)";
         raf = requestAnimationFrame(tick);
       })();
-    }catch(e){ /* WebAudio 不可用:仍播音频,口型不动 */ }
+    }catch(e){ /* WebAudio 不可用:仍播音频,只是没有辉光律动 */ }
     a.onended = fin; a.onerror = fin;
     a.play().catch(fin);
   }
@@ -568,7 +559,7 @@ _PUBLIC_PAGE = """<!doctype html>
     playing = true;
     var o = playQ.shift();
     var done = once(function(){ playing = false; playNext(); });
-    if (o.kind === "video") playClip(o.blob, done); else playAudioWithMouth(o.blob, done);
+    if (o.kind === "video") playClip(o.blob, done); else playAudio(o.blob, done);
   }
 
   function enqueueSay(text){
