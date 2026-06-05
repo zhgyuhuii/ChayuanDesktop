@@ -3,10 +3,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { digitalHuman } from '@chayuan/api';
 import { useVgComposer } from '../video-generation/store/vgComposer';
+import { SubtitleEditor } from './SubtitleEditor';
 
-/** 单个生成任务卡片:视频在上,操作按钮(下载/去编辑合成/删除)在下方一排。 */
+/** 单个生成任务卡片:视频在上,操作按钮(下载/编辑字幕/去编辑合成/删除)在下方一排。 */
 export const DhProgressCard: React.FC<{ taskId: string; onDelete?: () => void }> = ({ taskId, onDelete }) => {
   const [sending, setSending] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const [vkey, setVkey] = React.useState(0);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const onToTimeline = async () => {
@@ -50,16 +53,32 @@ export const DhProgressCard: React.FC<{ taskId: string; onDelete?: () => void }>
   if (st.state === 'complete') {
     return (
       <div className="flex flex-col gap-2 text-xs">
-        <video src={digitalHuman.taskFileUrl(taskId)} controls className="w-full rounded-md" />
+        <video key={vkey} src={`${digitalHuman.taskFileUrl(taskId)}${vkey ? `?v=${vkey}` : ''}`}
+          controls className="w-full rounded-md" />
         <div className="flex flex-wrap items-center gap-2">
           <a href={digitalHuman.taskFileUrl(taskId)} download
             className={`${btn} bg-[var(--cy-brand-500)] text-white hover:bg-[var(--cy-brand-600)]`}>下载</a>
+          <button type="button" onClick={() => setEditing((v) => !v)}
+            className={`${btn} border border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]`}>
+            {editing ? '收起字幕' : '✏️ 编辑字幕'}
+          </button>
           <button type="button" onClick={onToTimeline} disabled={sending}
             className={`${btn} border border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50`}>
             {sending ? '准备中…' : '去编辑合成'}
           </button>
           {delBtn}
         </div>
+        {editing && (
+          <SubtitleEditor
+            taskId={taskId}
+            onClose={() => setEditing(false)}
+            onDone={() => {
+              setEditing(false);
+              setVkey((k) => k + 1);
+              void queryClient.invalidateQueries({ queryKey: ['dh.task', taskId] });
+            }}
+          />
+        )}
       </div>
     );
   }

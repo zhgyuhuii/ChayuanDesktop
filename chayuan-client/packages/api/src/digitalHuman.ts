@@ -193,6 +193,48 @@ export async function dhTaskToTimeline(
   return rd(`/api/v1/digital-human/tasks/${encodeURIComponent(taskId)}/to-timeline`, { method: 'POST' });
 }
 
+/** 就地编辑字幕:一条字幕 cue(毫秒 + 文本)。 */
+export interface DhSubtitleCue {
+  start_ms: number;
+  end_ms: number;
+  text: string;
+}
+
+/** 字幕样式(复用预设字幕设置;subtitle_enabled 为总开关)。 */
+export interface DhSubtitleStyle {
+  subtitle_position?: string;
+  font_name?: string;
+  font_size?: number;
+  text_fore_color?: string;
+  stroke_color?: string;
+  stroke_width?: number;
+  subtitle_enabled?: boolean;
+}
+
+export interface DhTaskSubtitle {
+  mode: string;
+  editable: boolean;
+  style: DhSubtitleStyle;
+  cues: DhSubtitleCue[];
+}
+
+/** 取任务字幕(真实时间 cue + 当前样式 + 是否可重渲染)。 */
+export async function dhGetTaskSubtitle(taskId: string): Promise<DhTaskSubtitle> {
+  return rd<DhTaskSubtitle>(`/api/v1/digital-human/tasks/${encodeURIComponent(taskId)}/subtitle`);
+}
+
+/** 用编辑后的 cues+样式重渲染字幕(复用片段,只重跑 ffcompose)。 */
+export async function dhResubtitleTask(
+  taskId: string,
+  cues: DhSubtitleCue[],
+  style: DhSubtitleStyle = {},
+): Promise<{ ok: boolean; result_path: string }> {
+  return rd(`/api/v1/digital-human/tasks/${encodeURIComponent(taskId)}/resubtitle`, {
+    method: 'POST',
+    body: { cues, style },
+  });
+}
+
 export async function dhDeleteTask(
   taskId: string,
   opts: { drop_file?: boolean } = {},
@@ -473,6 +515,8 @@ export const digitalHuman = {
   uploadAvatar: dhUploadAvatar,
   composeReference: dhComposeReference,
   taskToTimeline: dhTaskToTimeline,
+  getTaskSubtitle: dhGetTaskSubtitle,
+  resubtitleTask: dhResubtitleTask,
   generateScript: dhGenerateScript,
   scriptFromVideo: dhScriptFromVideo,
   listScriptTemplates,

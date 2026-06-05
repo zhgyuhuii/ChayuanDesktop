@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Tuple
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FPath
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from chayuan.server.auth.deps import require_auth_enabled
 from chayuan.server.video_generation._helpers import dh_avatars_dir, dh_products_dir
@@ -678,6 +679,39 @@ def task_to_timeline(tid: str = FPath(..., max_length=64),
     )
     tl = timeline.model_dump() if hasattr(timeline, "model_dump") else timeline
     return {"materials": materials, "timeline": tl}
+
+
+class _ResubCue(BaseModel):
+    start_ms: int = 0
+    end_ms: int = 0
+    text: str = ""
+
+
+class _ResubBody(BaseModel):
+    cues: List[_ResubCue] = Field(default_factory=list)
+    style: Dict[str, Any] = Field(default_factory=dict)
+
+
+@digital_human_router.get("/tasks/{tid}/subtitle")
+def task_subtitle(tid: str = FPath(..., max_length=64),
+                  user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    """就地编辑字幕:取该任务的字幕 cue(真实时间)+ 当前样式 + 是否可重渲染。"""
+    try:
+        return dh_jobs.get_task_subtitle(tid)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(409, str(e))
+
+
+@digital_human_router.post("/tasks/{tid}/resubtitle")
+def task_resubtitle(body: _ResubBody, tid: str = FPath(..., max_length=64),
+                    user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
+    """就地编辑字幕重渲染:复用已生成片段只重跑 ffcompose,用编辑后的 cues+样式重烧字幕。"""
+    try:
+        cues = [c.model_dump() for c in body.cues]
+        path = dh_jobs.resubtitle_task(tid, cues, dict(body.style or {}))
+        return {"ok": True, "result_path": path}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(409, str(e))
 
 
 @digital_human_router.get("/live/available")

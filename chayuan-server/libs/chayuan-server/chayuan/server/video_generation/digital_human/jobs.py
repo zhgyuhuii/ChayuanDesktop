@@ -452,6 +452,136 @@ def _concat_clip_audio(clips, out_path, ffmpeg_exe):
     return out_path
 
 
+def _probe_wh(path):
+    """探视频宽高 (w,h);失败返 (0,0)。"""
+    try:
+        import cv2
+        cap = cv2.VideoCapture(path)
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        cap.release()
+        return w, h
+    except Exception:  # noqa: BLE001
+        return 0, 0
+
+
+def _resolve_products(preset, product_ref=None):
+    """商品图层解析(preset.products 优先;旧 product_ref + preset.product_* 兼容)→ [item]。
+    single/coframe/resubtitle 共用,保证全链路商品摆放一致。"""
+    items = []
+    for q in (getattr(preset, "products", None) or []):
+        pp = resolve_product_path(getattr(q, "ref", ""))
+        if pp:
+            items.append({"path": pp,
+                          "x": float(getattr(q, "x", 0.66) if getattr(q, "x", None) is not None else 0.66),
+                          "y": float(getattr(q, "y", 0.60) if getattr(q, "y", None) is not None else 0.60),
+                          "scale": float(getattr(q, "scale", 0.32) if getattr(q, "scale", None) is not None else 0.32),
+                          "z": getattr(q, "z", None), "opacity": getattr(q, "opacity", None)})
+    if not items and product_ref:
+        pp = resolve_product_path(product_ref)
+        if pp:
+            items.append({"path": pp,
+                          "x": float(getattr(preset, "product_x", 0.66) or 0.66),
+                          "y": float(getattr(preset, "product_y", 0.60) or 0.60),
+                          "scale": float(getattr(preset, "product_scale", 0.32) or 0.32),
+                          "z": getattr(preset, "product_z", None),
+                          "opacity": getattr(preset, "product_opacity", None)})
+    return items
+
+
+def _subtitle_style(preset, style_extra=None):
+    """字幕样式 dict(取预设值;style_extra 非 None 项覆盖)。"""
+    style = {
+        "subtitle_position": getattr(preset, "subtitle_position", "bottom"),
+        "font_name": getattr(preset, "font_name", ""),
+        "font_size": getattr(preset, "font_size", 0),
+        "text_fore_color": getattr(preset, "text_fore_color", ""),
+        "stroke_color": getattr(preset, "stroke_color", ""),
+        "stroke_width": getattr(preset, "stroke_width", None),
+    }
+    if style_extra:
+        for k in ("subtitle_position", "font_name", "font_size", "text_fore_color", "stroke_color", "stroke_width"):
+            if style_extra.get(k) is not None:
+                style[k] = style_extra[k]
+    return style
+
+
+def _ass_from_cues(td, preset, cues, width, height, name="sub.ass", style_extra=None):
+    """从显式 dict cues([{start_ms,end_ms,text}])建字幕 ass(复用预设样式+可选覆盖);
+    无有效 cue/失败返 None。"""
+    try:
+        cues = [c for c in (cues or []) if (str(c.get("text") or "")).strip()]
+        if not cues:
+            return None
+        from chayuan.server.video_generation.digital_human import subtitle_ass as _sa
+        from chayuan.server.video_generation.digital_human import overlay as _ov
+        style = _subtitle_style(preset, style_extra)
+        font = _ov._resolve_font_path(style.get("font_name") or None)
+        return _sa.build_ass(cues, style, os.path.join(td, name),
+                             width=width, height=height, font_path=font)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh] 字幕 ass 构建失败(忽略): %r", e)
+        return None
+
+
+def _build_coframe_scene(td, preset, segments, width, height, ffmpeg_exe,
+                         cues=None, style_extra=None):
+    """从已生成片段(segments:[{role_index,path,text,duration_ms}])重建 coframe ffcompose
+    场景(每角色 idle 底 + 说话段时间窗 + 商品,按 z 叠;音频取各 clip 自身拼接,严格同步)。
+
+    cues=None → 用各段真实时间+文本建字幕;否则用传入 cues(就地编辑字幕场景)。
+    生成与「就地编辑字幕重渲染」共用此函数,保证两条路径完全一致。返回 scene dict。"""
+    slots = list(getattr(preset, "avatars", None) or [])
+    positions = [(float(getattr(s, "x", 0.0) or 0.0), float(getattr(s, "y", 0.0) or 0.0),
+                  float(getattr(s, "scale", 1.0) or 1.0)) for s in slots]
+    avatars = [resolve_avatar_path(s.ref) for s in slots]
+    zs = [getattr(s, "z", None) for s in slots]
+    ops = [getattr(s, "opacity", None) for s in slots]
+    co_items = _resolve_products(preset)
+    clips = [seg.get("path") for seg in segments]
+    unit_roles = [int(seg.get("role_index", 0) or 0) for seg in segments]
+    durs = [max(1, int(seg.get("duration_ms") or 0) or 1) for seg in segments]
+    coaud = os.path.join(td, "coframe_audio.wav")
+    _concat_clip_audio(clips, coaud, ffmpeg_exe)
+    layers = []
+    for ri in range(len(slots)):
+        av = avatars[ri]
+        if not av:
+            continue
+        k = "video" if os.path.splitext(av)[1].lower() in _VIDEO_EXT else "image"
+        layers.append({"src": av, "kind": k, "x": positions[ri][0], "y": positions[ri][1],
+                       "scale": positions[ri][2], "z": zs[ri], "opacity": ops[ri],
+                       "loop": (k == "video"), "windows": None})
+    acc = 0
+    subcues = []
+    for i, c in enumerate(clips):
+        ri = unit_roles[i]
+        st0 = acc
+        acc += durs[i]
+        layers.append({"src": c, "kind": "video", "x": positions[ri][0], "y": positions[ri][1],
+                       "scale": positions[ri][2], "z": zs[ri], "opacity": ops[ri],
+                       "loop": False, "windows": [{"start_ms": st0, "end_ms": acc}]})
+        txt = (str(segments[i].get("text") or "")).strip()
+        if txt:
+            subcues.append({"start_ms": st0, "end_ms": acc, "text": txt})
+    for it in co_items:
+        k = "video" if os.path.splitext(it["path"])[1].lower() in _VIDEO_EXT else "image"
+        layers.append({"src": it["path"], "kind": k, "x": it["x"], "y": it["y"],
+                       "scale": it["scale"], "z": it["z"], "opacity": it["opacity"],
+                       "loop": (k == "video"), "windows": None})
+    # 字幕开关:style_extra 显式给了 subtitle_enabled 则以它为准,否则跟预设
+    _en = (style_extra or {}).get("subtitle_enabled")
+    _on = bool(_en) if _en is not None else bool(getattr(preset, "subtitle_enabled", True))
+    sub = None
+    if _on:
+        ass = _ass_from_cues(td, preset, cues if cues is not None else subcues,
+                             width, height, name="co_sub.ass", style_extra=style_extra)
+        if ass:
+            sub = {"ass_path": ass}
+    return {"width": width, "height": height, "duration_ms": acc or 5000,
+            "audio_path": coaud, "layers": layers, "subtitle": sub}
+
+
 def _run_pipeline(tid: str) -> None:
     args = _PENDING.get(tid) or {}
     try:
@@ -493,77 +623,18 @@ def _run_pipeline(tid: str) -> None:
                     avatars = [resolve_avatar_path(s.ref) for s in slots]
                     zs = [getattr(s, "z", None) for s in slots]  # 工作台调的图层叠放顺序
                     ops = [getattr(s, "opacity", None) for s in slots]  # 各角色不透明度
-                    # 商品图层(coframe 之前完全没合成商品 → 丢失);解析成可摆放项随角色一起合成。
-                    co_items = []
-                    for _q in (getattr(preset, "products", None) or []):
-                        _pp = resolve_product_path(getattr(_q, "ref", ""))
-                        if _pp:
-                            co_items.append({"path": _pp,
-                                             "x": float(getattr(_q, "x", 0.66) if getattr(_q, "x", None) is not None else 0.66),
-                                             "y": float(getattr(_q, "y", 0.60) if getattr(_q, "y", None) is not None else 0.60),
-                                             "scale": float(getattr(_q, "scale", 0.32) if getattr(_q, "scale", None) is not None else 0.32),
-                                             "z": getattr(_q, "z", None), "opacity": getattr(_q, "opacity", None)})
-                    # 先试 ffcompose 统一图层合成(每角色 idle 底 + 说话段时间窗 + 商品,按 z 叠);
-                    # 失败回退 moviepy turntaking。字幕由 ffcompose 烧入(成功时),昵称由 _apply_overlays。
+                    co_items = _resolve_products(preset)  # 商品随角色一起合成(兜底 turntaking 也用)
+                    # 先试 ffcompose 统一图层合成;场景构建抽到 _build_coframe_scene,与「就地编辑字幕
+                    # 重渲染」完全共用。失败回退 moviepy turntaking。字幕由 ffcompose 真实时间烧入。
                     _ff_ok = False
                     try:
                         from chayuan.server.video_generation.digital_human import ffcompose as _ff
                         from chayuan.server.video_generation.compute import get_compute as _gc
-                        # 同步关键:窗口/字幕/音频统一用 clip 时长(seg.mp4 -shortest mux,音视频等长),
-                        # 且音频直接取 clip 自身拼接 → 每段音频==视频窗口==字幕段,严格对齐,无缝隙累积。
-                        _durs = [max(1, int(seg_meta[_i].get("duration_ms") or 0) or 1) for _i in range(len(clips))]
-                        _coaud = os.path.join(td, "coframe_audio.wav")
-                        _concat_clip_audio(clips, _coaud, _gc().ffmpeg_exe)
-                        _W, _H = args["width"], args["height"]
-                        _layers = []
-                        for _ri in range(len(slots)):
-                            _av = avatars[_ri]
-                            if not _av:
-                                continue
-                            _k = "video" if os.path.splitext(_av)[1].lower() in _VIDEO_EXT else "image"
-                            _layers.append({"src": _av, "kind": _k, "x": positions[_ri][0], "y": positions[_ri][1],
-                                            "scale": positions[_ri][2], "z": zs[_ri], "opacity": ops[_ri],
-                                            "loop": (_k == "video"), "windows": None})
-                        _acc = 0
-                        _subcues = []  # 字幕真实时间轴:每段 [本段窗口] + 该段文本
-                        for _i, _c in enumerate(clips):
-                            _ri = unit_roles[_i]
-                            _st = _acc
-                            _acc += _durs[_i]
-                            _layers.append({"src": _c, "kind": "video", "x": positions[_ri][0], "y": positions[_ri][1],
-                                            "scale": positions[_ri][2], "z": zs[_ri], "opacity": ops[_ri],
-                                            "loop": False, "windows": [{"start_ms": _st, "end_ms": _acc}]})
-                            _stx = (seg_meta[_i].get("text") or "").strip()
-                            if _stx:
-                                _subcues.append({"start_ms": _st, "end_ms": _acc, "text": _stx})
-                        for _it in co_items:
-                            _k = "video" if os.path.splitext(_it["path"])[1].lower() in _VIDEO_EXT else "image"
-                            _layers.append({"src": _it["path"], "kind": _k, "x": _it["x"], "y": _it["y"],
-                                            "scale": _it["scale"], "z": _it["z"], "opacity": _it["opacity"],
-                                            "loop": (_k == "video"), "windows": None})
-                        # 字幕:用真实每段时间烧进 ffcompose 的 ass(替代会崩/不同步的 moviepy 字幕)
-                        _sub = None
-                        if getattr(preset, "subtitle_enabled", True) and _subcues:
-                            try:
-                                from chayuan.server.video_generation.digital_human import subtitle_ass as _sa
-                                from chayuan.server.video_generation.digital_human import overlay as _ovf
-                                _style = {"subtitle_position": getattr(preset, "subtitle_position", "bottom"),
-                                          "font_name": getattr(preset, "font_name", ""),
-                                          "font_size": getattr(preset, "font_size", 0),
-                                          "text_fore_color": getattr(preset, "text_fore_color", ""),
-                                          "stroke_color": getattr(preset, "stroke_color", ""),
-                                          "stroke_width": getattr(preset, "stroke_width", None)}
-                                _fp = _ovf._resolve_font_path(getattr(preset, "font_name", "") or None)
-                                _assp = _sa.build_ass(_subcues, _style, os.path.join(td, "co_sub.ass"),
-                                                      width=_W, height=_H, font_path=_fp)
-                                _sub = {"ass_path": _assp}
-                            except Exception as _se:  # noqa: BLE001
-                                logger.warning("[dh] coframe 字幕构建失败(忽略): %r", _se)
-                        _scene = {"width": _W, "height": _H, "duration_ms": _acc or 5000,
-                                  "audio_path": _coaud, "layers": _layers, "subtitle": _sub}
+                        _scene = _build_coframe_scene(td, preset, seg_meta, args["width"], args["height"],
+                                                      _gc().ffmpeg_exe)
                         _ff.render(_scene, out_path, on_progress=_op)
                         _ff_ok = True
-                        _sub_burned = bool(_sub)
+                        _sub_burned = bool(_scene.get("subtitle"))
                         logger.info("[dh-timing] mode=coframe compose=ffcompose encoder=%s subtitle=%s",
                                     _gc().video_encoder, "burned" if _sub_burned else "none")
                     except Exception as e:  # noqa: BLE001
@@ -718,7 +789,7 @@ def submit(*, preset_id: str, text: str, width: int, height: int,
                      "engine": engine, "role_scripts": role_scripts,
                      "role_segments": role_segments, "script": script}
     _set(tid, state="pending", progress=0, created_at=time.time(),
-         script_model=script_model, engine=engine)
+         script_model=script_model, engine=engine, preset_id=preset_id)
     _POOL.submit(_run_pipeline, tid)
     return tid
 
@@ -726,3 +797,128 @@ def submit(*, preset_id: str, text: str, width: int, height: int,
 def run_sync(tid: str) -> None:
     """测试用:同步跑,不经线程池。"""
     _run_pipeline(tid)
+
+
+def _task_cues(st, preset):
+    """任务字幕 cue:coframe/sequential 用各段真实时间+昵称前缀;single 用脚本按句均匀切。"""
+    mode = getattr(preset, "compose_mode", "single") or "single"
+    segments = list(getattr(st, "segments", None) or [])
+    if mode in ("coframe", "sequential") and segments:
+        slots = list(getattr(preset, "avatars", None) or [])
+        n = len(slots)
+        cues, acc = [], 0
+        for seg in segments:
+            ri = int(seg.get("role_index", 0) or 0)
+            dur = max(1, int(seg.get("duration_ms") or 0) or 1)
+            nm = (getattr(slots[ri], "name", "") if 0 <= ri < n else "") or ""
+            cues.append({"start_ms": acc, "end_ms": acc + dur,
+                         "text": (("%s: " % nm) if nm else "") + str(seg.get("text") or "")})
+            acc += dur
+        return cues
+    try:
+        from chayuan.server.video_generation.digital_human.timeline_bridge import build_cues_from_script
+        dur = _probe_duration_ms(getattr(st, "result_path", "") or "") or 0
+        return [{"start_ms": c.start_ms, "end_ms": c.end_ms, "text": c.text}
+                for c in build_cues_from_script(getattr(st, "script", "") or "", dur)]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def get_task_subtitle(tid: str) -> dict:
+    """就地编辑字幕:返回 {mode, editable, style, cues}。editable=中间产物在、可重渲染。"""
+    st = get_status(tid)
+    if st.state != "complete":
+        raise RuntimeError("任务未完成")
+    preset = store.get_preset(getattr(st, "preset_id", "") or "")
+    mode = (getattr(preset, "compose_mode", "single") or "single") if preset else "single"
+    editable = False
+    try:
+        td = task_dir(f"dh-{tid}")
+        if mode in ("coframe", "sequential"):
+            segs = list(getattr(st, "segments", None) or [])
+            editable = bool(segs) and all(s.get("path") and os.path.isfile(s.get("path")) for s in segs)
+        else:
+            editable = (os.path.isfile(os.path.join(td, "presenter.mp4"))
+                        or bool(getattr(st, "result_path", "") and os.path.isfile(st.result_path))) \
+                       and os.path.isfile(os.path.join(td, "narration.wav"))
+        editable = bool(editable and preset is not None)
+    except Exception:  # noqa: BLE001
+        editable = False
+    style = _subtitle_style(preset) if preset else {}
+    style["subtitle_enabled"] = bool(getattr(preset, "subtitle_enabled", True)) if preset else True
+    return {"mode": mode, "editable": editable, "style": style,
+            "cues": _task_cues(st, preset) if preset else []}
+
+
+def resubtitle_task(tid: str, cues, style=None) -> str:
+    """就地编辑字幕重渲染:复用已生成片段(seg clips / presenter),只重跑 ffcompose
+    (跳过最贵的 wav2lip/TTS),用编辑后的 cues+样式重烧字幕。返回新成片路径。"""
+    st = get_status(tid)
+    if st.state != "complete":
+        raise RuntimeError("任务未完成")
+    preset = store.get_preset(getattr(st, "preset_id", "") or "")
+    if preset is None:
+        raise RuntimeError("预设缺失,无法重渲染(请重新生成后再编辑)")
+    td = task_dir(f"dh-{tid}")
+    mode = getattr(preset, "compose_mode", "single") or "single"
+    from chayuan.server.video_generation.digital_human import ffcompose as _ff
+    from chayuan.server.video_generation.compute import get_compute as _gc
+    style = dict(style or {})
+    cues = [{"start_ms": int(c.get("start_ms", 0) or 0), "end_ms": int(c.get("end_ms", 0) or 0),
+             "text": str(c.get("text") or "")} for c in (cues or [])]
+    W = int(getattr(preset, "video_width", 0) or 0)
+    H = int(getattr(preset, "video_height", 0) or 0)
+    if W <= 0 or H <= 0:
+        W, H = _probe_wh(getattr(st, "result_path", "") or "")
+    if W <= 0 or H <= 0:
+        W, H = 720, 1280
+    out_tmp = os.path.join(td, "resub_tmp.mp4")
+    if mode in ("coframe", "sequential"):
+        segs = list(getattr(st, "segments", None) or [])
+        if not segs or not all(s.get("path") and os.path.isfile(s.get("path")) for s in segs):
+            raise RuntimeError("片段已清理,无法重渲染(请重新生成后再编辑)")
+        scene = _build_coframe_scene(td, preset, segs, W, H, _gc().ffmpeg_exe,
+                                     cues=cues, style_extra=style)
+        _ff.render(scene, out_tmp)
+    else:
+        presenter = os.path.join(td, "presenter.mp4")
+        if not os.path.isfile(presenter):
+            presenter = getattr(st, "result_path", "") or ""
+        audio = os.path.join(td, "narration.wav")
+        if not os.path.isfile(presenter) or not os.path.isfile(audio):
+            raise RuntimeError("中间产物已清理,无法重渲染(请重新生成后再编辑)")
+        slot0 = (getattr(preset, "avatars", None) or [None])[0]
+        avatar_layer = {
+            "x": float(getattr(slot0, "x", 0.0) or 0.0) if slot0 is not None else 0.0,
+            "y": float(getattr(slot0, "y", 0.0) or 0.0) if slot0 is not None else 0.0,
+            "scale": float(getattr(slot0, "scale", 1.0) or 1.0) if slot0 is not None else 1.0,
+            "z": getattr(slot0, "z", None) if slot0 is not None else None,
+            "opacity": getattr(slot0, "opacity", None) if slot0 is not None else None,
+        }
+        items = _resolve_products(preset)
+        dur_ms = _probe_duration_ms(presenter) or _probe_duration_ms(audio) or 5000
+        layers = [dict(avatar_layer, src=presenter, kind="video", loop=False, windows=None)]
+        for it in items:
+            k = "video" if os.path.splitext(it["path"])[1].lower() in _VIDEO_EXT else "image"
+            layers.append({"src": it["path"], "kind": k, "x": it["x"], "y": it["y"],
+                           "scale": it["scale"], "z": it["z"], "opacity": it["opacity"],
+                           "loop": (k == "video"), "windows": None})
+        _en = style.get("subtitle_enabled")
+        _on = bool(_en) if _en is not None else bool(getattr(preset, "subtitle_enabled", True))
+        sub = None
+        if _on:
+            ass = _ass_from_cues(td, preset, cues, W, H, name="resub.ass", style_extra=style)
+            if ass:
+                sub = {"ass_path": ass}
+        scene = {"width": W, "height": H, "duration_ms": dur_ms, "audio_path": audio,
+                 "layers": layers, "subtitle": sub}
+        _ff.render(scene, out_tmp)
+    # 字幕已烧,_apply_overlays 只补昵称(多角色);single 无昵称直接返回 out_tmp
+    out2 = _apply_overlays(out_tmp, td, preset, getattr(preset, "avatars", None) or [],
+                           getattr(st, "script", "") or "", W, H, skip_subtitle=True)
+    src = out2 if (out2 and os.path.isfile(out2)) else out_tmp
+    final = getattr(st, "result_path", "") or os.path.join(td, "digital_human.mp4")
+    if os.path.abspath(src) != os.path.abspath(final):
+        os.replace(src, final)
+    _set(tid, result_path=final)
+    return final
