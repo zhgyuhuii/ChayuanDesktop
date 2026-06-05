@@ -232,9 +232,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     } catch (e) {
       reportError(
         e as Error,
-        primaryProductRef
-          ? 'AI 生成文案失败:请选支持视觉(VLM)的模型,或去模型广场安装'
-          : 'AI 生成文案失败:请先在模型厂商配置默认对话模型',
+        'AI 生成文案失败:请在上方选择一个对话模型,或去模型广场安装',
       );
     } finally { setScripting(false); }
   };
@@ -418,22 +416,14 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const gen = () => gate.guard(doGen);
 
   // ── 文案生成模型选择 ─────────────────────────────────────────
-  // 挂了商品图时,文案生成需要看图 → 只允许视觉语言(VLM)模型;否则允许 chat+vl。
+  // 文案=文本脚本,模型放开为「对话 + 视觉」(chat+vl),不因挂商品图收窄成 VLM-only、
+  // 也不阻断生成。选视觉模型 → 看图带货;选普通对话模型 → 后端忽略图片纯文字生成。
   const hasImage = products.some((p) => p.kind === 'image');
   const allModels: RawModelItem[] = React.useMemo(
     () => (modelsQ.data ?? []).filter((m) => !m.model_type || m.model_type === 'llm'),
     [modelsQ.data],
   );
-  const capFilter = React.useMemo<ReadonlySet<ModalityCapability>>(
-    () => (hasImage ? new Set<ModalityCapability>(['vl']) : CHAT_CAPABILITIES),
-    [hasImage],
-  );
-  // 当前可选模型(应用 capability 过滤);用于"有无 VLM"判定。
-  const vlModels = React.useMemo(
-    () => allModels.filter((m) => inferCapability(m) === 'vl'),
-    [allModels],
-  );
-  const noVlmModel = hasImage && !modelsQ.isLoading && vlModels.length === 0;
+  const capFilter: ReadonlySet<ModalityCapability> = CHAT_CAPABILITIES;
   const curModel = decodeModel(scriptModel);
   const currentModel = allModels.find(
     (m) => m.id === curModel.id && (curModel.platform ? m.platform_name === curModel.platform : true),
@@ -546,7 +536,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             <DropdownMenuTrigger asChild>
               <button type="button"
                 className="inline-flex h-8 min-w-[8em] items-center gap-1.5 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
-                title={hasImage ? '挂商品图时仅可选视觉(VLM)模型' : '文案生成模型'}>
+                title="文案生成模型(对话或视觉模型均可)">
                 <span className="max-w-[140px] truncate">{currentModelLabel}</span>
                 <ChevronDown className="ml-auto h-3 w-3 opacity-60" />
               </button>
@@ -558,11 +548,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
                 currentPlatform={curModel.platform}
                 allowCapabilities={capFilter}
                 resolveLogo={resolveLogo}
-                emptyLabel={modelsQ.isLoading ? '加载中…' : hasImage ? '未检测到图像对话(VLM)模型' : '无可用模型'}
-                emptyAction={hasImage ? (
+                emptyLabel={modelsQ.isLoading ? '加载中…' : '无可用模型'}
+                emptyAction={(
                   <button type="button" onClick={() => { setPickOpen(false); void navigate({ to: '/model-gallery' as never }); }}
                     className="text-[var(--cy-brand-500)] hover:underline">去模型广场安装</button>
-                ) : undefined}
+                )}
                 onPick={(m) => { if (m.available === false) return; setScriptModel(encodeModel(m)); setPickOpen(false); }}
               />
             </DropdownMenuContent>
@@ -599,7 +589,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       {/* 单形象/同框:整篇 AI 生成 / 参考视频生成稿(同框由后端按句分配)。 */}
       {(mode === 'single' || mode === 'coframe') && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <button type="button" onClick={onAiScript} disabled={scripting || noVlmModel}
+          <button type="button" onClick={onAiScript} disabled={scripting}
             className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-1 text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
             {scripting ? '生成中…' : '✨ AI 生成文案'}
           </button>
@@ -624,13 +614,9 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       {kbMissed && retrievalSources.length === 0 && (
         <div className="text-xs text-[var(--cy-text-tertiary)]">本次未命中知识库内容,文案由模型自由生成。</div>
       )}
-      {noVlmModel && (
-        <div className="flex items-center gap-2 text-xs text-[var(--cy-text-secondary)]">
-          <span>未检测到图像对话(VLM)模型,无法基于商品图生成文案。</span>
-          <button type="button" onClick={() => void navigate({ to: '/model-gallery' as never })}
-            className="text-[var(--cy-brand-500)] hover:underline">
-            去模型广场安装
-          </button>
+      {hasImage && currentModel && inferCapability(currentModel) !== 'vl' && (
+        <div className="text-xs text-[var(--cy-text-tertiary)]">
+          当前为对话模型,不识别图片 —— 将忽略商品图,仅用文字生成文案。需看图带货请选视觉(VLM)模型。
         </div>
       )}
 
@@ -643,7 +629,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
               <div className="flex items-center justify-between">
                 <div className="text-xs font-medium text-[var(--cy-text-secondary)]">{r.name || ('角色' + (i + 1))}</div>
                 <div className="flex items-center gap-1.5">
-                  <button type="button" onClick={() => void onAiScriptRole(i)} disabled={scripting || noVlmModel}
+                  <button type="button" onClick={() => void onAiScriptRole(i)} disabled={scripting}
                     className="rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
                     {scripting ? '生成中…' : '✨ AI 生成'}
                   </button>

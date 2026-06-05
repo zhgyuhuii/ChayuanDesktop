@@ -25,10 +25,33 @@ from typing import Dict, Iterable, Optional
 logger = logging.getLogger("chayuan.model_registry.auto_assign")
 
 
+# panel capability → get_config_models(model_type=) 的类型串,用于判定"已设默认是否真可用"。
+# 只对这三类做失效迁移(语义明确、用户最常踩 glm4-chat);其它 cap 维持"只补空默认"。
+_CAP_TO_MODEL_TYPE = {"chat": "llm", "embedding": "embed", "rerank": "rerank"}
+
+
+def _default_is_usable(panel_cap: str, current: str, local_ids) -> bool:
+    """已设默认 current 是否真可用:在本地候选里(本地已装)或平台已注册模型里(远程配置)。
+    都不在 → 失效残留(如旧 glm4-chat),返回 False。无法判定的 cap 一律按可用处理(不误删)。"""
+    if current in local_ids:
+        return True
+    mt = _CAP_TO_MODEL_TYPE.get(panel_cap)
+    if mt is None:
+        return True  # 不在迁移白名单的 cap,保守保留
+    try:
+        from chayuan.server.utils import get_config_models
+        avail = set(get_config_models(model_type=mt).keys())
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[auto_assign] get_config_models(%s) 失败,保守保留默认: %r", mt, e)
+        return True
+    return current in avail
+
+
 def promote_defaults_from_local(
     *,
     capabilities: Optional[Iterable[str]] = None,
     overwrite: bool = False,
+    migrate_invalid: bool = True,
 ) -> Dict[str, str]:
     """为每个 panel capability,若当前无默认且本地有候选,promote 第一条。
 
@@ -37,6 +60,10 @@ def promote_defaults_from_local(
             ``rerank`` / ``asr`` / ``ocr`` / ``clip`` / ``t2i`` / ``t2v`` / ``tts``)。
             ``None`` 表示对 :data:`LOCAL_TO_PANEL_CAP` 里所有 panel cap 都尝试。
         overwrite: ``True`` 时即使有默认也覆写为本地首选(慎用)。默认 False。
+        migrate_invalid: ``True``(默认)时,对 chat/embedding/rerank,若**已设默认指向
+            既不在本地已装、也不在平台已注册的失效模型**(典型=历史残留 ``glm4-chat``),且
+            本地有候选可替换,则清掉该失效默认改用本地候选。每次启动幂等执行
+            (见 first_launch._model_first_launch),旧装机重启即自动从 glm4-chat 迁到本地模型。
 
     Returns:
         ``{panel_cap: 新写入的 model_id}``;无变更项不在返回里。
@@ -74,11 +101,19 @@ def promote_defaults_from_local(
             continue
         seen_panel_caps.add(panel_cap)
 
+        candidates = idx.by_capability(local_cap)
+
         current = (defaults.get(panel_cap) or "").strip()
         if current and not overwrite:
-            continue
+            # 失效迁移:已设默认指向不存在的模型(如 glm4-chat)且本地有候选 → 清掉换本地候选;
+            # 否则(合法模型 / 无本地候选可换)保留不动。
+            local_ids = {c.model_id for c in candidates}
+            if not (migrate_invalid and candidates
+                    and not _default_is_usable(panel_cap, current, local_ids)):
+                continue
+            logger.info("[auto_assign] %s 默认 '%s' 失效(不在本地已装/平台已注册)"
+                        "且本地有候选 → 迁移到本地模型", panel_cap, current)
 
-        candidates = idx.by_capability(local_cap)
         if not candidates:
             continue
 

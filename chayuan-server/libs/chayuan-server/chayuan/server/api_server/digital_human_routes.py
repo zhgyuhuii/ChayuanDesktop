@@ -430,15 +430,17 @@ def script_generate_multi(body: Dict[str, Any],
 
     try:
         if image_data_urls:
-            # _invoke_llm_multimodal 内部做 best-effort VLM 能力校验 + 构造
-            # content=[{text},{image_url}...] 的多模态 HumanMessage。
-            out = _invoke_llm_multimodal(prompt, image_data_urls, model=eff_model)
+            # _invoke_llm_multimodal 内部做 best-effort VLM 能力校验 + 构造多模态消息。
+            try:
+                out = _invoke_llm_multimodal(prompt, image_data_urls, model=eff_model)
+            except VlmCapabilityError:
+                # 文案=文本脚本:所选模型不支持图像 → 忽略商品图降级纯文字(不报错、不强制 VLM)
+                logger.info("[dh] generate-multi 所选模型不支持图像,忽略商品图纯文字生成")
+                llm = get_ChatOpenAI(model_name=eff_model, temperature=0.7, streaming=False)
+                out = str(llm.invoke([HumanMessage(content=prompt)]).content)
         else:
             llm = get_ChatOpenAI(model_name=eff_model, temperature=0.7, streaming=False)
             out = str(llm.invoke([HumanMessage(content=prompt)]).content)
-    except VlmCapabilityError as e:
-        # 所选模型不支持图像输入 -> 转人话给用户(对齐 /script/generate)。
-        raise HTTPException(422, str(e)) from e
     except Exception as e:  # noqa: BLE001
         logger.warning("[dh] generate-multi LLM 调用失败 model=%s: %r", eff_model, e)
         raise HTTPException(502, "多角色文案生成失败(LLM 调用出错,请检查模型配置)") from e

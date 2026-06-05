@@ -438,9 +438,9 @@ def generate_script(
     prompt 主题提示前,作为「企业知识/参考话术」grounding。与 product_ref
     多模态分支可并存(都拼进同一段 prompt 文本)。
 
-    多模态分支若判定所选模型不支持图像输入,会抛 :class:`VlmCapabilityError`
-    给路由层转人话(不静默回退纯文本,避免「锁了非 VLM 还挂图」时用户拿到
-    一段没看图的文案却不知道为什么)。
+    文案本质是文本脚本:仅当所选模型支持图像输入(VLM)时才看图带货;所选模型不支持
+    图像(普通对话模型)时**忽略商品图、降级纯文字生成**,不报错也不强制用户换 VLM
+    (数字人选模型只为生成脚本,不应被要求必须是视觉模型)。
     """
 
     if not video_subject.strip():
@@ -464,7 +464,14 @@ def generate_script(
     if product_ref:
         data_urls = _product_image_data_urls(product_ref)
         if data_urls:
-            text = _invoke_llm_multimodal(prompt, data_urls, model=model)
+            try:
+                text = _invoke_llm_multimodal(prompt, data_urls, model=model)
+            except VlmCapabilityError:
+                # 所选模型不支持图像 → 文案本是文本,忽略商品图降级纯文字生成(不报错给用户)
+                logger.info("[script] 所选模型不支持图像,忽略商品图,纯文字生成文案")
+                text = _invoke_llm(prompt, model=model)
+            if not text:  # 多模态没产出(空模型/失败兜底)→ 纯文字再试
+                text = _invoke_llm(prompt, model=model)
         else:
             logger.warning("[script] product_ref=%s 未解析到可用图像,回退纯文本", product_ref)
             text = _invoke_llm(prompt, model=model)
