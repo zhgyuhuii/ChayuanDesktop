@@ -19,7 +19,7 @@ _MUSETALK_PORT = 18780
 class DigitalHumanEngine(Protocol):
     def generate(self, *, avatar_path: str, audio_path: str, out_path: str,
                  width: int, height: int,
-                 on_progress: Optional[ProgressCb] = None) -> str: ...
+                 on_progress: Optional[ProgressCb] = None, fps: Optional[float] = None) -> str: ...
 
 
 def _pick_weights_dir(bases) -> Optional[str]:
@@ -69,7 +69,7 @@ class Wav2LipEngine:
 
     def generate(self, *, avatar_path: str, audio_path: str, out_path: str,
                  width: int, height: int,
-                 on_progress: Optional[ProgressCb] = None) -> str:
+                 on_progress: Optional[ProgressCb] = None, fps: Optional[float] = None) -> str:
         from chayuan.server.video_generation.digital_human.wav2lip import infer as w2l
         weights_dir = _resolve_wav2lip_dir()
         if not weights_dir:
@@ -81,7 +81,7 @@ class Wav2LipEngine:
             Wav2LipEngine._handle = w2l.load_models(weights_dir)
         w2l.run(
             handle=Wav2LipEngine._handle, face=avatar_path, audio=audio_path,
-            out_path=out_path, out_size=(width, height), on_progress=on_progress,
+            out_path=out_path, out_size=(width, height), on_progress=on_progress, fps=fps,
         )
         if not os.path.isfile(out_path):
             raise RuntimeError("Wav2Lip 未产出 mp4")
@@ -138,7 +138,7 @@ class SadTalkerEngine:
     """转发到 sadtalker_server sidecar(GPU)。"""
     def generate(self, *, avatar_path: str, audio_path: str, out_path: str,
                  width: int, height: int,
-                 on_progress: Optional[ProgressCb] = None) -> str:
+                 on_progress: Optional[ProgressCb] = None, fps: Optional[float] = None) -> str:
         import httpx
         _sadtalker_ensure_ready()
         if on_progress:
@@ -161,7 +161,7 @@ class MuseTalkEngine:
     """转发到 musetalk_server sidecar(GPU)。"""
     def generate(self, *, avatar_path: str, audio_path: str, out_path: str,
                  width: int, height: int,
-                 on_progress: Optional[ProgressCb] = None) -> str:
+                 on_progress: Optional[ProgressCb] = None, fps: Optional[float] = None) -> str:
         import httpx
         _musetalk_ensure_ready()
         if on_progress:
@@ -204,7 +204,7 @@ class _UnavailableGpuEngine:
 
     def generate(self, *, avatar_path: str, audio_path: str, out_path: str,
                  width: int, height: int,
-                 on_progress: Optional[ProgressCb] = None) -> str:
+                 on_progress: Optional[ProgressCb] = None, fps: Optional[float] = None) -> str:
         raise RuntimeError(
             f"{self._spec.label} 运行时未安装：请在模型广场安装 {self._spec.id} "
             f"运行时后重试（需 GPU）"

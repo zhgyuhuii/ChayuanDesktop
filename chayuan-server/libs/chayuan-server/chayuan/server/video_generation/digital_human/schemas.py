@@ -111,6 +111,7 @@ class DhGenerateRequest(BaseModel):
     role_scripts: Optional[List[str]] = None  # coframe 用:每角色一串,plan 按句轮流交织
     role_segments: Optional[List[Dict[str, Any]]] = None  # sequential 用:有序 [{role_index,text}]
     script_model: str = ""    # 生成文稿用的对话模型(列表视图显示;手输=空)
+    fps: Optional[float] = None  # 速度档:静态形象生成帧率(降 fps=减帧=提速);None=默认(env/25)
 
 
 class DhTaskStatus(BaseModel):

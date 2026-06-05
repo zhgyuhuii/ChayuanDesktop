@@ -156,6 +156,7 @@ def run(
     out_path: str,
     out_size: Tuple[int, int],
     on_progress: Optional[Callable[[int], None]] = None,
+    fps: Optional[float] = None,
 ) -> str:
     """Synthesise lip-sync video.
 
@@ -191,7 +192,13 @@ def run(
     ext = Path(face).suffix.lower()
     if ext in img_exts:
         full_frames = [cv2.imread(face)]
-        fps = _DEFAULT_FPS
+        # 静态形象:fps 可降(减帧=等比提速,时长不变、口型刷新率略降)。优先入参 fps,
+        # 否则 env CHAYUAN_DH_FPS,再否则 25。clamp 8-30。
+        try:
+            _f = float(fps) if fps else float(os.environ.get("CHAYUAN_DH_FPS", "") or _DEFAULT_FPS)
+        except (TypeError, ValueError):
+            _f = _DEFAULT_FPS
+        fps = max(8.0, min(30.0, _f))
         static = True
     else:
         video_stream = cv2.VideoCapture(face)

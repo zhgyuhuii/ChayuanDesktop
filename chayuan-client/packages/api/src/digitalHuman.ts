@@ -379,6 +379,7 @@ export async function dhGenerate(
     role_scripts?: string[];
     role_segments?: Array<{ role_index: number; text: string }>;
     script_model?: string;
+    fps?: number;
   },
 ): Promise<{ task_id: string }> {
   return rd<{ task_id: string }>('/api/v1/digital-human/generate', {
@@ -395,6 +396,7 @@ export async function dhGenerate(
       role_scripts: opts?.role_scripts,
       role_segments: opts?.role_segments,
       script_model: opts?.script_model,
+      fps: opts?.fps,
     },
   });
 }

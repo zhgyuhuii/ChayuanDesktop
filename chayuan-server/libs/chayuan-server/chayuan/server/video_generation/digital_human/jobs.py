@@ -268,7 +268,7 @@ def _probe_duration_ms(path: str) -> int:
         return 0
 
 
-def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, role_scripts=None, role_segments=None):
+def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, role_scripts=None, role_segments=None, fps=None):
     """按 script_router 规划的合成单元生成片段:并发合成各单元音频(各自音色/语速/音量),
     再串行跑 wav2lip(引擎模型共享,避免显存争用)。返回片段路径(按单元顺序)。"""
     from chayuan.server.video_generation.digital_human import script_router as _sr
@@ -327,7 +327,7 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, 
             gw, gh = width, height  # 视频形象/读失败 → 回退画布尺寸
         gw, gh = _gen_dims(gw, gh)   # CPU 压榨:再封顶到 max gen 宽
         get_engine(engine).generate(avatar_path=av, audio_path=ap, out_path=cp,
-                                    width=gw, height=gh, on_progress=None)
+                                    width=gw, height=gh, on_progress=None, fps=fps)
         clips.append(cp)
         unit_roles.append(u.role_index)
         seg_meta.append({"role_index": int(u.role_index), "path": cp,
@@ -626,7 +626,8 @@ def _run_pipeline(tid: str) -> None:
                                     args.get("engine") or "wav2lip", td,
                                     args["width"], args["height"],
                                     role_scripts=args.get("role_scripts"),
-                                    role_segments=args.get("role_segments"))
+                                    role_segments=args.get("role_segments"),
+                                    fps=args.get("fps"))
             from chayuan.server.video_generation.digital_human import compose_multi as _cm
             _set(tid, progress=90)
             # 合成写帧进度 90→99(节流:仅整数变化时上报),避免长视频合成看着卡在 90%。
@@ -714,7 +715,7 @@ def _run_pipeline(tid: str) -> None:
         _gw, _gh = _gen_dims(_gw, _gh)   # CPU 压榨:再按 ≤cap 宽封顶
         get_engine(args.get("engine") or "wav2lip").generate(
             avatar_path=avatar, audio_path=audio_path, out_path=out_path,
-            width=_gw, height=_gh,
+            width=_gw, height=_gh, fps=args.get("fps"),
             on_progress=lambda pct: _set(tid, progress=30 + int(pct * 0.7)),
         )
         _t_infer = time.perf_counter() - _tt
@@ -848,12 +849,12 @@ def submit(*, preset_id: str, text: str, width: int, height: int,
            product_ref: Optional[str] = None, template: str = "none",
            matte: bool = False, engine: str = "wav2lip",
            role_scripts=None, role_segments=None, script=None,
-           script_model: str = "") -> str:
+           script_model: str = "", fps: Optional[float] = None) -> str:
     tid = uuid.uuid4().hex[:12]
     _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height,
                      "product_ref": product_ref, "template": template, "matte": matte,
                      "engine": engine, "role_scripts": role_scripts,
-                     "role_segments": role_segments, "script": script}
+                     "role_segments": role_segments, "script": script, "fps": fps}
     _set(tid, state="pending", progress=0, created_at=time.time(),
          script_model=script_model, engine=engine, preset_id=preset_id)
     _POOL.submit(_run_pipeline, tid)

@@ -141,6 +141,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   // matte (green-screen keying) — only relevant when productRef is set
   const [matte, setMatte] = React.useState(false);
+  // 速度档:静态形象生成帧率。25=标准,18=快速,12=极速(降 fps=减帧=等比提速,时长不变、口型刷新率略降)。
+  const [genFps, setGenFps] = React.useState<number>(25);
 
   // 按次门控（avatar: 数字人合成）
   const gate = useUsageGate('avatar');
@@ -407,6 +409,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       const opts = {
         engine,
         script_model: effectiveModel(curPreset, scriptModel ?? '') || undefined,
+        ...(genFps && genFps < 25 ? { fps: genFps } : {}),  // 速度档:<25 才传(默认 25 不传)
         ...(primaryProductRef ? { product_image: primaryProductRef, matte } : {}),
         ...modeFields,
       };
@@ -532,6 +535,13 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         <select value={engine} onChange={(e) => setEngine(e.target.value as EngineId)} title="画质引擎"
           className="h-8 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)]">
           {engines.map((e) => <option key={e.id} value={e.id}>{e.label}{!e.installed ? ' · 未安装' : ''}</option>)}
+        </select>
+        <select value={genFps} onChange={(e) => setGenFps(Number(e.target.value))}
+          title="速度档:降帧率=减帧=生成更快(时长不变,口型刷新率略降)"
+          className="h-8 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)]">
+          <option value={25}>标准 25fps</option>
+          <option value={18}>快速 18fps</option>
+          <option value={12}>极速 12fps</option>
         </select>
         <select value={pid} onChange={(e) => setPid(e.target.value)} title="数字人"
           className="h-8 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)]">
