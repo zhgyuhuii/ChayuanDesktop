@@ -31,6 +31,14 @@ def _max_parallel() -> int:
 _POOL = ThreadPoolExecutor(max_workers=_max_parallel(), thread_name_prefix="dh")
 _STATUS: Dict[str, DhTaskStatus] = {}
 _LOCK = threading.Lock()
+# 活跃生成任务数(供在线对话自适应:生成中时在线让出 CPU 走纯音频,生成完恢复口型)。
+_ACTIVE = 0
+_ACTIVE_LOCK = threading.Lock()
+
+
+def active_generations() -> int:
+    """当前正在执行的合成任务数(>0 说明 CPU 正被生成占用)。"""
+    return _ACTIVE
 # task_id → 入参。多 worker 并行,但每个 task 只读/弹自己的 tid(不同 key),GIL 下 dict
 # 操作安全,故不加锁。注意:别把 _PENDING 操作塞进 _LOCK —— _set() 已持 _LOCK,在
 # _run_pipeline 内再对 _PENDING 加同一把锁会自死锁。
@@ -658,6 +666,18 @@ def _build_coframe_scene(td, preset, segments, width, height, ffmpeg_exe,
             "audio_path": coaud, "layers": layers, "subtitle": sub}
 
 
+def _run_pipeline_tracked(tid: str) -> None:
+    """包一层活跃计数(生成中在线对话自适应让出 CPU 用),确保 inc/dec 配对。"""
+    global _ACTIVE
+    with _ACTIVE_LOCK:
+        _ACTIVE += 1
+    try:
+        _run_pipeline(tid)
+    finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE -= 1
+
+
 def _run_pipeline(tid: str) -> None:
     args = _PENDING.get(tid) or {}
     try:
@@ -908,7 +928,7 @@ def submit(*, preset_id: str, text: str, width: int, height: int,
                      "bgm_type": bgm_type, "bgm_file": bgm_file, "bgm_volume": bgm_volume}
     _set(tid, state="pending", progress=0, created_at=time.time(),
          script_model=script_model, engine=engine, preset_id=preset_id)
-    _POOL.submit(_run_pipeline, tid)
+    _POOL.submit(_run_pipeline_tracked, tid)
     return tid
 
 

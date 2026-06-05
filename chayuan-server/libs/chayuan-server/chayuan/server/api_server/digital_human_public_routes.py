@@ -379,8 +379,15 @@ def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
             return None
         from chayuan.server.video_generation.compute import get_compute
         _force = os.environ.get("CHAYUAN_DH_SAY_FORCE_LIPS", "") in ("1", "true", "True")
-        if not get_compute().has_cuda and not _force:
-            return None   # CPU 默认走连续音频(语音连贯),不逐句 wav2lip 卡顿
+        if not get_compute().has_cuda:
+            if not _force:
+                return None   # CPU 默认走连续音频(语音连贯),不逐句 wav2lip 卡顿
+            # 强制口型,但若有合成任务在跑 → 让出 CPU,在线本句走纯音频保实时(生成完自动恢复口型)。
+            try:
+                if dh_jobs.active_generations() > 0:
+                    return None
+            except Exception:  # noqa: BLE001
+                pass
         voice = dh_jobs._voice_string(rec.voice_provider, rec.voice_name) or "zh-CN-XiaoxiaoNeural"
         from chayuan.server.modality.service import get_modality_service
         wav = get_modality_service().tts(text, voice=voice, fmt="wav")
