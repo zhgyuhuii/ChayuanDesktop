@@ -107,7 +107,7 @@ def public_config(token: str) -> Dict[str, Any]:
         "viewers": online_presence.count(token),
         "avatar": {
             "kind": rec.avatar_kind, "x": rec.avatar_x, "y": rec.avatar_y,
-            "scale": rec.avatar_scale, "opacity": rec.avatar_opacity,
+            "scale": rec.avatar_scale, "opacity": rec.avatar_opacity, "z": rec.avatar_z,
             "url": base + "/avatar",
         },
         "products": prods,
@@ -523,18 +523,13 @@ _PUBLIC_PAGE = """<!doctype html>
         }catch(e){}
       }
     };
-    if (isAvatar) {
-      // 形象铺满舞台 + object-fit:contain —— 最稳,绝不塌成 0 高(舞台已有显式像素高度)。
-      // 在线 idle 优先「看得见」,不再按 x/y/scale 摆位(商品仍按位置叠在形象上)。
-      el.style.inset = "0";
-      m.style.width = "100%"; m.style.height = "100%"; m.style.objectFit = "contain"; m.style.display = "block";
-    } else {
-      el.style.left = ((L.x || 0) * 100) + "%";
-      el.style.top = ((L.y || 0) * 100) + "%";
-      var sc = (L.scale && L.scale > 0) ? L.scale : 0.32;
-      el.style.width = (sc * 100) + "%";
-      m.style.width = "100%"; m.style.height = "auto"; m.style.display = "block";
-    }
+    // 形象/商品都按工作台排布:归一 x/y/scale 绝对定位、自然比例(height:auto,舞台已有显式高度
+    // → 不塌成 0)。z 决定叠放(形象 z 与商品 z 比较 → 谁在上,避免形象被商品遮住,与合成成片一致)。
+    el.style.left = ((L.x || 0) * 100) + "%";
+    el.style.top = ((L.y || 0) * 100) + "%";
+    var sc = (L.scale && L.scale > 0) ? L.scale : (isAvatar ? 1 : 0.32);
+    el.style.width = (sc * 100) + "%";
+    m.style.width = "100%"; m.style.height = "auto"; m.style.display = "block";
     el.appendChild(m);
     stage.appendChild(el);
   }

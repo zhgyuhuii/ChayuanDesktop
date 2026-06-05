@@ -62,6 +62,7 @@ def _snapshot(preset: DigitalHumanPreset, owner_id: str) -> Dict[str, Any]:
         avatar_y=float(getattr(_av0, "y", 0.0) or 0.0) if _av0 is not None else 0.0,
         avatar_scale=float(getattr(_av0, "scale", 1.0) or 1.0) if _av0 is not None else 1.0,
         avatar_opacity=getattr(_av0, "opacity", None) if _av0 is not None else None,
+        avatar_z=getattr(_av0, "z", None) if _av0 is not None else None,
         products=[p.model_dump() for p in (preset.products or [])],
     )
 

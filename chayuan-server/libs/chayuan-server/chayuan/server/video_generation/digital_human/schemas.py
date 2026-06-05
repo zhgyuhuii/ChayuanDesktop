@@ -155,6 +155,7 @@ class PublishedAvatar(BaseModel):
     avatar_y: float = 0.0
     avatar_scale: float = 1.0
     avatar_opacity: Optional[float] = None
+    avatar_z: Optional[int] = None   # 形象图层叠放顺序(公开页按它与商品 z 决定谁在上,避免被商品遮住)
     products: List[ProductLayer] = Field(default_factory=list)
     # ---- owner 控制 ----
     enabled: bool = True             # 上线开关;False=公开页显示「已下线」
