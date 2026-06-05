@@ -569,7 +569,7 @@ _PUBLIC_PAGE = """<!doctype html>
     fitStage((cfg.ratio && cfg.ratio.w) || 720, (cfg.ratio && cfg.ratio.h) || 1280);
     stage.style.position = "relative";
     stage.innerHTML = "";
-    if (cfg.avatar) addLayer(cfg.avatar, 0, true);     // 形象按设置的大小/位置 idle 展示
+    if (cfg.avatar) { avatarBox = cfg.avatar; addLayer(cfg.avatar, 0, true); }  // 形象按设置的大小/位置 idle 展示
     (cfg.products || []).forEach(function(p, i){ addLayer(p, i + 1, false); });  // 商品图/视频
     viewersEl.textContent = cfg.viewers || 0;
     if (cfg.chat_enabled) { chat.style.display = "flex"; } else { tip.textContent = "该数字人当前仅供观看"; }
@@ -591,7 +591,7 @@ _PUBLIC_PAGE = """<!doctype html>
   // CPU 上无人脸关键点做不出真口型,故不在脸上画假嘴(会「只剩下嘴」),改用边框辉光按
   // 音量律动提示「正在说话」,形象始终完整保留。一个 fetcher 顺序取、一个 player 顺序播,
   // 边播当前句边预取下一句(流畅且不乱序)。
-  var sentQ = [], fetching = false, playQ = [], playing = false, audioCtx = null;
+  var sentQ = [], fetching = false, playQ = [], playing = false, audioCtx = null, avatarBox = null;
   function once(fn){ var c = false; return function(){ if(c) return; c = true; fn(); }; }
 
   // 纯音频兜底(口型片段生成失败时):只播音频,不再加边框辉光(用户反馈像「窗口震动」)。
@@ -605,8 +605,17 @@ _PUBLIC_PAGE = """<!doctype html>
   function playClip(blob, done){
     var url = URL.createObjectURL(blob), ov = document.createElement("video");
     ov.src = url; ov.autoplay = true; ov.playsInline = true; ov.setAttribute("playsinline","");
-    var s = ov.style; s.position="absolute"; s.inset="0"; s.width="100%"; s.height="100%";
-    s.objectFit="contain"; s.background="#000"; s.zIndex="999";
+    var s = ov.style; s.position="absolute"; s.display="block";
+    // 口型片段叠在 idle 形象「同一位置/缩放」上(无缝替换,不再一说话就跳满屏、说完又跳回)。
+    if (avatarBox) {
+      var sc = (avatarBox.scale && avatarBox.scale > 0) ? avatarBox.scale : 1;
+      s.left = ((avatarBox.x || 0) * 100) + "%"; s.top = ((avatarBox.y || 0) * 100) + "%";
+      s.width = (sc * 100) + "%"; s.height = "auto";
+      // 与 idle 形象同 z;DOM 里 clip 在后 → 盖住 idle 形象,但仍在更高 z 的商品之下(层级一致)。
+      ov.style.zIndex = (avatarBox.z != null ? avatarBox.z : 0);
+    } else {
+      s.inset = "0"; s.width = "100%"; s.height = "100%"; s.objectFit = "contain"; s.background = "#000"; s.zIndex = "999";
+    }
     var fin = once(function(){ try{ov.remove();}catch(e){} try{URL.revokeObjectURL(url);}catch(e){} done&&done(); });
     ov.onended = fin; ov.onerror = fin;
     stage.appendChild(ov);
