@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import logging
 import tempfile
+import time
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
@@ -248,6 +249,7 @@ def run(
     batch_size = 128
     gen_frames = []
     gen_coords = []
+    _tm = {"prep": 0.0, "fwd": 0.0, "paste": 0.0}  # 诊断:模型 vs 贴帧 vs 写帧 谁是 CPU 大头
 
     img_batch_buf, mel_batch_buf = [], []
     frame_buf, coord_buf = [], []
@@ -267,7 +269,7 @@ def run(
         if len(img_batch_buf) >= batch_size:
             img_b, mel_b, frames_b, coords_b = _flush_batch(
                 img_batch_buf, mel_batch_buf, frame_buf, coord_buf,
-                model, device
+                model, device, _tm
             )
             gen_frames.extend(frames_b)
             gen_coords.extend(coords_b)
@@ -279,7 +281,7 @@ def run(
     if img_batch_buf:
         img_b, mel_b, frames_b, coords_b = _flush_batch(
             img_batch_buf, mel_batch_buf, frame_buf, coord_buf,
-            model, device
+            model, device, _tm
         )
         gen_frames.extend(frames_b)
         gen_coords.extend(coords_b)
@@ -299,9 +301,15 @@ def run(
             fps,
             (frame_w, frame_h),
         )
+        _tw = time.perf_counter()
         for frame in gen_frames:
             out_writer.write(frame)
         out_writer.release()
+        _t_write = time.perf_counter() - _tw
+
+        # 诊断:模型 forward / 贴帧 / 写 AVI 各耗时 → 判断 ONNX(只加速 forward)值不值得上。
+        logger.info("[wav2lip-profile] frames=%d prep=%.1fs fwd(model)=%.1fs paste=%.1fs write(avi)=%.1fs",
+                    len(gen_frames), _tm["prep"], _tm["fwd"], _tm["paste"], _t_write)
 
         if not os.path.isfile(tmp_avi):
             raise RuntimeError("cv2.VideoWriter 未生成 AVI 文件")
@@ -381,12 +389,14 @@ def _face_detect(images, detector, static: bool):
     return face_det_results
 
 
-def _flush_batch(img_batch, mel_batch, frame_batch, coords_batch, model, device):
-    """Run one batch through the Wav2Lip model and paste predictions back."""
+def _flush_batch(img_batch, mel_batch, frame_batch, coords_batch, model, device, timings=None):
+    """Run one batch through the Wav2Lip model and paste predictions back.
+    timings(可选 dict):累加 prep/fwd/paste 各阶段秒数,供诊断 CPU 瓶颈在模型还是贴帧。"""
     import numpy as np
     import torch
     import cv2
 
+    _t0 = time.perf_counter()
     img_arr = np.asarray(img_batch)   # [B, H, W, 3]
     mel_arr = np.asarray(mel_batch)   # [B, 80, 16]
 
@@ -403,19 +413,26 @@ def _flush_batch(img_batch, mel_batch, frame_batch, coords_batch, model, device)
     # Transpose to [B, C, H, W] (official: (0, 3, 1, 2))
     img_t = torch.FloatTensor(np.transpose(img_input, (0, 3, 1, 2))).to(device)  # [B, 6, H, W]
     mel_t = torch.FloatTensor(np.transpose(mel_input, (0, 3, 1, 2))).to(device)  # [B, 1, 80, 16]
+    if timings is not None:
+        timings["prep"] += time.perf_counter() - _t0
 
+    _t1 = time.perf_counter()
     with torch.no_grad():
         pred = model(mel_t, img_t)  # [B, 3, H, W]
-
     # Official: pred.cpu().numpy().transpose(0,2,3,1) * 255.
     pred_np = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.0  # [B, H, W, 3]
+    if timings is not None:
+        timings["fwd"] += time.perf_counter() - _t1
 
+    _t2 = time.perf_counter()
     out_frames = []
     for p, f, c in zip(pred_np, frame_batch, coords_batch):
         y1, y2, x1, x2 = c
         p_resized = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1))
         f[y1:y2, x1:x2] = p_resized
         out_frames.append(f)
+    if timings is not None:
+        timings["paste"] += time.perf_counter() - _t2
 
     return None, None, out_frames, coords_batch
 
