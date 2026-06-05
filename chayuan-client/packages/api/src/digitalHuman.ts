@@ -120,6 +120,8 @@ export interface DhTaskStatus {
   script_model?: string;   // 生成文稿用的对话模型
   engine?: string;         // 画质引擎
   created_at?: number;     // 提交时间戳
+  preset_id?: string;      // 关联预设(供按角色/数字人搜索)
+  segments?: Array<{ role_index?: number; text?: string; duration_ms?: number }>;  // 多角色各段
 }
 
 export interface DhEngineInfo {
