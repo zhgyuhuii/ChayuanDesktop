@@ -87,6 +87,28 @@ def post_activate(payload: dict = Body(...)):
     # 前端/门控统一按 licensed 判定;redeem_shortcode 返回 ok,这里映射过去。
     r.setdefault("licensed", bool(r.get("ok")))
     r.setdefault("fingerprint", _fp(_root()))
+    # 把解码后的权益摘要合成 grant 字段,供前端「激活成功」态展示模块名+次数/续期天数。
+    # kind=count: {modules, kind, value(次数)}; kind=time: {modules, kind, value(天数,从applied推算)}
+    if r.get("ok") and r.get("modules"):
+        if r.get("kind") == "count":
+            r["grant"] = {"modules": r["modules"], "kind": "count", "value": r.get("added", 0)}
+        elif r.get("kind") == "time":
+            # applied 是 [{app, timeExpireAt}...]; 天数从 engine 的 fields[value] 取不到了,
+            # 但 shortcode.fields["value"] 已在 engine 内部用完(未透传)。
+            # 退而用 applied 中第一个模块的 timeExpireAt 与 now 推算剩余天数(向上取整)。
+            import math as _math
+            import datetime as _dt
+            applied = r.get("applied", [])
+            value = 0
+            if applied:
+                exp_iso = applied[0].get("timeExpireAt", "")
+                try:
+                    exp_ts = _dt.datetime.fromisoformat(exp_iso.replace("Z", "+00:00")).timestamp()
+                    now_ts = _dt.datetime.now(_dt.timezone.utc).timestamp()
+                    value = max(0, _math.ceil((exp_ts - now_ts) / 86400))
+                except Exception:
+                    value = 0
+            r["grant"] = {"modules": r["modules"], "kind": "time", "value": value}
     return r
 
 
