@@ -306,9 +306,11 @@ def script_generate(body: Dict[str, Any],
     product_ref = (body.get("product_ref") or "").strip() or None
 
     kb_top_k = int(body.get("kb_top_k", 5) or 5)
+    _req_ku = [str(x) for x in (body.get("ku_ids") or []) if str(x).strip()]
     kb_context, kb_sources = _retrieve_kb_context(
-        user, body.get("ku_ids") or [], subject_text, top_k=kb_top_k,
+        user, _req_ku, subject_text, top_k=kb_top_k,
     )
+    logger.info("[dh] script/generate ku_ids=%d kb_hits=%d", len(_req_ku), len(kb_sources))
 
     try:
         text = generate_script(

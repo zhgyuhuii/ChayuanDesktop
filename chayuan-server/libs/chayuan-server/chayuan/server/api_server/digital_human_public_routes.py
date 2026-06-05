@@ -232,17 +232,22 @@ async def public_chat(token: str, body: Dict[str, Any], request: Request):
         metadata["system"] = rec.persona
     uid = int(rec.owner_id) if (rec.owner_id or "").isdigit() else None
 
+    _ku = list(rec.ku_ids or [])
     req = ChatRequest(
         query=message,
+        # 设了知识库 → mode="kb" 强制走 KB 检索问答(与新建对话设了 KB 一致);
+        # 否则 mode=None 由 classify 决定,普通提问不会检索 → 用户报「在线没用知识库」。
+        mode="kb" if _ku else None,
         history=list(history)[-12:],     # 限制上下文长度
         stream=True,
         model=rec.model or "",
-        ku_ids=list(rec.ku_ids or []),
+        ku_ids=_ku,
         temperature=0.3,
         user_id=uid,
         governance_enabled=True,
         metadata=metadata,
     )
+    logger.info("[dh-public] chat token=%s ku_ids=%d mode=%s", token, len(_ku), "kb" if _ku else "auto")
     return EventSourceResponse(run_chat_stream(req))
 
 
