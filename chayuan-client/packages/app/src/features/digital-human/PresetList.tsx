@@ -4,9 +4,9 @@
  * 若 editing 不为 null,内联渲染 PresetEditor;否则显示预设卡片网格。
  */
 import * as React from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { Pencil, Trash2, Plus, Loader2, Radio, Sparkles } from 'lucide-react';
+import { Pencil, Trash2, Plus, Loader2, ExternalLink, Sparkles } from 'lucide-react';
 import { cn } from '@chayuan/ui';
+import { getPlatform } from '@chayuan/platform-shared';
 import { digitalHuman, type DigitalHumanPreset } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
 import { confirmDialog } from '../../store/confirmDialog';
@@ -20,9 +20,24 @@ interface PresetListProps {
 }
 
 export const PresetList: React.FC<PresetListProps> = ({ presets, onChanged, onGenerate }) => {
-  const navigate = useNavigate();
   const [editing, setEditing] = React.useState<DigitalHumanPreset | 'new' | null>(null);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const [openingId, setOpeningId] = React.useState<string | null>(null);
+
+  // 发布(同 preset 幂等复用已发布记录)并打开公开页对话 —— 统一到公开页一套体验,
+  // 替代已移除的 LiveAvatarPage(/digital-human/live)。仅单形象可发布。
+  const onOpenPublic = async (p: DigitalHumanPreset) => {
+    setOpeningId(p.id);
+    try {
+      const rec = await digitalHuman.publish(p.id);
+      try { await getPlatform().shell.openExternal(rec.url); }
+      catch { window.open(rec.url, '_blank'); }
+    } catch (err) {
+      reportError(err as Error, '打开公开页失败(多人/分段数字人不支持在线对话)');
+    } finally {
+      setOpeningId(null);
+    }
+  };
 
   const onDelete = async (p: DigitalHumanPreset) => {
     if (!(await confirmDialog(`删除数字人"${p.name}"?不可恢复。`, { danger: true }))) return;
@@ -71,15 +86,16 @@ export const PresetList: React.FC<PresetListProps> = ({ presets, onChanged, onGe
           <span className="truncate text-[10px] text-[var(--cy-text-tertiary)]" title={p.voice_name || p.voice_provider}>
             {p.voice_name || p.voice_provider}
           </span>
-          {/* 快捷入口:实时对话 / 生成 */}
+          {/* 快捷入口:发布/打开公开页对话 / 生成 */}
           <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() => void navigate({ to: '/digital-human/live' as never })}
-              title="进入实时对话"
-              className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md bg-[var(--cy-brand-500)] text-[10px] text-white hover:bg-[var(--cy-brand-600)]"
+              onClick={() => void onOpenPublic(p)}
+              disabled={openingId === p.id}
+              title="发布并打开公开页(在线对话)"
+              className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md bg-[var(--cy-brand-500)] text-[10px] text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50"
             >
-              <Radio className="h-3 w-3" /> 实时对话
+              <ExternalLink className="h-3 w-3" /> {openingId === p.id ? '打开中…' : '打开公开页'}
             </button>
             <button
               type="button"
