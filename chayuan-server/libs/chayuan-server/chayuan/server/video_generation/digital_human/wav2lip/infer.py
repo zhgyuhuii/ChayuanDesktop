@@ -529,8 +529,10 @@ def _mux_audio(
         "-shortest",
         "-vf", f"scale={out_w}:{out_h}",
         "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "18",
+        # presenter 多数情况会被 ffcompose 再编码一次 → 这步用更快的档省时间(质量由末轮 ffcompose 定)。
+        # 默认 veryfast/crf20(比 fast/crf18 编码快约 1.5-2x);可用 CHAYUAN_DH_MUX_PRESET / _CRF 调。
+        "-preset", os.environ.get("CHAYUAN_DH_MUX_PRESET", "veryfast") or "veryfast",
+        "-crf", os.environ.get("CHAYUAN_DH_MUX_CRF", "20") or "20",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-strict", "-2",
