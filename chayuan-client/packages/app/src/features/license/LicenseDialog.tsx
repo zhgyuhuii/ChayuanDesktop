@@ -7,7 +7,7 @@
  * - 序列号手输 → store.activateSerial（B1，后端验签）。
  */
 
-import { type PayChannels, licenseBuyUrl, licenseFingerprint } from '@chayuan/api';
+import { type PayChannels, licenseBuyUrl, licenseFingerprint } from "@chayuan/api";
 import {
   Button,
   Dialog,
@@ -17,11 +17,13 @@ import {
   DialogTitle,
   Input,
   SegmentedTabs,
-} from '@chayuan/ui';
-import { Check, Copy, Fingerprint, Gift, KeyRound } from 'lucide-react';
-import QRCode from 'qrcode';
-import * as React from 'react';
-import { useLicenseStore } from './licenseStore';
+} from "@chayuan/ui";
+import { Check, CheckCircle2, Copy, Fingerprint, Gift, KeyRound } from "lucide-react";
+import QRCode from "qrcode";
+import * as React from "react";
+import { FOLLOW_QR_URL } from "../../lib/brandAssets";
+import { useLicenseStore } from "./licenseStore";
+import { USER_AGREEMENT_BODY, USER_AGREEMENT_TITLE } from "./userAgreement";
 
 export interface LicenseDialogProps {
   app: string;
@@ -31,16 +33,21 @@ export interface LicenseDialogProps {
 
 export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): React.ReactElement {
   const store = useLicenseStore();
-  const [qr, setQr] = React.useState<string>('');
-  const [buyUrl, setBuyUrl] = React.useState<string>('');
+  const [qr, setQr] = React.useState<string>("");
+  const [buyUrl, setBuyUrl] = React.useState<string>("");
   const [channels, setChannels] = React.useState<PayChannels | null>(null);
-  const [serial, setSerial] = React.useState('');
-  const [fingerprint, setFingerprint] = React.useState('');
+  const [serial, setSerial] = React.useState("");
+  const [fingerprint, setFingerprint] = React.useState("");
   const [fpCopied, setFpCopied] = React.useState(false);
-  const [qrTab, setQrTab] = React.useState<'buy' | 'share'>('buy');
-  const shareUrl = buyUrl ? new URL(buyUrl).origin + '/share?mid=' + fingerprint : '';
+  const [qrTab, setQrTab] = React.useState<"buy" | "share">("buy");
+  const shareUrl = buyUrl ? new URL(buyUrl).origin + "/share?mid=" + fingerprint : "";
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
+  const [agreeOpen, setAgreeOpen] = React.useState(false);
+
+  /** 激活成功后的权益信息 */
+  const [successExpireAt, setSuccessExpireAt] = React.useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = React.useState(false);
 
   // 取购买链接 + 支持的支付渠道（后端拼 指纹 + app）→ 生成离线二维码。
   React.useEffect(() => {
@@ -53,7 +60,7 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
         setChannels(r.channels ?? null);
       })
       .catch(() => {
-        if (alive) setBuyUrl('');
+        if (alive) setBuyUrl("");
       });
     return () => {
       alive = false;
@@ -65,8 +72,16 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
     let alive = true;
     licenseFingerprint()
       .then((r) => { if (alive) setFingerprint(r.fingerprint); })
-      .catch(() => { if (alive) setFingerprint(''); });
+      .catch(() => { if (alive) setFingerprint(""); });
     return () => { alive = false; };
+  }, [open]);
+
+  // 关窗时重置成功态
+  React.useEffect(() => {
+    if (!open) {
+      setShowSuccess(false);
+      setSuccessExpireAt(null);
+    }
   }, [open]);
 
   const onCopyFp = async () => {
@@ -83,27 +98,32 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
   const scanText = channelScanText(channels);
 
   React.useEffect(() => {
-    const url = qrTab === 'buy' ? buyUrl : shareUrl;
+    const url = qrTab === "buy" ? buyUrl : shareUrl;
     if (!url) {
-      setQr('');
+      setQr("");
       return;
     }
     QRCode.toDataURL(url, { margin: 1, width: 220 })
       .then(setQr)
-      .catch(() => setQr(''));
+      .catch(() => setQr(""));
   }, [buyUrl, shareUrl, qrTab]);
 
   // fn 返回 null = 无操作（如用户取消选文件），不报错、不关窗。
   async function run(
-    fn: () => Promise<{ licensed: boolean; reason?: string } | null>,
+    fn: () => Promise<{ licensed: boolean; expireAt?: string; reason?: string } | null>,
   ): Promise<void> {
     setBusy(true);
     setErr(null);
     try {
       const s = await fn();
       if (!s) return;
-      if (s.licensed) onOpenChange(false);
-      else setErr(reasonText(s.reason));
+      if (s.licensed) {
+        // 激活成功 → 展示权益态，用户点「完成」再关窗
+        setSuccessExpireAt(s.expireAt ?? null);
+        setShowSuccess(true);
+      } else {
+        setErr(reasonText(s.reason));
+      }
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -113,131 +133,222 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
 
   const onConfirmSerial = () => run(() => store.activateSerial(app, serial.trim()));
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>激活授权</DialogTitle>
-          <DialogDescription>
-            {qrTab === 'share'
-              ? '用微信「扫一扫」此码打开分享页，分享给好友/朋友圈即可领取使用次数。'
-              : '手机扫码购买后，把序列号填入下方激活。'}
-          </DialogDescription>
-        </DialogHeader>
-        <SegmentedTabs
-          value={qrTab}
-          onChange={(v) => setQrTab(v as 'buy' | 'share')}
-          items={[
-            { value: 'buy', label: '扫码购买' },
-            { value: 'share', label: '分享获取使用次数' },
-          ]}
-        />
-
-        <div className="flex flex-col items-center gap-3 py-2">
-          {/* 二维码卡片 */}
-          <div className="flex flex-col items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm">
-            {/* QR 固定白底，深色模式也要能扫 */}
-            <div className="rounded-xl bg-white p-3">
-              {qr ? (
-                <img src={qr} alt="购买二维码" width={200} height={200} />
-              ) : (
-                <div className="h-[200px] w-[200px] animate-pulse rounded bg-muted" />
-              )}
+  // ── 成功态 ────────────────────────────────────────────────────────────────
+  if (showSuccess) {
+    const expireLabel = successExpireAt ? formatExpireAt(successExpireAt) : null;
+    return (
+      <>
+        <Dialog open={open} onOpenChange={onOpenChange}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>授权激活成功</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col items-center gap-4 py-4">
+              <div className="flex size-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/40">
+                <CheckCircle2 className="size-9 text-green-600 dark:text-green-400" />
+              </div>
+              <div className="space-y-1 text-center">
+                <p className="text-base font-semibold text-foreground">激活成功，授权已生效</p>
+                {expireLabel ? (
+                  <p className="text-sm text-muted-foreground">授权有效期至 {expireLabel}</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">请尽情使用本产品功能</p>
+                )}
+              </div>
             </div>
-
-            {/* buy 态：支付渠道 logo */}
-            {qrTab === 'buy' && channels && (channels.wechat || channels.alipay) ? (
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground">{scanText}</span>
-                {channels.wechat ? <WeChatLogo /> : null}
-                {channels.alipay ? <AlipayLogo /> : null}
-              </div>
-            ) : null}
-
-            {/* share 态：分享提示 */}
-            {qrTab === 'share' ? (
-              <div className="flex items-center gap-1.5">
-                <Gift size={16} className="text-primary" />
-                <span className="text-sm font-medium text-primary">
-                  分享给好友 / 朋友圈，免费领使用次数
-                </span>
-              </div>
-            ) : null}
-          </div>
-
-          {/* buy 态：手机打开购买页链接 */}
-          {qrTab === 'buy' && buyUrl ? (
-            <a
-              className="text-xs text-muted-foreground underline"
-              href={buyUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              或在手机中打开购买页
-            </a>
-          ) : null}
-
-          {/* 指纹信息条 */}
-          {fingerprint ? (
-            <div className="w-full">
-              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs">
-                <Fingerprint className="size-4 shrink-0 text-muted-foreground" />
-                <span className="text-muted-foreground">本机指纹</span>
-                <code className="flex-1 truncate font-mono text-foreground">{fingerprint}</code>
-                <button
-                  type="button"
-                  className="flex shrink-0 items-center gap-1 text-muted-foreground hover:text-primary"
-                  onClick={() => void onCopyFp()}
-                >
-                  {fpCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-                  <span>{fpCopied ? '已复制' : '复制'}</span>
-                </button>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                在电脑浏览器打开 aidooo.com/buy，粘贴此指纹号下单；付款后把序列号填到下方激活。
-              </p>
-            </div>
-          ) : null}
-        </div>
-
-        {/* 分隔线 */}
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          <div className="h-px flex-1 bg-border" />
-          <span>或手动输入序列号</span>
-          <div className="h-px flex-1 bg-border" />
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor="lic-serial">
-            <KeyRound className="size-4" />
-            序列号
-          </label>
-          <div className="flex gap-2">
-            <Input
-              id="lic-serial"
-              value={serial}
-              onChange={(e) => setSerial(e.target.value)}
-              placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXX"
-              autoComplete="off"
-            />
-            <Button onClick={onConfirmSerial} disabled={busy || serial.trim().length === 0}>
-              确定
+            <Button className="w-full" onClick={() => onOpenChange(false)}>
+              完成
             </Button>
+          </DialogContent>
+        </Dialog>
+        {/* 协议弹窗（不受成功态影响，保留可访问性） */}
+        <Dialog open={agreeOpen} onOpenChange={setAgreeOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{USER_AGREEMENT_TITLE}</DialogTitle>
+            </DialogHeader>
+            <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap text-sm text-foreground">
+              {USER_AGREEMENT_BODY}
+            </div>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>激活授权</DialogTitle>
+            <DialogDescription>
+              {qrTab === "share"
+                ? "用微信「扫一扫」此码打开分享页，分享给好友/朋友圈即可领取使用次数。"
+                : "手机扫码购买后，把序列号填入下方激活。"}
+            </DialogDescription>
+          </DialogHeader>
+          <SegmentedTabs
+            value={qrTab}
+            onChange={(v) => setQrTab(v as "buy" | "share")}
+            items={[
+              { value: "buy", label: "扫码购买" },
+              { value: "share", label: "分享获取使用次数" },
+            ]}
+          />
+
+          <div className="flex flex-col items-center gap-3 py-2">
+            {/* 二维码卡片 */}
+            <div className="flex flex-col items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm">
+              {/* QR 固定白底，深色模式也要能扫 */}
+              <div className="rounded-xl bg-white p-3">
+                {qr ? (
+                  <img src={qr} alt="购买二维码" width={200} height={200} />
+                ) : (
+                  <div className="h-[200px] w-[200px] animate-pulse rounded bg-muted" />
+                )}
+              </div>
+
+              {/* buy 态：支付渠道 logo */}
+              {qrTab === "buy" && channels && (channels.wechat || channels.alipay) ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">{scanText}</span>
+                  {channels.wechat ? <WeChatLogo /> : null}
+                  {channels.alipay ? <AlipayLogo /> : null}
+                </div>
+              ) : null}
+
+              {/* share 态：分享提示 */}
+              {qrTab === "share" ? (
+                <div className="flex items-center gap-1.5">
+                  <Gift size={16} className="text-primary" />
+                  <span className="text-sm font-medium text-primary">
+                    分享给好友 / 朋友圈，免费领使用次数
+                  </span>
+                </div>
+              ) : null}
+            </div>
+
+            {/* buy 态：手机打开购买页链接 */}
+            {qrTab === "buy" && buyUrl ? (
+              <a
+                className="text-xs text-muted-foreground underline"
+                href={buyUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                或在手机中打开购买页
+              </a>
+            ) : null}
+
+            {/* 指纹信息条 */}
+            {fingerprint ? (
+              <div className="w-full">
+                <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs">
+                  <Fingerprint className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="text-muted-foreground">本机指纹</span>
+                  <code className="flex-1 truncate font-mono text-foreground">{fingerprint}</code>
+                  <button
+                    type="button"
+                    className="flex shrink-0 items-center gap-1 text-muted-foreground hover:text-primary"
+                    onClick={() => void onCopyFp()}
+                  >
+                    {fpCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                    <span>{fpCopied ? "已复制" : "复制"}</span>
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  在电脑浏览器打开 aidooo.com/buy，粘贴此指纹号下单；付款后把序列号填到下方激活。
+                </p>
+              </div>
+            ) : null}
           </div>
-          {err ? <p className="text-sm text-destructive">{err}</p> : null}
-        </div>
-      </DialogContent>
-    </Dialog>
+
+          {/* 分隔线 */}
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="h-px flex-1 bg-border" />
+            <span>或手动输入序列号</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor="lic-serial">
+              <KeyRound className="size-4" />
+              序列号
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="lic-serial"
+                value={serial}
+                onChange={(e) => setSerial(e.target.value)}
+                placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXX"
+                autoComplete="off"
+              />
+              <Button onClick={onConfirmSerial} disabled={busy || serial.trim().length === 0}>
+                确定
+              </Button>
+            </div>
+            {err ? <p className="text-sm text-destructive">{err}</p> : null}
+          </div>
+
+          {/* 公众号引流区 */}
+          <div className="flex flex-col items-center gap-2 rounded-lg border bg-muted/30 p-3">
+            <img
+              src={FOLLOW_QR_URL}
+              alt="智灵鸟科技公众号"
+              className="size-28 rounded bg-white p-1"
+            />
+            <p className="text-center text-xs text-muted-foreground">
+              购买后如未记录序列号，可关注「智灵鸟科技」公众号凭本机指纹查询
+            </p>
+          </div>
+
+          {/* 用户协议小字 */}
+          <div className="text-center text-xs text-muted-foreground">
+            购买即视为同意{" "}
+            <button
+              type="button"
+              className="text-primary hover:underline"
+              onClick={() => setAgreeOpen(true)}
+            >
+              《{USER_AGREEMENT_TITLE}》
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 本地用户协议 Dialog */}
+      <Dialog open={agreeOpen} onOpenChange={setAgreeOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{USER_AGREEMENT_TITLE}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap text-sm text-foreground">
+            {USER_AGREEMENT_BODY}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
+}
+
+/** 格式化 ISO 到期时间为可读形式。 */
+function formatExpireAt(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
+  } catch {
+    return iso;
+  }
 }
 
 /** 按支持的渠道给扫码提示文案。 */
 function channelScanText(ch: PayChannels | null): string {
-  if (!ch) return '扫码购买';
-  if (ch.wechat && ch.alipay) return '微信 / 支付宝 扫码购买';
-  if (ch.wechat) return '微信扫码购买';
-  if (ch.alipay) return '支付宝扫码购买';
-  return '扫码购买';
+  if (!ch) return "扫码购买";
+  if (ch.wechat && ch.alipay) return "微信 / 支付宝 扫码购买";
+  if (ch.wechat) return "微信扫码购买";
+  if (ch.alipay) return "支付宝扫码购买";
+  return "扫码购买";
 }
 
 /** 微信官方 logo(brand 路径 + 官方绿)。 */
@@ -249,7 +360,7 @@ function WeChatLogo(): React.ReactElement {
       height={22}
       aria-label="微信支付"
       role="img"
-      style={{ color: '#07c160' }}
+      style={{ color: "#07c160" }}
     >
       <path
         fill="currentColor"
@@ -268,7 +379,7 @@ function AlipayLogo(): React.ReactElement {
       height={22}
       aria-label="支付宝"
       role="img"
-      style={{ color: '#1677ff' }}
+      style={{ color: "#1677ff" }}
     >
       <path
         fill="currentColor"
@@ -280,23 +391,23 @@ function AlipayLogo(): React.ReactElement {
 
 function reasonText(reason?: string): string {
   switch (reason) {
-    case 'expired':
-      return '授权已过期，请续费。';
-    case 'rollback':
-      return '检测到系统时间被回拨，请联网校时后重试。';
-    case 'mismatch':
-      return '该授权不属于本机器。';
-    case 'invalid-app':
-      return '该授权适用于其他产品，请使用对应产品的授权码。';
-    case 'signature':
-      return '序列号校验失败,请核对是否填写完整、购买时是否填对了本机指纹。';
-    case 'no-module':
-      return '此序列号对应的功能模块未在本机授权表中。请确认桌面已更新到最新版本后重试。';
-    case 'unknown-key':
-      return '序列号密钥版本与本机不匹配,请更新桌面版本。';
-    case 'used':
-      return '该序列号已被使用过。';
+    case "expired":
+      return "授权已过期，请续费。";
+    case "rollback":
+      return "检测到系统时间被回拨，请联网校时后重试。";
+    case "mismatch":
+      return "该授权不属于本机器。";
+    case "invalid-app":
+      return "该授权适用于其他产品，请使用对应产品的授权码。";
+    case "signature":
+      return "序列号校验失败,请核对是否填写完整、购买时是否填对了本机指纹。";
+    case "no-module":
+      return "此序列号对应的功能模块未在本机授权表中。请确认桌面已更新到最新版本后重试。";
+    case "unknown-key":
+      return "序列号密钥版本与本机不匹配,请更新桌面版本。";
+    case "used":
+      return "该序列号已被使用过。";
     default:
-      return '激活失败，请核对序列号或稍后重试。';
+      return "激活失败，请核对序列号或稍后重试。";
   }
 }
