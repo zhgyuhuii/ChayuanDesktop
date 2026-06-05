@@ -259,7 +259,63 @@ def _tts_parallel(text: str, voice: str) -> bytes:
             return f.read()
 
 
-# ---- 口型一致:把回复交给生成管线生成「该形象对口型说这句」的视频(含商品/场景合成) ----
+def _say_clip_bytes(rec, text: str) -> Optional[bytes]:
+    """GPU 路径:为单句即时生成「该形象对口型说这句」的短视频片段(仅形象口型,不合成
+    商品/场景,实时优先)。返回 mp4 字节;无 GPU / 无形象 / 失败 → None(调用方回退纯音频)。"""
+    try:
+        from chayuan.server.video_generation.compute import get_compute
+        if not get_compute().has_cuda:
+            return None  # CPU:不跑 wav2lip(逐句也太慢),走音频流式 + 前端口型动画
+        avatar = store.resolve_avatar_path(getattr(rec, "avatar_ref", "") or "")
+        if not avatar:
+            return None
+        voice = dh_jobs._voice_string(rec.voice_provider, rec.voice_name) or "zh-CN-XiaoxiaoNeural"
+        from chayuan.server.modality.service import get_modality_service
+        wav = get_modality_service().tts(text, voice=voice, fmt="wav")
+        if not wav:
+            return None
+        from chayuan.server.video_generation.digital_human.engine import get_engine
+        with tempfile.TemporaryDirectory() as d:
+            ap = os.path.join(d, "say.wav")
+            with open(ap, "wb") as f:
+                f.write(wav)
+            out = os.path.join(d, "say.mp4")
+            gw, gh = dh_jobs._gen_dims(rec.video_width, rec.video_height)
+            get_engine("wav2lip").generate(avatar_path=avatar, audio_path=ap,
+                                           out_path=out, width=gw, height=gh)
+            with open(out, "rb") as f:
+                return f.read()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh-public] say clip 失败,回退音频: %r", e)
+        return None
+
+
+@digital_human_public_router.post(_PUB + "/{token}/say")
+def public_say(token: str, body: Dict[str, Any], request: Request) -> Response:
+    """实时对话:为一句话即时返回「口型片段」,边生成边播、播完即弃(不落盘成片)。
+    自适应:GPU 返回该句口型 mp4(X-Talk-Kind: video);CPU/无形象 返回该句音频 mp3
+    (X-Talk-Kind: audio,前端用音频振幅实时驱动口型)。"""
+    rec = _live(token)
+    if not rec.chat_enabled:
+        raise HTTPException(status_code=403, detail="该数字人未开放对话")
+    if not _rate_ok(token, _client_ip(request), rec.rate_per_min, rec.daily_cap):
+        raise HTTPException(status_code=429, detail="访问过于频繁,请稍后再试")
+    text = str(body.get("text") or "").strip()[:300]
+    if not text:
+        raise HTTPException(status_code=400, detail="文本为空")
+    clip = _say_clip_bytes(rec, text)
+    if clip:
+        return Response(content=clip, media_type="video/mp4", headers={"X-Talk-Kind": "video"})
+    voice = dh_jobs._voice_string(rec.voice_provider, rec.voice_name) or "zh-CN-XiaoxiaoNeural"
+    try:
+        audio = _tts_parallel(text, voice)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh-public] say tts 失败: %r", e)
+        raise HTTPException(status_code=503, detail="语音合成不可用")
+    return Response(content=audio, media_type="audio/mpeg", headers={"X-Talk-Kind": "audio"})
+
+
+# ---- (旧)口型一致:整段合成保存视频 —— 已被 /say 句级流式取代,保留兼容 ----
 _TALK: Dict[str, list] = {}   # token -> [tid,...];仅本 token 生成的任务可查/取,防枚举
 
 
@@ -441,47 +497,75 @@ _PUBLIC_PAGE = """<!doctype html>
     };
   }catch(e){}
 
-  function playTts(text){
-    if(!text || !text.trim()) return;
-    fetch(base + "/tts", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({text: text})}).then(function(r){
-      if(!r.ok) return null; return r.blob();
-    }).then(function(b){ if(b){ var a = new Audio(URL.createObjectURL(b)); a.play().catch(function(){}); } }).catch(function(){});
+  // ── 实时口型:句级流式 /say 队列播放,边生成边播、播完即弃 ──────────────
+  // 后端自适应:GPU 返回该句口型 mp4(覆盖播放),CPU 返回该句音频(振幅实时驱动口型)。
+  var sayQ = [], sayBusy = false, audioCtx = null, mouthEl = null;
+
+  function ensureMouth(){
+    if (mouthEl) return mouthEl;
+    mouthEl = document.createElement("div");
+    var s = mouthEl.style;
+    s.position="absolute"; s.left="50%"; s.top="72%"; s.width="14%"; s.height="6%";
+    s.transform="translate(-50%,-50%) scaleY(0.12)"; s.background="rgba(24,10,10,0.8)";
+    s.borderRadius="50%"; s.zIndex="900"; s.pointerEvents="none"; s.transition="transform 55ms linear";
+    s.display="none";
+    stage.appendChild(mouthEl);
+    return mouthEl;
   }
 
-  // 口型一致:把回复交给后端生成「该形象对口型说这句话」的视频(含商品/场景),播完恢复 idle。
-  // 失败/超时回退纯音频 playTts。
-  function showTalkVideo(url){
-    var ov = document.createElement("video");
-    ov.src = url; ov.autoplay = true; ov.playsInline = true; ov.setAttribute("playsinline","");
-    ov.style.position = "absolute"; ov.style.inset = "0"; ov.style.width = "100%";
-    ov.style.height = "100%"; ov.style.objectFit = "contain"; ov.style.background = "#000";
-    ov.style.zIndex = "999";
-    ov.onended = function(){ try{ ov.remove(); }catch(e){} };
-    stage.appendChild(ov);
-    ov.play().catch(function(){});
+  function playAudioWithMouth(blob, done){
+    var url = URL.createObjectURL(blob), a = new Audio(url), mouth = ensureMouth();
+    mouth.style.display = "block";
+    var raf = 0, fin = function(){ if(raf) cancelAnimationFrame(raf); mouth.style.display="none"; try{URL.revokeObjectURL(url);}catch(e){} done&&done(); };
+    try{
+      audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+      if(audioCtx.state === "suspended") audioCtx.resume();
+      var srcN = audioCtx.createMediaElementSource(a), an = audioCtx.createAnalyser();
+      an.fftSize = 256; srcN.connect(an); an.connect(audioCtx.destination);
+      var data = new Uint8Array(an.frequencyBinCount);
+      (function tick(){
+        an.getByteTimeDomainData(data);
+        var sum=0; for(var i=0;i<data.length;i++){ var v=(data[i]-128)/128; sum+=v*v; }
+        var rms = Math.sqrt(sum/data.length), open = Math.min(1, 0.1 + rms*3.4);
+        mouth.style.transform = "translate(-50%,-50%) scaleY(" + open.toFixed(2) + ")";
+        raf = requestAnimationFrame(tick);
+      })();
+    }catch(e){ /* WebAudio 不可用:仍播音频,口型不动 */ }
+    a.onended = fin; a.onerror = fin;
+    a.play().catch(fin);
   }
-  function playTalk(text){
-    if(!text || !text.trim()) return;
-    tip.textContent = "生成口型中…";
-    fetch(base + "/talk", {method:"POST", headers:{"Content-Type":"application/json"},
+
+  function playClip(blob, done){
+    var url = URL.createObjectURL(blob), ov = document.createElement("video");
+    ov.src = url; ov.autoplay = true; ov.playsInline = true; ov.setAttribute("playsinline","");
+    var s = ov.style; s.position="absolute"; s.inset="0"; s.width="100%"; s.height="100%";
+    s.objectFit="contain"; s.background="#000"; s.zIndex="999";
+    var fin = function(){ try{ov.remove();}catch(e){} try{URL.revokeObjectURL(url);}catch(e){} done&&done(); };
+    ov.onended = fin; ov.onerror = fin;
+    stage.appendChild(ov);
+    ov.play().catch(fin);
+  }
+
+  function pumpSay(){
+    if (sayBusy) return;
+    if (!sayQ.length) return;
+    var text = sayQ.shift();
+    sayBusy = true;
+    var next = function(){ sayBusy = false; pumpSay(); };
+    fetch(base + "/say", {method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({text: text})}).then(function(r){
-      return r.ok ? r.json() : Promise.reject();
-    }).then(function(j){
-      var tid = j && j.task_id;
-      if(!tid){ tip.textContent = ""; playTts(text); return; }
-      var tries = 0;
-      function poll(){
-        tries++;
-        if(tries > 600){ tip.textContent = ""; playTts(text); return; }  // ~15min 上限兜底
-        fetch(base + "/talk/" + tid).then(function(r){ return r.json(); }).then(function(s){
-          if(s.state === "complete"){ tip.textContent = ""; showTalkVideo(base + "/talk/" + tid + "/file"); }
-          else if(s.state === "failed" || s.state === "canceled"){ tip.textContent = ""; playTts(text); }
-          else { tip.textContent = "生成口型中… " + (s.progress || 0) + "%"; setTimeout(poll, 1500); }
-        }).catch(function(){ tip.textContent = ""; playTts(text); });
-      }
-      poll();
-    }).catch(function(){ tip.textContent = ""; playTts(text); });
+      if(!r.ok) throw new Error("say");
+      var kind = (r.headers.get("X-Talk-Kind") || "audio");
+      return r.blob().then(function(b){ return {kind:kind, blob:b}; });
+    }).then(function(o){
+      if(o.kind === "video") playClip(o.blob, next); else playAudioWithMouth(o.blob, next);
+    }).catch(next);
+  }
+
+  function enqueueSay(text){
+    if(!text || !text.trim()) return;
+    sayQ.push(text.trim());
+    pumpSay();
   }
 
   function send(){
@@ -491,7 +575,18 @@ _PUBLIC_PAGE = """<!doctype html>
     addMsg("user", text);
     history.push({role:"user", content:text});
     var aiEl = addMsg("assistant", "…");
-    var acc = "";
+    var acc = "", sayPos = 0;
+    // 边流式边按句切:出完一句立即入队即时说(流畅、口型跟声)。final=收尾把剩余整体当一句。
+    function flushSentences(final){
+      var rest = acc.slice(sayPos), re = /[。!?！?\\n]/g, m, last = 0;
+      while((m = re.exec(rest))){
+        var s = rest.slice(last, m.index + 1).trim();
+        if(s) enqueueSay(s);
+        last = m.index + 1;
+      }
+      sayPos += last;
+      if(final){ var tail = acc.slice(sayPos).trim(); if(tail){ enqueueSay(tail); sayPos = acc.length; } }
+    }
     fetch(base + "/chat", {method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({message:text, history:history})}).then(function(res){
       if(res.status === 429){ aiEl.textContent = "访问过于频繁,请稍后再试"; throw new Error("rate"); }
@@ -512,7 +607,7 @@ _PUBLIC_PAGE = """<!doctype html>
               else if(line.indexOf("data:") === 0) data += line.slice(5).trim();
             });
             if(ev === "token"){
-              try{ var d = JSON.parse(data); if(d && d.delta){ acc += d.delta; aiEl.textContent = acc; msgs.scrollTop = msgs.scrollHeight; } }catch(e){}
+              try{ var d = JSON.parse(data); if(d && d.delta){ acc += d.delta; aiEl.textContent = acc; msgs.scrollTop = msgs.scrollHeight; flushSentences(false); } }catch(e){}
             }
           }
           return pump();
@@ -520,7 +615,7 @@ _PUBLIC_PAGE = """<!doctype html>
       }
       return pump();
     }).then(function(){
-      if(acc){ history.push({role:"assistant", content:acc}); playTalk(acc); }
+      if(acc){ history.push({role:"assistant", content:acc}); flushSentences(true); }
       else if(aiEl.textContent === "…"){ aiEl.textContent = "(无回复)"; }
     }).catch(function(){}).then(function(){
       busy = false; sendBtn.disabled = false; inp.focus();
