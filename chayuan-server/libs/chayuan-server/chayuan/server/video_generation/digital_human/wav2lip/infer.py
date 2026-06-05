@@ -50,14 +50,15 @@ def load_models(weights_dir: str) -> dict:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cpu":
         try:
-            # 按并行任务数分核 + 给在线对话/其它任务留 1 核余量,避免一个任务吃满所有核
-            # 导致「只能跑一个、在线被饿死、卡到不动」。可用 CHAYUAN_DH_TORCH_THREADS 强制覆盖。
+            # 埋点实测:wav2lip 大头是模型 forward(1168 帧 fwd=41s,贴帧/写帧才 2s)。forward 吃
+            # torch intra-op 多线程 → 线程越多越快。**单任务用满核(留 1 核给系统/在线)最快**。
+            # 之前按并行数分核(//par)把单任务限到半核,反而拖慢约 2x;改回吃满。多任务并行时
+            # 想避免超订,设 CHAYUAN_DH_TORCH_THREADS=<每任务核数> 手动分。
             _cores = max(1, os.cpu_count() or 1)
-            _par = max(1, int(os.environ.get("CHAYUAN_DH_MAX_PARALLEL", "2")))
             _forced = int(os.environ.get("CHAYUAN_DH_TORCH_THREADS", "0") or 0)
-            _n = _forced if _forced > 0 else max(1, (_cores - 1) // _par)
+            _n = _forced if _forced > 0 else max(1, _cores - 1)
             torch.set_num_threads(_n)
-            logger.info("[wav2lip] cpu torch threads=%d (cores=%d parallel=%d)", _n, _cores, _par)
+            logger.info("[wav2lip] cpu torch threads=%d (cores=%d)", _n, _cores)
         except Exception:  # noqa: BLE001
             pass
     logger.info("Wav2Lip: loading models on device=%s", device)
