@@ -54,16 +54,18 @@ export const PresetList: React.FC<PresetListProps> = ({ presets, onChanged, onGe
 
   if (editing !== null) {
     return (
-      <PresetEditor
-        initial={editing === 'new' ? undefined : editing}
-        onSaved={() => { setEditing(null); onChanged(); }}
-        onCancel={() => setEditing(null)}
-      />
+      <div className="h-full min-h-0">
+        <PresetEditor
+          initial={editing === 'new' ? undefined : editing}
+          onSaved={() => { setEditing(null); onChanged(); }}
+          onCancel={() => setEditing(null)}
+        />
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-wrap gap-3">
+    <div className="flex h-full flex-wrap content-start gap-3 overflow-y-auto pr-1">
       {presets.map((p) => (
         <div
           key={p.id}

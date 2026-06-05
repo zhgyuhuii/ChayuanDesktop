@@ -26,6 +26,9 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
   // 商品选中:点右侧预览的商品图 → 高亮左侧列表对应行(双向)。
   const [selProd, setSelProd] = React.useState<string | null>(null);
   const [pid, setPid] = React.useState(initialPresetId ?? presets[0]?.id ?? '');
+  // 常驻挂载后,从「数字人设置」tab 点生成会改 initialPresetId → 切到对应预设;
+  // 仅 initialPresetId 变化时触发,不影响用户在工作台内的手动选择(切走再回来保持)。
+  React.useEffect(() => { if (initialPresetId) setPid(initialPresetId); }, [initialPresetId]);
   const preset = presets.find((p) => p.id === pid) ?? presets[0] ?? null;
   const w = preset?.video_width ?? 720;
   const h = preset?.video_height ?? 1280;

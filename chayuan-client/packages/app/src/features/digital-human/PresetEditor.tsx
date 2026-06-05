@@ -236,10 +236,13 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   };
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-4">
-      <h3 className="text-sm font-medium text-[var(--cy-text-primary)]">
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <h3 className="shrink-0 text-sm font-medium text-[var(--cy-text-primary)]">
         {initial ? '编辑数字人' : '新建数字人'}
       </h3>
+      {/* 左:设置(滚动) · 右:预览(与工作台一致) */}
+      <div className="flex min-h-0 flex-1 gap-3">
+        <div className="flex w-[400px] shrink-0 flex-col gap-4 overflow-y-auto pr-1">
 
       {/* 名字 */}
       <div className="flex flex-col gap-1">
@@ -492,20 +495,6 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         )}
       </div>
 
-      {/* 位置可视化:单/多形象统一,拖拽调整位置、四角缩放(单=1 个,多=多个) */}
-      <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-[var(--cy-text-secondary)]">位置(拖拽调整位置,四角缩放)</label>
-        <div className="relative h-48">
-          <CanvasStage width={canvas.w} height={canvas.h} roles={slots}
-            onChange={(ref, pos) => setSlotField(ref, pos)} />
-          {slots.length === 0 && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-[11px] text-[var(--cy-text-tertiary)]">
-              {isMulti ? '点上方形象格子加入角色(数字=出场顺序,需 ≥2 个)' : '点上方形象选择一个'}
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* 聚焦角色 配置(单/多形象统一:显示当前聚焦角色;语言在音色前) */}
       {slots.length > 0 && (() => {
         const fSlot = slots.find((s2) => s2.ref === focusedRef) ?? slots[0];
@@ -575,6 +564,19 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
           {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {initial ? '保存' : '创建'}
         </button>
+      </div>
+        </div>
+
+        {/* 右:预览(拖拽调位置 / 四角缩放,与工作台一致) */}
+        <div className="relative flex min-w-0 flex-1 items-center justify-center rounded-xl bg-[var(--cy-surface-2)] p-4">
+          <CanvasStage width={canvas.w} height={canvas.h} roles={slots}
+            onChange={(ref, pos) => setSlotField(ref, pos)} />
+          {slots.length === 0 && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-[var(--cy-text-tertiary)]">
+              {isMulti ? '点左侧形象格子加入角色(数字=出场顺序,需 ≥2 个)' : '点左侧形象选择一个'}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
