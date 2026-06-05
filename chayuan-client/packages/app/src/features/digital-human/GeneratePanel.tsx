@@ -92,7 +92,7 @@ export function previewOrder(
   return out;
 }
 
-export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void; embedded?: boolean; onPublished?: () => void; onBeforeGenerate?: () => Promise<void> | void }> = ({ presets, initialPresetId, onPresetChange, embedded, onPublished, onBeforeGenerate }) => {
+export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPresetChange?: (pid: string) => void; embedded?: boolean; onPublished?: () => void; onBeforeGenerate?: () => Promise<void> | void; onGenerated?: (taskId: string) => void; selectedProductRef?: string | null; onSelectProduct?: (ref: string | null) => void }> = ({ presets, initialPresetId, onPresetChange, embedded, onPublished, onBeforeGenerate, onGenerated, selectedProductRef, onSelectProduct }) => {
   const [pid, setPid] = React.useState(initialPresetId ?? '');
   const qc = useQueryClient();
   const [text, setText] = React.useState('');
@@ -412,6 +412,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       };
       const r = await digitalHuman.generate(pid, effectiveText, opts);
       setTaskId(r.task_id);
+      onGenerated?.(r.task_id);   // 切到「数字人视频」tab 看这个正在执行的任务
     } catch (e) { reportError(e as Error, '数字人生成失败'); }
     finally { setBusy(false); }
   };
@@ -521,7 +522,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     return <div className="text-sm text-[var(--cy-text-tertiary)]">先到「我的数字人」新建一个数字人。</div>;
 
   return (
-    <div className="space-y-3">
+    <div className="flex h-full flex-col">
+      <div className="flex-1 space-y-3 overflow-y-auto pr-1">
       {/* 按次门控弹层 */}
       <UsageGateDialogs app="avatar" gate={gate} />
 
@@ -702,55 +704,29 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         </div>
       )}
 
-      {/* 多商品上传行:可上传多个图/视频,逐个展示+移除,「+ 添加」继续追加 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,video/*"
-          className="hidden"
-          onChange={(e) => void handleProductFileChange(e)}
-        />
-        {products.map((p) => (
-          <span key={p.ref}
-            className="inline-flex h-8 items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)]">
-            <span aria-hidden>{p.kind === 'video' ? '🎬' : '🖼️'}</span>
-            <span className="max-w-[110px] truncate">{p.ref.replace(/^product:/, '')}</span>
-            <button type="button" title="移除" onClick={() => removeProduct(p.ref)}
-              className="text-[var(--cy-text-tertiary)] hover:text-[var(--cy-danger-500)]">×</button>
-          </span>
-        ))}
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploadingProduct}
-          className="inline-flex h-8 items-center rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
-          {uploadingProduct ? '上传中…' : (products.length ? '+ 添加商品' : '上传商品图 / 视频（可选,可多个）')}
+      {/* 商品:列表式展示(点行=选中,与右侧预览联动;预览里点商品图也会高亮这一行) */}
+      <div className="flex flex-col gap-1.5">
+        <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden"
+          onChange={(e) => void handleProductFileChange(e)} />
+        <button onClick={() => fileInputRef.current?.click()} disabled={uploadingProduct}
+          className="inline-flex h-8 w-full items-center justify-center rounded-md border border-dashed border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+          {uploadingProduct ? '上传中…' : '+ 添加商品(图 / 视频,可多个)'}
         </button>
-        <button onClick={() => void gen()} disabled={!pid || !canGenerate || busy || !engineInstalled}
-          className="inline-flex h-8 items-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
-          生成数字人视频
-        </button>
-        {mode === 'single' && (
-          <button type="button" onClick={() => void doPublish()} disabled={publishing || !curPreset}
-            className="inline-flex h-8 items-center rounded-md border border-[var(--cy-brand-500)] px-3 text-sm text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
-            {publishing ? '发布中…' : '发布在线数字人'}
-          </button>
-        )}
+        {products.map((p) => {
+          const sel = selectedProductRef === p.ref;
+          return (
+            <div key={p.ref} onClick={() => onSelectProduct?.(sel ? null : p.ref)}
+              className={`flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1 text-sm ${sel
+                ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)]'
+                : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] hover:bg-[var(--cy-surface-2)]'}`}>
+              <span aria-hidden>{p.kind === 'video' ? '🎬' : '🖼️'}</span>
+              <span className="min-w-0 flex-1 truncate text-[var(--cy-text-primary)]">{p.ref.replace(/^product:/, '')}</span>
+              <button type="button" title="移除" onClick={(e) => { e.stopPropagation(); removeProduct(p.ref); }}
+                className="text-[var(--cy-text-tertiary)] hover:text-[var(--cy-danger-500)]">×</button>
+            </div>
+          );
+        })}
       </div>
-
-      {/* Matte toggle — only shown when a product is present */}
-      {products.length > 0 && (
-        <label className="flex cursor-pointer items-center gap-2">
-          <input
-            type="checkbox"
-            checked={matte}
-            onChange={(e) => setMatte(e.target.checked)}
-            className="h-4 w-4 accent-[var(--cy-brand-500)]"
-          />
-          <span className="text-sm text-[var(--cy-text-primary)]">抠像</span>
-          <span className="text-xs text-[var(--cy-text-tertiary)]">自动识别背景(绿/白/蓝等纯色底)抠出形象,仅留人像</span>
-        </label>
-      )}
 
       {!embedded && taskId && <DhProgressCard taskId={taskId} />}
       {!embedded && recentTasks.length > 0 && (
@@ -761,6 +737,28 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           ))}
         </div>
       )}
+      </div>
+
+      {/* 固定底栏:抠像 + 生成数字人视频 + 发布在线数字人,始终一排、不随上方滚动遮挡 */}
+      <div className="mt-2 flex shrink-0 items-center gap-2 border-t border-[var(--cy-border-subtle)] pt-2">
+        {products.length > 0 && (
+          <label className="flex cursor-pointer items-center gap-1" title="自动识别背景(绿/白/蓝等纯色底)抠出形象,仅留人像">
+            <input type="checkbox" checked={matte} onChange={(e) => setMatte(e.target.checked)}
+              className="h-4 w-4 accent-[var(--cy-brand-500)]" />
+            <span className="text-sm text-[var(--cy-text-primary)]">抠像</span>
+          </label>
+        )}
+        <button onClick={() => void gen()} disabled={!pid || !canGenerate || busy || !engineInstalled}
+          className="inline-flex h-8 flex-1 items-center justify-center rounded-md bg-[var(--cy-brand-500)] px-3 text-sm text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50">
+          生成数字人视频
+        </button>
+        {mode === 'single' && (
+          <button type="button" onClick={() => void doPublish()} disabled={publishing || !curPreset}
+            className="inline-flex h-8 flex-1 items-center justify-center rounded-md border border-[var(--cy-brand-500)] px-3 text-sm text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+            {publishing ? '发布中…' : '发布在线数字人'}
+          </button>
+        )}
+      </div>
     </div>
   );
 };

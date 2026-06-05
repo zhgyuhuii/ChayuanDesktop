@@ -45,7 +45,7 @@ export const DigitalHumanPage: React.FC = () => {
       </div>
 
       {tab === 'studio' ? (
-        <DhStudio presets={presets} initialPresetId={genPresetId} onPublished={() => setTab('online')} />
+        <DhStudio presets={presets} initialPresetId={genPresetId} onPublished={() => setTab('online')} onGenerated={() => setTab('videos')} />
       ) : tab === 'videos' ? (
         <div className="min-h-0 flex-1 overflow-hidden">
           <DhTaskList />

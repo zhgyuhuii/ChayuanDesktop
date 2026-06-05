@@ -24,6 +24,9 @@ export interface CanvasStageProps {
   onLayerDelete?: (ref: string) => void;
   /** 设置某图层不透明度(0-1)。 */
   onLayerOpacityChange?: (ref: string, opacity: number) => void;
+  /** 当前选中的商品 ref(高亮);点商品图回调 onSelect(与左侧列表联动)。 */
+  selectedRef?: string | null;
+  onSelect?: (ref: string | null) => void;
   readOnly?: boolean;
 }
 
@@ -38,7 +41,7 @@ type MenuState = { x: number; y: number; ref: string } | null;
  *  拖拽改位置(跟手),四角控制点改大小,右键菜单调层级 / 透明度 / 删除。
  *  编辑器(可拖)与生成预览(readOnly)共用。 */
 export const CanvasStage: React.FC<CanvasStageProps> = ({
-  width, height, roles, onChange, products, onProductChange, onLayerZChange, onLayerDelete, onLayerOpacityChange, readOnly,
+  width, height, roles, onChange, products, onProductChange, onLayerZChange, onLayerDelete, onLayerOpacityChange, selectedRef, onSelect, readOnly,
 }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const dragRef = React.useRef<Drag | null>(null);
@@ -189,15 +192,18 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
             ))}
           </div>
         ))}
-        {prods.map((product) => (
+        {prods.map((product) => {
+          const psel = selectedRef === product.ref;
+          const ring = psel ? 'ring-2 ring-[var(--cy-brand-500)]' : 'ring-1 ring-white/40';
+          return (
           <div key={product.ref}
-            onPointerDown={(e) => startMove(e, product.ref, product.x ?? 0, product.y ?? 0)}
+            onPointerDown={(e) => { onSelect?.(product.ref); startMove(e, product.ref, product.x ?? 0, product.y ?? 0); }}
             onContextMenu={(e) => onCtx(e, product.ref)}
             className={'absolute ' + (readOnly ? '' : 'cursor-move')}
             style={{ left: `${(product.x ?? 0) * 100}%`, top: `${(product.y ?? 0) * 100}%`, width: `${(product.scale ?? 0.3) * 100}%`, zIndex: product.z ?? roles.length, opacity: product.opacity ?? 1, touchAction: 'none' }}>
             {product.kind === 'video'
-              ? <video src={digitalHuman.productFileUrl(product.ref)} muted loop autoPlay playsInline className="pointer-events-none w-full rounded ring-1 ring-white/40" />
-              : <img src={digitalHuman.productFileUrl(product.ref)} alt="商品图" className="pointer-events-none w-full rounded ring-1 ring-white/40" draggable={false} />}
+              ? <video src={digitalHuman.productFileUrl(product.ref)} muted loop autoPlay playsInline className={`pointer-events-none w-full rounded ${ring}`} />
+              : <img src={digitalHuman.productFileUrl(product.ref)} alt="商品图" className={`pointer-events-none w-full rounded ${ring}`} draggable={false} />}
             <span className="pointer-events-none absolute -top-4 left-0 rounded bg-[var(--cy-brand-600)]/80 px-1 text-[10px] text-white">商品</span>
             {!readOnly && corners.map(([c, cls]) => (
               <div key={c} onPointerDown={(e) => startResize(e, product.ref, c, product.x ?? 0, product.y ?? 0, product.scale ?? 0.3)}
@@ -206,7 +212,8 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
                 style={{ touchAction: 'none' }} />
             ))}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {menu ? (

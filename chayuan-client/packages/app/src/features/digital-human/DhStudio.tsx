@@ -21,8 +21,10 @@ const collapseBtnCls =
  * 数字人工作台:左设置 / 拖拽分隔 / 右预览。左设置 / 右预览可折叠成细条,点细条展开。
  * (生成任务与数字人视频列表已独立到「数字人视频」tab。)
  */
-export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPublished?: () => void }> = ({ presets, initialPresetId, onPublished }) => {
+export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPublished?: () => void; onGenerated?: (taskId: string) => void }> = ({ presets, initialPresetId, onPublished, onGenerated }) => {
   const qc = useQueryClient();
+  // 商品选中:点右侧预览的商品图 → 高亮左侧列表对应行(双向)。
+  const [selProd, setSelProd] = React.useState<string | null>(null);
   const [pid, setPid] = React.useState(initialPresetId ?? presets[0]?.id ?? '');
   const preset = presets.find((p) => p.id === pid) ?? presets[0] ?? null;
   const w = preset?.video_width ?? 720;
@@ -181,7 +183,8 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
         <CanvasStage width={w} height={h} roles={localRoles} onChange={onRoleChange}
           products={localProducts} onProductChange={onProductChange}
           onLayerZChange={onLayerZChange} onLayerDelete={onLayerDelete}
-          onLayerOpacityChange={onLayerOpacityChange} />
+          onLayerOpacityChange={onLayerOpacityChange}
+          selectedRef={selProd} onSelect={setSelProd} />
       ) : preset && preset.avatar_ref && preset.avatar_kind === 'image' ? (
         <img src={url} alt={preset.name} className="h-full w-full object-cover" />
       ) : preset && preset.avatar_ref ? (
@@ -208,8 +211,10 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
             <button type="button" title="折叠设置栏" onClick={() => setCol({ left: true })} className={collapseBtnCls}>
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <div className="h-full overflow-y-auto pr-1">
-              <GeneratePanel presets={presets} initialPresetId={pid} onPresetChange={setPid} embedded onPublished={onPublished} onBeforeGenerate={flushPersist} />
+            <div className="h-full overflow-hidden">
+              <GeneratePanel presets={presets} initialPresetId={pid} onPresetChange={setPid} embedded
+                onPublished={onPublished} onGenerated={onGenerated} onBeforeGenerate={flushPersist}
+                selectedProductRef={selProd} onSelectProduct={setSelProd} />
             </div>
           </div>
         )}
