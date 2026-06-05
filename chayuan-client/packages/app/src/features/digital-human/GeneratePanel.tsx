@@ -5,7 +5,7 @@ import { ChevronDown } from 'lucide-react';
 import { digitalHuman, models, knowledgeUniverse } from '@chayuan/api';
 import type { DigitalHumanPreset, RawModelItem, KuItem, DhScriptSource, ProductLayer } from '@chayuan/api';
 import type { ModalityCapability } from '@chayuan/transport';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@chayuan/ui';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Dialog, DialogContent, DialogTitle } from '@chayuan/ui';
 import { reportError, notifySuccess } from '../../store/errorDialog';
 import { promptDialog } from '../../store/promptDialog';
 import { confirmDialog } from '../../store/confirmDialog';
@@ -515,6 +515,28 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     return { perItem, perRole, total };
   }, [orderPreview, rateByRole]);
 
+  // ── 编辑脚本(字幕清单):三模式统一。单形象=按行/标点切句;多角色=orderPreview(roleSegments 真源)。
+  // 点开弹窗逐句编辑 → 保存写回(单形象=text;多角色=roleSegments)→ 生成按编辑后的脚本走。
+  const [scriptOpen, setScriptOpen] = React.useState(false);
+  const [editCues, setEditCues] = React.useState<PreviewItem[]>([]);
+  const singleCues = React.useMemo<PreviewItem[]>(() => {
+    const parts = text.includes('\n') ? text.split('\n').map((s) => s.trim()).filter(Boolean) : splitByPunct(text);
+    const rn = roleNames[0] || '台词';
+    return parts.map((t) => ({ roleName: rn, text: t }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, roleNames.join('')]);
+  const scriptCues = mode === 'single' ? singleCues : orderPreview;
+  const openScriptEditor = () => { setEditCues(scriptCues.map((c) => ({ ...c }))); setScriptOpen(true); };
+  const saveScriptEditor = () => {
+    const valid = editCues.map((c) => ({ roleName: c.roleName, text: c.text.trim() })).filter((c) => c.text);
+    if (mode === 'single') {
+      setText(valid.map((c) => c.text).join('\n'));
+    } else {
+      setRoleSegments(valid.map((c) => ({ role_index: Math.max(0, roleNames.indexOf(c.roleName)), text: c.text })));
+    }
+    setScriptOpen(false);
+  };
+
   // 各 mode 是否有可生成内容(coframe 改单输入框 → 看 text;sequential 仍看各角色段)
   const canGenerate =
     mode === 'sequential'
@@ -613,6 +635,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-1 text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
             🎬 参考视频生成稿
           </button>
+          <button type="button" onClick={openScriptEditor} disabled={scriptCues.length === 0}
+            title={scriptCues.length === 0 ? '先生成或输入脚本' : '逐句编辑字幕清单'}
+            className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-1 text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+            📝 编辑脚本{scriptCues.length > 0 ? `(${scriptCues.length})` : ''}
+          </button>
         </div>
       )}
       {/* 隐藏 file input:单形象整篇 & 每角色参考视频共用,onRefVideo 按 pendingRole 路由。 */}
@@ -687,30 +714,17 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         </div>
       )}
 
-      {/* 播放顺序预览(只读):同框=按句交织顺序;分段=段序轮流。反映最终「所得」。 */}
-      {mode !== 'single' && roles.length > 0 && orderPreview.length > 0 && (
-        <div className="rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-2)] p-2">
-          <div className="mb-1 text-xs text-[var(--cy-text-tertiary)]">
-            {mode === 'coframe' ? '播放顺序预览(同框按句交织)' : '播放顺序预览(分段轮流)'}
-          </div>
-          <div className="flex flex-col gap-0.5 text-xs text-[var(--cy-text-secondary)]">
-            {orderPreview.map((it, i) => (
-              <div key={i} className="flex items-baseline gap-1">
-                <span className="text-[var(--cy-text-tertiary)]">{'\u2460\u2461\u2462\u2463\u2464\u2465\u2466\u2467\u2468\u2469'[i] ?? (i + 1) + '.'}</span>
-                <span className="font-medium text-[var(--cy-text-primary)]">{it.roleName}</span>
-                <span className="text-[var(--cy-text-tertiary)]">:</span>
-                <span className="min-w-0 flex-1 truncate">{it.text}</span>
-                <span className="shrink-0 text-[var(--cy-text-tertiary)]">{fmtSec(durationStats.perItem[i] ?? 0)}</span>
-              </div>
-            ))}
-          </div>
-          {/* 每角色累计 + 总时长 */}
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-[var(--cy-border-subtle)] pt-1.5 text-xs text-[var(--cy-text-tertiary)]">
-            {Object.entries(durationStats.perRole).map(([rn, ms]) => (
-              <span key={rn}><span className="text-[var(--cy-text-secondary)]">{rn}</span> {fmtSec(ms)}</span>
-            ))}
-            <span className="ml-auto font-medium text-[var(--cy-text-primary)]">总时长 {fmtSec(durationStats.total)}</span>
-          </div>
+      {/* sequential: edit-script (subtitle list) button, unified with single/coframe */}
+      {mode === 'sequential' && roles.length > 0 && (
+        <div className="flex items-center gap-2 text-xs">
+          <button type="button" onClick={openScriptEditor} disabled={scriptCues.length === 0}
+            title={scriptCues.length === 0 ? '先填写或生成各角色台词' : '逐句编辑字幕清单'}
+            className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-1 text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+            📝 编辑脚本{scriptCues.length > 0 ? `(${scriptCues.length})` : ''}
+          </button>
+          {scriptCues.length > 0 && (
+            <span className="text-[var(--cy-text-tertiary)]">总时长 {fmtSec(durationStats.total)}</span>
+          )}
         </div>
       )}
 
@@ -769,6 +783,50 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
           </button>
         )}
       </div>
+
+      {/* 编辑脚本弹窗:逐句编辑字幕清单(单形象=句;多角色=带角色)。保存写回 → 生成按此脚本走。 */}
+      <Dialog open={scriptOpen} onOpenChange={setScriptOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogTitle>编辑脚本（字幕清单）</DialogTitle>
+          <div className="mt-2 max-h-[60vh] overflow-y-auto pr-1">
+            <div className="flex flex-col gap-1.5">
+              {editCues.map((c, i) => (
+                <div key={i} className="flex items-start gap-1.5">
+                  <span className="mt-2 w-5 shrink-0 text-right text-xs text-[var(--cy-text-tertiary)]">{i + 1}</span>
+                  {mode !== 'single' && roleNames.length > 0 && (
+                    <select value={c.roleName}
+                      onChange={(e) => setEditCues((prev) => prev.map((x, k) => (k === i ? { ...x, roleName: e.target.value } : x)))}
+                      className="mt-1 h-8 w-20 shrink-0 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1 text-xs text-[var(--cy-text-primary)]">
+                      {roleNames.map((rn) => <option key={rn} value={rn}>{rn}</option>)}
+                    </select>
+                  )}
+                  <textarea value={c.text} rows={1}
+                    onChange={(e) => setEditCues((prev) => prev.map((x, k) => (k === i ? { ...x, text: e.target.value } : x)))}
+                    className="min-h-8 w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-1.5 text-sm text-[var(--cy-text-primary)] focus-visible:outline-none" />
+                  <span className="mt-2 shrink-0 text-[10px] text-[var(--cy-text-tertiary)]">{fmtSec(estimateDurationMs(c.text, rateByRole[c.roleName] ?? 1))}</span>
+                  <button type="button" title="删除这句"
+                    onClick={() => setEditCues((prev) => prev.filter((_, k) => k !== i))}
+                    className="mt-1 shrink-0 rounded-md border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-xs text-[var(--cy-text-secondary)] hover:text-[var(--cy-danger-500)]">×</button>
+                </div>
+              ))}
+              <button type="button"
+                onClick={() => setEditCues((prev) => [...prev, { roleName: roleNames[0] || '台词', text: '' }])}
+                className="mt-1 self-start rounded-md border border-dashed border-[var(--cy-border-subtle)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                + 添加一句
+              </button>
+            </div>
+          </div>
+          <div className="mt-3 flex items-center gap-2 border-t border-[var(--cy-border-subtle)] pt-2">
+            <span className="text-xs text-[var(--cy-text-tertiary)]">
+              共 {editCues.filter((c) => c.text.trim()).length} 句 · 总时长 {fmtSec(editCues.reduce((s, c) => s + estimateDurationMs(c.text, rateByRole[c.roleName] ?? 1), 0))}
+            </span>
+            <button type="button" onClick={() => setScriptOpen(false)}
+              className="ml-auto h-8 rounded-md px-3 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">取消</button>
+            <button type="button" onClick={saveScriptEditor}
+              className="h-8 rounded-md bg-[var(--cy-brand-500)] px-4 text-sm text-white hover:bg-[var(--cy-brand-600)]">保存</button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
