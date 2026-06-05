@@ -457,7 +457,9 @@ _PUBLIC_PAGE = """<!doctype html>
     el.style.position = "absolute";
     el.style.left = ((L.x || 0) * 100) + "%";
     el.style.top = ((L.y || 0) * 100) + "%";
-    el.style.width = ((L.scale != null ? L.scale : (isAvatar ? 1 : 0.32)) * 100) + "%";
+    // scale 缺失/为 0 时回退默认(避免宽 0% → 不可见);形象默认满宽、商品 0.32。
+    var sc = (L.scale && L.scale > 0) ? L.scale : (isAvatar ? 1 : 0.32);
+    el.style.width = (sc * 100) + "%";
     el.style.zIndex = (L.z != null ? L.z : i);
     el.style.opacity = (L.opacity != null ? L.opacity : 1);
     var m;
@@ -468,7 +470,10 @@ _PUBLIC_PAGE = """<!doctype html>
     } else {
       m = document.createElement("img"); m.src = L.url;
     }
-    m.style.width = "100%"; m.style.display = "block";
+    // 关键:显式 height:auto 覆盖全局 `.stage img/video{height:100%}` —— 图层 el 是 auto 高度,
+    // height:100% 在部分引擎相对 auto 父高会塌成 0 → 形象 0 高、看不见(「没有形象」根因)。
+    // 用自然比例(width:100% + height:auto)渲染,与工作台预览一致。
+    m.style.width = "100%"; m.style.height = "auto"; m.style.display = "block";
     el.appendChild(m);
     stage.appendChild(el);
   }
