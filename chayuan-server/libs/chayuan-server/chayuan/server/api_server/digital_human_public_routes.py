@@ -84,7 +84,10 @@ def public_page(token: str) -> HTMLResponse:
     rec = published_store.get_by_token(token)
     if not rec or not rec.enabled:
         return HTMLResponse(_OFFLINE_PAGE, status_code=404)
-    return HTMLResponse(_PUBLIC_PAGE.replace("__TOKEN__", token))
+    # no-store:公开页 HTML 内嵌 JS,每次发版都变。不禁缓存则浏览器拿旧 HTML/JS,
+    # 「改了没生效」(形象不显示等修复白做)。每次都取最新。
+    return HTMLResponse(_PUBLIC_PAGE.replace("__TOKEN__", token),
+                        headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
 @digital_human_public_router.get(_PUB + "/{token}/config")
@@ -459,14 +462,8 @@ _PUBLIC_PAGE = """<!doctype html>
   }
 
   function addLayer(L, i, isAvatar){
-    // 按归一 x/y/scale/z/opacity 绝对定位的图层(与工作台预览一致);视频循环、图片常显。
     var el = document.createElement("div");
     el.style.position = "absolute";
-    el.style.left = ((L.x || 0) * 100) + "%";
-    el.style.top = ((L.y || 0) * 100) + "%";
-    // scale 缺失/为 0 时回退默认(避免宽 0% → 不可见);形象默认满宽、商品 0.32。
-    var sc = (L.scale && L.scale > 0) ? L.scale : (isAvatar ? 1 : 0.32);
-    el.style.width = (sc * 100) + "%";
     el.style.zIndex = (L.z != null ? L.z : i);
     el.style.opacity = (L.opacity != null ? L.opacity : 1);
     var m;
@@ -477,21 +474,31 @@ _PUBLIC_PAGE = """<!doctype html>
     } else {
       m = document.createElement("img"); m.src = L.url;
     }
-    // 加载失败(典型:/avatar 404、形象文件缺失)→ 可见兜底,别再「空白看不出原因」。
     m.onerror = function(){
       try{ console.error("[dh-public] 图层加载失败 kind=" + L.kind + " url=" + L.url); }catch(e){}
       if(isAvatar){
         try{
-          el.style.width="64%"; el.style.left="18%"; el.style.top="42%"; el.innerHTML="";
+          el.style.cssText="position:absolute;inset:0;display:flex;align-items:center;justify-content:center";
+          el.innerHTML="";
           var ph=document.createElement("div");
-          ph.textContent="形象加载失败(/avatar)";
+          ph.textContent="形象加载失败(/avatar 资源缺失)";
           ph.style.cssText="color:#f87171;background:#1f2937;padding:10px 14px;border-radius:10px;font-size:13px;text-align:center";
           el.appendChild(ph);
         }catch(e){}
       }
     };
-    // height:auto 覆盖全局 `.stage img/video{height:100%}`(相对 auto 高度父容器会塌成 0)。
-    m.style.width = "100%"; m.style.height = "auto"; m.style.display = "block";
+    if (isAvatar) {
+      // 形象铺满舞台 + object-fit:contain —— 最稳,绝不塌成 0 高(舞台已有显式像素高度)。
+      // 在线 idle 优先「看得见」,不再按 x/y/scale 摆位(商品仍按位置叠在形象上)。
+      el.style.inset = "0";
+      m.style.width = "100%"; m.style.height = "100%"; m.style.objectFit = "contain"; m.style.display = "block";
+    } else {
+      el.style.left = ((L.x || 0) * 100) + "%";
+      el.style.top = ((L.y || 0) * 100) + "%";
+      var sc = (L.scale && L.scale > 0) ? L.scale : 0.32;
+      el.style.width = (sc * 100) + "%";
+      m.style.width = "100%"; m.style.height = "auto"; m.style.display = "block";
+    }
     el.appendChild(m);
     stage.appendChild(el);
   }
