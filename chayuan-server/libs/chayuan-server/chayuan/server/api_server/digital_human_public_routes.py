@@ -497,9 +497,11 @@ _PUBLIC_PAGE = """<!doctype html>
     };
   }catch(e){}
 
-  // ── 实时口型:句级流式 /say 队列播放,边生成边播、播完即弃 ──────────────
+  // ── 实时口型:句级流式 /say,生产者(取)/消费者(播)分离,各自严格顺序 ────────
   // 后端自适应:GPU 返回该句口型 mp4(覆盖播放),CPU 返回该句音频(振幅实时驱动口型)。
-  var sayQ = [], sayBusy = false, audioCtx = null, mouthEl = null;
+  // 一个 fetcher 顺序取、一个 player 顺序播,边播当前句边预取下一句(流畅且不乱序)。
+  var sentQ = [], fetching = false, playQ = [], playing = false, audioCtx = null, mouthEl = null;
+  function once(fn){ var c = false; return function(){ if(c) return; c = true; fn(); }; }
 
   function ensureMouth(){
     if (mouthEl) return mouthEl;
@@ -516,7 +518,7 @@ _PUBLIC_PAGE = """<!doctype html>
   function playAudioWithMouth(blob, done){
     var url = URL.createObjectURL(blob), a = new Audio(url), mouth = ensureMouth();
     mouth.style.display = "block";
-    var raf = 0, fin = function(){ if(raf) cancelAnimationFrame(raf); mouth.style.display="none"; try{URL.revokeObjectURL(url);}catch(e){} done&&done(); };
+    var raf = 0, fin = once(function(){ if(raf) cancelAnimationFrame(raf); mouth.style.display="none"; try{URL.revokeObjectURL(url);}catch(e){} done&&done(); });
     try{
       audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
       if(audioCtx.state === "suspended") audioCtx.resume();
@@ -540,32 +542,39 @@ _PUBLIC_PAGE = """<!doctype html>
     ov.src = url; ov.autoplay = true; ov.playsInline = true; ov.setAttribute("playsinline","");
     var s = ov.style; s.position="absolute"; s.inset="0"; s.width="100%"; s.height="100%";
     s.objectFit="contain"; s.background="#000"; s.zIndex="999";
-    var fin = function(){ try{ov.remove();}catch(e){} try{URL.revokeObjectURL(url);}catch(e){} done&&done(); };
+    var fin = once(function(){ try{ov.remove();}catch(e){} try{URL.revokeObjectURL(url);}catch(e){} done&&done(); });
     ov.onended = fin; ov.onerror = fin;
     stage.appendChild(ov);
     ov.play().catch(fin);
   }
 
-  function pumpSay(){
-    if (sayBusy) return;
-    if (!sayQ.length) return;
-    var text = sayQ.shift();
-    sayBusy = true;
-    var next = function(){ sayBusy = false; pumpSay(); };
+  // 生产者:顺序取下一句的口型片段/音频,就绪后放入 playQ(保持句序),并触发播放。
+  function fetchNext(){
+    if (fetching || !sentQ.length) return;
+    fetching = true;
+    var text = sentQ.shift();
+    var done = once(function(){ fetching = false; fetchNext(); });
     fetch(base + "/say", {method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({text: text})}).then(function(r){
       if(!r.ok) throw new Error("say");
       var kind = (r.headers.get("X-Talk-Kind") || "audio");
-      return r.blob().then(function(b){ return {kind:kind, blob:b}; });
-    }).then(function(o){
-      if(o.kind === "video") playClip(o.blob, next); else playAudioWithMouth(o.blob, next);
-    }).catch(next);
+      return r.blob().then(function(b){ playQ.push({kind:kind, blob:b}); });
+    }).then(function(){ done(); playNext(); }).catch(done);
+  }
+
+  // 消费者:顺序播放 playQ;一次只播一段,播完(幂等)再播下一段。
+  function playNext(){
+    if (playing || !playQ.length) return;
+    playing = true;
+    var o = playQ.shift();
+    var done = once(function(){ playing = false; playNext(); });
+    if (o.kind === "video") playClip(o.blob, done); else playAudioWithMouth(o.blob, done);
   }
 
   function enqueueSay(text){
     if(!text || !text.trim()) return;
-    sayQ.push(text.trim());
-    pumpSay();
+    sentQ.push(text.trim());
+    fetchNext();
   }
 
   function send(){
