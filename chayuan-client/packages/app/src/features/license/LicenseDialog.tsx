@@ -185,7 +185,7 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>激活授权</DialogTitle>
             <DialogDescription>
@@ -203,122 +203,131 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
             ]}
           />
 
-          <div className="flex flex-col items-center gap-3 py-2">
-            {/* 二维码卡片 */}
-            <div className="flex flex-col items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm">
-              {/* QR 固定白底，深色模式也要能扫 */}
-              <div className="rounded-xl bg-white p-3">
-                {qr ? (
-                  <img src={qr} alt="购买二维码" width={200} height={200} />
-                ) : (
-                  <div className="h-[200px] w-[200px] animate-pulse rounded bg-muted" />
-                )}
-              </div>
+          {/* 横向两栏布局：左栏主内容，右栏公众号二维码 */}
+          <div className="flex gap-5">
+            {/* ── 左栏：购买二维码卡 + 指纹条 + 序列号输入 + 协议小字 ── */}
+            <div className="flex min-w-0 flex-1 flex-col gap-3">
+              <div className="flex flex-col items-center gap-3 py-2">
+                {/* 二维码卡片 */}
+                <div className="flex flex-col items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm">
+                  {/* QR 固定白底，深色模式也要能扫 */}
+                  <div className="rounded-xl bg-white p-3">
+                    {qr ? (
+                      <img src={qr} alt="购买二维码" width={200} height={200} />
+                    ) : (
+                      <div className="h-[200px] w-[200px] animate-pulse rounded bg-muted" />
+                    )}
+                  </div>
 
-              {/* buy 态：支付渠道 logo */}
-              {qrTab === "buy" && channels && (channels.wechat || channels.alipay) ? (
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground">{scanText}</span>
-                  {channels.wechat ? <WeChatLogo /> : null}
-                  {channels.alipay ? <AlipayLogo /> : null}
+                  {/* buy 态：支付渠道 logo */}
+                  {qrTab === "buy" && channels && (channels.wechat || channels.alipay) ? (
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground">{scanText}</span>
+                      {channels.wechat ? <WeChatLogo /> : null}
+                      {channels.alipay ? <AlipayLogo /> : null}
+                    </div>
+                  ) : null}
+
+                  {/* share 态：分享提示 */}
+                  {qrTab === "share" ? (
+                    <div className="flex items-center gap-1.5">
+                      <Gift size={16} className="text-primary" />
+                      <span className="text-sm font-medium text-primary">
+                        分享给好友 / 朋友圈，免费领使用次数
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
 
-              {/* share 态：分享提示 */}
-              {qrTab === "share" ? (
-                <div className="flex items-center gap-1.5">
-                  <Gift size={16} className="text-primary" />
-                  <span className="text-sm font-medium text-primary">
-                    分享给好友 / 朋友圈，免费领使用次数
-                  </span>
-                </div>
-              ) : null}
-            </div>
-
-            {/* buy 态：手机打开购买页链接 */}
-            {qrTab === "buy" && buyUrl ? (
-              <a
-                className="text-xs text-muted-foreground underline"
-                href={buyUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                或在手机中打开购买页
-              </a>
-            ) : null}
-
-            {/* 指纹信息条 */}
-            {fingerprint ? (
-              <div className="w-full">
-                <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs">
-                  <Fingerprint className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="text-muted-foreground">本机指纹</span>
-                  <code className="flex-1 truncate font-mono text-foreground">{fingerprint}</code>
-                  <button
-                    type="button"
-                    className="flex shrink-0 items-center gap-1 text-muted-foreground hover:text-primary"
-                    onClick={() => void onCopyFp()}
+                {/* buy 态：手机打开购买页链接 */}
+                {qrTab === "buy" && buyUrl ? (
+                  <a
+                    className="text-xs text-muted-foreground underline"
+                    href={buyUrl}
+                    target="_blank"
+                    rel="noreferrer"
                   >
-                    {fpCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-                    <span>{fpCopied ? "已复制" : "复制"}</span>
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  在电脑浏览器打开 aidooo.com/buy，粘贴此指纹号下单；付款后把序列号填到下方激活。
-                </p>
+                    或在手机中打开购买页
+                  </a>
+                ) : null}
+
+                {/* 指纹信息条 */}
+                {fingerprint ? (
+                  <div className="w-full">
+                    <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs">
+                      <Fingerprint className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="text-muted-foreground">本机指纹</span>
+                      <code className="flex-1 truncate font-mono text-foreground">{fingerprint}</code>
+                      <button
+                        type="button"
+                        className="flex shrink-0 items-center gap-1 text-muted-foreground hover:text-primary"
+                        onClick={() => void onCopyFp()}
+                      >
+                        {fpCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                        <span>{fpCopied ? "已复制" : "复制"}</span>
+                      </button>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      在电脑浏览器打开 aidooo.com/buy，粘贴此指纹号下单；付款后把序列号填到下方激活。
+                    </p>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
 
-          {/* 分隔线 */}
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <div className="h-px flex-1 bg-border" />
-            <span>或手动输入序列号</span>
-            <div className="h-px flex-1 bg-border" />
-          </div>
+              {/* 分隔线 */}
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <div className="h-px flex-1 bg-border" />
+                <span>或手动输入序列号</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
 
-          <div className="flex flex-col gap-2">
-            <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor="lic-serial">
-              <KeyRound className="size-4" />
-              序列号
-            </label>
-            <div className="flex gap-2">
-              <Input
-                id="lic-serial"
-                value={serial}
-                onChange={(e) => setSerial(e.target.value)}
-                placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXX"
-                autoComplete="off"
-              />
-              <Button onClick={onConfirmSerial} disabled={busy || serial.trim().length === 0}>
-                确定
-              </Button>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor="lic-serial">
+                  <KeyRound className="size-4" />
+                  序列号
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    id="lic-serial"
+                    value={serial}
+                    onChange={(e) => setSerial(e.target.value)}
+                    placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXX"
+                    autoComplete="off"
+                  />
+                  <Button onClick={onConfirmSerial} disabled={busy || serial.trim().length === 0}>
+                    确定
+                  </Button>
+                </div>
+                {err ? <p className="text-sm text-destructive">{err}</p> : null}
+              </div>
+
+              {/* 用户协议小字 */}
+              <div className="text-center text-xs text-muted-foreground">
+                购买即视为同意{" "}
+                <button
+                  type="button"
+                  className="text-primary hover:underline"
+                  onClick={() => setAgreeOpen(true)}
+                >
+                  《{USER_AGREEMENT_TITLE}》
+                </button>
+              </div>
             </div>
-            {err ? <p className="text-sm text-destructive">{err}</p> : null}
-          </div>
 
-          {/* 公众号引流区 */}
-          <div className="flex flex-col items-center gap-2 rounded-lg border bg-muted/30 p-3">
-            <img
-              src={FOLLOW_QR_URL}
-              alt="智灵鸟科技公众号"
-              className="size-28 rounded bg-white p-1"
-            />
-            <p className="text-center text-xs text-muted-foreground">
-              购买后如未记录序列号，可关注「智灵鸟科技」公众号凭本机指纹查询
-            </p>
-          </div>
+            {/* ── 竖分隔线 ── */}
+            <div className="w-px self-stretch bg-border" />
 
-          {/* 用户协议小字 */}
-          <div className="text-center text-xs text-muted-foreground">
-            购买即视为同意{" "}
-            <button
-              type="button"
-              className="text-primary hover:underline"
-              onClick={() => setAgreeOpen(true)}
-            >
-              《{USER_AGREEMENT_TITLE}》
-            </button>
+            {/* ── 右栏：公众号二维码 ── */}
+            <div className="flex w-44 shrink-0 flex-col items-center justify-center gap-3 py-2">
+              <img
+                src={FOLLOW_QR_URL}
+                alt="智灵鸟科技公众号"
+                className="size-28 rounded bg-white p-1"
+              />
+              <p className="text-center text-xs text-muted-foreground">
+                购买后如未记录序列号，可关注「智灵鸟科技」公众号凭本机指纹查询
+              </p>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
