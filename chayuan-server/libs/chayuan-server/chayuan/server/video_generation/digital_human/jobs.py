@@ -508,6 +508,10 @@ def _resolve_products(preset, product_ref=None):
                           "scale": float(getattr(preset, "product_scale", 0.32) or 0.32),
                           "z": getattr(preset, "product_z", None),
                           "opacity": getattr(preset, "product_opacity", None)})
+    if items:
+        logger.info("[dh] 商品图层(合成用): %s",
+                    [{"ref": os.path.basename(it["path"]), "x": round(it["x"], 3),
+                      "y": round(it["y"], 3), "scale": round(it["scale"], 3), "z": it["z"]} for it in items])
     return items
 
 
@@ -724,26 +728,8 @@ def _run_pipeline(tid: str) -> None:
         W, H = args["width"], args["height"]
         _slot0 = (getattr(preset, "avatars", None) or [None])[0]
         matte = bool(args.get("matte"))
-        # 商品图层解析(preset.products 优先;旧 product_ref 兼容)
-        items = []
-        for q in (getattr(preset, "products", None) or []):
-            pp = resolve_product_path(getattr(q, "ref", ""))
-            if pp:
-                items.append({"path": pp,
-                              "x": float(getattr(q, "x", 0.66) if getattr(q, "x", None) is not None else 0.66),
-                              "y": float(getattr(q, "y", 0.60) if getattr(q, "y", None) is not None else 0.60),
-                              "scale": float(getattr(q, "scale", 0.32) if getattr(q, "scale", None) is not None else 0.32),
-                              "z": getattr(q, "z", None), "opacity": getattr(q, "opacity", None)})
-        if not items:
-            _argref = args.get("product_ref")
-            _pp = resolve_product_path(_argref) if _argref else None
-            if _pp:
-                items.append({"path": _pp,
-                              "x": float(getattr(preset, "product_x", 0.66) or 0.66),
-                              "y": float(getattr(preset, "product_y", 0.60) or 0.60),
-                              "scale": float(getattr(preset, "product_scale", 0.32) or 0.32),
-                              "z": getattr(preset, "product_z", None),
-                              "opacity": getattr(preset, "product_opacity", None)})
+        # 商品图层解析(preset.products 优先;旧 product_ref 兼容)— 与 coframe/resubtitle 同源。
+        items = _resolve_products(preset, args.get("product_ref"))
 
         avatar_layer = {
             "x": float(getattr(_slot0, "x", 0.0) or 0.0) if _slot0 is not None else 0.0,
