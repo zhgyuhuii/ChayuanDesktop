@@ -102,7 +102,9 @@ def add_overlays(video_path: str, out_path: str, *, labels: Optional[List[Tuple[
         cue_size = int((style or {}).get("font_size") or max(20, int(height * 0.035)))
         cue_color = (style or {}).get("text_fore_color") or "white"
         cue_stroke = (style or {}).get("stroke_color") or "black"
-        cue_sw = float(style.get("stroke_width") if style and style.get("stroke_width") is not None else 2)
+        # PIL/moviepy TextClip 的 stroke_width 必须是 int(传 float 触发
+        # "'float' object cannot be interpreted as an integer" → 字幕叠加失败)。
+        cue_sw = int(round(float(style.get("stroke_width") if style and style.get("stroke_width") is not None else 2)))
         _pos = (style or {}).get("subtitle_position") or "bottom"
         cue_y = {"top": 0.05, "center": 0.45, "bottom": 0.86}.get(_pos, 0.86)
         for c in (cues or []):

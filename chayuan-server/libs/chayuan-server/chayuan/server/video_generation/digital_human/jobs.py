@@ -339,9 +339,11 @@ def _gen_slot_clips(tid, preset, slots, global_text, engine, td, width, height, 
     return clips, unit_roles, seg_meta
 
 
-def _apply_overlays(result_path, td, preset, slots, text, width, height):
+def _apply_overlays(result_path, td, preset, slots, text, width, height, skip_subtitle=False):
     """成片叠昵称标签+字幕(fail-safe);返回新成片路径(失败返原 result_path)。
-    昵称标签仅多角色(coframe/sequential)烧入——single 是干净口播,不烧名字。"""
+    昵称标签仅多角色(coframe/sequential)烧入——single 是干净口播,不烧名字。
+    skip_subtitle=True:字幕已由 ffcompose 按真实时间烧入,这里只叠昵称(不再用均匀估算的
+    moviepy 字幕,避免重复 + 不同步)。"""
     try:
         from chayuan.server.video_generation.digital_human import overlay as _ov
         from chayuan.server.video_generation.digital_human.timeline_bridge import build_cues_from_script
@@ -352,7 +354,7 @@ def _apply_overlays(result_path, td, preset, slots, text, width, height):
                     min(0.95, float(getattr(s, "y", 0.0) or 0.0))) for s in (slots or []) if getattr(s, "name", "")]
                   if compose_mode in ("coframe", "sequential") else [])
         cues = []
-        if getattr(preset, "subtitle_enabled", True):
+        if not skip_subtitle and getattr(preset, "subtitle_enabled", True):
             dur = _probe_audio_duration_ms(result_path) or 0
             cues = build_cues_from_script(text or "", dur)
         if not labels and not cues:
@@ -396,7 +398,11 @@ def _build_subtitle(td, preset, text, width, height, dur_ms):
             "stroke_width": getattr(preset, "stroke_width", None),
         }
         font = _ov._resolve_font_path(getattr(preset, "font_name", "") or None)
-        ass = _sa.build_ass(cues, style, os.path.join(td, "sub.ass"),
+        # build_ass 以 dict 读 cue(c.get(...));build_cues_from_script 返回 SrtCue 对象,
+        # 直接传会 AttributeError → 单形象字幕烧不上。这里转成 dict。
+        _cd = [{"start_ms": getattr(c, "start_ms", 0), "end_ms": getattr(c, "end_ms", 0),
+                "text": getattr(c, "text", "") or ""} for c in cues]
+        ass = _sa.build_ass(_cd, style, os.path.join(td, "sub.ass"),
                             width=width, height=height, font_path=font)
         return {"cues": cues, "style": style, "ass_path": ass}
     except Exception as e:  # noqa: BLE001
@@ -420,6 +426,29 @@ def _concat_wavs(wavs, out_path, ffmpeg_exe):
             f.write("file '%s'\n" % w.replace("'", "'\\''"))
     subprocess.run([ffmpeg_exe, "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
                     "-i", listf, "-ar", "44100", "-ac", "1", out_path], check=True)
+    return out_path
+
+
+def _concat_clip_audio(clips, out_path, ffmpeg_exe):
+    """提取各 clip 自带音轨,按顺序拼成一条连续音频。
+
+    coframe 同步关键:clip(seg.mp4)由 wav2lip 用 -shortest mux,音轨时长==视频时长。
+    若音频来自独立 wav 而视频窗口按 clip 时长排布,两者会有帧 padding 缝隙逐段累积 →
+    "说着说着口型对不上声"。改为音频也取 clip 自身 → 每段音频时长==视频窗口时长,严格对齐。
+    失败抛异常(caller 兜底回 moviepy)。"""
+    import subprocess
+    clips = [c for c in (clips or []) if c and os.path.isfile(c)]
+    if not clips:
+        raise RuntimeError("无可拼接片段音频")
+    cmd = [ffmpeg_exe, "-y", "-loglevel", "error"]
+    for c in clips:
+        cmd += ["-i", c]
+    n = len(clips)
+    # 先把各段统一到 44100/单声道再 concat(concat filter 要求各段同格式,否则报错)。
+    pre = "".join("[%d:a]aresample=44100,aformat=channel_layouts=mono[a%d];" % (i, i) for i in range(n))
+    fc = pre + "".join("[a%d]" % i for i in range(n)) + "concat=n=%d:v=0:a=1[a]" % n
+    cmd += ["-filter_complex", fc, "-map", "[a]", out_path]
+    subprocess.run(cmd, check=True)
     return out_path
 
 
@@ -455,6 +484,7 @@ def _run_pipeline(tid: str) -> None:
                 if v != _pg[0]:
                     _pg[0] = v
                     _set(tid, progress=v)
+            _sub_burned = False  # ffcompose 是否已烧字幕(烧了则 _apply_overlays 不再叠字幕,只叠昵称)
             try:
                 if mode == "coframe":
                     positions = [(float(getattr(s, "x", 0.0) or 0.0),
@@ -474,18 +504,16 @@ def _run_pipeline(tid: str) -> None:
                                              "scale": float(getattr(_q, "scale", 0.32) if getattr(_q, "scale", None) is not None else 0.32),
                                              "z": getattr(_q, "z", None), "opacity": getattr(_q, "opacity", None)})
                     # 先试 ffcompose 统一图层合成(每角色 idle 底 + 说话段时间窗 + 商品,按 z 叠);
-                    # 失败回退 moviepy turntaking。字幕+昵称仍由后面的 _apply_overlays 处理。
+                    # 失败回退 moviepy turntaking。字幕由 ffcompose 烧入(成功时),昵称由 _apply_overlays。
                     _ff_ok = False
                     try:
                         from chayuan.server.video_generation.digital_human import ffcompose as _ff
                         from chayuan.server.video_generation.compute import get_compute as _gc
-                        _wavs = [os.path.splitext(c)[0] + ".wav" for c in clips]
-                        # 时间窗用 wav 时长(与拼接音频严格对齐);mp4 视频时长有帧 padding 偏差,
-                        # 逐段累积会让口型越来越对不上声。wav 读不到则回退该段 mp4 时长。
-                        _durs = [(_wav_ms(_w) or max(1, int(seg_meta[_i].get("duration_ms") or 0) or 1))
-                                 for _i, _w in enumerate(_wavs)]
+                        # 同步关键:窗口/字幕/音频统一用 clip 时长(seg.mp4 -shortest mux,音视频等长),
+                        # 且音频直接取 clip 自身拼接 → 每段音频==视频窗口==字幕段,严格对齐,无缝隙累积。
+                        _durs = [max(1, int(seg_meta[_i].get("duration_ms") or 0) or 1) for _i in range(len(clips))]
                         _coaud = os.path.join(td, "coframe_audio.wav")
-                        _concat_wavs(_wavs, _coaud, _gc().ffmpeg_exe)
+                        _concat_clip_audio(clips, _coaud, _gc().ffmpeg_exe)
                         _W, _H = args["width"], args["height"]
                         _layers = []
                         for _ri in range(len(slots)):
@@ -497,6 +525,7 @@ def _run_pipeline(tid: str) -> None:
                                             "scale": positions[_ri][2], "z": zs[_ri], "opacity": ops[_ri],
                                             "loop": (_k == "video"), "windows": None})
                         _acc = 0
+                        _subcues = []  # 字幕真实时间轴:每段 [本段窗口] + 该段文本
                         for _i, _c in enumerate(clips):
                             _ri = unit_roles[_i]
                             _st = _acc
@@ -504,16 +533,39 @@ def _run_pipeline(tid: str) -> None:
                             _layers.append({"src": _c, "kind": "video", "x": positions[_ri][0], "y": positions[_ri][1],
                                             "scale": positions[_ri][2], "z": zs[_ri], "opacity": ops[_ri],
                                             "loop": False, "windows": [{"start_ms": _st, "end_ms": _acc}]})
+                            _stx = (seg_meta[_i].get("text") or "").strip()
+                            if _stx:
+                                _subcues.append({"start_ms": _st, "end_ms": _acc, "text": _stx})
                         for _it in co_items:
                             _k = "video" if os.path.splitext(_it["path"])[1].lower() in _VIDEO_EXT else "image"
                             _layers.append({"src": _it["path"], "kind": _k, "x": _it["x"], "y": _it["y"],
                                             "scale": _it["scale"], "z": _it["z"], "opacity": _it["opacity"],
                                             "loop": (_k == "video"), "windows": None})
+                        # 字幕:用真实每段时间烧进 ffcompose 的 ass(替代会崩/不同步的 moviepy 字幕)
+                        _sub = None
+                        if getattr(preset, "subtitle_enabled", True) and _subcues:
+                            try:
+                                from chayuan.server.video_generation.digital_human import subtitle_ass as _sa
+                                from chayuan.server.video_generation.digital_human import overlay as _ovf
+                                _style = {"subtitle_position": getattr(preset, "subtitle_position", "bottom"),
+                                          "font_name": getattr(preset, "font_name", ""),
+                                          "font_size": getattr(preset, "font_size", 0),
+                                          "text_fore_color": getattr(preset, "text_fore_color", ""),
+                                          "stroke_color": getattr(preset, "stroke_color", ""),
+                                          "stroke_width": getattr(preset, "stroke_width", None)}
+                                _fp = _ovf._resolve_font_path(getattr(preset, "font_name", "") or None)
+                                _assp = _sa.build_ass(_subcues, _style, os.path.join(td, "co_sub.ass"),
+                                                      width=_W, height=_H, font_path=_fp)
+                                _sub = {"ass_path": _assp}
+                            except Exception as _se:  # noqa: BLE001
+                                logger.warning("[dh] coframe 字幕构建失败(忽略): %r", _se)
                         _scene = {"width": _W, "height": _H, "duration_ms": _acc or 5000,
-                                  "audio_path": _coaud, "layers": _layers, "subtitle": None}
+                                  "audio_path": _coaud, "layers": _layers, "subtitle": _sub}
                         _ff.render(_scene, out_path, on_progress=_op)
                         _ff_ok = True
-                        logger.info("[dh-timing] mode=coframe compose=ffcompose encoder=%s", _gc().video_encoder)
+                        _sub_burned = bool(_sub)
+                        logger.info("[dh-timing] mode=coframe compose=ffcompose encoder=%s subtitle=%s",
+                                    _gc().video_encoder, "burned" if _sub_burned else "none")
                     except Exception as e:  # noqa: BLE001
                         logger.warning("[dh] coframe ffcompose 失败,回退 moviepy turntaking: %r", e)
                     if not _ff_ok:
@@ -530,7 +582,8 @@ def _run_pipeline(tid: str) -> None:
                 logger.warning("[dh] %s 合成失败,回退首个形象片段: %r", mode, e)
                 import shutil
                 shutil.copyfile(clips[0], out_path)
-            out_path = _apply_overlays(out_path, td, preset, slots, args.get("text"), args["width"], args["height"])
+            out_path = _apply_overlays(out_path, td, preset, slots, args.get("text"), args["width"], args["height"],
+                                       skip_subtitle=_sub_burned)
             _set(tid, state="complete", progress=100, result_path=out_path,
                  script=args.get("text", ""), segments=seg_meta)
             return
