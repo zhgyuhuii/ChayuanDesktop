@@ -9,6 +9,16 @@
 
 import { http } from './client';
 
+/** 激活成功时的权益摘要（由 POST /activate 返回；其余接口无此字段）。 */
+export interface LicenseGrant {
+  /** 解锁的模块名列表，与 products 配置的 key 对齐（如 ["video", "avatar"]）。 */
+  modules: string[];
+  /** 授权类型：count=次数；time=时长。 */
+  kind: 'count' | 'time';
+  /** kind=count 时：本次新增次数；kind=time 时：从激活时刻起的续期天数（向上取整）。 */
+  value: number;
+}
+
 /** 后端授权态（camelCase 与 server/license/service.py 对齐）。 */
 export interface LicenseStatus {
   licensed: boolean;
@@ -19,6 +29,8 @@ export interface LicenseStatus {
   source?: string;
   /** 未通过原因：none/expired/rollback/mismatch/signature/invalid-app。 */
   reason?: string;
+  /** 激活成功时的本次权益摘要（POST /activate 专属；status 等接口无此字段）。 */
+  grant?: LicenseGrant;
 }
 
 const BASE = '/api/v1/license';

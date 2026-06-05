@@ -7,7 +7,7 @@
  * - 序列号手输 → store.activateSerial（B1，后端验签）。
  */
 
-import { type PayChannels, licenseBuyUrl, licenseFingerprint } from "@chayuan/api";
+import { type LicenseGrant, type PayChannels, licenseBuyUrl, licenseFingerprint } from "@chayuan/api";
 import {
   Button,
   Dialog,
@@ -47,6 +47,7 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
 
   /** 激活成功后的权益信息 */
   const [successExpireAt, setSuccessExpireAt] = React.useState<string | null>(null);
+  const [successGrant, setSuccessGrant] = React.useState<LicenseGrant | null>(null);
   const [showSuccess, setShowSuccess] = React.useState(false);
 
   // 取购买链接 + 支持的支付渠道（后端拼 指纹 + app）→ 生成离线二维码。
@@ -81,6 +82,7 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
     if (!open) {
       setShowSuccess(false);
       setSuccessExpireAt(null);
+      setSuccessGrant(null);
     }
   }, [open]);
 
@@ -110,7 +112,7 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
 
   // fn 返回 null = 无操作（如用户取消选文件），不报错、不关窗。
   async function run(
-    fn: () => Promise<{ licensed: boolean; expireAt?: string; reason?: string } | null>,
+    fn: () => Promise<{ licensed: boolean; expireAt?: string; reason?: string; grant?: LicenseGrant } | null>,
   ): Promise<void> {
     setBusy(true);
     setErr(null);
@@ -120,6 +122,7 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
       if (s.licensed) {
         // 激活成功 → 展示权益态，用户点「完成」再关窗
         setSuccessExpireAt(s.expireAt ?? null);
+        setSuccessGrant(s.grant ?? null);
         setShowSuccess(true);
       } else {
         setErr(reasonText(s.reason));
@@ -136,6 +139,7 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
   // ── 成功态 ────────────────────────────────────────────────────────────────
   if (showSuccess) {
     const expireLabel = successExpireAt ? formatExpireAt(successExpireAt) : null;
+    const grantLabel = successGrant ? formatGrant(successGrant) : null;
     return (
       <>
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -149,7 +153,9 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
               </div>
               <div className="space-y-1 text-center">
                 <p className="text-base font-semibold text-foreground">激活成功，授权已生效</p>
-                {expireLabel ? (
+                {grantLabel ? (
+                  <p className="text-sm text-muted-foreground">本次授权：{grantLabel}</p>
+                ) : expireLabel ? (
                   <p className="text-sm text-muted-foreground">授权有效期至 {expireLabel}</p>
                 ) : (
                   <p className="text-sm text-muted-foreground">请尽情使用本产品功能</p>
@@ -340,6 +346,23 @@ function formatExpireAt(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+/** 格式化权益摘要为一行文案，如「视频生成、数字人 · 续期30天」或「视频生成 · 50次」。 */
+function formatGrant(grant: LicenseGrant): string {
+  const MODULE_LABELS: Record<string, string> = {
+    video: "视频生成",
+    avatar: "数字人",
+    chat: "AI对话",
+    note: "AI笔记",
+    kb: "知识库",
+    ocr: "图转文",
+    asr: "音转文",
+  };
+  const modNames = grant.modules.map((m) => MODULE_LABELS[m] ?? m).join("、");
+  const valueStr =
+    grant.kind === "count" ? `${grant.value}次` : `续期${grant.value}天`;
+  return `${modNames} · ${valueStr}`;
 }
 
 /** 按支持的渠道给扫码提示文案。 */
