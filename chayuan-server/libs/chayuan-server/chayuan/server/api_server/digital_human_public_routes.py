@@ -262,7 +262,30 @@ def _tts_parallel(text: str, voice: str) -> bytes:
             return f.read()
 
 
-def _say_clip_bytes(rec, text: str) -> Optional[bytes]:
+def _apply_atempo(audio: bytes, rate: float, fmt: str) -> bytes:
+    """调语速(ffmpeg atempo,保音高)。rate=1 原速;clamp 0.5-2.0。失败返原音频。"""
+    try:
+        if not audio or abs(rate - 1.0) < 0.02:
+            return audio
+        r = max(0.5, min(2.0, rate))
+        import imageio_ffmpeg
+        ff = imageio_ffmpeg.get_ffmpeg_exe()
+        with tempfile.TemporaryDirectory() as d:
+            ext = "wav" if fmt == "wav" else "mp3"
+            inp = os.path.join(d, "in." + ext)
+            outp = os.path.join(d, "out." + ext)
+            with open(inp, "wb") as f:
+                f.write(audio)
+            subprocess.run([ff, "-y", "-loglevel", "error", "-i", inp,
+                            "-af", "atempo=%.3f" % r, outp], check=True)
+            with open(outp, "rb") as f:
+                return f.read()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh-public] 语速调整失败,用原速: %r", e)
+        return audio
+
+
+def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
     """GPU 路径:为单句即时生成「该形象对口型说这句」的短视频片段(仅形象口型,不合成
     商品/场景,实时优先)。返回 mp4 字节;无 GPU / 无形象 / 失败 → None(调用方回退纯音频)。"""
     try:
@@ -277,6 +300,7 @@ def _say_clip_bytes(rec, text: str) -> Optional[bytes]:
         wav = get_modality_service().tts(text, voice=voice, fmt="wav")
         if not wav:
             return None
+        wav = _apply_atempo(wav, rate, "wav")   # 语速:口型跟着变速后的音频对齐
         from chayuan.server.video_generation.digital_human.engine import get_engine
         with tempfile.TemporaryDirectory() as d:
             ap = os.path.join(d, "say.wav")
@@ -308,7 +332,11 @@ def public_say(token: str, body: Dict[str, Any], request: Request) -> Response:
     text = str(body.get("text") or "").strip()[:300]
     if not text:
         raise HTTPException(status_code=400, detail="文本为空")
-    clip = _say_clip_bytes(rec, text)
+    try:
+        rate = float(body.get("rate") or 1.0)
+    except (TypeError, ValueError):
+        rate = 1.0
+    clip = _say_clip_bytes(rec, text, rate)
     if clip:
         return Response(content=clip, media_type="video/mp4", headers={"X-Talk-Kind": "video"})
     voice = dh_jobs._voice_string(rec.voice_provider, rec.voice_name) or "zh-CN-XiaoxiaoNeural"
@@ -317,6 +345,7 @@ def public_say(token: str, body: Dict[str, Any], request: Request) -> Response:
     except Exception as e:  # noqa: BLE001
         logger.warning("[dh-public] say tts 失败: %r", e)
         raise HTTPException(status_code=503, detail="语音合成不可用")
+    audio = _apply_atempo(audio, rate, "mp3")   # 语速调整(viewer 选的倍速)
     return Response(content=audio, media_type="audio/mpeg", headers={"X-Talk-Kind": "audio"})
 
 
@@ -419,6 +448,12 @@ _PUBLIC_PAGE = """<!doctype html>
     <div class="msgs" id="msgs"></div>
     <div class="bar">
       <input id="inp" placeholder="跟 TA 说点什么…" autocomplete="off"/>
+      <select id="speed" title="语速" style="height:40px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e5e7eb;font-size:14px;padding:0 6px;outline:none">
+        <option value="0.8">0.8x</option>
+        <option value="1" selected>1.0x</option>
+        <option value="1.25">1.25x</option>
+        <option value="1.5">1.5x</option>
+      </select>
       <button id="send">发送</button>
     </div>
   </div>
@@ -433,6 +468,7 @@ _PUBLIC_PAGE = """<!doctype html>
   var stage = document.getElementById("stage");
   var chat = document.getElementById("chat");
   var msgs = document.getElementById("msgs");
+  var speedEl = document.getElementById("speed");
   var inp = document.getElementById("inp");
   var sendBtn = document.getElementById("send");
   var tip = document.getElementById("tip");
@@ -577,7 +613,7 @@ _PUBLIC_PAGE = """<!doctype html>
     var text = sentQ.shift();
     var done = once(function(){ fetching = false; fetchNext(); });
     fetch(base + "/say", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({text: text})}).then(function(r){
+      body: JSON.stringify({text: text, rate: parseFloat((speedEl && speedEl.value) || "1") || 1})}).then(function(r){
       if(!r.ok) throw new Error("say");
       var kind = (r.headers.get("X-Talk-Kind") || "audio");
       return r.blob().then(function(b){ playQ.push({kind:kind, blob:b}); });
