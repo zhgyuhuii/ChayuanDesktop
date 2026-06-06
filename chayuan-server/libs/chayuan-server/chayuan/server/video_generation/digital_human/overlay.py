@@ -79,13 +79,54 @@ def _font_for(style):
     return _resolve_font_path((style or {}).get("font_name"))
 
 
+def _ffmpeg_overlays(video_path, out_path, labels, cues, width, height, style) -> bool:
+    """ffmpeg 单趟烧字幕(ass)+ 昵称(同一 ass 的 \\pos 全程事件)。-c:v 重编码一次、-c:a copy。
+    复用 ffcompose 同款 subtitles=ass 路径(已验证可烧 CJK)。成功返 True;抛异常由调用方回退。"""
+    import os
+    import subprocess
+    import imageio_ffmpeg
+    from chayuan.server.video_generation.digital_human import subtitle_ass as _sa
+    font = _font_for(style) if style else _font()
+    cue_dicts = [{"start_ms": getattr(c, "start_ms", 0), "end_ms": getattr(c, "end_ms", 0),
+                  "text": getattr(c, "text", "") or ""} for c in (cues or []) if getattr(c, "text", "")]
+    ass_path = os.path.join(os.path.dirname(out_path) or ".", "overlay.ass")
+    _sa.build_ass(cue_dicts, style or {}, ass_path, width=width, height=height, font_path=font)
+    # 昵称:作为全程定位事件追加进同一 ass(libass 处理 CJK + 定位,免 drawtext 的 Windows 字体/转义坑)。
+    lab_lines = []
+    for text, xn, yn in (labels or []):
+        if not text:
+            continue
+        X = int(max(0.0, min(1.0, float(xn))) * width)
+        Y = int(max(0.0, min(0.95, float(yn))) * height)
+        t = str(text).replace("{", "(").replace("}", ")").replace("\n", " ")
+        lab_lines.append(f"Dialogue: 0,0:00:00.00,9:59:59.99,Default,,0,0,0,,{{\\an7\\pos({X},{Y})}}{t}")
+    if lab_lines:
+        with open(ass_path, "a", encoding="utf-8") as f:
+            f.write("\n" + "\n".join(lab_lines) + "\n")
+    ff = imageio_ffmpeg.get_ffmpeg_exe()
+    ass_esc = ass_path.replace("\\", "/").replace(":", "\\:")
+    cmd = [ff, "-y", "-loglevel", "error", "-i", video_path,
+           "-vf", f"subtitles='{ass_esc}'",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+           "-c:a", "copy", out_path]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    return os.path.isfile(out_path)
+
+
 def add_overlays(video_path: str, out_path: str, *, labels: Optional[List[Tuple[str, float, float]]] = None,
                  cues=None, width: int = 720, height: int = 1280,
                  style: Optional[dict] = None) -> str:
     """labels: [(text, x_norm, y_norm)] 昵称标签;cues: List[SrtCue] 字幕(底部居中)。
-    任一失败 → 返回原 video_path(不阻断出片)。成功 → 写 out_path 并返回它。"""
+    任一失败 → 返回原 video_path(不阻断出片)。成功 → 写 out_path 并返回它。
+    优先 ffmpeg subtitles=ass 烧字幕+昵称(单趟,远快于 moviepy 逐帧合成);失败回退 moviepy。"""
     if not labels and not cues:
         return video_path
+    # ── 快路径:ffmpeg(字幕走 ass,昵称塞进同一 ass 的 \pos 事件,-c:a copy 不重编码音频)
+    try:
+        if _ffmpeg_overlays(video_path, out_path, labels, cues, width, height, style):
+            return out_path
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh] ffmpeg overlay 失败,回退 moviepy: %r", e)
     try:
         from moviepy import VideoFileClip, TextClip, CompositeVideoClip
         font = _font()
