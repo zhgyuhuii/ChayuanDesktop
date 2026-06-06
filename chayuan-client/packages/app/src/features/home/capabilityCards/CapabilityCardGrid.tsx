@@ -34,12 +34,20 @@ export interface CapabilityCardGridProps {
   hideWhenAllEmpty?: boolean;
   /** 传入则在本组末尾追加一张「模型厂商」卡(点击 → 此回调)。 */
   onMarketplace?: () => void;
+  /** 'cards'(默认大卡)/ 'chips'(主页紧凑一行小按钮) */
+  variant?: 'cards' | 'chips';
 }
+
+// chips 变体的能力小图标(spec 无 icon 字段,按 cap 映射;缺省无 emoji)
+const CAP_EMOJI: Record<string, string> = {
+  chat: '💬', vl: '👁', t2i: '🎨', image_edit: '🖼', t2v: '🎬', tts: '🔊', asr: '🎙',
+};
 
 
 export const CapabilityCardGrid: React.FC<CapabilityCardGridProps> = ({
   hideWhenAllEmpty = false,
   onMarketplace,
+  variant = 'cards',
 }) => {
   const navigate = useNavigate();
   const { byCap, hasAny, isLoading, isFetched } = useAvailableModelsByCapability();
@@ -72,6 +80,51 @@ export const CapabilityCardGrid: React.FC<CapabilityCardGridProps> = ({
   }, []);
 
   if (hideWhenAllEmpty && isFetched && !hasAny) return null;
+
+  // ── chips 变体:主页紧凑一行小按钮(复用上面全部逻辑)──────────────
+  if (variant === 'chips') {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-[var(--cy-text-primary)]">开始对话</h2>
+          <span className="hidden text-[11px] text-[var(--cy-text-tertiary)] sm:inline">选一类能力直接开新对话,自动选可用模型</span>
+          <span className="ml-auto"><ModelSupportHelpButton /></span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {isLoading && !isFetched
+            ? Array.from({ length: HOME_CAPABILITY_CARDS.length }).map((_, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 骨架固定数量
+                <div key={`chip-skel-${i}`} className="h-8 w-20 animate-pulse rounded-full bg-[var(--cy-surface-base)]" />
+              ))
+            : HOME_CAPABILITY_CARDS.map((spec) => {
+                const ok = (byCap.get(spec.cap)?.length ?? 0) > 0;
+                return (
+                  <button
+                    key={spec.cap}
+                    type="button"
+                    onClick={() => (ok ? onActivate(spec.cap) : onShowHelp(spec.cap))}
+                    title={ok ? spec.subtitle : spec.empty_hint}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors ${ok
+                      ? 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] text-[var(--cy-text-primary)] hover:border-[var(--cy-brand-400)] hover:bg-[var(--cy-brand-50)]'
+                      : 'border-dashed border-[var(--cy-border-subtle)] bg-transparent text-[var(--cy-text-tertiary)] hover:text-[var(--cy-text-secondary)]'}`}
+                  >
+                    <span aria-hidden>{CAP_EMOJI[spec.cap] ?? '✨'}</span>
+                    {spec.title}
+                    {!ok && <span className="ml-0.5 text-[10px] opacity-70">未配</span>}
+                  </button>
+                );
+              })}
+          {onMarketplace && (
+            <button type="button" onClick={onMarketplace}
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 text-xs font-medium text-[var(--cy-text-secondary)] hover:border-[var(--cy-brand-400)]">
+              <Layers3 className="h-3.5 w-3.5" /> 模型厂商
+            </button>
+          )}
+        </div>
+        <ModelSupportHelpDialog open={helpOpen} onOpenChange={setHelpOpen} initialCap={helpAnchor} />
+      </div>
+    );
+  }
 
   return (
     <section

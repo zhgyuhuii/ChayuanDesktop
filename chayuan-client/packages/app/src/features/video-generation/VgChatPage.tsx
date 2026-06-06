@@ -53,7 +53,7 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
     void navigate({ to: '/video-generation/batch' as never });
   }, [openTab, navigate]);
   const goTimeline = React.useCallback(() => {
-    openTab('/video-generation/timeline', { title: '时间轴编辑', icon: 'film' });
+    openTab('/video-generation/timeline', { title: '视频编辑', icon: 'film' });
     void navigate({ to: '/video-generation/timeline' as never });
   }, [openTab, navigate]);
   const goMaterials = React.useCallback(() => {

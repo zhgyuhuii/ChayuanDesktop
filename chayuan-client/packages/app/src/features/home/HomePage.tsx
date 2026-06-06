@@ -22,7 +22,7 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Library, Pen, ScanText, Mic, Clapperboard, UserRound,
-  AlertCircle,
+  AlertCircle, Film,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
 import { useAuthStore } from '../../store/auth';
@@ -103,6 +103,15 @@ const CAPS: ReadonlyArray<CapItem> = [
     to: '/digital-human',
     gradient: 'from-teal-50 to-cyan-100 dark:from-teal-900/30 dark:to-cyan-800/40',
     iconBg: 'bg-gradient-to-br from-teal-400 to-cyan-500',
+  },
+  {
+    id: 'video-editing',
+    icon: Film,
+    title: '视频编辑',
+    subtitle: '时间轴多轨剪辑 · 素材/字幕/音频/画中画 → 合成成片',
+    to: '/video-generation/timeline',
+    gradient: 'from-slate-50 to-indigo-100 dark:from-slate-900/30 dark:to-indigo-800/40',
+    iconBg: 'bg-gradient-to-br from-slate-400 to-indigo-500',
   },
 ];
 
@@ -300,11 +309,10 @@ export const HomePage: React.FC = () => {
         </div>
       )}
 
-      {/* ── 3. 四张炫酷功能入口卡 ────────────────────────────────
-          设计:窄屏 2 列、桌面 4 列等宽并列,卡片高度统一 h-40,
-          gap 略增到 5,卡内 padding p-5,左上图标 + 左下文案的固定网格,
-          上下左右留白对称 — 视觉平衡感比之前 5 列(残余空隙)好。 */}
-      <div className="relative z-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {/* ── 3. 工具小卡网格 ────────────────────────────────────────
+          紧凑设计:图标 + 标题(副标题进 hover tooltip),高度 h-24,
+          窄屏 3 列 / sm 4 列 / lg 7 列单行。卡多了也不占满屏。 */}
+      <div className="relative z-10 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {CAPS.map((c, i) => {
           const Icon = c.icon;
           return (
@@ -312,25 +320,17 @@ export const HomePage: React.FC = () => {
               key={c.id}
               type="button"
               onClick={() => onCapClick(c)}
-              className={`group relative flex h-40 flex-col justify-between overflow-hidden rounded-2xl border border-[var(--cy-border-subtle)] bg-gradient-to-br ${c.gradient} p-5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[var(--cy-shadow-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cy-brand-500)]`}
+              title={c.subtitle}
+              className={`group relative flex h-24 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border border-[var(--cy-border-subtle)] bg-gradient-to-br ${c.gradient} p-2 text-center transition-all hover:-translate-y-0.5 hover:shadow-[var(--cy-shadow-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cy-brand-500)]`}
             >
-              {/* 图标"动起来" — 4s 周期轻浮 + 微旋 + 金光晕,5 张卡 0.55s 错相 */}
               <div
                 className={`flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-sm ${c.iconBg}`}
-                style={{ animation: `cy-icon-float 4s ease-in-out ${i * 0.55}s infinite` }}
+                style={{ animation: `cy-icon-float 4s ease-in-out ${i * 0.4}s infinite` }}
               >
                 <Icon className="h-5 w-5" />
               </div>
-              <div className="min-w-0">
-                <p className="text-base font-semibold text-[var(--cy-text-primary)]">{c.title}</p>
-                <p className="mt-1 line-clamp-2 text-xs text-[var(--cy-text-secondary)]">{c.subtitle}</p>
-              </div>
-              {/* 右上角光斑装饰,hover 微移 */}
-              <div
-                className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/30 blur-2xl transition-transform group-hover:translate-x-1"
-                aria-hidden
-              />
-              {/* 金线缠绕 — 沿卡片矩形边流动 */}
+              <p className="w-full truncate text-sm font-semibold text-[var(--cy-text-primary)]">{c.title}</p>
+              <div className="pointer-events-none absolute -right-5 -top-5 h-16 w-16 rounded-full bg-white/30 blur-2xl transition-transform group-hover:translate-x-1" aria-hidden />
               <CardAura hue="gold" intensity="subtle" radius={16} />
             </button>
           );
@@ -344,7 +344,7 @@ export const HomePage: React.FC = () => {
        *  数据源跟 ChatComposer 共享 ['v1.models',{type:'all'}] react-query 缓存,
        *  零额外网络。 */}
       <div className="relative z-10">
-        <CapabilityCardGrid onMarketplace={onConfigureModel} />
+        <CapabilityCardGrid variant="chips" onMarketplace={onConfigureModel} />
       </div>
 
       {/* ── 5. 流式产品介绍气泡 ────────────────────────────────

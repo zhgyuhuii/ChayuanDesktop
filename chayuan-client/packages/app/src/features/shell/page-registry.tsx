@@ -339,7 +339,7 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
         <VgTimelineEditorPage />
       </LicenseGate>
     ),
-    defaultTitle: '时间轴编辑',
+    defaultTitle: '视频编辑',
     defaultIcon: 'film',
   },
   {
