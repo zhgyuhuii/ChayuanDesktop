@@ -2,6 +2,25 @@ import type { VgTimeline, VgTimelineClip } from '@chayuan/api';
 
 const MIN_DUR = 200;
 
+/** 设置某视频轨所有 clip 的内嵌音频(静音/音量)——视频轨左侧声音开关+音量用。 */
+export function setTrackAudio(t: VgTimeline, trackId: string, patch: { muted?: boolean; volume?: number }): VgTimeline {
+  return {
+    ...t,
+    tracks: (t.tracks || []).map((tr) =>
+      tr.id === trackId
+        ? {
+            ...tr,
+            clips: (tr.clips || []).map((c) => ({
+              ...c,
+              ...(patch.muted !== undefined ? { muted: patch.muted } : {}),
+              ...(patch.volume !== undefined ? { volume: patch.volume } : {}),
+            })),
+          }
+        : tr,
+    ),
+  };
+}
+
 /**
  * 把 timeline 里所有「后端为整数」的字段取整,避免小数 out_ms/track_start_ms/duration_ms
  * 触发后端 422(TimelineClip.out_ms 等是 int)。x/y/scale 是 float 保留。

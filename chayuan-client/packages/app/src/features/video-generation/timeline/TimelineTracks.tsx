@@ -1,9 +1,9 @@
 import * as React from 'react';
-import { Mic, Captions, Music, Music2, Clapperboard, PictureInPicture2 } from 'lucide-react';
+import { Mic, Captions, Music, Music2, Clapperboard, PictureInPicture2, Volume2, VolumeX } from 'lucide-react';
 import type { VgTimeline, VgTimelineTrack } from '@chayuan/api';
 import type { SrtCue } from './srtParse';
 import { msToPx, pxToMs } from './timelineScale';
-import { clipDurMs } from './timelineEdit';
+import { clipDurMs, setTrackAudio } from './timelineEdit';
 import { TimeRuler } from './TimeRuler';
 import { Playhead } from './Playhead';
 import { TrackHeader, TRACK_H } from './TrackHeader';
@@ -103,7 +103,25 @@ export const TimelineTracks: React.FC<{
               label={tr.label || (!tr.removable ? '主视频' : `视频 ${i + 1}`)}
               icon={!tr.removable
                 ? <Clapperboard className="h-3 w-3 text-[var(--cy-brand-600)]" />
-                : <PictureInPicture2 className="h-3 w-3 text-[var(--cy-text-tertiary)]" />} />
+                : <PictureInPicture2 className="h-3 w-3 text-[var(--cy-text-tertiary)]" />}
+              action={(tr.clips && tr.clips.length > 0) ? (() => {
+                const allMuted = tr.clips.every((c) => c.muted);
+                const vol = tr.clips[0]?.volume ?? 1;
+                return (
+                  <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+                    <button type="button" title={allMuted ? '取消静音(混入该轨视频原声)' : '静音该轨视频原声'}
+                      onClick={() => onTimelineChange(setTrackAudio(timeline, tr.id, { muted: !allMuted }))}
+                      className="text-[var(--cy-text-tertiary)] hover:text-[var(--cy-text-primary)]">
+                      {allMuted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+                    </button>
+                    {!allMuted && (
+                      <input type="range" min={0} max={1.5} step={0.05} value={vol} title={`音量 ${vol.toFixed(2)}`}
+                        onChange={(e) => onTimelineChange(setTrackAudio(timeline, tr.id, { volume: Number(e.target.value) }))}
+                        className="w-10 accent-[var(--cy-brand-500)]" />
+                    )}
+                  </span>
+                );
+              })() : undefined} />
           </div>
         ))}
         <div onContextMenu={(e) => { if (onLaneContextMenu) { e.preventDefault(); onLaneContextMenu(e, 'narration'); } }}>
