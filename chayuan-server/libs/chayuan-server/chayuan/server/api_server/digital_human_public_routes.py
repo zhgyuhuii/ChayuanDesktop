@@ -678,7 +678,9 @@ _PUBLIC_PAGE = """<!doctype html>
   .hearts{position:absolute;right:14px;bottom:130px;z-index:29;pointer-events:none;width:50px;height:50%}
   .heart{position:absolute;bottom:0;font-size:24px;animation:floatup 2.6s ease-in forwards}
   @keyframes floatup{0%{opacity:0;transform:translateY(0) scale(.6)}15%{opacity:1}100%{opacity:0;transform:translateY(-46vh) translateX(var(--dx,0)) scale(1.1)}}
-  .bar{position:absolute;left:10px;right:66px;bottom:10px;z-index:30;display:flex;flex-wrap:nowrap;gap:7px}
+  .bar{position:absolute;left:10px;right:10px;bottom:10px;z-index:30;display:flex;flex-wrap:nowrap;gap:7px}
+  .enter{position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.4);backdrop-filter:blur(2px);cursor:pointer}
+  .enter button{height:44px;padding:0 22px;border-radius:22px;border:0;background:linear-gradient(90deg,#fe2c55,#ff5a5f);color:#fff;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 6px 20px rgba(254,44,85,.5)}
   .bar input{flex:1;min-width:0;height:42px;padding:0 14px;border-radius:21px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#fff;font-size:14px;outline:none}
   .bar button{flex:none;height:42px;padding:0 15px;border-radius:21px;border:0;background:linear-gradient(90deg,#fe2c55,#ff5a5f);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
   .bar .iconbtn{flex:none;width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.22);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#dbe2ea;font-size:16px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
@@ -718,6 +720,7 @@ _PUBLIC_PAGE = """<!doctype html>
     </div>
     <div class="hearts" id="hearts"></div>
     <div class="shop" id="shop"></div>
+    <div class="enter" id="enter" style="display:none"><button type="button">▶ 点击进入直播间</button></div>
     <div class="bar" id="bar" style="display:none">
       <button id="shopbtn" class="iconbtn" title="商品橱窗" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></button>
       <input id="inp" placeholder="说点什么…" autocomplete="off"/>
@@ -734,7 +737,9 @@ _PUBLIC_PAGE = """<!doctype html>
       nameEl=document.getElementById("name"), viewersEl=document.getElementById("viewers"), avaEl=document.getElementById("ava"),
       inp=document.getElementById("inp"), sendBtn=document.getElementById("send"), ccBtn=document.getElementById("cc"),
       bar=document.getElementById("bar"), acts=document.getElementById("acts"), hearts=document.getElementById("hearts"), tip=document.getElementById("tip"),
-      shopEl=document.getElementById("shop"), shopBtn=document.getElementById("shopbtn");
+      shopEl=document.getElementById("shop"), shopBtn=document.getElementById("shopbtn"), enterEl=document.getElementById("enter");
+  // 「点击进入」:浏览器禁止无手势自动播声音,所以 idle 循环要等用户点一下才开始(此时声音才允许)
+  enterEl.addEventListener("click", function(){ enterEl.style.display="none"; idleOn=true; feedIdle(); });
   var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280, avatarBox=null, fsMode=false, msgsOn=true;
   // 「字幕」开关:开/关屏幕上不断输出的大模型回复 + 对话内容(漂浮气泡流),不影响讲话字幕
   ccBtn.addEventListener("click", function(){ msgsOn=!msgsOn; ccBtn.classList.toggle("on", msgsOn); msgs.style.display = msgsOn ? "flex" : "none"; });
@@ -838,7 +843,7 @@ _PUBLIC_PAGE = """<!doctype html>
     (cfg.products||[]).forEach(addProduct); viewersEl.textContent=cfg.viewers||0;
     buildShop((cfg.products||[]).filter(function(p){ return p.link && p.link.trim(); }));
     if(cfg.welcome && cfg.welcome.trim()){ addMsg("assistant", cfg.welcome.trim()); }   // 欢迎语开场白
-    if(cfg.idle_script && cfg.idle_script.trim()){ idleSents=splitScript(cfg.idle_script); idleOn=true; feedIdle(); }   // 无人提问时循环播报
+    if(cfg.idle_script && cfg.idle_script.trim()){ idleSents=splitScript(cfg.idle_script); enterEl.style.display="flex"; }   // 循环播报:点「进入」后开始(解锁声音自动播放)
     if(cfg.chat_enabled){ bar.style.display="flex"; acts.style.display="flex"; } else { tip.textContent="该数字人当前仅供观看"; }
   }).catch(function(){ tip.textContent="该数字人未发布或已下线。"; });
 

@@ -327,6 +327,12 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     if (pubName === null) return;   // 取消则不发布
     setPublishing(true);
     try {
+      // 把工作台当前脚本存成 preset.idle_script → 在线页无人提问时循环播报这段(语音+口型)。
+      // 仅当前有脚本且 preset 还没设过循环脚本时写,避免覆盖用户在「数字人设置」里专门配的。
+      const loopScript = (text || '').trim();
+      if (loopScript && !((curPreset.idle_script || '').trim())) {
+        try { await digitalHuman.updatePreset(curPreset.id, { idle_script: loopScript }); } catch { /* 不致命 */ }
+      }
       // new=true:每次发布新建一条 → 一个数字人可发布多个在线数字人(各自独立链接)。
       const rec = await digitalHuman.publish(curPreset.id, { new: true, name: pubName.trim() });
       try { await navigator.clipboard?.writeText(rec.url); } catch { /* 复制失败不致命 */ }
