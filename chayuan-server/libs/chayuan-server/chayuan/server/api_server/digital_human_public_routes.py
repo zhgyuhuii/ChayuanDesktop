@@ -740,9 +740,10 @@ _PUBLIC_PAGE = """<!doctype html>
       shopEl=document.getElementById("shop"), shopBtn=document.getElementById("shopbtn"), enterEl=document.getElementById("enter");
   // 「点击进入」:浏览器禁止无手势自动播声音,所以 idle 循环要等用户点一下才开始(此时声音才允许)
   if(enterEl) enterEl.style.display="none";   // 不用「点击进入」按钮,打开即进入直播
-  // 浏览器可能拦截无手势的声音自动播放:首次任意点击/触摸/按键时补踢一次循环,解锁声音
-  document.addEventListener("pointerdown", function(){ if(idleOn) feedIdle(); }, {once:true});
-  document.addEventListener("keydown", function(){ if(idleOn) feedIdle(); }, {once:true});
+  // 浏览器禁止「带声」自动播放:打开先静音播(嘴能动),首次任意点击/触摸/按键解锁声音。
+  function unlockSound(){ soundOn=true; if(curMedia){ try{ curMedia.muted=false; }catch(_){} } if(mode==="idle") playIdle(); }
+  document.addEventListener("pointerdown", unlockSound, {once:true});
+  document.addEventListener("keydown", unlockSound, {once:true});
   var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280, avatarBox=null, fsMode=false, msgsOn=true;
   // 「字幕」开关:开/关屏幕上不断输出的大模型回复 + 对话内容(漂浮气泡流),不影响讲话字幕
   ccBtn.addEventListener("click", function(){ msgsOn=!msgsOn; ccBtn.classList.toggle("on", msgsOn); msgs.style.display = msgsOn ? "flex" : "none"; });
@@ -845,7 +846,7 @@ _PUBLIC_PAGE = """<!doctype html>
     (cfg.products||[]).forEach(addProduct); viewersEl.textContent=cfg.viewers||0;
     buildShop((cfg.products||[]).filter(function(p){ return p.link && p.link.trim(); }));
     if(cfg.welcome && cfg.welcome.trim()){ addMsg("assistant", cfg.welcome.trim()); }   // 欢迎语开场白
-    if(cfg.idle_script && cfg.idle_script.trim()){ idleSents=splitScript(cfg.idle_script); idleOn=true; feedIdle(); }   // 打开即循环播报(声音若被浏览器拦,首次点击/按键自动解锁)
+    if(cfg.idle_script && cfg.idle_script.trim()){ idleSents=splitScript(cfg.idle_script); buildIdle(); }   // 批量预合成 idle 队列并循环播(打开即播;声音首次点击/按键解锁)
     if(cfg.chat_enabled){ bar.style.display="flex"; acts.style.display="flex"; } else { tip.textContent="该数字人当前仅供观看"; }
   }).catch(function(){ tip.textContent="该数字人未发布或已下线。"; });
 
@@ -861,58 +862,62 @@ _PUBLIC_PAGE = """<!doctype html>
     var u=location.href; if(navigator.share){ navigator.share({title:document.title,url:u}).catch(function(){}); }
     else { try{ navigator.clipboard.writeText(u); tip.textContent="链接已复制"; setTimeout(function(){tip.textContent="";},1500);}catch(e){} } });
 
-  var sentQ=[], results={}, fetchSeq=0, playSeq=0, inflight=0, playing=false, MAXC=2;
-  var genId=0, curMedia=null, clipCache={}, clipKeys=[];   // 打断 + 片段缓存(idle 循环复用,不重复合成)
-  var idleSents=[], idleIdx=0, idleOn=false;
+  var playing=false, curMedia=null, soundOn=false, mode='idle';   // mode: idle(循环队列) / answer(临时回答)
+  // idle 队列:idleSents 按序「批量预合成」成 idleQueue,循环播放(语音与口型视频一一对应);
+  // 提问 → 切 answer 临时合成顺序播,答完临时片段丢弃、回到 idle 队列继续。
+  var idleSents=[], idleQueue=[], idleIdx=0, idleBuilding=false;
+  var ansList=[], ansNext=0, ansGen=0, ansStreamDone=false;
   function once(fn){ var c=false; return function(){ if(c)return; c=true; fn(); }; }
-  function cacheClip(text,o){ if(clipCache[text])return; clipCache[text]=o; clipKeys.push(text);
-    while(clipKeys.length>60){ delete clipCache[clipKeys.shift()]; } }
-  function playAudio(blob,text,done){ var url=URL.createObjectURL(blob), a=new Audio(url); curMedia=a;
-    var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} if(curMedia===a)curMedia=null; cap.textContent=""; done&&done(); });
-    showCap(text); a.onended=fin; a.onerror=fin; a.play().catch(fin); }
-  function playClip(blob,text,done){ var url=URL.createObjectURL(blob), v=document.createElement("video"); curMedia=v;
-    v.src=url; v.autoplay=true; v.playsInline=true; v.setAttribute("playsinline",""); v.className="fill"; styleAvatar(v); makeInteractive(v); showCap(text);
-    var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} if(curMedia===v)curMedia=null; cap.textContent=""; idleAvatar(); done&&done(); });
-    v.onended=fin; v.onerror=fin; var old=stage.querySelector(".fill"); if(old) old.replaceWith(v); else stage.appendChild(v); v.play().catch(fin); }
-  // 多路并发合成(MAXC 路);结果按句序 seq 存入 results,playPump 严格顺序播放;
-  // gen 不匹配(已被提问打断)的在途结果直接丢弃,只缓存供 idle 复用。
-  function synthPump(){ while(inflight<MAXC && sentQ.length){ var it=sentQ.shift(); inflight++;
-    (function(seq,text,gen){
-      fetch(base+"/say",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:text})})
-        .then(function(r){ if(!r.ok) throw 0; var kind=(r.headers.get("X-Talk-Kind")||"audio");
-          return r.blob().then(function(b){ var o={kind:kind,blob:b,text:text}; cacheClip(text,o); if(gen===genId) results[seq]=o; }); })
-        .catch(function(){ if(gen===genId) results[seq]={skip:true}; })
-        .then(function(){ inflight--; synthPump(); playPump(); });
-    })(it.seq, it.text, it.gen);
-  } }
-  function playPump(){ if(playing)return; var o=results[playSeq];
-    if(!o){ feedIdle(); return; }
-    delete results[playSeq]; playSeq++;
-    if(o.skip){ playPump(); return; }
-    playing=true; var done=once(function(){ playing=false; playPump(); });
-    if(o.kind==="video") playClip(o.blob,o.text,done); else playAudio(o.blob,o.text,done); }
-  function enqueueSay(t){ if(!t||!t.trim())return; t=t.trim(); var seq=fetchSeq++;
-    var c=clipCache[t]; if(c){ results[seq]={kind:c.kind,blob:c.blob,text:t}; playPump(); return; }  // 命中缓存:直接排播,不再合成
-    sentQ.push({seq:seq, text:t, gen:genId}); synthPump(); }
-  // 提问打断:停当前播放 + 清队列 + bump gen(在途合成结果作废);clipCache 保留供 idle 复用
-  function interrupt(){ genId++; sentQ=[]; results={}; fetchSeq=0; playSeq=0; playing=false;
-    if(curMedia){ try{ curMedia.pause(); }catch(_){} curMedia.onended=null; curMedia.onerror=null; curMedia=null; }
-    cap.textContent=""; idleAvatar(); }
-  // idle 循环:空闲(非回答中、队列空、无播放)时喂下一句循环脚本(到尾循环回开头)
-  function feedIdle(){ if(!idleOn || busy || !idleSents.length) return;
-    if(sentQ.length || inflight || playing) return;
-    enqueueSay(idleSents[idleIdx % idleSents.length]); idleIdx++; }
+  function fetchClip(text){
+    return fetch(base+"/say",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:text})})
+      .then(function(r){ if(!r.ok) throw 0; var kind=(r.headers.get("X-Talk-Kind")||"audio");
+        return r.blob().then(function(b){ return {kind:kind, blob:b, text:text}; }); });
+  }
+  function stopCur(){ if(curMedia){ try{ curMedia.pause(); }catch(_){} curMedia.onended=null; curMedia.onerror=null; curMedia=null; } cap.textContent=""; }
+  // 统一播放一段:视频=口型片段;音频=兜底。手势前静音(浏览器允许静音自动播→嘴能动),手势后开声。
+  function playOne(o, done){
+    if(o.kind==="video"){ var url=URL.createObjectURL(o.blob), v=document.createElement("video"); curMedia=v;
+      v.src=url; v.autoplay=true; v.muted=!soundOn; v.playsInline=true; v.setAttribute("playsinline",""); v.className="fill"; styleAvatar(v); makeInteractive(v); showCap(o.text);
+      var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} if(curMedia===v)curMedia=null; cap.textContent=""; idleAvatar(); playing=false; done&&done(); });
+      v.onended=fin; v.onerror=fin; var old=stage.querySelector(".fill"); if(old) old.replaceWith(v); else stage.appendChild(v); v.play().catch(fin);
+    } else { var au=URL.createObjectURL(o.blob), a=new Audio(au); a.muted=!soundOn; curMedia=a;
+      var fin2=once(function(){ try{URL.revokeObjectURL(au);}catch(e){} if(curMedia===a)curMedia=null; cap.textContent=""; playing=false; done&&done(); });
+      showCap(o.text); a.onended=fin2; a.onerror=fin2; a.play().catch(fin2); }
+  }
+  // idle 队列:批量按序合成,首条就绪即开播,循环不停。
+  function buildIdle(){ if(idleBuilding || !idleSents.length) return; idleBuilding=true;
+    var i=0;
+    (function next(){ if(i>=idleSents.length) return;
+      fetchClip(idleSents[i]).then(function(o){ idleQueue.push(o); if(idleQueue.length===1) playIdle(); })
+        .catch(function(){}).then(function(){ i++; next(); });
+    })();
+  }
+  function playIdle(){ if(mode!=="idle" || playing || !idleQueue.length) return;
+    playing=true; var o=idleQueue[idleIdx % idleQueue.length]; idleIdx++;
+    playOne(o, function(){ if(mode==="idle") playIdle(); }); }
+  // 提问:打断当前 → answer 模式,临时合成、按句序播放;答完(流结束且全播完)回 idle。临时片段不缓存。
+  function startAnswer(){ mode="answer"; ansGen++; ansList=[]; ansNext=0; ansStreamDone=false; playing=false; stopCur(); idleAvatar(); }
+  function enqueueAnswer(text){ if(!text||!text.trim())return; var gen=ansGen, idx=ansList.length; ansList.push(null);
+    fetchClip(text.trim()).then(function(o){ if(gen!==ansGen)return; ansList[idx]=o; playAnswer(); })
+      .catch(function(){ if(gen!==ansGen)return; ansList[idx]={skip:true}; playAnswer(); }); }
+  function playAnswer(){ if(mode!=="answer" || playing) return;
+    var o=ansList[ansNext];
+    if(o===undefined || o===null){ if(ansStreamDone && ansNext>=ansList.length) backToIdle(); return; }
+    ansNext++;
+    if(o.skip){ playAnswer(); return; }
+    playing=true; playOne(o, function(){ if(mode==="answer") playAnswer(); }); }
+  function backToIdle(){ mode="idle"; ansList=[]; ansNext=0; playing=false; playIdle(); }
   function splitScript(s){ return (s||"").split(/[。!?！?…\\n]/).map(function(x){ return x.trim(); }).filter(Boolean); }
 
   function send(){ var text=(inp.value||"").trim(); if(!text||busy)return;
-    busy=true; sendBtn.disabled=true; interrupt(); inp.value=""; addMsg("user",text); history.push({role:"user",content:text});
+    busy=true; sendBtn.disabled=true; soundOn=true; startAnswer(); inp.value=""; addMsg("user",text); history.push({role:"user",content:text});
     var aiSpan=addMsg("assistant","…"); var acc="", sayPos=0;
     // 断句:句末标点(。!?…\\n)总是断;逗号/顿号/分号在累计≥10字时也断 → 首句更快出声、又不过碎。
     function flush(final){ var rest=acc.slice(sayPos), last=0, i;
       for(i=0;i<rest.length;i++){ var ch=rest.charAt(i);
         var hard=("。!?！?…\\n".indexOf(ch)>=0), soft=(",，、;;:".indexOf(ch)>=0);
-        if(hard || (soft && (i-last)>=10)){ var s=rest.slice(last,i+1).trim(); if(s) enqueueSay(s); last=i+1; } }
-      sayPos+=last; if(final){ var tail=acc.slice(sayPos).trim(); if(tail){ enqueueSay(tail); sayPos=acc.length; } } }
+        if(hard || (soft && (i-last)>=10)){ var s=rest.slice(last,i+1).trim(); if(s) enqueueAnswer(s); last=i+1; } }
+      sayPos+=last; if(final){ var tail=acc.slice(sayPos).trim(); if(tail){ enqueueAnswer(tail); sayPos=acc.length; } } }
     fetch(base+"/chat",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({message:text,history:history})}).then(function(res){
       if(res.status===429){ aiSpan.textContent="访问过于频繁,请稍后再试"; throw 0; }
@@ -926,7 +931,8 @@ _PUBLIC_PAGE = """<!doctype html>
         return pump(); }); }
       return pump();
     }).then(function(){ if(acc){ history.push({role:"assistant",content:acc}); flush(true); } else if(aiSpan.textContent==="…"){ aiSpan.textContent="(无回复)"; }
-    }).catch(function(){}).then(function(){ busy=false; sendBtn.disabled=false; inp.focus(); }); }
+      ansStreamDone=true; playAnswer();   // 流结束:标记答案合成完毕 + 踢一次(无文本则直接回 idle)
+    }).catch(function(){ ansStreamDone=true; playAnswer(); }).then(function(){ busy=false; sendBtn.disabled=false; inp.focus(); }); }
   sendBtn.addEventListener("click",send); inp.addEventListener("keydown",function(e){ if(e.key==="Enter") send(); });
 })();
 </script>
