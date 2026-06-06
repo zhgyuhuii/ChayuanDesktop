@@ -175,6 +175,13 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   const navigate = useNavigate();
   const [scripting, setScripting] = React.useState(false);
+  // 分段轮流:按角色记录谁在生成台词 → 只禁用正在生成的那个,其他角色可点、可并行生成。
+  const [scriptingRoles, setScriptingRoles] = React.useState<Set<number>>(new Set());
+  const setRoleBusy = (i: number, busy: boolean) => setScriptingRoles((prev) => {
+    const n = new Set(prev);
+    if (busy) n.add(i); else n.delete(i);
+    return n;
+  });
   const refVideoRef = React.useRef<HTMLInputElement>(null);
   // AI 生成/参考视频得到整篇文案后,按当前合成模式分发:
   // single 写全局 text;coframe 把整篇按句切分后【均分成 N 段连续块】,角色 i 拿第 i 段连贯段落
@@ -224,7 +231,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const onAiScriptRole = async (i: number) => {
     const subject = await promptDialog(`给「${roles[i]?.name || ('角色' + (i + 1))}」AI 生成台词的主题:`);
     if (!subject || !subject.trim()) return;
-    setScripting(true);
+    setRoleBusy(i, true);
     try {
       const preset = presets.find((p) => p.id === pid);
       const r = await digitalHuman.generateScript(roleSubject(i, subject.trim()), {
@@ -236,7 +243,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       setKbMissed(effectiveKuIds(preset, scriptKuIds).length > 0 && r.kb_used === false);
       if (r.script) setRoleScript(i, r.script);
     } catch (e) { reportError(e as Error, 'AI 生成台词失败'); }
-    finally { setScripting(false); }
+    finally { setRoleBusy(i, false); }
   };
   // 参考视频生成某角色台词:记下目标角色,复用统一的隐藏 file input(onRefVideo 按 pendingRole 路由)。
   const pendingRoleRef = React.useRef<number | null>(null);
@@ -268,7 +275,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     const f = e.target.files?.[0]; e.target.value = '';
     const roleIdx = pendingRoleRef.current; pendingRoleRef.current = null;  // 单角色路由(null=单形象整篇)
     if (!f) return;
-    setScripting(true);
+    if (roleIdx != null) setRoleBusy(roleIdx, true); else setScripting(true);
     try {
       const preset = presets.find((p) => p.id === pid);
       const r = await digitalHuman.scriptFromVideo(f, {
@@ -282,7 +289,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         else await distributeScript(r.script);
       }
     } catch (err) { reportError(err as Error, '参考视频生成文案失败'); }
-    finally { setScripting(false); }
+    finally { if (roleIdx != null) setRoleBusy(roleIdx, false); else setScripting(false); }
   };
 
   const enginesQ = useQuery({ queryKey: ['dh.engines'], queryFn: digitalHuman.listEngines });
@@ -707,11 +714,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
               <div className="flex items-center justify-between">
                 <div className="text-xs font-medium text-[var(--cy-text-secondary)]">{r.name || ('角色' + (i + 1))}</div>
                 <div className="flex items-center gap-1.5">
-                  <button type="button" onClick={() => void onAiScriptRole(i)} disabled={scripting}
+                  <button type="button" onClick={() => void onAiScriptRole(i)} disabled={scriptingRoles.has(i)}
                     className="rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
-                    {scripting ? '生成中…' : '✨ AI 生成'}
+                    {scriptingRoles.has(i) ? '生成中…' : '✨ AI 生成'}
                   </button>
-                  <button type="button" onClick={() => onRefVideoRole(i)} disabled={scripting}
+                  <button type="button" onClick={() => onRefVideoRole(i)} disabled={scriptingRoles.has(i)}
                     className="rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
                     🎬 参考视频
                   </button>
