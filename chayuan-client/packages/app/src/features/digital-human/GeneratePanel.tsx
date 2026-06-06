@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Play, Square } from 'lucide-react';
 import { digitalHuman, models, knowledgeUniverse, videoGeneration, vgBgmFileUrl } from '@chayuan/api';
 import type { DigitalHumanPreset, RawModelItem, KuItem, DhScriptSource, ProductLayer, VgBgmItem } from '@chayuan/api';
 import type { ModalityCapability } from '@chayuan/transport';
@@ -149,6 +149,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const [bgmVolume, setBgmVolume] = React.useState(0.2);
   const bgmQ = useQuery({ queryKey: ['vg.bgm'], queryFn: () => videoGeneration.listBgm(), staleTime: 5 * 60 * 1000 });
   const bgmItems: VgBgmItem[] = bgmQ.data?.items ?? [];
+  const [bgmPlaying, setBgmPlaying] = React.useState(false);
+  const bgmAudioRef = React.useRef<HTMLAudioElement | null>(null);
 
   // 按次门控（avatar: 数字人合成）
   const gate = useUsageGate('avatar');
@@ -759,10 +761,26 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             <span className="w-8 text-[var(--cy-text-tertiary)]">{bgmVolume.toFixed(2)}</span>
           </>
         )}
-        {/* 试听:选中乐曲后内嵌播放器 */}
+        {/* 试听:音量后一个播放/停止小按钮(选中乐曲后才显示) */}
         {bgmType === 'file' && bgmFile && (() => {
           const selBgm = bgmItems.find((b) => b.path === bgmFile);
-          return selBgm ? <audio controls preload="none" src={vgBgmFileUrl(selBgm.name)} className="h-8 w-full max-w-[22rem]" /> : null;
+          if (!selBgm) return null;
+          return (
+            <>
+              <audio ref={bgmAudioRef} src={vgBgmFileUrl(selBgm.name)} preload="none"
+                onEnded={() => setBgmPlaying(false)} className="hidden" />
+              <button type="button" title={bgmPlaying ? '停止' : '试听'}
+                onClick={() => {
+                  const a = bgmAudioRef.current;
+                  if (!a) return;
+                  if (bgmPlaying) { a.pause(); a.currentTime = 0; setBgmPlaying(false); }
+                  else { void a.play(); setBgmPlaying(true); }
+                }}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                {bgmPlaying ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+              </button>
+            </>
+          );
         })()}
       </div>
 
