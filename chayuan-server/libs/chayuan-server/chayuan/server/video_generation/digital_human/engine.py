@@ -228,6 +228,24 @@ def is_available(engine_id: str) -> bool:
     return _engine_installed(engine_id)
 
 
+def warm_wav2lip() -> bool:
+    """后台预加载 Wav2Lip 模型权重(module 级缓存),让首次 /say 不必等「loading models」。
+    已加载直接返回;权重未就绪/异常时静默返回 False(首次 /say 再正常加载)。"""
+    try:
+        if Wav2LipEngine._handle is not None:
+            return True
+        from chayuan.server.video_generation.digital_human.wav2lip import infer as w2l
+        weights_dir = _resolve_wav2lip_dir()
+        if not weights_dir:
+            return False
+        Wav2LipEngine._handle = w2l.load_models(weights_dir)
+        logger.info("[wav2lip] 预热完成,模型已驻留(首次 /say 直接推理)")
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[wav2lip] 预热失败(忽略,首次 /say 再加载): %r", e)
+        return False
+
+
 def get_engine(engine_id: str = "wav2lip") -> DigitalHumanEngine:
     if engine_id == "wav2lip":
         return Wav2LipEngine()

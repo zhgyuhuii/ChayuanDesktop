@@ -96,6 +96,14 @@ def public_config(token: str) -> Dict[str, Any]:
     rec = _live(token)
     from urllib.parse import quote
     base = _PUB + "/" + token
+    # 页面打开即后台预热 wav2lip 模型,首句不再等「loading models」
+    if bool(rec.chat_enabled):
+        try:
+            import threading
+            from chayuan.server.video_generation.digital_human.engine import warm_wav2lip
+            threading.Thread(target=warm_wav2lip, daemon=True).start()
+        except Exception:  # noqa: BLE001
+            pass
     prods = [{
         "kind": p.kind, "x": p.x, "y": p.y, "scale": p.scale,
         "z": p.z, "opacity": p.opacity,
@@ -593,7 +601,8 @@ _PUBLIC_PAGE = """<!doctype html>
   /* 视频框:按形象比例居中,所有 UI 都在框内 */
   .frame{position:relative;z-index:1;overflow:hidden;background:#000;box-shadow:0 10px 50px rgba(0,0,0,.6)}
   #stage{position:absolute;inset:0;overflow:hidden}
-  #stage .fill{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center bottom;z-index:1;display:block}
+  #stage .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(20px) brightness(.45);z-index:0}
+  #stage .fill{position:absolute;display:block;z-index:2;cursor:pointer;transition:left .18s,top .18s,width .18s,height .18s}
   #stage .prod{position:absolute;display:block;z-index:4}
   .grad-top{position:absolute;left:0;right:0;top:0;height:120px;z-index:10;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0))}
   .grad-bot{position:absolute;left:0;right:0;bottom:0;height:200px;z-index:10;pointer-events:none;background:linear-gradient(0deg,rgba(0,0,0,.65),rgba(0,0,0,0))}
@@ -653,7 +662,7 @@ _PUBLIC_PAGE = """<!doctype html>
       nameEl=document.getElementById("name"), viewersEl=document.getElementById("viewers"), avaEl=document.getElementById("ava"),
       speedEl=document.getElementById("speed"), inp=document.getElementById("inp"), sendBtn=document.getElementById("send"),
       bar=document.getElementById("bar"), acts=document.getElementById("acts"), hearts=document.getElementById("hearts"), tip=document.getElementById("tip");
-  var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280;
+  var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280, avatarBox=null, fsMode=false;
 
   function fitFrame(){
     var vh=window.innerHeight, vw=window.innerWidth;
@@ -668,9 +677,20 @@ _PUBLIC_PAGE = """<!doctype html>
     if(kind==="video"){ el.autoplay=true; el.muted=true; el.loop=true; el.playsInline=true; el.setAttribute("playsinline",""); }
     return el;
   }
-  function setBgFull(){ if(!avatarUrl)return; var b=mkAvatar(avatarUrl,avatarKind); b.className="b"; bgfull.appendChild(b); }
-  function idleAvatar(){ if(!avatarUrl)return; var el=mkAvatar(avatarUrl,avatarKind); el.className="fill";
+  function setBg(){ if(!avatarUrl)return;
+    var b=mkAvatar(avatarUrl,avatarKind); b.className="b"; bgfull.appendChild(b);          // 视口模糊背景
+    var b2=mkAvatar(avatarUrl,avatarKind); b2.className="bg"; stage.appendChild(b2); }      // 帧内模糊背景(小窗形象后面)
+  // 形象定位:全屏(fsMode)铺满 / 否则按制作参数 x/y/scale 小窗显示;无参数则铺满
+  function styleAvatar(el){ var s=el.style;
+    if(fsMode){ s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom"; }
+    else if(avatarBox){ var sc=(avatarBox.scale&&avatarBox.scale>0)?avatarBox.scale:1;
+      s.left=((avatarBox.x||0)*100)+"%";s.top=((avatarBox.y||0)*100)+"%";s.width=(sc*100)+"%";s.height="auto";s.objectFit="";s.objectPosition="";
+      if(avatarBox.z!=null) s.zIndex=String(avatarBox.z+2); }
+    else { s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom"; } }
+  function idleAvatar(){ if(!avatarUrl)return; var el=mkAvatar(avatarUrl,avatarKind); el.className="fill"; styleAvatar(el);
     var old=stage.querySelector(".fill"); if(old) old.replaceWith(el); else stage.appendChild(el); }
+  // 点击形象:小窗 <-> 全屏 切换
+  stage.addEventListener("click", function(){ fsMode=!fsMode; var cur=stage.querySelector(".fill"); if(cur) styleAvatar(cur); });
   function addProduct(p,i){ var el=mkAvatar(p.url,p.kind); el.className="prod";
     el.style.left=((p.x||0)*100)+"%"; el.style.top=((p.y||0)*100)+"%";
     el.style.width=(((p.scale&&p.scale>0)?p.scale:0.32)*100)+"%"; el.style.zIndex=(p.z!=null?p.z:i)+4; el.style.opacity=(p.opacity!=null?p.opacity:1);
@@ -684,7 +704,7 @@ _PUBLIC_PAGE = """<!doctype html>
   fetch(base+"/config").then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(cfg){
     nameEl.textContent=cfg.name||"在线数字人"; document.title=cfg.name||"在线数字人";
     if(cfg.ratio&&cfg.ratio.w&&cfg.ratio.h){ ratioW=cfg.ratio.w; ratioH=cfg.ratio.h; } fitFrame();
-    if(cfg.avatar){ avatarUrl=cfg.avatar.url; avatarKind=cfg.avatar.kind||"image"; avaEl.src=avatarUrl; setBgFull(); idleAvatar(); }
+    if(cfg.avatar){ avatarUrl=cfg.avatar.url; avatarKind=cfg.avatar.kind||"image"; avatarBox=cfg.avatar; avaEl.src=avatarUrl; setBg(); idleAvatar(); }
     (cfg.products||[]).forEach(addProduct); viewersEl.textContent=cfg.viewers||0;
     if(cfg.chat_enabled){ bar.style.display="flex"; acts.style.display="flex"; } else { tip.textContent="该数字人当前仅供观看"; }
   }).catch(function(){ tip.textContent="该数字人未发布或已下线。"; });
@@ -707,7 +727,7 @@ _PUBLIC_PAGE = """<!doctype html>
     var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; done&&done(); });
     cap.textContent=text||""; a.onended=fin; a.onerror=fin; a.play().catch(fin); }
   function playClip(blob,text,done){ var url=URL.createObjectURL(blob), v=document.createElement("video");
-    v.src=url; v.autoplay=true; v.playsInline=true; v.setAttribute("playsinline",""); v.className="fill"; cap.textContent=text||"";
+    v.src=url; v.autoplay=true; v.playsInline=true; v.setAttribute("playsinline",""); v.className="fill"; styleAvatar(v); cap.textContent=text||"";
     var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; idleAvatar(); done&&done(); });
     v.onended=fin; v.onerror=fin; var old=stage.querySelector(".fill"); if(old) old.replaceWith(v); else stage.appendChild(v); v.play().catch(fin); }
   function fetchNext(){ if(fetching||!sentQ.length)return; fetching=true; var text=sentQ.shift();
