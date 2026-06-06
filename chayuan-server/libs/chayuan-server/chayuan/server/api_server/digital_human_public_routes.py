@@ -637,6 +637,9 @@ _PUBLIC_PAGE = """<!doctype html>
   .bar{position:absolute;left:10px;right:66px;bottom:10px;z-index:30;display:flex;flex-wrap:nowrap;gap:7px}
   .bar input{flex:1;min-width:0;height:42px;padding:0 14px;border-radius:21px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#fff;font-size:14px;outline:none}
   .bar button{flex:none;height:42px;padding:0 15px;border-radius:21px;border:0;background:linear-gradient(90deg,#fe2c55,#ff5a5f);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
+  .bar .cc{flex:none;height:42px;padding:0 13px;border-radius:21px;border:1px solid rgba(255,255,255,.22);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#cdd5df;font-size:13px;font-weight:600;cursor:pointer}
+  .bar .cc.on{color:#fff;border-color:transparent;background:rgba(255,255,255,.22)}
+  .bar .cc.on::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#3ddc84;margin-right:5px;vertical-align:middle}
   .bar button:disabled{opacity:.5}
   .tip{position:fixed;left:0;right:0;top:50%;z-index:40;text-align:center;color:#94a3b8;font-size:13px}
 </style></head>
@@ -659,6 +662,7 @@ _PUBLIC_PAGE = """<!doctype html>
     <div class="hearts" id="hearts"></div>
     <div class="bar" id="bar" style="display:none">
       <input id="inp" placeholder="说点什么…" autocomplete="off"/>
+      <button id="cc" class="cc on" title="字幕开关">字幕</button>
       <button id="send">发送</button>
     </div>
   </div>
@@ -669,9 +673,12 @@ _PUBLIC_PAGE = """<!doctype html>
   var frame=document.getElementById("frame"), bgfull=document.getElementById("bgfull"),
       stage=document.getElementById("stage"), msgs=document.getElementById("msgs"), cap=document.getElementById("cap"),
       nameEl=document.getElementById("name"), viewersEl=document.getElementById("viewers"), avaEl=document.getElementById("ava"),
-      inp=document.getElementById("inp"), sendBtn=document.getElementById("send"),
+      inp=document.getElementById("inp"), sendBtn=document.getElementById("send"), ccBtn=document.getElementById("cc"),
       bar=document.getElementById("bar"), acts=document.getElementById("acts"), hearts=document.getElementById("hearts"), tip=document.getElementById("tip");
-  var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280, avatarBox=null, fsMode=false;
+  var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280, avatarBox=null, fsMode=false, captionsOn=true;
+  // 字幕开关:关闭则播放时不显字幕(立即清空当前字幕)
+  ccBtn.addEventListener("click", function(){ captionsOn=!captionsOn; ccBtn.classList.toggle("on", captionsOn); if(!captionsOn) cap.textContent=""; });
+  function showCap(t){ cap.textContent = captionsOn ? (t||"") : ""; }
 
   function fitFrame(){
     var vh=window.innerHeight, vw=window.innerWidth;
@@ -692,11 +699,11 @@ _PUBLIC_PAGE = """<!doctype html>
     var b=mkAvatar(avatarUrl+"?raw=1",avatarKind); b.className="b"; bgfull.appendChild(b); }
   // 形象定位:全屏(fsMode)铺满 / 否则按制作参数 x/y/scale 小窗显示;无参数则铺满
   function styleAvatar(el){ var s=el.style;
-    if(fsMode){ s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom"; }
+    if(fsMode){ s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom";s.zIndex="9999"; }  // 全屏盖住一切
     else if(avatarBox){ var sc=(avatarBox.scale&&avatarBox.scale>0)?avatarBox.scale:1;
       s.left=((avatarBox.x||0)*100)+"%";s.top=((avatarBox.y||0)*100)+"%";s.width=(sc*100)+"%";s.height="auto";s.objectFit="";s.objectPosition="";
-      if(avatarBox.z!=null) s.zIndex=String(avatarBox.z+2); }
-    else { s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom"; } }
+      s.zIndex=(avatarBox.z!=null?String(avatarBox.z):"1"); }   // 按设置的层次,与商品同一 z 体系
+    else { s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom";s.zIndex="1"; } }
   function idleAvatar(){ if(!avatarUrl)return; var el=mkAvatar(avatarUrl,avatarKind); el.className="fill"; styleAvatar(el);
     el.onerror=function(){ el.onerror=null; el.src=avatarUrl+"?raw=1"; };   // 抠像接口失败 → 回退原图,形象不至于空白
     var old=stage.querySelector(".fill"); if(old) old.replaceWith(el); else stage.appendChild(el); }
@@ -704,7 +711,7 @@ _PUBLIC_PAGE = """<!doctype html>
   stage.addEventListener("click", function(){ fsMode=!fsMode; var cur=stage.querySelector(".fill"); if(cur) styleAvatar(cur); });
   function addProduct(p,i){ var el=mkAvatar(p.url,p.kind); el.className="prod";
     el.style.left=((p.x||0)*100)+"%"; el.style.top=((p.y||0)*100)+"%";
-    el.style.width=(((p.scale&&p.scale>0)?p.scale:0.32)*100)+"%"; el.style.zIndex=(p.z!=null?p.z:i)+4; el.style.opacity=(p.opacity!=null?p.opacity:1);
+    el.style.width=(((p.scale&&p.scale>0)?p.scale:0.32)*100)+"%"; el.style.zIndex=(p.z!=null?p.z:i); el.style.opacity=(p.opacity!=null?p.opacity:1);
     stage.appendChild(el); }
 
   function addMsg(role,text){ var d=document.createElement("div"); d.className="cmt "+(role==="user"?"":"ai");
@@ -736,9 +743,9 @@ _PUBLIC_PAGE = """<!doctype html>
   function once(fn){ var c=false; return function(){ if(c)return; c=true; fn(); }; }
   function playAudio(blob,text,done){ var url=URL.createObjectURL(blob), a=new Audio(url);
     var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; done&&done(); });
-    cap.textContent=text||""; a.onended=fin; a.onerror=fin; a.play().catch(fin); }
+    showCap(text); a.onended=fin; a.onerror=fin; a.play().catch(fin); }
   function playClip(blob,text,done){ var url=URL.createObjectURL(blob), v=document.createElement("video");
-    v.src=url; v.autoplay=true; v.playsInline=true; v.setAttribute("playsinline",""); v.className="fill"; styleAvatar(v); cap.textContent=text||"";
+    v.src=url; v.autoplay=true; v.playsInline=true; v.setAttribute("playsinline",""); v.className="fill"; styleAvatar(v); showCap(text);
     var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; idleAvatar(); done&&done(); });
     v.onended=fin; v.onerror=fin; var old=stage.querySelector(".fill"); if(old) old.replaceWith(v); else stage.appendChild(v); v.play().catch(fin); }
   function fetchNext(){ if(fetching||!sentQ.length)return; fetching=true; var text=sentQ.shift();
