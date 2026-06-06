@@ -623,10 +623,9 @@ _PUBLIC_PAGE = """<!doctype html>
   .hearts{position:absolute;right:14px;bottom:130px;z-index:29;pointer-events:none;width:50px;height:50%}
   .heart{position:absolute;bottom:0;font-size:24px;animation:floatup 2.6s ease-in forwards}
   @keyframes floatup{0%{opacity:0;transform:translateY(0) scale(.6)}15%{opacity:1}100%{opacity:0;transform:translateY(-46vh) translateX(var(--dx,0)) scale(1.1)}}
-  .bar{position:absolute;left:10px;right:66px;bottom:10px;z-index:30;display:flex;gap:7px}
-  .bar input{flex:1;height:42px;padding:0 14px;border-radius:21px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#fff;font-size:14px;outline:none}
-  .bar select{height:42px;border-radius:21px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);color:#fff;font-size:12px;padding:0 6px;outline:none}
-  .bar button{height:42px;padding:0 15px;border-radius:21px;border:0;background:linear-gradient(90deg,#fe2c55,#ff5a5f);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
+  .bar{position:absolute;left:10px;right:66px;bottom:10px;z-index:30;display:flex;flex-wrap:nowrap;gap:7px}
+  .bar input{flex:1;min-width:0;height:42px;padding:0 14px;border-radius:21px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#fff;font-size:14px;outline:none}
+  .bar button{flex:none;height:42px;padding:0 15px;border-radius:21px;border:0;background:linear-gradient(90deg,#fe2c55,#ff5a5f);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
   .bar button:disabled{opacity:.5}
   .tip{position:fixed;left:0;right:0;top:50%;z-index:40;text-align:center;color:#94a3b8;font-size:13px}
 </style></head>
@@ -649,7 +648,6 @@ _PUBLIC_PAGE = """<!doctype html>
     <div class="hearts" id="hearts"></div>
     <div class="bar" id="bar" style="display:none">
       <input id="inp" placeholder="说点什么…" autocomplete="off"/>
-      <select id="speed" title="语速"><option value="0.8">0.8x</option><option value="1" selected>1.0x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option></select>
       <button id="send">发送</button>
     </div>
   </div>
@@ -660,7 +658,7 @@ _PUBLIC_PAGE = """<!doctype html>
   var frame=document.getElementById("frame"), bgfull=document.getElementById("bgfull"),
       stage=document.getElementById("stage"), msgs=document.getElementById("msgs"), cap=document.getElementById("cap"),
       nameEl=document.getElementById("name"), viewersEl=document.getElementById("viewers"), avaEl=document.getElementById("ava"),
-      speedEl=document.getElementById("speed"), inp=document.getElementById("inp"), sendBtn=document.getElementById("send"),
+      inp=document.getElementById("inp"), sendBtn=document.getElementById("send"),
       bar=document.getElementById("bar"), acts=document.getElementById("acts"), hearts=document.getElementById("hearts"), tip=document.getElementById("tip");
   var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280, avatarBox=null, fsMode=false;
 
@@ -733,7 +731,7 @@ _PUBLIC_PAGE = """<!doctype html>
   function fetchNext(){ if(fetching||!sentQ.length)return; fetching=true; var text=sentQ.shift();
     var done=once(function(){ fetching=false; fetchNext(); });
     fetch(base+"/say",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({text:text, rate:parseFloat((speedEl&&speedEl.value)||"1")||1})}).then(function(r){
+      body:JSON.stringify({text:text})}).then(function(r){
       if(!r.ok) throw 0; var kind=(r.headers.get("X-Talk-Kind")||"audio");
       return r.blob().then(function(b){ playQ.push({kind:kind,blob:b,text:text}); });
     }).then(function(){ done(); playNext(); }).catch(done); }
