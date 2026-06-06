@@ -48,6 +48,9 @@ export interface ProductLayer {
   z?: number;
   opacity?: number;
   link?: string;        // 商品跳转链接(在线页点商品打开)
+  title?: string;       // 商品名称(橱窗展示)
+  price?: string;       // 价格(橱窗展示)
+  desc?: string;        // 简介(橱窗展示)
 }
 
 export interface DigitalHumanPreset {

@@ -10,6 +10,9 @@ export interface CanvasProduct {
   z?: number;
   opacity?: number;
   link?: string;
+  title?: string;
+  price?: string;
+  desc?: string;
 }
 
 export interface CanvasStageProps {

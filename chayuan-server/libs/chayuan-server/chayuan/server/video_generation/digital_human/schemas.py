@@ -40,6 +40,9 @@ class ProductLayer(BaseModel):
     z: Optional[int] = None
     opacity: Optional[float] = None
     link: Optional[str] = None        # 商品跳转链接(在线页点商品打开;空=不可点)
+    title: Optional[str] = None       # 商品名称(橱窗展示)
+    price: Optional[str] = None       # 价格(橱窗展示,字符串以容纳 ¥/促销文案)
+    desc: Optional[str] = None        # 简介(橱窗展示)
 
 
 class DigitalHumanPreset(BaseModel):

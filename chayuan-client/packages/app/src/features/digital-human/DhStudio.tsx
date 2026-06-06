@@ -82,7 +82,7 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
     if (p?.products?.length) {
       return p.products.map((q) => ({
         ref: q.ref, kind: q.kind === 'video' ? 'video' : 'image',
-        x: q.x ?? 0.66, y: q.y ?? 0.6, scale: q.scale ?? 0.32, z: q.z, opacity: q.opacity, link: q.link,
+        x: q.x ?? 0.66, y: q.y ?? 0.6, scale: q.scale ?? 0.32, z: q.z, opacity: q.opacity, link: q.link, title: q.title, price: q.price, desc: q.desc,
       }));
     }
     if (p?.product_ref) {
@@ -100,7 +100,7 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
   const rolesNowRef = React.useRef(localRoles); rolesNowRef.current = localRoles;
   const prodsNowRef = React.useRef(localProducts); prodsNowRef.current = localProducts;
   const serializeProducts = (arr: CanvasProduct[]) =>
-    arr.map((p) => ({ ref: p.ref, kind: p.kind, x: p.x, y: p.y, scale: p.scale, z: p.z, opacity: p.opacity, link: p.link }));
+    arr.map((p) => ({ ref: p.ref, kind: p.kind, x: p.x, y: p.y, scale: p.scale, z: p.z, opacity: p.opacity, link: p.link, title: p.title, price: p.price, desc: p.desc }));
   const isProd = (ref: string) => ref.startsWith('product:');
 
   const onProductChange = React.useCallback((ref: string, pos: { x: number; y: number; scale: number }) => {

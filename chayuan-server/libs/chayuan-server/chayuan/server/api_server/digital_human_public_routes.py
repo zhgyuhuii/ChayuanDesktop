@@ -113,6 +113,7 @@ def public_config(token: str) -> Dict[str, Any]:
         "kind": p.kind, "x": p.x, "y": p.y, "scale": p.scale,
         "z": p.z, "opacity": p.opacity,
         "link": getattr(p, "link", None),
+        "title": getattr(p, "title", None), "price": getattr(p, "price", None), "desc": getattr(p, "desc", None),
         "url": base + "/product?ref=" + quote(p.ref),
     } for p in (rec.products or [])]
     return {
@@ -671,6 +672,19 @@ _PUBLIC_PAGE = """<!doctype html>
   .bar input{flex:1;min-width:0;height:42px;padding:0 14px;border-radius:21px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#fff;font-size:14px;outline:none}
   .bar button{flex:none;height:42px;padding:0 15px;border-radius:21px;border:0;background:linear-gradient(90deg,#fe2c55,#ff5a5f);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
   .bar .cc{flex:none;height:42px;padding:0 13px;border-radius:21px;border:1px solid rgba(255,255,255,.22);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#cdd5df;font-size:13px;font-weight:600;cursor:pointer}
+  .shop{position:absolute;left:10px;right:10px;bottom:60px;z-index:35;max-height:54%;overflow-y:auto;display:none;flex-direction:column;gap:8px;padding:10px;border-radius:14px;background:rgba(12,16,24,.92);backdrop-filter:blur(10px);box-shadow:0 8px 30px rgba(0,0,0,.5);scrollbar-width:none}
+  .shop::-webkit-scrollbar{display:none}
+  .shop.open{display:flex}
+  .shop .hd{display:flex;align-items:center;font-size:13px;font-weight:700;color:#fff}
+  .shop .hd .x{margin-left:auto;cursor:pointer;color:#9aa6b2;font-size:18px;line-height:1}
+  .shopitem{display:flex;gap:10px;align-items:center;padding:8px;border-radius:10px;background:rgba(255,255,255,.06);cursor:pointer}
+  .shopitem:hover{background:rgba(255,255,255,.12)}
+  .shopitem img,.shopitem video{width:52px;height:52px;border-radius:8px;object-fit:cover;flex-shrink:0;background:#222}
+  .shopitem .info{min-width:0;flex:1}
+  .shopitem .t{font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .shopitem .p{font-size:13px;font-weight:700;color:#ff5a5f;margin-top:1px}
+  .shopitem .d{font-size:11px;color:#9aa6b2;margin-top:1px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .shopitem .go{flex-shrink:0;font-size:12px;color:#fff;background:linear-gradient(90deg,#fe2c55,#ff5a5f);padding:5px 10px;border-radius:14px}
   .bar .cc.on{color:#fff;border-color:transparent;background:rgba(255,255,255,.22)}
   .bar .cc.on::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#3ddc84;margin-right:5px;vertical-align:middle}
   .bar button:disabled{opacity:.5}
@@ -693,7 +707,9 @@ _PUBLIC_PAGE = """<!doctype html>
       <button id="share" title="分享">↗</button>
     </div>
     <div class="hearts" id="hearts"></div>
+    <div class="shop" id="shop"></div>
     <div class="bar" id="bar" style="display:none">
+      <button id="shopbtn" class="cc" title="商品橱窗" style="display:none">🛍</button>
       <input id="inp" placeholder="说点什么…" autocomplete="off"/>
       <button id="cc" class="cc on" title="开/关大模型回复与对话内容(漂浮气泡)">字幕</button>
       <button id="send">发送</button>
@@ -707,7 +723,8 @@ _PUBLIC_PAGE = """<!doctype html>
       stage=document.getElementById("stage"), msgs=document.getElementById("msgs"), cap=document.getElementById("cap"),
       nameEl=document.getElementById("name"), viewersEl=document.getElementById("viewers"), avaEl=document.getElementById("ava"),
       inp=document.getElementById("inp"), sendBtn=document.getElementById("send"), ccBtn=document.getElementById("cc"),
-      bar=document.getElementById("bar"), acts=document.getElementById("acts"), hearts=document.getElementById("hearts"), tip=document.getElementById("tip");
+      bar=document.getElementById("bar"), acts=document.getElementById("acts"), hearts=document.getElementById("hearts"), tip=document.getElementById("tip"),
+      shopEl=document.getElementById("shop"), shopBtn=document.getElementById("shopbtn");
   var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280, avatarBox=null, fsMode=false, msgsOn=true;
   // 「字幕」开关:开/关屏幕上不断输出的大模型回复 + 对话内容(漂浮气泡流),不影响讲话字幕
   ccBtn.addEventListener("click", function(){ msgsOn=!msgsOn; ccBtn.classList.toggle("on", msgsOn); msgs.style.display = msgsOn ? "flex" : "none"; });
@@ -771,6 +788,31 @@ _PUBLIC_PAGE = """<!doctype html>
       el.addEventListener("click", function(){ try{ window.open(p.link, "_blank", "noopener"); }catch(_){}}); }
     stage.appendChild(el); }
 
+  // 橱窗:有填链接的商品才显示「🛍」按钮;点击展开清单,点条目开链接。
+  function buildShop(items){
+    if(!items || !items.length){ shopBtn.style.display="none"; return; }
+    shopBtn.style.display="inline-flex";
+    shopEl.innerHTML="";
+    var hd=document.createElement("div"); hd.className="hd";
+    var t=document.createElement("span"); t.textContent="商品橱窗 ("+items.length+")"; hd.appendChild(t);
+    var x=document.createElement("span"); x.className="x"; x.textContent="×";
+    x.addEventListener("click", function(){ shopEl.classList.remove("open"); }); hd.appendChild(x);
+    shopEl.appendChild(hd);
+    items.forEach(function(p){
+      var it=document.createElement("div"); it.className="shopitem";
+      it.appendChild(mkAvatar(p.url, p.kind==="video"?"video":"image"));
+      var info=document.createElement("div"); info.className="info";
+      var tt=document.createElement("div"); tt.className="t"; tt.textContent=p.title||"商品"; info.appendChild(tt);
+      if(p.price){ var pr=document.createElement("div"); pr.className="p"; pr.textContent=p.price; info.appendChild(pr); }
+      if(p.desc){ var dd=document.createElement("div"); dd.className="d"; dd.textContent=p.desc; info.appendChild(dd); }
+      it.appendChild(info);
+      var go=document.createElement("span"); go.className="go"; go.textContent="去看看"; it.appendChild(go);
+      it.addEventListener("click", function(){ try{ window.open(p.link, "_blank", "noopener"); }catch(_){}});
+      shopEl.appendChild(it);
+    });
+  }
+  shopBtn.addEventListener("click", function(){ shopEl.classList.toggle("open"); });
+
   function addMsg(role,text){ var d=document.createElement("div"); d.className="cmt "+(role==="user"?"":"ai");
     var b=document.createElement("b"); b.textContent=(role==="user"?"我":"TA"); d.appendChild(b);
     var s=document.createElement("span"); s.textContent=text; d.appendChild(s); msgs.appendChild(d);
@@ -782,6 +824,7 @@ _PUBLIC_PAGE = """<!doctype html>
     if(cfg.ratio&&cfg.ratio.w&&cfg.ratio.h){ ratioW=cfg.ratio.w; ratioH=cfg.ratio.h; } fitFrame();
     if(cfg.avatar){ avatarUrl=cfg.avatar.url; avatarKind=cfg.avatar.kind||"image"; avatarBox=cfg.avatar; avaEl.src=avatarUrl; setBg(); idleAvatar(); }
     (cfg.products||[]).forEach(addProduct); viewersEl.textContent=cfg.viewers||0;
+    buildShop((cfg.products||[]).filter(function(p){ return p.link && p.link.trim(); }));
     if(cfg.welcome && cfg.welcome.trim()){ addMsg("assistant", cfg.welcome.trim()); }   // 欢迎语开场白
     if(cfg.chat_enabled){ bar.style.display="flex"; acts.style.display="flex"; } else { tip.textContent="该数字人当前仅供观看"; }
   }).catch(function(){ tip.textContent="该数字人未发布或已下线。"; });

@@ -860,9 +860,20 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
                 <button type="button" title="移除" onClick={(e) => { e.stopPropagation(); removeProduct(p.ref); }}
                   className="text-[var(--cy-text-tertiary)] hover:text-[var(--cy-danger-500)]">×</button>
               </div>
-              <input type="url" value={p.link ?? ''} placeholder="商品链接(在线页点商品跳转,选填)"
+              <input type="url" value={p.link ?? ''} placeholder="商品链接(在线页点商品/橱窗跳转,选填)"
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => persistProducts(products.map((q) => (q.ref === p.ref ? { ...q, link: e.target.value } : q)))}
+                className="h-7 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
+              <div className="flex gap-1">
+                <input type="text" value={p.title ?? ''} placeholder="商品名称" onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => persistProducts(products.map((q) => (q.ref === p.ref ? { ...q, title: e.target.value } : q)))}
+                  className="h-7 min-w-0 flex-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
+                <input type="text" value={p.price ?? ''} placeholder="价格 ¥" onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => persistProducts(products.map((q) => (q.ref === p.ref ? { ...q, price: e.target.value } : q)))}
+                  className="h-7 w-20 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
+              </div>
+              <input type="text" value={p.desc ?? ''} placeholder="简介(橱窗展示,选填)" onClick={(e) => e.stopPropagation()}
+                onChange={(e) => persistProducts(products.map((q) => (q.ref === p.ref ? { ...q, desc: e.target.value } : q)))}
                 className="h-7 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
             </div>
           );
