@@ -298,6 +298,15 @@ def _register_local_platform(*, capability: str, host: str, port: int, model_id:
         models = _list_downloaded_models(capability)
         if model_id and model_id not in models:
             models = [model_id, *models]
+        # 别名:KB / 默认嵌入 / vector_store 目录用的是 basename(如 'bge-m3'),而 local_index
+        # 的 model_id 常是全路径(如 'models/bundled/embedding/bge-m3')。补 basename 别名,
+        # 让 get_config_models(basename) 也命中本平台 —— 否则 get_model_info 返空、base_url=None
+        # → LocalAIEmbeddings 误连 OpenAI 公网 → Connection error(KB 检索/索引全挂)。
+        import os as _os
+        for _m in list(models):
+            _bn = _os.path.basename(str(_m))
+            if _bn and _bn != _m and _bn not in models:
+                models.append(_bn)
         fields[model_field] = models
 
     try:
