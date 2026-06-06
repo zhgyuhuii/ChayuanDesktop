@@ -72,6 +72,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const [bindKuIds, setBindKuIds] = React.useState<string[]>(initial?.ku_ids ?? []);
   const [allowModelOverride, setAllowModelOverride] = React.useState(initial?.allow_model_override ?? true);
   const [allowKbOverride, setAllowKbOverride] = React.useState(initial?.allow_kb_override ?? true);
+  // 抠像:制作时勾选 → 在线数字人对话页的形象自动去纯色背景(无需再去卡片点 ✂️)
+  const [greenscreen, setGreenscreen] = React.useState(initial?.is_greenscreen ?? false);
   const [modelPickOpen, setModelPickOpen] = React.useState(false);
   const resolveLogo = useResolveLogo();
   const avatarFileRef = React.useRef<HTMLInputElement | null>(null);
@@ -221,6 +223,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         ku_ids: bindKuIds,
         allow_model_override: allowModelOverride,
         allow_kb_override: allowKbOverride,
+        is_greenscreen: greenscreen,
       };
       if (initial) {
         await digitalHuman.updatePreset(initial.id, body);
@@ -302,6 +305,17 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
           ))}
           <span className="text-[10px] text-[var(--cy-text-tertiary)]">{canvas.w}×{canvas.h}</span>
         </div>
+      </div>
+
+      {/* 抠像:制作时勾选 → 在线对话页形象自动去纯色背景 */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-[var(--cy-text-secondary)]">在线形象抠像</label>
+        <button type="button" onClick={() => setGreenscreen(!greenscreen)}
+          className={cn('self-start rounded-md border px-2 py-1 text-[10px]',
+            greenscreen ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)]')}
+          title="开启后,在线数字人对话页的形象会去掉纯色背景(仅留人像);需形象为纯色/绿幕底">
+          {greenscreen ? '抠像:开(去纯色背景)' : '抠像:关'}
+        </button>
       </div>
 
       {/* 字幕设置 */}
