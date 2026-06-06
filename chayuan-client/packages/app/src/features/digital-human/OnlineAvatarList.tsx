@@ -36,7 +36,7 @@ export const OnlineAvatarList: React.FC = () => {
     try { await digitalHuman.deletePublished(it.token); } catch (e) { reportError(e as Error, '删除失败'); }
     refresh();
   };
-  const toggle = async (it: PublishedAvatar, flags: { enabled?: boolean; chat_enabled?: boolean; matte?: boolean }) => {
+  const toggle = async (it: PublishedAvatar, flags: { enabled?: boolean; chat_enabled?: boolean; matte?: boolean; matte_sim?: number }) => {
     try { await digitalHuman.setPublishedFlags(it.token, flags); } catch (e) { reportError(e as Error, '更新失败'); }
     refresh();
   };
@@ -98,6 +98,13 @@ export const OnlineAvatarList: React.FC = () => {
                   onClick={() => void toggle(it, { matte: !it.matte })}>
                   <Scissors className={`h-4 w-4 ${it.matte ? 'text-[var(--cy-brand-500)]' : ''}`} />
                 </button>
+                {it.matte && (
+                  <input type="range" min={0.05} max={0.5} step={0.01} key={String(it.matte_sim ?? 0.15)}
+                    defaultValue={it.matte_sim ?? 0.15} title="抠图强度(越大抠越狠;抠烂了调小、没抠净调大)"
+                    onMouseUp={(e) => void toggle(it, { matte_sim: Number((e.target as HTMLInputElement).value) })}
+                    onTouchEnd={(e) => void toggle(it, { matte_sim: Number((e.target as HTMLInputElement).value) })}
+                    className="w-16 accent-[var(--cy-brand-500)]" />
+                )}
                 <button type="button" title="删除" className={`${iconBtn} hover:text-[var(--cy-danger-500)]`} onClick={() => void del(it)}><Trash2 className="h-4 w-4" /></button>
                 <label className="ml-auto inline-flex cursor-pointer items-center gap-1 text-[11px] text-[var(--cy-text-secondary)]">
                   <input type="checkbox" checked={it.enabled} onChange={(e) => void toggle(it, { enabled: e.target.checked })} />上线
@@ -144,6 +151,13 @@ export const OnlineAvatarList: React.FC = () => {
                         onClick={() => void toggle(it, { matte: !it.matte })}>
                         <Scissors className={`h-4 w-4 ${it.matte ? 'text-[var(--cy-brand-500)]' : ''}`} />
                       </button>
+                      {it.matte && (
+                        <input type="range" min={0.05} max={0.5} step={0.01} key={String(it.matte_sim ?? 0.15)}
+                          defaultValue={it.matte_sim ?? 0.15} title="抠图强度(越大抠越狠;抠烂了调小、没抠净调大)"
+                          onMouseUp={(e) => void toggle(it, { matte_sim: Number((e.target as HTMLInputElement).value) })}
+                          onTouchEnd={(e) => void toggle(it, { matte_sim: Number((e.target as HTMLInputElement).value) })}
+                          className="w-16 accent-[var(--cy-brand-500)]" />
+                      )}
                       <button type="button" title="删除" className={`${iconBtn} hover:text-[var(--cy-danger-500)]`} onClick={() => void del(it)}><Trash2 className="h-4 w-4" /></button>
                     </div>
                   </td>

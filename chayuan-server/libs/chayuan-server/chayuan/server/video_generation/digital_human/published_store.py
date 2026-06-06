@@ -120,7 +120,8 @@ def delete(token: str) -> bool:
 
 def set_flags(token: str, *, enabled: Optional[bool] = None,
               chat_enabled: Optional[bool] = None,
-              matte: Optional[bool] = None) -> Optional[PublishedAvatar]:
+              matte: Optional[bool] = None,
+              matte_sim: Optional[float] = None) -> Optional[PublishedAvatar]:
     rows = _load_raw()
     hit = None
     for r in rows:
@@ -131,6 +132,8 @@ def set_flags(token: str, *, enabled: Optional[bool] = None,
                 r["chat_enabled"] = bool(chat_enabled)
             if matte is not None:
                 r["matte"] = bool(matte)
+            if matte_sim is not None:
+                r["matte_sim"] = float(matte_sim)
             hit = r
     if hit is None:
         return None

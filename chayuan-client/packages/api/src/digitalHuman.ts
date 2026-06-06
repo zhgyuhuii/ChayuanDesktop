@@ -446,6 +446,7 @@ export interface PublishedAvatar {
   enabled: boolean;
   chat_enabled: boolean;
   matte: boolean;
+  matte_sim?: number;   // 抠图强度(0-1,越大抠越狠)
   rate_per_min: number;
   daily_cap: number;
   /** 后端补充:公开页完整 URL(基于 public_host)。 */
@@ -474,7 +475,7 @@ export async function dhDeletePublished(token: string): Promise<{ ok: boolean }>
 
 export async function dhSetPublishedFlags(
   token: string,
-  flags: { enabled?: boolean; chat_enabled?: boolean; matte?: boolean },
+  flags: { enabled?: boolean; chat_enabled?: boolean; matte?: boolean; matte_sim?: number },
 ): Promise<PublishedAvatar> {
   return rd<PublishedAvatar>(`/api/v1/digital-human/published/${encodeURIComponent(token)}`, {
     method: 'PATCH',

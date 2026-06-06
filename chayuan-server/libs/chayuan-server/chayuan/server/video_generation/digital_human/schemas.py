@@ -177,5 +177,6 @@ class PublishedAvatar(BaseModel):
     enabled: bool = True             # 上线开关;False=公开页显示「已下线」
     chat_enabled: bool = True        # 允许公开对话;False=公开页纯观看
     matte: bool = False              # 抠像:公开页 idle 形象/口型片段自动去背景纯色,仅留人像
+    matte_sim: Optional[float] = None  # 抠图强度(0-1,越大抠越狠);None=自适应
     rate_per_min: int = 10           # 每访客 IP 每分钟消息上限
     daily_cap: int = 500             # 该 token 每日消息总上限
