@@ -412,21 +412,34 @@ def _build_pip_layers(timeline, *, source_resolver) -> list:
 
 
 def _build_extra_audios(timeline, *, source_resolver) -> list:
-    """抽 timeline 的 audio 轨 clips → [{path, start_s, volume}],解析为空的跳过。"""
+    """抽 timeline 各轨音频 → [{path, start_s, volume, in_s?, out_s?}],解析为空的跳过。
+
+    - audio 轨:插入音频 clip(整段)。
+    - video 轨:**未静音(muted=False)的视频 clip 的内嵌音频**也混入(按 track_start 定位、
+      按 in/out 裁剪、按 volume 调音量)。数字人各段的声音、上传视频的原声都靠这条进成片;
+      静音的 clip 跳过;无音轨的素材在 generate_video 里 AudioFileClip 失败被静默跳过。
+    """
     out: list = []
     for tr in (timeline.tracks or []):
-        if tr.kind != "audio":
-            continue
-        for c in tr.clips:
-            path = (source_resolver(c.source) or "").strip()
-            if not path:
-                logger.warning("[edl] 插入音频 clip %s 解析为空,跳过: %r", c.id, c.source)
-                continue
-            out.append({
-                "path": path,
-                "start_s": max(0.0, c.track_start_ms / 1000.0),
-                "volume": float(getattr(c, "volume", None) or 1.0),
-            })
+        if tr.kind == "audio":
+            for c in tr.clips:
+                path = (source_resolver(c.source) or "").strip()
+                if not path:
+                    logger.warning("[edl] 插入音频 clip %s 解析为空,跳过: %r", c.id, c.source)
+                    continue
+                out.append({"path": path, "start_s": max(0.0, c.track_start_ms / 1000.0),
+                            "volume": float(getattr(c, "volume", None) or 1.0)})
+        elif tr.kind == "video":
+            for c in tr.clips:
+                if bool(getattr(c, "muted", False)):
+                    continue
+                path = (source_resolver(c.source) or "").strip()
+                if not path:
+                    continue
+                _out = (c.out_ms / 1000.0) if (c.out_ms and c.out_ms > 0) else None
+                out.append({"path": path, "start_s": max(0.0, c.track_start_ms / 1000.0),
+                            "volume": float(getattr(c, "volume", None) or 1.0),
+                            "in_s": max(0.0, (c.in_ms or 0) / 1000.0), "out_s": _out})
     return out
 
 
@@ -1098,10 +1111,19 @@ def generate_video(
         except Exception as e:
             logger.error(f"failed to add bgm: {str(e)}")
 
-    # 插入音频轨(P5b):每条按 start_s 定位混入
+    # 插入音频轨(P5b)+ 视频 clip 内嵌音频:每条按 start_s 定位、按 in/out 裁剪、按 volume 混入。
+    # 无音轨的视频素材在此 AudioFileClip 抛错被静默跳过(不影响出片)。
     for ea in (extra_audios or []):
         try:
-            ea_clip = AudioFileClip(ea["path"]).with_effects(
+            _ac = AudioFileClip(ea["path"])
+            _in = ea.get("in_s")
+            _out = ea.get("out_s")
+            if (_in and _in > 0) or (_out and _out > 0):
+                try:
+                    _ac = _ac.subclipped(float(_in or 0.0), float(_out) if _out else None)
+                except Exception:  # noqa: BLE001
+                    pass
+            ea_clip = _ac.with_effects(
                 [afx.MultiplyVolume(float(ea.get("volume", 1.0)))]
             ).with_start(float(ea.get("start_s", 0.0)))
             audio_clip = CompositeAudioClip([audio_clip, ea_clip])

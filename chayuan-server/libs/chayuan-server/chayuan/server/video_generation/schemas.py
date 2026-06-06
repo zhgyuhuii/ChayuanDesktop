@@ -137,7 +137,8 @@ class TimelineClip(BaseModel):
     in_ms: int = Field(default=0, ge=0)             # 源素材裁剪入点
     out_ms: int = Field(default=0, ge=0)            # 源素材裁剪出点(0 表示到素材末尾)
     transition: str = "none"                        # none/fade/slide(P4)
-    volume: float = 1.0                             # 音频轨用
+    volume: float = 1.0                             # 音量(音频轨 + 视频 clip 内嵌音频共用)
+    muted: bool = False                             # 视频 clip:静音其内嵌音频(默认不静音→混入成片)
     # 画中画(P5c-2):0-1 归一坐标/缩放 + 层级。主轨 clip 不填 = 铺满底层。
     x: float = 0.0
     y: float = 0.0
