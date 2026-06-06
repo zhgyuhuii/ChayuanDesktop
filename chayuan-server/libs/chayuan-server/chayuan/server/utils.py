@@ -891,7 +891,11 @@ def get_Embeddings(
 
         params.update(
             openai_api_base=model_info.get("api_base_url"),
-            openai_api_key=model_info.get("api_key"),
+            # 本地 embedding 平台(local-embedding/llama-server/lm-studio/vllm 等)无 api_key,
+            # 但 LocalAIEmbeddings/OpenAIEmbeddings 的 pydantic 校验强制要非空 key,否则直接
+            # ValidationError「缺 openai_api_key」(误导成要配 OpenAI 云端 key)。None → "EMPTY"
+            # 兜底:本地服务不校验 key,云端真缺 key 则在请求时报清晰 401。
+            openai_api_key=model_info.get("api_key") or "EMPTY",
         )
         _proxy = (model_info.get("api_proxy") or "").strip()
         if _proxy:
