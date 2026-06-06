@@ -115,6 +115,13 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const primaryProductRef = products.find((p) => p.kind === 'image')?.ref ?? products[0]?.ref ?? null;
   const [uploadingProduct, setUploadingProduct] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  // 商品搜索 + 添加/编辑模态(图/名/价/链接/简介全部可空)
+  const [productSearch, setProductSearch] = React.useState('');
+  const [pmOpen, setPmOpen] = React.useState(false);
+  const [pmUploading, setPmUploading] = React.useState(false);
+  const pmFileRef = React.useRef<HTMLInputElement>(null);
+  const [pmDraft, setPmDraft] = React.useState<{ ref?: string; kind?: 'image' | 'video'; title: string; price: string; link: string; desc: string; previewUrl?: string }>(
+    { title: '', price: '', link: '', desc: '' });
 
   // 文案生成模型选择(挂商品图时收窄到 VLM)
   const [scriptModel, setScriptModel] = React.useState<string | null>(null);
@@ -411,6 +418,42 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     if (!next.length) setMatte(false);
     persistProducts(next);
   };
+
+  // 商品模态:新增 / 编辑 / 模态内上传 / 保存(全部字段可空,可不上传图)
+  const openAddProduct = () => { setPmDraft({ title: '', price: '', link: '', desc: '' }); setPmOpen(true); };
+  const openEditProduct = (p: ProductLayer) => {
+    setPmDraft({ ref: p.ref, kind: p.kind, title: p.title ?? '', price: p.price ?? '', link: p.link ?? '', desc: p.desc ?? '',
+      previewUrl: p.ref.startsWith('product:') ? digitalHuman.productFileUrl(p.ref) : undefined });
+    setPmOpen(true);
+  };
+  const onPmFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return; e.target.value = '';
+    setPmUploading(true);
+    try {
+      const r = await digitalHuman.uploadProduct(file);
+      setPmDraft((d) => ({ ...d, ref: r.ref, kind: r.kind === 'video' ? 'video' : 'image', previewUrl: digitalHuman.productFileUrl(r.ref) }));
+    } catch (err) { reportError(err as Error, '商品上传失败'); }
+    finally { setPmUploading(false); }
+  };
+  const saveProduct = () => {
+    const d = pmDraft;
+    const isEdit = !!d.ref && products.some((q) => q.ref === d.ref);
+    // 无图也给个稳定 key(noimg:),后端/画布据前缀判断「无图、仅橱窗展示」
+    const ref = d.ref || ('noimg:' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36));
+    const fields = {
+      kind: (d.kind === 'video' ? 'video' : 'image') as 'image' | 'video',
+      title: d.title.trim() || undefined, price: d.price.trim() || undefined,
+      link: d.link.trim() || undefined, desc: d.desc.trim() || undefined,
+    };
+    let next: ProductLayer[];
+    if (isEdit) next = products.map((q) => (q.ref === d.ref ? { ...q, ...fields } : q));
+    else { const n = products.length; next = [...products, { ref, ...fields, x: Math.min(0.85, 0.6 + (n % 3) * 0.08), y: Math.min(0.8, 0.5 + (n % 3) * 0.08), scale: 0.32 }]; }
+    persistProducts(next); setPmOpen(false);
+  };
+  const sq = productSearch.trim().toLowerCase();
+  const filteredProducts = sq
+    ? products.filter((p) => (p.title || '').toLowerCase().includes(sq) || p.ref.toLowerCase().includes(sq))
+    : products;
 
   // 实际生成逻辑（门控通过后执行）
   const doGen = async (vidName = '') => {
@@ -839,45 +882,47 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         })()}
       </div>
 
-      {/* 商品:列表式展示(点行=选中,与右侧预览联动;预览里点商品图也会高亮这一行) */}
-      <div className="flex flex-col gap-1.5">
-        <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden"
-          onChange={(e) => void handleProductFileChange(e)} />
-        <button onClick={() => fileInputRef.current?.click()} disabled={uploadingProduct}
-          className="inline-flex h-8 w-full items-center justify-center rounded-md border border-dashed border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
-          {uploadingProduct ? '上传中…' : '+ 添加商品(图 / 视频,可多个)'}
-        </button>
-        {products.map((p) => {
-          const sel = selectedProductRef === p.ref;
-          return (
-            <div key={p.ref}
-              className={`flex flex-col gap-1 rounded-md border px-2 py-1.5 text-sm ${sel
-                ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)]'
-                : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] hover:bg-[var(--cy-surface-2)]'}`}>
-              <div onClick={() => onSelectProduct?.(sel ? null : p.ref)} className="flex cursor-pointer items-center gap-2">
-                <span aria-hidden>{p.kind === 'video' ? '🎬' : '🖼️'}</span>
-                <span className="min-w-0 flex-1 truncate text-[var(--cy-text-primary)]">{p.ref.replace(/^product:/, '')}</span>
-                <button type="button" title="移除" onClick={(e) => { e.stopPropagation(); removeProduct(p.ref); }}
-                  className="text-[var(--cy-text-tertiary)] hover:text-[var(--cy-danger-500)]">×</button>
-              </div>
-              <input type="url" value={p.link ?? ''} placeholder="商品链接(在线页点商品/橱窗跳转,选填)"
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => persistProducts(products.map((q) => (q.ref === p.ref ? { ...q, link: e.target.value } : q)))}
-                className="h-7 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
-              <div className="flex gap-1">
-                <input type="text" value={p.title ?? ''} placeholder="商品名称" onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => persistProducts(products.map((q) => (q.ref === p.ref ? { ...q, title: e.target.value } : q)))}
-                  className="h-7 min-w-0 flex-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
-                <input type="text" value={p.price ?? ''} placeholder="价格 ¥" onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => persistProducts(products.map((q) => (q.ref === p.ref ? { ...q, price: e.target.value } : q)))}
-                  className="h-7 w-20 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
-              </div>
-              <input type="text" value={p.desc ?? ''} placeholder="简介(橱窗展示,选填)" onClick={(e) => e.stopPropagation()}
-                onChange={(e) => persistProducts(products.map((q) => (q.ref === p.ref ? { ...q, desc: e.target.value } : q)))}
-                className="h-7 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
-            </div>
-          );
-        })}
+      {/* 商品:搜索 + 添加(右侧,弹模态表单);卡片展示名称/价格/图,字段全可空 */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <input type="text" value={productSearch} onChange={(e) => setProductSearch(e.target.value)}
+            placeholder="搜索商品名称…"
+            className="h-8 min-w-0 flex-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
+          <button type="button" onClick={openAddProduct}
+            className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-[var(--cy-brand-500)] px-3 text-sm font-medium text-white hover:opacity-90">
+            + 添加商品
+          </button>
+        </div>
+        {filteredProducts.length > 0 && (
+          <div className="grid grid-cols-2 gap-2">
+            {filteredProducts.map((p) => {
+              const sel = selectedProductRef === p.ref;
+              const hasImg = p.ref.startsWith('product:');
+              return (
+                <div key={p.ref} onClick={() => onSelectProduct?.(sel ? null : p.ref)}
+                  className={`relative flex cursor-pointer flex-col overflow-hidden rounded-lg border ${sel
+                    ? 'border-[var(--cy-brand-500)] ring-1 ring-[var(--cy-brand-500)]'
+                    : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-brand-400)]'}`}>
+                  {hasImg
+                    ? (p.kind === 'video'
+                      ? <video src={digitalHuman.productFileUrl(p.ref)} muted playsInline className="h-24 w-full bg-black object-cover" />
+                      : <img src={digitalHuman.productFileUrl(p.ref)} alt="" className="h-24 w-full bg-[var(--cy-surface-2)] object-cover" />)
+                    : <div className="flex h-24 w-full items-center justify-center bg-[var(--cy-surface-2)] text-2xl text-[var(--cy-text-tertiary)]">🏷️</div>}
+                  <div className="flex flex-col gap-0.5 p-1.5">
+                    <div className="truncate text-xs font-medium text-[var(--cy-text-primary)]">{p.title || '未命名商品'}</div>
+                    {p.price ? <div className="text-xs font-bold text-[#ff5a5f]">{p.price}</div> : null}
+                  </div>
+                  <div className="absolute right-1 top-1 flex gap-1">
+                    <button type="button" title="编辑" onClick={(e) => { e.stopPropagation(); openEditProduct(p); }}
+                      className="flex h-6 w-6 items-center justify-center rounded-md bg-black/45 text-xs text-white hover:bg-black/70">✎</button>
+                    <button type="button" title="移除" onClick={(e) => { e.stopPropagation(); removeProduct(p.ref); }}
+                      className="flex h-6 w-6 items-center justify-center rounded-md bg-black/45 text-sm text-white hover:bg-[var(--cy-danger-500)]">×</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {!embedded && taskId && <DhProgressCard taskId={taskId} />}
@@ -965,6 +1010,42 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
               className="ml-auto h-8 rounded-md px-3 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">取消</button>
             <button type="button" onClick={saveScriptEditor}
               className="h-8 rounded-md bg-[var(--cy-brand-500)] px-4 text-sm text-white hover:bg-[var(--cy-brand-600)]">保存</button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 添加/编辑商品:弹窗表单。图片/名称/价格/链接/简介全部可空。 */}
+      <Dialog open={pmOpen} onOpenChange={setPmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogTitle>{pmDraft.ref && products.some((q) => q.ref === pmDraft.ref) ? '编辑商品' : '添加商品'}</DialogTitle>
+          <div className="flex flex-col gap-2">
+            <input ref={pmFileRef} type="file" accept="image/*,video/*" className="hidden" onChange={(e) => void onPmFile(e)} />
+            <button type="button" onClick={() => pmFileRef.current?.click()} disabled={pmUploading}
+              className="relative flex h-32 w-full items-center justify-center overflow-hidden rounded-md border border-dashed border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+              {pmDraft.previewUrl
+                ? (pmDraft.kind === 'video'
+                  ? <video src={pmDraft.previewUrl} muted playsInline className="h-full w-full object-contain" />
+                  : <img src={pmDraft.previewUrl} alt="" className="h-full w-full object-contain" />)
+                : (pmUploading ? '上传中…' : '点击上传图片 / 视频(可不传)')}
+            </button>
+            <input type="text" value={pmDraft.title} onChange={(e) => setPmDraft((d) => ({ ...d, title: e.target.value }))}
+              placeholder="商品名称(选填)"
+              className="h-8 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
+            <input type="text" value={pmDraft.price} onChange={(e) => setPmDraft((d) => ({ ...d, price: e.target.value }))}
+              placeholder="价格(选填,如 ¥99)"
+              className="h-8 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
+            <input type="url" value={pmDraft.link} onChange={(e) => setPmDraft((d) => ({ ...d, link: e.target.value }))}
+              placeholder="商品链接(选填,在线页点商品/橱窗跳转)"
+              className="h-8 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
+            <textarea value={pmDraft.desc} onChange={(e) => setPmDraft((d) => ({ ...d, desc: e.target.value }))}
+              placeholder="简介(选填,橱窗展示)" rows={2}
+              className="resize-none rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 py-1.5 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" onClick={() => setPmOpen(false)}
+                className="h-8 rounded-md border border-[var(--cy-border-subtle)] px-3 text-sm text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">取消</button>
+              <button type="button" onClick={saveProduct}
+                className="h-8 rounded-md bg-[var(--cy-brand-500)] px-3 text-sm font-medium text-white hover:opacity-90">保存</button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

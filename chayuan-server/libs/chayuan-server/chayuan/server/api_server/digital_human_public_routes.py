@@ -114,7 +114,8 @@ def public_config(token: str) -> Dict[str, Any]:
         "z": p.z, "opacity": p.opacity,
         "link": getattr(p, "link", None),
         "title": getattr(p, "title", None), "price": getattr(p, "price", None), "desc": getattr(p, "desc", None),
-        "url": base + "/product?ref=" + quote(p.ref),
+        # 无图商品(ref 非 product:,如 noimg:)只在橱窗按名称/价格展示,不在画面/橱窗放图 → url=None
+        "url": (base + "/product?ref=" + quote(p.ref)) if str(p.ref or "").startswith("product:") else None,
     } for p in (rec.products or [])]
     return {
         "name": rec.name,
@@ -782,7 +783,8 @@ _PUBLIC_PAGE = """<!doctype html>
   function idleAvatar(){ if(!avatarUrl)return; var el=mkAvatar(avatarUrl,avatarKind); el.className="fill"; styleAvatar(el); makeInteractive(el);
     el.onerror=function(){ el.onerror=null; el.src=avatarUrl+"?raw=1"; };   // 抠像接口失败 → 回退原图,形象不至于空白
     var old=stage.querySelector(".fill"); if(old) old.replaceWith(el); else stage.appendChild(el); }
-  function addProduct(p,i){ var el=mkAvatar(p.url,p.kind); el.className="prod";
+  function addProduct(p,i){ if(!p.url) return;   // 无图商品不在画面上渲染(只进橱窗)
+    var el=mkAvatar(p.url,p.kind); el.className="prod";
     el.style.left=((p.x||0)*100)+"%"; el.style.top=((p.y||0)*100)+"%";
     el.style.width=(((p.scale&&p.scale>0)?p.scale:0.32)*100)+"%"; el.style.zIndex=(p.z!=null?p.z:i); el.style.opacity=(p.opacity!=null?p.opacity:1);
     if(p.link){ el.style.cursor="pointer"; el.style.pointerEvents="auto"; el.title="点击查看";
@@ -801,7 +803,8 @@ _PUBLIC_PAGE = """<!doctype html>
     shopEl.appendChild(hd);
     items.forEach(function(p){
       var it=document.createElement("div"); it.className="shopitem";
-      it.appendChild(mkAvatar(p.url, p.kind==="video"?"video":"image"));
+      if(p.url){ it.appendChild(mkAvatar(p.url, p.kind==="video"?"video":"image")); }   // 无图商品:不放缩略图
+      else { var ph=document.createElement("div"); ph.style.cssText="width:52px;height:52px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:#222;font-size:22px"; ph.textContent="🏷️"; it.appendChild(ph); }
       var info=document.createElement("div"); info.className="info";
       var tt=document.createElement("div"); tt.className="t"; tt.textContent=p.title||"商品"; info.appendChild(tt);
       if(p.price){ var pr=document.createElement("div"); pr.className="p"; pr.textContent=p.price; info.appendChild(pr); }

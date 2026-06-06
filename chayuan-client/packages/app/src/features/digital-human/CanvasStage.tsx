@@ -196,7 +196,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
             ))}
           </div>
         ))}
-        {prods.map((product) => {
+        {prods.filter((pp) => pp.ref.startsWith('product:')).map((product) => {
           const psel = selectedRef === product.ref;
           const ring = psel ? 'ring-2 ring-[var(--cy-brand-500)]' : 'ring-1 ring-white/40';
           return (
