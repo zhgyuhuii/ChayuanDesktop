@@ -739,7 +739,10 @@ _PUBLIC_PAGE = """<!doctype html>
       bar=document.getElementById("bar"), acts=document.getElementById("acts"), hearts=document.getElementById("hearts"), tip=document.getElementById("tip"),
       shopEl=document.getElementById("shop"), shopBtn=document.getElementById("shopbtn"), enterEl=document.getElementById("enter");
   // 「点击进入」:浏览器禁止无手势自动播声音,所以 idle 循环要等用户点一下才开始(此时声音才允许)
-  enterEl.addEventListener("click", function(){ enterEl.style.display="none"; idleOn=true; feedIdle(); });
+  if(enterEl) enterEl.style.display="none";   // 不用「点击进入」按钮,打开即进入直播
+  // 浏览器可能拦截无手势的声音自动播放:首次任意点击/触摸/按键时补踢一次循环,解锁声音
+  document.addEventListener("pointerdown", function(){ if(idleOn) feedIdle(); }, {once:true});
+  document.addEventListener("keydown", function(){ if(idleOn) feedIdle(); }, {once:true});
   var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280, avatarBox=null, fsMode=false, msgsOn=true;
   // 「字幕」开关:开/关屏幕上不断输出的大模型回复 + 对话内容(漂浮气泡流),不影响讲话字幕
   ccBtn.addEventListener("click", function(){ msgsOn=!msgsOn; ccBtn.classList.toggle("on", msgsOn); msgs.style.display = msgsOn ? "flex" : "none"; });
@@ -800,8 +803,7 @@ _PUBLIC_PAGE = """<!doctype html>
     var el=mkAvatar(p.url,p.kind); el.className="prod";
     el.style.left=((p.x||0)*100)+"%"; el.style.top=((p.y||0)*100)+"%";
     el.style.width=(((p.scale&&p.scale>0)?p.scale:0.32)*100)+"%"; el.style.zIndex=(p.z!=null?p.z:i); el.style.opacity=(p.opacity!=null?p.opacity:1);
-    if(p.link){ el.style.cursor="pointer"; el.style.pointerEvents="auto"; el.title="点击查看";
-      el.addEventListener("click", function(){ try{ window.open(p.link, "_blank", "noopener"); }catch(_){}}); }
+    // 主屏商品仅展示,不点开链接(链接统一走右下「橱窗」)
     stage.appendChild(el); }
 
   // 橱窗:有填链接的商品才显示「🛍」按钮;点击展开清单,点条目开链接。
@@ -843,7 +845,7 @@ _PUBLIC_PAGE = """<!doctype html>
     (cfg.products||[]).forEach(addProduct); viewersEl.textContent=cfg.viewers||0;
     buildShop((cfg.products||[]).filter(function(p){ return p.link && p.link.trim(); }));
     if(cfg.welcome && cfg.welcome.trim()){ addMsg("assistant", cfg.welcome.trim()); }   // 欢迎语开场白
-    if(cfg.idle_script && cfg.idle_script.trim()){ idleSents=splitScript(cfg.idle_script); enterEl.style.display="flex"; }   // 循环播报:点「进入」后开始(解锁声音自动播放)
+    if(cfg.idle_script && cfg.idle_script.trim()){ idleSents=splitScript(cfg.idle_script); idleOn=true; feedIdle(); }   // 打开即循环播报(声音若被浏览器拦,首次点击/按键自动解锁)
     if(cfg.chat_enabled){ bar.style.display="flex"; acts.style.display="flex"; } else { tip.textContent="该数字人当前仅供观看"; }
   }).catch(function(){ tip.textContent="该数字人未发布或已下线。"; });
 
