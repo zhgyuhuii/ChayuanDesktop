@@ -175,11 +175,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   const navigate = useNavigate();
   const [scripting, setScripting] = React.useState(false);
-  // 分段轮流:按角色记录谁在生成台词 → 只禁用正在生成的那个,其他角色可点、可并行生成。
-  const [scriptingRoles, setScriptingRoles] = React.useState<Set<number>>(new Set());
-  const setRoleBusy = (i: number, busy: boolean) => setScriptingRoles((prev) => {
+  // 分段轮流:按「段」(key=`角色:段`)记录谁在生成 → 只禁用正在生成的那一段,其余段可点、可并行。
+  const [scriptingSegs, setScriptingSegs] = React.useState<Set<string>>(new Set());
+  const setSegBusy = (key: string, busy: boolean) => setScriptingSegs((prev) => {
     const n = new Set(prev);
-    if (busy) n.add(i); else n.delete(i);
+    if (busy) n.add(key); else n.delete(key);
     return n;
   });
   const refVideoRef = React.useRef<HTMLInputElement>(null);
@@ -220,6 +220,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       setCoframeScripts((prev) => { const n = [...prev]; n[i] = text; return n; });
     }
   };
+  // 写某角色第 k 段台词(分段轮流每段独立 AI 生成/参考视频用)。
+  const setSegText = (i: number, k: number, text: string) => {
+    setRoleSegments([]);
+    setSeqSegments((prev) => prev.map((segs, ri) => (ri === i ? segs.map((sv, sk) => (sk === k ? text : sv)) : segs)));
+  };
   // 把角色名 + 人设揉进 subject,让单篇生成贴合该角色。
   const roleSubject = (i: number, subject: string) => {
     const r = roles[i];
@@ -228,10 +233,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
     return `为${nm}${pa}写一段口播台词。主题:${subject}`;
   };
   // 单个角色 AI 生成台词(多角色每框各自生成,取代旧的整篇交错生成)。
-  const onAiScriptRole = async (i: number) => {
-    const subject = await promptDialog(`给「${roles[i]?.name || ('角色' + (i + 1))}」AI 生成台词的主题:`);
+  const onAiScriptSeg = async (i: number, k: number) => {
+    const subject = await promptDialog(`给「${roles[i]?.name || ('角色' + (i + 1))}」第 ${k + 1} 段 AI 生成台词的主题:`);
     if (!subject || !subject.trim()) return;
-    setRoleBusy(i, true);
+    const key = `${i}:${k}`;
+    setSegBusy(key, true);
     try {
       const preset = presets.find((p) => p.id === pid);
       const r = await digitalHuman.generateScript(roleSubject(i, subject.trim()), {
@@ -241,13 +247,13 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       });
       setScriptSources(r.sources ?? []);
       setKbMissed(effectiveKuIds(preset, scriptKuIds).length > 0 && r.kb_used === false);
-      if (r.script) setRoleScript(i, r.script);
+      if (r.script) setSegText(i, k, r.script);
     } catch (e) { reportError(e as Error, 'AI 生成台词失败'); }
-    finally { setRoleBusy(i, false); }
+    finally { setSegBusy(key, false); }
   };
-  // 参考视频生成某角色台词:记下目标角色,复用统一的隐藏 file input(onRefVideo 按 pendingRole 路由)。
-  const pendingRoleRef = React.useRef<number | null>(null);
-  const onRefVideoRole = (i: number) => { pendingRoleRef.current = i; refVideoRef.current?.click(); };
+  // 参考视频生成某段台词:记下目标段 {i,k},复用统一隐藏 file input(onRefVideo 按 pendingSeg 路由)。
+  const pendingSegRef = React.useRef<{ i: number; k: number } | null>(null);
+  const onRefVideoSeg = (i: number, k: number) => { pendingSegRef.current = { i, k }; refVideoRef.current?.click(); };
 
   // 单形象 AI 生成口播文案(多角色改为每角色各自生成,见 onAiScriptRole)。
   const onAiScript = async () => {
@@ -273,9 +279,10 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   };
   const onRefVideo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]; e.target.value = '';
-    const roleIdx = pendingRoleRef.current; pendingRoleRef.current = null;  // 单角色路由(null=单形象整篇)
+    const seg = pendingSegRef.current; pendingSegRef.current = null;  // 段路由(null=单形象整篇)
     if (!f) return;
-    if (roleIdx != null) setRoleBusy(roleIdx, true); else setScripting(true);
+    const segKey = seg ? `${seg.i}:${seg.k}` : null;
+    if (segKey) setSegBusy(segKey, true); else setScripting(true);
     try {
       const preset = presets.find((p) => p.id === pid);
       const r = await digitalHuman.scriptFromVideo(f, {
@@ -285,11 +292,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       setScriptSources(r.sources ?? []);
       setKbMissed(effectiveKuIds(preset, scriptKuIds).length > 0 && r.kb_used === false);
       if (r.script) {
-        if (roleIdx != null) setRoleScript(roleIdx, r.script);
+        if (seg) setSegText(seg.i, seg.k, r.script);
         else await distributeScript(r.script);
       }
     } catch (err) { reportError(err as Error, '参考视频生成文案失败'); }
-    finally { if (roleIdx != null) setRoleBusy(roleIdx, false); else setScripting(false); }
+    finally { if (segKey) setSegBusy(segKey, false); else setScripting(false); }
   };
 
   const enginesQ = useQuery({ queryKey: ['dh.engines'], queryFn: digitalHuman.listEngines });
@@ -713,44 +720,47 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             <div key={r.ref} className="flex flex-col gap-1 rounded-md border border-[var(--cy-border-subtle)] p-2">
               <div className="flex items-center justify-between">
                 <div className="text-xs font-medium text-[var(--cy-text-secondary)]">{r.name || ('角色' + (i + 1))}</div>
-                <div className="flex items-center gap-1.5">
-                  <button type="button" onClick={() => void onAiScriptRole(i)} disabled={scriptingRoles.has(i)}
-                    className="rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
-                    {scriptingRoles.has(i) ? '生成中…' : '✨ AI 生成'}
-                  </button>
-                  <button type="button" onClick={() => onRefVideoRole(i)} disabled={scriptingRoles.has(i)}
-                    className="rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
-                    🎬 参考视频
-                  </button>
-                  <button type="button"
-                    onClick={() => setSeqSegments((prev) => {
-                      const next = prev.map((segs, ri) => (ri === i ? [...segs, ''] : segs));
-                      return next;
-                    })}
-                    className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-0.5 text-xs text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)]">
-                    + 添加一段
-                  </button>
-                </div>
+                <button type="button"
+                  onClick={() => setSeqSegments((prev) => prev.map((segs, ri) => (ri === i ? [...segs, ''] : segs)))}
+                  className="rounded-md border border-[var(--cy-border-subtle)] px-2 py-0.5 text-xs text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)]">
+                  + 添加一段
+                </button>
               </div>
-              {(seqSegments[i] ?? ['']).map((seg, k) => (
-                <div key={k} className="flex items-start gap-1">
+              {(seqSegments[i] ?? ['']).map((seg, k) => {
+                const segKey = `${i}:${k}`;
+                const segBusy = scriptingSegs.has(segKey);
+                return (
+                <div key={k} className="flex flex-col gap-1 rounded-md border border-[var(--cy-border-subtle)] p-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-[var(--cy-text-tertiary)]">第 {k + 1} 段</span>
+                    {/* 每段独立:AI 生成 / 参考视频(只禁用本段,其他段可点、可并行) */}
+                    <button type="button" onClick={() => void onAiScriptSeg(i, k)} disabled={segBusy}
+                      className="rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+                      {segBusy ? '生成中…' : '✨ AI 生成'}
+                    </button>
+                    <button type="button" onClick={() => onRefVideoSeg(i, k)} disabled={segBusy}
+                      className="rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+                      🎬 参考视频
+                    </button>
+                    {(seqSegments[i]?.length ?? 0) > 1 && (
+                      <button type="button"
+                        onClick={() => setSeqSegments((prev) => prev.map((segs, ri) => (
+                          ri === i ? segs.filter((_, sk) => sk !== k) : segs
+                        )))}
+                        className="ml-auto rounded-md border border-[var(--cy-border-subtle)] px-2 py-0.5 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                        删
+                      </button>
+                    )}
+                  </div>
                   <textarea value={seg} rows={2}
                     onChange={(e) => { setRoleSegments([]); setSeqSegments((prev) => prev.map((segs, ri) => (
                       ri === i ? segs.map((sv, sk) => (sk === k ? e.target.value : sv)) : segs
                     ))); }}
-                    placeholder={`第 ${k + 1} 段`}
+                    placeholder={`第 ${k + 1} 段台词`}
                     className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:outline-none" />
-                  {(seqSegments[i]?.length ?? 0) > 1 && (
-                    <button type="button"
-                      onClick={() => setSeqSegments((prev) => prev.map((segs, ri) => (
-                        ri === i ? segs.filter((_, sk) => sk !== k) : segs
-                      )))}
-                      className="mt-1 shrink-0 rounded-md border border-[var(--cy-border-subtle)] px-2 py-0.5 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
-                      删
-                    </button>
-                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           ))}
         </div>
