@@ -619,7 +619,8 @@ _PUBLIC_PAGE = """<!doctype html>
   /* 视频框:按形象比例居中,所有 UI 都在框内 */
   .frame{position:relative;z-index:1;overflow:hidden;background:#000;box-shadow:0 10px 50px rgba(0,0,0,.6)}
   #stage{position:absolute;inset:0;overflow:hidden}
-  #stage .fill{position:absolute;display:block;z-index:2;cursor:pointer;transition:left .18s,top .18s,width .18s,height .18s}
+  #stage .fill{position:absolute;display:block;z-index:50;cursor:grab;transition:width .18s,height .18s}
+  #stage .fill:active{cursor:grabbing}
   #stage .prod{position:absolute;display:block;z-index:4}
   .grad-top{position:absolute;left:0;right:0;top:0;height:120px;z-index:10;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0))}
   .grad-bot{position:absolute;left:0;right:0;bottom:0;height:200px;z-index:10;pointer-events:none;background:linear-gradient(0deg,rgba(0,0,0,.65),rgba(0,0,0,0))}
@@ -704,17 +705,39 @@ _PUBLIC_PAGE = """<!doctype html>
     // 避免形象看起来变成了背景。
     var b=mkAvatar(avatarUrl+"?raw=1",avatarKind); b.className="b"; bgfull.appendChild(b); }
   // 形象定位:全屏(fsMode)铺满 / 否则按制作参数 x/y/scale 小窗显示;无参数则铺满
+  // 形象 = 前景小窗 PIP(恒在素材之上 z=50);全屏时铺满盖住一切(z=9999)。
   function styleAvatar(el){ var s=el.style;
-    if(fsMode){ s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom";s.zIndex="9999"; }  // 全屏盖住一切
+    if(fsMode){ s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom";s.zIndex="9999"; }
     else if(avatarBox){ var sc=(avatarBox.scale&&avatarBox.scale>0)?avatarBox.scale:1;
-      s.left=((avatarBox.x||0)*100)+"%";s.top=((avatarBox.y||0)*100)+"%";s.width=(sc*100)+"%";s.height="auto";s.objectFit="";s.objectPosition="";
-      s.zIndex=(avatarBox.z!=null?String(avatarBox.z):"1"); }   // 按设置的层次,与商品同一 z 体系
-    else { s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom";s.zIndex="1"; } }
-  function idleAvatar(){ if(!avatarUrl)return; var el=mkAvatar(avatarUrl,avatarKind); el.className="fill"; styleAvatar(el);
+      s.left=((avatarBox.x||0)*100)+"%";s.top=((avatarBox.y||0)*100)+"%";s.width=(sc*100)+"%";s.height="auto";s.objectFit="";s.objectPosition="";s.zIndex="50"; }
+    else { s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom";s.zIndex="50"; } }
+  // 形象小窗:可拖拽移动;单击(未拖动)切「全屏 <-> 原位」。拖动实时写回 avatarBox,
+  // 切全屏再切回时回到拖到的新位置。
+  function makeInteractive(el){
+    el.style.touchAction="none";
+    var sx=0, sy=0, baseX=0, baseY=0, dragging=false, moved=false;
+    el.addEventListener("pointerdown", function(e){
+      sx=e.clientX; sy=e.clientY; moved=false;
+      if(!fsMode){ dragging=true; baseX=(avatarBox&&avatarBox.x)||0; baseY=(avatarBox&&avatarBox.y)||0;
+        try{ el.setPointerCapture(e.pointerId); }catch(_){}}
+      e.preventDefault();
+    });
+    el.addEventListener("pointermove", function(e){
+      if(!dragging) return;
+      var fr=frame.getBoundingClientRect(), dx=e.clientX-sx, dy=e.clientY-sy;
+      if(Math.abs(dx)>4||Math.abs(dy)>4) moved=true;
+      var nx=Math.max(0,Math.min(0.97, baseX+dx/fr.width)), ny=Math.max(0,Math.min(0.97, baseY+dy/fr.height));
+      if(avatarBox){ avatarBox.x=nx; avatarBox.y=ny; }
+      el.style.left=(nx*100)+"%"; el.style.top=(ny*100)+"%";
+    });
+    el.addEventListener("pointerup", function(e){
+      var wasDrag=dragging; dragging=false; try{ el.releasePointerCapture(e.pointerId); }catch(_){}
+      if(!moved){ fsMode=!fsMode; styleAvatar(el); }   // 单击:全屏 <-> 原位
+    });
+  }
+  function idleAvatar(){ if(!avatarUrl)return; var el=mkAvatar(avatarUrl,avatarKind); el.className="fill"; styleAvatar(el); makeInteractive(el);
     el.onerror=function(){ el.onerror=null; el.src=avatarUrl+"?raw=1"; };   // 抠像接口失败 → 回退原图,形象不至于空白
     var old=stage.querySelector(".fill"); if(old) old.replaceWith(el); else stage.appendChild(el); }
-  // 点击形象:小窗 <-> 全屏 切换
-  stage.addEventListener("click", function(){ fsMode=!fsMode; var cur=stage.querySelector(".fill"); if(cur) styleAvatar(cur); });
   function addProduct(p,i){ var el=mkAvatar(p.url,p.kind); el.className="prod";
     el.style.left=((p.x||0)*100)+"%"; el.style.top=((p.y||0)*100)+"%";
     el.style.width=(((p.scale&&p.scale>0)?p.scale:0.32)*100)+"%"; el.style.zIndex=(p.z!=null?p.z:i); el.style.opacity=(p.opacity!=null?p.opacity:1);
@@ -751,7 +774,7 @@ _PUBLIC_PAGE = """<!doctype html>
     var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; done&&done(); });
     showCap(text); a.onended=fin; a.onerror=fin; a.play().catch(fin); }
   function playClip(blob,text,done){ var url=URL.createObjectURL(blob), v=document.createElement("video");
-    v.src=url; v.autoplay=true; v.playsInline=true; v.setAttribute("playsinline",""); v.className="fill"; styleAvatar(v); showCap(text);
+    v.src=url; v.autoplay=true; v.playsInline=true; v.setAttribute("playsinline",""); v.className="fill"; styleAvatar(v); makeInteractive(v); showCap(text);
     var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; idleAvatar(); done&&done(); });
     v.onended=fin; v.onerror=fin; var old=stage.querySelector(".fill"); if(old) old.replaceWith(v); else stage.appendChild(v); v.play().catch(fin); }
   // 多路并发合成(MAXC 路同时 fetch /say,TTS 重叠;服务端 wav2lip 串行锁保首句满速),
