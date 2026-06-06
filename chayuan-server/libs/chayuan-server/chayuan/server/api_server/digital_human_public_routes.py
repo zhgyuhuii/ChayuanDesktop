@@ -119,6 +119,7 @@ def public_config(token: str) -> Dict[str, Any]:
     return {
         "name": rec.name,
         "welcome": getattr(rec, "welcome", "") or "",
+        "idle_script": getattr(rec, "idle_script", "") or "",
         "ratio": {"w": rec.video_width, "h": rec.video_height},
         "chat_enabled": bool(rec.chat_enabled),
         "viewers": online_presence.count(token),
@@ -826,6 +827,7 @@ _PUBLIC_PAGE = """<!doctype html>
     (cfg.products||[]).forEach(addProduct); viewersEl.textContent=cfg.viewers||0;
     buildShop((cfg.products||[]).filter(function(p){ return p.link && p.link.trim(); }));
     if(cfg.welcome && cfg.welcome.trim()){ addMsg("assistant", cfg.welcome.trim()); }   // 欢迎语开场白
+    if(cfg.idle_script && cfg.idle_script.trim()){ idleSents=splitScript(cfg.idle_script); idleOn=true; feedIdle(); }   // 无人提问时循环播报
     if(cfg.chat_enabled){ bar.style.display="flex"; acts.style.display="flex"; } else { tip.textContent="该数字人当前仅供观看"; }
   }).catch(function(){ tip.textContent="该数字人未发布或已下线。"; });
 
@@ -842,34 +844,50 @@ _PUBLIC_PAGE = """<!doctype html>
     else { try{ navigator.clipboard.writeText(u); tip.textContent="链接已复制"; setTimeout(function(){tip.textContent="";},1500);}catch(e){} } });
 
   var sentQ=[], results={}, fetchSeq=0, playSeq=0, inflight=0, playing=false, MAXC=2;
+  var genId=0, curMedia=null, clipCache={}, clipKeys=[];   // 打断 + 片段缓存(idle 循环复用,不重复合成)
+  var idleSents=[], idleIdx=0, idleOn=false;
   function once(fn){ var c=false; return function(){ if(c)return; c=true; fn(); }; }
-  function playAudio(blob,text,done){ var url=URL.createObjectURL(blob), a=new Audio(url);
-    var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; done&&done(); });
+  function cacheClip(text,o){ if(clipCache[text])return; clipCache[text]=o; clipKeys.push(text);
+    while(clipKeys.length>60){ delete clipCache[clipKeys.shift()]; } }
+  function playAudio(blob,text,done){ var url=URL.createObjectURL(blob), a=new Audio(url); curMedia=a;
+    var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} if(curMedia===a)curMedia=null; cap.textContent=""; done&&done(); });
     showCap(text); a.onended=fin; a.onerror=fin; a.play().catch(fin); }
-  function playClip(blob,text,done){ var url=URL.createObjectURL(blob), v=document.createElement("video");
+  function playClip(blob,text,done){ var url=URL.createObjectURL(blob), v=document.createElement("video"); curMedia=v;
     v.src=url; v.autoplay=true; v.playsInline=true; v.setAttribute("playsinline",""); v.className="fill"; styleAvatar(v); makeInteractive(v); showCap(text);
-    var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; idleAvatar(); done&&done(); });
+    var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} if(curMedia===v)curMedia=null; cap.textContent=""; idleAvatar(); done&&done(); });
     v.onended=fin; v.onerror=fin; var old=stage.querySelector(".fill"); if(old) old.replaceWith(v); else stage.appendChild(v); v.play().catch(fin); }
-  // 多路并发合成(MAXC 路同时 fetch /say,TTS 重叠;服务端 wav2lip 串行锁保首句满速),
-  // 结果按句序 seq 存入 results,playPump 严格按 seq 顺序播放,乱序到达也不影响播放顺序。
+  // 多路并发合成(MAXC 路);结果按句序 seq 存入 results,playPump 严格顺序播放;
+  // gen 不匹配(已被提问打断)的在途结果直接丢弃,只缓存供 idle 复用。
   function synthPump(){ while(inflight<MAXC && sentQ.length){ var it=sentQ.shift(); inflight++;
-    (function(seq,text){
+    (function(seq,text,gen){
       fetch(base+"/say",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:text})})
         .then(function(r){ if(!r.ok) throw 0; var kind=(r.headers.get("X-Talk-Kind")||"audio");
-          return r.blob().then(function(b){ results[seq]={kind:kind,blob:b,text:text}; }); })
-        .catch(function(){ results[seq]={skip:true}; })
+          return r.blob().then(function(b){ var o={kind:kind,blob:b,text:text}; cacheClip(text,o); if(gen===genId) results[seq]=o; }); })
+        .catch(function(){ if(gen===genId) results[seq]={skip:true}; })
         .then(function(){ inflight--; synthPump(); playPump(); });
-    })(it.seq, it.text);
+    })(it.seq, it.text, it.gen);
   } }
-  function playPump(){ if(playing)return; var o=results[playSeq]; if(!o)return;
+  function playPump(){ if(playing)return; var o=results[playSeq];
+    if(!o){ feedIdle(); return; }
     delete results[playSeq]; playSeq++;
     if(o.skip){ playPump(); return; }
     playing=true; var done=once(function(){ playing=false; playPump(); });
     if(o.kind==="video") playClip(o.blob,o.text,done); else playAudio(o.blob,o.text,done); }
-  function enqueueSay(t){ if(!t||!t.trim())return; sentQ.push({seq:fetchSeq++, text:t.trim()}); synthPump(); }
+  function enqueueSay(t){ if(!t||!t.trim())return; t=t.trim(); var seq=fetchSeq++;
+    var c=clipCache[t]; if(c){ results[seq]={kind:c.kind,blob:c.blob,text:t}; playPump(); return; }  // 命中缓存:直接排播,不再合成
+    sentQ.push({seq:seq, text:t, gen:genId}); synthPump(); }
+  // 提问打断:停当前播放 + 清队列 + bump gen(在途合成结果作废);clipCache 保留供 idle 复用
+  function interrupt(){ genId++; sentQ=[]; results={}; fetchSeq=0; playSeq=0; playing=false;
+    if(curMedia){ try{ curMedia.pause(); }catch(_){} curMedia.onended=null; curMedia.onerror=null; curMedia=null; }
+    cap.textContent=""; idleAvatar(); }
+  // idle 循环:空闲(非回答中、队列空、无播放)时喂下一句循环脚本(到尾循环回开头)
+  function feedIdle(){ if(!idleOn || busy || !idleSents.length) return;
+    if(sentQ.length || inflight || playing) return;
+    enqueueSay(idleSents[idleIdx % idleSents.length]); idleIdx++; }
+  function splitScript(s){ return (s||"").split(/[。!?！?…\\n]/).map(function(x){ return x.trim(); }).filter(Boolean); }
 
   function send(){ var text=(inp.value||"").trim(); if(!text||busy)return;
-    busy=true; sendBtn.disabled=true; inp.value=""; addMsg("user",text); history.push({role:"user",content:text});
+    busy=true; sendBtn.disabled=true; interrupt(); inp.value=""; addMsg("user",text); history.push({role:"user",content:text});
     var aiSpan=addMsg("assistant","…"); var acc="", sayPos=0;
     // 断句:句末标点(。!?…\\n)总是断;逗号/顿号/分号在累计≥10字时也断 → 首句更快出声、又不过碎。
     function flush(final){ var rest=acc.slice(sayPos), last=0, i;

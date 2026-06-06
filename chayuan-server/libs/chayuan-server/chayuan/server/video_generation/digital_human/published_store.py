@@ -49,6 +49,7 @@ def _snapshot(preset: DigitalHumanPreset, owner_id: str) -> Dict[str, Any]:
         owner_id=owner_id,
         name=preset.name,
         welcome=getattr(preset, "welcome", "") or "",
+        idle_script=getattr(preset, "idle_script", "") or "",
         avatar_ref=preset.avatar_ref,
         avatar_kind=preset.avatar_kind,
         video_width=preset.video_width,

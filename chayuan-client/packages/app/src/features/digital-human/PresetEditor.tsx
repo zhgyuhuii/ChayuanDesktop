@@ -42,6 +42,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
 
   const [name, setName] = React.useState(initial?.name ?? '');
   const [welcome, setWelcome] = React.useState(initial?.welcome ?? '');
+  const [idleScript, setIdleScript] = React.useState(initial?.idle_script ?? '');
   const [avatarRef, setAvatarRef] = React.useState(initial?.avatar_ref ?? '');
   const [voice] = React.useState<VoicePickerValue>({
     voice_provider: (initial?.voice_provider ?? 'piper') as DhVoiceProvider,
@@ -212,6 +213,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
       const body: Partial<DigitalHumanPreset> = {
         name: name.trim(),
         welcome: welcome.trim(),
+        idle_script: idleScript.trim(),
         avatar_ref: slots[0]?.ref ?? '',
         avatar_kind: slots[0]?.kind ?? 'image',
         compose_mode: composeMode,
@@ -275,6 +277,22 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
           onChange={(e) => setWelcome(e.target.value)}
           placeholder="例如:欢迎来到直播间~ 有什么想了解的尽管问我"
           rows={2}
+          className={cn(
+            'rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] resize-none',
+            'px-2 py-1.5 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)]',
+            'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
+          )}
+        />
+      </div>
+
+      {/* 循环播报脚本(在线无人提问时循环播放) */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-[var(--cy-text-secondary)]">循环播报脚本<span className="ml-1 text-[var(--cy-text-tertiary)]">(无人提问时循环讲;有人提问立即打断、答完恢复;空=静态待机)</span></label>
+        <textarea
+          value={idleScript}
+          onChange={(e) => setIdleScript(e.target.value)}
+          placeholder="例如:大家好,今天给大家介绍我们的新品…用料扎实、性价比高,有问题随时问我~"
+          rows={3}
           className={cn(
             'rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] resize-none',
             'px-2 py-1.5 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)]',

@@ -57,6 +57,7 @@ export interface DigitalHumanPreset {
   id: string;
   name: string;
   welcome?: string;     // 在线数字人欢迎语(进入对话页开场白)
+  idle_script?: string; // 在线循环播报脚本(无人提问时循环 TTS+口型播放)
   avatar_ref: string;
   avatar_kind: DhAvatarKind;
   is_greenscreen: boolean;

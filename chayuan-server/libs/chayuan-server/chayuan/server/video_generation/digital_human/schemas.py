@@ -49,6 +49,7 @@ class DigitalHumanPreset(BaseModel):
     id: str
     name: str = Field(min_length=1, max_length=40)
     welcome: str = ""          # 在线数字人欢迎语(进入对话页时作为开场白显示)
+    idle_script: str = ""      # 在线循环播报脚本(无人提问时循环 TTS+口型播放;空=形象静态待机)
     avatar_ref: str = ""       # "bundled:<id>" 或 "user:<file>"(首槽镜像)
     avatar_kind: AvatarKind = "image"
     is_greenscreen: bool = False
@@ -162,6 +163,7 @@ class PublishedAvatar(BaseModel):
     ku_ids: List[str] = Field(default_factory=list)
     persona: str = ""                # 人设/系统提示(公开对话注入 metadata.system)
     welcome: str = ""                # 欢迎语(公开页进入时开场白)
+    idle_script: str = ""            # 循环播报脚本(无人提问时循环播放)
     voice_provider: str = "piper"
     voice_name: str = ""
     # ---- 场景快照(公开页按此摆放形象 + 商品)----
