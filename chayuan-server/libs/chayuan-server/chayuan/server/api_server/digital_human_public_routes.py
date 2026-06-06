@@ -533,284 +533,158 @@ display:flex;align-items:center;justify-content:center}</style></head>
 _PUBLIC_PAGE = """<!doctype html>
 <html lang="zh"><head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>在线数字人</title>
 <style>
   :root{color-scheme:dark}
-  *{box-sizing:border-box}
-  html,body{height:100%;margin:0;background:#0b0d12;color:#e5e7eb;
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0;overflow:hidden;background:#000;color:#fff;
     font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
-  /* 直播间布局:视频铺满一屏(形象在下方),文字回复浮在视频上方漂浮(无滚动条,旧消息淡出),
-     输入条贴底。整页恰好一屏不滚动。 */
-  .wrap{max-width:520px;height:100%;margin:0 auto;display:flex;flex-direction:column;padding:10px;overflow:hidden;gap:8px}
-  .head{position:absolute;left:0;right:0;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;
-    padding:10px 16px;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,0))}
-  .name{font-size:16px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.6)}
-  .viewers{font-size:13px;color:#cbd5e1;display:flex;align-items:center;gap:6px;text-shadow:0 1px 3px rgba(0,0,0,.6)}
-  .dot{width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block}
-  /* 舞台:铺满可用区域(形象按设置 x/y/scale 在里头,通常在下方),消息浮层叠在其上方区域。 */
-  .stage{position:relative;align-self:center;background:#000;border-radius:14px;overflow:hidden;
-    box-shadow:0 8px 30px rgba(0,0,0,.5)}
-  /* 消息浮层:占上 ~62%,贴该区底部往上堆(新消息在下、旧的往上漂),不滚动、半透明气泡。 */
-  .msgs{position:absolute;left:8px;right:8px;top:8px;bottom:38%;z-index:20;pointer-events:none;
-    display:flex;flex-direction:column;justify-content:flex-end;gap:6px;overflow:hidden}
-  .msg{max-width:88%;padding:7px 11px;border-radius:12px;white-space:pre-wrap;word-break:break-word;font-size:14px;
-    backdrop-filter:blur(2px);animation:fadein .25s ease;box-shadow:0 2px 8px rgba(0,0,0,.35)}
-  @keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-  .me{align-self:flex-end;background:rgba(37,99,235,.88);color:#fff;border-bottom-right-radius:4px}
-  .ai{align-self:flex-start;background:rgba(17,24,39,.78);color:#f1f5f9;border-bottom-left-radius:4px}
-  .bar{flex-shrink:0;display:flex;gap:8px}
-  .bar input{flex:1;height:42px;padding:0 12px;border-radius:12px;border:1px solid #334155;
-    background:#0f172a;color:#e5e7eb;font-size:15px;outline:none}
-  .bar select{height:42px;border-radius:12px;border:1px solid #334155;background:#0f172a;color:#e5e7eb;font-size:14px;padding:0 6px;outline:none}
-  .bar button{height:42px;padding:0 18px;border-radius:12px;border:0;background:#2563eb;color:#fff;font-size:15px;cursor:pointer}
-  .bar button:disabled{opacity:.5;cursor:default}
-  .tip{flex-shrink:0;font-size:12px;color:#64748b;text-align:center}
+  /* 抖音式沉浸:形象铺满整屏(底部站位),所有 UI 浮在其上。 */
+  #stage{position:fixed;inset:0;background:radial-gradient(130% 90% at 50% 0%,#1b2436,#05070c);overflow:hidden}
+  .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(30px) brightness(.45);transform:scale(1.18);z-index:0}
+  .fill{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center bottom;z-index:1;display:block}
+  .prod{position:absolute;display:block;z-index:4}
+  .grad-top{position:fixed;left:0;right:0;top:0;height:130px;z-index:10;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0))}
+  .grad-bot{position:fixed;left:0;right:0;bottom:0;height:220px;z-index:10;pointer-events:none;background:linear-gradient(0deg,rgba(0,0,0,.65),rgba(0,0,0,0))}
+  .top{position:fixed;left:12px;right:12px;top:12px;z-index:30;display:flex;align-items:center;gap:8px}
+  .ava{width:38px;height:38px;border-radius:50%;background:#2a3346;border:2px solid rgba(255,255,255,.55);object-fit:cover;flex-shrink:0}
+  .who{flex:1;min-width:0}
+  .nm{font-size:15px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .live{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;color:#fff;background:linear-gradient(90deg,#fe2c55,#ff5a5f);padding:2px 7px;border-radius:6px;margin-right:6px}
+  .vw{font-size:12px;color:#dbe2ea;text-shadow:0 1px 3px rgba(0,0,0,.7);white-space:nowrap}
+  /* 漂浮评论:左侧自下而上,新在下旧的往上漂淡出,无滚动条 */
+  .cmts{position:fixed;left:12px;bottom:74px;z-index:20;width:72%;max-width:340px;max-height:50vh;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;overflow:hidden;pointer-events:none}
+  .cmt{align-self:flex-start;max-width:100%;padding:6px 11px;border-radius:14px;font-size:13.5px;line-height:1.4;background:rgba(0,0,0,.42);backdrop-filter:blur(3px);box-shadow:0 2px 8px rgba(0,0,0,.35);word-break:break-word;animation:rise .3s ease}
+  .cmt b{color:#7cc4ff;font-weight:600;margin-right:4px}
+  .cmt.ai b{color:#ffd27c}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  /* 口播字幕:底部居中当前句 */
+  .cap{position:fixed;left:8%;right:8%;bottom:120px;z-index:25;text-align:center;font-size:17px;font-weight:600;text-shadow:0 2px 8px rgba(0,0,0,.9);pointer-events:none;min-height:24px}
+  /* 右侧动作条 */
+  .acts{position:fixed;right:10px;bottom:96px;z-index:30;display:flex;flex-direction:column;gap:18px;align-items:center}
+  .acts button{width:48px;height:48px;border-radius:50%;border:0;background:rgba(255,255,255,.15);color:#fff;font-size:22px;cursor:pointer;backdrop-filter:blur(5px)}
+  .acts .lbl{font-size:11px;color:#e5e7eb;text-shadow:0 1px 3px rgba(0,0,0,.7);margin-top:-12px}
+  .hearts{position:fixed;right:16px;bottom:150px;z-index:29;pointer-events:none;width:56px;height:52vh}
+  .heart{position:absolute;bottom:0;font-size:26px;animation:floatup 2.6s ease-in forwards}
+  @keyframes floatup{0%{opacity:0;transform:translateY(0) scale(.6)}15%{opacity:1}100%{opacity:0;transform:translateY(-48vh) translateX(var(--dx,0)) scale(1.1)}}
+  /* 底部胶囊输入条 */
+  .bar{position:fixed;left:12px;right:76px;bottom:12px;z-index:30;display:flex;gap:8px}
+  .bar input{flex:1;height:44px;padding:0 16px;border-radius:22px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#fff;font-size:15px;outline:none}
+  .bar select{height:44px;border-radius:22px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);color:#fff;font-size:13px;padding:0 8px;outline:none}
+  .bar button{height:44px;padding:0 18px;border-radius:22px;border:0;background:linear-gradient(90deg,#fe2c55,#ff5a5f);color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+  .bar button:disabled{opacity:.5}
+  .tip{position:fixed;left:0;right:0;top:50%;z-index:5;text-align:center;color:#94a3b8;font-size:13px}
 </style></head>
 <body>
-<div class="wrap">
-  <div class="head">
-    <div class="name" id="name">在线数字人</div>
-    <div class="viewers"><span class="dot"></span><span id="viewers">0</span> 人在看</div>
+  <div id="stage"></div>
+  <div class="grad-top"></div><div class="grad-bot"></div>
+  <div class="top">
+    <img class="ava" id="ava" alt=""/>
+    <div class="who"><div class="nm" id="name">在线数字人</div></div>
+    <span class="live">● LIVE</span><span class="vw"><span id="viewers">0</span> 在看</span>
   </div>
-  <div class="stage" id="stage"><div class="msgs" id="msgs"></div></div>
-  <div class="chat" id="chat" style="display:none">
-    <div class="bar">
-      <input id="inp" placeholder="跟 TA 说点什么…" autocomplete="off"/>
-      <select id="speed" title="语速">
-        <option value="0.8">0.8x</option>
-        <option value="1" selected>1.0x</option>
-        <option value="1.25">1.25x</option>
-        <option value="1.5">1.5x</option>
-      </select>
-      <button id="send">发送</button>
-    </div>
+  <div class="cmts" id="msgs"></div>
+  <div class="cap" id="cap"></div>
+  <div class="acts" id="acts" style="display:none">
+    <button id="like" title="点赞">❤️</button>
+    <button id="share" title="分享">↗</button>
+  </div>
+  <div class="hearts" id="hearts"></div>
+  <div class="bar" id="bar" style="display:none">
+    <input id="inp" placeholder="说点什么…" autocomplete="off"/>
+    <select id="speed" title="语速"><option value="0.8">0.8x</option><option value="1" selected>1.0x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option></select>
+    <button id="send">发送</button>
   </div>
   <div class="tip" id="tip"></div>
-</div>
 <script>
 (function(){
-  var token = "__TOKEN__";
-  var base = "/api/v1/digital-human/public/" + token;
-  var nameEl = document.getElementById("name");
-  var viewersEl = document.getElementById("viewers");
-  var stage = document.getElementById("stage");
-  var chat = document.getElementById("chat");
-  var msgs = document.getElementById("msgs");
-  var speedEl = document.getElementById("speed");
-  var inp = document.getElementById("inp");
-  var sendBtn = document.getElementById("send");
-  var tip = document.getElementById("tip");
-  var history = [];
-  var busy = false;
+  var token="__TOKEN__", base="/api/v1/digital-human/public/"+token;
+  var stage=document.getElementById("stage"), msgs=document.getElementById("msgs"), cap=document.getElementById("cap"),
+      nameEl=document.getElementById("name"), viewersEl=document.getElementById("viewers"), avaEl=document.getElementById("ava"),
+      speedEl=document.getElementById("speed"), inp=document.getElementById("inp"), sendBtn=document.getElementById("send"),
+      bar=document.getElementById("bar"), acts=document.getElementById("acts"), hearts=document.getElementById("hearts"), tip=document.getElementById("tip");
+  var history=[], busy=false, avatarUrl=null, avatarKind="image";
 
-  function fitStage(w, h){
-    // 显式像素宽高(不依赖 CSS aspect-ratio —— 舞台内全是绝对定位子元素,无内容高度;
-    // 若引擎不支持 aspect-ratio,舞台高度会塌成 0 → 形象/一切都看不见,这是「没有形象」根因)。
-    w = w || 720; h = h || 1280;
-    var maxH = Math.max(220, window.innerHeight - 86);  // 视频铺满一屏(留输入条),文字浮在视频上方
-    var maxW = (stage.parentElement && stage.parentElement.clientWidth) || 480;
-    var scale = Math.min(maxW / w, maxH / h);
-    if (!(scale > 0)) scale = maxH / h;
-    stage.style.width = Math.round(w * scale) + "px";
-    stage.style.height = Math.round(h * scale) + "px";
-    stage.style.margin = "0 auto";
+  function mkAvatar(url,kind){
+    var el=(kind==="video")?document.createElement("video"):document.createElement("img"); el.src=url;
+    if(kind==="video"){ el.autoplay=true; el.muted=true; el.loop=true; el.playsInline=true; el.setAttribute("playsinline",""); }
+    return el;
   }
+  function setBackdrop(){ if(!avatarUrl)return; var bg=mkAvatar(avatarUrl,avatarKind); bg.className="bg"; stage.insertBefore(bg,stage.firstChild); }
+  function idleAvatar(){ if(!avatarUrl)return; var el=mkAvatar(avatarUrl,avatarKind); el.className="fill";
+    var old=stage.querySelector(".fill"); if(old) old.replaceWith(el); else stage.appendChild(el); }
+  function addProduct(p,i){ var el=mkAvatar(p.url,p.kind); el.className="prod";
+    el.style.left=((p.x||0)*100)+"%"; el.style.top=((p.y||0)*100)+"%";
+    el.style.width=(((p.scale&&p.scale>0)?p.scale:0.32)*100)+"%"; el.style.zIndex=(p.z!=null?p.z:i)+4; el.style.opacity=(p.opacity!=null?p.opacity:1);
+    stage.appendChild(el); }
 
-  function addMsg(role, text){
-    var d = document.createElement("div");
-    d.className = "msg " + (role === "user" ? "me" : "ai");
-    d.textContent = text;
-    msgs.appendChild(d);
-    // 直播弹幕感:只留最近若干条,旧的从顶部移除(浮层不滚动、视频不被顶走)。
-    while(msgs.children.length > 7){ msgs.removeChild(msgs.firstChild); }
-    return d;
-  }
+  function addMsg(role,text){ var d=document.createElement("div"); d.className="cmt "+(role==="user"?"":"ai");
+    var b=document.createElement("b"); b.textContent=(role==="user"?"我":"TA"); d.appendChild(b);
+    var s=document.createElement("span"); s.textContent=text; d.appendChild(s); msgs.appendChild(d);
+    while(msgs.children.length>6){ msgs.firstChild.remove(); } return s; }
 
-  function addLayer(L, i, isAvatar){
-    var el = document.createElement("div");
-    el.style.position = "absolute";
-    el.style.zIndex = (L.z != null ? L.z : i);
-    el.style.opacity = (L.opacity != null ? L.opacity : 1);
-    var m;
-    if (L.kind === "video") {
-      m = document.createElement("video");
-      m.src = L.url; m.autoplay = true; m.muted = true; m.loop = true; m.playsInline = true;
-      m.setAttribute("playsinline", "");
-    } else {
-      m = document.createElement("img"); m.src = L.url;
-    }
-    m.onerror = function(){
-      try{ console.error("[dh-public] 图层加载失败 kind=" + L.kind + " url=" + L.url); }catch(e){}
-      if(isAvatar){
-        try{
-          el.style.cssText="position:absolute;inset:0;display:flex;align-items:center;justify-content:center";
-          el.innerHTML="";
-          var ph=document.createElement("div");
-          ph.textContent="形象加载失败(/avatar 资源缺失)";
-          ph.style.cssText="color:#f87171;background:#1f2937;padding:10px 14px;border-radius:10px;font-size:13px;text-align:center";
-          el.appendChild(ph);
-        }catch(e){}
-      }
-    };
-    // 形象/商品都按工作台排布:归一 x/y/scale 绝对定位、自然比例(height:auto,舞台已有显式高度
-    // → 不塌成 0)。z 决定叠放(形象 z 与商品 z 比较 → 谁在上,避免形象被商品遮住,与合成成片一致)。
-    el.style.left = ((L.x || 0) * 100) + "%";
-    el.style.top = ((L.y || 0) * 100) + "%";
-    var sc = (L.scale && L.scale > 0) ? L.scale : (isAvatar ? 1 : 0.32);
-    el.style.width = (sc * 100) + "%";
-    m.style.width = "100%"; m.style.height = "auto"; m.style.display = "block";
-    el.appendChild(m);
-    stage.appendChild(el);
-  }
+  fetch(base+"/config").then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(cfg){
+    nameEl.textContent=cfg.name||"在线数字人"; document.title=cfg.name||"在线数字人";
+    if(cfg.avatar){ avatarUrl=cfg.avatar.url; avatarKind=cfg.avatar.kind||"image"; avaEl.src=avatarUrl; setBackdrop(); idleAvatar(); }
+    (cfg.products||[]).forEach(addProduct); viewersEl.textContent=cfg.viewers||0;
+    if(cfg.chat_enabled){ bar.style.display="flex"; acts.style.display="flex"; } else { tip.textContent="该数字人当前仅供观看"; }
+  }).catch(function(){ tip.textContent="该数字人未发布或已下线。"; });
 
-  fetch(base + "/config").then(function(r){
-    if(!r.ok) throw new Error("offline");
-    return r.json();
-  }).then(function(cfg){
-    try{ console.log("[dh-public] config", JSON.stringify(cfg.avatar), "products=" + ((cfg.products||[]).length)); }catch(e){}
-    nameEl.textContent = cfg.name || "在线数字人";
-    document.title = cfg.name || "在线数字人";
-    fitStage((cfg.ratio && cfg.ratio.w) || 720, (cfg.ratio && cfg.ratio.h) || 1280);
-    stage.style.position = "relative";
-    stage.innerHTML = "";
-    if (cfg.avatar) { avatarBox = cfg.avatar; addLayer(cfg.avatar, 0, true); }  // 形象按设置的大小/位置 idle 展示
-    (cfg.products || []).forEach(function(p, i){ addLayer(p, i + 1, false); });  // 商品图/视频
-    viewersEl.textContent = cfg.viewers || 0;
-    if (cfg.chat_enabled) { chat.style.display = "flex"; } else { tip.textContent = "该数字人当前仅供观看"; }
-  }).catch(function(){
-    stage.innerHTML = ""; tip.textContent = "该数字人未发布或已下线。";
-  });
+  try{ var proto=location.protocol==="https:"?"wss":"ws"; var ws=new WebSocket(proto+"://"+location.host+base+"/presence");
+    ws.onmessage=function(ev){ try{ var d=JSON.parse(ev.data); if(d&&d.op==="viewers") viewersEl.textContent=d.n; }catch(e){} }; }catch(e){}
 
-  // presence WebSocket
-  try{
-    var proto = location.protocol === "https:" ? "wss" : "ws";
-    var ws = new WebSocket(proto + "://" + location.host + base + "/presence");
-    ws.onmessage = function(ev){
-      try{ var d = JSON.parse(ev.data); if(d && d.op === "viewers") viewersEl.textContent = d.n; }catch(e){}
-    };
-  }catch(e){}
+  document.getElementById("like").addEventListener("click", function(){ for(var i=0;i<3;i++) spawnHeart(i*120); });
+  function spawnHeart(delay){ setTimeout(function(){ var h=document.createElement("div"); h.className="heart";
+    h.textContent=["❤️","💖","💕","🧡"][(Math.random()*4)|0];
+    h.style.left=(8+Math.random()*30)+"px"; h.style.setProperty("--dx",((Math.random()*60-30)|0)+"px");
+    hearts.appendChild(h); setTimeout(function(){ h.remove(); },2600); }, delay); }
+  document.getElementById("share").addEventListener("click", function(){
+    var u=location.href; if(navigator.share){ navigator.share({title:document.title,url:u}).catch(function(){}); }
+    else { try{ navigator.clipboard.writeText(u); tip.textContent="链接已复制"; setTimeout(function(){tip.textContent="";},1500);}catch(e){} } });
 
-  // ── 实时对话:句级流式 /say,生产者(取)/消费者(播)分离,各自严格顺序 ────────
-  // 后端自适应:GPU 返回该句口型 mp4(覆盖播放,真口型);CPU 返回该句音频实时播。
-  // CPU 上无人脸关键点做不出真口型,故不在脸上画假嘴(会「只剩下嘴」),改用边框辉光按
-  // 音量律动提示「正在说话」,形象始终完整保留。一个 fetcher 顺序取、一个 player 顺序播,
-  // 边播当前句边预取下一句(流畅且不乱序)。
-  var sentQ = [], fetching = false, playQ = [], playing = false, audioCtx = null, avatarBox = null;
-  function once(fn){ var c = false; return function(){ if(c) return; c = true; fn(); }; }
+  var sentQ=[], fetching=false, playQ=[], playing=false;
+  function once(fn){ var c=false; return function(){ if(c)return; c=true; fn(); }; }
+  function playAudio(blob,text,done){ var url=URL.createObjectURL(blob), a=new Audio(url);
+    var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; done&&done(); });
+    cap.textContent=text||""; a.onended=fin; a.onerror=fin; a.play().catch(fin); }
+  function playClip(blob,text,done){ var url=URL.createObjectURL(blob), v=document.createElement("video");
+    v.src=url; v.autoplay=true; v.playsInline=true; v.setAttribute("playsinline",""); v.className="fill"; cap.textContent=text||"";
+    var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; idleAvatar(); done&&done(); });
+    v.onended=fin; v.onerror=fin; var old=stage.querySelector(".fill"); if(old) old.replaceWith(v); else stage.appendChild(v); v.play().catch(fin); }
+  function fetchNext(){ if(fetching||!sentQ.length)return; fetching=true; var text=sentQ.shift();
+    var done=once(function(){ fetching=false; fetchNext(); });
+    fetch(base+"/say",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text:text, rate:parseFloat((speedEl&&speedEl.value)||"1")||1})}).then(function(r){
+      if(!r.ok) throw 0; var kind=(r.headers.get("X-Talk-Kind")||"audio");
+      return r.blob().then(function(b){ playQ.push({kind:kind,blob:b,text:text}); });
+    }).then(function(){ done(); playNext(); }).catch(done); }
+  function playNext(){ if(playing||!playQ.length)return; playing=true; var o=playQ.shift();
+    var done=once(function(){ playing=false; playNext(); });
+    if(o.kind==="video") playClip(o.blob,o.text,done); else playAudio(o.blob,o.text,done); }
+  function enqueueSay(t){ if(!t||!t.trim())return; sentQ.push(t.trim()); fetchNext(); }
 
-  // 纯音频兜底(口型片段生成失败时):只播音频,不再加边框辉光(用户反馈像「窗口震动」)。
-  function playAudio(blob, done){
-    var url = URL.createObjectURL(blob), a = new Audio(url);
-    var fin = once(function(){ try{URL.revokeObjectURL(url);}catch(e){} done&&done(); });
-    a.onended = fin; a.onerror = fin;
-    a.play().catch(fin);
-  }
-
-  function playClip(blob, done){
-    var url = URL.createObjectURL(blob), ov = document.createElement("video");
-    ov.src = url; ov.autoplay = true; ov.playsInline = true; ov.setAttribute("playsinline","");
-    var s = ov.style; s.position="absolute"; s.display="block";
-    // 口型片段叠在 idle 形象「同一位置/缩放」上(无缝替换,不再一说话就跳满屏、说完又跳回)。
-    if (avatarBox) {
-      var sc = (avatarBox.scale && avatarBox.scale > 0) ? avatarBox.scale : 1;
-      s.left = ((avatarBox.x || 0) * 100) + "%"; s.top = ((avatarBox.y || 0) * 100) + "%";
-      s.width = (sc * 100) + "%"; s.height = "auto";
-      // 与 idle 形象同 z;DOM 里 clip 在后 → 盖住 idle 形象,但仍在更高 z 的商品之下(层级一致)。
-      ov.style.zIndex = (avatarBox.z != null ? avatarBox.z : 0);
-    } else {
-      s.inset = "0"; s.width = "100%"; s.height = "100%"; s.objectFit = "contain"; s.background = "#000"; s.zIndex = "999";
-    }
-    var fin = once(function(){ try{ov.remove();}catch(e){} try{URL.revokeObjectURL(url);}catch(e){} done&&done(); });
-    ov.onended = fin; ov.onerror = fin;
-    stage.appendChild(ov);
-    ov.play().catch(fin);
-  }
-
-  // 生产者:顺序取下一句的口型片段/音频,就绪后放入 playQ(保持句序),并触发播放。
-  function fetchNext(){
-    if (fetching || !sentQ.length) return;
-    fetching = true;
-    var text = sentQ.shift();
-    var done = once(function(){ fetching = false; fetchNext(); });
-    fetch(base + "/say", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({text: text, rate: parseFloat((speedEl && speedEl.value) || "1") || 1})}).then(function(r){
-      if(!r.ok) throw new Error("say");
-      var kind = (r.headers.get("X-Talk-Kind") || "audio");
-      return r.blob().then(function(b){ playQ.push({kind:kind, blob:b}); });
-    }).then(function(){ done(); playNext(); }).catch(done);
-  }
-
-  // 消费者:顺序播放 playQ;一次只播一段,播完(幂等)再播下一段。
-  function playNext(){
-    if (playing || !playQ.length) return;
-    playing = true;
-    var o = playQ.shift();
-    var done = once(function(){ playing = false; playNext(); });
-    if (o.kind === "video") playClip(o.blob, done); else playAudio(o.blob, done);
-  }
-
-  function enqueueSay(text){
-    if(!text || !text.trim()) return;
-    sentQ.push(text.trim());
-    fetchNext();
-  }
-
-  function send(){
-    var text = (inp.value || "").trim();
-    if(!text || busy) return;
-    busy = true; sendBtn.disabled = true; inp.value = "";
-    addMsg("user", text);
-    history.push({role:"user", content:text});
-    var aiEl = addMsg("assistant", "…");
-    var acc = "", sayPos = 0;
-    // 边流式边按句切:出完一句立即入队即时说(流畅、口型跟声)。final=收尾把剩余整体当一句。
-    function flushSentences(final){
-      var rest = acc.slice(sayPos), re = /[。!?！?\\n]/g, m, last = 0;
-      while((m = re.exec(rest))){
-        var s = rest.slice(last, m.index + 1).trim();
-        if(s) enqueueSay(s);
-        last = m.index + 1;
-      }
-      sayPos += last;
-      if(final){ var tail = acc.slice(sayPos).trim(); if(tail){ enqueueSay(tail); sayPos = acc.length; } }
-    }
-    fetch(base + "/chat", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({message:text, history:history})}).then(function(res){
-      if(res.status === 429){ aiEl.textContent = "访问过于频繁,请稍后再试"; throw new Error("rate"); }
-      if(!res.ok || !res.body){ aiEl.textContent = "对话暂不可用"; throw new Error("err"); }
-      var reader = res.body.getReader();
-      var dec = new TextDecoder();
-      var buf = "";
-      function pump(){
-        return reader.read().then(function(res2){
-          if(res2.done){ return; }
-          buf += dec.decode(res2.value, {stream:true}).replace(/\\r/g, "");
-          var idx;
-          while((idx = buf.indexOf("\\n\\n")) >= 0){
-            var block = buf.slice(0, idx); buf = buf.slice(idx + 2);
-            var ev = "message", data = "";
-            block.split("\\n").forEach(function(line){
-              if(line.indexOf("event:") === 0) ev = line.slice(6).trim();
-              else if(line.indexOf("data:") === 0) data += line.slice(5).trim();
-            });
-            if(ev === "token"){
-              try{ var d = JSON.parse(data); if(d && d.delta){ acc += d.delta; aiEl.textContent = acc; msgs.scrollTop = msgs.scrollHeight; flushSentences(false); } }catch(e){}
-            }
-          }
-          return pump();
-        });
-      }
+  function send(){ var text=(inp.value||"").trim(); if(!text||busy)return;
+    busy=true; sendBtn.disabled=true; inp.value=""; addMsg("user",text); history.push({role:"user",content:text});
+    var aiSpan=addMsg("assistant","…"); var acc="", sayPos=0;
+    function flush(final){ var rest=acc.slice(sayPos), re=/[。!?！?\\n]/g, m, last=0;
+      while((m=re.exec(rest))){ var s=rest.slice(last,m.index+1).trim(); if(s) enqueueSay(s); last=m.index+1; }
+      sayPos+=last; if(final){ var tail=acc.slice(sayPos).trim(); if(tail){ enqueueSay(tail); sayPos=acc.length; } } }
+    fetch(base+"/chat",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({message:text,history:history})}).then(function(res){
+      if(res.status===429){ aiSpan.textContent="访问过于频繁,请稍后再试"; throw 0; }
+      if(!res.ok||!res.body){ aiSpan.textContent="对话暂不可用"; throw 0; }
+      var reader=res.body.getReader(), dec=new TextDecoder(), buf="";
+      function pump(){ return reader.read().then(function(r2){ if(r2.done)return;
+        buf+=dec.decode(r2.value,{stream:true}).replace(/\\r/g,""); var idx;
+        while((idx=buf.indexOf("\\n\\n"))>=0){ var block=buf.slice(0,idx); buf=buf.slice(idx+2); var ev="message", data="";
+          block.split("\\n").forEach(function(line){ if(line.indexOf("event:")===0) ev=line.slice(6).trim(); else if(line.indexOf("data:")===0) data+=line.slice(5).trim(); });
+          if(ev==="token"){ try{ var d=JSON.parse(data); if(d&&d.delta){ acc+=d.delta; aiSpan.textContent=acc; flush(false); } }catch(e){} } }
+        return pump(); }); }
       return pump();
-    }).then(function(){
-      if(acc){ history.push({role:"assistant", content:acc}); flushSentences(true); }
-      else if(aiEl.textContent === "…"){ aiEl.textContent = "(无回复)"; }
-    }).catch(function(){}).then(function(){
-      busy = false; sendBtn.disabled = false; inp.focus();
-    });
-  }
-  sendBtn.addEventListener("click", send);
-  inp.addEventListener("keydown", function(e){ if(e.key === "Enter") send(); });
+    }).then(function(){ if(acc){ history.push({role:"assistant",content:acc}); flush(true); } else if(aiSpan.textContent==="…"){ aiSpan.textContent="(无回复)"; }
+    }).catch(function(){}).then(function(){ busy=false; sendBtn.disabled=false; inp.focus(); }); }
+  sendBtn.addEventListener("click",send); inp.addEventListener("keydown",function(e){ if(e.key==="Enter") send(); });
 })();
 </script>
 </body></html>"""
