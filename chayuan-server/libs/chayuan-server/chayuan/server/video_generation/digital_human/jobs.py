@@ -497,13 +497,15 @@ def _maybe_bgm(video_path, args):
     视频流 -c:v copy 不重编码(快),只重混音轨:bgm 循环铺满、按 bgm_volume 压低、随旁白时长截断。
     bgm_type=none/空 或 无曲/失败 → 不动原片。"""
     bgm_type = (args.get("bgm_type") or "none")
+    logger.info("[dh] BGM 请求: type=%s file=%s vol=%s", bgm_type, args.get("bgm_file"), args.get("bgm_volume"))
     if not bgm_type or bgm_type == "none":
         return
     try:
         from chayuan.server.video_generation.steps.compose import get_bgm_file
         bgm = get_bgm_file(bgm_type=bgm_type, bgm_file=args.get("bgm_file") or "")
         if not bgm or not os.path.isfile(bgm) or not os.path.isfile(video_path):
-            logger.info("[dh] BGM 跳过(无曲/无成片) type=%s file=%s", bgm_type, args.get("bgm_file"))
+            logger.info("[dh] BGM 跳过(无曲/无成片) type=%s file=%s 选中=%s",
+                        bgm_type, args.get("bgm_file"), bgm)
             return
         import subprocess
         import imageio_ffmpeg
@@ -511,14 +513,20 @@ def _maybe_bgm(video_path, args):
         _v = args.get("bgm_volume")
         vol = max(0.0, min(1.0, float(_v if _v is not None else 0.2)))
         out = video_path + ".bgm.mp4"
+        # 旁白(0:a,edge TTS 多为 24kHz)与 BGM(1:a,常 44.1kHz)采样率不同 → amix 前都 aresample
+        # 到 44.1kHz,否则 amix 可能失败被吞(用户报「BGM 没合成」)。-c:v copy 不重编码视频(快)。
         cmd = [ff, "-y", "-loglevel", "error",
                "-i", video_path, "-stream_loop", "-1", "-i", bgm,
                "-filter_complex",
-               f"[1:a]volume={vol}[b];[0:a][b]amix=inputs=2:duration=first:dropout_transition=0[a]",
+               f"[1:a]volume={vol},aresample=44100[b];[0:a]aresample=44100[n];"
+               f"[n][b]amix=inputs=2:duration=first:dropout_transition=0[a]",
                "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-shortest", out]
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         os.replace(out, video_path)
         logger.info("[dh] BGM 混音完成: %s vol=%.2f", os.path.basename(bgm), vol)
+    except subprocess.CalledProcessError as e:  # noqa: BLE001
+        _err = (e.stderr or b"").decode("utf-8", "ignore")[-500:] if getattr(e, "stderr", None) else ""
+        logger.warning("[dh] BGM 混音失败(ffmpeg),保留无 BGM 成片: %s", _err or repr(e))
     except Exception as e:  # noqa: BLE001
         logger.warning("[dh] BGM 混音失败,保留无 BGM 成片: %r", e)
 

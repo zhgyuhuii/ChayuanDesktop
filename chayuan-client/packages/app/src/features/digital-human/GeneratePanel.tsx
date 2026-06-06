@@ -151,6 +151,24 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const bgmItems: VgBgmItem[] = bgmQ.data?.items ?? [];
   const [bgmPlaying, setBgmPlaying] = React.useState(false);
   const bgmAudioRef = React.useRef<HTMLAudioElement | null>(null);
+  const bgmFileRef = React.useRef<HTMLInputElement | null>(null);
+  const [bgmUploading, setBgmUploading] = React.useState(false);
+  const handleBgmUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setBgmUploading(true);
+    try {
+      const r = await videoGeneration.uploadBgm(file);
+      await qc.invalidateQueries({ queryKey: ['vg.bgm'] });
+      setBgmType('file');
+      setBgmFile(r.path);   // 选中刚上传的
+    } catch (err) {
+      reportError(err as Error, '背景音乐上传失败');
+    } finally {
+      setBgmUploading(false);
+    }
+  };
 
   // 按次门控（avatar: 数字人合成）
   const gate = useUsageGate('avatar');
@@ -752,6 +770,16 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             <option value="">（选择乐曲）</option>
             {bgmItems.map((b) => <option key={b.path} value={b.path}>{b.name}{b.source === 'upload' ? ' · 上传' : ''}</option>)}
           </select>
+        )}
+        {bgmType === 'file' && (
+          <>
+            <input ref={bgmFileRef} type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg" className="hidden"
+              onChange={(e) => void handleBgmUpload(e)} />
+            <button type="button" onClick={() => bgmFileRef.current?.click()} disabled={bgmUploading}
+              className="h-7 rounded-md border border-[var(--cy-border-subtle)] px-2 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
+              {bgmUploading ? '上传中…' : '上传'}
+            </button>
+          </>
         )}
         {bgmType !== 'none' && (
           <>
