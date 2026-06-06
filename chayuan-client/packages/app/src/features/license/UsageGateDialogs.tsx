@@ -37,6 +37,11 @@ export function UsageGateDialogs({ app, gate }: UsageGateDialogsProps): React.Re
         open={gate.shareOpen}
         onOpenChange={gate.setShareOpen}
         remainingFree={gate.remaining}
+        onBuy={() => {
+          // 从「次数提示」分享弹窗切到购买弹窗（LicenseDialog），复用其购买/激活全套。
+          gate.setShareOpen(false);
+          gate.setBuyOpen(true);
+        }}
       />
     </>
   );
