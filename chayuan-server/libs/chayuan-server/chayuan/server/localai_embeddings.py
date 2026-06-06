@@ -277,12 +277,20 @@ class LocalAIEmbeddings(BaseModel, Embeddings):
                     "timeout": values["request_timeout"],
                     "max_retries": values["max_retries"],
                 }
+                # 本地/自托管 endpoint 绕过系统代理:openai SDK 不传 http_client 时默认
+                # httpx.Client(trust_env=True),会读 HTTP(S)_PROXY 把 127.0.0.1 也经代理 →
+                # APIConnectionError(服务在跑却连不上)。本地 endpoint 用 trust_env=False。
+                import httpx as _httpx
+                _b = (values["openai_api_base"] or "")
+                _is_local = any(h in _b for h in ("127.0.0.1", "localhost", "[::1]", "0.0.0.0"))
 
                 if not values.get("client"):
-                    values["client"] = openai.OpenAI(**client_params).embeddings
+                    values["client"] = openai.OpenAI(
+                        **client_params, http_client=_httpx.Client(trust_env=not _is_local)
+                    ).embeddings
                 if not values.get("async_client"):
                     values["async_client"] = openai.AsyncOpenAI(
-                        **client_params
+                        **client_params, http_client=_httpx.AsyncClient(trust_env=not _is_local)
                     ).embeddings
             elif not values.get("client"):
                 values["client"] = openai.Embedding
