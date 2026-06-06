@@ -109,6 +109,11 @@ def public_config(token: str) -> Dict[str, Any]:
             threading.Thread(target=warm_wav2lip, daemon=True).start()
         except Exception:  # noqa: BLE001
             pass
+    # 后台预生成 idle 循环片段并缓存 → 任何人打开直接秒播(按脚本去重,只跑一次)
+    try:
+        threading.Thread(target=_warm_idle_clips, args=(rec,), daemon=True).start()
+    except Exception:  # noqa: BLE001
+        pass
     prods = [{
         "kind": p.kind, "x": p.x, "y": p.y, "scale": p.scale,
         "z": p.z, "opacity": p.opacity,
@@ -494,17 +499,22 @@ def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
             except Exception:  # noqa: BLE001
                 pass
         voice = dh_jobs._voice_string(rec.voice_provider, rec.voice_name) or "zh-CN-XiaoxiaoNeural"
+        # 口型片段清晰度:模型恒输出 96x96、与帧分辨率无关,提高 cap 主要只增编码/贴帧开销。
+        # 默认近原生(CPU 960 / GPU 1280);想更快设 CHAYUAN_DH_SAY_MAX_WIDTH。
+        cap_w = int(os.environ.get("CHAYUAN_DH_SAY_MAX_WIDTH", "0") or 0) \
+            or (1280 if get_compute().has_cuda else 960)
+        _matte = _matte_on(rec); _sim = _matte_sim(rec)
+        _cpath = _say_cache_path(avatar, voice, _matte, _sim, cap_w, rate, text, ".webm" if _matte else ".mp4")
+        # 命中缓存:直接返(任何人打开都秒播,不重复合成)。
+        if os.path.isfile(_cpath) and os.path.getsize(_cpath) > 800:
+            with open(_cpath, "rb") as f:
+                return f.read()
         from chayuan.server.modality.service import get_modality_service
         wav = get_modality_service().tts(text, voice=voice, fmt="wav")
         if not wav:
             return None
         wav = _apply_atempo(wav, rate, "wav")   # 语速:口型跟着变速后的音频对齐
         from chayuan.server.video_generation.digital_human.engine import get_engine
-        # 口型片段清晰度:模型恒输出 96x96、与帧分辨率无关,提高 cap 主要只增编码/贴帧开销、
-        # 不碰 fwd 瓶颈。默认提到近原生(CPU 960 / GPU 1280),避免「说话比 idle 原图糊一截」。
-        # 想更快可设 CHAYUAN_DH_SAY_MAX_WIDTH 调小。
-        cap_w = int(os.environ.get("CHAYUAN_DH_SAY_MAX_WIDTH", "0") or 0) \
-            or (1280 if get_compute().has_cuda else 960)
         gw, gh = _say_dims(avatar, cap_w)
         with tempfile.TemporaryDirectory() as d:
             ap = os.path.join(d, "say.wav")
@@ -512,18 +522,67 @@ def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
                 f.write(wav)
             out = os.path.join(d, "say.mp4")
             with _W2L_LOCK:   # 推理串行:首句满速,多请求排队不互抢
+                if os.path.isfile(_cpath) and os.path.getsize(_cpath) > 800:   # 双检:并发时已被另一请求生成
+                    with open(_cpath, "rb") as f:
+                        return f.read()
                 get_engine("wav2lip").generate(avatar_path=avatar, audio_path=ap,
                                                out_path=out, width=gw, height=gh)
-            if _matte_on(rec):
-                webm = _matte_clip_to_webm(out, avatar, d, sim=_matte_sim(rec))
+            final = out
+            if _matte:
+                webm = _matte_clip_to_webm(out, avatar, d, sim=_sim)
                 if webm:
-                    with open(webm, "rb") as f:
-                        return f.read()
-            with open(out, "rb") as f:
-                return f.read()
+                    final = webm
+            with open(final, "rb") as f:
+                data = f.read()
+            try:
+                with open(_cpath, "wb") as f:   # 落盘缓存,后续秒返
+                    f.write(data)
+            except Exception:  # noqa: BLE001
+                pass
+            return data
     except Exception as e:  # noqa: BLE001
         logger.warning("[dh-public] say clip 失败,回退音频: %r", e)
         return None
+
+
+def _say_cache_path(avatar, voice, matte, sim, cap_w, rate, text, ext):
+    """片段磁盘缓存路径:键含 形象+音色+抠图+强度+宽度+rate+文本 → 任一变化即新键、自动重生成。"""
+    import hashlib
+    key = hashlib.md5(("%s|%s|%s|%s|%d|%.2f|%s" % (
+        avatar, voice, bool(matte), ("" if sim is None else round(float(sim), 3)),
+        int(cap_w), float(rate), text)).encode("utf-8")).hexdigest()
+    cdir = os.path.join(tempfile.gettempdir(), "chayuan_dh_say_cache")
+    os.makedirs(cdir, exist_ok=True)
+    return os.path.join(cdir, key + ext)
+
+
+_WARMED_IDLE = set()   # (token, idle_hash) 已预热过的,避免重复
+
+
+def _warm_idle_clips(rec) -> None:
+    """后台预生成「循环播报脚本」每句的口型片段并落盘缓存 → 之后谁打开都直接秒播。
+    按 (token, 脚本) 去重,只跑一次;逐句串行(_W2L_LOCK 内已串行)。"""
+    try:
+        idle = (getattr(rec, "idle_script", "") or "")
+        if not idle:
+            try:
+                pr = store.get_preset(getattr(rec, "preset_id", "") or "")
+                idle = (getattr(pr, "idle_script", "") or "") if pr else ""
+            except Exception:  # noqa: BLE001
+                idle = ""
+        idle = (idle or "").strip()
+        if not idle:
+            return
+        key = (getattr(rec, "token", ""), hash(idle))
+        if key in _WARMED_IDLE:
+            return
+        _WARMED_IDLE.add(key)
+        sents = [s.strip() for s in re.split(r"[。!?！?…\n]", idle) if s.strip()]
+        logger.info("[dh-public] 预热 idle 循环片段 %d 句 (token=%s)", len(sents), getattr(rec, "token", ""))
+        for s in sents:
+            _say_clip_bytes(rec, s)   # 生成并落盘缓存(命中则秒过)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh-public] idle 预热失败: %r", e)
 
 
 def _matte_clip_to_webm(mp4: str, avatar: str, d: str, sim=None):
