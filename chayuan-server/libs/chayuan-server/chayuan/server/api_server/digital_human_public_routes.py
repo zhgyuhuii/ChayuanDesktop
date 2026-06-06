@@ -171,20 +171,66 @@ def _matte_png_bytes(path: str):
         return None
 
 
+def _matte_video_cached(path: str):
+    """idle 视频形象:按首帧背景纯色 colorkey 成透明 webm(vp9 alpha),缓存(按文件名+大小+mtime)。
+    首次较慢,之后直接返缓存。失败返 None(用原视频)。"""
+    try:
+        import cv2
+        import numpy as np
+        import hashlib
+        import imageio_ffmpeg
+        cap = cv2.VideoCapture(path)
+        ok, f = cap.read()
+        cap.release()
+        if not ok or f is None:
+            return None
+        f = f[:, :, ::-1].astype(int)   # BGR→RGB
+        h, w = f.shape[:2]
+        m = max(2, int(min(h, w) * 0.04))
+        corners = np.concatenate([f[:m, :m].reshape(-1, 3), f[:m, w - m:].reshape(-1, 3),
+                                  f[h - m:, :m].reshape(-1, 3), f[h - m:, w - m:].reshape(-1, 3)])
+        key = np.median(corners, axis=0)
+        s = float(key.sum())
+        thr = 55 if s > 620 else (80 if s > 430 else 110)
+        r, g, b = int(key[0]), int(key[1]), int(key[2])
+        sim = max(0.10, min(0.50, thr / 255.0))
+        st = os.stat(path)
+        kk = hashlib.md5(("%s|%d|%d" % (path, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:16]
+        cache_dir = os.path.join(tempfile.gettempdir(), "chayuan_dh_idle_matte")
+        os.makedirs(cache_dir, exist_ok=True)
+        out = os.path.join(cache_dir, kk + ".webm")
+        if os.path.isfile(out) and os.path.getsize(out) > 1000:
+            return out
+        ff = imageio_ffmpeg.get_ffmpeg_exe()
+        vf = "colorkey=0x%02X%02X%02X:%.2f:0.10,format=yuva420p" % (r, g, b, sim)
+        subprocess.run([ff, "-y", "-loglevel", "error", "-i", path, "-an", "-vf", vf,
+                        "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p",
+                        "-deadline", "realtime", "-cpu-used", "8", out], check=True)
+        return out if (os.path.isfile(out) and os.path.getsize(out) > 1000) else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh-public] idle 视频抠像失败,用原视频: %r", e)
+        return None
+
+
 @digital_human_public_router.get(_PUB + "/{token}/avatar")
 def public_avatar(token: str):
     rec = _live(token)
     path = store.resolve_avatar_path(rec.avatar_ref)
     if not path or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="形象资源不存在")
-    # 抠像开 + 图片形象 → 返回去背景的透明 PNG(视频形象暂不在 idle 抠,口型片段那条会抠)。
-    if getattr(rec, "matte", False) and os.path.splitext(path)[1].lower() not in _VIDEO_EXT:
-        png = _matte_png_bytes(path)
-        if png:
-            return Response(content=png, media_type="image/png",
-                            headers={"Cache-Control": "no-store"})
+    _ns = {"Cache-Control": "no-store"}   # 不缓存:开/关抠像后刷新立刻生效,不被旧图卡住
+    # 抠像开:idle 默认形象也处理过——图片返透明 PNG,视频返透明 webm(缓存)。失败回退原图/原视频。
+    if getattr(rec, "matte", False):
+        if os.path.splitext(path)[1].lower() not in _VIDEO_EXT:
+            png = _matte_png_bytes(path)
+            if png:
+                return Response(content=png, media_type="image/png", headers=_ns)
+        else:
+            webm = _matte_video_cached(path)
+            if webm:
+                return FileResponse(webm, media_type="video/webm", headers=_ns)
     mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
-    return FileResponse(path, media_type=mime)
+    return FileResponse(path, media_type=mime, headers=_ns)
 
 
 @digital_human_public_router.websocket(_PUB + "/{token}/presence")
