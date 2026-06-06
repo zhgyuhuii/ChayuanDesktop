@@ -356,11 +356,9 @@ def _apply_overlays(result_path, td, preset, slots, text, width, height, skip_su
         from chayuan.server.video_generation.digital_human import overlay as _ov
         from chayuan.server.video_generation.digital_human.timeline_bridge import build_cues_from_script
         from chayuan.server.video_generation.steps.subtitle import _probe_audio_duration_ms
-        compose_mode = getattr(preset, "compose_mode", "single") or "single"
-        labels = ([((getattr(s, "name", "") or ""),
-                    float(getattr(s, "x", 0.0) or 0.0),
-                    min(0.95, float(getattr(s, "y", 0.0) or 0.0))) for s in (slots or []) if getattr(s, "name", "")]
-                  if compose_mode in ("coframe", "sequential") else [])
+        # 成片不再烧昵称标签:多角色昵称会全程挂在画面上(不随形象出场/消失),用户要求移除。
+        # 角色身份靠画面+字幕区分即可。如需恢复可改回按 slots 的 name 生成 labels。
+        labels = []
         cues = []
         if not skip_subtitle and getattr(preset, "subtitle_enabled", True):
             dur = _probe_audio_duration_ms(result_path) or 0
