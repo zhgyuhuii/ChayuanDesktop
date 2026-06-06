@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -30,6 +31,10 @@ digital_human_public_router = APIRouter(tags=["digital-human-public"])
 
 _PUB = "/api/v1/digital-human/public"
 _VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv", ".avi"}
+
+# wav2lip 串行锁:CPU 上单次推理已占满核,并发跑多个只会互抢、首句更慢 + handle 非线程安全。
+# 锁只包推理本身;TTS 在锁外,故句 N 的推理跑时句 N+1 的 TTS 可重叠(前端多路预取的收益来源)。
+_W2L_LOCK = threading.Lock()
 
 # ---- 进程内限流(sidecar 单 worker) ----
 _BUCKETS: Dict[Tuple[str, str], List[float]] = {}   # (token, ip) -> [tokens, last_ts]
@@ -471,8 +476,9 @@ def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
             with open(ap, "wb") as f:
                 f.write(wav)
             out = os.path.join(d, "say.mp4")
-            get_engine("wav2lip").generate(avatar_path=avatar, audio_path=ap,
-                                           out_path=out, width=gw, height=gh)
+            with _W2L_LOCK:   # 推理串行:首句满速,多请求排队不互抢
+                get_engine("wav2lip").generate(avatar_path=avatar, audio_path=ap,
+                                               out_path=out, width=gw, height=gh)
             if _matte_on(rec):
                 webm = _matte_clip_to_webm(out, avatar, d)
                 if webm:
@@ -662,7 +668,7 @@ _PUBLIC_PAGE = """<!doctype html>
     <div class="hearts" id="hearts"></div>
     <div class="bar" id="bar" style="display:none">
       <input id="inp" placeholder="说点什么…" autocomplete="off"/>
-      <button id="cc" class="cc on" title="字幕开关">字幕</button>
+      <button id="cc" class="cc on" title="开/关大模型回复与对话内容(漂浮气泡)">字幕</button>
       <button id="send">发送</button>
     </div>
   </div>
@@ -675,10 +681,10 @@ _PUBLIC_PAGE = """<!doctype html>
       nameEl=document.getElementById("name"), viewersEl=document.getElementById("viewers"), avaEl=document.getElementById("ava"),
       inp=document.getElementById("inp"), sendBtn=document.getElementById("send"), ccBtn=document.getElementById("cc"),
       bar=document.getElementById("bar"), acts=document.getElementById("acts"), hearts=document.getElementById("hearts"), tip=document.getElementById("tip");
-  var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280, avatarBox=null, fsMode=false, captionsOn=true;
-  // 字幕开关:关闭则播放时不显字幕(立即清空当前字幕)
-  ccBtn.addEventListener("click", function(){ captionsOn=!captionsOn; ccBtn.classList.toggle("on", captionsOn); if(!captionsOn) cap.textContent=""; });
-  function showCap(t){ cap.textContent = captionsOn ? (t||"") : ""; }
+  var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280, avatarBox=null, fsMode=false, msgsOn=true;
+  // 「字幕」开关:开/关屏幕上不断输出的大模型回复 + 对话内容(漂浮气泡流),不影响讲话字幕
+  ccBtn.addEventListener("click", function(){ msgsOn=!msgsOn; ccBtn.classList.toggle("on", msgsOn); msgs.style.display = msgsOn ? "flex" : "none"; });
+  function showCap(t){ cap.textContent = t||""; }   // 讲话字幕始终显示
 
   function fitFrame(){
     var vh=window.innerHeight, vw=window.innerWidth;
@@ -739,7 +745,7 @@ _PUBLIC_PAGE = """<!doctype html>
     var u=location.href; if(navigator.share){ navigator.share({title:document.title,url:u}).catch(function(){}); }
     else { try{ navigator.clipboard.writeText(u); tip.textContent="链接已复制"; setTimeout(function(){tip.textContent="";},1500);}catch(e){} } });
 
-  var sentQ=[], fetching=false, playQ=[], playing=false;
+  var sentQ=[], results={}, fetchSeq=0, playSeq=0, inflight=0, playing=false, MAXC=2;
   function once(fn){ var c=false; return function(){ if(c)return; c=true; fn(); }; }
   function playAudio(blob,text,done){ var url=URL.createObjectURL(blob), a=new Audio(url);
     var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; done&&done(); });
@@ -748,23 +754,32 @@ _PUBLIC_PAGE = """<!doctype html>
     v.src=url; v.autoplay=true; v.playsInline=true; v.setAttribute("playsinline",""); v.className="fill"; styleAvatar(v); showCap(text);
     var fin=once(function(){ try{URL.revokeObjectURL(url);}catch(e){} cap.textContent=""; idleAvatar(); done&&done(); });
     v.onended=fin; v.onerror=fin; var old=stage.querySelector(".fill"); if(old) old.replaceWith(v); else stage.appendChild(v); v.play().catch(fin); }
-  function fetchNext(){ if(fetching||!sentQ.length)return; fetching=true; var text=sentQ.shift();
-    var done=once(function(){ fetching=false; fetchNext(); });
-    fetch(base+"/say",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({text:text})}).then(function(r){
-      if(!r.ok) throw 0; var kind=(r.headers.get("X-Talk-Kind")||"audio");
-      return r.blob().then(function(b){ playQ.push({kind:kind,blob:b,text:text}); });
-    }).then(function(){ done(); playNext(); }).catch(done); }
-  function playNext(){ if(playing||!playQ.length)return; playing=true; var o=playQ.shift();
-    var done=once(function(){ playing=false; playNext(); });
+  // 多路并发合成(MAXC 路同时 fetch /say,TTS 重叠;服务端 wav2lip 串行锁保首句满速),
+  // 结果按句序 seq 存入 results,playPump 严格按 seq 顺序播放,乱序到达也不影响播放顺序。
+  function synthPump(){ while(inflight<MAXC && sentQ.length){ var it=sentQ.shift(); inflight++;
+    (function(seq,text){
+      fetch(base+"/say",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:text})})
+        .then(function(r){ if(!r.ok) throw 0; var kind=(r.headers.get("X-Talk-Kind")||"audio");
+          return r.blob().then(function(b){ results[seq]={kind:kind,blob:b,text:text}; }); })
+        .catch(function(){ results[seq]={skip:true}; })
+        .then(function(){ inflight--; synthPump(); playPump(); });
+    })(it.seq, it.text);
+  } }
+  function playPump(){ if(playing)return; var o=results[playSeq]; if(!o)return;
+    delete results[playSeq]; playSeq++;
+    if(o.skip){ playPump(); return; }
+    playing=true; var done=once(function(){ playing=false; playPump(); });
     if(o.kind==="video") playClip(o.blob,o.text,done); else playAudio(o.blob,o.text,done); }
-  function enqueueSay(t){ if(!t||!t.trim())return; sentQ.push(t.trim()); fetchNext(); }
+  function enqueueSay(t){ if(!t||!t.trim())return; sentQ.push({seq:fetchSeq++, text:t.trim()}); synthPump(); }
 
   function send(){ var text=(inp.value||"").trim(); if(!text||busy)return;
     busy=true; sendBtn.disabled=true; inp.value=""; addMsg("user",text); history.push({role:"user",content:text});
     var aiSpan=addMsg("assistant","…"); var acc="", sayPos=0;
-    function flush(final){ var rest=acc.slice(sayPos), re=/[。!?！?\\n]/g, m, last=0;
-      while((m=re.exec(rest))){ var s=rest.slice(last,m.index+1).trim(); if(s) enqueueSay(s); last=m.index+1; }
+    // 断句:句末标点(。!?…\\n)总是断;逗号/顿号/分号在累计≥10字时也断 → 首句更快出声、又不过碎。
+    function flush(final){ var rest=acc.slice(sayPos), last=0, i;
+      for(i=0;i<rest.length;i++){ var ch=rest.charAt(i);
+        var hard=("。!?！?…\\n".indexOf(ch)>=0), soft=(",，、;;:".indexOf(ch)>=0);
+        if(hard || (soft && (i-last)>=10)){ var s=rest.slice(last,i+1).trim(); if(s) enqueueSay(s); last=i+1; } }
       sayPos+=last; if(final){ var tail=acc.slice(sayPos).trim(); if(tail){ enqueueSay(tail); sayPos=acc.length; } } }
     fetch(base+"/chat",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({message:text,history:history})}).then(function(res){
