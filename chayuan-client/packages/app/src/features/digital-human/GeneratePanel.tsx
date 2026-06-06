@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
-import { digitalHuman, models, knowledgeUniverse, videoGeneration } from '@chayuan/api';
+import { digitalHuman, models, knowledgeUniverse, videoGeneration, vgBgmFileUrl } from '@chayuan/api';
 import type { DigitalHumanPreset, RawModelItem, KuItem, DhScriptSource, ProductLayer, VgBgmItem } from '@chayuan/api';
 import type { ModalityCapability } from '@chayuan/transport';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Dialog, DialogContent, DialogTitle } from '@chayuan/ui';
@@ -759,6 +759,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
             <span className="w-8 text-[var(--cy-text-tertiary)]">{bgmVolume.toFixed(2)}</span>
           </>
         )}
+        {/* 试听:选中乐曲后内嵌播放器 */}
+        {bgmType === 'file' && bgmFile && (() => {
+          const selBgm = bgmItems.find((b) => b.path === bgmFile);
+          return selBgm ? <audio controls preload="none" src={vgBgmFileUrl(selBgm.name)} className="h-8 w-full max-w-[22rem]" /> : null;
+        })()}
       </div>
 
       {/* 商品:列表式展示(点行=选中,与右侧预览联动;预览里点商品图也会高亮这一行) */}
