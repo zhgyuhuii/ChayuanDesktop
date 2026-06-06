@@ -570,7 +570,7 @@ def generate(body: DhGenerateRequest,
                          role_segments=body.role_segments, script_model=body.script_model,
                          fps=body.fps,
                          bgm_type=body.bgm_type, bgm_file=body.bgm_file, bgm_volume=body.bgm_volume,
-                         name=body.name)
+                         name=body.name, matte_sim=body.matte_sim)
     return {"task_id": tid}
 
 

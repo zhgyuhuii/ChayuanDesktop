@@ -141,6 +141,8 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
 
   // matte (green-screen keying) — only relevant when productRef is set
   const [matte, setMatte] = React.useState(false);
+  // 抠图相似度:越大抠越狠(背景去得干净但易伤形象),越小越保守(留更多)。默认 0.15;0=后端按背景自适应。
+  const [matteSim, setMatteSim] = React.useState(0.15);
   // 速度档:静态形象生成帧率。25=标准,18=快速,12=极速(降 fps=减帧=等比提速,时长不变、口型刷新率略降)。
   const [genFps, setGenFps] = React.useState<number>(25);
   // 背景音乐(复用 VG 内置 29 首 + 用户上传):none=无 / random=随机 / file=指定。混进成片旁白下。
@@ -454,7 +456,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         script_model: effectiveModel(curPreset, scriptModel ?? '') || undefined,
         ...(genFps && genFps < 25 ? { fps: genFps } : {}),  // 速度档:<25 才传(默认 25 不传)
         ...(bgmType !== 'none' ? { bgm_type: bgmType, bgm_file: bgmFile, bgm_volume: bgmVolume } : {}),
-        ...(primaryProductRef ? { product_image: primaryProductRef, matte } : {}),
+        ...(primaryProductRef ? { product_image: primaryProductRef, matte, ...(matte ? { matte_sim: matteSim } : {}) } : {}),
         ...modeFields,
       };
       const r = await digitalHuman.generate(pid, effectiveText, opts);
@@ -871,6 +873,19 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         </div>
       )}
       </div>
+
+      {/* 抠图参数:勾选「抠像」后显示,取消则隐藏。相似度越大抠越狠(易伤形象),越小越保守。 */}
+      {products.length > 0 && matte && (
+        <div className="mt-2 flex shrink-0 flex-wrap items-center gap-2 border-t border-[var(--cy-border-subtle)] pt-2 text-xs">
+          <span className="text-[var(--cy-text-secondary)]">抠图强度</span>
+          <span className="text-[var(--cy-text-tertiary)]">保守</span>
+          <input type="range" min={0.05} max={0.4} step={0.01} value={matteSim}
+            onChange={(e) => setMatteSim(Number(e.target.value))} className="w-40 accent-[var(--cy-brand-500)]" />
+          <span className="text-[var(--cy-text-tertiary)]">狠</span>
+          <span className="w-9 text-[var(--cy-text-primary)]">{matteSim.toFixed(2)}</span>
+          <span className="text-[var(--cy-text-tertiary)]">抠烂了调小、背景没抠净调大;绿/蓝幕可调大,白/浅底调小</span>
+        </div>
+      )}
 
       {/* 固定底栏:抠像 + 生成数字人视频 + 发布在线数字人,始终一排、不随上方滚动遮挡 */}
       <div className="mt-2 flex shrink-0 items-center gap-2 border-t border-[var(--cy-border-subtle)] pt-2">

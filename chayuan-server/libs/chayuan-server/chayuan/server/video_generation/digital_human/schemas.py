@@ -117,6 +117,7 @@ class DhGenerateRequest(BaseModel):
     bgm_file: str = ""
     bgm_volume: float = 0.2
     name: str = ""            # 用户给这条视频起的名字(列表显示;空=用脚本首句兜底)
+    matte_sim: Optional[float] = None  # 抠图相似度(colorkey,越大抠越狠/越易伤形象);None=按背景自适应
 
 
 class DhTaskStatus(BaseModel):

@@ -385,6 +385,7 @@ export async function dhGenerate(
     bgm_file?: string;
     bgm_volume?: number;
     name?: string;
+    matte_sim?: number;
   },
 ): Promise<{ task_id: string }> {
   return rd<{ task_id: string }>('/api/v1/digital-human/generate', {
@@ -406,6 +407,7 @@ export async function dhGenerate(
       bgm_file: opts?.bgm_file ?? '',
       bgm_volume: opts?.bgm_volume ?? 0.2,
       name: opts?.name ?? '',
+      matte_sim: opts?.matte_sim,
     },
   });
 }

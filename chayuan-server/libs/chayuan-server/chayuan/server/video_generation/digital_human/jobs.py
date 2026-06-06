@@ -615,7 +615,7 @@ def _ass_from_cues(td, preset, cues, width, height, name="sub.ass", style_extra=
 
 
 def _build_coframe_scene(td, preset, segments, width, height, ffmpeg_exe,
-                         cues=None, style_extra=None, idle=True, matte=False):
+                         cues=None, style_extra=None, idle=True, matte=False, matte_sim=None):
     """从已生成片段(segments:[{role_index,path,text,duration_ms}])重建 ffcompose 场景
     (每角色 idle 底 + 说话段时间窗 + 商品,按 z 叠;音频取各 clip 自身拼接,严格同步)。
 
@@ -647,7 +647,10 @@ def _build_coframe_scene(td, preset, segments, width, height, ffmpeg_exe,
 
     def _mk(ri):
         key = role_keys.get(ri) if matte else None
-        return {"matte_key": key, "matte_sim": _matte_sim_for(key)} if key else {}
+        if not key:
+            return {}
+        _sim = float(matte_sim) if (matte_sim is not None and float(matte_sim) > 0) else _matte_sim_for(key)
+        return {"matte_key": key, "matte_sim": _sim}
     layers = []
     if idle:
         # 同框:每角色 idle 底常显。分段轮流(idle=False)不铺底,只显当前说话段。
@@ -751,7 +754,7 @@ def _run_pipeline(tid: str) -> None:
                         from chayuan.server.video_generation.digital_human import ffcompose as _ff
                         from chayuan.server.video_generation.compute import get_compute as _gc
                         _scene = _build_coframe_scene(td, preset, seg_meta, args["width"], args["height"],
-                                                      _gc().ffmpeg_exe, matte=bool(args.get("matte")))
+                                                      _gc().ffmpeg_exe, matte=bool(args.get("matte")), matte_sim=args.get("matte_sim"))
                         _ff.render(_scene, out_path, on_progress=_op)
                         _ff_ok = True
                         _sub_burned = bool(_scene.get("subtitle"))
@@ -775,7 +778,7 @@ def _run_pipeline(tid: str) -> None:
                         from chayuan.server.video_generation.digital_human import ffcompose as _ff
                         from chayuan.server.video_generation.compute import get_compute as _gc
                         _scene = _build_coframe_scene(td, preset, seg_meta, args["width"], args["height"],
-                                                      _gc().ffmpeg_exe, idle=False, matte=bool(args.get("matte")))
+                                                      _gc().ffmpeg_exe, idle=False, matte=bool(args.get("matte")), matte_sim=args.get("matte_sim"))
                         _ff.render(_scene, out_path, on_progress=_op)
                         _seq_ok = True
                         _sub_burned = bool(_scene.get("subtitle"))
@@ -866,8 +869,10 @@ def _run_pipeline(tid: str) -> None:
             try:
                 from chayuan.server.video_generation.digital_human import ffcompose as _ff
                 from chayuan.server.video_generation.compute import get_compute as _gc
+                _usim = args.get("matte_sim")
+                _sim_v = float(_usim) if (_usim is not None and float(_usim) > 0) else _matte_sim_for(_key)
                 _layers = [dict(avatar_layer, src=presenter_raw, kind="video", loop=False,
-                                windows=None, matte_key=_key, matte_sim=_matte_sim_for(_key), z=_az)]
+                                windows=None, matte_key=_key, matte_sim=_sim_v, z=_az)]
                 for _it in items:
                     _k = "video" if os.path.splitext(_it["path"])[1].lower() in _VIDEO_EXT else "image"
                     _layers.append({"src": _it["path"], "kind": _k, "x": _it["x"], "y": _it["y"],
@@ -959,13 +964,14 @@ def submit(*, preset_id: str, text: str, width: int, height: int,
            role_scripts=None, role_segments=None, script=None,
            script_model: str = "", fps: Optional[float] = None,
            bgm_type: str = "none", bgm_file: str = "", bgm_volume: float = 0.2,
-           name: str = "") -> str:
+           name: str = "", matte_sim: Optional[float] = None) -> str:
     tid = uuid.uuid4().hex[:12]
     _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height,
                      "product_ref": product_ref, "template": template, "matte": matte,
                      "engine": engine, "role_scripts": role_scripts,
                      "role_segments": role_segments, "script": script, "fps": fps,
-                     "bgm_type": bgm_type, "bgm_file": bgm_file, "bgm_volume": bgm_volume}
+                     "bgm_type": bgm_type, "bgm_file": bgm_file, "bgm_volume": bgm_volume,
+                     "matte_sim": matte_sim}
     _set(tid, state="pending", progress=0, created_at=time.time(),
          script_model=script_model, engine=engine, preset_id=preset_id, name=(name or "").strip())
     _POOL.submit(_run_pipeline_tracked, tid)
