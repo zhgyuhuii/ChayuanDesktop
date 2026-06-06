@@ -116,6 +116,7 @@ class DhGenerateRequest(BaseModel):
     bgm_type: str = "none"
     bgm_file: str = ""
     bgm_volume: float = 0.2
+    name: str = ""            # 用户给这条视频起的名字(列表显示;空=用脚本首句兜底)
 
 
 class DhTaskStatus(BaseModel):
@@ -124,6 +125,7 @@ class DhTaskStatus(BaseModel):
     progress: int = 0
     error: str = ""
     result_path: str = ""
+    name: str = ""            # 用户给这条视频起的名字(列表显示)
     preset_id: str = ""       # 关联预设(供"送到时间轴"/"就地编辑字幕"重建场景取位置/商品/样式/模式)
     script: str = ""          # 生成所用文案(供"送到时间轴"派生字幕 cue)
     script_model: str = ""    # 生成文稿用的对话模型(空=手输/未知)

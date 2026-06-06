@@ -116,6 +116,7 @@ export interface DhTaskStatus {
   progress: number;
   error: string;
   result_path: string;
+  name?: string;           // 用户给这条视频起的名字
   script?: string;
   script_model?: string;   // 生成文稿用的对话模型
   engine?: string;         // 画质引擎
@@ -383,6 +384,7 @@ export async function dhGenerate(
     bgm_type?: 'none' | 'random' | 'file';
     bgm_file?: string;
     bgm_volume?: number;
+    name?: string;
   },
 ): Promise<{ task_id: string }> {
   return rd<{ task_id: string }>('/api/v1/digital-human/generate', {
@@ -403,6 +405,7 @@ export async function dhGenerate(
       bgm_type: opts?.bgm_type ?? 'none',
       bgm_file: opts?.bgm_file ?? '',
       bgm_volume: opts?.bgm_volume ?? 0.2,
+      name: opts?.name ?? '',
     },
   });
 }
@@ -443,10 +446,10 @@ export interface PublishedAvatar {
 }
 
 /** 发布在线数字人。new=true 时每次新建一条(一个 preset 可发布多个,各自独立链接)。 */
-export async function dhPublish(presetId: string, opts: { new?: boolean } = {}): Promise<PublishedAvatar> {
+export async function dhPublish(presetId: string, opts: { new?: boolean; name?: string } = {}): Promise<PublishedAvatar> {
   return rd<PublishedAvatar>('/api/v1/digital-human/published', {
     method: 'POST',
-    body: { preset_id: presetId, new: opts.new === true },
+    body: { preset_id: presetId, new: opts.new === true, name: opts.name ?? '' },
   });
 }
 

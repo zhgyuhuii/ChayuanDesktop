@@ -569,7 +569,8 @@ def generate(body: DhGenerateRequest,
                          script=body.script, role_scripts=body.role_scripts,
                          role_segments=body.role_segments, script_model=body.script_model,
                          fps=body.fps,
-                         bgm_type=body.bgm_type, bgm_file=body.bgm_file, bgm_volume=body.bgm_volume)
+                         bgm_type=body.bgm_type, bgm_file=body.bgm_file, bgm_volume=body.bgm_volume,
+                         name=body.name)
     return {"task_id": tid}
 
 
@@ -762,7 +763,8 @@ def publish_preset(body: Dict[str, Any],
     if getattr(p, "compose_mode", "single") != "single":
         raise HTTPException(400, "仅单形象数字人可发布为在线数字人")
     # new=True:一个 preset 发布多个在线数字人(各自独立 token/链接);默认幂等覆盖同 preset。
-    rec = published_store.publish(p, owner_id=_uid(user), new=bool((body or {}).get("new")))
+    rec = published_store.publish(p, owner_id=_uid(user), new=bool((body or {}).get("new")),
+                                  name=str((body or {}).get("name") or ""))
     return _pub_dump(rec)
 
 

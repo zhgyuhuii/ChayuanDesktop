@@ -300,10 +300,12 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const [publishing, setPublishing] = React.useState(false);
   const doPublish = async () => {
     if (!curPreset || publishing) return;
+    const pubName = await promptDialog('给这个在线数字人起个名称:', { defaultValue: curPreset.name || '' });
+    if (pubName === null) return;   // 取消则不发布
     setPublishing(true);
     try {
       // new=true:每次发布新建一条 → 一个数字人可发布多个在线数字人(各自独立链接)。
-      const rec = await digitalHuman.publish(curPreset.id, { new: true });
+      const rec = await digitalHuman.publish(curPreset.id, { new: true, name: pubName.trim() });
       try { await navigator.clipboard?.writeText(rec.url); } catch { /* 复制失败不致命 */ }
       notifySuccess('已发布在线数字人', `公开链接已复制:${rec.url}`);
       onPublished?.();
@@ -395,7 +397,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   };
 
   // 实际生成逻辑（门控通过后执行）
-  const doGen = async () => {
+  const doGen = async (vidName = '') => {
     setBusy(true);
     try {
       // 先把拖拽中待写的形象/商品位置/缩放/层级落库(等服务端写完),否则「拖完马上点生成」时
@@ -434,6 +436,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       }
       const opts = {
         engine,
+        ...(vidName.trim() ? { name: vidName.trim() } : {}),   // 用户给这条视频起的名字
         script_model: effectiveModel(curPreset, scriptModel ?? '') || undefined,
         ...(genFps && genFps < 25 ? { fps: genFps } : {}),  // 速度档:<25 才传(默认 25 不传)
         ...(bgmType !== 'none' ? { bgm_type: bgmType, bgm_file: bgmFile, bgm_volume: bgmVolume } : {}),
@@ -448,7 +451,12 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   };
 
   // 带门控的生成入口
-  const gen = () => gate.guard(doGen);
+  const gen = async () => {
+    // 生成前先填视频名称(放在 license 门控前,取消不浪费额度)。
+    const vidName = await promptDialog('给这个视频起个名字:', { defaultValue: '' });
+    if (vidName === null) return;   // 取消则不生成
+    gate.guard(() => doGen(vidName));
+  };
 
   // ── 文案生成模型选择 ─────────────────────────────────────────
   // 文案=文本脚本,模型放开为「对话 + 视觉」(chat+vl),不因挂商品图收窄成 VLM-only、

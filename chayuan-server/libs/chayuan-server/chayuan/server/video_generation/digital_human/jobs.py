@@ -927,7 +927,8 @@ def submit(*, preset_id: str, text: str, width: int, height: int,
            matte: bool = False, engine: str = "wav2lip",
            role_scripts=None, role_segments=None, script=None,
            script_model: str = "", fps: Optional[float] = None,
-           bgm_type: str = "none", bgm_file: str = "", bgm_volume: float = 0.2) -> str:
+           bgm_type: str = "none", bgm_file: str = "", bgm_volume: float = 0.2,
+           name: str = "") -> str:
     tid = uuid.uuid4().hex[:12]
     _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height,
                      "product_ref": product_ref, "template": template, "matte": matte,
@@ -935,7 +936,7 @@ def submit(*, preset_id: str, text: str, width: int, height: int,
                      "role_segments": role_segments, "script": script, "fps": fps,
                      "bgm_type": bgm_type, "bgm_file": bgm_file, "bgm_volume": bgm_volume}
     _set(tid, state="pending", progress=0, created_at=time.time(),
-         script_model=script_model, engine=engine, preset_id=preset_id)
+         script_model=script_model, engine=engine, preset_id=preset_id, name=(name or "").strip())
     _POOL.submit(_run_pipeline_tracked, tid)
     return tid
 

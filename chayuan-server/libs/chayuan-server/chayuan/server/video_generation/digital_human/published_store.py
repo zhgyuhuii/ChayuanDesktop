@@ -81,14 +81,18 @@ def get_by_token(token: str) -> Optional[PublishedAvatar]:
     return None
 
 
-def publish(preset: DigitalHumanPreset, *, owner_id: str = "", new: bool = False) -> PublishedAvatar:
+def publish(preset: DigitalHumanPreset, *, owner_id: str = "", new: bool = False,
+            name: str = "") -> PublishedAvatar:
     """从 preset 快照发布。
 
     - ``new=False``(默认/兼容):同 preset_id 已存在 → 覆盖快照,保留 token/控制位/created(幂等更新)。
     - ``new=True``:总是新建一条(新 token)→ **一个 preset 可发布多个在线数字人**(各自独立链接/控制位)。
+    - ``name``:用户发布时填的名称,非空则覆盖快照里的 preset.name(列表/公开页显示用)。
     """
     rows = _load_raw()
     snap = _snapshot(preset, owner_id)
+    if (name or "").strip():
+        snap["name"] = name.strip()
     if not new:
         for i, r in enumerate(rows):
             if r.get("preset_id") == preset.id:

@@ -52,10 +52,10 @@ export const DhTaskList: React.FC = () => {
       const script = `${t.script || ''} ${(t.segments ?? []).map((s) => s.text || '').join(' ')}`;
       const role = presetMap.get(t.preset_id || '') || '';
       const model = t.script_model || '';
-      const hay = mode === 'script' ? script
+      const hay = mode === 'script' ? `${t.name || ''} ${script}`
         : mode === 'role' ? role
           : mode === 'model' ? model
-            : `${script} ${role} ${model}`;
+            : `${t.name || ''} ${script} ${role} ${model}`;
       return hay.toLowerCase().includes(kw);
     });
   }, [allTasks, q, mode, presetMap]);
@@ -96,6 +96,7 @@ export const DhTaskList: React.FC = () => {
         <div className="flex flex-1 flex-wrap content-start gap-3 overflow-y-auto">
           {tasks.map((t) => (
             <div key={t.task_id} className="w-56 shrink-0 rounded-lg border border-[var(--cy-border-subtle)] p-2">
+              {t.name && <div className="mb-1 truncate text-xs font-medium text-[var(--cy-text-primary)]" title={t.name}>{t.name}</div>}
               <DhProgressCard taskId={t.task_id} onDelete={() => void del(t.task_id)} />
             </div>
           ))}
@@ -106,6 +107,7 @@ export const DhTaskList: React.FC = () => {
             <thead>
               <tr className="text-left text-[var(--cy-text-tertiary)]">
                 <th className="py-1 pr-3 font-normal">时间</th>
+                <th className="py-1 pr-3 font-normal">名称</th>
                 <th className="py-1 pr-3 font-normal">数字人/角色</th>
                 <th className="py-1 pr-3 font-normal">文案模型</th>
                 <th className="py-1 pr-3 font-normal">脚本</th>
@@ -117,6 +119,7 @@ export const DhTaskList: React.FC = () => {
               {tasks.map((t) => (
                 <tr key={t.task_id} className="border-t border-[var(--cy-border-subtle)] align-top text-[var(--cy-text-secondary)]">
                   <td className="py-1 pr-3 whitespace-nowrap">{fmtTime(t.created_at)}</td>
+                  <td className="py-1 pr-3 max-w-[140px] truncate text-[var(--cy-text-primary)]" title={t.name || ''}>{t.name || '-'}</td>
                   <td className="py-1 pr-3 max-w-[160px] truncate" title={presetMap.get(t.preset_id || '') || ''}>{presetMap.get(t.preset_id || '') || '-'}</td>
                   <td className="py-1 pr-3 max-w-[140px] truncate" title={t.script_model || ''}>{t.script_model || '手输'}</td>
                   <td className="py-1 pr-3 max-w-[280px] truncate" title={t.script || ''}>{t.script || '-'}</td>
