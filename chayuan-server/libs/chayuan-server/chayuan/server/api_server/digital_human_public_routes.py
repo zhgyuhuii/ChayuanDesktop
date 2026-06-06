@@ -630,7 +630,8 @@ _PUBLIC_PAGE = """<!doctype html>
   .nm{font-size:14px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .live{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:800;color:#fff;background:linear-gradient(90deg,#fe2c55,#ff5a5f);padding:2px 6px;border-radius:5px;margin-right:5px}
   .vw{font-size:11px;color:#dbe2ea;text-shadow:0 1px 3px rgba(0,0,0,.7);white-space:nowrap}
-  .cmts{position:absolute;left:10px;bottom:66px;z-index:20;width:70%;max-width:300px;max-height:46%;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;overflow:hidden;pointer-events:none}
+  .cmts{position:absolute;left:10px;bottom:66px;z-index:20;width:70%;max-width:300px;max-height:11.5em;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;overflow-y:auto;pointer-events:auto;scrollbar-width:none;-ms-overflow-style:none}
+  .cmts::-webkit-scrollbar{width:0;height:0;display:none}
   .cmt{align-self:flex-start;max-width:100%;padding:6px 10px;border-radius:13px;font-size:13px;line-height:1.4;background:rgba(0,0,0,.42);backdrop-filter:blur(3px);box-shadow:0 2px 8px rgba(0,0,0,.35);word-break:break-word;animation:rise .3s ease}
   .cmt b{color:#7cc4ff;font-weight:600;margin-right:4px}
   .cmt.ai b{color:#ffd27c}
@@ -746,7 +747,8 @@ _PUBLIC_PAGE = """<!doctype html>
   function addMsg(role,text){ var d=document.createElement("div"); d.className="cmt "+(role==="user"?"":"ai");
     var b=document.createElement("b"); b.textContent=(role==="user"?"我":"TA"); d.appendChild(b);
     var s=document.createElement("span"); s.textContent=text; d.appendChild(s); msgs.appendChild(d);
-    while(msgs.children.length>6){ msgs.firstChild.remove(); } return s; }
+    while(msgs.children.length>40){ msgs.firstChild.remove(); }   // 保留较多历史供上下滚动,可视区约 10 行
+    msgs.scrollTop=msgs.scrollHeight; return s; }
 
   fetch(base+"/config").then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(cfg){
     nameEl.textContent=cfg.name||"在线数字人"; document.title=cfg.name||"在线数字人";
@@ -813,7 +815,7 @@ _PUBLIC_PAGE = """<!doctype html>
         buf+=dec.decode(r2.value,{stream:true}).replace(/\\r/g,""); var idx;
         while((idx=buf.indexOf("\\n\\n"))>=0){ var block=buf.slice(0,idx); buf=buf.slice(idx+2); var ev="message", data="";
           block.split("\\n").forEach(function(line){ if(line.indexOf("event:")===0) ev=line.slice(6).trim(); else if(line.indexOf("data:")===0) data+=line.slice(5).trim(); });
-          if(ev==="token"){ try{ var d=JSON.parse(data); if(d&&d.delta){ acc+=d.delta; aiSpan.textContent=acc; flush(false); } }catch(e){} } }
+          if(ev==="token"){ try{ var d=JSON.parse(data); if(d&&d.delta){ acc+=d.delta; aiSpan.textContent=acc; msgs.scrollTop=msgs.scrollHeight; flush(false); } }catch(e){} } }
         return pump(); }); }
       return pump();
     }).then(function(){ if(acc){ history.push({role:"assistant",content:acc}); flush(true); } else if(aiSpan.textContent==="…"){ aiSpan.textContent="(无回复)"; }
