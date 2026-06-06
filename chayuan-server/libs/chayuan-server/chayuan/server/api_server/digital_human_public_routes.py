@@ -751,7 +751,7 @@ _PUBLIC_PAGE = """<!doctype html>
   // 形象定位:全屏(fsMode)铺满 / 否则按制作参数 x/y/scale 小窗显示;无参数则铺满
   // 形象 = 前景小窗 PIP(恒在素材之上 z=50);全屏时铺满盖住一切(z=9999)。
   function styleAvatar(el){ var s=el.style;
-    if(fsMode){ s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom";s.zIndex="9999"; }
+    if(fsMode){ s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom";s.zIndex="5"; }
     else if(avatarBox){ var sc=(avatarBox.scale&&avatarBox.scale>0)?avatarBox.scale:1;
       s.left=((avatarBox.x||0)*100)+"%";s.top=((avatarBox.y||0)*100)+"%";s.width=(sc*100)+"%";s.height="auto";s.objectFit="";s.objectPosition="";s.zIndex="50"; }
     else { s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom";s.zIndex="50"; } }
