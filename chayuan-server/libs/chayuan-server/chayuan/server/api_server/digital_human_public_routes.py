@@ -467,9 +467,11 @@ def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
             return None
         wav = _apply_atempo(wav, rate, "wav")   # 语速:口型跟着变速后的音频对齐
         from chayuan.server.video_generation.digital_human.engine import get_engine
-        # 在线小窗:CPU(强制口型时)默认 360 宽求快,GPU 可大些(720)。
+        # 口型片段清晰度:模型恒输出 96x96、与帧分辨率无关,提高 cap 主要只增编码/贴帧开销、
+        # 不碰 fwd 瓶颈。默认提到近原生(CPU 960 / GPU 1280),避免「说话比 idle 原图糊一截」。
+        # 想更快可设 CHAYUAN_DH_SAY_MAX_WIDTH 调小。
         cap_w = int(os.environ.get("CHAYUAN_DH_SAY_MAX_WIDTH", "0") or 0) \
-            or (720 if get_compute().has_cuda else 360)
+            or (1280 if get_compute().has_cuda else 960)
         gw, gh = _say_dims(avatar, cap_w)
         with tempfile.TemporaryDirectory() as d:
             ap = os.path.join(d, "say.wav")
