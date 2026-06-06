@@ -220,6 +220,18 @@ def _matte_video_cached(path: str):
         return None
 
 
+def _matte_on(rec) -> bool:
+    """该在线数字人是否抠像。真源两条:① 发布后 ✂️ 开关(rec.matte);
+    ② 制作时勾的抠像(preset.is_greenscreen)——任一为真即抠,让「制作时选了抠图」直接生效。"""
+    if bool(getattr(rec, "matte", False)):
+        return True
+    try:
+        pr = store.get_preset(getattr(rec, "preset_id", "") or "")
+        return bool(getattr(pr, "is_greenscreen", False)) if pr else False
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @digital_human_public_router.get(_PUB + "/{token}/avatar")
 def public_avatar(token: str):
     rec = _live(token)
@@ -228,7 +240,7 @@ def public_avatar(token: str):
         raise HTTPException(status_code=404, detail="形象资源不存在")
     _ns = {"Cache-Control": "no-store"}   # 不缓存:开/关抠像后刷新立刻生效,不被旧图卡住
     # 抠像开:idle 默认形象也处理过——图片返透明 PNG,视频返透明 webm(缓存)。失败回退原图/原视频。
-    if getattr(rec, "matte", False):
+    if _matte_on(rec):
         if os.path.splitext(path)[1].lower() not in _VIDEO_EXT:
             png = _matte_png_bytes(path)
             if png:
@@ -461,7 +473,7 @@ def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
             out = os.path.join(d, "say.mp4")
             get_engine("wav2lip").generate(avatar_path=avatar, audio_path=ap,
                                            out_path=out, width=gw, height=gh)
-            if getattr(rec, "matte", False):
+            if _matte_on(rec):
                 webm = _matte_clip_to_webm(out, avatar, d)
                 if webm:
                     with open(webm, "rb") as f:
@@ -517,7 +529,7 @@ def public_say(token: str, body: Dict[str, Any], request: Request) -> Response:
     clip = _say_clip_bytes(rec, text, rate)
     if clip:
         # 抠像开 → webm(vp9 alpha 透明);否则 mp4。两者前端 <video> 都能播。
-        _mt = "video/webm" if getattr(rec, "matte", False) else "video/mp4"
+        _mt = "video/webm" if _matte_on(rec) else "video/mp4"
         return Response(content=clip, media_type=_mt, headers={"X-Talk-Kind": "video"})
     voice = dh_jobs._voice_string(rec.voice_provider, rec.voice_name) or "zh-CN-XiaoxiaoNeural"
     try:
