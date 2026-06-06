@@ -584,80 +584,91 @@ _PUBLIC_PAGE = """<!doctype html>
 <style>
   :root{color-scheme:dark}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{height:100%;margin:0;overflow:hidden;background:#000;color:#fff;
+  html,body{height:100%;margin:0;overflow:hidden;background:#05070c;color:#fff;
     font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
-  /* 抖音式沉浸:形象铺满整屏(底部站位),所有 UI 浮在其上。 */
-  #stage{position:fixed;inset:0;background:radial-gradient(130% 90% at 50% 0%,#1b2436,#05070c);overflow:hidden}
-  .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(30px) brightness(.45);transform:scale(1.18);z-index:0}
-  .fill{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center bottom;z-index:1;display:block}
-  .prod{position:absolute;display:block;z-index:4}
-  .grad-top{position:fixed;left:0;right:0;top:0;height:130px;z-index:10;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0))}
-  .grad-bot{position:fixed;left:0;right:0;bottom:0;height:220px;z-index:10;pointer-events:none;background:linear-gradient(0deg,rgba(0,0,0,.65),rgba(0,0,0,0))}
-  .top{position:fixed;left:12px;right:12px;top:12px;z-index:30;display:flex;align-items:center;gap:8px}
-  .ava{width:38px;height:38px;border-radius:50%;background:#2a3346;border:2px solid rgba(255,255,255,.55);object-fit:cover;flex-shrink:0}
+  body{display:flex;align-items:center;justify-content:center}
+  /* 全屏模糊背景(同源画面),衬在视频框后(抖音桌面端同款) */
+  #bgfull{position:fixed;inset:0;z-index:0;background:radial-gradient(130% 90% at 50% 0%,#1b2436,#05070c);overflow:hidden}
+  #bgfull .b{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(34px) brightness(.4);transform:scale(1.2)}
+  /* 视频框:按形象比例居中,所有 UI 都在框内 */
+  .frame{position:relative;z-index:1;overflow:hidden;background:#000;box-shadow:0 10px 50px rgba(0,0,0,.6)}
+  #stage{position:absolute;inset:0;overflow:hidden}
+  #stage .fill{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center bottom;z-index:1;display:block}
+  #stage .prod{position:absolute;display:block;z-index:4}
+  .grad-top{position:absolute;left:0;right:0;top:0;height:120px;z-index:10;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0))}
+  .grad-bot{position:absolute;left:0;right:0;bottom:0;height:200px;z-index:10;pointer-events:none;background:linear-gradient(0deg,rgba(0,0,0,.65),rgba(0,0,0,0))}
+  .top{position:absolute;left:10px;right:10px;top:10px;z-index:30;display:flex;align-items:center;gap:8px}
+  .ava{width:36px;height:36px;border-radius:50%;background:#2a3346;border:2px solid rgba(255,255,255,.55);object-fit:cover;flex-shrink:0}
   .who{flex:1;min-width:0}
-  .nm{font-size:15px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .live{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;color:#fff;background:linear-gradient(90deg,#fe2c55,#ff5a5f);padding:2px 7px;border-radius:6px;margin-right:6px}
-  .vw{font-size:12px;color:#dbe2ea;text-shadow:0 1px 3px rgba(0,0,0,.7);white-space:nowrap}
-  /* 漂浮评论:左侧自下而上,新在下旧的往上漂淡出,无滚动条 */
-  .cmts{position:fixed;left:12px;bottom:74px;z-index:20;width:72%;max-width:340px;max-height:50vh;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;overflow:hidden;pointer-events:none}
-  .cmt{align-self:flex-start;max-width:100%;padding:6px 11px;border-radius:14px;font-size:13.5px;line-height:1.4;background:rgba(0,0,0,.42);backdrop-filter:blur(3px);box-shadow:0 2px 8px rgba(0,0,0,.35);word-break:break-word;animation:rise .3s ease}
+  .nm{font-size:14px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .live{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:800;color:#fff;background:linear-gradient(90deg,#fe2c55,#ff5a5f);padding:2px 6px;border-radius:5px;margin-right:5px}
+  .vw{font-size:11px;color:#dbe2ea;text-shadow:0 1px 3px rgba(0,0,0,.7);white-space:nowrap}
+  .cmts{position:absolute;left:10px;bottom:66px;z-index:20;width:70%;max-width:300px;max-height:46%;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;overflow:hidden;pointer-events:none}
+  .cmt{align-self:flex-start;max-width:100%;padding:6px 10px;border-radius:13px;font-size:13px;line-height:1.4;background:rgba(0,0,0,.42);backdrop-filter:blur(3px);box-shadow:0 2px 8px rgba(0,0,0,.35);word-break:break-word;animation:rise .3s ease}
   .cmt b{color:#7cc4ff;font-weight:600;margin-right:4px}
   .cmt.ai b{color:#ffd27c}
   @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-  /* 口播字幕:底部居中当前句 */
-  .cap{position:fixed;left:8%;right:8%;bottom:120px;z-index:25;text-align:center;font-size:17px;font-weight:600;text-shadow:0 2px 8px rgba(0,0,0,.9);pointer-events:none;min-height:24px}
-  /* 右侧动作条 */
-  .acts{position:fixed;right:10px;bottom:96px;z-index:30;display:flex;flex-direction:column;gap:18px;align-items:center}
-  .acts button{width:48px;height:48px;border-radius:50%;border:0;background:rgba(255,255,255,.15);color:#fff;font-size:22px;cursor:pointer;backdrop-filter:blur(5px)}
-  .acts .lbl{font-size:11px;color:#e5e7eb;text-shadow:0 1px 3px rgba(0,0,0,.7);margin-top:-12px}
-  .hearts{position:fixed;right:16px;bottom:150px;z-index:29;pointer-events:none;width:56px;height:52vh}
-  .heart{position:absolute;bottom:0;font-size:26px;animation:floatup 2.6s ease-in forwards}
-  @keyframes floatup{0%{opacity:0;transform:translateY(0) scale(.6)}15%{opacity:1}100%{opacity:0;transform:translateY(-48vh) translateX(var(--dx,0)) scale(1.1)}}
-  /* 底部胶囊输入条 */
-  .bar{position:fixed;left:12px;right:76px;bottom:12px;z-index:30;display:flex;gap:8px}
-  .bar input{flex:1;height:44px;padding:0 16px;border-radius:22px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#fff;font-size:15px;outline:none}
-  .bar select{height:44px;border-radius:22px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);color:#fff;font-size:13px;padding:0 8px;outline:none}
-  .bar button{height:44px;padding:0 18px;border-radius:22px;border:0;background:linear-gradient(90deg,#fe2c55,#ff5a5f);color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+  .cap{position:absolute;left:8%;right:8%;bottom:108px;z-index:25;text-align:center;font-size:16px;font-weight:600;text-shadow:0 2px 8px rgba(0,0,0,.9);pointer-events:none;min-height:22px}
+  .acts{position:absolute;right:8px;bottom:84px;z-index:30;display:flex;flex-direction:column;gap:16px;align-items:center}
+  .acts button{width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.15);color:#fff;font-size:21px;cursor:pointer;backdrop-filter:blur(5px)}
+  .hearts{position:absolute;right:14px;bottom:130px;z-index:29;pointer-events:none;width:50px;height:50%}
+  .heart{position:absolute;bottom:0;font-size:24px;animation:floatup 2.6s ease-in forwards}
+  @keyframes floatup{0%{opacity:0;transform:translateY(0) scale(.6)}15%{opacity:1}100%{opacity:0;transform:translateY(-46vh) translateX(var(--dx,0)) scale(1.1)}}
+  .bar{position:absolute;left:10px;right:66px;bottom:10px;z-index:30;display:flex;gap:7px}
+  .bar input{flex:1;height:42px;padding:0 14px;border-radius:21px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#fff;font-size:14px;outline:none}
+  .bar select{height:42px;border-radius:21px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);color:#fff;font-size:12px;padding:0 6px;outline:none}
+  .bar button{height:42px;padding:0 15px;border-radius:21px;border:0;background:linear-gradient(90deg,#fe2c55,#ff5a5f);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
   .bar button:disabled{opacity:.5}
-  .tip{position:fixed;left:0;right:0;top:50%;z-index:5;text-align:center;color:#94a3b8;font-size:13px}
+  .tip{position:fixed;left:0;right:0;top:50%;z-index:40;text-align:center;color:#94a3b8;font-size:13px}
 </style></head>
 <body>
-  <div id="stage"></div>
-  <div class="grad-top"></div><div class="grad-bot"></div>
-  <div class="top">
-    <img class="ava" id="ava" alt=""/>
-    <div class="who"><div class="nm" id="name">在线数字人</div></div>
-    <span class="live">● LIVE</span><span class="vw"><span id="viewers">0</span> 在看</span>
-  </div>
-  <div class="cmts" id="msgs"></div>
-  <div class="cap" id="cap"></div>
-  <div class="acts" id="acts" style="display:none">
-    <button id="like" title="点赞">❤️</button>
-    <button id="share" title="分享">↗</button>
-  </div>
-  <div class="hearts" id="hearts"></div>
-  <div class="bar" id="bar" style="display:none">
-    <input id="inp" placeholder="说点什么…" autocomplete="off"/>
-    <select id="speed" title="语速"><option value="0.8">0.8x</option><option value="1" selected>1.0x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option></select>
-    <button id="send">发送</button>
+  <div id="bgfull"></div>
+  <div class="frame" id="frame">
+    <div id="stage"></div>
+    <div class="grad-top"></div><div class="grad-bot"></div>
+    <div class="top">
+      <img class="ava" id="ava" alt=""/>
+      <div class="who"><div class="nm" id="name">在线数字人</div></div>
+      <span class="live">● LIVE</span><span class="vw"><span id="viewers">0</span> 在看</span>
+    </div>
+    <div class="cmts" id="msgs"></div>
+    <div class="cap" id="cap"></div>
+    <div class="acts" id="acts" style="display:none">
+      <button id="like" title="点赞">❤️</button>
+      <button id="share" title="分享">↗</button>
+    </div>
+    <div class="hearts" id="hearts"></div>
+    <div class="bar" id="bar" style="display:none">
+      <input id="inp" placeholder="说点什么…" autocomplete="off"/>
+      <select id="speed" title="语速"><option value="0.8">0.8x</option><option value="1" selected>1.0x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option></select>
+      <button id="send">发送</button>
+    </div>
   </div>
   <div class="tip" id="tip"></div>
 <script>
 (function(){
   var token="__TOKEN__", base="/api/v1/digital-human/public/"+token;
-  var stage=document.getElementById("stage"), msgs=document.getElementById("msgs"), cap=document.getElementById("cap"),
+  var frame=document.getElementById("frame"), bgfull=document.getElementById("bgfull"),
+      stage=document.getElementById("stage"), msgs=document.getElementById("msgs"), cap=document.getElementById("cap"),
       nameEl=document.getElementById("name"), viewersEl=document.getElementById("viewers"), avaEl=document.getElementById("ava"),
       speedEl=document.getElementById("speed"), inp=document.getElementById("inp"), sendBtn=document.getElementById("send"),
       bar=document.getElementById("bar"), acts=document.getElementById("acts"), hearts=document.getElementById("hearts"), tip=document.getElementById("tip");
-  var history=[], busy=false, avatarUrl=null, avatarKind="image";
+  var history=[], busy=false, avatarUrl=null, avatarKind="image", ratioW=720, ratioH=1280;
+
+  function fitFrame(){
+    var vh=window.innerHeight, vw=window.innerWidth;
+    var fh=vh, fw=Math.round(fh*ratioW/ratioH);
+    if(fw>vw){ fw=vw; fh=Math.round(fw*ratioH/ratioW); }
+    frame.style.width=fw+"px"; frame.style.height=fh+"px";
+  }
+  window.addEventListener("resize", fitFrame);
 
   function mkAvatar(url,kind){
     var el=(kind==="video")?document.createElement("video"):document.createElement("img"); el.src=url;
     if(kind==="video"){ el.autoplay=true; el.muted=true; el.loop=true; el.playsInline=true; el.setAttribute("playsinline",""); }
     return el;
   }
-  function setBackdrop(){ if(!avatarUrl)return; var bg=mkAvatar(avatarUrl,avatarKind); bg.className="bg"; stage.insertBefore(bg,stage.firstChild); }
+  function setBgFull(){ if(!avatarUrl)return; var b=mkAvatar(avatarUrl,avatarKind); b.className="b"; bgfull.appendChild(b); }
   function idleAvatar(){ if(!avatarUrl)return; var el=mkAvatar(avatarUrl,avatarKind); el.className="fill";
     var old=stage.querySelector(".fill"); if(old) old.replaceWith(el); else stage.appendChild(el); }
   function addProduct(p,i){ var el=mkAvatar(p.url,p.kind); el.className="prod";
@@ -672,7 +683,8 @@ _PUBLIC_PAGE = """<!doctype html>
 
   fetch(base+"/config").then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(cfg){
     nameEl.textContent=cfg.name||"在线数字人"; document.title=cfg.name||"在线数字人";
-    if(cfg.avatar){ avatarUrl=cfg.avatar.url; avatarKind=cfg.avatar.kind||"image"; avaEl.src=avatarUrl; setBackdrop(); idleAvatar(); }
+    if(cfg.ratio&&cfg.ratio.w&&cfg.ratio.h){ ratioW=cfg.ratio.w; ratioH=cfg.ratio.h; } fitFrame();
+    if(cfg.avatar){ avatarUrl=cfg.avatar.url; avatarKind=cfg.avatar.kind||"image"; avaEl.src=avatarUrl; setBgFull(); idleAvatar(); }
     (cfg.products||[]).forEach(addProduct); viewersEl.textContent=cfg.viewers||0;
     if(cfg.chat_enabled){ bar.style.display="flex"; acts.style.display="flex"; } else { tip.textContent="该数字人当前仅供观看"; }
   }).catch(function(){ tip.textContent="该数字人未发布或已下线。"; });
@@ -683,7 +695,7 @@ _PUBLIC_PAGE = """<!doctype html>
   document.getElementById("like").addEventListener("click", function(){ for(var i=0;i<3;i++) spawnHeart(i*120); });
   function spawnHeart(delay){ setTimeout(function(){ var h=document.createElement("div"); h.className="heart";
     h.textContent=["❤️","💖","💕","🧡"][(Math.random()*4)|0];
-    h.style.left=(8+Math.random()*30)+"px"; h.style.setProperty("--dx",((Math.random()*60-30)|0)+"px");
+    h.style.left=(6+Math.random()*26)+"px"; h.style.setProperty("--dx",((Math.random()*50-25)|0)+"px");
     hearts.appendChild(h); setTimeout(function(){ h.remove(); },2600); }, delay); }
   document.getElementById("share").addEventListener("click", function(){
     var u=location.href; if(navigator.share){ navigator.share({title:document.title,url:u}).catch(function(){}); }
