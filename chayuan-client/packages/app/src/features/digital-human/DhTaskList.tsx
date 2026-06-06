@@ -40,7 +40,11 @@ export const DhTaskList: React.FC = () => {
   const [q, setQ] = React.useState('');
   const [mode, setMode] = React.useState<SearchMode>('all');
 
-  const allTasks = React.useMemo(() => (tasksQ.data?.items ?? []).slice().reverse(), [tasksQ.data]);
+  // 时间倒序:最新生成的始终排第一(按 created_at 显式排,不依赖后端返回顺序/重启后盘加载顺序)。
+  const allTasks = React.useMemo(
+    () => (tasksQ.data?.items ?? []).slice().sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0)),
+    [tasksQ.data],
+  );
   const tasks = React.useMemo(() => {
     const kw = q.trim().toLowerCase();
     if (!kw) return allTasks;

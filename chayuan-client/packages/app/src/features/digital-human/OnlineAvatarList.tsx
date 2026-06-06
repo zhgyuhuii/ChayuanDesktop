@@ -17,7 +17,8 @@ export const OnlineAvatarList: React.FC = () => {
   const setViewP = (v: 'card' | 'list') => { localStorage.setItem('dh.online.view', v); setView(v); };
   // refetchInterval 让在线人数实时刷新(后端列表项带 viewers)。
   const q = useQuery({ queryKey: ['dh.published'], queryFn: digitalHuman.listPublished, refetchInterval: 4000 });
-  const items = q.data?.items ?? [];
+  // 时间倒序:最新发布的在线数字人始终排第一。
+  const items = (q.data?.items ?? []).slice().sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
   const refresh = () => void qc.invalidateQueries({ queryKey: ['dh.published'] });
 
   const copy = async (url: string) => {
