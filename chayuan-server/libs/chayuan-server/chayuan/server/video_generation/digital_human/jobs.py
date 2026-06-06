@@ -617,9 +617,13 @@ def _ass_from_cues(td, preset, cues, width, height, name="sub.ass", style_extra=
 
 
 def _build_coframe_scene(td, preset, segments, width, height, ffmpeg_exe,
-                         cues=None, style_extra=None):
-    """从已生成片段(segments:[{role_index,path,text,duration_ms}])重建 coframe ffcompose
-    场景(每角色 idle 底 + 说话段时间窗 + 商品,按 z 叠;音频取各 clip 自身拼接,严格同步)。
+                         cues=None, style_extra=None, idle=True):
+    """从已生成片段(segments:[{role_index,path,text,duration_ms}])重建 ffcompose 场景
+    (每角色 idle 底 + 说话段时间窗 + 商品,按 z 叠;音频取各 clip 自身拼接,严格同步)。
+
+    idle=True(同框 coframe):所有角色 idle 常显,说话段动。
+    idle=False(分段轮流 sequential):**不铺 idle 底**,只在各自时间窗显示当前说话的角色
+    (按角色 x/y/scale 定位),实现「轮流出场、各按设置大小位置」而非全屏拉伸。
 
     cues=None → 用各段真实时间+文本建字幕;否则用传入 cues(就地编辑字幕场景)。
     生成与「就地编辑字幕重渲染」共用此函数,保证两条路径完全一致。返回 scene dict。"""
@@ -636,14 +640,16 @@ def _build_coframe_scene(td, preset, segments, width, height, ffmpeg_exe,
     coaud = os.path.join(td, "coframe_audio.wav")
     _concat_clip_audio(clips, coaud, ffmpeg_exe)
     layers = []
-    for ri in range(len(slots)):
-        av = avatars[ri]
-        if not av:
-            continue
-        k = "video" if os.path.splitext(av)[1].lower() in _VIDEO_EXT else "image"
-        layers.append({"src": av, "kind": k, "x": positions[ri][0], "y": positions[ri][1],
-                       "scale": positions[ri][2], "z": zs[ri], "opacity": ops[ri],
-                       "loop": (k == "video"), "windows": None})
+    if idle:
+        # 同框:每角色 idle 底常显。分段轮流(idle=False)不铺底,只显当前说话段。
+        for ri in range(len(slots)):
+            av = avatars[ri]
+            if not av:
+                continue
+            k = "video" if os.path.splitext(av)[1].lower() in _VIDEO_EXT else "image"
+            layers.append({"src": av, "kind": k, "x": positions[ri][0], "y": positions[ri][1],
+                           "scale": positions[ri][2], "z": zs[ri], "opacity": ops[ri],
+                           "loop": (k == "video"), "windows": None})
     acc = 0
     subcues = []
     for i, c in enumerate(clips):
@@ -753,7 +759,23 @@ def _run_pipeline(tid: str) -> None:
                             logger.warning("[dh] 同框轮流合成失败,回退按句顺序: %r", e)
                             _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"], on_progress=_op)
                 else:
-                    _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"], on_progress=_op)
+                    # 分段轮流:走 ffcompose 定位场景(idle=False:只显当前说话角色,按 x/y/scale 摆),
+                    # 不再全屏拉伸。失败回退 render_sequential(拉伸兜底)。
+                    _seq_ok = False
+                    try:
+                        from chayuan.server.video_generation.digital_human import ffcompose as _ff
+                        from chayuan.server.video_generation.compute import get_compute as _gc
+                        _scene = _build_coframe_scene(td, preset, seg_meta, args["width"], args["height"],
+                                                      _gc().ffmpeg_exe, idle=False)
+                        _ff.render(_scene, out_path, on_progress=_op)
+                        _seq_ok = True
+                        _sub_burned = bool(_scene.get("subtitle"))
+                        logger.info("[dh-timing] mode=sequential compose=ffcompose(定位) subtitle=%s",
+                                    "burned" if _sub_burned else "none")
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("[dh] sequential ffcompose 失败,回退 render_sequential(拉伸): %r", e)
+                    if not _seq_ok:
+                        _cm.render_sequential(clips, out_path=out_path, width=args["width"], height=args["height"], on_progress=_op)
             except Exception as e:  # noqa: BLE001
                 logger.warning("[dh] %s 合成失败,回退首个形象片段: %r", mode, e)
                 import shutil
