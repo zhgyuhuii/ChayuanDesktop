@@ -20,11 +20,13 @@
 
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import {
   Library, Pen, ScanText, Mic, Clapperboard, UserRound,
-  AlertCircle, Film, QrCode,
+  AlertCircle, Film, QrCode, ShoppingCart,
 } from 'lucide-react';
-import { home, type ProviderCatalogEntry } from '@chayuan/api';
+import { home, licenseStatus, type ProviderCatalogEntry } from '@chayuan/api';
+import { LicenseDialog } from '../license';
 import { useAuthStore } from '../../store/auth';
 import { useTabsStore } from '../../store/tabs';
 import { useTranslation } from '../../i18n';
@@ -194,6 +196,7 @@ export const HomePage: React.FC = () => {
   // chunk → setIntro 用 rAF 合并:LLM 高速吐 token 时不再每个 token 都触发
   // HomePage 全树重渲染,显著降低四张能力卡 + 二维码的 reflow 抖动。
   const [intro, setIntro] = React.useState('');
+  const [buyOpen, setBuyOpen] = React.useState(false);   // 「购买」弹窗(带本机指纹的购买二维码)
   // 本地循环打字机:依次打 STATIC_INTROS 每条 → 停顿 → 清空 → 下一条 → 循环。完全不调大模型。
   React.useEffect(() => {
     let alive = true;
@@ -350,15 +353,21 @@ export const HomePage: React.FC = () => {
       <section className="relative z-10 flex flex-col items-start justify-between gap-3 rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-4 py-3 sm:flex-row sm:items-center">
         <div className="min-w-0">
           <p className="text-xs font-medium text-[var(--cy-text-secondary)]">察元 AI · 本地优先的办公 AI 工作台</p>
-          <p className="mt-0.5 text-[11px] text-[var(--cy-text-tertiary)]">{QUOTA_NOTE}</p>
+          <EntitlementsLine />
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <QrChip label="关注我们" src={FOLLOW_QR_URL} />
-          <QrChip label="微信赞助" src={WXPAY_QR_URL} />
-          <QrChip label="支付宝赞助" src={ALIPAY_QR_URL} />
+          <button
+            type="button"
+            onClick={() => setBuyOpen(true)}
+            className="inline-flex h-8 items-center gap-1 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90"
+          >
+            <ShoppingCart className="h-3.5 w-3.5" /> 购买
+          </button>
           <PartnershipBanner compact />
         </div>
       </section>
+      <LicenseDialog app="chat" open={buyOpen} onOpenChange={setBuyOpen} />
 
     </div>
   );
@@ -391,6 +400,44 @@ const Caret: React.FC = () => (
 
 // ── 二维码小卡 ─────────────────────────────────────────────────────
 // 紧凑页脚用:小 chip,hover / 聚焦弹出二维码浮层(不占常驻空间)。
+// 页脚个人权益:今日各功能剩余免费次数 + 购买的会员到期(只读 GET /license/status)。
+const ENT_APPS: ReadonlyArray<{ app: string; label: string }> = [
+  { app: 'chat', label: '对话' },
+  { app: 'video', label: '视频生成' },
+  { app: 'avatar', label: '数字人' },
+  { app: 'ocr', label: '图转文' },
+  { app: 'asr', label: '音转文' },
+];
+const EntitlementsLine: React.FC = () => {
+  const q = useQuery({
+    queryKey: ['license.statuses'],
+    queryFn: async () => Promise.all(
+      ENT_APPS.map((a) => licenseStatus(a.app).then((s) => ({ ...a, s })).catch(() => ({ ...a, s: null as null }))),
+    ),
+    staleTime: 60_000,
+  });
+  const items = q.data ?? [];
+  const expire = items.map((i) => i.s?.timeExpireAt).find(Boolean) || null;
+  if (!items.length) {
+    return <p className="mt-0.5 text-[11px] text-[var(--cy-text-tertiary)]">个人权益:加载中…</p>;
+  }
+  return (
+    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[var(--cy-text-tertiary)]">
+      <span className="text-[var(--cy-text-secondary)]">今日剩余</span>
+      {items.map((i) => (
+        <span key={i.app}>
+          {i.label}
+          <span className={`ml-0.5 font-semibold ${(i.s?.remainingFree ?? 0) > 0 ? 'text-[var(--cy-brand-600)]' : 'text-[var(--cy-danger-500)]'}`}>
+            {i.s ? (i.s.remainingFree ?? 0) : '—'}
+          </span>
+          次
+        </span>
+      ))}
+      {expire ? <span className="text-[var(--cy-brand-600)]">· 会员有效期至 {String(expire).slice(0, 10)}</span> : null}
+    </p>
+  );
+};
+
 const QrChip: React.FC<{ label: string; src: string }> = ({ label, src }) => (
   <div className="group relative">
     <button

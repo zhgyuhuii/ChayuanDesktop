@@ -25,6 +25,12 @@ export interface LicenseStatus {
   app?: string;
   /** 到期时间（ISO）。 */
   expireAt?: string;
+  /** /status 专属:今日剩余免费次数 / 每日免费额度 / 购买剩余次数 / 购买时长到期(ISO)。 */
+  remainingFree?: number;
+  dailyFree?: number;
+  counts?: number;
+  timeExpireAt?: string | null;
+  free?: boolean;
   /** 通过时的来源通道：online/relay/file/airgap/shortcode。 */
   source?: string;
   /** 未通过原因：none/expired/rollback/mismatch/signature/invalid-app。 */
