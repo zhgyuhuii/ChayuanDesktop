@@ -49,7 +49,7 @@ def create_preset(body: Dict[str, Any],
                   user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
     try:
         p = store.create_preset(
-            name=body["name"], avatar_ref=body.get("avatar_ref", ""),
+            name=body["name"], welcome=body.get("welcome", ""), avatar_ref=body.get("avatar_ref", ""),
             avatar_kind=body.get("avatar_kind", "image"),
             voice_provider=body.get("voice_provider", "piper"),
             voice_name=body.get("voice_name", ""),

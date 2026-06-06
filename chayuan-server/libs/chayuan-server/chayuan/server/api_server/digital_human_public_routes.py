@@ -112,10 +112,12 @@ def public_config(token: str) -> Dict[str, Any]:
     prods = [{
         "kind": p.kind, "x": p.x, "y": p.y, "scale": p.scale,
         "z": p.z, "opacity": p.opacity,
+        "link": getattr(p, "link", None),
         "url": base + "/product?ref=" + quote(p.ref),
     } for p in (rec.products or [])]
     return {
         "name": rec.name,
+        "welcome": getattr(rec, "welcome", "") or "",
         "ratio": {"w": rec.video_width, "h": rec.video_height},
         "chat_enabled": bool(rec.chat_enabled),
         "viewers": online_presence.count(token),
@@ -744,6 +746,8 @@ _PUBLIC_PAGE = """<!doctype html>
   function addProduct(p,i){ var el=mkAvatar(p.url,p.kind); el.className="prod";
     el.style.left=((p.x||0)*100)+"%"; el.style.top=((p.y||0)*100)+"%";
     el.style.width=(((p.scale&&p.scale>0)?p.scale:0.32)*100)+"%"; el.style.zIndex=(p.z!=null?p.z:i); el.style.opacity=(p.opacity!=null?p.opacity:1);
+    if(p.link){ el.style.cursor="pointer"; el.style.pointerEvents="auto"; el.title="点击查看";
+      el.addEventListener("click", function(){ try{ window.open(p.link, "_blank", "noopener"); }catch(_){}}); }
     stage.appendChild(el); }
 
   function addMsg(role,text){ var d=document.createElement("div"); d.className="cmt "+(role==="user"?"":"ai");
@@ -757,6 +761,7 @@ _PUBLIC_PAGE = """<!doctype html>
     if(cfg.ratio&&cfg.ratio.w&&cfg.ratio.h){ ratioW=cfg.ratio.w; ratioH=cfg.ratio.h; } fitFrame();
     if(cfg.avatar){ avatarUrl=cfg.avatar.url; avatarKind=cfg.avatar.kind||"image"; avatarBox=cfg.avatar; avaEl.src=avatarUrl; setBg(); idleAvatar(); }
     (cfg.products||[]).forEach(addProduct); viewersEl.textContent=cfg.viewers||0;
+    if(cfg.welcome && cfg.welcome.trim()){ addMsg("assistant", cfg.welcome.trim()); }   // 欢迎语开场白
     if(cfg.chat_enabled){ bar.style.display="flex"; acts.style.display="flex"; } else { tip.textContent="该数字人当前仅供观看"; }
   }).catch(function(){ tip.textContent="该数字人未发布或已下线。"; });
 

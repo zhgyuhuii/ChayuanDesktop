@@ -9,6 +9,7 @@ export interface CanvasProduct {
   scale: number;
   z?: number;
   opacity?: number;
+  link?: string;
 }
 
 export interface CanvasStageProps {

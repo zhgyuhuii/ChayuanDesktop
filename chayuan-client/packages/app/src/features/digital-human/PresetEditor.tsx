@@ -41,6 +41,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const qc = useQueryClient();
 
   const [name, setName] = React.useState(initial?.name ?? '');
+  const [welcome, setWelcome] = React.useState(initial?.welcome ?? '');
   const [avatarRef, setAvatarRef] = React.useState(initial?.avatar_ref ?? '');
   const [voice] = React.useState<VoicePickerValue>({
     voice_provider: (initial?.voice_provider ?? 'piper') as DhVoiceProvider,
@@ -209,6 +210,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
       // 单/多形象统一:avatars=slots(单=1 个),首槽音色镜像到预设级,后端单形象路径读 avatar_ref。
       const body: Partial<DigitalHumanPreset> = {
         name: name.trim(),
+        welcome: welcome.trim(),
         avatar_ref: slots[0]?.ref ?? '',
         avatar_kind: slots[0]?.kind ?? 'image',
         compose_mode: composeMode,
@@ -258,6 +260,22 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
           className={cn(
             'h-8 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]',
             'px-2 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)]',
+            'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
+          )}
+        />
+      </div>
+
+      {/* 欢迎语(在线数字人开场白) */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-[var(--cy-text-secondary)]">欢迎语<span className="ml-1 text-[var(--cy-text-tertiary)]">(在线对话页进入时的开场白)</span></label>
+        <textarea
+          value={welcome}
+          onChange={(e) => setWelcome(e.target.value)}
+          placeholder="例如:欢迎来到直播间~ 有什么想了解的尽管问我"
+          rows={2}
+          className={cn(
+            'rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] resize-none',
+            'px-2 py-1.5 text-sm text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)]',
             'focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none',
           )}
         />

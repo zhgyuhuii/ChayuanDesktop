@@ -43,7 +43,7 @@ _SUB_KEYS = ("subtitle_enabled", "subtitle_position", "font_name", "font_size",
              "text_fore_color", "text_background_color", "stroke_color", "stroke_width")
 
 
-def create_preset(*, name: str, avatar_ref: str = "", avatar_kind: str = "image",
+def create_preset(*, name: str, welcome: str = "", avatar_ref: str = "", avatar_kind: str = "image",
                   voice_provider: str = "piper", voice_name: str = "",
                   is_greenscreen: bool = False,
                   avatars: Optional[List[Dict[str, Any]]] = None,
@@ -60,7 +60,7 @@ def create_preset(*, name: str, avatar_ref: str = "", avatar_kind: str = "image"
     # 二者只保留一个,避免 DigitalHumanPreset(**) 同名重复 TypeError。
     sub_fields.setdefault("subtitle_enabled", subtitle_enabled)
     p = DigitalHumanPreset(
-        id=uuid.uuid4().hex[:12], name=name, avatar_ref=avatar_ref,
+        id=uuid.uuid4().hex[:12], name=name, welcome=welcome, avatar_ref=avatar_ref,
         avatar_kind=avatar_kind, is_greenscreen=is_greenscreen,
         voice_provider=voice_provider, voice_name=voice_name, created=time.time(),
         avatars=avatars or [], compose_mode=compose_mode, layout=layout,

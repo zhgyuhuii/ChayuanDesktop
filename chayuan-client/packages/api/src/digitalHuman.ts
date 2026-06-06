@@ -47,11 +47,13 @@ export interface ProductLayer {
   scale?: number;
   z?: number;
   opacity?: number;
+  link?: string;        // 商品跳转链接(在线页点商品打开)
 }
 
 export interface DigitalHumanPreset {
   id: string;
   name: string;
+  welcome?: string;     // 在线数字人欢迎语(进入对话页开场白)
   avatar_ref: string;
   avatar_kind: DhAvatarKind;
   is_greenscreen: boolean;

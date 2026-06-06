@@ -850,14 +850,20 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
         {products.map((p) => {
           const sel = selectedProductRef === p.ref;
           return (
-            <div key={p.ref} onClick={() => onSelectProduct?.(sel ? null : p.ref)}
-              className={`flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1 text-sm ${sel
+            <div key={p.ref}
+              className={`flex flex-col gap-1 rounded-md border px-2 py-1.5 text-sm ${sel
                 ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-50)]'
                 : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] hover:bg-[var(--cy-surface-2)]'}`}>
-              <span aria-hidden>{p.kind === 'video' ? '🎬' : '🖼️'}</span>
-              <span className="min-w-0 flex-1 truncate text-[var(--cy-text-primary)]">{p.ref.replace(/^product:/, '')}</span>
-              <button type="button" title="移除" onClick={(e) => { e.stopPropagation(); removeProduct(p.ref); }}
-                className="text-[var(--cy-text-tertiary)] hover:text-[var(--cy-danger-500)]">×</button>
+              <div onClick={() => onSelectProduct?.(sel ? null : p.ref)} className="flex cursor-pointer items-center gap-2">
+                <span aria-hidden>{p.kind === 'video' ? '🎬' : '🖼️'}</span>
+                <span className="min-w-0 flex-1 truncate text-[var(--cy-text-primary)]">{p.ref.replace(/^product:/, '')}</span>
+                <button type="button" title="移除" onClick={(e) => { e.stopPropagation(); removeProduct(p.ref); }}
+                  className="text-[var(--cy-text-tertiary)] hover:text-[var(--cy-danger-500)]">×</button>
+              </div>
+              <input type="url" value={p.link ?? ''} placeholder="商品链接(在线页点商品跳转,选填)"
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => persistProducts(products.map((q) => (q.ref === p.ref ? { ...q, link: e.target.value } : q)))}
+                className="h-7 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2 text-xs text-[var(--cy-text-primary)] placeholder:text-[var(--cy-text-tertiary)] focus-visible:border-[var(--cy-brand-400)] focus-visible:outline-none" />
             </div>
           );
         })}
