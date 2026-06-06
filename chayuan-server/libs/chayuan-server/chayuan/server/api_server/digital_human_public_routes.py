@@ -378,10 +378,11 @@ def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
         if not avatar:
             return None
         from chayuan.server.video_generation.compute import get_compute
-        _force = os.environ.get("CHAYUAN_DH_SAY_FORCE_LIPS", "") in ("1", "true", "True")
+        # 在线数字人默认出真口型(用户要嘴唇动);要回退纯音频(更流畅)设 CHAYUAN_DH_SAY_FORCE_LIPS=0。
+        _force = os.environ.get("CHAYUAN_DH_SAY_FORCE_LIPS", "1") in ("1", "true", "True")
         if not get_compute().has_cuda:
             if not _force:
-                return None   # CPU 默认走连续音频(语音连贯),不逐句 wav2lip 卡顿
+                return None   # 显式关:CPU 走连续音频(语音连贯),不逐句 wav2lip 卡顿
             # 强制口型,但若有合成任务在跑 → 让出 CPU,在线本句走纯音频保实时(生成完自动恢复口型)。
             try:
                 if dh_jobs.active_generations() > 0:
@@ -539,28 +540,32 @@ _PUBLIC_PAGE = """<!doctype html>
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;background:#0b0d12;color:#e5e7eb;
     font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
-  /* 直播式固定布局:整页恰好一屏(height:100%,不随消息增长撑高/滚动 → 视频不会被顶走);
-     视频固定(flex-shrink:0 不被压扁),文字在下方区域内部滚屏。 */
-  .wrap{max-width:520px;height:100%;margin:0 auto;display:flex;flex-direction:column;gap:10px;padding:12px;overflow:hidden}
-  .head{flex-shrink:0;display:flex;align-items:center;justify-content:space-between}
-  .name{font-size:18px;font-weight:600}
-  .viewers{font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px}
+  /* 直播间布局:视频铺满一屏(形象在下方),文字回复浮在视频上方漂浮(无滚动条,旧消息淡出),
+     输入条贴底。整页恰好一屏不滚动。 */
+  .wrap{max-width:520px;height:100%;margin:0 auto;display:flex;flex-direction:column;padding:10px;overflow:hidden;gap:8px}
+  .head{position:absolute;left:0;right:0;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;
+    padding:10px 16px;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,0))}
+  .name{font-size:16px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+  .viewers{font-size:13px;color:#cbd5e1;display:flex;align-items:center;gap:6px;text-shadow:0 1px 3px rgba(0,0,0,.6)}
   .dot{width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block}
-  .stage{flex-shrink:0;background:#000;border-radius:14px;overflow:hidden;
-    box-shadow:0 8px 30px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
-  .stage img,.stage video{width:100%;height:100%;object-fit:contain;display:block}
-  .chat{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
-  .msgs{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 0}
-  .msg{max-width:85%;padding:8px 12px;border-radius:12px;white-space:pre-wrap;word-break:break-word}
-  .me{align-self:flex-end;background:#2563eb;color:#fff;border-bottom-right-radius:4px}
-  .ai{align-self:flex-start;background:#1f2937;color:#e5e7eb;border-bottom-left-radius:4px}
-  .bar{display:flex;gap:8px}
-  .bar input{flex:1;height:40px;padding:0 12px;border-radius:10px;border:1px solid #334155;
+  /* 舞台:铺满可用区域(形象按设置 x/y/scale 在里头,通常在下方),消息浮层叠在其上方区域。 */
+  .stage{position:relative;align-self:center;background:#000;border-radius:14px;overflow:hidden;
+    box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  /* 消息浮层:占上 ~62%,贴该区底部往上堆(新消息在下、旧的往上漂),不滚动、半透明气泡。 */
+  .msgs{position:absolute;left:8px;right:8px;top:8px;bottom:38%;z-index:20;pointer-events:none;
+    display:flex;flex-direction:column;justify-content:flex-end;gap:6px;overflow:hidden}
+  .msg{max-width:88%;padding:7px 11px;border-radius:12px;white-space:pre-wrap;word-break:break-word;font-size:14px;
+    backdrop-filter:blur(2px);animation:fadein .25s ease;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+  @keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .me{align-self:flex-end;background:rgba(37,99,235,.88);color:#fff;border-bottom-right-radius:4px}
+  .ai{align-self:flex-start;background:rgba(17,24,39,.78);color:#f1f5f9;border-bottom-left-radius:4px}
+  .bar{flex-shrink:0;display:flex;gap:8px}
+  .bar input{flex:1;height:42px;padding:0 12px;border-radius:12px;border:1px solid #334155;
     background:#0f172a;color:#e5e7eb;font-size:15px;outline:none}
-  .bar button{height:40px;padding:0 16px;border-radius:10px;border:0;background:#2563eb;color:#fff;
-    font-size:15px;cursor:pointer}
+  .bar select{height:42px;border-radius:12px;border:1px solid #334155;background:#0f172a;color:#e5e7eb;font-size:14px;padding:0 6px;outline:none}
+  .bar button{height:42px;padding:0 18px;border-radius:12px;border:0;background:#2563eb;color:#fff;font-size:15px;cursor:pointer}
   .bar button:disabled{opacity:.5;cursor:default}
-  .tip{font-size:12px;color:#64748b;text-align:center}
+  .tip{flex-shrink:0;font-size:12px;color:#64748b;text-align:center}
 </style></head>
 <body>
 <div class="wrap">
@@ -568,12 +573,11 @@ _PUBLIC_PAGE = """<!doctype html>
     <div class="name" id="name">在线数字人</div>
     <div class="viewers"><span class="dot"></span><span id="viewers">0</span> 人在看</div>
   </div>
-  <div class="stage" id="stage"></div>
+  <div class="stage" id="stage"><div class="msgs" id="msgs"></div></div>
   <div class="chat" id="chat" style="display:none">
-    <div class="msgs" id="msgs"></div>
     <div class="bar">
       <input id="inp" placeholder="跟 TA 说点什么…" autocomplete="off"/>
-      <select id="speed" title="语速" style="height:40px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e5e7eb;font-size:14px;padding:0 6px;outline:none">
+      <select id="speed" title="语速">
         <option value="0.8">0.8x</option>
         <option value="1" selected>1.0x</option>
         <option value="1.25">1.25x</option>
@@ -604,7 +608,7 @@ _PUBLIC_PAGE = """<!doctype html>
     // 显式像素宽高(不依赖 CSS aspect-ratio —— 舞台内全是绝对定位子元素,无内容高度;
     // 若引擎不支持 aspect-ratio,舞台高度会塌成 0 → 形象/一切都看不见,这是「没有形象」根因)。
     w = w || 720; h = h || 1280;
-    var maxH = Math.round(window.innerHeight * 0.5);  // 视频占上半屏,下半屏留给滚屏文字(直播感)
+    var maxH = Math.max(220, window.innerHeight - 86);  // 视频铺满一屏(留输入条),文字浮在视频上方
     var maxW = (stage.parentElement && stage.parentElement.clientWidth) || 480;
     var scale = Math.min(maxW / w, maxH / h);
     if (!(scale > 0)) scale = maxH / h;
@@ -618,7 +622,8 @@ _PUBLIC_PAGE = """<!doctype html>
     d.className = "msg " + (role === "user" ? "me" : "ai");
     d.textContent = text;
     msgs.appendChild(d);
-    msgs.scrollTop = msgs.scrollHeight;
+    // 直播弹幕感:只留最近若干条,旧的从顶部移除(浮层不滚动、视频不被顶走)。
+    while(msgs.children.length > 7){ msgs.removeChild(msgs.firstChild); }
     return d;
   }
 
