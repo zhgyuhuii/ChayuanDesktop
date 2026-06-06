@@ -97,12 +97,16 @@ def load_models(weights_dir: str) -> dict:
 
 
 def _ensure_onnx(model, weights_dir, device):
-    """CPU 提速:把 wav2lip 模型导出 ONNX(+int8 量化)用 onnxruntime 跑 forward(实测瓶颈)。
+    """CPU:可选把 wav2lip 模型导出 ONNX(+int8 量化)用 onnxruntime 跑 forward。
     首次导出后缓存到 weights_dir,后续直接加载。任何环节失败 → 返 None 回退 torch(不影响出片)。
-    GPU 不走(torch.cuda 已快)。开关:CHAYUAN_DH_WAV2LIP_ONNX(默认开)/ _INT8(默认开)。"""
+    GPU 不走(torch.cuda 已快)。
+
+    **默认关**:实测在无 VNNI/AVX512-int8 的 CPU 上,int8 动态量化反比 torch 慢 3-4 倍
+    (torch 15 线程 ~0.015s/帧 vs ONNX int8 ~0.05s/帧)。要试 ONNX 设 CHAYUAN_DH_WAV2LIP_ONNX=1
+    (int8 可再设 _INT8=0 用 fp32 onnx)。Intel CPU 想真提速建议装 onnxruntime-openvino 走 OpenVINO EP。"""
     if device != "cpu":
         return None
-    if os.environ.get("CHAYUAN_DH_WAV2LIP_ONNX", "1") not in ("1", "true", "True"):
+    if os.environ.get("CHAYUAN_DH_WAV2LIP_ONNX", "0") not in ("1", "true", "True"):
         return None
     try:
         import onnxruntime as ort
