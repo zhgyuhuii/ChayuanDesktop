@@ -98,12 +98,42 @@ def _resolve_positions(positions, layout, n, width, height):
     return _coframe_positions(layout, n, width, height)
 
 
+def _ffmpeg_concat_scaled(clip_paths: List[str], out_path: str, width: int, height: int) -> None:
+    """ffmpeg concat 滤镜单趟:各段 scale 到画布 + 顺序拼(视频+音频)。远快于 moviepy 逐帧解码。
+    各段尺寸/采样率不一也兼容(scale 拉到 W×H、音频 aresample 到 44.1k)。失败抛异常由调用方回退。"""
+    import subprocess
+    import imageio_ffmpeg
+    ff = imageio_ffmpeg.get_ffmpeg_exe()
+    n = len(clip_paths)
+    inputs: List[str] = []
+    for p in clip_paths:
+        inputs += ["-i", p]
+    fc = ""
+    for i in range(n):
+        fc += (f"[{i}:v]scale={width}:{height}:force_original_aspect_ratio=disable,"
+               f"setsar=1,fps=25[v{i}];[{i}:a]aresample=44100[a{i}];")
+    fc += "".join(f"[v{i}][a{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=1[v][a]"
+    cmd = [ff, "-y", "-loglevel", "error", *inputs, "-filter_complex", fc,
+           "-map", "[v]", "-map", "[a]",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+           "-c:a", "aac", out_path]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+
 def render_sequential(clip_paths: List[str], *, out_path: str, width: int, height: int,
                       on_progress=None) -> str:
-    """各片段顺序拼接(各形象轮流)。片段自带音频。失败抛异常。"""
-    from moviepy import VideoFileClip, concatenate_videoclips
+    """各片段顺序拼接(各形象轮流)。片段自带音频。
+    优先 ffmpeg concat 滤镜(单趟,远快于 moviepy 逐帧解码);失败回退 moviepy。"""
     if not clip_paths:
         raise RuntimeError("没有可拼接的片段")
+    try:
+        _ffmpeg_concat_scaled(clip_paths, out_path, width, height)
+        logger.info("[dh] sequential 拼接走 ffmpeg concat(%d 段)", len(clip_paths))
+        return out_path
+    except Exception as e:  # noqa: BLE001
+        _err = (e.stderr or b"").decode("utf-8", "ignore")[-400:] if getattr(e, "stderr", None) else repr(e)
+        logger.warning("[dh] sequential ffmpeg concat 失败,回退 moviepy: %s", _err)
+    from moviepy import VideoFileClip, concatenate_videoclips
     clips = []
     try:
         for p in clip_paths:
