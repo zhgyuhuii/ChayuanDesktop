@@ -897,15 +897,15 @@ def get_Embeddings(
             # 兜底:本地服务不校验 key,云端真缺 key 则在请求时报清晰 401。
             openai_api_key=model_info.get("api_key") or "EMPTY",
         )
-        # 诊断:实际连的 base_url + 系统代理 env(排查 Connection error 是连错端口 还是 代理没绕开)
+        # 诊断:实际连的 base_url + platform_type + 系统代理 env(loguru 不认 %-格式,用 f-string)
+        _hp = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+        _sp = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+        _np = os.environ.get("NO_PROXY") or os.environ.get("no_proxy")
         logger.info(
-            "[get_Embeddings] HTTP embed: model=%r base_url=%r key=%s "
-            "proxy_env HTTP=%r HTTPS=%r NO_PROXY=%r",
-            embed_model, params.get("openai_api_base"),
-            "set" if model_info.get("api_key") else "EMPTY",
-            os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"),
-            os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"),
-            os.environ.get("NO_PROXY") or os.environ.get("no_proxy"),
+            f"[get_Embeddings] HTTP embed: model={embed_model!r} "
+            f"base_url={params.get('openai_api_base')!r} platform_type={model_info.get('platform_type')!r} "
+            f"key={'set' if model_info.get('api_key') else 'EMPTY'} "
+            f"proxy_env HTTP={_hp!r} HTTPS={_sp!r} NO_PROXY={_np!r}"
         )
         _proxy = (model_info.get("api_proxy") or "").strip()
         if _proxy:
