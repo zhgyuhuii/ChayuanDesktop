@@ -615,7 +615,7 @@ def _ass_from_cues(td, preset, cues, width, height, name="sub.ass", style_extra=
 
 
 def _build_coframe_scene(td, preset, segments, width, height, ffmpeg_exe,
-                         cues=None, style_extra=None, idle=True):
+                         cues=None, style_extra=None, idle=True, matte=False):
     """从已生成片段(segments:[{role_index,path,text,duration_ms}])重建 ffcompose 场景
     (每角色 idle 底 + 说话段时间窗 + 商品,按 z 叠;音频取各 clip 自身拼接,严格同步)。
 
@@ -637,6 +637,17 @@ def _build_coframe_scene(td, preset, segments, width, height, ffmpeg_exe,
     durs = [max(1, int(seg.get("duration_ms") or 0) or 1) for seg in segments]
     coaud = os.path.join(td, "coframe_audio.wav")
     _concat_clip_audio(clips, coaud, ffmpeg_exe)
+    # 抠像:开了 matte 就按各角色片段背景纯色 colorkey 形象层(同框/轮流都支持)。每角色探一次。
+    role_keys = {}
+    if matte:
+        for i, c in enumerate(clips):
+            ri = unit_roles[i]
+            if ri not in role_keys and c:
+                role_keys[ri] = _detect_bg_key(c)
+
+    def _mk(ri):
+        key = role_keys.get(ri) if matte else None
+        return {"matte_key": key, "matte_sim": _matte_sim_for(key)} if key else {}
     layers = []
     if idle:
         # 同框:每角色 idle 底常显。分段轮流(idle=False)不铺底,只显当前说话段。
@@ -647,7 +658,7 @@ def _build_coframe_scene(td, preset, segments, width, height, ffmpeg_exe,
             k = "video" if os.path.splitext(av)[1].lower() in _VIDEO_EXT else "image"
             layers.append({"src": av, "kind": k, "x": positions[ri][0], "y": positions[ri][1],
                            "scale": positions[ri][2], "z": zs[ri], "opacity": ops[ri],
-                           "loop": (k == "video"), "windows": None})
+                           "loop": (k == "video"), "windows": None, **_mk(ri)})
     acc = 0
     subcues = []
     for i, c in enumerate(clips):
@@ -656,7 +667,7 @@ def _build_coframe_scene(td, preset, segments, width, height, ffmpeg_exe,
         acc += durs[i]
         layers.append({"src": c, "kind": "video", "x": positions[ri][0], "y": positions[ri][1],
                        "scale": positions[ri][2], "z": zs[ri], "opacity": ops[ri],
-                       "loop": False, "windows": [{"start_ms": st0, "end_ms": acc}]})
+                       "loop": False, "windows": [{"start_ms": st0, "end_ms": acc}], **_mk(ri)})
         txt = (str(segments[i].get("text") or "")).strip()
         if txt:
             subcues.append({"start_ms": st0, "end_ms": acc, "text": txt})
@@ -740,7 +751,7 @@ def _run_pipeline(tid: str) -> None:
                         from chayuan.server.video_generation.digital_human import ffcompose as _ff
                         from chayuan.server.video_generation.compute import get_compute as _gc
                         _scene = _build_coframe_scene(td, preset, seg_meta, args["width"], args["height"],
-                                                      _gc().ffmpeg_exe)
+                                                      _gc().ffmpeg_exe, matte=bool(args.get("matte")))
                         _ff.render(_scene, out_path, on_progress=_op)
                         _ff_ok = True
                         _sub_burned = bool(_scene.get("subtitle"))
@@ -764,7 +775,7 @@ def _run_pipeline(tid: str) -> None:
                         from chayuan.server.video_generation.digital_human import ffcompose as _ff
                         from chayuan.server.video_generation.compute import get_compute as _gc
                         _scene = _build_coframe_scene(td, preset, seg_meta, args["width"], args["height"],
-                                                      _gc().ffmpeg_exe, idle=False)
+                                                      _gc().ffmpeg_exe, idle=False, matte=bool(args.get("matte")))
                         _ff.render(_scene, out_path, on_progress=_op)
                         _seq_ok = True
                         _sub_burned = bool(_scene.get("subtitle"))
