@@ -117,10 +117,18 @@ def public_config(token: str) -> Dict[str, Any]:
         # 无图商品(ref 非 product:,如 noimg:)只在橱窗按名称/价格展示,不在画面/橱窗放图 → url=None
         "url": (base + "/product?ref=" + quote(p.ref)) if str(p.ref or "").startswith("product:") else None,
     } for p in (rec.products or [])]
+    # welcome / idle_script:发布记录优先;为空时回落到 preset(工作台设的,改了不用重发布)
+    _pr = None
+    try:
+        _pr = store.get_preset(getattr(rec, "preset_id", "") or "")
+    except Exception:  # noqa: BLE001
+        _pr = None
+    _welcome = (getattr(rec, "welcome", "") or "") or (getattr(_pr, "welcome", "") or "" if _pr else "")
+    _idle = (getattr(rec, "idle_script", "") or "") or (getattr(_pr, "idle_script", "") or "" if _pr else "")
     return {
         "name": rec.name,
-        "welcome": getattr(rec, "welcome", "") or "",
-        "idle_script": getattr(rec, "idle_script", "") or "",
+        "welcome": _welcome,
+        "idle_script": _idle,
         "ratio": {"w": rec.video_width, "h": rec.video_height},
         "chat_enabled": bool(rec.chat_enabled),
         "viewers": online_presence.count(token),
@@ -673,7 +681,8 @@ _PUBLIC_PAGE = """<!doctype html>
   .bar{position:absolute;left:10px;right:66px;bottom:10px;z-index:30;display:flex;flex-wrap:nowrap;gap:7px}
   .bar input{flex:1;min-width:0;height:42px;padding:0 14px;border-radius:21px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#fff;font-size:14px;outline:none}
   .bar button{flex:none;height:42px;padding:0 15px;border-radius:21px;border:0;background:linear-gradient(90deg,#fe2c55,#ff5a5f);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
-  .bar .cc{flex:none;height:42px;padding:0 13px;border-radius:21px;border:1px solid rgba(255,255,255,.22);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#cdd5df;font-size:13px;font-weight:600;cursor:pointer}
+  .bar .iconbtn{flex:none;width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.22);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#dbe2ea;font-size:16px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+  .bar .iconbtn svg{width:20px;height:20px}
   .shop{position:absolute;left:10px;right:10px;bottom:60px;z-index:35;max-height:54%;overflow-y:auto;display:none;flex-direction:column;gap:8px;padding:10px;border-radius:14px;background:rgba(12,16,24,.92);backdrop-filter:blur(10px);box-shadow:0 8px 30px rgba(0,0,0,.5);scrollbar-width:none}
   .shop::-webkit-scrollbar{display:none}
   .shop.open{display:flex}
@@ -687,8 +696,7 @@ _PUBLIC_PAGE = """<!doctype html>
   .shopitem .p{font-size:13px;font-weight:700;color:#ff5a5f;margin-top:1px}
   .shopitem .d{font-size:11px;color:#9aa6b2;margin-top:1px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .shopitem .go{flex-shrink:0;font-size:12px;color:#fff;background:linear-gradient(90deg,#fe2c55,#ff5a5f);padding:5px 10px;border-radius:14px}
-  .bar .cc.on{color:#fff;border-color:transparent;background:rgba(255,255,255,.22)}
-  .bar .cc.on::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#3ddc84;margin-right:5px;vertical-align:middle}
+  .bar .iconbtn.on{color:#fff;border-color:#3ddc84;background:rgba(61,220,132,.20)}
   .bar button:disabled{opacity:.5}
   .tip{position:fixed;left:0;right:0;top:50%;z-index:40;text-align:center;color:#94a3b8;font-size:13px}
 </style></head>
@@ -711,9 +719,9 @@ _PUBLIC_PAGE = """<!doctype html>
     <div class="hearts" id="hearts"></div>
     <div class="shop" id="shop"></div>
     <div class="bar" id="bar" style="display:none">
-      <button id="shopbtn" class="cc" title="商品橱窗" style="display:none">🛍</button>
+      <button id="shopbtn" class="iconbtn" title="商品橱窗" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></button>
       <input id="inp" placeholder="说点什么…" autocomplete="off"/>
-      <button id="cc" class="cc on" title="开/关大模型回复与对话内容(漂浮气泡)">字幕</button>
+      <button id="cc" class="iconbtn on" title="显示/隐藏字幕(大模型回复与对话气泡)">字</button>
       <button id="send">发送</button>
     </div>
   </div>
