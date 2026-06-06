@@ -270,6 +270,7 @@ export async function dhGenerateScript(
 ): Promise<{ script: string; kb_used?: boolean; sources?: DhScriptSource[] }> {
   return rd('/api/v1/digital-human/script/generate', {
     method: 'POST',
+    timeoutMs: 180_000,   // LLM 文案(+可能 KB 检索)较慢,默认 30s 不够,给 3 分钟
     body: {
       subject,
       language: opts?.language,
@@ -310,6 +311,7 @@ export async function generateMultiRoleScript(args: {
 }> {
   return rd('/api/v1/digital-human/script/generate-multi', {
     method: 'POST',
+    timeoutMs: 180_000,   // LLM 多角色文案较慢,默认 30s 不够
     body: {
       preset_id: args.preset_id,
       subject: args.subject,
@@ -328,7 +330,7 @@ export async function dhScriptFromVideo(
   fd.append('file', file);
   if (opts?.model) fd.append('model', opts.model);
   (opts?.kuIds ?? []).forEach((id) => fd.append('ku_ids', id));
-  return rd('/api/v1/digital-human/script/from-video', { method: 'POST', body: fd });
+  return rd('/api/v1/digital-human/script/from-video', { method: 'POST', timeoutMs: 240_000, body: fd });
 }
 
 export async function dhUploadAvatar(file: File): Promise<DhAvatar> {
