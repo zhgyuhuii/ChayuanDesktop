@@ -233,14 +233,14 @@ def _matte_on(rec) -> bool:
 
 
 @digital_human_public_router.get(_PUB + "/{token}/avatar")
-def public_avatar(token: str):
+def public_avatar(token: str, raw: int = 0):
     rec = _live(token)
     path = store.resolve_avatar_path(rec.avatar_ref)
     if not path or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="形象资源不存在")
     _ns = {"Cache-Control": "no-store"}   # 不缓存:开/关抠像后刷新立刻生效,不被旧图卡住
-    # 抠像开:idle 默认形象也处理过——图片返透明 PNG,视频返透明 webm(缓存)。失败回退原图/原视频。
-    if _matte_on(rec):
+    # raw=1:强制原图(模糊背景层用,不抠);否则抠像开时 idle 也处理——图片透明 PNG / 视频透明 webm。
+    if not raw and _matte_on(rec):
         if os.path.splitext(path)[1].lower() not in _VIDEO_EXT:
             png = _matte_png_bytes(path)
             if png:
@@ -613,7 +613,6 @@ _PUBLIC_PAGE = """<!doctype html>
   /* 视频框:按形象比例居中,所有 UI 都在框内 */
   .frame{position:relative;z-index:1;overflow:hidden;background:#000;box-shadow:0 10px 50px rgba(0,0,0,.6)}
   #stage{position:absolute;inset:0;overflow:hidden}
-  #stage .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(20px) brightness(.45);z-index:0}
   #stage .fill{position:absolute;display:block;z-index:2;cursor:pointer;transition:left .18s,top .18s,width .18s,height .18s}
   #stage .prod{position:absolute;display:block;z-index:4}
   .grad-top{position:absolute;left:0;right:0;top:0;height:120px;z-index:10;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0))}
@@ -688,8 +687,9 @@ _PUBLIC_PAGE = """<!doctype html>
     return el;
   }
   function setBg(){ if(!avatarUrl)return;
-    var b=mkAvatar(avatarUrl,avatarKind); b.className="b"; bgfull.appendChild(b);          // 视口模糊背景
-    var b2=mkAvatar(avatarUrl,avatarKind); b2.className="bg"; stage.appendChild(b2); }      // 帧内模糊背景(小窗形象后面)
+    // 模糊背景只放在视频框「外」(桌面端两侧),用原图(raw)不抠;框「内」不再铺模糊大图,
+    // 避免形象看起来变成了背景。
+    var b=mkAvatar(avatarUrl+"?raw=1",avatarKind); b.className="b"; bgfull.appendChild(b); }
   // 形象定位:全屏(fsMode)铺满 / 否则按制作参数 x/y/scale 小窗显示;无参数则铺满
   function styleAvatar(el){ var s=el.style;
     if(fsMode){ s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom"; }
@@ -698,6 +698,7 @@ _PUBLIC_PAGE = """<!doctype html>
       if(avatarBox.z!=null) s.zIndex=String(avatarBox.z+2); }
     else { s.left="0";s.top="0";s.width="100%";s.height="100%";s.objectFit="cover";s.objectPosition="center bottom"; } }
   function idleAvatar(){ if(!avatarUrl)return; var el=mkAvatar(avatarUrl,avatarKind); el.className="fill"; styleAvatar(el);
+    el.onerror=function(){ el.onerror=null; el.src=avatarUrl+"?raw=1"; };   // 抠像接口失败 → 回退原图,形象不至于空白
     var old=stage.querySelector(".fill"); if(old) old.replaceWith(el); else stage.appendChild(el); }
   // 点击形象:小窗 <-> 全屏 切换
   stage.addEventListener("click", function(){ fsMode=!fsMode; var cur=stage.querySelector(".fill"); if(cur) styleAvatar(cur); });
