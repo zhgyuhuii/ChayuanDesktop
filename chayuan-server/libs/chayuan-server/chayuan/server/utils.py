@@ -897,6 +897,16 @@ def get_Embeddings(
             # 兜底:本地服务不校验 key,云端真缺 key 则在请求时报清晰 401。
             openai_api_key=model_info.get("api_key") or "EMPTY",
         )
+        # 诊断:实际连的 base_url + 系统代理 env(排查 Connection error 是连错端口 还是 代理没绕开)
+        logger.info(
+            "[get_Embeddings] HTTP embed: model=%r base_url=%r key=%s "
+            "proxy_env HTTP=%r HTTPS=%r NO_PROXY=%r",
+            embed_model, params.get("openai_api_base"),
+            "set" if model_info.get("api_key") else "EMPTY",
+            os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"),
+            os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"),
+            os.environ.get("NO_PROXY") or os.environ.get("no_proxy"),
+        )
         _proxy = (model_info.get("api_proxy") or "").strip()
         if _proxy:
             params["openai_proxy"] = _proxy
