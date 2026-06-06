@@ -22,7 +22,7 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Library, Pen, ScanText, Mic, Clapperboard, UserRound,
-  AlertCircle, Film,
+  AlertCircle, Film, QrCode,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
 import { useAuthStore } from '../../store/auth';
@@ -116,17 +116,32 @@ const CAPS: ReadonlyArray<CapItem> = [
 ];
 
 // ── 静态介绍文案 fallback(LLM 不可用时随机一段)────────────────────
+// 主页介绍气泡的固定文案池(本地循环打字,不调任何大模型)。
 const STATIC_INTROS: ReadonlyArray<string> = [
-  '察元 AI · 单机版,把多模型对话、本地知识库、离线推理装进同一个桌面应用。装完即用,数据全程留在本机;Ollama / Infinity / vLLM 等本地服务跟云端 LLM 一起摆在桌面上,随时切换、对比试用。',
-  '一个面向办公场景的本地 AI 工作台。支持多模型并排对话、文档 / 结构化数据 / 向量库统一检索;不联网也能跑,跟 WPS 加载项「察元 AI 文档助手」共用同一份知识库,文档操作直接在 Office 内完成。',
-  '为离线 / 内网场景设计:多 LLM 永道对比、按需切到本地 Ollama / Infinity / vLLM,知识库文件、向量索引、对话历史全部存本机 SQLite,不上传任何 SaaS。可在统信 UOS / 麒麟 / openKylin 等国产桌面顺畅运行。',
-  '把"装完一个 AI 应用"做到极致:零配置启动,Web / Tauri 桌面 / WPS 加载项 三端共用同一份知识库与对话状态。云模型与本地推理可随时切换,不强制联网,不强制登录。',
-  '面向办公的本地优先 AI 助手。多 LLM 同屏对比、知识库一站式检索、MCP 工具集中托管。WPS 加载项「察元 AI 文档助手」直接复用本端配置,文档处理无须跳转。',
+  '察元 AI · 单机版:把多模型对话、本地知识库、离线推理装进同一个桌面应用,装完即用,数据全程留在本机。',
+  '面向办公的本地 AI 工作台:多模型并排对话,文档 / 结构化数据 / 向量库统一检索,不联网也能跑。',
+  '为离线 / 内网设计:知识库文件、向量索引、对话历史全部存本机 SQLite,不上传任何 SaaS,密钥与文档永不出域。',
+  '云模型与本地推理随时切换:Ollama / Infinity / vLLM 等本地服务跟云端 LLM 一起摆在桌面,随时对比试用。',
+  '零配置启动:Web / Tauri 桌面 / WPS 加载项 三端共用同一份知识库与对话状态,不强制联网、不强制登录。',
+  '知识库一站式:PDF / Word / Excel / Markdown / 网页 / 图像拖进来即解析、切片、向量化,问答自带引用与诊断。',
+  '结构化数据问答:"有几个客户""订单总额多少"走只读 SQL 链路,确定性模板 + 校验,不让模型瞎编。',
+  '向量与外部检索源:接入外部向量库,按 collection / vector id / metadata / score 返回,来源清清楚楚。',
+  '六类能力全本机跑:对话、文本嵌入、重排、语音识别、图像嵌入、OCR,全量版断网即可跑通全部功能。',
+  '国产化适配:统信 UOS / 麒麟 / openKylin 等国产桌面与国产 CPU 顺畅运行,信创环境开箱即用。',
+  'WPS / Word 文档助手:逐字逐词审错别字、核对引用、规范公文表述,鼠标悬停即出改写建议,一键采纳。',
+  '图转文:上传图像 OCR 自动提取文字,富文本编辑后导出 Word / Markdown / TXT。',
+  '音转文:上传音频自动转写并分话人,边听边改,导出多格式,会议记录一步到位。',
+  'AI 笔记:随手记录、实时语音转文字、自动入库可检索,灵感不再丢。',
+  '视频生成:一句主题 → LLM 写文案 → TTS 配音 → 字幕 → 素材 → 自动合成 mp4。',
+  '数字人:选形象 + 绑音色 → 文案口播 → 一键生成讲话视频,还能发布为在线数字人对话直播。',
+  '视频编辑:时间轴多轨剪辑,素材 / 字幕 / 音频 / 画中画自由编排,一键导出成片。',
+  'MCP 工具集中托管:把外部工具与扩展统一接入,让模型能查能用,能力随插随用。',
+  '多模型对比评测:同屏并排跑不同模型,谁更准一目了然,选型不再凭感觉。',
+  '隐私优先:本地优先、离线可用、数据自管 —— 把 AI 装进你自己的电脑,而不是别人的云。',
 ];
 
-function pickStaticIntro(): string {
-  return STATIC_INTROS[Math.floor(Math.random() * STATIC_INTROS.length)] ?? STATIC_INTROS[0]!;
-}
+// 默认权限/免费额度说明(可编辑;后端暂无「每日额度」只读接口,先走文案,真实数字以购买页为准)。
+const QUOTA_NOTE = '免费额度有限:每日可免费体验各功能若干次,用完可扫码赞助 / 购买升级';
 
 // ── 是否已配置任意可用 LLM 模型 ────────────────────────────────────
 function hasUsableLLM(catalog: ProviderCatalogEntry[]): boolean {
@@ -179,70 +194,30 @@ export const HomePage: React.FC = () => {
   // chunk → setIntro 用 rAF 合并:LLM 高速吐 token 时不再每个 token 都触发
   // HomePage 全树重渲染,显著降低四张能力卡 + 二维码的 reflow 抖动。
   const [intro, setIntro] = React.useState('');
-  const [introDone, setIntroDone] = React.useState(false);
-  const [introError, setIntroError] = React.useState<string | null>(null);
-  const introAbortRef = React.useRef<AbortController | null>(null);
-  // rAF 合批:onChunk 把增量塞到 ref,下一帧统一 flush 到 state
-  const pendingRef = React.useRef('');
-  const rafRef = React.useRef<number | null>(null);
-
-  const flushPending = React.useCallback(() => {
-    rafRef.current = null;
-    const delta = pendingRef.current;
-    if (!delta) return;
-    pendingRef.current = '';
-    setIntro((prev) => prev + delta);
-  }, []);
-
-  const queueChunk = React.useCallback((text: string) => {
-    pendingRef.current += text;
-    if (rafRef.current != null) return;
-    rafRef.current = requestAnimationFrame(flushPending);
-  }, [flushPending]);
-
+  // 本地循环打字机:依次打 STATIC_INTROS 每条 → 停顿 → 清空 → 下一条 → 循环。完全不调大模型。
   React.useEffect(() => {
-    const ctl = new AbortController();
-    introAbortRef.current = ctl;
-    setIntro('');
-    setIntroDone(false);
-    setIntroError(null);
-
-    void home.introStream(
-      {
-        onChunk: queueChunk,
-        onDone: () => {
-          // 最后一帧 pending 还可能没 flush,补刷一次,再标记 done
-          if (rafRef.current != null) {
-            cancelAnimationFrame(rafRef.current);
-            rafRef.current = null;
-          }
-          flushPending();
-          setIntroDone(true);
-        },
-      },
-      { signal: ctl.signal },
-    ).catch((e: unknown) => {
-      if ((e as { name?: string })?.name === 'AbortError' || ctl.signal.aborted) return;
-      // LLM 不可用 / 调用失败 → 选一段静态文案落定;**不再循环**
-      if (rafRef.current != null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
+    let alive = true;
+    let ti = 0;   // 文案索引(顺序循环)
+    let ci = 0;   // 当前文案已打字符数
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (!alive) return;
+      const full = STATIC_INTROS[ti % STATIC_INTROS.length] ?? '';
+      if (ci <= full.length) {
+        setIntro(full.slice(0, ci));
+        ci += 1;
+        timer = setTimeout(tick, 55);          // 打字速度
+      } else {
+        timer = setTimeout(() => {             // 一条打完,停顿
+          if (!alive) return;
+          ti += 1; ci = 0; setIntro('');
+          timer = setTimeout(tick, 350);       // 清空后稍歇,再打下一条
+        }, 2400);
       }
-      pendingRef.current = '';
-      setIntro(pickStaticIntro());
-      setIntroDone(true);
-      setIntroError(e instanceof Error ? e.message : String(e));
-    });
-
-    return () => {
-      ctl.abort();
-      if (rafRef.current != null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      pendingRef.current = '';
     };
-  }, [flushPending, queueChunk]);
+    tick();
+    return () => { alive = false; clearTimeout(timer); };
+  }, []);
 
   return (
     <div
@@ -362,37 +337,26 @@ export const HomePage: React.FC = () => {
         </div>
         <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm bg-[var(--cy-surface-base)] px-4 py-3 ring-1 ring-[var(--cy-border-subtle)] shadow-sm">
           <p className="min-h-[5rem] text-sm leading-relaxed text-[var(--cy-text-secondary)]">
-            {intro || (introDone ? '' : <TypingDots />)}
-            {!introDone && intro && <Caret />}
+            {intro || <TypingDots />}
+            {intro && <Caret />}
           </p>
-          {introError && (
-            <p
-              className="mt-1 text-[10px] text-[var(--cy-text-tertiary)]"
-              title={introError}
-            >
-              (LLM 不可用,已用本地文案兜底 — 可前往模型厂商配置)
-            </p>
-          )}
         </div>
       </div>
 
-      {/* ── 6. 招商合作 banner ─────────────────────────────────
-       *  寻找城市合伙人 / ISV 集成商 / 私有化部署 / 行业定制。
-       *  深金渐变背景 + 金线缠绕,显得"郑重",2 个 CTA 弹联系方式
-       *  Dialog(微信/电话/邮箱,可复制)。
-       *  文案/联系方式在 PartnershipBanner.tsx 顶部常量,后续替换简单。 */}
-      <PartnershipBanner />
-
-      {/* ── 7. 关注我们 / 收款码 ───────────────────────────────── */}
-      <section className="relative z-10 rounded-3xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-6">
-        <div className="mb-4 flex items-baseline justify-between">
-          <h2 className="text-sm font-semibold text-[var(--cy-text-primary)]">支持我们</h2>
-          <p className="text-xs text-[var(--cy-text-tertiary)]">扫码关注 / 赞助开发者</p>
+      {/* ── 6+7. 紧凑页脚:额度说明 + 关注/赞助二维码(hover 弹) + 招商合作 ──
+       *  原来招商、支持我们各占一张大卡,太占地方。改成一条窄页脚:
+       *  左侧额度/品牌一行,右侧小图标 chips,二维码 hover/聚焦弹出小浮层,
+       *  招商合作复用 PartnershipBanner(compact)的联系 Dialog。 */}
+      <section className="relative z-10 flex flex-col items-start justify-between gap-3 rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-4 py-3 sm:flex-row sm:items-center">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-[var(--cy-text-secondary)]">察元 AI · 本地优先的办公 AI 工作台</p>
+          <p className="mt-0.5 text-[11px] text-[var(--cy-text-tertiary)]">{QUOTA_NOTE}</p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <QrCard label="关注我们" src={FOLLOW_QR_URL} />
-          <QrCard label="支付宝赞助" src={ALIPAY_QR_URL} />
-          <QrCard label="微信赞助" src={WXPAY_QR_URL} />
+        <div className="flex shrink-0 items-center gap-2">
+          <QrChip label="关注我们" src={FOLLOW_QR_URL} />
+          <QrChip label="微信赞助" src={WXPAY_QR_URL} />
+          <QrChip label="支付宝赞助" src={ALIPAY_QR_URL} />
+          <PartnershipBanner compact />
         </div>
       </section>
 
@@ -426,14 +390,18 @@ const Caret: React.FC = () => (
 );
 
 // ── 二维码小卡 ─────────────────────────────────────────────────────
-const QrCard: React.FC<{ label: string; src: string }> = ({ label, src }) => (
-  <div className="flex flex-col items-center gap-2 rounded-2xl bg-[var(--cy-surface-base)] p-3 ring-1 ring-[var(--cy-border-subtle)]">
-    <img
-      src={src}
-      alt={label}
-      className="h-32 w-32 rounded-lg object-contain"
-      draggable={false}
-    />
-    <p className="text-xs font-medium text-[var(--cy-text-secondary)]">{label}</p>
+// 紧凑页脚用:小 chip,hover / 聚焦弹出二维码浮层(不占常驻空间)。
+const QrChip: React.FC<{ label: string; src: string }> = ({ label, src }) => (
+  <div className="group relative">
+    <button
+      type="button"
+      className="inline-flex h-8 items-center gap-1 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 text-xs text-[var(--cy-text-secondary)] transition-colors hover:border-[var(--cy-brand-400)] hover:text-[var(--cy-text-primary)]"
+    >
+      <QrCode className="h-3.5 w-3.5" /> {label}
+    </button>
+    <div className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 hidden flex-col items-center gap-1 rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 shadow-[var(--cy-shadow-md)] group-hover:flex group-focus-within:flex">
+      <img src={src} alt={label} className="h-36 w-36 rounded-lg object-contain" draggable={false} />
+      <span className="whitespace-nowrap text-[11px] text-[var(--cy-text-secondary)]">{label}</span>
+    </div>
   </div>
 );

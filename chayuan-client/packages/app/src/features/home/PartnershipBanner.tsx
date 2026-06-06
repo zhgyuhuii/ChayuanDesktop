@@ -76,8 +76,24 @@ const PARTNERSHIP: {
   ],
 };
 
-export const PartnershipBanner: React.FC = () => {
+export const PartnershipBanner: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
   const [open, setOpen] = React.useState(false);
+
+  // 紧凑变体:页脚里一个小 chip,点开同一个联系 Dialog(不占整张大卡)。
+  if (compact) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex h-8 items-center gap-1 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 text-xs text-[var(--cy-text-secondary)] transition-colors hover:border-[var(--cy-brand-400)] hover:text-[var(--cy-text-primary)]"
+        >
+          <MessageSquare className="h-3.5 w-3.5" /> 招商合作
+        </button>
+        <ContactDialog open={open} onOpenChange={setOpen} />
+      </>
+    );
+  }
 
   return (
     <>
