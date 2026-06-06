@@ -682,7 +682,7 @@ _PUBLIC_PAGE = """<!doctype html>
   .bar input{flex:1;min-width:0;height:42px;padding:0 14px;border-radius:21px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#fff;font-size:14px;outline:none}
   .bar button{flex:none;height:42px;padding:0 15px;border-radius:21px;border:0;background:linear-gradient(90deg,#fe2c55,#ff5a5f);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
   .bar .iconbtn{flex:none;width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.22);background:rgba(0,0,0,.42);backdrop-filter:blur(6px);color:#dbe2ea;font-size:16px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
-  .bar .iconbtn svg{width:20px;height:20px}
+  .bar .iconbtn svg{width:26px;height:26px}
   .shop{position:absolute;left:10px;right:10px;bottom:60px;z-index:35;max-height:54%;overflow-y:auto;display:none;flex-direction:column;gap:8px;padding:10px;border-radius:14px;background:rgba(12,16,24,.92);backdrop-filter:blur(10px);box-shadow:0 8px 30px rgba(0,0,0,.5);scrollbar-width:none}
   .shop::-webkit-scrollbar{display:none}
   .shop.open{display:flex}
