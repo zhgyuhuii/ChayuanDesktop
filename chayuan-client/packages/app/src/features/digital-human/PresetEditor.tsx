@@ -75,6 +75,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const [allowKbOverride, setAllowKbOverride] = React.useState(initial?.allow_kb_override ?? true);
   // 抠像:制作时勾选 → 在线数字人对话页的形象自动去纯色背景(无需再去卡片点 ✂️)
   const [greenscreen, setGreenscreen] = React.useState(initial?.is_greenscreen ?? false);
+  const [matteSim, setMatteSim] = React.useState<number | null>(initial?.matte_sim ?? null);
   const [modelPickOpen, setModelPickOpen] = React.useState(false);
   const resolveLogo = useResolveLogo();
   const avatarFileRef = React.useRef<HTMLInputElement | null>(null);
@@ -226,6 +227,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
         allow_model_override: allowModelOverride,
         allow_kb_override: allowKbOverride,
         is_greenscreen: greenscreen,
+        matte_sim: greenscreen ? (matteSim ?? 0.15) : undefined,
       };
       if (initial) {
         await digitalHuman.updatePreset(initial.id, body);
@@ -334,6 +336,18 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
           title="开启后,在线数字人对话页的形象会去掉纯色背景(仅留人像);需形象为纯色/绿幕底">
           {greenscreen ? '抠像:开(去纯色背景)' : '抠像:关'}
         </button>
+        {greenscreen && (
+          <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--cy-text-tertiary)]">
+            <span>抠图强度</span><span>保守</span>
+            <input type="range" min={0.05} max={0.5} step={0.01}
+              value={matteSim ?? 0.15}
+              onChange={(e) => setMatteSim(Number(e.target.value))}
+              className="w-36 accent-[var(--cy-brand-500)]" />
+            <span>狠</span>
+            <span className="w-8 text-[var(--cy-text-primary)]">{(matteSim ?? 0.15).toFixed(2)}</span>
+            <span>抠烂了调小、背景没抠净调大</span>
+          </div>
+        )}
       </div>
 
       {/* 字幕设置 */}

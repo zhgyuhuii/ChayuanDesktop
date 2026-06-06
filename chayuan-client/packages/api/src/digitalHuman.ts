@@ -57,6 +57,7 @@ export interface DigitalHumanPreset {
   avatar_ref: string;
   avatar_kind: DhAvatarKind;
   is_greenscreen: boolean;
+  matte_sim?: number;   // 抠图强度(0-1,越大抠越狠);仅 is_greenscreen 时用
   voice_provider: DhVoiceProvider;
   voice_name: string;
   created: number;

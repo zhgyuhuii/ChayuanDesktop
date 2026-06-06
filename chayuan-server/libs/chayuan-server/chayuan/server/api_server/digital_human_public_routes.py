@@ -162,8 +162,9 @@ def _bg_key_color(path: str):
         return None
 
 
-def _matte_png_bytes(path: str):
-    """抠像:把图片背景纯色键成透明,返回 PNG 字节(仅留人像)。失败返 None。"""
+def _matte_png_bytes(path: str, sim=None):
+    """抠像:把图片背景纯色键成透明,返回 PNG 字节(仅留人像)。失败返 None。
+    sim(0-1):用户设的抠图强度,越大抠越狠;None=按背景亮度自适应阈值。"""
     try:
         from PIL import Image
         import numpy as np
@@ -171,6 +172,8 @@ def _matte_png_bytes(path: str):
         if not kc:
             return None
         key, thr = kc
+        if sim is not None:
+            thr = max(8.0, float(sim) * 441.0)   # sim 0-1 → RGB 距离阈值(441≈sqrt(3)*255 满量程)
         im = Image.open(path).convert("RGBA")
         arr = np.asarray(im).astype(int)
         rgb = arr[:, :, :3]
@@ -186,9 +189,9 @@ def _matte_png_bytes(path: str):
         return None
 
 
-def _matte_video_cached(path: str):
-    """idle 视频形象:按首帧背景纯色 colorkey 成透明 webm(vp9 alpha),缓存(按文件名+大小+mtime)。
-    首次较慢,之后直接返缓存。失败返 None(用原视频)。"""
+def _matte_video_cached(path: str, sim=None):
+    """idle 视频形象:按首帧背景纯色 colorkey 成透明 webm(vp9 alpha),缓存(按文件名+大小+mtime+sim)。
+    首次较慢,之后直接返缓存。失败返 None(用原视频)。sim(0-1)=用户设的强度;None=自适应。"""
     try:
         import cv2
         import numpy as np
@@ -208,9 +211,9 @@ def _matte_video_cached(path: str):
         s = float(key.sum())
         thr = 55 if s > 620 else (80 if s > 430 else 110)
         r, g, b = int(key[0]), int(key[1]), int(key[2])
-        sim = max(0.10, min(0.50, thr / 255.0))
+        sim = float(sim) if sim is not None else max(0.10, min(0.50, thr / 255.0))
         st = os.stat(path)
-        kk = hashlib.md5(("%s|%d|%d" % (path, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:16]
+        kk = hashlib.md5(("%s|%d|%d|%.3f" % (path, st.st_size, int(st.st_mtime), sim)).encode()).hexdigest()[:16]
         cache_dir = os.path.join(tempfile.gettempdir(), "chayuan_dh_idle_matte")
         os.makedirs(cache_dir, exist_ok=True)
         out = os.path.join(cache_dir, kk + ".webm")
@@ -239,6 +242,22 @@ def _matte_on(rec) -> bool:
         return False
 
 
+def _matte_sim(rec):
+    """抠图相似度(0-1,越大抠越狠)。优先发布记录;否则读 preset.matte_sim(工作台设的,改了
+    不用重发布)。None=按背景自适应阈值。"""
+    v = getattr(rec, "matte_sim", None)
+    if v is None:
+        try:
+            pr = store.get_preset(getattr(rec, "preset_id", "") or "")
+            v = getattr(pr, "matte_sim", None) if pr else None
+        except Exception:  # noqa: BLE001
+            v = None
+    try:
+        return max(0.02, min(0.6, float(v))) if v is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @digital_human_public_router.get(_PUB + "/{token}/avatar")
 def public_avatar(token: str, raw: int = 0):
     rec = _live(token)
@@ -248,12 +267,13 @@ def public_avatar(token: str, raw: int = 0):
     _ns = {"Cache-Control": "no-store"}   # 不缓存:开/关抠像后刷新立刻生效,不被旧图卡住
     # raw=1:强制原图(模糊背景层用,不抠);否则抠像开时 idle 也处理——图片透明 PNG / 视频透明 webm。
     if not raw and _matte_on(rec):
+        _sim = _matte_sim(rec)
         if os.path.splitext(path)[1].lower() not in _VIDEO_EXT:
-            png = _matte_png_bytes(path)
+            png = _matte_png_bytes(path, sim=_sim)
             if png:
                 return Response(content=png, media_type="image/png", headers=_ns)
         else:
-            webm = _matte_video_cached(path)
+            webm = _matte_video_cached(path, sim=_sim)
             if webm:
                 return FileResponse(webm, media_type="video/webm", headers=_ns)
     mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
@@ -484,7 +504,7 @@ def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
                 get_engine("wav2lip").generate(avatar_path=avatar, audio_path=ap,
                                                out_path=out, width=gw, height=gh)
             if _matte_on(rec):
-                webm = _matte_clip_to_webm(out, avatar, d)
+                webm = _matte_clip_to_webm(out, avatar, d, sim=_matte_sim(rec))
                 if webm:
                     with open(webm, "rb") as f:
                         return f.read()
@@ -495,8 +515,9 @@ def _say_clip_bytes(rec, text: str, rate: float = 1.0) -> Optional[bytes]:
         return None
 
 
-def _matte_clip_to_webm(mp4: str, avatar: str, d: str):
-    """抠像:把口型片段按形象背景纯色 colorkey 成透明 webm(vp9 alpha)。失败返 None(用原 mp4)。"""
+def _matte_clip_to_webm(mp4: str, avatar: str, d: str, sim=None):
+    """抠像:把口型片段按形象背景纯色 colorkey 成透明 webm(vp9 alpha)。失败返 None(用原 mp4)。
+    sim(0-1)=用户设的抠图强度;None=自适应。"""
     try:
         kc = _bg_key_color(avatar)
         if not kc:
@@ -504,7 +525,7 @@ def _matte_clip_to_webm(mp4: str, avatar: str, d: str):
         (r, g, b), thr = kc
         import imageio_ffmpeg
         ff = imageio_ffmpeg.get_ffmpeg_exe()
-        sim = max(0.10, min(0.50, thr / 255.0))
+        sim = float(sim) if sim is not None else max(0.10, min(0.50, thr / 255.0))
         webm = os.path.join(d, "say.webm")
         vf = "colorkey=0x%02X%02X%02X:%.2f:0.10,format=yuva420p" % (r, g, b, sim)
         subprocess.run([ff, "-y", "-loglevel", "error", "-i", mp4, "-vf", vf,
