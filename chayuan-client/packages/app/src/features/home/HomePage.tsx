@@ -404,6 +404,7 @@ const Caret: React.FC = () => (
 const ENT_APPS: ReadonlyArray<{ app: string; label: string }> = [
   { app: 'chat', label: '对话' },
   { app: 'video', label: '视频生成' },
+  { app: 'video_edit', label: '视频编辑' },
   { app: 'avatar', label: '数字人' },
   { app: 'ocr', label: '图转文' },
   { app: 'asr', label: '音转文' },

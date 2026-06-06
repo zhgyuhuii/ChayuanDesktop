@@ -9,6 +9,7 @@ import { MediaPoolPanel } from './timeline/MediaPoolPanel';
 import { PreviewPlayer } from './timeline/PreviewPlayer';
 import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
+import { useUsageGate, UsageGateDialogs } from '../license';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
 import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, setClipTransition, applyProbedDuration, type DraggedMaterial } from './timeline/timelineEdit';
 import { TRANSITIONS } from './timeline/transitions';
@@ -40,6 +41,7 @@ export const VgTimelineEditorPage: React.FC = () => {
   const [pxPerSec, setPxPerSec] = React.useState(20);
   const [proxyStale, setProxyStale] = React.useState(true);
   const [submitting, setSubmitting] = React.useState(false);
+  const gate = useUsageGate('video_edit');   // 视频编辑(时间轴合成)按次计费
   const [poolW, setPoolW] = React.useState<number>(() => {
     const v = typeof localStorage !== 'undefined' ? Number(localStorage.getItem('cy.vg.mediapool.w')) : 0;
     return v >= 160 && v <= 560 ? v : 288;
@@ -223,18 +225,21 @@ export const VgTimelineEditorPage: React.FC = () => {
   // ── 提交:finalize 草稿(复用 audio/subtitle,只 compose) ──
   const onSubmit = async () => {
     if (draft.state !== 'ready' || !draft.taskId) { reportError(new Error('草稿尚未就绪,稍候再试')); return; }
-    setSubmitting(true);
-    try {
-      // 透传当前画幅/精确尺寸,使成片按预览左上角的最终选择渲染(否则用草稿原始尺寸)
-      await videoGeneration.finalizeDraft(
-        draft.taskId, roundTimeline(timeline), cues.length ? cues : undefined,
-        { video_aspect: params.video_aspect, video_width: params.video_width, video_height: params.video_height },
-      );
-      notifySuccess('已提交合成', '前往「我的视频」看进度');
-      openTab('/video-generation/library', { title: '我的视频', icon: 'video' });
-      void navigate({ to: '/video-generation/library' as never });
-    } catch (e) { reportError(e as Error, '提交失败'); }
-    finally { setSubmitting(false); }
+    const taskId = draft.taskId;   // 闭包内固定,避免 string|null 收窄丢失
+    await gate.guard(async () => {   // 按次扣减「视频编辑」额度,用完弹购买
+      setSubmitting(true);
+      try {
+        // 透传当前画幅/精确尺寸,使成片按预览左上角的最终选择渲染(否则用草稿原始尺寸)
+        await videoGeneration.finalizeDraft(
+          taskId, roundTimeline(timeline), cues.length ? cues : undefined,
+          { video_aspect: params.video_aspect, video_width: params.video_width, video_height: params.video_height },
+        );
+        notifySuccess('已提交合成', '前往「我的视频」看进度');
+        openTab('/video-generation/library', { title: '我的视频', icon: 'video' });
+        void navigate({ to: '/video-generation/library' as never });
+      } catch (e) { reportError(e as Error, '提交失败'); }
+      finally { setSubmitting(false); }
+    });
   };
 
   // 旁白音频块名称 = 主题名(video_subject);手动脚本时取脚本首句;都空则「旁白」
@@ -510,6 +515,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           onSynthesize={(s) => void onSynthesizeScript(s)}
           onClose={() => setScriptEditOpen(false)} />
       )}
+      <UsageGateDialogs app="video_edit" gate={gate} />
     </div>
   );
 };

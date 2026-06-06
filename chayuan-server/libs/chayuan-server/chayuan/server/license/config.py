@@ -26,6 +26,7 @@ from pathlib import Path
 DEFAULT_DAILY_FREE = {
     "chat": 60,     # 对话
     "video": 5,     # 视频生成
+    "video_edit": 5, # 视频编辑(时间轴合成)
     "avatar": 5,    # 数字人
     "note": 30,     # AI笔记
     "kb": 30,       # 知识库
