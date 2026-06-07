@@ -219,12 +219,24 @@ def _resolved_platforms(version: int) -> List[Dict]:  # noqa: ARG001
     db_rows = _safe_db_platforms()
     json_overrides = _load_platform_overrides()
     merged = _merge_platforms(yaml_seed, db_rows, json_overrides)
+    # 视频模型无法自动检测(不在 OpenAI 兼容 /v1/models 里),所以 text2video_models
+    # 的 DB 行往往为空。这里用 catalog 默认清单填充空字段 —— 单点修复,让视频模型在
+    # 下游所有读模型列表的地方(/v1/models、marketplace、首页能力状态、选择器)都可见可用。
+    try:
+        from chayuan.server.config_panel.model_config import _PROVIDER_BY_ID
+    except Exception:  # noqa: BLE001
+        _PROVIDER_BY_ID = {}
     for m in merged:
         # 百炼：DASHSCOPE_API_KEY 写在 .env 中，或 export 到环境变量
         if m.get("platform_name") == "bailian":
             env_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
             if env_key:
                 m["api_key"] = env_key
+        if not m.get("text2video_models"):
+            _meta = _PROVIDER_BY_ID.get(m.get("platform_name") or "")
+            _dv = (getattr(_meta, "default_models", None) or {}).get("text2video_models") if _meta else None
+            if _dv:
+                m["text2video_models"] = list(_dv)
     return merged
 
 
