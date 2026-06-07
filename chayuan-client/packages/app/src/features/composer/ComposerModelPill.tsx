@@ -215,6 +215,11 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
           // 场景只允许对话模型,忽略该提示。消费后回调清掉,保证只生效一次。
           initialCapFilter={onlyChat ? null : capabilityHint}
           onCapFilterInit={() => setCapabilityHint(null)}
+          // 选中能力标签 → 立即把当前模型切到该能力第一个(不关下拉,仍可再挑)
+          onAutoSelectModel={(m) => {
+            if (m.available === false) return;
+            setModel(m.id, m.platform_name);
+          }}
           resolveLogo={resolveLogo}
           emptyLabel={t('chat.noModelAvailable')}
           emptyAction={

@@ -200,6 +200,12 @@ export interface ModelMenuListProps {
   initialCapFilter?: ModalityCapability | null;
   /** ``initialCapFilter`` 被用作初始过滤后回调上层(清掉一次性提示)。 */
   onCapFilterInit?(): void;
+  /**
+   * 选中某个能力标签时回调:用于"点标签即把当前模型切到该能力的第一个可用模型"。
+   * 与 ``onPick`` 区别:不关闭下拉(用户还能继续在过滤后的列表里挑),只切模型。
+   * 仅在当前模型不属于该能力时触发。
+   */
+  onAutoSelectModel?(m: RawModelItem): void;
 }
 
 /**
@@ -228,6 +234,7 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
   allowCapabilities,
   initialCapFilter,
   onCapFilterInit,
+  onAutoSelectModel,
 }) => {
   const [keyword, setKeyword] = React.useState('');
   // 一次性能力提示:初始过滤用 initialCapFilter(首页能力卡跳转带来),否则"全部"。
@@ -282,6 +289,24 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
     if (!capFilter) return interactiveModels;
     return interactiveModels.filter((m) => inferCapability(m) === capFilter);
   }, [interactiveModels, capFilter]);
+
+  /**
+   * 点击能力标签:切换过滤 + (选中某能力时)若当前模型不属于该能力,立即把当前
+   * 模型切到该能力下第一个可用模型。不关下拉,用户仍可在过滤后的列表继续挑。
+   */
+  const handleCapClick = React.useCallback(
+    (cap: ModalityCapability) => {
+      const next = capFilter === cap ? null : cap;
+      setCapFilter(next);
+      if (!next) return; // 点"全部"/取消选中,只清过滤,不切模型
+      const cur = interactiveModels.find((m) => isSelectedModel(m, currentId, currentPlatform));
+      if (cur && inferCapability(cur) === next) return; // 当前模型已是该能力,不动
+      const ofCap = interactiveModels.filter((m) => inferCapability(m) === next);
+      const first = ofCap.find((m) => m.available !== false) ?? ofCap[0];
+      if (first) onAutoSelectModel?.(first);
+    },
+    [capFilter, interactiveModels, currentId, currentPlatform, onAutoSelectModel],
+  );
 
   const allGroups = React.useMemo(
     () => groupByPlatform(modelsForGrouping),
@@ -388,7 +413,7 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
                 cap={meta.cap}
                 active={capFilter === meta.cap}
                 title={meta.longLabel}
-                onClick={() => setCapFilter(capFilter === meta.cap ? null : meta.cap)}
+                onClick={() => handleCapClick(meta.cap)}
               />
             ))}
           </div>
