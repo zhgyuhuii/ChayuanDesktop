@@ -101,3 +101,19 @@ def test_is_runnable_format(exts, expected):
 )
 def test_parse_param_size_from_tags(tags, expected):
     assert parse_param_size_from_tags(tags) == expected
+
+
+def test_text_ranking_hf_pipeline_maps_to_rerank():
+    # HF rerank 的 pipeline_tag 是 text-ranking(实测 cross-encoder/ms-marco);
+    # 之前 _CAPABILITY_BY_PIPELINE 无此项 -> 归一为 other,rerank 永远匹配不上。
+    from chayuan.server.model_registry.hub_catalog.capability import (
+        capability_from_hf_pipeline,
+    )
+    assert capability_from_hf_pipeline("text-ranking") == "rerank"
+
+
+def test_text_ranking_ms_task_maps_to_rerank():
+    from chayuan.server.model_registry.hub_catalog.capability import (
+        capability_from_ms_tasks,
+    )
+    assert capability_from_ms_tasks([{"Name": "text-ranking"}]) == "rerank"

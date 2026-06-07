@@ -33,6 +33,20 @@ from chayuan.server.model_registry.hub_catalog.capability import (
 
 _HOST = "https://www.modelscope.cn"
 
+# capability -> ModelScope dolphin "tasks" 名。注意与 HF pipeline_tag **不同名**:
+# chat=text-generation(非 "chat"=0)、语音=auto-speech-recognition(无 "matic")。
+# 用于 Criterion 服务端按类型过滤(实测各 task 名 TotalCount 均 >0)。映射不到的
+# 能力(如 image-embedding)退回本地按 capability 兜底过滤。
+_CAP_TO_MS_TASK = {
+    "chat": "text-generation",
+    "text-embedding": "sentence-embedding",
+    "rerank": "text-ranking",
+    "speech-to-text": "auto-speech-recognition",
+    "text-to-audio": "text-to-speech",
+    "image-to-text": "image-text-to-text",
+    "text-to-video": "text-to-video",
+}
+
 
 def _ext(path: str) -> str:
     base = path.rsplit("/", 1)[-1]
@@ -104,12 +118,22 @@ class ModelScopeAdapter(HubAdapter):
         # ModelScope dolphin 接口实测 SortBy 只接受 "Default"（Downloads/lastModified
         # 会 400），故 sort 无法下发到服务端。sort=="updated" 时只能对**当前页**
         # 按 updated_at 本地排序（前端也会针对 ModelScope 隐藏排序切换，二者皆兜底）。
-        body = {
+        ms_task = _CAP_TO_MS_TASK.get(capability) if capability else None
+        body: Dict[str, Any] = {
             "PageSize": page_size,
             "PageNumber": page,
             "Name": query or "",
             "SortBy": "Default",
         }
+        # 按类型服务端过滤:dolphin 支持 Criterion[category=tasks, predicate=contains]
+        # (实测 sentence-embedding/text-ranking/auto-speech-recognition 等均有效)。
+        # 能映射到 MS task 名就推服务端过滤,翻页直接信 TotalCount;映射不到的能力
+        # 退回本地按 capability 兜底过滤(见下)。这是「点了类型一片空白」的修复:
+        # 之前不发 Criterion -> 永远拉全局热门再本地过滤 -> 非头部类目过滤后为空。
+        if ms_task:
+            body["Criterion"] = [
+                {"category": "tasks", "predicate": "contains", "values": [ms_task]}
+            ]
         data = self._put_json(f"{_HOST}/api/v1/dolphin/models", body, token=token)
         model = ((data or {}).get("Data") or {}).get("Model") or {}
         rows = model.get("Models") or []
@@ -118,8 +142,9 @@ class ModelScopeAdapter(HubAdapter):
         items: List[NormalizedModelCard] = []
         for r in rows:
             card = self._normalize(r)
-            # capability 过滤（如果上层传了 capability）。
-            if capability and card.capability != capability:
+            # 仅在「没把过滤推到服务端」时本地兜底按 capability 过滤;已推 Criterion 时
+            # 信任服务端结果,不再本地丢(避免 Tasks 归一不全把有效结果误杀)。
+            if capability and not ms_task and card.capability != capability:
                 continue
             # runnable_only：列表页无文件信息，按 capability 粗判（serveable 即可能可跑）。
             if runnable_only and not card.runnable:

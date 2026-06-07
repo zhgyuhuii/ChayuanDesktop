@@ -62,6 +62,7 @@ _CAPABILITY_BY_PIPELINE: Dict[str, str] = {
     "audio-to-audio": "text-to-audio",
     "automatic-speech-recognition": "speech-to-text",
     "audio-classification": "speech-to-text",
+    "text-ranking": "rerank",
 }
 
 _CAPABILITY_BY_MODELTYPE: Dict[str, str] = {

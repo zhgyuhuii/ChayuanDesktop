@@ -52,12 +52,12 @@ def test_search_capability_mapping(monkeypatch):
 
 def test_search_has_more(monkeypatch):
     a = HuggingFaceAdapter()
-    fixture = _load("hf_search.json")  # 3 items
+    fixture = _load("hf_search.json")  # 3 items；mock 忽略 limit 恒返 3 条
     monkeypatch.setattr(a, "_get_json", lambda *args, **kw: fixture)
-    # page_size == 返回数 -> has_more True
-    assert a.search(page_size=3).has_more is True
-    # page_size > 返回数 -> has_more False
-    assert a.search(page_size=10).has_more is False
+    # 本页装不下(page_size < 总数) -> 还有下一页
+    assert a.search(page=1, page_size=2).has_more is True
+    # 本页装得下(page_size >= 总数) -> 没有下一页
+    assert a.search(page=1, page_size=3).has_more is False
 
 
 def test_detail_sizes(monkeypatch):
@@ -121,3 +121,51 @@ def test_readme_swallows_errors(monkeypatch):
 
     monkeypatch.setattr(a, "_get_text", boom)
     assert a.readme(model_id="x/y") == ""
+
+
+def test_search_sends_pipeline_tag_for_capability(monkeypatch):
+    # 指定 capability 必须服务端下发 pipeline_tag,且不再强制 filter=gguf。
+    a = HuggingFaceAdapter()
+    captured = {}
+
+    def fake(url, *, token=None, **kw):
+        captured["params"] = kw.get("params")
+        return []
+
+    monkeypatch.setattr(a, "_get_json", fake)
+    a.search(capability="rerank", page_size=3)
+    assert captured["params"].get("pipeline_tag") == "text-ranking"
+    assert "filter" not in captured["params"]
+
+
+def test_search_pipeline_tag_sent_even_when_runnable_only(monkeypatch):
+    # runnable_only 开着也要下发 pipeline_tag(嵌入),不能被 gguf 顶替筛空。
+    a = HuggingFaceAdapter()
+    captured = {}
+
+    def fake(url, *, token=None, **kw):
+        captured["params"] = kw.get("params")
+        return []
+
+    monkeypatch.setattr(a, "_get_json", fake)
+    a.search(capability="text-embedding", runnable_only=True, page_size=3)
+    assert captured["params"].get("pipeline_tag") == "feature-extraction"
+    assert "filter" not in captured["params"]
+
+
+def test_search_paginates_by_local_window(monkeypatch):
+    # HF offset 失效 -> 取 page*page_size+1 条本地切片拿到第 page 页。
+    a = HuggingFaceAdapter()
+    rows = [{"id": f"o{i}/m{i}", "pipeline_tag": "text-generation"} for i in range(4)]
+    captured = {}
+
+    def fake(url, *, token=None, **kw):
+        captured["params"] = kw.get("params")
+        return rows
+
+    monkeypatch.setattr(a, "_get_json", fake)
+    page = a.search(page=2, page_size=2)
+    assert captured["params"]["limit"] == 5  # 2*2+1
+    assert "offset" not in captured["params"]  # 不再发 offset(HF 忽略)
+    assert [c.model_id for c in page.items] == ["o2/m2", "o3/m3"]
+    assert page.has_more is False  # rows 已用尽

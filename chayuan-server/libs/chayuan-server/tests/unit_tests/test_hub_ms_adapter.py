@@ -110,3 +110,39 @@ def test_readme_swallows_errors(monkeypatch):
 
     monkeypatch.setattr(a, "_get_text", boom)
     assert a.readme(model_id="x/y") == ""
+
+
+def test_search_pushes_tasks_criterion_for_capability(monkeypatch):
+    # 指定 capability 必须把 tasks 过滤推到 dolphin 服务端(Criterion)。
+    a = ModelScopeAdapter()
+    captured = {}
+
+    def fake(url, body, *, token=None, **kw):
+        captured["body"] = body
+        return {"Data": {"Model": {"Models": [], "TotalCount": 0}}}
+
+    monkeypatch.setattr(a, "_put_json", fake)
+    a.search(capability="rerank", page_size=5)
+    assert captured["body"].get("Criterion") == [
+        {"category": "tasks", "predicate": "contains", "values": ["text-ranking"]}
+    ]
+
+
+def test_search_trusts_server_filter_no_local_drop(monkeypatch):
+    # 推了 Criterion 后信任服务端:即便某条 Tasks 归一为 other 也不本地丢。
+    a = ModelScopeAdapter()
+    rows = [
+        {"Name": "m-emb", "Path": "o", "Tasks": [{"Name": "sentence-embedding"}],
+         "LastUpdatedTime": 0},
+        {"Name": "m-weird", "Path": "o", "Tasks": None, "LastUpdatedTime": 0},
+    ]
+
+    def fake(url, body, *, token=None, **kw):
+        return {"Data": {"Model": {"Models": rows, "TotalCount": 169}}}
+
+    monkeypatch.setattr(a, "_put_json", fake)
+    page = a.search(capability="text-embedding", page_size=20)
+    ids = [c.model_id for c in page.items]
+    assert "o/m-emb" in ids
+    assert "o/m-weird" in ids  # 服务端已筛,本地不再丢
+    assert page.total == 169

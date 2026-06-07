@@ -35,7 +35,8 @@ _HOST_OFFICIAL = "https://huggingface.co"
 # capability -> 一个代表性 pipeline_tag，用于服务端按能力过滤（可选）。
 _CAP_TO_PIPELINE = {
     "chat": "text-generation",
-    "text-embedding": "sentence-similarity",
+    "text-embedding": "feature-extraction",
+    "rerank": "text-ranking",
     "image-to-text": "image-text-to-text",
     "text-to-image": "text-to-image",
     "text-to-video": "text-to-video",
@@ -102,51 +103,41 @@ class HuggingFaceAdapter(HubAdapter):
         host = self._host(route)
         page = max(1, int(page or 1))
         page_size = max(1, int(page_size or 20))
+
+        # HF 的 offset 实测已失效(每页都返回相同 top；HF 仅支持 Link 头 cursor 游标),
+        # 但 limit 无上限。故改为「一次取 page*page_size+1 条、本地切到第 page 页」:
+        # 既避开坏掉的 offset,又不必把 cursor 契约透到前端(模型广场浏览深度浅,够用)。
         offset = (page - 1) * page_size
+        fetch_limit = page * page_size + 1
 
         # HF 原生支持 sort=downloads / sort=lastModified（实测）。
         hf_sort = "lastModified" if sort == "updated" else "downloads"
         params: Dict[str, Any] = {
             "sort": hf_sort,
             "direction": -1,
-            "limit": page_size,
-            "offset": offset,
+            "limit": fetch_limit,
             "full": "false",
         }
         if query:
             params["search"] = query
-        # runnable_only 与 capability 是**两个独立条件**,必须都生效(AND),
-        # 与 modelscope adapter 一致。
-        #   * runnable_only → HF 支持 filter=gguf(onnx 仓库较少,gguf 是可跑主力);
-        #   * capability → 用 pipeline_tag 收窄;但 runnable_only 已占用 filter
-        #     时无法同时下发 pipeline_tag(HF API 不支持二者叠加可靠生效),
-        #     此时把 capability 留到 post-filter 阶段按 card.capability 过滤。
-        post_filter_capability = False
-        if runnable_only:
-            params["filter"] = "gguf"
-            if capability:
-                # 不下发 pipeline_tag,改在返回后 post-filter。
-                post_filter_capability = True
-        elif capability and capability in _CAP_TO_PIPELINE:
+        # 按类型(capability)服务端过滤:**无论 runnable_only 都下发 pipeline_tag**。
+        # 不再用 filter=gguf 顶替 pipeline_tag —— 嵌入/重排/语音的 gguf 仓极少,
+        # 强制 gguf 会把这些类目筛空(这正是「点了类型一片空白」的元凶);
+        # 可运行性留到 detail/下载阶段按实际文件后缀判定。
+        if capability and capability in _CAP_TO_PIPELINE:
             params["pipeline_tag"] = _CAP_TO_PIPELINE[capability]
 
         data = self._get_json(f"{host}/api/models", params=params, token=token)
         rows = data if isinstance(data, list) else []
 
-        items: List[NormalizedModelCard] = []
-        for r in rows:
-            card = self._normalize(r)
-            # 勾「仅可运行」+ 指定 capability 时,filter=gguf 已收窄到 gguf,
-            # capability 仍需在此 post-filter(否则选 chat 也会返回所有 gguf)。
-            if post_filter_capability and card.capability != capability:
-                continue
-            items.append(card)
+        window = rows[offset : offset + page_size]
+        items: List[NormalizedModelCard] = [self._normalize(r) for r in window]
 
         return SearchPage(
             items=items,
             page=page,
             page_size=page_size,
-            has_more=len(rows) == page_size,
+            has_more=len(rows) > offset + page_size,
             total=None,
         )
 
