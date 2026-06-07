@@ -1,3 +1,4 @@
+# TODO(P2b-verify): zhipu/minimax/seedance/vidu 的 model id 来自调研,未用真实 key 实测,可能需按官方文档修正
 """模型平台配置页（紧凑双栏 · 完整平台目录 · 只保存"启用且验证过"的平台）。
 
 设计要点
@@ -313,6 +314,9 @@ PROVIDER_CATALOG: List[ProviderMeta] = [
     ProviderMeta("kling",           "快手可灵 Kling",           "kling",
                  "https://api.klingai.com",
                  "", "#FF4500", ("国内",)),
+    ProviderMeta("vidu",            "生数 Vidu",                "vidu",
+                 "https://api.vidu.com",
+                 "", "#7C3AED", ("国内",)),
 ]
 
 # 申请 API Key / 安装指南 / 官网 三件套(后期补充式覆盖原 catalog,避免在 ~60 行
@@ -381,6 +385,7 @@ _PROVIDER_LINKS: Dict[str, Dict[str, str]] = {
     # —— 文生视频专项 ——
     # apply 为可灵开放平台 API Key 申请控制台（实测核对）
     "kling":            {"apply": "https://app.klingai.com/global/dev/api-key",                          "site": "https://app.klingai.com"},
+    "vidu":             {"apply": "https://platform.vidu.com",                                           "site": "https://www.vidu.com"},  # TODO(P2b-verify) URL
 }
 
 
@@ -445,6 +450,7 @@ _PROVIDER_DEFAULT_MODELS: Dict[str, Dict[str, List[str]]] = {
         "embed_models": ["embedding-3", "embedding-2"],
         "image2text_models": ["glm-4v-plus", "glm-4v"],
         "text2image_models": ["cogview-3-plus", "cogview-3"],
+        "text2video_models": ["cogvideox-3", "cogvideox-flash", "cogvideox-2"],
     },
     "moonshot": {
         "llm_models": [
@@ -462,11 +468,13 @@ _PROVIDER_DEFAULT_MODELS: Dict[str, Dict[str, List[str]]] = {
         "embed_models": ["doubao-embedding", "doubao-embedding-large"],
         "image2text_models": ["doubao-1.5-vision-pro-32k", "doubao-vision-pro-32k"],
         "text2image_models": ["doubao-seedream-3-0-t2i", "doubao-seedream-2-0-t2i"],
+        "text2video_models": ["doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128"],
     },
     "minimax": {
         "llm_models": ["MiniMax-Text-01", "abab6.5s-chat", "abab6.5-chat", "abab5.5-chat"],
         "embed_models": ["embo-01"],
         "text2image_models": ["image-01"],
+        "text2video_models": ["MiniMax-Hailuo-2.3", "MiniMax-Hailuo-2.3-Fast"],
         "speech2text_models": ["speech-02-hd", "speech-01-hd"],
         "text2speech_models": ["speech-02-hd", "speech-01-turbo"],
     },
@@ -641,6 +649,9 @@ _PROVIDER_DEFAULT_MODELS: Dict[str, Dict[str, List[str]]] = {
     # API Key 字段填 AccessKey:SecretKey（英文冒号连接两段密钥）。
     "kling": {
         "text2video_models": ["kling-v2-5-turbo", "kling-v1-6"],
+    },
+    "vidu": {
+        "text2video_models": ["viduq3-mix", "viduq3-turbo", "viduq3-pro"],
     },
 }
 

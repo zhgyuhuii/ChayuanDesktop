@@ -75,6 +75,7 @@ class PollResult:
     percent: Optional[int] = None          # 子类可自行填(填了优先,None 则由基类估算)
     video_urls: List[str] = field(default_factory=list)
     error_message: Optional[str] = None
+    raw: Optional[Dict] = None             # 原始轮询响应,供 fetch_result_urls 二段取 URL(如海螺 file_id)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -153,6 +154,14 @@ class AsyncPollVideoConnector(Connector):
     def parse_poll(self, resp_json: Dict) -> PollResult:
         """将轮询响应 JSON 解析为标准化 PollResult。"""
         raise NotImplementedError
+
+    async def fetch_result_urls(
+        self, client: httpx.AsyncClient, req: GenerateReq, pr: PollResult
+    ) -> List[str]:
+        """SUCCEEDED 后取最终视频 URL。默认直接返回 parse_poll 给的 video_urls;
+        像海螺(MiniMax)那种「轮询只给 file_id、需再调 files/retrieve 换 URL」的
+        子类 override 本方法,用 pr.raw 里的 file_id 多发一次请求拿 download_url。"""
+        return pr.video_urls
 
     # ── 公共流程 ──
 
@@ -322,7 +331,15 @@ class AsyncPollVideoConnector(Connector):
                 continue
 
             if pr.status == PollStatus.SUCCEEDED:
-                if not pr.video_urls:
+                # 二段取 URL:多数厂商 parse_poll 已给 video_urls;海螺等需用
+                # file_id 再调一次 files/retrieve → fetch_result_urls 默认返回
+                # pr.video_urls,海螺子类 override 它做额外请求。
+                try:
+                    urls = await self.fetch_result_urls(client, req, pr)
+                except Exception as e:  # noqa: BLE001
+                    yield error_event(f"获取视频地址失败: {e}", code="resolve_url_failed")
+                    return
+                if not urls:
                     yield error_event(
                         f"任务完成但未返回视频 URL: {resp_json}",
                         code="no_video_url",
@@ -332,7 +349,7 @@ class AsyncPollVideoConnector(Connector):
                 # 下载视频 + 落 artifacts
                 yield data_part("task-progress", {"percent": 92, "message": "下载视频"})
                 try:
-                    vbytes = await _download_bytes(client, pr.video_urls[0])
+                    vbytes = await _download_bytes(client, urls[0])
                 except Exception as e:  # noqa: BLE001
                     yield error_event(f"下载生成视频失败: {e}", code="download_failed")
                     return

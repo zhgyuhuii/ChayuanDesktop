@@ -62,6 +62,11 @@ _PREFIX_TO_CAP: List[tuple[str, Capability]] = [
     ("svd",                    Capability.T2V),
     ("runway",                 Capability.T2V),
     ("kling",                  Capability.T2V),
+    ("cogvideox",              Capability.T2V),
+    ("doubao-seedance",        Capability.T2V),
+    ("minimax-hailuo",         Capability.T2V),
+    ("t2v-01",                 Capability.T2V),
+    ("vidu",                   Capability.T2V),
     ("wan-2",                  Capability.T2V),
     ("wan2.",                  Capability.T2V),
     ("wan2-",                  Capability.T2V),
@@ -164,6 +169,11 @@ _PREFIX_TO_VENDOR: List[tuple[str, str]] = [
     ("svd",              "stability"),
     ("runway",           "runway"),
     ("kling",            "kling"),
+    ("cogvideox",        "zhipu"),
+    ("doubao-seedance",  "volcengine"),
+    ("minimax-hailuo",   "minimax"),
+    ("t2v-01",           "minimax"),
+    ("vidu",             "vidu"),
 ]
 
 
