@@ -31,6 +31,12 @@ from chayuan.server.modality.router.protocol import Capability, GenerateReq
 # 国际站 api.klingai.com 会对国内密钥报 "Auth failed"(签名其实是对的,只是 host 不匹配)。
 # 国际用户可在厂商配置里把 api_base 改成 https://api.klingai.com 或 api-singapore.klingai.com。
 _DEFAULT_BASE = "https://api-beijing.klingai.com"
+# 旧默认值(国际站):已存的配置里若是这些,自愈成 _DEFAULT_BASE(见 _base)。
+_STALE_DEFAULT_BASES = {
+    "https://api.klingai.com",
+    "http://api.klingai.com",
+    "api.klingai.com",
+}
 
 # TODO(P2-verify): 确认 KlingAI 官方状态字符串（submitted/processing/pending/succeed/failed）
 _RUNNING_STATUSES = {"submitted", "processing", "pending"}
@@ -96,8 +102,17 @@ class KlingVideoConnector(AsyncPollVideoConnector):
     # ── 内部工具 ──
 
     def _base(self, req: GenerateReq) -> str:
-        """提取并规范化 api_base，去除尾斜杠，空则用默认值。"""
-        return (req.api_base or "").rstrip("/") or _DEFAULT_BASE
+        """提取并规范化 api_base，去除尾斜杠，空则用默认值。
+
+        自愈:老配置里 api_base 存的是旧默认 ``api.klingai.com``(国际站,国内 ak/sk 在
+        这上面会 401 Auth failed)。实测国内密钥只在 ``api-beijing.klingai.com`` 有效,
+        所以把旧的国际站默认值视同"未配置",改用北京站默认 —— 用户不必手动改已存的配置。
+        真要用国际站,填 ``api-singapore.klingai.com`` 等非 ``api.klingai.com`` 的值即可。
+        """
+        base = (req.api_base or "").rstrip("/")
+        if not base or base in _STALE_DEFAULT_BASES:
+            return _DEFAULT_BASE
+        return base
 
     def _auth_headers(self, req: GenerateReq) -> Dict[str, str]:
         """构造含 JWT Bearer token 的请求头。"""
