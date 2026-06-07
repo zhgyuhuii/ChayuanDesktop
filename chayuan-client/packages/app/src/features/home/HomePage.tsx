@@ -343,8 +343,8 @@ export const HomePage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── 页脚:两个二维码居中(关注我们 / 购买) ── */}
-      <section className="relative z-10 flex items-center justify-center gap-6 rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-4 py-4">
+      {/* ── 页脚:两个二维码居中(关注我们 / 购买) — 去掉卡片外壳,只留二维码+名称 ── */}
+      <section className="relative z-10 flex items-center justify-center gap-8 pt-1">
         <QrCard label="关注我们" src={FOLLOW_QR_URL} />
         <BuyQrCard />
       </section>
