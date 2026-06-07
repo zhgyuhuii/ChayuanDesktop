@@ -399,14 +399,14 @@ const BuyQrCard: React.FC = () => {
       {qrDataUrl ? (
         <img
           src={qrDataUrl}
-          alt="购买二维码"
+          alt="解锁完整版二维码"
           className="h-24 w-24 rounded-lg bg-white object-contain p-1"
           draggable={false}
         />
       ) : (
         <div className="h-24 w-24 animate-pulse rounded-lg bg-[var(--cy-surface-2)]" />
       )}
-      <span className="text-[11px] text-[var(--cy-text-secondary)]">购买</span>
+      <span className="text-[11px] text-[var(--cy-text-secondary)]">解锁完整版</span>
     </div>
   );
 };
