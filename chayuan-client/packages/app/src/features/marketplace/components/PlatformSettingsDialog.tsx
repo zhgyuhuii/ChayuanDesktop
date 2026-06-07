@@ -28,7 +28,7 @@ import {
   Textarea,
   cn,
 } from '@chayuan/ui';
-import { Eye, EyeOff, RefreshCw, Save, Sparkles, Trash2, Wand2, Wifi } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw, Save, Sparkles, Trash2, Wand2, Wifi, X } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from '../../../i18n';
 import { notifyInfo, notifySuccess, reportError } from '../../../store/errorDialog';
@@ -542,6 +542,15 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
               保存后即时生效,无需重启服务
             </DialogDescription>
           </div>
+          {/* hideClose 去掉了默认右上角 X,这里补一个,避免用户找不到关闭入口 */}
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            aria-label="关闭"
+            className="ml-2 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[var(--cy-text-tertiary)] transition-colors hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -572,18 +581,20 @@ export const PlatformSettingsDialog: React.FC<PlatformSettingsDialogProps> = ({
             label="API Key"
             optional={isKeylessType(draft.platform_type)}
             hint={
-              isKeylessType(draft.platform_type)
-                ? '本地推理后端通常不需要 Key,留空即可'
-                : autoFetching
-                  ? '正在自动拉取模型清单…'
-                  : '失焦后自动拉取并归类该厂商的可用模型'
+              draft.platform_type === 'kling'
+                ? '可灵用双密钥:在此填 AccessKey:SecretKey(用英文冒号连接两段密钥)'
+                : isKeylessType(draft.platform_type)
+                  ? '本地推理后端通常不需要 Key,留空即可'
+                  : autoFetching
+                    ? '正在自动拉取模型清单…'
+                    : '失焦后自动拉取并归类该厂商的可用模型'
             }
           >
             <div className="relative">
               <Input
                 type={showKey ? 'text' : 'password'}
                 value={draft.api_key}
-                placeholder={isKeylessType(draft.platform_type) ? '可留空(本地后端无需 Key)' : 'sk-...'}
+                placeholder={draft.platform_type === 'kling' ? 'AccessKey:SecretKey' : isKeylessType(draft.platform_type) ? '可留空(本地后端无需 Key)' : 'sk-...'}
                 onFocus={(e) => {
                   // 第一次聚焦时,如果是 mask,清空让用户重新输入
                   if (!draft.api_key_dirty && draft.api_key === MASK) {

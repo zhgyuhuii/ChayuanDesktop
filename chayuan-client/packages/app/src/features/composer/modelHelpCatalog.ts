@@ -240,8 +240,10 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
       {
         name: 'Kling 可灵(快手)',
         home: 'https://kling.kuaishou.com/',
-        apiKey: 'https://klingai.com/dev-center/auth',
-        models: ['kling-v1', 'kling-pro'],
+        apiKey: 'https://app.klingai.com/global/dev/api-key',
+        models: ['kling-v2-5-turbo', 'kling-v1-6'],
+        note: '双密钥:在配置表单 API Key 处填 AccessKey:SecretKey(英文冒号连接两段)。',
+        platformId: 'kling',
       },
     ],
   },

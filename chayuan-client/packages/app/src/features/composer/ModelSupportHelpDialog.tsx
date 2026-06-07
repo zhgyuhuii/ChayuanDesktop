@@ -93,7 +93,7 @@ export const ModelSupportHelpDialog: React.FC<ModelSupportHelpDialogProps> = ({
         className="z-[200] w-[min(900px,92vw)] max-w-[900px] max-h-[80vh] overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
       >
-        <DialogHeader className="border-b border-[var(--cy-border-subtle)] px-5 py-4">
+        <DialogHeader className="border-b border-[var(--cy-border-subtle)] px-5 py-4 pr-12">
           <DialogTitle>模型支持说明</DialogTitle>
           <DialogDescription>
             察元支持下列各类模型;选好厂商点「去配置」一键打开预填好的配置表单,只需填上 API key,模型就会出现在选择器里。
