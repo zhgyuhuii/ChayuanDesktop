@@ -11,5 +11,6 @@ from chayuan.server.modality.router.connectors.video_gen import zhipu  # noqa: F
 from chayuan.server.modality.router.connectors.video_gen import seedance  # noqa: F401
 from chayuan.server.modality.router.connectors.video_gen import minimax  # noqa: F401
 from chayuan.server.modality.router.connectors.video_gen import vidu  # noqa: F401
+from chayuan.server.modality.router.connectors.video_gen import runway  # noqa: F401
 
 __all__: list[str] = []

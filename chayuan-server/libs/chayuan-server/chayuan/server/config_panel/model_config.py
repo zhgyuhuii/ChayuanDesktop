@@ -317,6 +317,9 @@ PROVIDER_CATALOG: List[ProviderMeta] = [
     ProviderMeta("vidu",            "生数 Vidu",                "vidu",
                  "https://api.vidu.com",
                  "", "#7C3AED", ("国内",)),
+    ProviderMeta("runway",          "Runway",                   "runway",
+                 "https://api.dev.runwayml.com",
+                 "", "#000000", ("国外",)),
 ]
 
 # 申请 API Key / 安装指南 / 官网 三件套(后期补充式覆盖原 catalog,避免在 ~60 行
@@ -386,6 +389,7 @@ _PROVIDER_LINKS: Dict[str, Dict[str, str]] = {
     # apply 为可灵开放平台 API Key 申请控制台（实测核对）
     "kling":            {"apply": "https://app.klingai.com/global/dev/api-key",                          "site": "https://app.klingai.com"},
     "vidu":             {"apply": "https://platform.vidu.com",                                           "site": "https://www.vidu.com"},  # TODO(P2b-verify) URL
+    "runway":           {"apply": "https://dev.runwayml.com",                                            "site": "https://runwayml.com"},   # TODO(P2b-verify) URL
 }
 
 
@@ -652,6 +656,10 @@ _PROVIDER_DEFAULT_MODELS: Dict[str, Dict[str, List[str]]] = {
     },
     "vidu": {
         "text2video_models": ["viduq3-mix", "viduq3-turbo", "viduq3-pro"],
+    },
+    # TODO(P2b-verify): gen4_turbo / gen3a_turbo model id 以 Runway 官方文档实测核对
+    "runway": {
+        "text2video_models": ["gen4_turbo", "gen3a_turbo"],
     },
 }
 

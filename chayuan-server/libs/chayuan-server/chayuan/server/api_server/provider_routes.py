@@ -240,7 +240,7 @@ async def delete_provider(
 
 # 视频/原生异步厂商没有 OpenAI 兼容的 /models 列表接口(如 Kling 用 JWT 视频专有
 # API),探测时不要去 GET /models —— 否则 404。模型清单走默认/手动维护。
-_NO_MODEL_LIST_TYPES = {"kling", "vidu"}
+_NO_MODEL_LIST_TYPES = {"kling", "vidu", "runway"}
 
 
 def _probe_provider(pid: str) -> Dict[str, Any]:

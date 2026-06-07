@@ -60,6 +60,11 @@ _PREFIX_TO_CAP: List[tuple[str, Capability]] = [
     ("sora",                   Capability.T2V),
     ("stable-video",           Capability.T2V),
     ("svd",                    Capability.T2V),
+    # Runway model id 前缀：gen4_turbo / gen3a_turbo / gen3a_watermark 等
+    # 排在 ("runway", ...) 前面无影响（gen4/gen3a/gen3 不以 "runway" 开头）
+    ("gen4",                   Capability.T2V),
+    ("gen3a",                  Capability.T2V),
+    ("gen3",                   Capability.T2V),
     ("runway",                 Capability.T2V),
     ("kling",                  Capability.T2V),
     ("cogvideox",              Capability.T2V),
@@ -167,6 +172,10 @@ _PREFIX_TO_VENDOR: List[tuple[str, str]] = [
     # 其它专有平台 — 后续接入时补
     ("stable-video",     "stability"),
     ("svd",              "stability"),
+    # Runway model id 前缀 → vendor runway
+    ("gen4",             "runway"),
+    ("gen3a",            "runway"),
+    ("gen3",             "runway"),
     ("runway",           "runway"),
     ("kling",            "kling"),
     ("cogvideox",        "zhipu"),
