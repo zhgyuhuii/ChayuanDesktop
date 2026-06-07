@@ -42,7 +42,6 @@ class ModelPlatformModel(Base):
     llm_models = Column(JSON, nullable=False, default=list, comment="LLM 模型清单")
     embed_models = Column(JSON, nullable=False, default=list, comment="嵌入模型清单")
     text2image_models = Column(JSON, nullable=False, default=list, comment="文生图清单")
-    text2video_models = Column(JSON, nullable=False, default=list, comment="文生/图生视频清单")
     image2text_models = Column(JSON, nullable=False, default=list, comment="多模态清单")
     image2image_models = Column(JSON, nullable=False, default=list, comment="图生图清单")
     rerank_models = Column(JSON, nullable=False, default=list, comment="重排清单")
@@ -74,7 +73,6 @@ class ModelPlatformModel(Base):
             "llm_models": list(self.llm_models or []),
             "embed_models": list(self.embed_models or []),
             "text2image_models": list(self.text2image_models or []),
-            "text2video_models": list(self.text2video_models or []),
             "image2text_models": list(self.image2text_models or []),
             "image2image_models": list(self.image2image_models or []),
             "rerank_models": list(self.rerank_models or []),
