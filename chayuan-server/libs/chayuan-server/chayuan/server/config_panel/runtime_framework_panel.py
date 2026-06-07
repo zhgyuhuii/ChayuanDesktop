@@ -1509,7 +1509,7 @@ _CAP_TO_GROUP_KEY: Dict[str, str] = {
     "clip":      "image2text_models",       # 图像嵌入暂复用 image2text 通道
     "rerank":    "rerank_models",
     "t2i":       "text2image_models",
-    "t2v":       "text2image_models",       # t2v 在 yaml 里还没单独通道，暂复用 t2i
+    "t2v":       "text2video_models",       # 文生/图生视频专用字段(P1+ 已加)
     "tts":       "text2speech_models",
     "asr":       "speech2text_models",
     "ocr":       "image2text_models",

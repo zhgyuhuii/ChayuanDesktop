@@ -67,6 +67,7 @@ _LIST_FIELDS = {
     "llm_models",
     "embed_models",
     "text2image_models",
+    "text2video_models",
     "image2text_models",
     "image2image_models",
     "rerank_models",
