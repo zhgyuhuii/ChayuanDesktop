@@ -12,7 +12,7 @@
 import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Library, Search, Upload, X, CheckCircle2, Loader2, AlertCircle, Trash2, Eye, Link2, Play,
+  Library, Search, Upload, X, CheckCircle2, Loader2, AlertCircle, Trash2, Eye, Link2, Play, Sparkles,
 } from 'lucide-react';
 import {
   videoGeneration,
@@ -20,6 +20,8 @@ import {
   type VgMaterial,
   type VgMaterialInfo,
 } from '@chayuan/api';
+import { AiVideoGenerator } from '../../ai-video/AiVideoGenerator';
+import { ingestAiVideo } from '../../ai-video/ingestAiVideo';
 import { useVgComposer } from '../store/vgComposer';
 import { reportError } from '../../../store/errorDialog';
 import { confirmDialog } from '../../../store/confirmDialog';
@@ -40,13 +42,14 @@ const PlayBadge: React.FC<{ onClick: () => void }> = ({ onClick }) => (
   </button>
 );
 
-type Tab = 'mine' | 'online' | 'link' | 'upload';
+type Tab = 'mine' | 'online' | 'link' | 'upload' | 'ai';
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'mine', label: '我的素材', icon: Library },
   { id: 'online', label: '在线搜索', icon: Search },
   { id: 'link', label: '从链接', icon: Link2 },
   { id: 'upload', label: '上传新素材', icon: Upload },
+  { id: 'ai', label: 'AI 生成', icon: Sparkles },
 ];
 
 function fmtSize(bytes: number): string {
@@ -130,6 +133,7 @@ export const MaterialsStep: React.FC<{ view?: 'card' | 'list' }> = ({ view = 'ca
       )}
       {tab === 'link' && <LinkTab qc={qc} />}
       {tab === 'upload' && <UploadTab qc={qc} />}
+      {tab === 'ai' && <AiGenTab qc={qc} />}
     </div>
   );
 };
@@ -513,6 +517,29 @@ const LinkTab: React.FC<{ qc: ReturnType<typeof useQueryClient> }> = ({ qc }) =>
             : <video src={pv.url} controls autoPlay onClick={(e) => e.stopPropagation()} className="max-h-[85vh] max-w-[85vw] rounded-lg bg-black" />}
         </div>
       )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// AI 生成
+// ─────────────────────────────────────────────────────────────────────
+
+const AiGenTab: React.FC<{ qc: ReturnType<typeof useQueryClient> }> = ({ qc }) => {
+  const onGenerated = async (url: string) => {
+    try {
+      await ingestAiVideo(url);
+      await qc.invalidateQueries({ queryKey: ['vg.materials'] });
+    } catch {
+      /* 生成成功但落库失败:静默,用户可去 /ai-video 重试导入 */
+    }
+  };
+  return (
+    <div className="px-1 py-2">
+      <p className="mb-2 text-[11px] text-[var(--cy-text-tertiary)]">
+        用 AI 生成视频片段,生成后自动加入「我的素材」,拖到下方轨道即可使用。
+      </p>
+      <AiVideoGenerator compact onGenerated={(u) => void onGenerated(u)} />
     </div>
   );
 };
