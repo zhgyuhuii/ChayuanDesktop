@@ -29,9 +29,11 @@ import {
 import * as React from 'react';
 import { useTranslation } from '../../i18n';
 import { useComposerS, useComposerScopedStore } from '../../store/composer';
-import { modality } from '@chayuan/api';
+import { modality, models, type RawModelItem } from '@chayuan/api';
+import { useQuery } from '@tanstack/react-query';
 import { classifyModalityCapability } from '@chayuan/transport';
 import { getComposerMode } from './composerMode';
+import { inferCapability } from './modelCapabilityChip';
 import { ComposerModeBadge } from './ComposerModeBadge';
 import { ImageGenParamBar } from './ImageGenParamBar';
 import { VideoGenParamBar } from './VideoGenParamBar';
@@ -110,6 +112,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const deepThink = useComposerS((s) => s.deepThink);
   const toggleDeepThink = useComposerS((s) => s.toggleDeepThink);
   const modelId = useComposerS((s) => s.modelId);
+  const platformName = useComposerS((s) => s.platformName);
   const selectedKuCount = useComposerS((s) => s.selectedKuIds.length);
   // 检查当前附件中有几张图,给 image_edit 模式判"必填参考图"用
   const imageAttachmentCount = useComposerS((s) => s.attachments.filter((a) => a.type === 'image').length);
@@ -188,10 +191,23 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   //   - placeholder:不同模式不同提示文案
   //   - submitLabel:发送按钮文案("生成图像 ✨" / "合成语音 🔊" …)
   // chat 模式即默认值,所有现有行为(KB / 工具 / 普通对话)完全不变。
+  // 拿 /v1/models 列表(与 ComposerModelPill 同一 query key,react-query 自动去重),
+  // 用完整模型对象(带 model_type)推 capability,避免只看名字时 flux/靠 model_type
+  // 判定的模型对不上 → 上方模式徽标/参数条不切换。
+  const { data: allModels = [] } = useQuery<RawModelItem[]>({
+    queryKey: ['v1.models', { type: 'all' }],
+    queryFn: () => models.list(),
+    staleTime: 60_000,
+    retry: 0,
+  });
   const composerMode = React.useMemo(() => {
-    const cap = classifyModalityCapability(modelId);
+    const cur = allModels.find(
+      (m) => m.id === modelId && (!platformName || m.platform_name === platformName),
+    );
+    // 查到完整对象 → inferCapability(名字+model_type);查不到 → 退回按名字推断
+    const cap = cur ? inferCapability(cur) : classifyModalityCapability(modelId);
     return getComposerMode(cap);
-  }, [modelId]);
+  }, [modelId, platformName, allModels]);
   const ph =
     placeholder
     ?? (composerMode.capability === 'chat'
