@@ -129,7 +129,7 @@ export function ShareDialog({
         <DialogHeader>
           <DialogTitle>今日还可免费用 {remainingFree} 次</DialogTitle>
           <DialogDescription>
-            分享给好友，好友安装后你可继续使用；也可直接购买授权解除限制
+            邀好友安装得次数；也可直接购买授权解除限制
           </DialogDescription>
         </DialogHeader>
 
@@ -143,7 +143,7 @@ export function ShareDialog({
           )}
 
           <p className="text-center text-xs text-muted-foreground">
-            好友扫码下载安装后，你的使用次数自动续期
+            好友扫码安装并首次使用后，你将获得该功能的使用次数
           </p>
 
           {/* 本机指纹条（与 LicenseDialog 一致，便于核对/查询序列号） */}
