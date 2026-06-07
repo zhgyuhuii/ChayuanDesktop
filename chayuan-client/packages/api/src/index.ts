@@ -20,6 +20,7 @@ export * from './aiPlatform';
 export * from './home';
 export * from './videoGeneration';
 export * from './digitalHuman';
+export * from './aiVideo';
 export * from './fixtures/skills';
 export * from './localRuntime';
 export * from './diagnose';

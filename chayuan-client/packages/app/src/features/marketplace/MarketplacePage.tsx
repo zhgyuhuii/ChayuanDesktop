@@ -77,6 +77,7 @@ function catalogEntryToPlatformConfig(e: ProviderCatalogEntry): PlatformConfig {
     llm_models: e.llm_models,
     embed_models: e.embed_models,
     text2image_models: e.text2image_models,
+    text2video_models: e.text2video_models,
     image2text_models: e.image2text_models,
     image2image_models: [],
     rerank_models: e.rerank_models,

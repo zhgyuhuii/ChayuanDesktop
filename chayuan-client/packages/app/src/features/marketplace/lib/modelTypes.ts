@@ -21,14 +21,16 @@ import {
   Mic,
   Network,
   Speaker,
+  Video,
 } from 'lucide-react';
 
-/** 8 种模型类型 —— 与后端 PlatformConfig 字段一一对应 */
+/** 9 种模型类型 —— 与后端 PlatformConfig 字段一一对应 */
 export type ModelType =
   | 'llm'
   | 'embed'
   | 'rerank'
   | 'text2image'
+  | 'text2video'
   | 'image2text'
   | 'image2image'
   | 'tts'
@@ -40,6 +42,7 @@ export type ModelField =
   | 'embed_models'
   | 'rerank_models'
   | 'text2image_models'
+  | 'text2video_models'
   | 'image2text_models'
   | 'image2image_models'
   | 'text2speech_models'
@@ -91,6 +94,14 @@ export const MODEL_TYPES: ReadonlyArray<ModelTypeMeta> = [
     i18nKey: 'modelMarket.capability.text2image',
     icon: ImageIcon,
     hue: 36,
+    prominent: true,
+  },
+  {
+    key: 'text2video',
+    field: 'text2video_models',
+    i18nKey: 'modelMarket.capability.text2video',
+    icon: Video,
+    hue: 300,
     prominent: true,
   },
   {
@@ -156,6 +167,7 @@ export function getModelsOfType(
     | 'embed_models'
     | 'rerank_models'
     | 'text2image_models'
+    | 'text2video_models'
     | 'image2text_models'
     | 'image2image_models'
     | 'text2speech_models'
@@ -180,6 +192,7 @@ export function platformHasCapability(
     | 'embed_models'
     | 'rerank_models'
     | 'text2image_models'
+    | 'text2video_models'
     | 'image2text_models'
     | 'image2image_models'
     | 'text2speech_models'

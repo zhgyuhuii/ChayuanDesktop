@@ -156,6 +156,7 @@ const workspaceRoutes: ReadonlyArray<{ path: string; id: string }> = [
   { path: '/video-generation/materials', id: 'video-generation-materials' },
   { path: '/video-generation/library', id: 'video-generation-library' },
   { path: '/digital-human', id: 'digital-human' },
+  { path: '/ai-video', id: 'ai-video' },
   // 在线办公占位页 /online/<feature> — 必须在此登记,否则 navigate() 经
   // TanStack Router 找不到路由会 404「页面不存在」;真正渲染走 page-registry。
   { path: '/online/$feature', id: 'online-feature' },

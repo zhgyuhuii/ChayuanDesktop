@@ -33,6 +33,7 @@ export const EMPTY_MODELS_BY_TYPE: ModelsByType = {
   embed: [],
   rerank: [],
   text2image: [],
+  text2video: [],
   image2text: [],
   image2image: [],
   tts: [],
@@ -333,6 +334,8 @@ function samplePlaceholder(t: ModelType): string {
       return 'bge-reranker-v2-m3';
     case 'text2image':
       return 'dall-e-3\nstable-diffusion-3.5-large';
+    case 'text2video':
+      return 'wan2.1-t2v-14b\ncogvideox-5b';
     case 'image2text':
       return 'gpt-4o\nqwen-vl-max';
     case 'image2image':

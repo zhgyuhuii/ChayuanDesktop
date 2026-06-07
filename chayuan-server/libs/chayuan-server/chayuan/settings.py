@@ -932,6 +932,9 @@ class PlatformConfig(MyBaseModel):
     text2speech_models: t.Union[t.Literal["auto"], t.List[str]] = []
     """该平台支持的 TTS 模型列表，auto_detect_model 设为 True 时自动检测"""
 
+    text2video_models: t.Union[t.Literal["auto"], t.List[str]] = []
+    """该平台支持的文生视频模型列表，auto_detect_model 设为 True 时自动检测"""
+
 
 class ApiModelSettings(BaseFileSettings):
     """模型配置项"""

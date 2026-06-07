@@ -26,6 +26,7 @@ export default {
     knowledge: 'ナレッジベース',
     modelMarket: 'モデルベンダー',
     modelGallery: 'モデルギャラリー',
+    aiVideo: 'AI Video',
     history: '会話履歴',
     settings: '設定',
     home: 'ホーム',
@@ -86,6 +87,9 @@ export default {
     history: '履歴',
     inputPlaceholder: '{model}にメッセージを送る',
     categories: { deepseek: 'Deepseek', qianwen: '通義千問', wenxin: '文心一言', douban: '豆包', kimi: 'Kimi', minimax: 'MiniMax' },
+    capability: {
+      text2video: { label: 'Video', long: 'Text/Image to Video', hint: 'Generate video from text or a first-frame image (e.g. Bailian Wanx)' },
+    },
   },
   history: {
     title: '会話履歴',

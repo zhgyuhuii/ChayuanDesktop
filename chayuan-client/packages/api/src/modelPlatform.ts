@@ -37,6 +37,7 @@ export interface PlatformConfig {
   llm_models: string[];
   embed_models: string[];
   text2image_models: string[];
+  text2video_models: string[];
   image2text_models: string[];
   image2image_models: string[];
   rerank_models: string[];
@@ -98,6 +99,7 @@ export interface ProviderCatalogEntry {
   llm_models: string[];
   embed_models: string[];
   text2image_models: string[];
+  text2video_models: string[];
   image2text_models: string[];
   rerank_models: string[];
   speech2text_models: string[];
@@ -121,6 +123,7 @@ export interface ProviderCatalogEntry {
     embed_models: string[];
     rerank_models: string[];
     text2image_models: string[];
+    text2video_models: string[];
     image2text_models: string[];
     speech2text_models: string[];
     text2speech_models: string[];

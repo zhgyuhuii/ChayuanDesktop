@@ -32,6 +32,7 @@ import {
   Bell,
   Tags,
   Lock,
+  Film,
 } from 'lucide-react';
 import { useNavigate, useLocation } from '@tanstack/react-router';
 // uuid / useQueryClient / upsertConversation 之前用于 onNewChat 预建会话,
@@ -77,6 +78,7 @@ const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { to: '/model-gallery', labelKey: 'nav.modelGallery', icon: Store },
   { to: '/mcp', labelKey: 'nav.mcp', icon: Plug },
   { to: '/tools', labelKey: 'nav.tools', icon: Wrench },
+  { to: '/ai-video', labelKey: 'nav.aiVideo', icon: Film },
   // 单机版移除训练数据中心(/annotation)
   { to: '/history', labelKey: 'nav.history', icon: Clock },
 ];
@@ -336,6 +338,7 @@ function iconKeyFor(path: string): string {
   if (path === '/model-gallery') return 'store';
   if (path === '/mcp') return 'plug';
   if (path === '/tools') return 'wrench';
+  if (path === '/ai-video') return 'film';
   if (path === '/history') return 'clock';
   if (path === '/annotation') return 'tag';
   if (path.startsWith('/chat')) return 'message-square';

@@ -26,6 +26,7 @@ export default {
     knowledge: '지식 베이스',
     modelMarket: '모델 공급업체',
     modelGallery: '모델 갤러리',
+    aiVideo: 'AI Video',
     history: '대화 기록',
     settings: '설정',
     home: '홈',
@@ -86,6 +87,9 @@ export default {
     history: '기록',
     inputPlaceholder: '{model}에게 메시지 보내기',
     categories: { deepseek: 'Deepseek', qianwen: '통이치엔웬', wenxin: '원신이엔', douban: '더우바오', kimi: 'Kimi', minimax: 'MiniMax' },
+    capability: {
+      text2video: { label: 'Video', long: 'Text/Image to Video', hint: 'Generate video from text or a first-frame image (e.g. Bailian Wanx)' },
+    },
   },
   history: {
     title: '대화 기록',

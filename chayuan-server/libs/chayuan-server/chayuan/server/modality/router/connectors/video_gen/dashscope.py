@@ -161,17 +161,53 @@ def _estimate_percent(elapsed_s: float, status: str) -> int:
 class DashScopeT2VConnector(Connector):
     """wanx-* 异步文生视频。"""
 
+    # ──────────────────────────────────────────────────────────────
+    # 构造提交体：文生视频 / 图生视频(I2V)分流
+    # ──────────────────────────────────────────────────────────────
+    def _build_submit_payload(self, req: GenerateReq) -> Dict:
+        """构造 DashScope 异步任务提交 body。
+
+        当 ``req.attachments`` 里有 mime 以 ``image/`` 开头的附件时，
+        把第一个图片的 url 放进 ``input["img_url"]``，走图生视频(I2V)；
+        否则只传 prompt，走纯文生视频(T2V)。
+        """
+        params = req.params or {}
+        prompt = (req.prompt or "").strip()
+        size = _normalize_size(params.get("size"), req.model)
+        try:
+            duration = max(2, min(10, int(params.get("duration") or _DEFAULT_DURATION_S)))
+        except (TypeError, ValueError):
+            duration = _DEFAULT_DURATION_S
+
+        inp: Dict = {"prompt": prompt}
+        for a in (req.attachments or []):
+            if (getattr(a, "mime", "") or "").startswith("image/"):
+                # TODO(P1-verify): 确认 DashScope img_url 接受本地 artifact URL,否则转 data URL/公网 URL
+                inp["img_url"] = a.url
+                break
+
+        payload: Dict = {
+            "model": req.model,
+            "input": inp,
+            "parameters": {"size": size, "duration": duration},
+        }
+        seed = params.get("seed")
+        if seed is not None:
+            try:
+                payload["parameters"]["seed"] = int(seed)
+            except (TypeError, ValueError):
+                pass
+        return payload
+
     async def generate(self, req: GenerateReq) -> AsyncIterator[Dict]:
         prompt = (req.prompt or "").strip()
         if not prompt:
             yield error_event("文生视频需要输入提示词描述", code="empty_prompt")
             return
 
-        size = _normalize_size(req.params.get("size"), req.model)
-        try:
-            duration = max(2, min(10, int(req.params.get("duration") or _DEFAULT_DURATION_S)))
-        except (TypeError, ValueError):
-            duration = _DEFAULT_DURATION_S
+        payload = self._build_submit_payload(req)
+        size = payload["parameters"]["size"]
+        duration = payload["parameters"]["duration"]
 
         text_id = "t0"
         yield text_start(text_id)
@@ -180,17 +216,7 @@ class DashScopeT2VConnector(Connector):
         yield data_part("task-progress", {"percent": 2, "message": "提交任务"})
 
         submit_url, tasks_url_prefix = _build_endpoints(req.api_base)
-        body: Dict = {
-            "model": req.model,
-            "input": {"prompt": prompt},
-            "parameters": {"size": size, "duration": duration},
-        }
-        seed = req.params.get("seed")
-        if seed is not None:
-            try:
-                body["parameters"]["seed"] = int(seed)
-            except (TypeError, ValueError):
-                pass
+        body: Dict = payload
         headers_submit = {
             "Authorization": f"Bearer {req.api_key}",
             "Content-Type": "application/json",

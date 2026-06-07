@@ -26,6 +26,7 @@ export default {
     knowledge: 'Base de connaissances',
     modelMarket: 'Fournisseurs de modèles',
     modelGallery: 'Galerie de modèles',
+    aiVideo: 'AI Video',
     history: 'Historique',
     settings: 'Paramètres',
     home: 'Accueil',
@@ -86,6 +87,9 @@ export default {
     history: 'Historique',
     inputPlaceholder: 'Message à {model}',
     categories: { deepseek: 'Deepseek', qianwen: 'Qwen', wenxin: 'ERNIE Bot', douban: 'Doubao', kimi: 'Kimi', minimax: 'MiniMax' },
+    capability: {
+      text2video: { label: 'Video', long: 'Text/Image to Video', hint: 'Generate video from text or a first-frame image (e.g. Bailian Wanx)' },
+    },
   },
   history: {
     title: 'Historique des conversations',

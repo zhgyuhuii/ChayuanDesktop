@@ -76,6 +76,7 @@ class _ProviderBody(BaseModel):
     llm_models: Optional[List[str]] = None
     embed_models: Optional[List[str]] = None
     text2image_models: Optional[List[str]] = None
+    text2video_models: Optional[List[str]] = None
     image2text_models: Optional[List[str]] = None
     rerank_models: Optional[List[str]] = None
     speech2text_models: Optional[List[str]] = None
@@ -349,6 +350,7 @@ _MODEL_FIELDS = (
     "llm_models",
     "embed_models",
     "text2image_models",
+    "text2video_models",
     "image2text_models",
     "rerank_models",
     "speech2text_models",

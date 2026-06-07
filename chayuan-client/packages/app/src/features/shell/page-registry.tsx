@@ -115,6 +115,9 @@ const OnlineFeaturePage = React.lazy(() =>
 const DigitalHumanPage = React.lazy(() =>
   import('../digital-human/DigitalHumanPage').then((m) => ({ default: m.DigitalHumanPage })),
 );
+const AiVideoPage = React.lazy(() =>
+  import('../ai-video/AiVideoPage').then((m) => ({ default: m.AiVideoPage })),
+);
 
 /**
  * 模型厂商路由包装 —— 把 ``/marketplace?configure=<pid>`` 的 search param
@@ -369,6 +372,12 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     render: () => <DigitalHumanPage />,
     defaultTitle: '数字人',
     defaultIcon: 'user-round',
+  },
+  {
+    pattern: /^\/ai-video$/,
+    render: () => <AiVideoPage />,
+    defaultTitle: 'nav.aiVideo',
+    defaultIcon: 'film',
   },
   {
     // 在线办公功能占位页:/online/<feature>(office / space / market / tasks / annotation)

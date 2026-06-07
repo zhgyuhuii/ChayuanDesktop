@@ -5,5 +5,6 @@ PR-6+:Runway / Kling / Sora 等。
 """
 
 from chayuan.server.modality.router.connectors.video_gen import dashscope  # noqa: F401
+from chayuan.server.modality.router.connectors.video_gen import local_stub  # noqa: F401
 
 __all__: list[str] = []
