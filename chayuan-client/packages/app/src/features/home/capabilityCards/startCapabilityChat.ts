@@ -45,7 +45,7 @@ export function startCapabilityChat(
   // 1. 预选模型 — ChatComposer 监听 composer.modelId,会自动联动 ComposerModeBadge /
   //    placeholder / submitLabel / 参数条
   const composer = useComposerStore.getState();
-  composer.setModel(model.id, model.platform_name);
+  composer.setModel(model.id, model.platform_name, cap); // 一并记录能力,对话页直接切上方模式组件
   // 1b. 一次性能力提示 — 对话页模型下拉打开时据此预选能力标签(如"文生视频"),
   //     过滤出同能力模型;消费一次即由 ComposerModelPill 清掉,不影响日常打开。
   composer.setCapabilityHint(cap);

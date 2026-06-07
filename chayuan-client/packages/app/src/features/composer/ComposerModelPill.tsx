@@ -150,7 +150,7 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
         : modelsWithLocal;
       const first = pickable.find((m) => m.available !== false) ?? pickable[0];
       if (first) {
-        setModel(first.id, first.platform_name);
+        setModel(first.id, first.platform_name, inferCapability(first));
       }
     }
   }, [modelId, modelsWithLocal, current, setModel, onlyChat]);
@@ -166,7 +166,7 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
     const fallback = modelsWithLocal.find(
       (m) => m.available !== false && isChatCapability(inferCapability(m)),
     );
-    if (fallback) setModel(fallback.id, fallback.platform_name);
+    if (fallback) setModel(fallback.id, fallback.platform_name, inferCapability(fallback));
   }, [onlyChat, current, modelsWithLocal, setModel]);
 
   const currentLogo = resolveLogo(current?.platform_name, current?.id);
@@ -218,7 +218,7 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
           // 选中能力标签 → 立即把当前模型切到该能力第一个(不关下拉,仍可再挑)
           onAutoSelectModel={(m) => {
             if (m.available === false) return;
-            setModel(m.id, m.platform_name);
+            setModel(m.id, m.platform_name, inferCapability(m));
           }}
           resolveLogo={resolveLogo}
           emptyLabel={t('chat.noModelAvailable')}
@@ -239,7 +239,7 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
           onPick={(m) => {
             if (m.available === false) return;
             // 77 题:传 platform_name 让 server 精确路由
-            setModel(m.id, m.platform_name);
+            setModel(m.id, m.platform_name, inferCapability(m));
             logEvent(Events.ComposerModelChange, {
               metadata: { modelId: m.id, platform: m.platform_name },
             });

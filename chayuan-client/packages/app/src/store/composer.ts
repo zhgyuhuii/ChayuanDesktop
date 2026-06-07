@@ -105,8 +105,12 @@ interface ComposerState {
   /** 一次性能力提示:首页能力卡跳转时写入,对话页模型下拉据此预选能力标签(消费一次即清);不持久化。 */
   capabilityHint: ModalityCapability | null;
   setCapabilityHint(cap: ModalityCapability | null): void;
-  /** 77 题:platformName 给定时,modelId 编码为 `${platformName}::${id}` 让 server 精确路由,避免跨平台同名覆盖 */
-  setModel(id: string, platformName?: string): void;
+  /** 当前模型的能力(选模型时一并写入,带 model_type 判定)。ChatComposer 直接读它切
+   *  上方模式组件,避免只按模型名推断(flux 等对不上)+ 查表/跨 store 的时序滞后。 */
+  modelCapability: ModalityCapability | null;
+  /** 77 题:platformName 给定时,modelId 编码为 `${platformName}::${id}` 精确路由;
+   *  capability 给定时一并记录(未给则置 null,ChatComposer 退回按模型名推断)。 */
+  setModel(id: string, platformName?: string, capability?: ModalityCapability | null): void;
   setEmbedModel(id?: string): void;
   setRewriteStrategy(s: ComposerState['rewriteStrategy']): void;
   setSearchMode(m: ComposerState['searchMode']): void;
@@ -175,6 +179,7 @@ export function createComposerStore(
         partialize: (s) => ({
           modelId: s.modelId,
           platformName: s.platformName,
+          modelCapability: s.modelCapability,
           embedModelId: s.embedModelId,
           rewriteStrategy: s.rewriteStrategy,
           deepThink: s.deepThink,
@@ -212,6 +217,7 @@ const _buildState = (set: SetFn): ComposerState => ({
       attachments: [],
       modelId: '',  // 96 题:空字符串 → ChatComposer 显示"未选模型",由 ChatComposer 内部拿真实 /v1/models 列表第一个 fallback
       capabilityHint: null,
+      modelCapability: null,
       embedModelId: undefined,
       rewriteStrategy: 'auto',
       searchMode: 'balanced',
@@ -229,8 +235,12 @@ const _buildState = (set: SetFn): ComposerState => ({
       // 必须记录 platformName,buildChatRequest 时拼接 `${platform}::${id}` 发给
       // server,server 解析后精确路由。store 里 modelId 仍然是裸 model_id,
       // 方便 UI find(m.id===modelId)。
-      setModel: (modelId, platformName) =>
-        set({ modelId, platformName: platformName || undefined }),
+      setModel: (modelId, platformName, modelCapability) =>
+        set({
+          modelId,
+          platformName: platformName || undefined,
+          modelCapability: modelCapability ?? null,
+        }),
       setCapabilityHint: (capabilityHint) => set({ capabilityHint }),
       setEmbedModel: (embedModelId) => set({ embedModelId: embedModelId || undefined }),
       setRewriteStrategy: (rewriteStrategy) => set({ rewriteStrategy }),

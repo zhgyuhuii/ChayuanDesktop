@@ -42,7 +42,7 @@ describe('startCapabilityChat', () => {
       { navigate },
     );
 
-    expect(setModel).toHaveBeenCalledWith('qwen-image-max', 'bailian');
+    expect(setModel).toHaveBeenCalledWith('qwen-image-max', 'bailian', 't2i');
     // 一次性能力提示:对话页模型下拉据此预选"文生图"标签
     expect(setCapabilityHint).toHaveBeenCalledWith('t2i');
     expect(setActive).toHaveBeenCalledWith(null);
