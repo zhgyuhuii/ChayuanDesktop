@@ -108,6 +108,12 @@ interface ComposerState {
   /** 当前模型的能力(选模型时一并写入,带 model_type 判定)。ChatComposer 直接读它切
    *  上方模式组件,避免只按模型名推断(flux 等对不上)+ 查表/跨 store 的时序滞后。 */
   modelCapability: ModalityCapability | null;
+  /** 待应用的模型导航(首页能力卡跳转时写**全局**)。对话页泳道用 scoped store
+   *  (scope=lane.<id>,localStorage 持久、seed 不再应用),全局写它读不到;故由
+   *  ChatComposer 挂载/变化时把这个信号应用到**自己的 scoped store**(setModel+清KB),
+   *  应用后清空。不持久化。 */
+  pendingModelApply: ComposerSeed | null;
+  setPendingModelApply(v: ComposerSeed | null): void;
   /** 77 题:platformName 给定时,modelId 编码为 `${platformName}::${id}` 精确路由;
    *  capability 给定时一并记录(未给则置 null,ChatComposer 退回按模型名推断)。 */
   setModel(id: string, platformName?: string, capability?: ModalityCapability | null): void;
@@ -219,6 +225,7 @@ const _buildState = (set: SetFn): ComposerState => ({
       modelId: '',  // 96 题:空字符串 → ChatComposer 显示"未选模型",由 ChatComposer 内部拿真实 /v1/models 列表第一个 fallback
       capabilityHint: null,
       modelCapability: null,
+      pendingModelApply: null,
       embedModelId: undefined,
       rewriteStrategy: 'auto',
       searchMode: 'balanced',
@@ -243,6 +250,7 @@ const _buildState = (set: SetFn): ComposerState => ({
           modelCapability: modelCapability ?? null,
         }),
       setCapabilityHint: (capabilityHint) => set({ capabilityHint }),
+      setPendingModelApply: (pendingModelApply) => set({ pendingModelApply }),
       setEmbedModel: (embedModelId) => set({ embedModelId: embedModelId || undefined }),
       setRewriteStrategy: (rewriteStrategy) => set({ rewriteStrategy }),
       setSearchMode: (m) => {

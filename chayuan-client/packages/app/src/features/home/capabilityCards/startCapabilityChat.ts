@@ -47,6 +47,14 @@ export function startCapabilityChat(
   //    placeholder / submitLabel / 参数条
   const composer = useComposerStore.getState();
   composer.setModel(model.id, model.platform_name, cap); // 全局 store(非泳道场景用)
+  // ⚠️ 对话页泳道用 scoped store(scope=lane.<id>),localStorage 持久、seed 不再应用,
+  //    全局写它读不到。写一个「待应用」信号,由对话页 ChatComposer 挂载/变化时应用到
+  //    自己的 scoped store(setModel + 清 KB)。这是真正能把模型/能力送进对话页的路径。
+  composer.setPendingModelApply({
+    modelId: model.id,
+    platformName: model.platform_name,
+    modelCapability: cap,
+  });
   // 1a. ⚠️ 对话页每个泳道用的是 scoped composer store(scope=lane.id),初始值来自
   //     ArenaStore.lastTouchedSeed,**不读全局 store**。所以必须把模型+能力写进
   //     lastTouchedSeed,新开的对话泳道才会带上对应模型/模式;并清掉 KB(避免新

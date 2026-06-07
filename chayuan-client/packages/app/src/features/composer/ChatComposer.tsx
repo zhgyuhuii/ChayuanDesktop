@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from '../../i18n';
-import { useComposerS, useComposerScopedStore } from '../../store/composer';
+import { useComposerS, useComposerScopedStore, useComposerStore } from '../../store/composer';
 import { modality } from '@chayuan/api';
 import { classifyModalityCapability } from '@chayuan/transport';
 import { getComposerMode } from './composerMode';
@@ -111,6 +111,25 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const toggleDeepThink = useComposerS((s) => s.toggleDeepThink);
   const modelId = useComposerS((s) => s.modelId);
   const modelCapability = useComposerS((s) => s.modelCapability);
+  // store 实例引用(避免 onPartial 回调 stale closure;也给下面待应用信号用)
+  const composerStore = useComposerScopedStore();
+  // 首页能力卡跳转的「待应用」信号(写在全局 store)。对话页泳道是 scoped store,
+  // 全局写不到,所以这里把它应用到本泳道 scoped store(切模型+能力、清 KB 防 onlyChat
+  // 把 tts/t2v 等非对话模型打回),然后清空信号(一次性)。
+  const pendingModelApply = useComposerStore((s) => s.pendingModelApply);
+  const setPendingModelApply = useComposerStore((s) => s.setPendingModelApply);
+  React.useEffect(() => {
+    if (!pendingModelApply?.modelId) return;
+    const st = composerStore.getState();
+    st.setModel(
+      pendingModelApply.modelId,
+      pendingModelApply.platformName,
+      pendingModelApply.modelCapability ?? null,
+    );
+    st.setKbs([]);
+    st.setKuIds([]);
+    setPendingModelApply(null);
+  }, [pendingModelApply, composerStore, setPendingModelApply]);
   const selectedKuCount = useComposerS((s) => s.selectedKuIds.length);
   // 检查当前附件中有几张图,给 image_edit 模式判"必填参考图"用
   const imageAttachmentCount = useComposerS((s) => s.attachments.filter((a) => a.type === 'image').length);
@@ -118,8 +137,6 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const audioAttachmentCount = useComposerS((s) => s.attachments.filter((a) => a.type === 'audio').length);
   const taRef = React.useRef<HTMLTextAreaElement>(null);
   const composingRef = React.useRef(false);
-  // 用 store 实例引用,避免 onPartial 回调中的 stale closure
-  const composerStore = useComposerScopedStore();
 
   // 录音 + 转写 → 发送:整段录完送 transcribe-file,准确率远高于实时分片。
   // 流程:用户点麦 → 录音面板出现 → 录制中可暂停/继续/取消 → 点「发送」→
