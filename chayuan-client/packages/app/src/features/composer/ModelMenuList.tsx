@@ -192,6 +192,14 @@ export interface ModelMenuListProps {
    * 选错模型 → 生成时才报 ModelNotConfigured / 404。不传则维持原行为。
    */
   allowCapabilities?: ReadonlySet<ModalityCapability>;
+  /**
+   * 打开时预选的能力标签(一次性):首页能力卡跳转过来时由 ComposerModelPill 传入,
+   * 让下拉一打开就过滤到对应能力(如"文生视频")。消费后通过 ``onCapFilterInit``
+   * 通知上层清掉,避免下次重开还停留在该过滤。不传则维持原行为(默认"全部")。
+   */
+  initialCapFilter?: ModalityCapability | null;
+  /** ``initialCapFilter`` 被用作初始过滤后回调上层(清掉一次性提示)。 */
+  onCapFilterInit?(): void;
 }
 
 /**
@@ -218,11 +226,20 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
   emptyAction,
   maxHeight = 384,
   allowCapabilities,
+  initialCapFilter,
+  onCapFilterInit,
 }) => {
   const [keyword, setKeyword] = React.useState('');
-  const [capFilter, setCapFilter] = React.useState<ModalityCapability | null>(null);
+  // 一次性能力提示:初始过滤用 initialCapFilter(首页能力卡跳转带来),否则"全部"。
+  const [capFilter, setCapFilter] = React.useState<ModalityCapability | null>(initialCapFilter ?? null);
   const [override, setOverride] = React.useState<Map<string, boolean>>(() => readOverrideLS());
   const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  // 消费一次性提示:挂载时若带了 initialCapFilter,通知上层清掉,避免重开还停在该过滤。
+  React.useEffect(() => {
+    if (initialCapFilter) onCapFilterInit?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 自动 focus 搜索框 — 提升键盘玩家效率
   React.useEffect(() => {

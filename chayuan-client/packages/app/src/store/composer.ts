@@ -14,6 +14,7 @@
 import * as React from 'react';
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import type { ModalityCapability } from '@chayuan/transport';
 
 export interface AttachmentDraft {
   id: string;
@@ -101,6 +102,9 @@ interface ComposerState {
 
   setDraft(s: string): void;
   setActive(id: string | null): void;
+  /** 一次性能力提示:首页能力卡跳转时写入,对话页模型下拉据此预选能力标签(消费一次即清);不持久化。 */
+  capabilityHint: ModalityCapability | null;
+  setCapabilityHint(cap: ModalityCapability | null): void;
   /** 77 题:platformName 给定时,modelId 编码为 `${platformName}::${id}` 让 server 精确路由,避免跨平台同名覆盖 */
   setModel(id: string, platformName?: string): void;
   setEmbedModel(id?: string): void;
@@ -207,6 +211,7 @@ const _buildState = (set: SetFn): ComposerState => ({
       draft: '',
       attachments: [],
       modelId: '',  // 96 题:空字符串 → ChatComposer 显示"未选模型",由 ChatComposer 内部拿真实 /v1/models 列表第一个 fallback
+      capabilityHint: null,
       embedModelId: undefined,
       rewriteStrategy: 'auto',
       searchMode: 'balanced',
@@ -226,6 +231,7 @@ const _buildState = (set: SetFn): ComposerState => ({
       // 方便 UI find(m.id===modelId)。
       setModel: (modelId, platformName) =>
         set({ modelId, platformName: platformName || undefined }),
+      setCapabilityHint: (capabilityHint) => set({ capabilityHint }),
       setEmbedModel: (embedModelId) => set({ embedModelId: embedModelId || undefined }),
       setRewriteStrategy: (rewriteStrategy) => set({ rewriteStrategy }),
       setSearchMode: (m) => {

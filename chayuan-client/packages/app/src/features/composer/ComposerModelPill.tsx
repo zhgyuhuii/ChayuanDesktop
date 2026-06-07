@@ -82,6 +82,9 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   const modelId = useComposerS((s) => s.modelId);
   const platformName = useComposerS((s) => s.platformName);
   const setModel = useComposerS((s) => s.setModel);
+  // 一次性能力提示(首页能力卡跳转写入):传给 ModelMenuList 作初始过滤,消费后清掉。
+  const capabilityHint = useComposerS((s) => s.capabilityHint);
+  const setCapabilityHint = useComposerS((s) => s.setCapabilityHint);
   // 绑定了知识库 → 知识问答必走 LLM 链路,模型选择收窄到对话类(chat/vl)。
   // chatOnly prop 也收窄(video_generation 脚本生成)。两者任一为真即只列对话模型。
   const kbBound = useComposerS((s) => s.selectedKuIds.length > 0);
@@ -205,6 +208,10 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
           currentId={modelId}
           currentPlatform={platformName}
           allowCapabilities={onlyChat ? CHAT_CAPABILITIES : undefined}
+          // 首页能力卡跳转带来的一次性能力提示:预选对应标签过滤;onlyChat(知识库/脚本)
+          // 场景只允许对话模型,忽略该提示。消费后回调清掉,保证只生效一次。
+          initialCapFilter={onlyChat ? null : capabilityHint}
+          onCapFilterInit={() => setCapabilityHint(null)}
           resolveLogo={resolveLogo}
           emptyLabel={t('chat.noModelAvailable')}
           emptyAction={

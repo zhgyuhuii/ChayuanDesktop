@@ -24,6 +24,7 @@ describe('startCapabilityChat', () => {
   it('已就绪 cap → setModel + setActive(null) + open new tab + navigate', () => {
     const setModel = vi.spyOn(useComposerStore.getState(), 'setModel');
     const setActive = vi.spyOn(useComposerStore.getState(), 'setActive');
+    const setCapabilityHint = vi.spyOn(useComposerStore.getState(), 'setCapabilityHint');
     const open = vi.spyOn(useTabsStore.getState(), 'open');
     const navigate = vi.fn();
 
@@ -42,6 +43,8 @@ describe('startCapabilityChat', () => {
     );
 
     expect(setModel).toHaveBeenCalledWith('qwen-image-max', 'bailian');
+    // 一次性能力提示:对话页模型下拉据此预选"文生图"标签
+    expect(setCapabilityHint).toHaveBeenCalledWith('t2i');
     expect(setActive).toHaveBeenCalledWith(null);
     expect(open).toHaveBeenCalledWith(
       '/chat',
