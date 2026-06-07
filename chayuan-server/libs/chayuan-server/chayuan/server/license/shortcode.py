@@ -4,7 +4,7 @@ import hashlib
 from datetime import timedelta
 
 from .base32 import decode, check_char
-from .codec import unpack, issue_to_date, to_iso
+from .codec import unpack, issue_to_date, to_iso, COUNT_VALID_DAYS
 
 
 def verify_shortcode(serial: str, machine_fp: bytes, hmac_keys: dict) -> dict:
@@ -32,8 +32,10 @@ def verify_shortcode(serial: str, machine_fp: bytes, hmac_keys: dict) -> dict:
     if not hmac.compare_digest(tag, given_tag):
         return {"valid": False, "reason": "signature"}
 
-    # kind=0 时长:计算到期;kind=1 次数:无到期(value 即次数 n,由调用方处理)。
+    # kind=0 时长:计算到期;kind=1 次数:自签发日起 COUNT_VALID_DAYS 天到期。
     if fields["kind"] == 0:
         expire = issue_to_date(fields["issueDate"]) + timedelta(days=fields["value"])
         return {"valid": True, "fields": fields, "expireAt": to_iso(expire)}
-    return {"valid": True, "fields": fields}
+    # kind=1 次数:自签发日起 COUNT_VALID_DAYS 天到期
+    expire = issue_to_date(fields["issueDate"]) + timedelta(days=COUNT_VALID_DAYS)
+    return {"valid": True, "fields": fields, "expireAt": to_iso(expire)}

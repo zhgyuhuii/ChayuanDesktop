@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 
 EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
+COUNT_VALID_DAYS = 30  # 次数型授权自签发日起有效天数(三端一致)
 _WIDTHS = {"ver": 4, "kind": 1, "modules": 8, "value": 14, "issueDate": 13, "nonce": 8}
 _ORDER = ["ver", "kind", "modules", "value", "issueDate", "nonce"]
 

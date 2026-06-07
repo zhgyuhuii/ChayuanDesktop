@@ -20,12 +20,14 @@ def test_time_serial_verifies():
 
 
 def test_count_serial_no_expire():
+    # 旧断言保留历史记录:此测试已由 test_count_serial_has_expire 取代。
+    # kind=1 次数型现在携带 expireAt(issueDate + COUNT_VALID_DAYS)。
     r = verify_shortcode(COUNT_SERIAL, FP, KEYS)
     assert r["valid"] is True
     assert r["fields"]["kind"] == 1
     assert r["fields"]["value"] == 50
     assert r["fields"]["modules"] == 2
-    assert "expireAt" not in r
+    assert "expireAt" in r  # P3:次数型现在有到期
 
 
 def test_wrong_machine_fails():
@@ -48,3 +50,15 @@ def test_unknown_key_version():
 def test_lowercase_and_no_dash():
     r = verify_shortcode(TIME_SERIAL.replace("-", "").lower(), FP, KEYS)
     assert r["valid"] is True
+
+
+from chayuan.server.license.codec import COUNT_VALID_DAYS
+
+
+def test_count_serial_has_expire():
+    r = verify_shortcode(COUNT_SERIAL, FP, KEYS)
+    assert r["valid"] is True
+    assert r["fields"]["kind"] == 1
+    assert "expireAt" in r
+    # issueDate=0 => EPOCH(2026-01-01) + COUNT_VALID_DAYS(30) = 2026-01-31
+    assert r["expireAt"] == "2026-01-31T00:00:00.000Z"

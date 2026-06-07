@@ -209,9 +209,13 @@ def redeem_shortcode(root, serial: str, cfg: dict, *, now=None) -> dict:
         if entstore.is_redeemed(root, code_id):
             return {"ok": False, "reason": "used"}
         entstore.add_redeemed(root, code_id)
+        exp = r.get("expireAt")
         for m in mods:
             state = _normalize(entstore.read_state(root, m), now)
             state["counts"] += int(fields["value"])
+            if exp:
+                cur = _ts(state["countExpireAt"]) if state.get("countExpireAt") else 0
+                state["countExpireAt"] = _to_iso(max(cur, _ts(exp)))
             if now > state.get("seenMax", 0):
                 state["seenMax"] = now
             entstore.write_state(root, state)
