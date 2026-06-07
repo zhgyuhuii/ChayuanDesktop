@@ -426,7 +426,16 @@ _PROVIDER_DEFAULT_MODELS: Dict[str, Dict[str, List[str]]] = {
         "embed_models": ["text-embedding-v3", "text-embedding-v2"],
         "rerank_models": ["gte-rerank"],
         "text2image_models": ["wanx-v1", "flux-schnell", "flux-dev"],
-        "text2video_models": ["wan2.7-t2v", "wanx2.1-t2v-turbo", "wan2.6-i2v"],
+        # 文生/图生视频(一类,连接器按是否带首帧图分流)。以下 id 全部用真实
+        # API key 实测确认存在(2026-06-07);2.1 系列是 wanx2.1-,2.2+ 是 wan2.x-。
+        "text2video_models": [
+            # 文生视频 T2V
+            "wan2.7-t2v", "wan2.6-t2v", "wan2.5-t2v-preview", "wan2.2-t2v-plus",
+            "wanx2.1-t2v-turbo", "wanx2.1-t2v-plus", "happyhorse-1.0-t2v",
+            # 图生视频 I2V
+            "wan2.7-i2v", "wan2.6-i2v", "wan2.6-i2v-flash", "wan2.5-i2v-preview",
+            "wan2.2-i2v-plus", "wan2.2-i2v-flash", "wanx2.1-i2v-turbo", "wanx2.1-i2v-plus",
+        ],
         "image2text_models": ["qwen-vl-max", "qwen-vl-plus", "qwen2.5-vl-72b-instruct"],
         "speech2text_models": ["paraformer-v2", "sensevoice-v1"],
         "text2speech_models": ["cosyvoice-v1", "sambert-zhichu-v1"],

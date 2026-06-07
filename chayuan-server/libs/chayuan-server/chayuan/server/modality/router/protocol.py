@@ -51,6 +51,10 @@ _PREFIX_TO_CAP: List[tuple[str, Capability]] = [
     ("dall-e",                 Capability.T2I),
     ("wanxiang-t2v",           Capability.T2V),
     ("wanx-t2v",               Capability.T2V),
+    # wanx2.1 系列视频:必须排在贪婪的 ("wanx", T2I) 之前,否则 wanx2.1-i2v/t2v
+    # 会被误判成文生图。(P2a 的配置路由也能纠正,这里是前缀兜底。)
+    ("wanx2.1-t2v",            Capability.T2V),
+    ("wanx2.1-i2v",            Capability.T2V),
     ("wanx",                   Capability.T2I),
     ("wanxiang",               Capability.T2I),
     ("sora",                   Capability.T2V),
