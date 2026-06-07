@@ -289,6 +289,12 @@ def get_all_platforms_with_state() -> List[Dict]:
     return out
 
 
+# 视频/原生异步厂商没有 OpenAI 兼容的 /models 列表接口(Kling 用 JWT 视频 API、
+# Vidu 用 Token API、Runway 用版本头 API),连通探测时**不要** GET /models —— 否则
+# 撞 404。三处探测点(provider_routes / admin_routes / openai_routes)共用这一份真源。
+NO_MODEL_LIST_PLATFORM_TYPES = {"kling", "vidu", "runway"}
+
+
 @cached(max_size=10, ttl=60, algorithm=CachingAlgorithmFlag.LRU)
 def detect_ollama_models(base_url: str) -> Dict[str, List[str]]:
     """Ollama auto-detect:GET <base>/api/tags 拿真实安装的模型清单。

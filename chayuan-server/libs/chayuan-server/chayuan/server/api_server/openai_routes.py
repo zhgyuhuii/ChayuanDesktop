@@ -177,6 +177,8 @@ def _probe_model_platform(platform_name: str, info: Dict[str, Any]) -> Tuple[boo
         return False, [], "api_base_url 未配置"
 
     try:
+        from chayuan.server.utils import NO_MODEL_LIST_PLATFORM_TYPES
+
         if ptype == "ollama":
             from chayuan.server.utils import detect_ollama_models
 
@@ -187,6 +189,9 @@ def _probe_model_platform(platform_name: str, info: Dict[str, Any]) -> Tuple[boo
 
             detected = detect_xf_models(get_base_url(api_base))
             ids = list(detected.get("llm_models") or [])
+        elif ptype in NO_MODEL_LIST_PLATFORM_TYPES:
+            # 视频原生厂商(kling/vidu/runway)无 /models 列表接口,跳过避免 404。
+            ids = []
         else:
             import openai  # noqa: WPS433
 

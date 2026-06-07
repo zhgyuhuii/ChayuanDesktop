@@ -569,6 +569,7 @@ async def test_model_platform(
     - 其他 → openai client.models.list() 探一下
     """
     from chayuan.server.utils import (
+        NO_MODEL_LIST_PLATFORM_TYPES,
         detect_ollama_models,
         detect_xf_models,
         get_base_url,
@@ -596,6 +597,10 @@ async def test_model_platform(
         elif ptype == "xinference":
             detect_xf_models.cache_clear()  # type: ignore[attr-defined]
             detected = detect_xf_models(get_base_url(api_base))
+        elif ptype in NO_MODEL_LIST_PLATFORM_TYPES:
+            # 视频原生厂商(kling/vidu/runway)无 /models 列表接口,跳过探测避免 404,
+            # 模型清单走默认/手动维护。
+            detected = {}
         else:
             # OpenAI 兼容：用 sync openai 客户端探一下 /models
             import openai  # noqa: WPS433
