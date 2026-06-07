@@ -306,6 +306,13 @@ PROVIDER_CATALOG: List[ProviderMeta] = [
                  "", "netease-youdao.svg", "#D7312C", ("国内",)),
     ProviderMeta("pangu",           "华为盘古",                "openai",
                  "", "pangu.svg", "#FF0000", ("国内",)),
+
+    # --- 文生视频专项厂商 ---
+    # Kling 使用 AccessKey + SecretKey 双密钥认证；
+    # 在"API Key"字段中填写 AccessKey:SecretKey（英文冒号连接两段密钥）。
+    ProviderMeta("kling",           "快手可灵 Kling",           "kling",
+                 "https://api.klingai.com",
+                 "", "#FF4500", ("国内",)),
 ]
 
 # 申请 API Key / 安装指南 / 官网 三件套(后期补充式覆盖原 catalog,避免在 ~60 行
@@ -371,6 +378,9 @@ _PROVIDER_LINKS: Dict[str, Dict[str, str]] = {
     # —— 自定义 / 兼容 ——
     "oneapi":           {"install": "https://github.com/songquanpeng/one-api#%E9%83%A8%E7%BD%B2",        "site": "https://github.com/songquanpeng/one-api"},
     "new-api":          {"install": "https://docs.newapi.pro/installation/",                             "site": "https://github.com/Calcium-Ion/new-api"},
+    # —— 文生视频专项 ——
+    # apply 为可灵开放平台 API Key 申请控制台（实测核对）
+    "kling":            {"apply": "https://app.klingai.com/global/dev/api-key",                          "site": "https://app.klingai.com"},
 }
 
 
@@ -616,6 +626,12 @@ _PROVIDER_DEFAULT_MODELS: Dict[str, Dict[str, List[str]]] = {
     },
     "vllm": {
         "llm_models": ["Qwen/Qwen2.5-7B-Instruct", "meta-llama/Meta-Llama-3.1-8B-Instruct"],
+    },
+    # —— 文生视频专项 ——
+    # Kling 目前只提供文生视频/图生视频能力，无 LLM/embed 等接口。
+    # API Key 字段填 AccessKey:SecretKey（英文冒号连接两段密钥）。
+    "kling": {
+        "text2video_models": ["kling-v2-5-turbo", "kling-v1-6"],
     },
 }
 
