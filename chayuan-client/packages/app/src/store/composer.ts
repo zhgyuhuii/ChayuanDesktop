@@ -143,6 +143,7 @@ type ComposerStoreApi = UseBoundStore<StoreApi<ComposerState>>;
 export interface ComposerSeed {
   modelId?: string;
   platformName?: string;
+  modelCapability?: ModalityCapability | null;
   selectedKbs?: string[];
   selectedKuIds?: string[];
   deepThink?: boolean;

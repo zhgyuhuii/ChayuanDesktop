@@ -83,6 +83,7 @@ export const ChatWindow: React.FC<Props> = ({
       const seed: ComposerSeed = {
         modelId: s.modelId,
         platformName: s.platformName,
+        modelCapability: s.modelCapability,
         selectedKbs: s.selectedKbs,
         selectedKuIds: s.selectedKuIds,
         deepThink: s.deepThink,

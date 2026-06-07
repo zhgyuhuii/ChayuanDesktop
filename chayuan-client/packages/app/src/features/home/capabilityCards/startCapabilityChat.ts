@@ -18,6 +18,7 @@
 import type { RawModelItem } from '@chayuan/api';
 import type { ModalityCapability } from '@chayuan/transport';
 import { useComposerStore } from '../../../store/composer';
+import { useModelArenaStore } from '../../../store/modelArena';
 import { useTabsStore } from '../../../store/tabs';
 import { getCapabilityMeta } from '../../composer/modelCapabilityChip';
 
@@ -45,9 +46,20 @@ export function startCapabilityChat(
   // 1. 预选模型 — ChatComposer 监听 composer.modelId,会自动联动 ComposerModeBadge /
   //    placeholder / submitLabel / 参数条
   const composer = useComposerStore.getState();
-  composer.setModel(model.id, model.platform_name, cap); // 一并记录能力,对话页直接切上方模式组件
+  composer.setModel(model.id, model.platform_name, cap); // 全局 store(非泳道场景用)
+  // 1a. ⚠️ 对话页每个泳道用的是 scoped composer store(scope=lane.id),初始值来自
+  //     ArenaStore.lastTouchedSeed,**不读全局 store**。所以必须把模型+能力写进
+  //     lastTouchedSeed,新开的对话泳道才会带上对应模型/模式;并清掉 KB(避免新
+  //     能力 chat 继承知识库 → onlyChat 把 tts/t2i/t2v 等非对话模型打回对话模型)。
+  useModelArenaStore.getState().setLastTouchedSeed({
+    modelId: model.id,
+    platformName: model.platform_name,
+    modelCapability: cap,
+    selectedKbs: [],
+    selectedKuIds: [],
+  });
   // 1b. 一次性能力提示 — 对话页模型下拉打开时据此预选能力标签(如"文生视频"),
-  //     过滤出同能力模型;消费一次即由 ComposerModelPill 清掉,不影响日常打开。
+  //     过滤出同能力模型;消费一次即由 ComposerModelPill 清掉(读全局 store)。
   composer.setCapabilityHint(cap);
   // 2. 草稿态 — 不绑老 conversation,handleSend 首发时再 lazy create
   composer.setActive(null);
