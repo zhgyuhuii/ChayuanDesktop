@@ -14,11 +14,13 @@ api_key 字段约定填 "<AccessKey>:<SecretKey>"（英文冒号分隔）。
 
 from __future__ import annotations
 
+import base64
 import time
 from typing import Dict, List, Tuple
 
 import jwt
 
+from chayuan.server.modality.router.artifacts import find_by_filename
 from chayuan.server.modality.router.connectors.base import register
 from chayuan.server.modality.router.connectors.video_gen.base_async import (
     AsyncPollVideoConnector,
@@ -78,6 +80,33 @@ def _split_keys(api_key: str) -> Tuple[str, str]:
         ak, sk = key.split(":", 1)
         return ak.strip(), sk.strip()
     return key.strip(), ""
+
+
+def _resolve_image_field(a) -> str:
+    """把图片附件解析成 Kling I2V 的 ``image`` 字段值(纯 base64 或公网 URL)。
+
+    Kling 的 image 字段只接受【纯 base64 编码】或【可公网访问的 URL】。桌面流里
+    附件被 openai_routes 存成本地 artifact,``a.url`` = ``/v1/artifacts/<文件名>``
+    —— 既不是公网 URL(Kling 访问不到 localhost),直接当字符串发又会被当 base64
+    解码失败(报 "File is not in a valid base64 format")。这里读本地文件转纯 base64。
+    """
+    # 1) 内存 bytes 兜底(当前 openai_routes 走 artifact,保留以防未来直传)
+    raw = getattr(a, "data", None)
+    if raw:
+        return base64.b64encode(raw).decode("ascii")
+    url = (getattr(a, "url", "") or "").strip()
+    # 2) data URI:data:image/png;base64,XXXX → 取逗号后的纯 base64
+    if url.startswith("data:"):
+        return url.split(",", 1)[-1]
+    # 3) /v1/artifacts/<filename> 本地 artifact → 读盘转纯 base64
+    if "/v1/artifacts/" in url:
+        fn = url.rsplit("/", 1)[-1].split("?", 1)[0]
+        p = find_by_filename(fn)
+        if p and p.exists():
+            return base64.b64encode(p.read_bytes()).decode("ascii")
+    # 4) 公网 http(s) URL → Kling 支持直接传 URL,原样给
+    # 5) 其它(可能已是裸 base64)→ 原样
+    return url
 
 
 # ──────────────────────────────────────────────────────────────
@@ -159,11 +188,11 @@ class KlingVideoConnector(AsyncPollVideoConnector):
             "prompt": req.prompt,
         }
 
-        # I2V：把第一个图片附件的 url 填入 image 字段
+        # I2V：把第一个图片附件解析成 Kling 要的 image 字段(纯 base64 或公网 URL)
         if self._is_i2v(req):
             for a in req.attachments or []:
                 if (getattr(a, "mime", "") or "").startswith("image/"):
-                    body["image"] = a.url  # TODO(P2-verify): 字段名 image vs image_url
+                    body["image"] = _resolve_image_field(a)
                     break
 
         # 透传可选参数（仅在 params 中明确提供时才放入 body）
