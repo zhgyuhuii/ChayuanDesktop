@@ -128,19 +128,16 @@ export const ImageToTextPage: React.FC = () => {
           : x));
         if (text) {
           insertOcrText(it.file, text);
-        } else {
-          notifyInfo(`${it.file.name} 没有识别到文字`);
         }
+        // 没识别到文字 = 正常情况(图里本来就没字),不弹任何提示;item 状态已是 done。
       } catch (e) {
+        // 用户要求:OCR 失败不再弹窗,只在该图片项内联显示状态。
         const msg = (e instanceof Error ? e.message : String(e));
+        const notReady = msg.includes('OCR sidecar not ready') || msg.includes('503');
         setItems((prev) => prev.map((x) => x.id === it.id
-          ? { ...x, status: 'error', error: msg }
+          ? { ...x, status: 'error', error: notReady ? 'OCR 服务未启动(设置 → 本地模型服务 → OCR)' : msg }
           : x));
-        if (msg.includes('OCR sidecar not ready') || msg.includes('503')) {
-          reportError(e, 'OCR 服务未就绪 — 到「设置 → 本地模型服务 → OCR 文字识别」启动');
-          break;  // 后端没起,后面继续也是失败
-        }
-        reportError(e, `识别失败:${it.file.name}`);
+        if (notReady) break;  // 后端 sidecar 没起,后面继续也是失败 — 静默停止
       }
     }
     setBusy(false);
