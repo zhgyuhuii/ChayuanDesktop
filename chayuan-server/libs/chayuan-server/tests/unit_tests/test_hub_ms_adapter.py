@@ -171,3 +171,20 @@ def test_search_pushes_correct_ms_task_name(monkeypatch, capability, expected_ta
     assert captured["body"]["Criterion"] == [
         {"category": "tasks", "predicate": "contains", "values": [expected_task]}
     ]
+
+
+def test_runnable_only_does_not_drop_non_serveable_capability(monkeypatch):
+    # text-to-image 不在 _SERVEABLE_CAPS;默认勾「仅可运行」也不应把该类目整类筛空
+    # (回归:此前 runnable_only + 非 serveable -> 空白)。
+    a = ModelScopeAdapter()
+    rows = [
+        {"Name": "Z-Image", "Path": "o",
+         "Tasks": [{"Name": "text-to-image-synthesis"}], "LastUpdatedTime": 0},
+    ]
+
+    def fake(url, body, *, token=None, **kw):
+        return {"Data": {"Model": {"Models": rows, "TotalCount": 72051}}}
+
+    monkeypatch.setattr(a, "_put_json", fake)
+    page = a.search(capability="text-to-image", runnable_only=True, page_size=20)
+    assert [c.model_id for c in page.items] == ["o/Z-Image"]

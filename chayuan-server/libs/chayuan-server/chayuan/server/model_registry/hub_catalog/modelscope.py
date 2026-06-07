@@ -152,10 +152,11 @@ class ModelScopeAdapter(HubAdapter):
             # 信任服务端结果,不再本地丢(避免 Tasks 归一不全把有效结果误杀)。
             if capability and not ms_task and card.capability != capability:
                 continue
-            # runnable_only：列表页无文件信息，按 capability 粗判（serveable 即可能可跑）。
-            if runnable_only and not card.runnable:
-                continue
             items.append(card)
+        # 注:runnable_only **不在列表阶段过滤**(与 HF adapter 一致)。原先按
+        # `capability in _SERVEABLE_CAPS` 粗判会把 text-to-image / text-to-video 等
+        # 非 _SERVEABLE_CAPS 能力**整类筛空**(默认勾「仅可运行」即触发);列表页本就
+        # 无文件信息,可运行性应留到 detail/下载阶段按实际文件后缀判定。
 
         # ModelScope 不支持服务端按更新时间排序，sort=="updated" 时对本页本地排序
         # （updated_at 为 None 的排到最后）。
