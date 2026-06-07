@@ -62,3 +62,22 @@ def test_count_serial_has_expire():
     assert "expireAt" in r
     # issueDate=0 => EPOCH(2026-01-01) + COUNT_VALID_DAYS(30) = 2026-01-31
     assert r["expireAt"] == "2026-01-31T00:00:00.000Z"
+
+
+# v2 跨语言金标: 由 website license-golden-v2.test.mjs 用同 KEY/FP 产出
+V2_COUNT_SERIAL = "3040G-1J0JW-0A6KC-ZCG0C-2V0E5"  # ver1 kind1 modules=0x0101(bit0+bit8) value50 issueDate151
+
+
+def test_v2_count_serial_verifies():
+    r = verify_shortcode(V2_COUNT_SERIAL, FP, KEYS)
+    assert r["valid"] is True
+    assert r["fields"]["kind"] == 1
+    assert r["fields"]["value"] == 50
+    assert r["fields"]["modules"] == 0x0101
+    assert r["fields"]["modules"] & (1 << 8)
+    assert "expireAt" in r  # count expireAt 保留(P3)
+
+
+def test_v1_serials_still_verify():
+    assert verify_shortcode(TIME_SERIAL, FP, KEYS)["valid"] is True
+    assert verify_shortcode(COUNT_SERIAL, FP, KEYS)["valid"] is True

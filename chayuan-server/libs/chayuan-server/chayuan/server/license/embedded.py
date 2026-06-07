@@ -8,5 +8,5 @@ EMBEDDED = {
     "ed25519_public_key": "c8366a17bc0aa51e4aedc45b61ba213324b821c1580d0139dc74377f01df2715",
     "active_key_id": 1,
     "buy_base_url": "https://aidooo.com",
-    "products": {"video": 0, "chat": 1, "kb": 2, "avatar": 3, "ocr": 4, "asr": 5, "note": 6},
+    "products": {"video": 0, "chat": 1, "kb": 2, "avatar": 3, "ocr": 4, "asr": 5, "note": 6, "wps": 7, "video_edit": 8},
 }
