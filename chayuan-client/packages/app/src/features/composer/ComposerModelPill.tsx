@@ -83,8 +83,11 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   const platformName = useComposerS((s) => s.platformName);
   const setModel = useComposerS((s) => s.setModel);
   // 一次性能力提示(首页能力卡跳转写入):传给 ModelMenuList 作初始过滤,消费后清掉。
-  const capabilityHint = useComposerS((s) => s.capabilityHint);
-  const setCapabilityHint = useComposerS((s) => s.setCapabilityHint);
+  // ⚠️ 必须读**全局** store(useComposerStore):startCapabilityChat 写的是全局,而
+  // 对话窗口的 useComposerS 是 scoped 实例;hint 不在 partialize 里不会随 seed 进 scope,
+  // 用 scoped 读会永远拿到 null(模型能预选是因 modelId 在 partialize、随 seed 带过去了)。
+  const capabilityHint = useComposerStore((s) => s.capabilityHint);
+  const setCapabilityHint = useComposerStore((s) => s.setCapabilityHint);
   // 绑定了知识库 → 知识问答必走 LLM 链路,模型选择收窄到对话类(chat/vl)。
   // chatOnly prop 也收窄(video_generation 脚本生成)。两者任一为真即只列对话模型。
   const kbBound = useComposerS((s) => s.selectedKuIds.length > 0);
