@@ -312,8 +312,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
             />
           </div>
         ) : (
-          <div className="flex flex-col gap-0.5 text-[11px] leading-tight text-[var(--cy-text-tertiary)]">
-            <span className="truncate">北京智灵鸟科技</span>
+          <div className="flex items-center gap-1 text-[11px] leading-tight text-[var(--cy-text-tertiary)]">
+            <span className="shrink-0">北京智灵鸟科技</span>
+            <span aria-hidden className="opacity-60">·</span>
             <a
               href="https://aidooo.com"
               target="_blank"

@@ -20,16 +20,11 @@
 
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Library, Pen, ScanText, Mic, Clapperboard, UserRound,
-  AlertCircle, Film, ShoppingCart,
+  AlertCircle, Film,
 } from 'lucide-react';
-import { home, licenseStatus, type ProviderCatalogEntry } from '@chayuan/api';
-import { LicenseDialog } from '../license';
-import { Button, Input } from '@chayuan/ui';
-import { useLicenseStore } from '../license/licenseStore';
-import { reasonText } from '../license/LicenseDialog';
+import { home, type ProviderCatalogEntry } from '@chayuan/api';
 import { useBuyQr } from '../license/useBuyQr';
 import { useAuthStore } from '../../store/auth';
 import { useTabsStore } from '../../store/tabs';
@@ -199,7 +194,6 @@ export const HomePage: React.FC = () => {
   // chunk → setIntro 用 rAF 合并:LLM 高速吐 token 时不再每个 token 都触发
   // HomePage 全树重渲染,显著降低四张能力卡 + 二维码的 reflow 抖动。
   const [intro, setIntro] = React.useState('');
-  const [buyOpen, setBuyOpen] = React.useState(false);   // 「购买」弹窗(带本机指纹的购买二维码)
   // 本地循环打字机:依次打 STATIC_INTROS 每条 → 停顿 → 清空 → 下一条 → 循环。完全不调大模型。
   React.useEffect(() => {
     let alive = true;
@@ -349,29 +343,11 @@ export const HomePage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── 页脚:左两个常驻二维码 / 右权益 + 购买 + 授权码激活 ── */}
-      <section className="relative z-10 flex flex-col gap-4 rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-4 py-3 sm:flex-row sm:items-stretch sm:justify-between">
-        {/* 左:两个常驻二维码 */}
-        <div className="flex shrink-0 items-start gap-3">
-          <QrCard label="关注我们" src={FOLLOW_QR_URL} />
-          <BuyQrCard />
-        </div>
-        {/* 右:权益 + 购买 + 授权码激活 */}
-        <div className="flex min-w-0 flex-1 flex-col justify-center gap-2 sm:items-end">
-          <div className="flex w-full items-center justify-between gap-3 sm:justify-end">
-            <EntitlementsLine />
-            <button
-              type="button"
-              onClick={() => setBuyOpen(true)}
-              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90"
-            >
-              <ShoppingCart className="h-3.5 w-3.5" /> 购买
-            </button>
-          </div>
-          <LicenseActivateInline />
-        </div>
+      {/* ── 页脚:两个二维码居中(关注我们 / 购买) ── */}
+      <section className="relative z-10 flex items-center justify-center gap-6 rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-4 py-4">
+        <QrCard label="关注我们" src={FOLLOW_QR_URL} />
+        <BuyQrCard />
       </section>
-      <LicenseDialog app="chat" open={buyOpen} onOpenChange={setBuyOpen} />
 
     </div>
   );
@@ -402,47 +378,6 @@ const Caret: React.FC = () => (
   />
 );
 
-// ── 二维码小卡 ─────────────────────────────────────────────────────
-// 紧凑页脚用:小 chip,hover / 聚焦弹出二维码浮层(不占常驻空间)。
-// 页脚个人权益:今日各功能剩余免费次数 + 购买的会员到期(只读 GET /license/status)。
-const ENT_APPS: ReadonlyArray<{ app: string; label: string }> = [
-  { app: 'chat', label: '对话' },
-  { app: 'video', label: '视频生成' },
-  { app: 'video_edit', label: '视频编辑' },
-  { app: 'avatar', label: '数字人' },
-  { app: 'ocr', label: '图转文' },
-  { app: 'asr', label: '音转文' },
-];
-const EntitlementsLine: React.FC = () => {
-  const q = useQuery({
-    queryKey: ['license.statuses'],
-    queryFn: async () => Promise.all(
-      ENT_APPS.map((a) => licenseStatus(a.app).then((s) => ({ ...a, s })).catch(() => ({ ...a, s: null as null }))),
-    ),
-    staleTime: 60_000,
-  });
-  const items = q.data ?? [];
-  const expire = items.map((i) => i.s?.timeExpireAt).find(Boolean) || null;
-  if (!items.length) {
-    return <p className="mt-0.5 text-[11px] text-[var(--cy-text-tertiary)]">个人权益:加载中…</p>;
-  }
-  return (
-    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[var(--cy-text-tertiary)]">
-      <span className="text-[var(--cy-text-secondary)]">今日剩余</span>
-      {items.map((i) => (
-        <span key={i.app}>
-          {i.label}
-          <span className={`ml-0.5 font-semibold ${(i.s?.remainingFree ?? 0) > 0 ? 'text-[var(--cy-brand-600)]' : 'text-[var(--cy-danger-500)]'}`}>
-            {i.s ? (i.s.remainingFree ?? 0) : '—'}
-          </span>
-          次
-        </span>
-      ))}
-      {expire ? <span className="text-[var(--cy-brand-600)]">· 会员有效期至 {String(expire).slice(0, 10)}</span> : null}
-    </p>
-  );
-};
-
 // ── 常驻二维码小卡(不再 hover) ─────────────────────────────────────
 const QrCard: React.FC<{ label: string; src: string }> = ({ label, src }) => (
   <div className="flex flex-col items-center gap-1">
@@ -472,66 +407,6 @@ const BuyQrCard: React.FC = () => {
         <div className="h-24 w-24 animate-pulse rounded-lg bg-[var(--cy-surface-2)]" />
       )}
       <span className="text-[11px] text-[var(--cy-text-secondary)]">购买</span>
-    </div>
-  );
-};
-
-// ── 已购买:输入授权码激活(复用 licenseStore.activateSerial + reasonText) ──
-const LicenseActivateInline: React.FC = () => {
-  const store = useLicenseStore();
-  const qc = useQueryClient();
-  const [serial, setSerial] = React.useState('');
-  const [busy, setBusy] = React.useState(false);
-  const [err, setErr] = React.useState<string | null>(null);
-  const [ok, setOk] = React.useState(false);
-
-  const onActivate = async () => {
-    const s = serial.trim();
-    if (!s) return;
-    setBusy(true);
-    setErr(null);
-    setOk(false);
-    try {
-      const r = await store.activateSerial('chat', s);
-      if (r.licensed) {
-        setOk(true);
-        setSerial('');
-        void qc.invalidateQueries({ queryKey: ['license.statuses'] });
-      } else {
-        setErr(reasonText(r.reason));
-      }
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="flex w-full flex-col gap-1 sm:items-end">
-      <div className="flex items-center gap-2">
-        <span className="shrink-0 text-[11px] text-[var(--cy-text-tertiary)]">已购买?</span>
-        <Input
-          value={serial}
-          onChange={(e) => setSerial(e.target.value)}
-          placeholder="输入授权码"
-          autoComplete="off"
-          className="h-7 w-44 text-xs"
-        />
-        <Button
-          size="sm"
-          className="h-7"
-          onClick={() => void onActivate()}
-          disabled={busy || serial.trim().length === 0}
-        >
-          激活
-        </Button>
-      </div>
-      {err ? <p className="text-[11px] text-[var(--cy-danger-500)]">{err}</p> : null}
-      {ok ? <p className="text-[11px] text-[var(--cy-brand-600)]">激活成功,权益已更新</p> : null}
-      {!err && !ok ? (
-        <p className="text-[11px] text-[var(--cy-text-tertiary)]">忘记授权码?关注公众号查询</p>
-      ) : null}
     </div>
   );
 };

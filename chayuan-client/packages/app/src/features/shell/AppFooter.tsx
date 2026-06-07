@@ -25,6 +25,7 @@ import { cn } from '@chayuan/ui';
 import type { LocalRuntimeCapability, RuntimeOcrHealth } from '@chayuan/api';
 import { runtimeModels, runtimeOcr, serverCapabilityDefaults } from '@chayuan/api';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
+import { EntitlementsLine } from '../license/EntitlementsLine';
 
 interface CapabilityIndicator {
   key: LocalRuntimeCapability | 'ocr';
@@ -208,13 +209,18 @@ export const AppFooter: React.FC = () => {
     <footer
       data-shell="footer"
       className={cn(
-        'flex h-7 min-h-7 items-center justify-end gap-4 border-t px-3',
+        'flex h-7 min-h-7 items-center justify-between gap-4 border-t px-3',
         'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]',
         'text-[11px] text-[var(--cy-text-tertiary)] select-none',
       )}
     >
+      {/* 左:今日剩余权益(单行,溢出裁剪) */}
+      <div className="flex min-w-0 items-center overflow-hidden">
+        <EntitlementsLine />
+      </div>
+
       {/* 右:capability 状态点 */}
-      <div className="flex items-center gap-3 whitespace-nowrap">
+      <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
         {INDICATORS.map((ind) => {
           // 三态优先级(按用户口径 "完全不可用=既没启动模型服务又没配默认模型"):
           //   1. 实际 ready → 绿 (运行中)
