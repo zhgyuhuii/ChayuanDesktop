@@ -55,6 +55,7 @@ import { useComposerStore } from '../../store/composer';
 import { useAuthStore } from '../../store/auth';
 import { useTabsStore } from '../../store/tabs';
 import { useTranslation } from '../../i18n';
+import { CHAYUAN_LOGO_URL } from '../../lib/brandAssets';
 import { getPlatform } from '@chayuan/platform-shared';
 
 export interface SidebarProps {
@@ -297,6 +298,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
           </Button>
         </div>
       )}
+
+      {/* 底部:版权(唯一来源,从 AppFooter 移来)。mt-auto 贴底:
+          折叠态没有「最近对话」flex-1 列时也能顶到底。 */}
+      <div className="mt-auto border-t border-[var(--cy-border-subtle)] px-3 py-2">
+        {collapsed ? (
+          <div className="flex justify-center" title="北京智灵鸟科技 · aidooo.com">
+            <img
+              src={CHAYUAN_LOGO_URL}
+              alt="北京智灵鸟科技"
+              className="h-5 w-5 rounded"
+              draggable={false}
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0.5 text-[11px] leading-tight text-[var(--cy-text-tertiary)]">
+            <span className="truncate">北京智灵鸟科技</span>
+            <a
+              href="https://aidooo.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="truncate font-medium text-[var(--cy-text-secondary)] underline-offset-2 hover:text-[var(--cy-text-primary)] hover:underline"
+            >
+              aidooo.com
+            </a>
+          </div>
+        )}
+      </div>
     </aside>
   );
 };

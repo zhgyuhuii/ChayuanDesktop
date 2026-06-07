@@ -25,7 +25,6 @@ import { cn } from '@chayuan/ui';
 import type { LocalRuntimeCapability, RuntimeOcrHealth } from '@chayuan/api';
 import { runtimeModels, runtimeOcr, serverCapabilityDefaults } from '@chayuan/api';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
-import { HomeFooterMarquee } from '../home/HomeFooterMarquee';
 
 interface CapabilityIndicator {
   key: LocalRuntimeCapability | 'ocr';
@@ -209,40 +208,12 @@ export const AppFooter: React.FC = () => {
     <footer
       data-shell="footer"
       className={cn(
-        // CSS Grid 三列严格隔离:左 auto / 中 minmax(0,1fr) 严格收缩 +
-        // overflow-hidden / 右 auto。比 flex+flex-1+shrink-0 更可靠,
-        // marquee 内部 w-max 的 track 不会撑爆中间列把右侧能力点推出可见区。
-        'grid h-7 min-h-7 items-center gap-4 border-t px-3',
-        'grid-cols-[auto_minmax(0,1fr)_auto]',
+        'flex h-7 min-h-7 items-center justify-end gap-4 border-t px-3',
         'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]',
         'text-[11px] text-[var(--cy-text-tertiary)] select-none',
       )}
     >
-      {/* 左:版权 + 主站(静态) */}
-      <div className="flex items-center gap-1.5 whitespace-nowrap">
-        <span>北京智灵鸟科技中心 出品</span>
-        <span aria-hidden="true" className="text-[var(--cy-text-tertiary)] opacity-60">·</span>
-        <a
-          href="https://aidooo.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(
-            'inline-flex items-center gap-0.5 font-medium',
-            'text-[var(--cy-text-secondary)] hover:text-[var(--cy-text-primary)]',
-            'transition-colors underline-offset-2 hover:underline',
-          )}
-        >
-          aidooo.com
-        </a>
-      </div>
-
-      {/* 中:动态走马灯 — 源码授权 / slogan,点击弹"关注我们"
-            min-w-0 + overflow-hidden 兜底,grid 列已经 minmax(0,1fr) 严格限定 */}
-      <div className="min-w-0 overflow-hidden">
-        <HomeFooterMarquee />
-      </div>
-
-      {/* 右:capability 状态点 — grid 列 auto 永远按内容宽度,不会被遮 */}
+      {/* 右:capability 状态点 */}
       <div className="flex items-center gap-3 whitespace-nowrap">
         {INDICATORS.map((ind) => {
           // 三态优先级(按用户口径 "完全不可用=既没启动模型服务又没配默认模型"):

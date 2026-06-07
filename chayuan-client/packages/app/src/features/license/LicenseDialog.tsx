@@ -422,7 +422,7 @@ function AlipayLogo(): React.ReactElement {
   );
 }
 
-function reasonText(reason?: string): string {
+export function reasonText(reason?: string): string {
   switch (reason) {
     case "expired":
       return "授权已过期，请续费。";

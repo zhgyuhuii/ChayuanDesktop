@@ -20,13 +20,17 @@
 
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Library, Pen, ScanText, Mic, Clapperboard, UserRound,
-  AlertCircle, Film, QrCode, ShoppingCart,
+  AlertCircle, Film, ShoppingCart,
 } from 'lucide-react';
 import { home, licenseStatus, type ProviderCatalogEntry } from '@chayuan/api';
 import { LicenseDialog } from '../license';
+import { Button, Input } from '@chayuan/ui';
+import { useLicenseStore } from '../license/licenseStore';
+import { reasonText } from '../license/LicenseDialog';
+import { useBuyQr } from '../license/useBuyQr';
 import { useAuthStore } from '../../store/auth';
 import { useTabsStore } from '../../store/tabs';
 import { useTranslation } from '../../i18n';
@@ -37,7 +41,6 @@ import {
 import { CapabilityCardGrid } from './capabilityCards/CapabilityCardGrid';
 import { HomeFxLayer } from './homeFx/HomeFxLayer';
 import { CardAura } from './homeFx/CardAura';
-import { PartnershipBanner } from './PartnershipBanner';
 
 // ── 5 张功能入口卡定义 ──────────────────────────────────────────────
 interface CapItem {
@@ -346,25 +349,26 @@ export const HomePage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── 6+7. 紧凑页脚:额度说明 + 关注/赞助二维码(hover 弹) + 招商合作 ──
-       *  原来招商、支持我们各占一张大卡,太占地方。改成一条窄页脚:
-       *  左侧额度/品牌一行,右侧小图标 chips,二维码 hover/聚焦弹出小浮层,
-       *  招商合作复用 PartnershipBanner(compact)的联系 Dialog。 */}
-      <section className="relative z-10 flex flex-col items-start justify-between gap-3 rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-4 py-3 sm:flex-row sm:items-center">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-[var(--cy-text-secondary)]">察元 AI · 本地优先的办公 AI 工作台</p>
-          <EntitlementsLine />
+      {/* ── 页脚:左两个常驻二维码 / 右权益 + 购买 + 授权码激活 ── */}
+      <section className="relative z-10 flex flex-col gap-4 rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-4 py-3 sm:flex-row sm:items-stretch sm:justify-between">
+        {/* 左:两个常驻二维码 */}
+        <div className="flex shrink-0 items-start gap-3">
+          <QrCard label="关注我们" src={FOLLOW_QR_URL} />
+          <BuyQrCard />
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <QrChip label="关注我们" src={FOLLOW_QR_URL} />
-          <button
-            type="button"
-            onClick={() => setBuyOpen(true)}
-            className="inline-flex h-8 items-center gap-1 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90"
-          >
-            <ShoppingCart className="h-3.5 w-3.5" /> 购买
-          </button>
-          <PartnershipBanner compact />
+        {/* 右:权益 + 购买 + 授权码激活 */}
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-2 sm:items-end">
+          <div className="flex w-full items-center justify-between gap-3 sm:justify-end">
+            <EntitlementsLine />
+            <button
+              type="button"
+              onClick={() => setBuyOpen(true)}
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-gradient-to-br from-[var(--cy-brand-500)] to-[var(--cy-brand-700)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90"
+            >
+              <ShoppingCart className="h-3.5 w-3.5" /> 购买
+            </button>
+          </div>
+          <LicenseActivateInline />
         </div>
       </section>
       <LicenseDialog app="chat" open={buyOpen} onOpenChange={setBuyOpen} />
@@ -439,17 +443,95 @@ const EntitlementsLine: React.FC = () => {
   );
 };
 
-const QrChip: React.FC<{ label: string; src: string }> = ({ label, src }) => (
-  <div className="group relative">
-    <button
-      type="button"
-      className="inline-flex h-8 items-center gap-1 rounded-full border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 text-xs text-[var(--cy-text-secondary)] transition-colors hover:border-[var(--cy-brand-400)] hover:text-[var(--cy-text-primary)]"
-    >
-      <QrCode className="h-3.5 w-3.5" /> {label}
-    </button>
-    <div className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 hidden flex-col items-center gap-1 rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 shadow-[var(--cy-shadow-md)] group-hover:flex group-focus-within:flex">
-      <img src={src} alt={label} className="h-36 w-36 rounded-lg object-contain" draggable={false} />
-      <span className="whitespace-nowrap text-[11px] text-[var(--cy-text-secondary)]">{label}</span>
-    </div>
+// ── 常驻二维码小卡(不再 hover) ─────────────────────────────────────
+const QrCard: React.FC<{ label: string; src: string }> = ({ label, src }) => (
+  <div className="flex flex-col items-center gap-1">
+    <img
+      src={src}
+      alt={label}
+      className="h-24 w-24 rounded-lg bg-white object-contain p-1"
+      draggable={false}
+    />
+    <span className="text-[11px] text-[var(--cy-text-secondary)]">{label}</span>
   </div>
 );
+
+// ── 购买二维码(动态,复用 useBuyQr) ────────────────────────────────
+const BuyQrCard: React.FC = () => {
+  const { qrDataUrl } = useBuyQr('chat');
+  return (
+    <div className="flex flex-col items-center gap-1">
+      {qrDataUrl ? (
+        <img
+          src={qrDataUrl}
+          alt="购买二维码"
+          className="h-24 w-24 rounded-lg bg-white object-contain p-1"
+          draggable={false}
+        />
+      ) : (
+        <div className="h-24 w-24 animate-pulse rounded-lg bg-[var(--cy-surface-2)]" />
+      )}
+      <span className="text-[11px] text-[var(--cy-text-secondary)]">购买</span>
+    </div>
+  );
+};
+
+// ── 已购买:输入授权码激活(复用 licenseStore.activateSerial + reasonText) ──
+const LicenseActivateInline: React.FC = () => {
+  const store = useLicenseStore();
+  const qc = useQueryClient();
+  const [serial, setSerial] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const [ok, setOk] = React.useState(false);
+
+  const onActivate = async () => {
+    const s = serial.trim();
+    if (!s) return;
+    setBusy(true);
+    setErr(null);
+    setOk(false);
+    try {
+      const r = await store.activateSerial('chat', s);
+      if (r.licensed) {
+        setOk(true);
+        setSerial('');
+        void qc.invalidateQueries({ queryKey: ['license.statuses'] });
+      } else {
+        setErr(reasonText(r.reason));
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex w-full flex-col gap-1 sm:items-end">
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-[11px] text-[var(--cy-text-tertiary)]">已购买?</span>
+        <Input
+          value={serial}
+          onChange={(e) => setSerial(e.target.value)}
+          placeholder="输入授权码"
+          autoComplete="off"
+          className="h-7 w-44 text-xs"
+        />
+        <Button
+          size="sm"
+          className="h-7"
+          onClick={() => void onActivate()}
+          disabled={busy || serial.trim().length === 0}
+        >
+          激活
+        </Button>
+      </div>
+      {err ? <p className="text-[11px] text-[var(--cy-danger-500)]">{err}</p> : null}
+      {ok ? <p className="text-[11px] text-[var(--cy-brand-600)]">激活成功,权益已更新</p> : null}
+      {!err && !ok ? (
+        <p className="text-[11px] text-[var(--cy-text-tertiary)]">忘记授权码?关注公众号查询</p>
+      ) : null}
+    </div>
+  );
+};
