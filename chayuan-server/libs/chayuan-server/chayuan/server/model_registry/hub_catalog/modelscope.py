@@ -44,7 +44,12 @@ _CAP_TO_MS_TASK = {
     "speech-to-text": "auto-speech-recognition",
     "text-to-audio": "text-to-speech",
     "image-to-text": "image-text-to-text",
-    "text-to-video": "text-to-video",
+    "text-to-image": "text-to-image-synthesis",
+    "text-to-video": "text-to-video-synthesis",
+    # image-embedding: ModelScope 无独立 task(image-feature-extraction 实测 0),
+    # 故不映射 -> 退回本地按 capability 兜底(MS 端该类目天然稀疏;HF 侧由
+    # image-feature-extraction 覆盖)。MS task 名与 HF pipeline_tag 多处不同:
+    # text-to-image=text-to-image-synthesis、text-to-video=text-to-video-synthesis。
 }
 
 

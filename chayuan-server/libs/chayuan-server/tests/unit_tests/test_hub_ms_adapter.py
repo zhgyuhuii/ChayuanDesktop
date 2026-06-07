@@ -146,3 +146,27 @@ def test_search_trusts_server_filter_no_local_drop(monkeypatch):
     assert "o/m-emb" in ids
     assert "o/m-weird" in ids  # 服务端已筛,本地不再丢
     assert page.total == 169
+
+
+@pytest.mark.parametrize("capability,expected_task", [
+    ("chat", "text-generation"),
+    ("text-embedding", "sentence-embedding"),
+    ("rerank", "text-ranking"),
+    ("speech-to-text", "auto-speech-recognition"),
+    ("text-to-image", "text-to-image-synthesis"),  # 注意:MS 是 -synthesis,非 text-to-image
+    ("text-to-video", "text-to-video-synthesis"),
+])
+def test_search_pushes_correct_ms_task_name(monkeypatch, capability, expected_task):
+    # 锁定 capability -> MS dolphin task 名(实测各 TotalCount>0;名字写错会 0 结果空白)。
+    a = ModelScopeAdapter()
+    captured = {}
+
+    def fake(url, body, *, token=None, **kw):
+        captured["body"] = body
+        return {"Data": {"Model": {"Models": [], "TotalCount": 0}}}
+
+    monkeypatch.setattr(a, "_put_json", fake)
+    a.search(capability=capability, page_size=5)
+    assert captured["body"]["Criterion"] == [
+        {"category": "tasks", "predicate": "contains", "values": [expected_task]}
+    ]
