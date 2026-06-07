@@ -52,6 +52,7 @@ _CAPABILITY_BY_PIPELINE: Dict[str, str] = {
     "text-embeddings-inference": "text-embedding",
     "image-feature-extraction": "image-embedding",
     "zero-shot-image-classification": "image-embedding",
+    "multi-modal-embedding": "image-embedding",
     "image-to-text": "image-to-text",
     "visual-question-answering": "image-to-text",
     "image-text-to-text": "image-to-text",

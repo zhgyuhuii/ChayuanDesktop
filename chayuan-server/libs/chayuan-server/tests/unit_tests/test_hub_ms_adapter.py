@@ -155,6 +155,7 @@ def test_search_trusts_server_filter_no_local_drop(monkeypatch):
     ("speech-to-text", "auto-speech-recognition"),
     ("text-to-image", "text-to-image-synthesis"),  # 注意:MS 是 -synthesis,非 text-to-image
     ("text-to-video", "text-to-video-synthesis"),
+    ("image-embedding", "multi-modal-embedding"),
 ])
 def test_search_pushes_correct_ms_task_name(monkeypatch, capability, expected_task):
     # 锁定 capability -> MS dolphin task 名(实测各 TotalCount>0;名字写错会 0 结果空白)。
