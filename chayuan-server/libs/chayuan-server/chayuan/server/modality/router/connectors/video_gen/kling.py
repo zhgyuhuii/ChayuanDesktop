@@ -3,7 +3,13 @@
 api_key 字段约定填 "<AccessKey>:<SecretKey>"（英文冒号分隔）。
 有图片附件时自动走图生视频(I2V)，否则走文生视频(T2V)。
 
-# TODO(P2-verify): endpoint / 字段 / 状态串以 KlingAI 当前官方文档实测核对。
+# 实测验证(2026-06-07,用真 ak/sk 打 api-beijing.klingai.com):
+#   ✅ host=api-beijing.klingai.com(国内站;国际密钥用 api.klingai.com)
+#   ✅ JWT 鉴权(HS256, iss=ak, exp/nbf, Authorization: Bearer)—— 鉴权通过(返回 429 余额不足而非 Auth failed)
+#   ✅ 提交 endpoint /v1/videos/text2video 与 /v1/videos/image2video(返回 429 计费,非 404 → 路径对)
+#   ✅ 轮询 endpoint GET /v1/videos/{kind}/{task_id}(返回 1201 "Task not found by id" → 路径对)
+#   ⏳ 成功响应字段(data.task_id / data.task_status / task_result.videos[].url / 状态串 succeed)
+#      因账户余额不足跑不出真实成功任务,暂按官方 spec 实现,待充值后跑通一条确认。
 """
 
 from __future__ import annotations
