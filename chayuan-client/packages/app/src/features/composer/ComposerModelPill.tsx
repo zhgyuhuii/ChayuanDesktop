@@ -132,9 +132,11 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   );
 
   // 96 题:store 里的 modelId 必须在真实 /v1/models 里才视为有效
-  // 不在的(用户决策"凭空出现 claude" → 上次硬编码 default)→ 自动清空 + 默认选第一个
+  // 不在的(用户决策"凭空出现 claude" → 上次硬编码 default)→ 自动清空 + 默认选第一个。
+  // 另:modelId 为空(从没选过)且已配置了可用模型时,也自动帮用户选第一个,
+  //    避免「明明配了模型却还要手动再选一次」(为用户自动选择)。
   React.useEffect(() => {
-    if (!modelId || modelsWithLocal.length === 0) return;
+    if (modelsWithLocal.length === 0) return;
     if (!current) {
       // onlyChat 时默认落在第一个可用对话模型(否则可能默认选到 tts/t2i)
       const pickable = onlyChat

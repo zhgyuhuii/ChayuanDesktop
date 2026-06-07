@@ -238,6 +238,11 @@ async def delete_provider(
 # ─────────────────────────────────────────────────────────────────────
 
 
+# 视频/原生异步厂商没有 OpenAI 兼容的 /models 列表接口(如 Kling 用 JWT 视频专有
+# API),探测时不要去 GET /models —— 否则 404。模型清单走默认/手动维护。
+_NO_MODEL_LIST_TYPES = {"kling"}
+
+
 def _probe_provider(pid: str) -> Dict[str, Any]:
     """探测厂商连通性，返回 detected 模型分类清单。
 
@@ -280,6 +285,10 @@ def _probe_provider(pid: str) -> Dict[str, Any]:
             except AttributeError:
                 pass
             detected = detect_xf_models(get_base_url(api_base))
+        elif ptype in _NO_MODEL_LIST_TYPES:
+            # 视频原生厂商(Kling 等)没有 /models 列表接口,跳过探测,视为可达,
+            # 模型清单用默认/手动(否则会去 GET {api_base}/models 撞 404)。
+            detected = {}
         else:
             # OpenAI 兼容（含 Anthropic / DeepSeek / 通义等）：用 sync openai 客户端探一下
             import openai  # noqa: WPS433
