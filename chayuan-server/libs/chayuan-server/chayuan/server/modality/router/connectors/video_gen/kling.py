@@ -21,8 +21,10 @@ from chayuan.server.modality.router.connectors.video_gen.base_async import (
 )
 from chayuan.server.modality.router.protocol import Capability, GenerateReq
 
-# TODO(P2-verify): 确认 KlingAI 官方 API base URL（当前已知：https://api.klingai.com）
-_DEFAULT_BASE = "https://api.klingai.com"
+# 国内站 host(实测 2026-06-07):中国大陆申请的 ak/sk 属于北京站 api-beijing.klingai.com;
+# 国际站 api.klingai.com 会对国内密钥报 "Auth failed"(签名其实是对的,只是 host 不匹配)。
+# 国际用户可在厂商配置里把 api_base 改成 https://api.klingai.com 或 api-singapore.klingai.com。
+_DEFAULT_BASE = "https://api-beijing.klingai.com"
 
 # TODO(P2-verify): 确认 KlingAI 官方状态字符串（submitted/processing/pending/succeed/failed）
 _RUNNING_STATUSES = {"submitted", "processing", "pending"}

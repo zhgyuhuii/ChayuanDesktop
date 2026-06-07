@@ -312,7 +312,7 @@ PROVIDER_CATALOG: List[ProviderMeta] = [
     # Kling 使用 AccessKey + SecretKey 双密钥认证；
     # 在"API Key"字段中填写 AccessKey:SecretKey（英文冒号连接两段密钥）。
     ProviderMeta("kling",           "快手可灵 Kling",           "kling",
-                 "https://api.klingai.com",
+                 "https://api-beijing.klingai.com",
                  "", "#FF4500", ("国内",)),
     ProviderMeta("vidu",            "生数 Vidu",                "vidu",
                  "https://api.vidu.com",
