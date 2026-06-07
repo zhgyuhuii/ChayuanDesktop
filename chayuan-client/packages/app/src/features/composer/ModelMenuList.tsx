@@ -290,23 +290,38 @@ export const ModelMenuList: React.FC<ModelMenuListProps> = ({
     return interactiveModels.filter((m) => inferCapability(m) === capFilter);
   }, [interactiveModels, capFilter]);
 
+  /** 把当前模型切到指定能力下第一个可用模型(没有可用则取第一个)。 */
+  const autoSelectFirstOfCap = React.useCallback(
+    (cap: ModalityCapability) => {
+      if (!onAutoSelectModel) return;
+      const ofCap = interactiveModels.filter((m) => inferCapability(m) === cap);
+      const first = ofCap.find((m) => m.available !== false) ?? ofCap[0];
+      if (first) onAutoSelectModel(first);
+    },
+    [interactiveModels, onAutoSelectModel],
+  );
+
   /**
-   * 点击能力标签:切换过滤 + (选中某能力时)若当前模型不属于该能力,立即把当前
-   * 模型切到该能力下第一个可用模型。不关下拉,用户仍可在过滤后的列表继续挑。
+   * 点击能力标签:切换过滤;选中某能力(非取消)时立即把当前模型切到该能力下
+   * 第一个可用模型。不关下拉,用户仍可在过滤后的列表里继续挑别的。
    */
   const handleCapClick = React.useCallback(
     (cap: ModalityCapability) => {
       const next = capFilter === cap ? null : cap;
       setCapFilter(next);
-      if (!next) return; // 点"全部"/取消选中,只清过滤,不切模型
-      const cur = interactiveModels.find((m) => isSelectedModel(m, currentId, currentPlatform));
-      if (cur && inferCapability(cur) === next) return; // 当前模型已是该能力,不动
-      const ofCap = interactiveModels.filter((m) => inferCapability(m) === next);
-      const first = ofCap.find((m) => m.available !== false) ?? ofCap[0];
-      if (first) onAutoSelectModel?.(first);
+      if (next) autoSelectFirstOfCap(next); // "全部"/取消(next=null)只清过滤,不切
     },
-    [capFilter, interactiveModels, currentId, currentPlatform, onAutoSelectModel],
+    [capFilter, autoSelectFirstOfCap],
   );
+
+  // 首页能力卡跳转预选标签:模型列表就绪后,把当前模型切到该能力第一个(只做一次)。
+  const didInitAutoSelect = React.useRef(false);
+  React.useEffect(() => {
+    if (didInitAutoSelect.current || !initialCapFilter) return;
+    if (interactiveModels.length === 0) return; // 等模型加载完再切
+    didInitAutoSelect.current = true;
+    autoSelectFirstOfCap(initialCapFilter);
+  }, [initialCapFilter, interactiveModels, autoSelectFirstOfCap]);
 
   const allGroups = React.useMemo(
     () => groupByPlatform(modelsForGrouping),
