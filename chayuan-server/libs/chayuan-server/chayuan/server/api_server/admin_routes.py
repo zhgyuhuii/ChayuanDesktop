@@ -274,6 +274,7 @@ class _PlatformBody(_BaseModel):
     llm_models: Optional[List[str]] = None
     embed_models: Optional[List[str]] = None
     text2image_models: Optional[List[str]] = None
+    text2video_models: Optional[List[str]] = None
     image2text_models: Optional[List[str]] = None
     rerank_models: Optional[List[str]] = None
     speech2text_models: Optional[List[str]] = None
@@ -359,7 +360,8 @@ async def list_model_platform_catalog(
     seen: set = set()
 
     _MODEL_FIELDS = (
-        "llm_models", "embed_models", "text2image_models", "image2text_models",
+        "llm_models", "embed_models", "text2image_models", "text2video_models",
+        "image2text_models",
         "rerank_models", "speech2text_models", "text2speech_models",
     )
 
@@ -429,7 +431,14 @@ async def list_model_platform_catalog(
         # ``default_models`` 字段独立返(下方 ``"default_models": ...``),客户端
         # 如需"未配置时建议清单"提示可单独读这个字段,不再混入 *_models。
         def _models_for(field: str) -> List[str]:
-            return list(row.get(field) or [])
+            vals = list(row.get(field) or [])
+            # 视频模型永远无法自动检测(不在 OpenAI 兼容 /v1/models 里),所以
+            # text2video_models 的 DB 行为空时,回退到 catalog 默认清单展示 —— 否则
+            # 配过 key 的厂商(如百炼)文生视频栏永远是空的。其它字段维持 65 题
+            # "只返 DB 实际数据"不变。
+            if not vals and field == "text2video_models":
+                vals = list(defaults.get(field) or [])
+            return vals
 
         return {
             "pid": meta_pid,
@@ -672,6 +681,7 @@ async def enrich_model_platform(
                 continue
             for f in (
                 "llm_models", "embed_models", "rerank_models", "text2image_models",
+                "text2video_models",
                 "image2text_models", "speech2text_models", "text2speech_models",
             ):
                 for m in (d.get(f) or []):
