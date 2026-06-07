@@ -195,17 +195,28 @@ class KlingVideoConnector(AsyncPollVideoConnector):
                     body["image"] = _resolve_image_field(a)
                     break
 
-        # 透传可选参数（仅在 params 中明确提供时才放入 body）
-        _optional_keys: List[str] = [
-            "duration",
-            "aspect_ratio",
-            "mode",
-            "negative_prompt",
-        ]
-        for key in _optional_keys:
-            val = params.get(key)
-            if val is not None:
-                body[key] = val  # TODO(P2-verify): 各字段在 Kling API 中的正式名称
+        # 可选参数 —— Kling 对取值有严格白名单,这里规范化,避免前端传非法值撞 400
+        # (如前端时长默认 2 → Kling 报 "duration value '2' is invalid")。
+        # 非法/未提供的项一律不传,让 Kling 用自己的默认值。
+        dur = params.get("duration")
+        if dur is not None:
+            try:
+                n = int(float(str(dur)))
+            except (TypeError, ValueError):
+                n = 5
+            body["duration"] = "5" if n <= 5 else "10"  # Kling 只接受 5 或 10 秒
+
+        ar = params.get("aspect_ratio")
+        if ar in ("16:9", "9:16", "1:1"):
+            body["aspect_ratio"] = ar
+
+        mode = params.get("mode")
+        if mode in ("std", "pro"):
+            body["mode"] = mode
+
+        neg = params.get("negative_prompt")
+        if neg:
+            body["negative_prompt"] = str(neg)
 
         headers = self._auth_headers(req)
         return url, headers, body
