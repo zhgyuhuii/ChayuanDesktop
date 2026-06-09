@@ -36,6 +36,7 @@ import {
 import { CapabilityCardGrid } from './capabilityCards/CapabilityCardGrid';
 import { HomeFxLayer } from './homeFx/HomeFxLayer';
 import { CardAura } from './homeFx/CardAura';
+import { LicenseDialog } from '../license/LicenseDialog';
 
 // ── 5 张功能入口卡定义 ──────────────────────────────────────────────
 interface CapItem {
@@ -193,6 +194,9 @@ export const HomePage: React.FC = () => {
   //
   // chunk → setIntro 用 rAF 合并:LLM 高速吐 token 时不再每个 token 都触发
   // HomePage 全树重渲染,显著降低四张能力卡 + 二维码的 reflow 抖动。
+  // 「已购买激活」入口的弹窗开关 — 点页脚链接打开 LicenseDialog(内含序列号输入 + 公众号查询)。
+  const [licOpen, setLicOpen] = React.useState(false);
+
   const [intro, setIntro] = React.useState('');
   // 本地循环打字机:依次打 STATIC_INTROS 每条 → 停顿 → 清空 → 下一条 → 循环。完全不调大模型。
   React.useEffect(() => {
@@ -343,12 +347,26 @@ export const HomePage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── 页脚:两个二维码居中(关注我们 / 购买) — 去掉卡片外壳,只留二维码+名称 ── */}
-      <section className="relative z-10 flex items-center justify-center gap-8 pt-1">
-        <QrCard label="关注我们" src={FOLLOW_QR_URL} />
-        <BuyQrCard />
+      {/* ── 页脚:两个二维码居中(关注我们 / 购买) + 「已购买」激活入口 ── */}
+      <section className="relative z-10 flex flex-col items-center gap-3 pt-1">
+        <div className="flex items-center justify-center gap-8">
+          <QrCard label="关注我们" src={FOLLOW_QR_URL} />
+          <BuyQrCard />
+        </div>
+        {/* 已购买的用户点这里输入序列号激活 — 弹出复用的 LicenseDialog
+            (扫码购买页 + 下方序列号输入框 + 关注公众号查询序列号)。 */}
+        <button
+          type="button"
+          onClick={() => setLicOpen(true)}
+          className="text-sm text-[var(--cy-brand-600)] hover:underline"
+        >
+          已购买？点此输入授权码激活
+        </button>
       </section>
 
+      {/* 激活弹窗 — 复用 LicenseDialog。app 与购买二维码保持一致(chat);
+          激活时后端按序列号自身编码的模块发放权益,不受此 app 限制。 */}
+      <LicenseDialog app="chat" open={licOpen} onOpenChange={setLicOpen} />
     </div>
   );
 };
