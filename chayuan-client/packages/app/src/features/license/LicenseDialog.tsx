@@ -225,6 +225,13 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
                 </div>
               ) : null}
 
+              {/* buy 态：开发不易 · 开源承诺 */}
+              {qrTab === "buy" ? (
+                <p className="px-3 text-center text-xs leading-relaxed text-muted-foreground">
+                  独立团队，认真做产品。当支持够团队吃饭，全部功能即免费开源、回馈所有人。谢谢你成为其中一份力量。
+                </p>
+              ) : null}
+
               {/* share 态：分享提示 */}
               {qrTab === "share" ? (
                 <div className="flex items-center gap-1.5">
