@@ -25,6 +25,7 @@ export * from './fixtures/skills';
 export * from './localRuntime';
 export * from './diagnose';
 export * from './license';
+export * from './feedback';
 export {
   modality,
   type OcrResult,
