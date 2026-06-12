@@ -13,6 +13,7 @@ import {
   retryFeedbackDrafts,
   submitFeedback,
   uploadFeedbackAttachment,
+  resolveFeedbackUrl,
   type FeedbackItem,
   type FeedbackAttachment,
 } from '@chayuan/api';
@@ -98,14 +99,27 @@ const GrantCard: React.FC<GrantCardProps> = ({ item }) => {
 
 const AttachmentChip: React.FC<{ att: FeedbackAttachment }> = ({ att }) => {
   const isImage = att.kind === 'image';
+  const url = resolveFeedbackUrl(att.url);
+  if (isImage) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className="inline-block">
+        <img
+          src={url}
+          alt={att.name}
+          className="h-16 w-16 rounded-lg border border-[var(--cy-border-subtle)] object-cover"
+        />
+      </a>
+    );
+  }
   return (
     <a
-      href={att.url}
+      href={url}
+      download={att.name}
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex max-w-[160px] items-center gap-1.5 truncate rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-2)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:text-[var(--cy-text-primary)]"
     >
-      {isImage ? <ImageIcon className="h-3.5 w-3.5 shrink-0" /> : <FileIcon className="h-3.5 w-3.5 shrink-0" />}
+      <FileIcon className="h-3.5 w-3.5 shrink-0" />
       <span className="truncate">{att.name}</span>
     </a>
   );

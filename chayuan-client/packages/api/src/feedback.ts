@@ -27,6 +27,15 @@ function _getSecret(): string {
 // node: Buffer.from('aidooo.com'.split('').map(c=>c.charCodeAt(0)^0x5a)).toString('base64')
 // => OzM+NTU1dDk1Nw==（与 runtimeSync._H 相同域名，同一常量）
 const _B = 'OzM+NTU1dDk1Nw==';
+// 把服务端相对附件 URL(/feedback-uploads/...)解析为 aidooo 绝对地址,
+// 供 desktop(非 aidooo 源)加载图片/下载附件。
+export function resolveFeedbackUrl(url: string): string {
+  const u = String(url || '');
+  if (!u) return '';
+  if (/^https?:\/\//i.test(u)) return u;
+  return _getAidoooBase() + (u.charAt(0) === '/' ? u : '/' + u);
+}
+
 function _getAidoooBase(): string {
   try {
     const raw = atob(_B);
