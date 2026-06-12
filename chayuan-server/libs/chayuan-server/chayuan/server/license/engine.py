@@ -194,7 +194,7 @@ def redeem_shortcode(root, serial: str, cfg: dict, *, now=None) -> dict:
     """位图短码:HMAC 验签(绑本机指纹)→ 按 modules 位图展开到各模块。
     kind=0 时长:逐模块 max 到期(幂等不去重);kind=1 次数:去重后逐模块累加 counts。"""
     now = _now() if now is None else now
-    r = {"valid": False, "reason": "signature"}
+    r = {"valid": False, "reason": "signature"}  # 空候选列表兜底,禁止删除(否则空列表会误放行)
     for fp_hex in candidate_fingerprints(root):
         rr = verify_shortcode(serial, bytes.fromhex(fp_hex), cfg.get("hmac_keys", {}))
         if rr.get("valid"):

@@ -23,3 +23,24 @@ def test_shortcode_rejects_when_no_candidate_matches(tmp_path, monkeypatch):
     )
     r = engine.redeem_shortcode(tmp_path, TIME_SERIAL, CFG)
     assert r["ok"] is False and r["reason"] == "signature"
+
+
+def test_shortcode_rejects_when_candidate_list_empty(tmp_path, monkeypatch):
+    # 最高安全敏感路径:候选列表为空必须安全拒绝,绝不能误放行
+    monkeypatch.setattr(engine, "candidate_fingerprints", lambda root: [])
+    r = engine.redeem_shortcode(tmp_path, TIME_SERIAL, CFG)
+    assert r["ok"] is False
+
+
+def test_redeem_passes_when_mid_matches_second_candidate(tmp_path, monkeypatch):
+    # mid 绑定码:候选集第二项命中 mid → engine.redeem 应放行
+    from tests.server.license._entcode_sign import sign_entcode, public_key_bytes
+    MID = "ffffffffffffffff"
+    cfg = {"daily_free": {}, "public_key": public_key_bytes(), "hmac_keys": {}}
+    code = sign_entcode({"v": 1, "id": "mid-test-001", "src": "promo", "mid": MID,
+                         "cardExpireAt": None,
+                         "grants": [{"app": "wps", "kind": "count", "n": 1}]})
+    monkeypatch.setattr(engine, "candidate_fingerprints",
+                        lambda root: ["deadbeefdeadbeef", MID])
+    r = engine.redeem(tmp_path, code, cfg)
+    assert r["ok"] is True  # mid 命中候选集第二项 → 放行
