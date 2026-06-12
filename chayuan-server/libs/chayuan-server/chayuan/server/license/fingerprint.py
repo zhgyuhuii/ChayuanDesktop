@@ -8,6 +8,8 @@ import os
 import uuid
 from pathlib import Path
 
+from .fingerprint_home import fp_home
+
 
 def _fixed_id_path() -> Path:
     return Path(os.path.expanduser("~")) / ".chayuan" / "machine.id"
@@ -53,22 +55,24 @@ def _write_id(p: Path, mid: str) -> None:
 def _stable_machine_id(root: Path) -> str:
     fixed = _fixed_id_path()
     legacy = root / "license" / "machine.id"
-    # 1) 固定共享文件(与 CHAYUAN_ROOT 无关;WPS 同读)——最高优先,保证两端一致
+    # 1) 固定共享文件:最高优先,已是真源,直接返回(不重写)
     mid = _read_id(fixed)
     if mid:
         return mid
-    # 2) 兼容老安装:旧版把 id 存在 <root>/license/machine.id(迁移到固定文件,指纹不变)
+    # 2) 兼容老安装:旧路径值来源不明(可能是随机),不主动提升到 fixed,
+    #    避免把随机值固化成跨端真源污染 WPS;指纹值仍用它,不变
     mid = _read_id(legacy)
-    # 3) OS 硬件标识(machine-id / MachineGuid)
+    deterministic = False
+    # 3) OS 硬件标识(machine-id / MachineGuid):确定性,可作跨端真源写 fixed
     if not mid:
         mid = _os_raw_id()
-    # 4) 兜底随机(落盘后稳定)
-    is_random = False
+        if mid:
+            deterministic = True
+    # 4) 兜底随机:不写 fixed(避免污染跨端)
     if not mid:
         mid = uuid.uuid4().hex
-        is_random = True
-    # 落盘:确定性 OS 标识/已有值才写固定共享文件(随机不污染跨端);随机只写旧路径保自身稳定
-    if not is_random:
+    # 落盘:仅确定性 OS 标识写固定共享文件;legacy 始终写,保自身重启稳定
+    if deterministic:
         _write_id(fixed, mid)
     _write_id(legacy, mid)
     return mid
@@ -84,7 +88,6 @@ def fingerprint_bytes(root: Path) -> bytes:
 
 def candidate_fingerprints(root: Path) -> list:
     """激活验签用的候选指纹集:主(OS标识/固定文件派生) + home派生 + 纯OS标识派生,去重。"""
-    from .fingerprint_home import fp_home
     out: list = []
 
     def add(v: str) -> None:
