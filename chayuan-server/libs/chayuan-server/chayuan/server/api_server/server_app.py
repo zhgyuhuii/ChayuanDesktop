@@ -300,6 +300,21 @@ def create_app(run_mode: str = None):
 
         asyncio.create_task(asyncio.to_thread(_run))
 
+    @app.on_event("startup")
+    async def _usage_report_loop() -> None:
+        # desktop 使用埋点机会性上报(离线静默,连不上 aidooo.com 不影响启动)
+        import logging
+        _log = logging.getLogger("chayuan.startup")
+        try:
+            from pathlib import Path
+            from chayuan.server.license import usage_reporter
+            from chayuan.server.license.config import load_license_config
+            from chayuan.settings import CHAYUAN_ROOT
+            base = (load_license_config() or {}).get("buy_base_url", "https://aidooo.com")
+            usage_reporter.start_report_loop(Path(CHAYUAN_ROOT), base)
+        except Exception:  # noqa: BLE001
+            _log.exception("usage report loop start failed")
+
     @app.on_event("shutdown")
     async def _ws_hub_close() -> None:
         from chayuan.server.shared.ws_hub import get_hub
