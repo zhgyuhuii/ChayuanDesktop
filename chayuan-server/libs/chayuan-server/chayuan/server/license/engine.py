@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from . import entstore, entcode, usage
 from .shortcode import verify_shortcode
-from .fingerprint import fingerprint as _fp
+from .fingerprint import fingerprint as _fp, candidate_fingerprints
 
 ROLLBACK_TOLERANCE = 86400  # 1 天(秒)
 
@@ -172,7 +172,7 @@ def redeem(root, code: str, cfg: dict, *, now=None) -> dict:
         return {"ok": False, "reason": shape_err}
     if card_exp and now > _ts(card_exp):
         return {"ok": False, "reason": "card-expired"}
-    if mid and mid.lower() != _fp(root).lower():
+    if mid and mid.lower() not in candidate_fingerprints(root):
         return {"ok": False, "reason": "mismatch"}
     if not code_id:
         return {"ok": False, "reason": "no-id"}
@@ -194,8 +194,13 @@ def redeem_shortcode(root, serial: str, cfg: dict, *, now=None) -> dict:
     """位图短码:HMAC 验签(绑本机指纹)→ 按 modules 位图展开到各模块。
     kind=0 时长:逐模块 max 到期(幂等不去重);kind=1 次数:去重后逐模块累加 counts。"""
     now = _now() if now is None else now
-    fp_bytes = bytes.fromhex(_fp(root))
-    r = verify_shortcode(serial, fp_bytes, cfg.get("hmac_keys", {}))
+    r = {"valid": False, "reason": "signature"}
+    for fp_hex in candidate_fingerprints(root):
+        rr = verify_shortcode(serial, bytes.fromhex(fp_hex), cfg.get("hmac_keys", {}))
+        if rr.get("valid"):
+            r = rr
+            break
+        r = rr  # 记最后一次失败原因
     if not r.get("valid"):
         return {"ok": False, "reason": r.get("reason") or "signature"}
     fields = r["fields"]
