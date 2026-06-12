@@ -226,14 +226,18 @@ def redeem_shortcode(root, serial: str, cfg: dict, *, now=None) -> dict:
             entstore.write_state(root, state)
         return {"ok": True, "kind": "count", "modules": mods, "added": int(fields["value"])}
 
-    # kind=0 时长:逐模块取 max 到期
-    exp = r["expireAt"]
+    # kind=0 时长:去重后逐模块累加 value 天(对齐 kind=1;永久有效,不用 serial 绝对到期)
+    code_id = hashlib.sha256(serial.encode("utf-8")).hexdigest()[:16]
+    if entstore.is_redeemed(root, code_id):
+        return {"ok": False, "reason": "used"}
+    entstore.add_redeemed(root, code_id)
+    value_days = int(fields["value"])
     applied = []
     for m in mods:
         state = _normalize(entstore.read_state(root, m), now)
         cur = _ts(state["timeExpireAt"]) if state["timeExpireAt"] else 0
-        if _ts(exp) > cur:
-            state["timeExpireAt"] = exp
+        base = max(cur, now)                          # 未过期->剩余叠加;已过期->从 now
+        state["timeExpireAt"] = _to_iso(base + value_days * 86400)
         if now > state.get("seenMax", 0):
             state["seenMax"] = now
         entstore.write_state(root, state)

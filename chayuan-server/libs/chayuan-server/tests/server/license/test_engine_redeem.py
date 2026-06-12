@@ -73,7 +73,8 @@ def _scfg(products=None):
 
 
 def test_redeem_shortcode_sets_time(monkeypatch, tmp_path):
-    # stub verify_shortcode 返回 kind=0 + 位图,验证 engine 按位图展开写到期。
+    # stub verify_shortcode 返回 kind=0 + 位图,验证 engine 按位图展开累加 value 天。
+    # (改累加后:到期 = now + value*86400,不再用 expireAt 绝对时间)
     from chayuan.server.license import engine as eng
 
     def fake_verify(serial, machine_fp, hmac_keys):
@@ -84,7 +85,9 @@ def test_redeem_shortcode_sets_time(monkeypatch, tmp_path):
     monkeypatch.setattr(eng, "verify_shortcode", fake_verify)
     r = eng.redeem_shortcode(tmp_path, "S", _scfg(), now=T0)
     assert r["ok"] is True and r["kind"] == "time" and r["modules"] == ["video"]
-    assert entstore.read_state(tmp_path, "video")["timeExpireAt"] == "2099-01-01T00:00:00.000Z"
+    # 累加 1 天:到期 = T0 + 86400
+    actual_ts = eng._ts(entstore.read_state(tmp_path, "video")["timeExpireAt"])
+    assert abs(actual_ts - (T0 + 86400)) < 2
 
 
 def test_redeem_shortcode_count_bitmask_and_dedup(monkeypatch, tmp_path):
