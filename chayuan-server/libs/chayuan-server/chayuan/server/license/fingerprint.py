@@ -63,10 +63,13 @@ def _stable_machine_id(root: Path) -> str:
     if not mid:
         mid = _os_raw_id()
     # 4) 兜底随机(落盘后稳定)
+    is_random = False
     if not mid:
         mid = uuid.uuid4().hex
-    # 落盘:固定共享文件 + 旧路径(保持兼容)
-    _write_id(fixed, mid)
+        is_random = True
+    # 落盘:确定性 OS 标识/已有值才写固定共享文件(随机不污染跨端);随机只写旧路径保自身稳定
+    if not is_random:
+        _write_id(fixed, mid)
     _write_id(legacy, mid)
     return mid
 
@@ -77,3 +80,21 @@ def fingerprint(root: Path) -> str:
 
 def fingerprint_bytes(root: Path) -> bytes:
     return bytes.fromhex(fingerprint(root))
+
+
+def candidate_fingerprints(root: Path) -> list:
+    """激活验签用的候选指纹集:主(OS标识/固定文件派生) + home派生 + 纯OS标识派生,去重。"""
+    from .fingerprint_home import fp_home
+    out: list = []
+
+    def add(v: str) -> None:
+        s = str(v or "").strip().lower()
+        if len(s) == 16 and all(c in "0123456789abcdef" for c in s) and s not in out:
+            out.append(s)
+
+    add(fingerprint(root))                                  # 主:固定文件/OS标识派生
+    add(fp_home())                                          # home派生同源桥
+    os_raw = _os_raw_id()                                   # 纯OS标识派生(固定文件是随机时补一个)
+    if os_raw:
+        add(hashlib.sha256(os_raw.encode()).hexdigest()[:16])
+    return out
