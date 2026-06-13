@@ -1,5 +1,5 @@
 use std::sync::OnceLock;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::{Emitter, Window};
@@ -15,8 +15,6 @@ fn client() -> &'static reqwest::Client {
     C.get_or_init(|| reqwest::Client::builder().cookie_store(true).build().unwrap())
 }
 
-#[derive(Serialize)]
-struct Captcha { #[serde(rename = "captchaId")] captcha_id: String, svg: String }
 
 #[tauri::command]
 async fn get_captcha() -> Result<Value, String> {
