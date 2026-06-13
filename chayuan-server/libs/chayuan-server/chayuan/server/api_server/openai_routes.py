@@ -457,6 +457,14 @@ async def create_modality_completion(
         )
     from chayuan.server.modality.router.routing import capability_from_config
     cap = capability_from_config(actual_model, info) or classify_capability(actual_model)
+    # 健壮性:能走到模态路由(/v1/modality/completions)的模型就不该是 chat —— 对话走
+    # /v1/chat/completions。若用户把明显的多模态生成模型(如 doubao-seedance-*-i2v、
+    # wanx-t2v 等,名字能判出 t2v/t2i/tts/asr)误配成 model_type=llm,这里以模型名为准,
+    # 避免因找不到 (chat, *) connector 而报「需要专属上游协议」。
+    if cap == Capability.CHAT:
+        by_name = classify_capability(actual_model)
+        if by_name != Capability.CHAT:
+            cap = by_name
 
     # 4. 从 messages 抽取 prompt — t2i/tts 等只用最后一条 user message 的纯文本
     #    (多模态 chat 已经走老链路,不来这里)
