@@ -70,6 +70,13 @@ export const HOME_CAPABILITY_CARDS: ReadonlyArray<CapabilityCardSpec> = [
     empty_hint: '接入万象 wanx-t2v / Sora / Runway / 可灵 Kling 等',
   },
   {
+    cap: 'i2v',
+    title: '图生视频',
+    subtitle: '上传一张图,让它动起来生成短视频',
+    hint: '示例:上传风景照,让云朵和水面缓缓流动',
+    empty_hint: '接入万象 wanx2.1-i2v / wan2.x-i2v / 可灵 Kling 等图生视频模型',
+  },
+  {
     cap: 'tts',
     title: '语音合成',
     subtitle: '把文字读出来,可选音色 / 语速',

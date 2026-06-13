@@ -40,7 +40,7 @@ export interface CapabilityCardGridProps {
 
 // chips 变体的能力小图标(spec 无 icon 字段,按 cap 映射;缺省无 emoji)
 const CAP_EMOJI: Record<string, string> = {
-  chat: '💬', vl: '👁', t2i: '🎨', image_edit: '🖼', t2v: '🎬', tts: '🔊', asr: '🎙',
+  chat: '💬', vl: '👁', t2i: '🎨', image_edit: '🖼', t2v: '🎬', i2v: '🎥', tts: '🔊', asr: '🎙',
 };
 
 
