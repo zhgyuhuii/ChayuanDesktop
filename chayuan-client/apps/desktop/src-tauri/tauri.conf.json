@@ -1,7 +1,7 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Chayuan",
-  "version": "1.0.0",
+  "version": "2.0.1",
   "identifier": "ai.chayuan.client",
   "build": {
     "beforeDevCommand": "pnpm dev:vite",
@@ -33,7 +33,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "deb", "app"],
+    "targets": [
+      "nsis",
+      "deb",
+      "app"
+    ],
     "externalBin": [],
     "resources": [
       "chayuan-server/**/*",
@@ -51,19 +55,33 @@
       "icons/icon.icns"
     ],
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
       "wix": {
-        "language": ["zh-CN"],
+        "language": [
+          "zh-CN"
+        ],
         "template": "wix/main.wxs"
       },
       "nsis": {
-        "languages": ["SimpChinese", "English"],
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
         "installerHooks": "./installer.nsh"
       }
     },
     "linux": {
-      "deb": { "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"] },
-      "appimage": { "bundleMediaFramework": true }
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ]
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
     },
     "macOS": {
       "minimumSystemVersion": "10.15",
@@ -73,7 +91,9 @@
   "plugins": {
     "updater": {
       "active": false,
-      "endpoints": ["https://example.com/updates/{{target}}/{{current_version}}"],
+      "endpoints": [
+        "https://example.com/updates/{{target}}/{{current_version}}"
+      ],
       "pubkey": ""
     }
   }
