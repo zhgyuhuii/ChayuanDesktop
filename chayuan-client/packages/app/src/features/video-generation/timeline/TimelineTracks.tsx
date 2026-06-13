@@ -50,6 +50,9 @@ export const TimelineTracks: React.FC<{
   playheadDriveRef?: React.MutableRefObject<((ms: number) => void) | null>;
 }> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationName, narrationDurationMs, onTransitionMenu, playheadDriveRef }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
+  // 刻度固定:右侧面板自成垂直滚动容器,左侧轨道头列 scrollTop 跟随同步
+  const lanesScrollRef = React.useRef<HTMLDivElement>(null);
+  const headerColRef = React.useRef<HTMLDivElement>(null);
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const audioTracks = (timeline.tracks || []).filter((t) => t.kind === 'audio');
   const audioLanes: (VgTimelineTrack | null)[] = audioTracks.length ? audioTracks : [null]; // 至少一条插入音频 lane(可拖)
@@ -89,10 +92,10 @@ export const TimelineTracks: React.FC<{
   };
 
   return (
-    <div className="flex rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
+    <div className="flex h-full min-h-0 rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
       {/* 左:固定轨道头列 */}
-      <div className="shrink-0 border-r border-[var(--cy-border-subtle)]" style={{ width: HEADER_W }}>
-        <div style={{ height: RULER_H }} className="border-b border-[var(--cy-border-subtle)]" />
+      <div ref={headerColRef} className="shrink-0 overflow-hidden border-r border-[var(--cy-border-subtle)]" style={{ width: HEADER_W }}>
+        <div style={{ height: RULER_H }} className="sticky top-0 z-20 border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]" />
         {videoTracks.map((tr, i) => (
           <div key={tr.id} className={`${selCls(tr.id)} ${onReorderVideoTrack && videoTracks.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
             onClick={() => onSelectTrack?.(tr.id)}
@@ -135,10 +138,16 @@ export const TimelineTracks: React.FC<{
         <TrackHeader label="音乐" icon={<Music className="h-3 w-3" />} />
         <TrackHeader label="字幕" icon={<Captions className="h-3 w-3" />} />
       </div>
-      {/* 右:单横向滚动容器 */}
-      <div className="relative flex-1 overflow-x-auto cy-hide-scrollbar">
+      {/* 右:横向+纵向滚动容器;刻度 sticky 固定在顶,左列 scrollTop 跟随 */}
+      <div
+        ref={lanesScrollRef}
+        onScroll={(e) => { if (headerColRef.current) headerColRef.current.scrollTop = e.currentTarget.scrollTop; }}
+        className="relative flex-1 overflow-auto cy-hide-scrollbar"
+      >
         <div className="relative" style={{ width: contentWidthPx }}>
-          <TimeRuler durationMs={durationMs} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx} onSeekMs={onSeekMs} />
+          <div className="sticky top-0 z-20 bg-[var(--cy-surface-1)]">
+            <TimeRuler durationMs={durationMs} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx} onSeekMs={onSeekMs} />
+          </div>
           <div className="relative" style={{ height: lanesH }}>
             {/* 视频轨们(第 0 条 = 主轨可编辑;其余 = PIP 显示+拖入+右键) */}
             {videoTracks.map((tr, i) => {

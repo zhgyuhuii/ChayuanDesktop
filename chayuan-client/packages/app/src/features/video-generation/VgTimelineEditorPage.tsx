@@ -394,7 +394,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           onSubmit={() => void onSubmit()}
         />
         {!timelineCollapsed && (
-        <div className="min-h-0 flex-1 overflow-y-auto cy-hide-scrollbar">
+        <div className="min-h-0 flex-1 overflow-hidden">
         <TimelineTracks
           timeline={timeline} durationMs={durationMs} pxPerSec={pxPerSec} playheadMs={playheadMs}
           peaks={peaks} peaksLoading={draft.state === 'generating'} cues={cues} bgmName={bgmName} bgmUrl={bgmUrl} contentMs={contentMs}
