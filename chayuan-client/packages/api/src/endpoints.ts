@@ -580,14 +580,17 @@ export const kb = {
 
   /** 查看文件当前入库切片 */
   listFileChunks: (body: { knowledge_base_name: string; file_name: string }) =>
-    http.get<KbFileChunksResponse>('/knowledge_base/file_chunks', { query: body }),
+    // 切片多 / 向量库读取慢时,默认 30s 会超时报「请求已中止」;放宽到 120s。
+    http.get<KbFileChunksResponse>('/knowledge_base/file_chunks', { query: body, timeoutMs: 120_000 }),
 
   /** 管理员保存切片并重新向量化该文件 */
   saveFileChunks: (body: {
     knowledge_base_name: string;
     file_name: string;
     chunks: Array<{ chunk_id?: string; text: string; metadata?: Record<string, unknown> }>;
-  }) => http.post<{ code?: number; msg?: string; data?: unknown }>('/knowledge_base/admin/file_chunks', body),
+  }) =>
+    // 保存切片会重新向量化整文件,可能很慢;放宽超时到 300s。
+    http.post<{ code?: number; msg?: string; data?: unknown }>('/knowledge_base/admin/file_chunks', body, { timeoutMs: 300_000 }),
 
   /** 重新生成指定文件的向量数据:删除旧向量后从源文件重新切片入库 */
   reindexDocs: (body: {
