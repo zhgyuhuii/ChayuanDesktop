@@ -729,7 +729,7 @@ const FileChunksDialog: React.FC<{
       .then((data) => {
         if (!cancelled) setChunks(data.chunks ?? []);
       })
-      .catch((e) => reportError(e, '加载切片失败'))
+      .catch((e) => { if (!cancelled) reportError(e, '加载切片失败'); })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
