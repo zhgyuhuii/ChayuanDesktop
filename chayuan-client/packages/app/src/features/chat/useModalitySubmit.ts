@@ -208,11 +208,15 @@ export function useModalitySubmit(opts: UseModalitySubmitOptions): UseModalitySu
   const run = React.useCallback(
     async (input: {
       text: string;
+      /** 实际发给模型的 prompt(默认同 text)。用于文生图/图生图把改写后的增强
+       *  prompt 发给模型,但气泡仍显示用户原话(text)。 */
+      promptOverride?: string;
       modelId: string;
       params?: Record<string, unknown>;
       attachments?: ModalityAttachment[];
     }) => {
       const text = input.text.trim();
+      const sentPrompt = (input.promptOverride ?? input.text).trim();
       // 大多数 modality 模式必须有 prompt;ASR / image_edit 等场景 prompt 可为空,
       // 由附件承担"输入"角色 — 这种情况下只要有附件就允许提交。
       const hasAttachments = (input.attachments?.length ?? 0) > 0;
@@ -247,7 +251,7 @@ export function useModalitySubmit(opts: UseModalitySubmitOptions): UseModalitySu
         const stream = streamModality(
           {
             model: input.modelId,
-            prompt: text,
+            prompt: sentPrompt,
             attachments: input.attachments,
             params: input.params,
             baseUrl,
