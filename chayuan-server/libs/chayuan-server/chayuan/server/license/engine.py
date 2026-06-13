@@ -243,3 +243,26 @@ def redeem_shortcode(root, serial: str, cfg: dict, *, now=None) -> dict:
         entstore.write_state(root, state)
         applied.append({"app": m, "timeExpireAt": state["timeExpireAt"]})
     return {"ok": True, "kind": "time", "modules": mods, "applied": applied}
+
+
+def is_paid_member(root, cfg: dict, apps=None, *, now=None) -> bool:
+    """是否为已购买会员:时间制有效 或 有未过期的购买/赠送次数(不含每日免费额度)。
+    跨给定 apps 任一命中即 True;apps 缺省取 cfg.products 的所有模块。"""
+    now = _now() if now is None else now
+    if apps is None:
+        apps = list((cfg.get("products") or {}).keys()) or ["video"]
+    free = set(cfg.get("free_modules", []))
+    for app in apps:
+        if app in free:
+            continue
+        try:
+            state = _normalize(entstore.read_state(root, app), now)
+        except Exception:
+            continue
+        if _rolled_back(state, now):
+            continue
+        if _time_valid(state, now):
+            return True
+        if state.get("counts", 0) > 0 and not _count_expired(state, now):
+            return True
+    return False

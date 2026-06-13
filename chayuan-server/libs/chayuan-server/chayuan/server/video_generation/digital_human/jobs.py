@@ -95,6 +95,13 @@ def _ensure_loaded_locked() -> None:
 def _set(tid: str, **kw) -> None:
     with _LOCK:
         _ensure_loaded_locked()
+        rp = kw.get("result_path")
+        if rp and os.path.isfile(rp):
+            try:
+                from chayuan.server.video_generation.steps.outro import maybe_append_outro as _maybe_outro
+                kw["result_path"] = _maybe_outro(rp, os.path.dirname(rp))
+            except Exception:  # noqa: BLE001
+                pass
         cur = _STATUS.get(tid) or DhTaskStatus(task_id=tid, state="pending")
         _STATUS[tid] = cur.model_copy(update=kw)
         _persist_locked()

@@ -685,6 +685,12 @@ def _persist_vg_videos(task_id: str, params, final_videos: list[str]) -> None:
     base_name = (head or raw or "视频")[:14]
     title = f"{base_name} · {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
+    # 非会员:给每份最终成品拼接片尾(会员/失败均返回原路径,不影响产出)
+    from .steps.outro import maybe_append_outro as _maybe_outro
+    final_videos = [
+        _maybe_outro(p, os.path.dirname(p), threads=max(1, int(getattr(params, "n_threads", 2) or 2)))
+        for p in final_videos
+    ]
     for path in final_videos:
         try:
             size = os.path.getsize(path) if os.path.isfile(path) else 0
