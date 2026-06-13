@@ -332,7 +332,9 @@ _PROVIDER_LINKS: Dict[str, Dict[str, str]] = {
     "zhipu":            {"apply": "https://open.bigmodel.cn/usercenter/apikeys",                         "site": "https://open.bigmodel.cn"},
     "moonshot":         {"apply": "https://platform.moonshot.cn/console/api-keys",                      "site": "https://www.moonshot.cn"},
     "minimax":          {"apply": "https://platform.minimaxi.com/user-center/basic-information/interface-key", "site": "https://www.minimaxi.com"},
-    "volcengine":       {"apply": "https://console.volcengine.com/iam/keymanage/",                       "site": "https://www.volcengine.com/product/doubao"},
+    # 火山豆包走「方舟 Ark」的 API Key(Bearer token),不是账号 IAM 的 AccessKey/SecretAccessKey。
+    # apply 必须指向方舟「API Key 管理」,否则用户去 iam/keymanage 只会拿到用不上的 AK/SK。
+    "volcengine":       {"apply": "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",     "site": "https://www.volcengine.com/product/doubao"},
     "baidu-qianfan":    {"apply": "https://console.bce.baidu.com/qianfan/credential/api-key",            "site": "https://qianfan.cloud.baidu.com"},
     "tencent-hunyuan":  {"apply": "https://console.cloud.tencent.com/hunyuan/api-key",                   "site": "https://hunyuan.tencent.com"},
     "lingyi-wanwu":     {"apply": "https://platform.lingyiwanwu.com/apikeys",                            "site": "https://www.lingyiwanwu.com"},
