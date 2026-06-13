@@ -65,6 +65,9 @@ export interface UseModalitySubmitReturn {
   /** 执行一次提交;前置:shouldHandle(modelId) === true */
   run(input: {
     text: string;
+    /** 实际发给模型的 prompt(默认同 text)。文生图/图生图改写场景:气泡显示原话,
+     *  改写后的增强 prompt 经此发给模型。 */
+    promptOverride?: string;
     modelId: string;
     params?: Record<string, unknown>;
     attachments?: ModalityAttachment[];

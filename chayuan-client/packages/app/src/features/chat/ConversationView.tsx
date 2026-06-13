@@ -50,6 +50,15 @@ import { useChayuanChat } from './useChayuanChat';
 import type { ChatMessage } from './useChayuanChat';
 import { useModalitySubmit } from './useModalitySubmit';
 import { getClientConfig } from '@chayuan/api';
+import { classifyModalityCapability } from '@chayuan/transport';
+import {
+  pickBestModel,
+  useAvailableModelsByCapability,
+} from '../home/capabilityCards/useAvailableModelsByCapability';
+import {
+  rewriteImagePrompt,
+  findLastAssistantImage,
+} from './imagePromptContext';
 import { reportError } from '../../store/errorDialog';
 
 /**
@@ -205,6 +214,11 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   activeIdRef.current = activeId;
   const messagesRef = React.useRef(chat.messages);
   messagesRef.current = chat.messages;
+  // 文生图/图生图 prompt 改写要用的 chat 模型(自动挑可用 chat 模型);用 ref 供
+  // handleSend 闭包读最新值,避免 stale。
+  const { byCap } = useAvailableModelsByCapability();
+  const byCapRef = React.useRef(byCap);
+  byCapRef.current = byCap;
   const modalitySubmit = useModalitySubmit({
     setMessages: chat.setMessages,
     baseUrl: getClientConfig().baseURL,
@@ -417,10 +431,34 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
             return { mime: a.mime || fallbackMime, dataB64: b64, name: a.name };
           }),
       );
+      // 文生图/图生图:带对话上下文 —— 改写 prompt(显示原话、发送改写)+
+      // 图生图未传图时复用上一张生成图。改写失败/无 chat 模型/无历史 → 回退原 prompt。
+      const imgCap = classifyModalityCapability(modelId);
+      let promptOverride: string | undefined;
+      let reusedImage: { mime: string; url: string } | undefined;
+      if (imgCap === 't2i' || imgCap === 'image_edit') {
+        const chatModelId = pickBestModel(byCapRef.current.get('chat'))?.id ?? null;
+        const rewritten = await rewriteImagePrompt({
+          chatModelId,
+          messages: messagesRef.current,
+          currentText: text,
+          mode: imgCap,
+        });
+        if (rewritten) promptOverride = rewritten;
+        if (imgCap === 'image_edit' && modalityAttachments.length === 0) {
+          const lastImg = findLastAssistantImage(messagesRef.current);
+          if (lastImg) reusedImage = lastImg;
+        }
+      }
       await modalitySubmit.run({
         // ASR 模式可以空文本;其它模式 text 一定非空(SendButton 已挡)
-        text, modelId, params: modalityParams,
-        attachments: modalityAttachments.length > 0 ? modalityAttachments : undefined,
+        text, promptOverride, modelId, params: modalityParams,
+        attachments:
+          modalityAttachments.length > 0
+            ? modalityAttachments
+            : reusedImage
+              ? [{ mime: reusedImage.mime, url: reusedImage.url }]
+              : undefined,
       });
       // 发完清理附件,与 chat 路径行为一致
       if (enableAttachments) attachments.reset();
