@@ -194,6 +194,11 @@ export const AiVideoGenerator: React.FC<AiVideoGeneratorProps> = ({ onGenerated,
   // ── 生成 ──────────────────────────────────────────────────────
   const handleGenerate = async () => {
     if (!selectedModel || !prompt.trim()) return;
+    if (isI2v && !imageFile) {
+      setErrorMsg('图生视频必须上传首帧参考图');
+      setGenState('error');
+      return;
+    }
 
     await gate.guard(async () => {
       // 解析 platform::model
@@ -276,6 +281,9 @@ export const AiVideoGenerator: React.FC<AiVideoGeneratorProps> = ({ onGenerated,
     label: `${m.platform} / ${m.model}`,
   }));
 
+  // 选中模型是否 i2v(图生视频)→ 参考图必填;t2v 则隐藏参考图
+  const isI2v = /i2v|image2video|img2video/i.test(selectedModel);
+
   // ─────────────────────────────────────────────────────────────
   // compact 模式：竖排（表单在上、结果在下），适合窄面板
   // 非 compact：左表单 + 右结果（原页布局）
@@ -329,36 +337,38 @@ export const AiVideoGenerator: React.FC<AiVideoGeneratorProps> = ({ onGenerated,
           />
         </div>
 
-        {/* 首帧图（可选） */}
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-[var(--cy-text-secondary)]">
-            首帧参考图
-            <span className="ml-1 font-normal text-[var(--cy-text-tertiary)]">（可选）</span>
-          </label>
-          <input
-            type="file"
-            accept="image/*"
-            disabled={busy}
-            onChange={handleImageChange}
-            className="text-xs text-[var(--cy-text-secondary)] file:mr-2 file:cursor-pointer file:rounded file:border file:border-[var(--cy-border-default)] file:bg-[var(--cy-surface-1)] file:px-2 file:py-0.5 file:text-xs file:text-[var(--cy-text-primary)] file:hover:bg-[var(--cy-surface-2)]"
-          />
-          {imagePreview && (
-            <div className="relative mt-1 overflow-hidden rounded-lg border border-[var(--cy-border-subtle)]">
-              <img src={imagePreview} alt="首帧预览" className="max-h-32 w-full object-cover" />
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setImageFile(null);
-                  setImagePreview(null);
-                }}
-                className="absolute right-1 top-1 rounded bg-black/50 px-1.5 py-0.5 text-[10px] text-white hover:bg-black/70"
-              >
-                移除
-              </button>
-            </div>
-          )}
-        </div>
+        {/* 首帧图：仅图生视频(i2v)显示且必填 */}
+        {isI2v && (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-[var(--cy-text-secondary)]">
+              首帧参考图
+              <span className="ml-1 font-normal text-[var(--cy-danger-500)]">（必填）</span>
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              disabled={busy}
+              onChange={handleImageChange}
+              className="text-xs text-[var(--cy-text-secondary)] file:mr-2 file:cursor-pointer file:rounded file:border file:border-[var(--cy-border-default)] file:bg-[var(--cy-surface-1)] file:px-2 file:py-0.5 file:text-xs file:text-[var(--cy-text-primary)] file:hover:bg-[var(--cy-surface-2)]"
+            />
+            {imagePreview && (
+              <div className="relative mt-1 overflow-hidden rounded-lg border border-[var(--cy-border-subtle)]">
+                <img src={imagePreview} alt="首帧预览" className="max-h-32 w-full object-cover" />
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setImageFile(null);
+                    setImagePreview(null);
+                  }}
+                  className="absolute right-1 top-1 rounded bg-black/50 px-1.5 py-0.5 text-[10px] text-white hover:bg-black/70"
+                >
+                  移除
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 时长 */}
         <div className="flex flex-col gap-1">
