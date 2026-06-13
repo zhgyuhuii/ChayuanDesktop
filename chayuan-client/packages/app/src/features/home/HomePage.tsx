@@ -34,6 +34,11 @@ import {
   ALIPAY_QR_URL, CHAYUAN_LOGO_URL, FOLLOW_QR_URL, WXPAY_QR_URL,
 } from '../../lib/brandAssets';
 import { CapabilityCardGrid } from './capabilityCards/CapabilityCardGrid';
+import {
+  pickBestModel,
+  useAvailableModelsByCapability,
+} from './capabilityCards/useAvailableModelsByCapability';
+import { startCapabilityChat } from './capabilityCards/startCapabilityChat';
 import { HomeFxLayer } from './homeFx/HomeFxLayer';
 import { CardAura } from './homeFx/CardAura';
 import { LicenseDialog } from '../license/LicenseDialog';
@@ -168,6 +173,7 @@ export const HomePage: React.FC = () => {
 
   const catalogQ = usePlatformCatalogQuery();
   const catalog = catalogQ.data ?? [];
+  const { byCap } = useAvailableModelsByCapability();
   const ready = hasUsableLLM(catalog);
 
   const greeting = React.useMemo(() => {
@@ -178,6 +184,21 @@ export const HomePage: React.FC = () => {
   }, [t]);
 
   const onCapClick = (cap: CapItem) => {
+    // AI视频生成块:开一个对话式 t2v(对话生成视频),不走普通路由 navigate。
+    // 复用能力卡的「按模型类型开始对话」逻辑;无可用 t2v 模型则引导去模型厂商。
+    if (cap.id === 'ai-video') {
+      const best = pickBestModel(byCap.get('t2v'));
+      if (!best) {
+        open('/marketplace', { title: '模型厂商', icon: 'server' });
+        void navigate({ to: '/marketplace' as never });
+        return;
+      }
+      startCapabilityChat(
+        { cap: 't2v', model: best },
+        { navigate: (to) => void navigate({ to: to as never }) },
+      );
+      return;
+    }
     // 「AI 笔记」每次进来都是空白:已有 `/notes/new` tab 先关掉,让 NoteEditorPage
     // 重新 mount → useMemo 生成新 draftKey → 不会被上次未保存草稿污染。
     if (cap.id === 'notes') {
