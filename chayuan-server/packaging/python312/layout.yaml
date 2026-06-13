@@ -291,28 +291,18 @@ models:
 # ────────────────────────────────────────────────────────────────────
 releases:
   lite:
-    description: 单机轻量版；最小可跑通 chat / embedding / rerank / asr 四类能力
-    runtimes: [python312, ollama, piper]
+    description: 单机轻量版(纯云);不打本地模型/推理引擎,AI 能力全走云端模型,装好即可运行
+    runtimes: [python312]
     services: []                 # 单机走 sqlite + milvus-lite，不带 PG/MinIO
-    inference: [piper]
-    models:
-      - qwen3-4b-chat-gguf
-      - bge-m3
-      - bge-reranker-v2-m3
-      - whisper-tiny-cpp
+    inference: []
+    models: []                   # 纯云:不打任何本地模型,AI 能力全走云端(用户在模型厂商配 key)
 
   standard:
-    description: 服务器标准版；多用户 + RAG + 知识库
+    description: 集成版;除模型权重外全部打入(运行时/服务/推理引擎齐全),模型走云端或自行下载
     runtimes: [python312, jdk17, nodejs20, ollama, llama-cpp, whisper-cpp, piper]
-    services: [postgres16, redis74, minio]
+    services: [postgres16, redis74, minio, milvus, elasticsearch, docker-compose]
     inference: [llama-cpp, whisper-cpp, piper]
-    models:
-      - qwen3-4b-chat-gguf
-      - bge-m3
-      - bge-reranker-v2-m3
-      - whisper-tiny-cpp
-      - rapidocr-onnx
-      - bge-large-zh-v15
+    models: []                   # 集成版:除模型权重外全部打入;模型走云端或用户自行下载
 
   pro:
     description: 企业全功能版；T2I + T2V + 集群可达
