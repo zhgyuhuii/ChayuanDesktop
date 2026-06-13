@@ -18,6 +18,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Wifi, WifiOff, Play, Loader2, Mic, Square, Upload, Trash2, Pencil } from 'lucide-react';
 import { cn } from '@chayuan/ui';
 import { videoGeneration, type VgVoiceProvider } from '@chayuan/api';
+import { VOICE_PREVIEW_TEXT } from './voicePreviewText';
 import { reportError } from '../../store/errorDialog';
 import { confirmDialog } from '../../store/confirmDialog';
 import { promptDialog } from '../../store/promptDialog';
@@ -122,7 +123,7 @@ export const VoicePicker: React.FC<{
     setPreviewing(true);
     try {
       const r = await videoGeneration.previewAudio({
-        video_script: '试听一段示例文本，听听这个音色的效果。',
+        video_script: VOICE_PREVIEW_TEXT,
         voice_provider: value.voice_provider,
         voice_name: value.voice_name || undefined,
         voice_rate: previewRate,

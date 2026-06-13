@@ -18,6 +18,7 @@ import {
   type VgVoiceProvider,
 } from '@chayuan/api';
 import { useVgComposer } from '../store/vgComposer';
+import { VOICE_PREVIEW_TEXT } from '../voicePreviewText';
 import { reportError } from '../../../store/errorDialog';
 
 const PROVIDERS: Array<{ id: VgVoiceProvider; label: string; hint: string; offline: boolean }> = [
@@ -65,7 +66,7 @@ export const VoiceStep: React.FC = () => {
   }, [previewUrl]);
 
   const previewText = React.useMemo(() => {
-    const t = (script || '试听一段示例文本,听听这个音色的效果。').replace(/\s+/g, ' ').trim();
+    const t = (script || VOICE_PREVIEW_TEXT).replace(/\s+/g, ' ').trim();
     return t.length > 50 ? t.slice(0, 50) : t;
   }, [script]);
 

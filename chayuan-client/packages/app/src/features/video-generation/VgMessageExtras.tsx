@@ -15,6 +15,7 @@ import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Edit3, Sparkles, RefreshCw, Play, Loader2, Film } from 'lucide-react';
 import { videoGeneration, type VgVoiceItem } from '@chayuan/api';
+import { VOICE_PREVIEW_FALLBACK } from './voicePreviewText';
 import { RenderProgressCard } from './RenderProgressCard';
 import { SubtitleEditorDialog } from './SubtitleEditorDialog';
 import { MaterialsBgmOutputDialog } from './MaterialsBgmOutputDialog';
@@ -94,7 +95,7 @@ export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
     setPreviewing(true);
     try {
       const r = await videoGeneration.previewAudio({
-        video_script: (message.content || '试听示例文本').slice(0, 50),
+        video_script: (message.content || VOICE_PREVIEW_FALLBACK).slice(0, 50),
         voice_provider: params.voice_provider,
         voice_name: params.voice_name || undefined,
         voice_rate: params.voice_rate,
