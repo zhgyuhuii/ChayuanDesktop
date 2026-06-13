@@ -22,7 +22,7 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Library, Pen, ScanText, Mic, Clapperboard, UserRound,
-  AlertCircle, Film,
+  AlertCircle, Film, Wand2,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
 import { useBuyQr } from '../license/useBuyQr';
@@ -88,9 +88,18 @@ const CAPS: ReadonlyArray<CapItem> = [
     iconBg: 'bg-gradient-to-br from-sky-400 to-cyan-500',
   },
   {
+    id: 'ai-video',
+    icon: Wand2,
+    title: 'AI视频生成',
+    subtitle: '文生 / 图生视频 · AI 模型直接生成画面',
+    to: '/chat',
+    gradient: 'from-violet-50 to-fuchsia-100 dark:from-violet-900/30 dark:to-fuchsia-800/40',
+    iconBg: 'bg-gradient-to-br from-violet-400 to-fuchsia-500',
+  },
+  {
     id: 'video-generation',
     icon: Clapperboard,
-    title: '视频生成',
+    title: '图文成片',
     subtitle: '主题 → LLM 文案 → TTS → 字幕 → 素材 → 自动合成 mp4',
     to: '/video-generation',
     gradient: 'from-indigo-50 to-purple-100 dark:from-indigo-900/30 dark:to-purple-800/40',
@@ -291,7 +300,7 @@ export const HomePage: React.FC = () => {
       {/* ── 3. 工具小卡网格 ────────────────────────────────────────
           紧凑设计:图标 + 标题(副标题进 hover tooltip),高度 h-24,
           窄屏 3 列 / sm 4 列 / lg 7 列单行。卡多了也不占满屏。 */}
-      <div className="relative z-10 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      <div className="relative z-10 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {CAPS.map((c, i) => {
           const Icon = c.icon;
           return (
