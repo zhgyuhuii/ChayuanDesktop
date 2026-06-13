@@ -5,6 +5,8 @@ import { PresetList } from './PresetList';
 import { DhStudio } from './DhStudio';
 import { DhTaskList } from './DhTaskList';
 import { OnlineAvatarList } from './OnlineAvatarList';
+import { OnlineFeaturePage } from '../online/OnlineFeaturePage';
+import { useSingleMachineMode } from '../first-run/useSingleMachineMode';
 
 type DhTab = 'studio' | 'videos' | 'online' | 'presets';
 const TABS: DhTab[] = ['studio', 'videos', 'online', 'presets'];
@@ -15,6 +17,8 @@ const TAB_LABEL: Record<DhTab, string> = {
 export const DigitalHumanPage: React.FC = () => {
   const [tab, setTab] = React.useState<DhTab>('studio');
   const [genPresetId, setGenPresetId] = React.useState<string | undefined>(undefined);
+  // 单机版:在线数字人依赖服务端,整页占位为「仅在线版可用」;服务版才渲染真实列表
+  const singleMachine = useSingleMachineMode();
   const presetsQ = useQuery({ queryKey: ['dh.presets'], queryFn: digitalHuman.listPresets });
   const presets = presetsQ.data?.items ?? [];
 
@@ -39,13 +43,13 @@ export const DigitalHumanPage: React.FC = () => {
 
       {/* 各 tab 全部常驻挂载,仅用 hidden 切换显示 → 切走再切回保持原状态(工作台选择/拖拽/滚动不丢) */}
       <div className={tab === 'studio' ? 'min-h-0 flex-1' : 'hidden'}>
-        <DhStudio presets={presets} initialPresetId={genPresetId} onPublished={() => setTab('online')} onGenerated={() => setTab('videos')} />
+        <DhStudio presets={presets} initialPresetId={genPresetId} onPublished={() => setTab(singleMachine ? 'videos' : 'online')} onGenerated={() => setTab('videos')} />
       </div>
       <div className={tab === 'videos' ? 'min-h-0 flex-1 overflow-hidden' : 'hidden'}>
         <DhTaskList />
       </div>
       <div className={tab === 'online' ? 'min-h-0 flex-1 overflow-hidden' : 'hidden'}>
-        <OnlineAvatarList />
+        {singleMachine ? <OnlineFeaturePage featureKey="digital-human-online" /> : <OnlineAvatarList />}
       </div>
       <div className={tab === 'presets' ? 'min-h-0 flex-1 overflow-hidden' : 'hidden'}>
         <PresetList presets={presets} onChanged={() => void presetsQ.refetch()} onGenerate={goGenerate} />

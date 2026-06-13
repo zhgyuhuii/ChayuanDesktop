@@ -6,7 +6,8 @@ import { digitalHuman, models, knowledgeUniverse, videoGeneration, vgBgmFileUrl 
 import type { DigitalHumanPreset, RawModelItem, KuItem, DhScriptSource, ProductLayer, VgBgmItem } from '@chayuan/api';
 import type { ModalityCapability } from '@chayuan/transport';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Dialog, DialogContent, DialogTitle } from '@chayuan/ui';
-import { reportError, notifySuccess } from '../../store/errorDialog';
+import { reportError, notifySuccess, notifyInfo } from '../../store/errorDialog';
+import { isSingleMachineMode } from '../first-run/useSingleMachineMode';
 import { promptDialog } from '../../store/promptDialog';
 import { confirmDialog } from '../../store/confirmDialog';
 import { useUsageGate, UsageGateDialogs } from '../license';
@@ -323,6 +324,11 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
   const [publishing, setPublishing] = React.useState(false);
   const doPublish = async () => {
     if (!curPreset || publishing) return;
+    // 单机版:在线数字人依赖服务端,发布不可用 → 提示并中止(与在线 tab 占位口径一致)
+    if (isSingleMachineMode()) {
+      notifyInfo('在线数字人仅在线版可用', '当前为免费单机版,发布在线数字人需切换到察元 AI 在线版 / 私有化部署版');
+      return;
+    }
     const pubName = await promptDialog('给这个在线数字人起个名称:', { defaultValue: curPreset.name || '' });
     if (pubName === null) return;   // 取消则不发布
     setPublishing(true);
