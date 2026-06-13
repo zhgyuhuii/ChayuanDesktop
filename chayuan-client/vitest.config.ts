@@ -17,6 +17,8 @@ export default defineConfig({
       '@chayuan/api': resolve(__dirname, 'packages/api/src/index.ts'),
       '@chayuan/observability': resolve(__dirname, 'packages/observability/src/index.ts'),
       '@chayuan/transport': resolve(__dirname, 'packages/transport/src/index.ts'),
+      '@chayuan/installer-core': resolve(__dirname, 'packages/installer-core/src/index.ts'),
+      '@chayuan/publisher-core': resolve(__dirname, 'packages/publisher-core/src/index.ts'),
     },
   },
 });
