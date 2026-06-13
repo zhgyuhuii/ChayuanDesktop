@@ -106,6 +106,10 @@ def _outro_source() -> str | None:
     # 源码树:从本文件上溯,任一层的 video/video_end.mp4(命中 chayuan-server/video/)
     for p in Path(__file__).resolve().parents:
         cand.append(str(p / "video" / OUTRO_FILENAME))
+    # frozen(PyInstaller):datas 落到 _MEIPASS/video/
+    mp = getattr(sys, "_MEIPASS", None)
+    if mp:
+        cand.append(os.path.join(mp, "video", OUTRO_FILENAME))
     # frozen(PyInstaller)exe 同级 video/
     if getattr(sys, "frozen", False):
         cand.append(os.path.join(os.path.dirname(sys.executable), "video", OUTRO_FILENAME))

@@ -61,7 +61,7 @@ from pathlib import Path
 from typing import Iterable
 
 # 与 chayuan-server local_index.BUNDLED_CAPABILITY_DIRS 对齐
-_CAPS = ("chat", "embedding", "rerank", "asr", "ocr", "image", "custom")
+_CAPS = ("chat", "embedding", "rerank", "asr", "ocr", "image", "tts", "digital_human", "custom")
 
 # 单文件直接当模型的扩展名(其余扩展需要同目录有标志文件)
 _SINGLE_FILE_FORMATS = (".gguf", ".onnx", ".safetensors", ".bin", ".pt", ".pth")

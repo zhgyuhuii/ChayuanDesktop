@@ -80,6 +80,9 @@ hidden_modules += [
     "chayuan.server.chat.handlers.vision",
     "chayuan.server.chat.handlers.supervisor",
 ]
+# tts 连接器 / 数字人引擎按名动态加载,显式收子包兜底(collect_submodules("chayuan") 之外)
+hidden_modules += collect_submodules("chayuan.server.video_generation.digital_human")
+hidden_modules += collect_submodules("chayuan.server.modality.router.connectors")
 hidden_modules += collect_submodules("langchain")
 hidden_modules += collect_submodules("langchain_core")
 hidden_modules += collect_submodules("langchain_openai")
@@ -200,6 +203,11 @@ for sub in (
     src = SERVER_PKG / sub
     if src.is_dir():
         datas.append((str(src), sub))
+
+# 片尾资产:非会员合成视频自动拼接 video/video_end.mp4(outro.py 运行时定位 sys._MEIPASS/video)
+_outro_src = ROOT / "video" / "video_end.mp4"
+if _outro_src.is_file():
+    datas.append((str(_outro_src), "video"))
 
 # ──────────────────────────────────────────────────────────────
 # 项目内固定模型槽:把 <repo>/vendor/bundled_models/ 整树打进 sidecar 资源。
