@@ -100,8 +100,8 @@ export const ImageCard: React.FC<ImageCardProps> = ({ url, mediaType, metadata, 
           aria-label="下载图像"
           title="下载图像"
           className={cn(
-            'absolute right-2 top-2 rounded-md bg-black/55 p-1.5 text-white opacity-0 backdrop-blur',
-            'transition-opacity group-hover/img:opacity-100 focus-visible:opacity-100',
+            'absolute right-2 top-2 rounded-md bg-black/55 p-1.5 text-white opacity-90 backdrop-blur',
+            'transition-opacity hover:opacity-100 focus-visible:opacity-100',
           )}
         >
           <Download className="h-3.5 w-3.5" />

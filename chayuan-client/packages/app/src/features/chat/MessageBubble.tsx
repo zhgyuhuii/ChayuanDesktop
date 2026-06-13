@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Copy, RefreshCw, ThumbsUp, ThumbsDown, ExternalLink, Pencil, GitBranch, ChevronDown, Sparkles } from 'lucide-react';
+import { Copy, RefreshCw, ThumbsUp, ThumbsDown, ExternalLink, Pencil, GitBranch, ChevronDown, Sparkles, Download } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace, logEvent, logScore, Events } from '@chayuan/observability';
 import { getPlatform } from '@chayuan/platform-shared';
@@ -11,6 +11,8 @@ import { KbResultsView } from '../kb/components/KbResultsView';
 import { consumeVoiceAttachment } from '../composer/voiceAttachments';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
 import { ImageCard } from './parts/ImageCard';
+import { downloadUrlAsFile } from '../../lib/downloadMedia';
+import { notifySuccess, notifyInfo } from '../../store/errorDialog';
 import { TaskProgressPart } from './parts/TaskProgressPart';
 
 /** R3.5+: 在 actions 行之前渲染的可选 slot(video_generation 场景挂 TTS/字幕/去生成块)。
@@ -61,7 +63,25 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
   }, [message.id, isUser, message.content]);
 
   const onCopy = async () => {
-    await getPlatform().clipboard.writeText(message.content);
+    const text = message.content;
+    try {
+      await getPlatform().clipboard.writeText(text);
+      notifySuccess('已复制');
+      return;
+    } catch {
+      // 退化到 execCommand(老 webview / 无 clipboard 权限时)
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      notifySuccess('已复制');
+    } catch {
+      notifyInfo('复制失败,请手动选择文本复制');
+    }
   };
 
   const submitFeedback = async (value: 1 | -1) => {
@@ -207,13 +227,22 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
                     );
                   }
                   if (f.mediaType.startsWith('video/')) {
+                    const vname = (() => {
+                      const sha = typeof f.metadata?.sha256 === 'string' ? f.metadata.sha256 : null;
+                      if (sha) return `${sha.slice(0, 16)}.mp4`;
+                      return f.url.split('/').pop() || 'video.mp4';
+                    })();
                     return (
-                      <video
-                        key={f.url + i}
-                        src={f.url}
-                        controls
-                        className="max-w-[480px] rounded-md"
-                      />
+                      <div key={f.url + i} className="flex flex-col gap-1">
+                        <video src={f.url} controls className="max-w-[480px] rounded-md" />
+                        <button
+                          type="button"
+                          onClick={() => { void downloadUrlAsFile(vname, f.url); }}
+                          className="inline-flex items-center gap-1.5 self-start rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-2.5 py-1 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
+                        >
+                          <Download className="h-3.5 w-3.5" /> 下载视频
+                        </button>
+                      </div>
                     );
                   }
                   // 其它类型(PDF 等):简单下载链接兜底
