@@ -318,9 +318,9 @@ export const HomePage: React.FC = () => {
         </div>
       )}
 
-      {/* ── 3. 工具小卡网格 ────────────────────────────────────────
-          紧凑设计:图标 + 标题(副标题进 hover tooltip),高度 h-24,
-          窄屏 3 列 / sm 4 列 / lg 7 列单行。卡多了也不占满屏。 */}
+      {/* ── 3. 功能入口网格(玻璃拟态)──────────────────────────────
+          毛玻璃卡:半透明 + backdrop-blur + 顶部高光 + 彩色渐变图标,
+          左对齐 图标/标题/副标题。2 行 × 4 列(窄屏 2 列),与首页背景光效叠加。 */}
       <div className="relative z-10 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {CAPS.map((c, i) => {
           const Icon = c.icon;
@@ -330,16 +330,32 @@ export const HomePage: React.FC = () => {
               type="button"
               onClick={() => onCapClick(c)}
               title={c.subtitle}
-              className={`group relative flex h-24 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border border-[var(--cy-border-subtle)] bg-gradient-to-br ${c.gradient} p-2 text-center transition-all hover:-translate-y-0.5 hover:shadow-[var(--cy-shadow-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cy-brand-500)]`}
+              className="group relative flex h-28 items-start gap-3 overflow-hidden rounded-2xl border border-white/50 bg-white/55 p-3 text-left shadow-[0_2px_10px_rgba(0,0,0,0.04)] backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:scale-[1.02] hover:border-[var(--cy-brand-400)] hover:shadow-[0_10px_28px_rgba(0,0,0,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cy-brand-500)] dark:border-white/10 dark:bg-white/[0.06]"
             >
+              {/* 每卡专属色(低透明度渐变色调),hover 加深 */}
               <div
-                className={`flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-sm ${c.iconBg}`}
+                className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${c.gradient} opacity-25 transition-opacity duration-200 group-hover:opacity-40`}
+                aria-hidden
+              />
+              {/* 顶部玻璃高光 */}
+              <div
+                className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/50 to-transparent dark:from-white/10"
+                aria-hidden
+              />
+              {/* 彩色渐变图标 */}
+              <div
+                className={`relative z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm ring-1 ring-white/40 ${c.iconBg}`}
                 style={{ animation: `cy-icon-float 4s ease-in-out ${i * 0.4}s infinite` }}
               >
                 <Icon className="h-5 w-5" />
               </div>
-              <p className="w-full truncate text-sm font-semibold text-[var(--cy-text-primary)]">{c.title}</p>
-              <div className="pointer-events-none absolute -right-5 -top-5 h-16 w-16 rounded-full bg-white/30 blur-2xl transition-transform group-hover:translate-x-1" aria-hidden />
+              {/* 标题 + 副标题 */}
+              <div className="relative z-10 min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-[var(--cy-text-primary)]">{c.title}</p>
+                <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-[var(--cy-text-secondary)]">
+                  {c.subtitle}
+                </p>
+              </div>
               <CardAura hue="gold" intensity="subtle" radius={16} />
             </button>
           );
