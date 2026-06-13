@@ -148,6 +148,20 @@ const T2V_MODE: ComposerModeConfig = {
   backendPath: 'modality',
 };
 
+const I2V_MODE: ComposerModeConfig = {
+  capability: 'i2v',
+  label: '图生视频',
+  icon: Clapperboard,
+  colorClass: 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800/60',
+  placeholder: '上传首帧图 + 描述运动,例如:让画面里的人物挥手…',
+  submitLabel: '生成视频 ▶',
+  attachmentRule: 'required-image',
+  paramKind: 'video_size_dur',
+  hint: '图生视频必须先上传一张首帧参考图;约需 30-90 秒,可后台继续',
+  hidePills: ['knowledge', 'search'],
+  backendPath: 'modality',
+};
+
 const TTS_MODE: ComposerModeConfig = {
   capability: 'tts',
   label: '语音合成',
@@ -227,6 +241,7 @@ const MODE_TABLE: Record<ModalityCapability, ComposerModeConfig> = {
   t2i: T2I_MODE,
   image_edit: IMAGE_EDIT_MODE,
   t2v: T2V_MODE,
+  i2v: I2V_MODE,
   tts: TTS_MODE,
   asr: ASR_MODE,
   embedding: EMBEDDING_MODE,

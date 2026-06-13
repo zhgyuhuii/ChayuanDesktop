@@ -34,6 +34,7 @@ export type ModalityCapability =
   | 'rerank'
   | 't2i'
   | 't2v'
+  | 'i2v'
   | 'image_edit'
   | 'tts'
   | 'asr'

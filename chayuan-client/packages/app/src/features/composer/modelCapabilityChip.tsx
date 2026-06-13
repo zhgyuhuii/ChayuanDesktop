@@ -76,6 +76,15 @@ const CAP_META: ReadonlyArray<CapabilityChipMeta> = [
     classesActive: 'bg-rose-600 text-white border-rose-600',
   },
   {
+    cap: 'i2v',
+    label: '图生视频',
+    longLabel: '图生视频模型',
+    classes:
+      'bg-orange-50 text-orange-700 border border-orange-200 ' +
+      'dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800/60',
+    classesActive: 'bg-orange-600 text-white border-orange-600',
+  },
+  {
     cap: 'tts',
     label: '语音合成',
     longLabel: '语音合成模型',
@@ -141,7 +150,7 @@ export function getCapabilityMeta(cap: ModalityCapability): CapabilityChipMeta {
  * vl / chat 都允许 — vl 走 chat 链路的多模态 content,chat 是默认。
  */
 export const INTERACTIVE_CAPABILITIES: ReadonlySet<ModalityCapability> = new Set([
-  'chat', 'vl', 't2i', 'image_edit', 't2v', 'tts', 'asr', 'ocr',
+  'chat', 'vl', 't2i', 'image_edit', 't2v', 'i2v', 'tts', 'asr', 'ocr',
 ]);
 
 export function isInteractiveCapability(cap: ModalityCapability): boolean {
@@ -170,6 +179,8 @@ export function isChatCapability(cap: ModalityCapability): boolean {
  */
 export function inferCapability(m: RawModelItem): ModalityCapability {
   const byName = classifyModalityCapability(m.id);
+  // 名字含 i2v / image2video → 细分为图生视频(transport classify 把它们统判成 t2v)
+  if (byName === 't2v' && /i2v|image2video|img2video/i.test(m.id)) return 'i2v';
   if (byName !== 'chat') return byName; // 命中专有 capability 直接用
   // 名字判不出 → 看后端类型字段
   const t = (m.model_type ?? '').toLowerCase().trim();
@@ -178,6 +189,7 @@ export function inferCapability(m: RawModelItem): ModalityCapability {
   if (t === 'rerank' || t === 'reranker') return 'rerank';
   if (t === 'text2image' || t === 'image_gen') return 't2i';
   if (t === 'image_edit') return 'image_edit';
+  if (t === 'image2video' || t === 'i2v' || t === 'img2video') return 'i2v';
   if (t === 'text2video' || t === 'video_gen' || t === 't2v') return 't2v';
   if (t === 'tts' || t === 'text2audio' || t === 'text2speech') return 'tts';
   if (t === 'asr' || t === 'audio2text' || t === 'speech2text') return 'asr';
