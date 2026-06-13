@@ -12,9 +12,10 @@
  */
 
 import * as React from 'react';
-import { RectangleHorizontal, RectangleVertical, Square, Timer } from 'lucide-react';
-import { cn } from '@chayuan/ui';
+import { RectangleHorizontal, RectangleVertical, Square, Timer, SlidersHorizontal } from 'lucide-react';
+import { cn, Dialog, DialogContent, DialogTitle } from '@chayuan/ui';
 import { useComposerS } from '../../store/composer';
+import { AiVideoGenerator } from '../ai-video/AiVideoGenerator';
 
 interface SizePreset {
   value: string;
@@ -31,6 +32,7 @@ const SIZE_PRESETS: SizePreset[] = [
 const DURATION_OPTIONS = [2, 5, 10] as const;
 
 export const VideoGenParamBar: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const params = useComposerS((s) => s.modalityParams);
   const setParams = useComposerS((s) => s.setModalityParams);
 
@@ -98,6 +100,23 @@ export const VideoGenParamBar: React.FC<{ compact?: boolean }> = ({ compact = fa
           );
         })}
       </div>
+
+      <button
+        type="button"
+        onClick={() => setAdvancedOpen(true)}
+        title="高级模式:更多分辨率 / 比例 / 参考图等参数"
+        className="ml-auto inline-flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
+      >
+        <SlidersHorizontal className="h-3 w-3" /> 高级模式
+      </button>
+      <Dialog open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <DialogContent className="flex h-[80vh] w-[min(880px,92vw)] max-w-none flex-col">
+          <DialogTitle>AI视频生成 · 高级模式</DialogTitle>
+          <div className="flex min-h-0 flex-1">
+            <AiVideoGenerator compact />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
