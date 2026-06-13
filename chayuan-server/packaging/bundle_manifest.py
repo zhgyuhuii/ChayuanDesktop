@@ -40,7 +40,7 @@ LITE_CAPS: tuple[str, ...] = (
 #: 全量版安装包随包嵌入的 capability(磁盘 ~ 3.1 GB,含 chat 主力模型)
 FULL_CAPS: tuple[str, ...] = LITE_CAPS + (
     "chat",
-    "image",          # 图像嵌入(image-embedding 的短名,跟 install-bundled-models MANIFEST 一致)
+    # "image",  # 图像向量化(CLIP-B/32,~580 MB)已移除,暂不随包打;恢复时取消本行注释即可(2026-06-13)
     "digital_human",  # 数字人引擎权重(Wav2Lip CPU + SadTalker GPU);只进 full,LITE 不打 torch
 )
 

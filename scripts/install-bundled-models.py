@@ -1015,7 +1015,10 @@ def main() -> int:
         plan = _resolve_lite_plan()
         _print(f"[install] --lite 模式:只下 {' / '.join(plan)} 子集 (~990 MB)")
     else:
-        plan = list(MANIFEST.keys())
+        # 图像向量化(image,CLIP-B/32 ~580 MB)已移除,默认全量不再下载/打包以省体积;
+        # 恢复:删掉本过滤 + bundle_manifest FULL_CAPS 加回 "image"。--only image 仍可显式下。(2026-06-13)
+        _disabled = {"image"}
+        plan = [c for c in MANIFEST.keys() if c not in _disabled]
     failures: list[tuple[str, str]] = []
     pruned_total = 0
     units = _enumerate_units(plan)
