@@ -112,12 +112,79 @@ def _download_extract(name: str, base: str, dest_root: Path) -> bool:
                 pass
 
 
+def _detect_num_speakers(voice_dir: Path):
+    """读 sherpa VITS onnx metadata 里的 n_speakers(多说话人才 >1)。
+
+    只读 onnx 模型元数据、不做推理;读不到返 None(不写旁路文件,留给运行时
+    自愈)。这样 /voices 枚举(_sherpa_num_speakers 路径 1)能直接读文件,
+    frozen 下不依赖 import sherpa_onnx。
+    """
+    onnx = voice_dir / "model.onnx"
+    if not onnx.is_file():
+        cands = sorted(voice_dir.glob("*.onnx"))
+        if not cands:
+            return None
+        onnx = cands[0]
+    try:
+        import onnxruntime as ort
+        sess = ort.InferenceSession(str(onnx), providers=["CPUExecutionProvider"])
+        meta = sess.get_modelmeta().custom_metadata_map or {}
+        for k in ("n_speakers", "num_speakers"):
+            if k in meta:
+                return max(1, int(meta[k]))
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _ensure_num_speakers_file(voice_dir: Path) -> None:
+    """给 voice 目录写 num_speakers 旁路文件(已存在则跳过)。"""
+    f = voice_dir / "num_speakers"
+    if f.is_file():
+        return
+    n = _detect_num_speakers(voice_dir)
+    if n is None:
+        print(f"[sherpa]    -- {voice_dir.name}: 未读出 num_speakers(留给运行时自愈)")
+        return
+    try:
+        f.write_text(str(n), encoding="utf-8")
+        print(f"[sherpa]    -- {voice_dir.name}: num_speakers={n} 已写旁路文件")
+    except OSError as e:
+        print(f"[sherpa]    !! 写 num_speakers 失败 {voice_dir}: {e}")
+
+
+def _runtime_sherpa_roots():
+    """/voices 实际扫描的两档目录(vendor + CHAYUAN_ROOT/models/bundled)。"""
+    roots = [_bundled_sherpa_dir()]
+    try:
+        from chayuan.settings import CHAYUAN_ROOT
+        roots.append(Path(str(CHAYUAN_ROOT)) / "models" / "bundled" / "tts" / "sherpa-onnx")
+    except Exception:  # noqa: BLE001
+        pass
+    return roots
+
+
+def _backfill_num_speakers() -> int:
+    """给两档目录里所有已装 sherpa 模型补 num_speakers 旁路文件。返回处理数。"""
+    n = 0
+    for root in _runtime_sherpa_roots():
+        if not root.is_dir():
+            continue
+        for vd in sorted(p for p in root.iterdir() if p.is_dir()):
+            if _has_model(vd):
+                _ensure_num_speakers_file(vd)
+                n += 1
+    return n
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="seed sherpa-onnx Chinese TTS models")
     ap.add_argument("--models", default="", help="逗号分隔模型名;缺省用默认集(中文)")
     ap.add_argument("--all", action="store_true", help="下中+英多语言起步集(STARTER_MULTILANG)")
     ap.add_argument("--list", action="store_true", help="按语言列出可下模型目录(CATALOG)")
     ap.add_argument("--mirror", default="", help="国内镜像: ghproxy / ghfast / gh-proxy(免手设环境变量)")
+    ap.add_argument("--backfill", action="store_true",
+                    help="只给已装 sherpa 模型补 num_speakers 旁路文件(修 174 音色塌成 1),不下载")
     args = ap.parse_args()
 
     if args.list:
@@ -130,6 +197,11 @@ def main() -> int:
         print("     python scripts/seed_sherpa_voices.py --all   # 中+英起步集")
         print("国内慢/不通,加镜像(任选其一,实测可用): --mirror ghproxy | ghfast | gh-proxy")
         print("     例: python scripts/seed_sherpa_voices.py --all --mirror ghproxy")
+        return 0
+
+    if args.backfill:
+        n = _backfill_num_speakers()
+        print(f"[sherpa] backfill done: 处理 {n} 个已装模型")
         return 0
 
     # 提醒装运行时包(只是模型 seed,推理还需 sherpa-onnx)
@@ -164,6 +236,11 @@ def main() -> int:
         print(f"[sherpa] -- {name}")
         if _download_extract(name, base, dest):
             ok += 1
+    # 写 num_speakers 旁路文件,让 /voices 枚举不依赖运行时 import sherpa_onnx
+    for name in models:
+        vd = dest / name
+        if _has_model(vd):
+            _ensure_num_speakers_file(vd)
     print(f"[sherpa] done: {ok}/{len(models)} 成功")
     return 0 if ok == len(models) else 1
 

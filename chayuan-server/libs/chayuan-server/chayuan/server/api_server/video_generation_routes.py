@@ -1406,9 +1406,21 @@ def _sherpa_num_speakers(voice_dir: str) -> int:
             tts = ap._build_sherpa_tts(sherpa_onnx, voice_dir)
             if tts is not None:
                 ap._sherpa_tts_cache[voice_dir] = tts
-        return int(getattr(tts, "num_speakers", 1) or 1) if tts is not None else 1
+        n = int(getattr(tts, "num_speakers", 1) or 1) if tts is not None else 1
+        # 自愈：成功读到就落盘旁路文件，下次枚举直走路径 1，不再 import
+        # sherpa_onnx（frozen 下 import / 原生库加载失败正是 174→1 的元凶）。
+        if tts is not None:
+            try:
+                with open(os.path.join(voice_dir, "num_speakers"), "w", encoding="utf-8") as f:
+                    f.write(str(n))
+            except OSError:
+                pass
+        return n
     except Exception as e:  # noqa: BLE001
-        logger.debug("[/voices:sherpa] num_speakers 读取失败 %s: %r", voice_dir, e)
+        logger.warning(
+            "[/voices:sherpa] num_speakers 读取失败，该模型退化为单音色 %s: %r",
+            voice_dir, e, exc_info=True,
+        )
         return 1
 
 

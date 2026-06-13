@@ -624,6 +624,10 @@ for big in (
     "fitz",
     "rapidocr_onnxruntime",
     "onnxruntime",
+    # sherpa_onnx:sherpa TTS 推理(modality.audio._build_sherpa_tts + /voices
+    # 多说话人枚举)。有原生 .so/.dll,必须 collect_all 才带得上;漏收则 frozen 下
+    # import / 原生库加载失败 → aishell3 174 音色塌成 1。瘦构建无包则 _collect_safe 跳过。
+    "sherpa_onnx",
     # voxcpm:音色克隆 TTS(modality.audio._synthesize_via_voxcpm in-proc 推理)。
     # 包很小,模型(VoxCPM-0.5B)走 vendor/bundled_models,不在这里。collect_all
     # 把 voxcpm 的非 .py 资源(默认 config / asset)一并带上;瘦构建无包则跳过。
