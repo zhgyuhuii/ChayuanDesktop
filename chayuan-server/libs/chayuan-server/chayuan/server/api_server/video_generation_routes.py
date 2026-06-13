@@ -1615,6 +1615,13 @@ def serve_material_file(
     if not row:
         raise HTTPException(404, "material not found")
     path = row.get("path") or ""
+    if path and not os.path.isfile(path):
+        # 兜底:安装目录 / CHAYUAN_ROOT 变动导致 DB 里旧绝对路径失效时,
+        # 按文件名回退到当前素材目录再找一次(文件还在就能救回)。
+        from chayuan.server.video_generation._helpers import storage_dir
+        alt = os.path.join(storage_dir("materials"), os.path.basename(path))
+        if os.path.isfile(alt):
+            path = alt
     if not path or not os.path.isfile(path):
         raise HTTPException(404, f"material file missing on disk: {path}")
     headers: Dict[str, str] = {}
