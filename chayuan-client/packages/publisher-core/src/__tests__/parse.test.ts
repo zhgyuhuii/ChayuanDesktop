@@ -18,6 +18,12 @@ describe('parsePackageName', () => {
       product: 'chayuan-desktop', version: '3.0.0', platform: 'mac-arm64', tier: 'lite', ext: 'tar.gz',
     });
   });
+  it('Windows msi / Linux deb 安装器也识别', () => {
+    expect(parsePackageName('chayuan-2.0.1-win-x86_64-standard.msi')).toEqual({
+      product: 'chayuan', version: '2.0.1', platform: 'win-x86_64', tier: 'standard', ext: 'msi',
+    });
+    expect(parsePackageName('chayuan-2.0.1-linux-x86_64-pro.deb')?.ext).toBe('deb');
+  });
   it('semver 预发布版本', () => {
     expect(parsePackageName('chayuan-3.0.0-rc1-mac-x86_64-pro.dmg')?.version).toBe('3.0.0-rc1');
   });
