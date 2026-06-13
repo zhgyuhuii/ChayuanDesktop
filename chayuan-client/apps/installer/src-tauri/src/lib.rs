@@ -86,10 +86,29 @@ async fn build_installer(staging_dir: String, out_path: String, tier: String, os
     Ok(out_path)
 }
 
-/// 拉取归一化清单 —— [BUILD-VERIFY] 真实从 website 取;骨架先返空清单。
+/// website 基址:env CHAYUAN_WEBSITE_BASE 覆盖,默认官网。
+fn website_base() -> String {
+    std::env::var("CHAYUAN_WEBSITE_BASE")
+        .unwrap_or_else(|_| "https://aidooo.com".to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+async fn get_json(url: &str) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {} from {}", resp.status(), url));
+    }
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    serde_json::from_str::<serde_json::Value>(&text).map_err(|e| format!("非法 JSON: {}", e))
+}
+
+/// 拉取下载构建器清单(GET {base}/api/installer/manifest)。前端拿到后 validateManifest + resolveComponents。
+/// [BUILD-VERIFY] 需 Rust 工具链 + 网络;形状正确,真实编译/联网未在本机验证。
 #[tauri::command]
 async fn fetch_manifest() -> Result<serde_json::Value, String> {
-    Ok(serde_json::json!({ "version": "0.0.0", "components": [] }))
+    get_json(&format!("{}/api/installer/manifest", website_base())).await
 }
 
 /// 应用更新:把已下载校验过的新包原子替换到目标路径(先写 .new 再 rename)。
@@ -110,11 +129,11 @@ async fn apply_update(downloaded_path: String, target_path: String) -> Result<St
     Ok(target_path)
 }
 
-/// 拉 website 版本信息 —— [BUILD-VERIFY] 真实现 reqwest GET {base}/api/version/{product};骨架返空。
+/// 拉 website 版本信息(GET {base}/api/version/{product})。decideUpdate 消费它判断是否有新版。
+/// [BUILD-VERIFY] 需 Rust 工具链 + 网络;真实编译/联网未在本机验证。
 #[tauri::command]
 async fn fetch_version(product: String) -> Result<serde_json::Value, String> {
-    let _ = product;
-    Ok(serde_json::json!({ "product": "", "latest": { "version": "0.0.0" }, "platforms": {} }))
+    get_json(&format!("{}/api/version/{}", website_base(), product)).await
 }
 
 pub fn run() {
