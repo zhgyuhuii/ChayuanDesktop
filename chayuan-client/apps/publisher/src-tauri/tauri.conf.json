@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "察元发布客户端",
+  "version": "0.1.0",
+  "identifier": "com.chayuan.publisher",
+  "build": { "frontendDist": "../dist", "devUrl": "http://localhost:3921", "beforeDevCommand": "pnpm dev", "beforeBuildCommand": "pnpm build" },
+  "app": { "windows": [{ "title": "察元发布客户端", "width": 980, "height": 720 }], "security": { "csp": null } },
+  "bundle": { "active": true, "targets": "all", "icon": ["icons/icon.png"] }
+}
