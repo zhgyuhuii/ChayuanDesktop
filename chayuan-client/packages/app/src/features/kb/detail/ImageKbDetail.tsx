@@ -24,6 +24,7 @@ import { getPlatform } from '@chayuan/platform-shared';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 import { OcrTextDialog } from './OcrTextDialog';
 import type { DetailPanelProps } from './types';
+import { downloadUrlAsFile } from '../../../lib/downloadMedia';
 
 /** 把 ku_id='src:42' 解出 sourceId=42 */
 function srcIdFromKuId(kuId: string): number | null {
@@ -829,14 +830,13 @@ const Lightbox: React.FC<{ img: ImageItem; onClose(): void }> = ({ img, onClose 
         <X className="h-5 w-5" />
       </button>
       {src && (
-        <a
-          href={src}
-          download={img.id}
+        <button
+          type="button"
           className="absolute bottom-6 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-white/10 px-4 py-2 text-xs text-white backdrop-blur hover:bg-white/20"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); void downloadUrlAsFile(img.id || 'image', src); }}
         >
           <Download className="h-3.5 w-3.5" /> 下载原图
-        </a>
+        </button>
       )}
     </div>
   );

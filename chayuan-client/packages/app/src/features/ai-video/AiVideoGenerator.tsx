@@ -13,6 +13,7 @@ import { Loader2, Film, Download, AlertTriangle, CircleCheck } from 'lucide-reac
 import { aiVideoGenerate, aiVideoListModels } from '@chayuan/api';
 import { Button, Textarea, cn } from '@chayuan/ui';
 import { useUsageGate, UsageGateDialogs } from '../license';
+import { downloadUrlAsFile } from '../../lib/downloadMedia';
 
 // ────────────────────────────────────────────────────────────────
 // 常量选项
@@ -473,14 +474,14 @@ export const AiVideoGenerator: React.FC<AiVideoGeneratorProps> = ({ onGenerated,
                 style={{ display: 'block' }}
               />
             </div>
-            <a
-              href={videoUrl}
-              download
+            <button
+              type="button"
+              onClick={() => { void downloadUrlAsFile('AI视频.mp4', videoUrl); }}
               className="inline-flex items-center gap-1.5 self-start rounded-lg border border-[var(--cy-border-default)] bg-[var(--cy-surface-1)] px-3 py-1.5 text-xs text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]"
             >
               <Download className="h-3.5 w-3.5" />
               下载视频
-            </a>
+            </button>
           </div>
         )}
       </div>

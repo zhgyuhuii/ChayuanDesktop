@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogTitle } from '@chayuan/ui';
 import { digitalHuman } from '@chayuan/api';
 import { useVgComposer } from '../video-generation/store/vgComposer';
 import { notifySuccess } from '../../store/errorDialog';
+import { downloadUrlAsFile } from '../../lib/downloadMedia';
 
 /** 单个生成任务卡片:视频在上,文字操作(下载/去编辑合成/删除)在下方一排。
  *  字幕只在工作台生成前编辑(预设字幕设置),成片上不再提供编辑字幕。 */
@@ -72,7 +73,7 @@ export const DhProgressCard: React.FC<{ taskId: string; onDelete?: () => void }>
           </button>
         )}
         <div className="flex flex-wrap items-center gap-3">
-          <a href={digitalHuman.taskFileUrl(taskId)} download className={linkCls}>下载</a>
+          <button type="button" onClick={() => { void downloadUrlAsFile('数字人.mp4', digitalHuman.taskFileUrl(taskId)); }} className={linkCls}>下载</button>
           <button type="button" onClick={onToTimeline} disabled={sending}
             className={`${linkCls} disabled:opacity-50`}>{sending ? '准备中…' : '去编辑合成'}</button>
           {delBtn}

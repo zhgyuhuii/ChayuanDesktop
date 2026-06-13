@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { digitalHuman, type DhTaskStatus } from '@chayuan/api';
 import { DhProgressCard } from './DhProgressCard';
+import { downloadUrlAsFile } from '../../lib/downloadMedia';
 
 const stateText = (t: DhTaskStatus): string =>
   t.state === 'complete' ? '已完成'
@@ -127,7 +128,7 @@ export const DhTaskList: React.FC = () => {
                   <td className="py-1">
                     <div className="flex gap-3">
                       {t.state === 'complete' && (
-                        <a href={digitalHuman.taskFileUrl(t.task_id)} download className="text-[var(--cy-brand-500)] hover:underline">下载</a>
+                        <button type="button" onClick={() => { void downloadUrlAsFile(`${(t.name || '数字人').replace(/[\\/:*?"<>|·]/g, '_').slice(0, 40)}.mp4`, digitalHuman.taskFileUrl(t.task_id)); }} className="text-[var(--cy-brand-500)] hover:underline">下载</button>
                       )}
                       <button type="button" onClick={() => void del(t.task_id)} className="text-[var(--cy-text-tertiary)] hover:text-[var(--cy-danger-500)] hover:underline">删除</button>
                     </div>
