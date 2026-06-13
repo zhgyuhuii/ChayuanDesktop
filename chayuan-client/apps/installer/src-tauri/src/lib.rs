@@ -1,11 +1,12 @@
 use std::io::Write;
 use sha2::{Digest, Sha256};
 use futures_util::StreamExt;
+use tauri::Emitter;
 
 /// 下载一个组件:按候选源顺序尝试,支持断点续传(Range)+ sha256 校验,落到 dest。
 /// [BUILD-VERIFY] 需 Rust 工具链 + 网络;本机不编译,仅形状正确。
 #[tauri::command]
-async fn download_file(candidates: Vec<String>, dest: String, sha256: Option<String>) -> Result<String, String> {
+async fn download_file(window: tauri::Window, candidates: Vec<String>, dest: String, sha256: Option<String>) -> Result<String, String> {
     let path = std::path::PathBuf::from(&dest);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -17,17 +18,34 @@ async fn download_file(candidates: Vec<String>, dest: String, sha256: Option<Str
         let req = client.get(url).header("Range", format!("bytes={}-", already));
         match req.send().await {
             Ok(resp) => {
+                // 总大小 = 续传起点 + 本次 Content-Length(服务端不给则 None)
+                let total: Option<u64> = resp.content_length().map(|c| c + already);
                 let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&path)
                     .map_err(|e| e.to_string())?;
                 let mut stream = resp.bytes_stream();
                 let mut ok = true;
+                let mut received: u64 = already;
+                let mut last_emit: u64 = already;
                 while let Some(chunk) = stream.next().await {
                     match chunk {
-                        Ok(bytes) => { if file.write_all(&bytes).is_err() { ok = false; break; } }
+                        Ok(bytes) => {
+                            if file.write_all(&bytes).is_err() { ok = false; break; }
+                            received += bytes.len() as u64;
+                            // 节流:每 ~1MB 推一次进度,避免事件风暴
+                            if received - last_emit >= 1_048_576 {
+                                last_emit = received;
+                                let _ = window.emit("download-progress", serde_json::json!({
+                                    "dest": dest, "received": received, "total": total
+                                }));
+                            }
+                        }
                         Err(e) => { last_err = e.to_string(); ok = false; break; }
                     }
                 }
                 if ok {
+                    let _ = window.emit("download-progress", serde_json::json!({
+                        "dest": dest, "received": received, "total": total.or(Some(received))
+                    }));
                     if let Some(expected) = &sha256 {
                         let actual = sha256_of(&path).map_err(|e| e.to_string())?;
                         if !actual.eq_ignore_ascii_case(expected) {
@@ -136,9 +154,57 @@ async fn fetch_version(product: String) -> Result<serde_json::Value, String> {
     get_json(&format!("{}/api/version/{}", website_base(), product)).await
 }
 
+/// 解包下载好的归档到 dest 目录。kind=component.unpack:none/tar.gz/tgz/zip 等。
+/// 用系统 tar(tar -xf 自动识别 gz;mac/Win10+ 的 bsdtar 还能解 zip),Linux 的 zip 退 unzip。
+/// [BUILD-VERIFY] 需 Rust + 目标平台 tar/unzip;沙箱不编译。
+#[tauri::command]
+async fn unpack_archive(archive: String, dest: String, kind: String) -> Result<String, String> {
+    use std::process::Command;
+    let k = kind.to_lowercase();
+    if k.is_empty() || k == "none" {
+        return Ok(dest); // 不需解压(调用方已下载到 dest)
+    }
+    std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+    let status = if k.contains("zip") {
+        match Command::new("tar").args(["-xf", &archive, "-C", &dest]).status() {
+            Ok(st) if st.success() => st,
+            _ => Command::new("unzip").args(["-o", &archive, "-d", &dest]).status()
+                .map_err(|e| format!("解压 zip 失败(无 tar/unzip): {}", e))?,
+        }
+    } else {
+        Command::new("tar").args(["-xf", &archive, "-C", &dest]).status()
+            .map_err(|e| format!("解压失败: {}", e))?
+    };
+    if !status.success() {
+        return Err(format!("解压退出码非 0(kind={})", kind));
+    }
+    Ok(dest)
+}
+
+/// 读已装版本:exe 同级目录的 installer-manifest.json / version.json 里的 version。
+/// [BUILD-VERIFY] 真实安装布局以打包为准;读不到返错,前端回落默认版本。
+#[tauri::command]
+fn read_installed_version() -> Result<String, String> {
+    let base = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    for name in ["installer-manifest.json", "version.json"] {
+        let p = base.join(name);
+        if let Ok(text) = std::fs::read_to_string(&p) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                if let Some(ver) = v.get("version").and_then(|x| x.as_str()) {
+                    return Ok(ver.to_string());
+                }
+            }
+        }
+    }
+    Err("未找到已装版本文件".into())
+}
+
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![download_file, fetch_manifest, build_installer, apply_update, fetch_version])
+        .invoke_handler(tauri::generate_handler![download_file, fetch_manifest, build_installer, apply_update, fetch_version, unpack_archive, read_installed_version])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
