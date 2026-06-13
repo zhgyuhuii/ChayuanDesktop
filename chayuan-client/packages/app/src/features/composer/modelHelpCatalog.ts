@@ -248,6 +248,45 @@ const HELP: ReadonlyArray<CapabilityHelp> = [
     ],
   },
   {
+    cap: 'i2v',
+    title: '图生视频(Image-to-Video)',
+    blurb:
+      '上传一张图当首帧 + 描述运动,让画面动起来出一段短视频(5-15 秒)。**异步任务**,提交后排队 30-120 秒。选 i2v 模型时**必须上传首帧图**才能生成。',
+    vendors: [
+      {
+        name: '阿里云百炼 Wanx / 万象 I2V',
+        home: 'https://bailian.console.aliyun.com/',
+        apiKey: 'https://bailian.console.aliyun.com/?apiKey=1',
+        models: ['wanx2.1-i2v-turbo', 'wanx2.1-i2v-plus', 'wan2.2-i2v-flash'],
+        note: '首帧图随请求上传(本地图自动转 base64)。',
+        platformId: 'bailian',
+      },
+      {
+        name: '字节豆包 Seedance(火山方舟 Ark)',
+        home: 'https://www.volcengine.com/product/ark',
+        apiKey: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
+        models: ['doubao-seedance-1-0-pro-250528', 'doubao-seedance-1-5-pro'],
+        note: '需先在方舟控制台「开通」对应视频模型;用 Ark API Key(不是账号 AccessKey/SecretAccessKey)。',
+        platformId: 'volcengine',
+      },
+      {
+        name: 'Kling 可灵(快手)',
+        home: 'https://kling.kuaishou.com/',
+        apiKey: 'https://app.klingai.com/global/dev/api-key',
+        models: ['kling-v1-6', 'kling-v2-5-turbo'],
+        note: '支持图生视频;双密钥:API Key 处填 AccessKey:SecretKey(英文冒号连接)。',
+        platformId: 'kling',
+      },
+      {
+        name: 'Runway',
+        home: 'https://runwayml.com/',
+        apiKey: 'https://dev.runwayml.com/',
+        models: ['runway-gen-3'],
+        note: '支持带首帧/参考图的图生视频。',
+      },
+    ],
+  },
+  {
     cap: 'tts',
     title: '语音合成(Text-to-Speech)',
     blurb: '把文本读出来,可选音色 + 语速;输出 mp3 / wav,直接播放或下载。',
