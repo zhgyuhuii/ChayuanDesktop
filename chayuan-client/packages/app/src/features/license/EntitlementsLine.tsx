@@ -28,6 +28,8 @@ export const EntitlementsLine: React.FC = () => {
   });
   const items = q.data ?? [];
   const expire = items.map((i) => i.s?.timeExpireAt).find(Boolean) || null;
+  // 购买/赠送的次数(counts,非每日免费 remainingFree);赠送序列号加的就是这个,要显式展示
+  const purchased = items.filter((i) => (i.s?.counts ?? 0) > 0);
   if (!items.length) {
     return <span className="text-[var(--cy-text-tertiary)]">个人权益:加载中…</span>;
   }
@@ -47,6 +49,11 @@ export const EntitlementsLine: React.FC = () => {
           次
         </span>
       ))}
+      {purchased.length > 0 ? (
+        <span className="shrink-0 text-[var(--cy-brand-600)]">
+          · 购买/赠送 {purchased.map((i) => `${i.label}${i.s?.counts ?? 0}次`).join(' ')}
+        </span>
+      ) : null}
       {expire ? (
         <span className="shrink-0 text-[var(--cy-brand-600)]">· 会员有效期至 {String(expire).slice(0, 10)}</span>
       ) : null}

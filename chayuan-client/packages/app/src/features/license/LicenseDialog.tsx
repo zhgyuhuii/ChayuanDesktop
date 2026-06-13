@@ -23,6 +23,7 @@ import QRCode from "qrcode";
 import * as React from "react";
 import { FOLLOW_QR_URL } from "../../lib/brandAssets";
 import { useLicenseStore } from "./licenseStore";
+import { useQueryClient } from "@tanstack/react-query";
 import { USER_AGREEMENT_BODY, USER_AGREEMENT_TITLE } from "./userAgreement";
 
 export interface LicenseDialogProps {
@@ -33,6 +34,7 @@ export interface LicenseDialogProps {
 
 export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): React.ReactElement {
   const store = useLicenseStore();
+  const qc = useQueryClient();
   const [qr, setQr] = React.useState<string>("");
   const [buyUrl, setBuyUrl] = React.useState<string>("");
   const [channels, setChannels] = React.useState<PayChannels | null>(null);
@@ -125,6 +127,8 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
         setSuccessExpireAt(s.expireAt ?? null);
         setSuccessGrant(s.grant ?? null);
         setShowSuccess(true);
+        // 激活成功 → 刷新底部权益条(EntitlementsLine 读 ['license.statuses'],有 60s 缓存)
+        void qc.invalidateQueries({ queryKey: ['license.statuses'] });
       } else {
         setErr(reasonText(s.reason));
       }
