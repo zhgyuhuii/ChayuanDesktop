@@ -27,8 +27,8 @@ export function parsePackageName(filename: string): ParsedPackage | null {
   // 末尾依次: tier, arch, os
   if (parts.length < 5) return null;
   const tier = parts[parts.length - 1] as Tier;
-  const arch = parts[parts.length - 2];
-  const os = parts[parts.length - 3];
+  const arch = parts[parts.length - 2] ?? '';
+  const os = parts[parts.length - 3] ?? '';
   if (!TIERS.includes(tier) || !ARCHES.includes(arch) || !OSES.includes(os)) return null;
   const platform = `${os}-${arch}` as PlatformKey;
   // 剩下 parts[0..n-3) = product + version;version 是最后一段(可能含 -rcN,但 rcN 不会被吃,

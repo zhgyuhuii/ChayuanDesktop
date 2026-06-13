@@ -20,8 +20,12 @@ export const fetchAdminReleases = async (): Promise<AdminRelease[]> => {
   const out: AdminRelease[] = [];
   const cy = raw.products?.chayuan ?? {};
   for (const version of Object.keys(cy)) {
-    for (const platform of Object.keys(cy[version])) {
-      for (const e of cy[version][platform]) out.push({ version, platform, variant: e.variant, published: e.published });
+    const byPlatform = cy[version];
+    if (!byPlatform) continue;
+    for (const platform of Object.keys(byPlatform)) {
+      const entries = byPlatform[platform];
+      if (!entries) continue;
+      for (const e of entries) out.push({ version, platform, variant: e.variant, published: e.published });
     }
   }
   return out;
