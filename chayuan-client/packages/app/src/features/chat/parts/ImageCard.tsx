@@ -15,6 +15,7 @@
 import * as React from 'react';
 import { Download, X as XIcon, ImageOff } from 'lucide-react';
 import { cn } from '@chayuan/ui';
+import { downloadUrlAsFile } from '../../../lib/downloadMedia';
 
 export interface ImageCardProps {
   url: string;
@@ -46,16 +47,7 @@ export const ImageCard: React.FC<ImageCardProps> = ({ url, mediaType, metadata, 
 
   const onDownload = async () => {
     try {
-      const resp = await fetch(url);
-      const blob = await resp.blob();
-      const dl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = dl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(dl);
+      await downloadUrlAsFile(filename, url);
     } catch {
       // 退化:浏览器自己处理 (会打开图)
       window.open(url, '_blank');
