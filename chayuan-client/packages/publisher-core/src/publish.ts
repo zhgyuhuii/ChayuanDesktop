@@ -48,13 +48,16 @@ export async function runPublish(
       let done = received.size;
       for (const c of plan.chunks) {
         if (received.has(c.index)) continue;
-        await io.putChunk(uploadId, c.index, c.index === totalChunks - 1);
+        // isLast 用本地 plan.totalChunks(与 plan.chunks 同源),不依赖服务端 totalChunks,避免两套切块公式不一致时末块标记错位。
+        await io.putChunk(uploadId, c.index, c.index === plan.totalChunks - 1);
         done++;
-        io.onProgress?.({ filename: it.filename, received: done, total: totalChunks });
+        io.onProgress?.({ filename: it.filename, received: done, total: plan.totalChunks });
       }
+      void totalChunks; // 服务端回报的块数仅作参考,实际切块以本地 planUpload 为准
       const fin = await io.finalize(uploadId, { variant, primary, notes: opts.notes });
       await io.publish(opts.product, opts.version, it.platform, variant);
       if (primary) await io.setPrimary(opts.product, opts.version, it.platform, variant);
+      // unpack 占位 'none':调用方(apps/publisher)在合成清单前用 unpackForExt(文件名扩展) 补正确值。
       published.push({ platform: it.platform, tier: it.tier, url: fin.url, sha256: fin.sha256, sizeBytes: fin.sizeBytes, unpack: 'none' });
     } catch (e) {
       failed.push({ filename: it.filename, error: e instanceof Error ? e.message : String(e) });
