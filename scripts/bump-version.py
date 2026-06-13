@@ -29,6 +29,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = REPO_ROOT / "VERSION"
 TAURI_CONF = REPO_ROOT / "chayuan-client" / "apps" / "desktop" / "src-tauri" / "tauri.conf.json"
+INSTALLER_CONF = REPO_ROOT / "chayuan-client" / "apps" / "installer" / "src-tauri" / "tauri.conf.json"
+PUBLISHER_CONF = REPO_ROOT / "chayuan-client" / "apps" / "publisher" / "src-tauri" / "tauri.conf.json"
 PYPROJECT = REPO_ROOT / "chayuan-server" / "libs" / "chayuan-server" / "pyproject.toml"
 
 
@@ -51,11 +53,11 @@ def write_version(major: int, minor: int, patch: int) -> str:
     return text
 
 
-def sync_tauri(new_version: str) -> bool:
-    if not TAURI_CONF.is_file():
-        print(f"[bump-version] WARN tauri.conf.json missing: {TAURI_CONF}", file=sys.stderr)
+def sync_tauri(new_version: str, conf: Path = TAURI_CONF) -> bool:
+    if not conf.is_file():
+        print(f"[bump-version] WARN tauri.conf.json missing: {conf}", file=sys.stderr)
         return False
-    text = TAURI_CONF.read_text(encoding="utf-8")
+    text = conf.read_text(encoding="utf-8")
     new_text, n = re.subn(
         r'("version"\s*:\s*")[^"]+(")',
         rf"\g<1>{new_version}\g<2>",
@@ -63,10 +65,10 @@ def sync_tauri(new_version: str) -> bool:
         count=1,
     )
     if n == 0:
-        print(f"[bump-version] WARN no \"version\" key in {TAURI_CONF}", file=sys.stderr)
+        print(f"[bump-version] WARN no \"version\" key in {conf}", file=sys.stderr)
         return False
     if new_text != text:
-        TAURI_CONF.write_text(new_text, encoding="utf-8")
+        conf.write_text(new_text, encoding="utf-8")
     return True
 
 
@@ -121,7 +123,7 @@ def main() -> int:
         new = write_version(cur_major, cur_minor, cur_patch + 1)
         action = f"bump {current} -> {new}"
 
-    ok_tauri = sync_tauri(new)
+    ok_tauri = all(sync_tauri(new, c) for c in (TAURI_CONF, INSTALLER_CONF, PUBLISHER_CONF))
     ok_py = sync_pyproject(new)
 
     msg = f"[bump-version] {action}"
