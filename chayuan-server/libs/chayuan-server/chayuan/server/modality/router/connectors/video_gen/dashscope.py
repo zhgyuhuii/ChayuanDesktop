@@ -122,6 +122,67 @@ def _build_endpoints(api_base: str) -> Tuple[str, str]:
     return submit, tasks
 
 
+def _is_new_wan_video_api(model: str) -> bool:
+    """wan2.x 新版视频 API(input.media + parameters.resolution);
+    wanx2.1 老版用 input.img_url + parameters.size。"""
+    low = (model or "").lower()
+    if "/" in low:
+        low = low.split("/", 1)[1]
+    return low.startswith("wan2.") or low.startswith("wan2-")
+
+
+def _resolution_param(params: Dict, default_size: str) -> str:
+    """映射到新版 API 的 resolution(只支持 720P / 1080P)。
+
+    优先用显式 resolution(表单 480p/720p/1080p),否则从 size(对话参数条
+    1280*720)推。480P 新版不支持 -> 提升到 720P。"""
+    res = params.get("resolution")
+    if res:
+        return "1080P" if "1080" in str(res).upper() else "720P"
+    size = str(params.get("size") or default_size or "")
+    nums = [int(x) for x in re.split(r"[*x]", size) if x.isdigit()]
+    if nums and max(nums) >= 1920:
+        return "1080P"
+    return "720P"
+
+
+def _image_ref_for_upstream(a) -> Optional[str]:
+    """图片附件 -> DashScope 能取到的引用。
+
+    - a.data(内存 bytes)-> base64 data URI
+    - 公网 http(s) URL -> 原样
+    - 本地 artifact URL(/v1/artifacts/<file>)-> 反查文件转 base64 data URI
+      (DashScope 公网服务器够不到 localhost)
+    取不到返 None。"""
+    import base64 as _b64
+    mime = (getattr(a, "mime", "") or "image/png")
+    data = getattr(a, "data", None)
+    if data:
+        return "data:%s;base64,%s" % (mime, _b64.b64encode(data).decode())
+    url = getattr(a, "url", None)
+    if not url:
+        return None
+    low = url.lower()
+    if low.startswith("http://") or low.startswith("https://"):
+        return url
+    fname = url.rsplit("/", 1)[-1]
+    try:
+        from chayuan.server.modality.router.artifacts import find_by_filename
+        path = find_by_filename(fname)
+        if path is not None:
+            return "data:%s;base64,%s" % (mime, _b64.b64encode(path.read_bytes()).decode())
+    except Exception:  # noqa: BLE001
+        pass
+    return url  # 兜底:原样(可能够不到)
+
+
+def _first_image_attachment(req: "GenerateReq"):
+    for a in (req.attachments or []):
+        if (getattr(a, "mime", "") or "").startswith("image/"):
+            return a
+    return None
+
+
 # ──────────────────────────────────────────────────────────────
 # Connector
 # ──────────────────────────────────────────────────────────────
@@ -142,30 +203,42 @@ class DashScopeT2VConnector(AsyncPollVideoConnector):
     def _build_submit_payload(self, req: GenerateReq) -> Dict:
         """构造 DashScope 异步任务提交 body。
 
-        当 ``req.attachments`` 里有 mime 以 ``image/`` 开头的附件时，
-        把第一个图片的 url 放进 ``input["img_url"]``，走图生视频(I2V)；
-        否则只传 prompt，走纯文生视频(T2V)。
+        分流(均实测对齐 DashScope 真实契约):
+          - wan2.x 新版:图生视频用 ``input.media=[{type:first_frame,url}]``,
+            ``parameters.resolution``(720P/1080P);
+          - wanx2.1 老版:图生视频用 ``input.img_url``,``parameters.size``。
+        图片一律转公网 URL 或 base64 data URI(本地 artifact URL DashScope 够不到)。
         """
         params = req.params or {}
         prompt = (req.prompt or "").strip()
-        size = _normalize_size(params.get("size"), req.model)
         try:
             duration = max(2, min(10, int(params.get("duration") or _DEFAULT_DURATION_S)))
         except (TypeError, ValueError):
             duration = _DEFAULT_DURATION_S
 
+        img = _first_image_attachment(req)
         inp: Dict = {"prompt": prompt}
-        for a in (req.attachments or []):
-            if (getattr(a, "mime", "") or "").startswith("image/"):
-                # TODO(P1-verify): 确认 DashScope img_url 接受本地 artifact URL,否则转 data URL/公网 URL
-                inp["img_url"] = a.url
-                break
 
-        payload: Dict = {
-            "model": req.model,
-            "input": inp,
-            "parameters": {"size": size, "duration": duration},
-        }
+        if _is_new_wan_video_api(req.model):
+            parameters: Dict = {
+                "resolution": _resolution_param(params, _default_size_for(req.model)),
+                "duration": duration,
+            }
+            if img is not None:
+                ref = _image_ref_for_upstream(img)
+                if ref:
+                    inp["media"] = [{"type": "first_frame", "url": ref}]
+        else:
+            parameters = {
+                "size": _normalize_size(params.get("size"), req.model),
+                "duration": duration,
+            }
+            if img is not None:
+                ref = _image_ref_for_upstream(img)
+                if ref:
+                    inp["img_url"] = ref
+
+        payload: Dict = {"model": req.model, "input": inp, "parameters": parameters}
         seed = params.get("seed")
         if seed is not None:
             try:
