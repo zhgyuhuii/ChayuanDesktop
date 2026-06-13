@@ -17,7 +17,7 @@ import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Plus, Trash2, Layers, Sparkles, Loader2, MessagesSquare, Library, Video,
+  Plus, Trash2, Layers, Sparkles, Loader2, MessagesSquare, Library, Video, ChevronDown,
 } from 'lucide-react';
 import { videoGeneration, models, type RawModelItem } from '@chayuan/api';
 import { useTabsStore } from '../../store/tabs';
@@ -26,6 +26,20 @@ import { BgmOutputStep } from './steps/BgmOutputStep';
 import { VoiceStep } from './steps/VoiceStep';
 import { TopicStep } from './steps/TopicStep';
 import { reportError, notifySuccess } from '../../store/errorDialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@chayuan/ui';
+import { ModelMenuList, displayLabel } from '../composer/ModelMenuList';
+import { CHAT_CAPABILITIES } from '../composer/modelCapabilityChip';
+import { useResolveLogo } from '../catalog/useLogos';
+
+/** 脚本模型存为 `platform_name::id`(无 platform 退化裸 id),与后端路由一致。 */
+function encodeModel(m: RawModelItem): string {
+  return m.platform_name ? `${m.platform_name}::${m.id}` : m.id;
+}
+function decodeModel(v: string | null): { platform?: string; id: string } {
+  if (!v) return { id: '' };
+  const i = v.indexOf('::');
+  return i >= 0 ? { platform: v.slice(0, i), id: v.slice(i + 2) } : { id: v };
+}
 
 export const BatchModePage: React.FC = () => {
   const navigate = useNavigate();
@@ -37,16 +51,13 @@ export const BatchModePage: React.FC = () => {
   // generate_script 回落到未配的 chat 默认(glm4-chat)→ 脚本生成失败。
   const modelsQ = useQuery({ queryKey: ['v1.models'], queryFn: () => models.list(), staleTime: 5 * 60 * 1000 });
   const llmModels: RawModelItem[] = (modelsQ.data ?? []).filter((m) => !m.model_type || m.model_type === 'llm');
-  // 按厂商(platform)分组,与对话框模型下拉一致
-  const modelGroups = React.useMemo<Array<[string, RawModelItem[]]>>(() => {
-    const g = new Map<string, RawModelItem[]>();
-    for (const m of llmModels) {
-      const k = m.platform_display_name || m.platform_name || '其它';
-      if (!g.has(k)) g.set(k, []);
-      g.get(k)!.push(m);
-    }
-    return [...g.entries()];
-  }, [llmModels]);
+  // 脚本模型选择器(复用对话框那套 ModelMenuList:分组折叠 + 厂商图标)
+  const [pickOpen, setPickOpen] = React.useState(false);
+  const resolveLogo = useResolveLogo();
+  const curM = decodeModel(params.model ?? null);
+  const currentM = llmModels.find((m) => m.id === curM.id && (curM.platform ? m.platform_name === curM.platform : true));
+  const currentModelLabel = currentM ? displayLabel(currentM) : (curM.id || (modelsQ.isLoading ? '加载中…' : '默认模型'));
+  const currentModelLogo = resolveLogo(currentM?.platform_name ?? undefined, currentM?.id);
   React.useEffect(() => {
     if (!params.model && llmModels.length > 0) {
       const m = llmModels[0]!;
@@ -180,21 +191,30 @@ export const BatchModePage: React.FC = () => {
           {/* 脚本模型 — 必须选,否则后端回落到未配的默认模型(glm4-chat)导致脚本生成失败 */}
           <div className="flex items-center gap-2">
             <span className="text-sm text-[var(--cy-text-tertiary)]">脚本模型</span>
-            <select
-              value={params.model ?? ''}
-              onChange={(e) => patchParams({ model: e.target.value || null })}
-              className="h-8 min-w-[16em] rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs"
-            >
-              {llmModels.length === 0 && <option value="">{modelsQ.isLoading ? '加载中…' : '无可用模型'}</option>}
-              {modelGroups.map(([plat, ms]) => (
-                <optgroup key={plat} label={plat}>
-                  {ms.map((m) => {
-                    const enc = m.platform_name ? `${m.platform_name}::${m.id}` : m.id;
-                    return <option key={enc} value={enc}>{m.id}</option>;
-                  })}
-                </optgroup>
-              ))}
-            </select>
+            <DropdownMenu open={pickOpen} onOpenChange={setPickOpen}>
+              <DropdownMenuTrigger asChild>
+                <button type="button"
+                  className="inline-flex h-8 min-w-[16em] items-center gap-1.5 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]"
+                  title={currentM?.id || currentModelLabel}>
+                  {currentModelLogo
+                    ? <img src={currentModelLogo} alt="" className="h-4 w-4 shrink-0 rounded-sm object-contain" />
+                    : <span className="h-4 w-4 shrink-0 rounded-sm bg-[var(--cy-surface-2)]" />}
+                  <span className="max-w-[200px] truncate">{currentModelLabel}</span>
+                  <ChevronDown className="ml-auto h-3 w-3 opacity-60" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" sideOffset={6} collisionPadding={12} className="z-[260] w-80 overflow-hidden p-0">
+                <ModelMenuList
+                  models={llmModels}
+                  currentId={curM.id}
+                  currentPlatform={curM.platform}
+                  allowCapabilities={CHAT_CAPABILITIES}
+                  resolveLogo={resolveLogo}
+                  emptyLabel={modelsQ.isLoading ? '加载中…' : '无可用模型'}
+                  onPick={(m) => { if (m.available === false) return; patchParams({ model: encodeModel(m) }); setPickOpen(false); }}
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           <TopicStep hideSubject />
         </div>
