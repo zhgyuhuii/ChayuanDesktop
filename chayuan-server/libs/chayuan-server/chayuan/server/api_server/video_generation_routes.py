@@ -1912,6 +1912,11 @@ def material_thumbnail(
     if not row:
         raise HTTPException(404, "material not found")
     path = row.get("path") or ""
+    if path and not os.path.isfile(path):
+        # 同 /file:旧绝对路径失效时按文件名回退当前素材目录
+        alt = os.path.join(storage_dir("materials"), os.path.basename(path))
+        if os.path.isfile(alt):
+            path = alt
     if not path or not os.path.isfile(path):
         raise HTTPException(404, "material file missing on disk")
     mime = row.get("mime") or ""
