@@ -15,7 +15,7 @@
 //   node release.mjs                  版本 +1 + 离线包(standard)+ 上传端 + 下载端
 //   node release.mjs --set 2.0.5      指定版本
 //   node release.mjs --no-bump        不改版本
-//   node release.mjs --tier lite|standard|pro   档位(默认 standard)
+//   node release.mjs --tier lite|standard|pro|all  档位(默认 standard;all=一次出三档)
 //   node release.mjs --offline-only   只出离线包
 //   node release.mjs --clients-only   只出上传端+下载端(不改版本、不跑 build-desktop)
 //   node release.mjs --version-only   只调 bump-version.py 升/写版本
@@ -75,16 +75,18 @@ function pickByExt(dir, exts) {
 function copyTo(src, destDir, name) { fs.mkdirSync(destDir, { recursive: true }); const d = path.join(destDir, name); fs.copyFileSync(src, d); return d; }
 
 // build-desktop 调用,带 CHAYUAN_BUILD_NO_BUMP=1(本脚本已决策版本,禁止它再 +1)。
+const WIN_FLAVOR_FLAG = { lite: '-LiteOnly', standard: '-StandardOnly', full: '-FullOnly' };
+const SH_FLAVOR_FLAG = { lite: '--lite-only', standard: '--standard-only', full: '--integrated-only' };
 function runBuildDesktop(flavor) {
   const extra = val('--bd', '');
   const env = { ...process.env, CHAYUAN_BUILD_NO_BUMP: '1' };
   if (isWin) {
     const ps1 = path.join(ROOT, 'build-desktop.ps1');
-    const flag = flavor === 'lite' ? '-LiteOnly' : '-IntegratedOnly';
+    const flag = WIN_FLAVOR_FLAG[flavor] || '-FullOnly';
     run(`powershell -NoProfile -ExecutionPolicy Bypass -File "${ps1}" ${flag} ${extra}`, ROOT, env);
   } else {
     const sh = path.join(ROOT, 'build-desktop.sh');
-    const flag = flavor === 'lite' ? '--lite-only' : '--integrated-only';
+    const flag = SH_FLAVOR_FLAG[flavor] || '--integrated-only';
     run(`bash "${sh}" ${flag} ${extra}`, ROOT, env);
   }
 }
@@ -95,8 +97,9 @@ log(`版本(经 scripts/bump-version.py):${version}`);
 if (has('--version-only')) { console.log('\n仅写版本号,完成。'); process.exit(0); }
 
 const tier = val('--tier', 'standard');
-if (!['lite', 'standard', 'pro'].includes(tier)) { console.error(`--tier 必须 lite|standard|pro`); process.exit(1); }
-const flavor = tier === 'lite' ? 'lite' : 'integrated';
+if (!['lite', 'standard', 'pro', 'all'].includes(tier)) { console.error(`--tier 必须 lite|standard|pro|all`); process.exit(1); }
+const tiers = tier === 'all' ? ['lite', 'standard', 'pro'] : [tier];
+const TIER_FLAVOR = { lite: 'lite', standard: 'standard', pro: 'full' };
 const plat = platformKey();
 const RELEASE_DIR = path.join(ROOT, 'release', version);
 const OFFLINE_DIR = path.join(RELEASE_DIR, 'offline');
@@ -104,16 +107,19 @@ const CLIENTS_DIR = path.join(RELEASE_DIR, 'clients');
 const summary = [];
 
 if (!has('--clients-only')) {
-  log(`构建离线包(${plat} / ${tier},复用 build-desktop ${flavor},CHAYUAN_BUILD_NO_BUMP=1)`);
-  runBuildDesktop(flavor);
-  const distDir = path.join(ROOT, flavor === 'lite' ? 'dist-lite' : 'dist-full');
-  const arts = pickByExt(distDir, OFFLINE_EXTS);
-  if (!arts.length) { console.error(`未在 ${distDir} 找到离线包产物`); process.exit(1); }
-  for (const a of arts) {
-    const dest = copyTo(a.p, OFFLINE_DIR, `chayuan-${version}-${plat}-${tier}.${a.ext}`);
-    summary.push(`离线包: ${path.relative(ROOT, dest)}`);
+  for (const t of tiers) {
+    const fl = TIER_FLAVOR[t];
+    log(`构建离线包(${plat} / tier=${t} → flavor=${fl},CHAYUAN_BUILD_NO_BUMP=1)`);
+    runBuildDesktop(fl);
+    const distDir = path.join(ROOT, `dist-${fl}`);
+    const arts = pickByExt(distDir, OFFLINE_EXTS);
+    if (!arts.length) { console.error(`未在 ${distDir} 找到 ${t} 离线包产物`); process.exit(1); }
+    for (const a of arts) {
+      const dest = copyTo(a.p, OFFLINE_DIR, `chayuan-${version}-${plat}-${t}.${a.ext}`);
+      summary.push(`离线包(${t}): ${path.relative(ROOT, dest)}`);
+    }
   }
-  if (tier === 'pro') summary.push('  提醒: pro=集成版且 vendor/bundled_models 已填(含模型);standard 用空模型目录或 --bd "-SkipModelCheck"');
+  summary.push('  提醒: lite=纯云零模型;standard=引擎+必带音色(其余模型用户下载);pro=全部模型离线。各档模型需构建机先 seed(sherpa/voxcpm 音色、字体等)。');
 }
 
 if (!has('--offline-only')) {

@@ -28,26 +28,38 @@ install-bundled-models 都跟着走。
 """
 from __future__ import annotations
 
-#: 轻量版安装包随包嵌入的 capability(磁盘 ~ 625 MB)
-LITE_CAPS: tuple[str, ...] = (
+# 三档能力集(对齐 layout.yaml §5 releases + 桌面「音色必带」约束):
+#  · lite 轻量版    —— 纯云:零本地模型/引擎,AI 全走云端(用户配厂商 key)
+#  · standard 集成版 —— 运行时/引擎齐全,模型走云端或用户下载;只内置「无下载途径」的音色
+#  · pro/full 全量版 —— 全部模型随包,离线可运行
+#
+#: lite 不内置任何 cap(纯云)
+LITE_CAPS: tuple[str, ...] = ()
+
+#: standard 只内置 tts —— piper+sherpa 音色没有用户下载途径必须随包;其余
+#: embedding/rerank/chat/asr/ocr 都有下载功能,用户按需下(故不在 standard 随包)。
+STANDARD_CAPS: tuple[str, ...] = (
+    "tts",
+)
+
+#: pro/full 全量版随包嵌入的 capability(磁盘 ~ 3.1 GB,含 chat 主力模型 + 数字人)
+FULL_CAPS: tuple[str, ...] = (
     "embedding",
     "rerank",
     "asr",
     "ocr",
-    "tts",   # piper zh_CN-huayan-medium ~60 MB,离线 CPU TTS,装机即用
-)
-
-#: 全量版安装包随包嵌入的 capability(磁盘 ~ 3.1 GB,含 chat 主力模型)
-FULL_CAPS: tuple[str, ...] = LITE_CAPS + (
+    "tts",
     "chat",
     # "image",  # 图像向量化(CLIP-B/32,~580 MB)已移除,暂不随包打;恢复时取消本行注释即可(2026-06-13)
-    "digital_human",  # 数字人引擎权重(Wav2Lip CPU + SadTalker GPU);只进 full,LITE 不打 torch
+    "digital_human",  # 数字人引擎权重(Wav2Lip CPU + SadTalker GPU);只进 full,torch 走 UI 按需装
 )
 
-#: 集成清单 alias 表,便于按 flavor 字符串拿对应清单
+#: 集成清单 alias 表,便于按 flavor 字符串拿对应清单。pro 是 full 的别名。
 FLAVOR_CAPS: dict[str, tuple[str, ...]] = {
     "lite": LITE_CAPS,
+    "standard": STANDARD_CAPS,
     "full": FULL_CAPS,
+    "pro": FULL_CAPS,
 }
 
 
@@ -103,6 +115,7 @@ def caps_for(flavor: str) -> tuple[str, ...]:
 
 __all__ = [
     "LITE_CAPS",
+    "STANDARD_CAPS",
     "FULL_CAPS",
     "FLAVOR_CAPS",
     "CANONICAL_MODEL_SUBDIRS",

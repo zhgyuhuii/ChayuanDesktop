@@ -511,7 +511,7 @@ def _target_has_installer_size_limit(target_triple: str) -> bool:
 
 def sync_bundled_models(
     *,
-    lite: bool,
+    flavor: str = "full",
     bundled_src: Optional[Path] = None,
     target_triple: Optional[str] = None,
 ) -> None:
@@ -528,7 +528,10 @@ def sync_bundled_models(
     幂等:重复跑结果相同。每次都先清掉旧目录避免上一次 flavor 残留。
     """
     src = bundled_src or BUNDLED_SRC
-    flavor = "lite" if lite else "full"
+    flavor = (flavor or "full").strip().lower()
+    if flavor == "pro":
+        flavor = "full"
+    is_full = flavor == "full"
     caps = _load_bundle_caps(flavor)
 
     if DESKTOP_BUNDLED_MODELS_DIR.exists():
@@ -548,7 +551,7 @@ def sync_bundled_models(
     # AppImage 都支持 TB 级单文件),不分流 — 大文件直接嵌进 .dmg/.deb/...。
     # 旧的 _guard_oversized_files FATAL 调用已撤 — Windows 上现在自动分流。
     do_external_split = (
-        not lite
+        is_full
         and target_triple is not None
         and _target_has_installer_size_limit(target_triple)
     )
@@ -556,7 +559,7 @@ def sync_bundled_models(
     print(f"[build] flavor={flavor}, caps = {' / '.join(caps)}, src = {src}", flush=True)
     if do_external_split:
         print(f"[build] target={target_triple} 撞 2 GB installer 限制 → 大文件分流到 external seed", flush=True)
-    elif not lite and target_triple is not None:
+    elif is_full and target_triple is not None:
         print(f"[build] target={target_triple} 无 2 GB 限制 → 大文件直接嵌 installer(不分流)", flush=True)
 
     # 准备 external seed 目录(每次清空,避免上次残留)。即使本次不分流也清一次 —
@@ -1084,7 +1087,7 @@ def sync_torch_wheels() -> None:
         (desktop_dst / ".gitkeep").touch()
 
 
-def sync_services(*, lite: bool, target_triple: str | None = None) -> None:
+def sync_services(*, flavor: str = "full", target_triple: str | None = None) -> None:
     """同步 vendor/services/<engine>-server/<platform>/* → src-tauri/services/<engine>-server/*。
 
     lite/full 都需要 llama-server / whisper-server 这类外部 runtime 二进制。
@@ -1110,7 +1113,13 @@ def sync_services(*, lite: bool, target_triple: str | None = None) -> None:
         shutil.rmtree(DESKTOP_SERVICES_DIR)
     DESKTOP_SERVICES_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 注:lite 早返回逻辑已删除 — 见上方 docstring。
+    # lite = 纯云:零本地模型 → 不打任何推理引擎 launcher(llama-server/whisper 等)。
+    # standard/pro 才打(它们带音色/可下载模型,需要本地引擎跑)。
+    flavor = (flavor or "full").strip().lower()
+    if flavor == "lite":
+        (DESKTOP_SERVICES_DIR / ".gitkeep").touch()
+        print("[build] flavor=lite(纯云)→ 不打推理引擎二进制", flush=True)
+        return
 
     if not SERVICES_SRC.is_dir():
         print(f"[build] 警告:services 源不存在 {SERVICES_SRC},集成版退化为空目录", flush=True)
@@ -1237,6 +1246,14 @@ def main() -> None:
               "清单真源:packaging/bundle_manifest.py"),
     )
     parser.add_argument(
+        "--flavor",
+        choices=["lite", "standard", "pro", "full"],
+        default="",
+        help=("三档打包真源:lite(纯云零模型零引擎)/ standard(引擎+必带音色,其余模型用户下载)"
+              "/ pro|full(全部模型离线)。不传则由 --lite 推导(--lite→lite,否则 full)。"
+              "清单:packaging/bundle_manifest.py FLAVOR_CAPS。"),
+    )
+    parser.add_argument(
         "--bundled-source",
         default="",
         help=("显式指定 bundled_models 源目录(子目录结构同 vendor/bundled_models/<cap>/)。"
@@ -1313,6 +1330,11 @@ def main() -> None:
         "1", "true", "yes",
     )
 
+    # flavor:三档真源(lite/standard/pro|full)。--flavor 优先;否则由 --lite 推导(向后兼容)。
+    flavor = (getattr(args, "flavor", "") or ("lite" if lite else "full")).strip().lower()
+    if flavor == "pro":
+        flavor = "full"
+
     # bundled 源路径解析(CLI > env > vendor 默认),解析完后所有 sync 调用都用它。
     bundled_src = _resolve_bundled_src(args.bundled_source or None)
     if bundled_src != BUNDLED_SRC:
@@ -1355,7 +1377,7 @@ def main() -> None:
     host_sub = triple_to_vendor_subdir(host)
 
     def _do_sync_and_verify() -> None:
-        sync_services(lite=lite, target_triple=target)
+        sync_services(flavor=flavor, target_triple=target)
         # lite/full 都同步 services,verify 跟着也都跑(lite 也跑 llama-server /
         # whisper-server,verify 失败 = vendor binary 坏,无关 flavor)
         if not args.skip_verify:
@@ -1368,7 +1390,7 @@ def main() -> None:
     if args.sync_bundled_only or args.sync_only:
         # 跳过 PyInstaller,只同步 bundled_models + services + torch wheels。
         # build-desktop 双 flavor 模式 / sidecar 缓存命中走这条路径。
-        sync_bundled_models(lite=lite, bundled_src=bundled_src, target_triple=target)
+        sync_bundled_models(flavor=flavor, bundled_src=bundled_src, target_triple=target)
         sync_video_generation_assets(target_triple=target)
         _do_sync_and_verify()
         return
@@ -1403,7 +1425,7 @@ def main() -> None:
     run_pyinstaller(extra)
     if not args.no_copy:
         copy_to_tauri_binaries()
-        sync_bundled_models(lite=lite, bundled_src=bundled_src, target_triple=target)
+        sync_bundled_models(flavor=flavor, bundled_src=bundled_src, target_triple=target)
         # M3.D6:video_generation 模块的字体 / BGM / 内置素材 + 按平台
         # ImageMagick 二进制,跟着 Tauri resources 进 installer。
         sync_video_generation_assets(target_triple=target)

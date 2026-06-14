@@ -101,6 +101,7 @@ param(
     [switch]$VerboseSubprocess,
     [switch]$LiteOnly,
     [switch]$FullOnly,
+    [switch]$StandardOnly,
     # 兼容旧名(`-IntegratedOnly` 仍可用,等价 `-FullOnly`,触发时打 deprecation hint)
     [switch]$IntegratedOnly,
     [switch]$SkipModelCheck,
@@ -134,20 +135,24 @@ if ($IntegratedOnly) {
 }
 
 # 互斥检查
-if ($LiteOnly -and $FullOnly) {
-    Write-Host "[FAIL] -LiteOnly 与 -FullOnly 互斥(不带 = 都打)" -ForegroundColor Red
+$onlyCount = (@($LiteOnly, $StandardOnly, $FullOnly) | Where-Object { $_ }).Count
+if ($onlyCount -gt 1) {
+    Write-Host "[FAIL] -LiteOnly / -StandardOnly / -FullOnly 三者互斥(不带 = 三档都打)" -ForegroundColor Red
     exit 2
 }
 
 # 决定本次要打哪些 flavor
 $Flavors = @()
 if ($LiteOnly) { $Flavors = @('lite') }
+elseif ($StandardOnly) { $Flavors = @('standard') }
 elseif ($FullOnly) { $Flavors = @('full') }
-else { $Flavors = @('lite', 'full') }
+else { $Flavors = @('lite', 'standard', 'full') }
+# 任一非 lite 档(standard/full)都需要本地推理引擎;纯 lite 档(纯云)不需要。
+$NeedsEngines = (@($Flavors) | Where-Object { $_ -ne 'lite' }).Count -gt 0
 
 # #8:不传任何 *Only 时给个本地试用提示
-if (-not $LiteOnly -and -not $FullOnly -and -not $BundleOnly) {
-    Write-Host '[hint] 本次会出 lite + full 两个 installer(约 30 分钟)。本地仅试用推荐:' `
+if (-not $LiteOnly -and -not $StandardOnly -and -not $FullOnly -and -not $BundleOnly) {
+    Write-Host '[hint] 本次会出 lite + standard + full 三个 installer(约 45 分钟)。本地仅试用推荐:' `
         -ForegroundColor DarkCyan
     Write-Host '       .\build-desktop.ps1 -LiteOnly       # 只出轻量版,~5 分钟' `
         -ForegroundColor DarkCyan
@@ -1075,7 +1080,7 @@ if ($SkipInstallVendor) {
     }
     # services 完整性:llama-server / whisper-server 当前平台必须有 binary
     $checkS0 = Join-Path $WorkspaceRoot 'scripts\check-services.py'
-    if ($pyExeForCheck -and (Test-Path $checkS0)) {
+    if ($NeedsEngines -and $pyExeForCheck -and (Test-Path $checkS0)) {
         & $pyExeForCheck.Source $checkS0 --target $hostVendorPlat0 --require llama-server --require whisper-server --json 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0) {
             $vendorComplete = $false
@@ -1091,7 +1096,7 @@ if ($SkipInstallVendor) {
         Write-Note 'vendor/ 已完整,跳过自动安装。强制重装请用 .\scripts\install-vendor.ps1 -Flavor lite/full'
     } else {
         # 按要打的 flavor 决定装哪个子集。两个都打(默认双产物)→ full(超集)。
-        $vendorFlavor = if ($Flavors -contains 'full') { 'full' } else { 'lite' }
+        $vendorFlavor = if ($NeedsEngines) { 'full' } else { 'lite' }
         Write-Note ('触发 install-vendor.ps1 -Flavor ' + $vendorFlavor + ' -Source ' + $InstallSource)
         $installScript = Join-Path $WorkspaceRoot 'scripts\install-vendor.ps1'
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installScript -Flavor $vendorFlavor -Source $InstallSource
@@ -1137,9 +1142,11 @@ if ($SkipModelCheck) {
     # 就会出问题包。
     # (第二道保险:万一装机后服务仍缺失,可在「设置 → 本地模型服务 → 运行时
     #  服务」按平台一键下载补回。)
-    Write-Step 'services 体检 (lite/full 都内置 launcher binary)'
+    Write-Step 'services 体检 (standard/pro 内置 launcher binary;lite 纯云跳过)'
     $svcCheck = Join-Path $WorkspaceRoot 'scripts\check-services.py'
-    if (Test-Path $svcCheck) {
+    if (-not $NeedsEngines) {
+        Write-Note 'lite 纯云档不含本地推理引擎,跳过 services 体检'
+    } elseif (Test-Path $svcCheck) {
         if ($pyExe) {
             # 推 host triple → vendor platform 子目录名(同 build.py triple_to_vendor_subdir)
             $arch = $env:PROCESSOR_ARCHITECTURE
@@ -1183,11 +1190,15 @@ function Invoke-FlavorBuild {
     # 双轨,用于直接调 build.py 而绕过本脚本的旧 CI/CD 兼容。
     if ($Flavor -eq 'lite') {
         $env:CHAYUAN_LITE_BUILD = '1'
-        $script:BuildPyLiteFlag = @('--lite')
-        $flavorLabel = '轻量版(lite)'
+        $script:BuildPyLiteFlag = @('--flavor', 'lite')
+        $flavorLabel = '轻量版(lite,纯云)'
+    } elseif ($Flavor -eq 'standard') {
+        $env:CHAYUAN_LITE_BUILD = '1'
+        $script:BuildPyLiteFlag = @('--flavor', 'standard')
+        $flavorLabel = '集成版(standard)'
     } else {
         Remove-Item Env:CHAYUAN_LITE_BUILD -ErrorAction SilentlyContinue
-        $script:BuildPyLiteFlag = @()
+        $script:BuildPyLiteFlag = @('--flavor', 'full')
         $flavorLabel = '全量版(full)'
     }
     # -BundledSource 透传给 build.py --bundled-source(让一份模型 dev + 打包共用)
