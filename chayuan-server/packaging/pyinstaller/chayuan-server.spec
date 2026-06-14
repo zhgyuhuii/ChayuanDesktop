@@ -39,6 +39,7 @@ from pathlib import Path
 from PyInstaller.utils.hooks import (  # noqa: F401  (spec 由 PyInstaller 注入 SPECPATH)
     collect_all,
     collect_data_files,
+    collect_dynamic_libs,
     collect_submodules,
     copy_metadata,
 )
@@ -264,6 +265,18 @@ if sqlite_vec_dir.is_dir():
     for f in sqlite_vec_dir.iterdir():
         if f.suffix.lower() in (".so", ".dylib", ".dll"):
             binaries.append((str(f), "."))
+
+# 兜底:packaging/vendor/sqlite-vec/ 没放 vec0 时,从已装的 sqlite_vec wheel 收原生
+# 扩展(vec0.{so,dll,dylib})。否则 frozen 下 sqlite_vec.load(conn) 加载失败 → 装机后
+# 本地 KB 向量检索报 `no such function: vec_distance_*`。collect_dynamic_libs 幂等,
+# 与 vendor 兜底重复时 PyInstaller COLLECT 阶段自动去重。
+try:
+    _vec_libs = collect_dynamic_libs("sqlite_vec")
+    if _vec_libs:
+        binaries.extend(_vec_libs)
+        print(f"[chayuan-spec] sqlite_vec 原生扩展 wheel 兜底收集 {len(_vec_libs)} 个")
+except Exception as _e:  # noqa: BLE001
+    print(f"[chayuan-spec] collect_dynamic_libs('sqlite_vec') 跳过:{_e!r}")
 
 
 # ──────────────────────────────────────────────────────────────

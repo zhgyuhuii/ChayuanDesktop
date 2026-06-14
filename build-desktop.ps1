@@ -1112,6 +1112,50 @@ if ($SkipInstallVendor) {
     }
 }
 
+# ====================================================================
+# 0b. 深度依赖(pro 全量自包含)+ 音色 seed —— 让 `--tier all` 真正一键自包含。
+#     · standard/pro:seed sherpa 音色(无下载途径,必须随包)
+#     · pro(full):pip 装 torch +cpu / torchaudio / voxcpm(数字人 + 克隆音色),
+#       再 seed VoxCPM-0.5B 权重。torch 系缺则 spec 阶段 _collect_required fail-fast。
+#     -SkipInstallVendor / -SkipModelCheck 一并跳过(离线/CI 自备依赖时用)。
+# ====================================================================
+if ($SkipInstallVendor -or $SkipModelCheck) {
+    Write-Step '深度依赖 / 音色 seed [skipped: -SkipInstallVendor/-SkipModelCheck]'
+} else {
+    Push-Location $ServerPkgDir
+    try {
+        if ($NeedsEngines) {
+            $seedSherpa = Join-Path $ServerDir 'scripts\seed_sherpa_voices.py'
+            if (Test-Path $seedSherpa) {
+                Write-Step '深度依赖: seed sherpa 音色(standard/pro 必带,无下载途径)'
+                & poetry run python $seedSherpa
+                if ($LASTEXITCODE -ne 0) { Write-Note 'seed_sherpa_voices 失败 — sherpa 音色将缺(不阻断后续)' }
+            } else { Write-Note "$seedSherpa 不存在,跳过 sherpa seed" }
+        }
+        if ($Flavors -contains 'full') {
+            Write-Step '深度依赖(pro): 装 torch +cpu / torchaudio / voxcpm + seed VoxCPM-0.5B'
+            & poetry run pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host '[FAIL] torch +cpu 安装失败 — pro 数字人(Wav2Lip)需要,spec 会 fail-fast。' -ForegroundColor Red
+                Write-Host '  手动:cd chayuan-server\libs\chayuan-server; poetry run pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu' -ForegroundColor DarkYellow
+                Pop-Location; Restore-Console; exit 6
+            }
+            & poetry run pip install voxcpm
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host '[FAIL] voxcpm 安装失败 — pro 克隆音色需要,spec 会 fail-fast。' -ForegroundColor Red
+                Pop-Location; Restore-Console; exit 6
+            }
+            $seedVox = Join-Path $ServerDir 'scripts\seed_voxcpm.py'
+            if (Test-Path $seedVox) {
+                & poetry run python $seedVox
+                if ($LASTEXITCODE -ne 0) { Write-Note 'seed_voxcpm 失败 — VoxCPM-0.5B 缺,pro 克隆音色回退 piper(不阻断)' }
+            } else { Write-Note "$seedVox 不存在,跳过 voxcpm seed" }
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
 $ModelCheckOk = $false
 if ($SkipModelCheck) {
     Write-Step '模型体检 [skipped]'
