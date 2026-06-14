@@ -136,10 +136,20 @@ async fn write_temp(filename: String, contents: Vec<u8>) -> Result<String, Strin
     Ok(p.to_string_lossy().to_string())
 }
 
+// 源配置「浏览」选目录(git 仓 / 构建产物目录都是文件夹)。用 desktop 同款
+// tauri-plugin-dialog 的 Rust API,前端只 invoke,不引 JS 插件。AppHandle 由 Tauri
+// 自动注入;命令在 worker 线程跑(非主线程),blocking_pick_folder 合法;取消返回 None。
+#[tauri::command]
+fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog().file().blocking_pick_folder().map(|p| p.to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            get_captcha, login, read_git_version, scan_build_dir, hash_file, http_json, upload_chunks, write_temp
+            get_captcha, login, read_git_version, scan_build_dir, hash_file, http_json, upload_chunks, write_temp, pick_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running publisher");

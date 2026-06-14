@@ -6,6 +6,7 @@ export const getCaptcha = () => invoke<{ captchaId: string; svg: string }>('get_
 export const login = (username: string, password: string, captchaId: string, captchaCode: string) =>
   invoke<void>('login', { username, password, captchaId, captchaCode });
 export const readGitVersion = (repo: string) => invoke<{ version: string; changelog: string }>('read_git_version', { repo });
+export const pickFolder = () => invoke<string | null>('pick_folder');
 export const scanBuildDir = (dir: string) => invoke<ScannedFile[]>('scan_build_dir', { dir });
 export const hashFile = (path: string) => invoke<string>('hash_file', { path });
 

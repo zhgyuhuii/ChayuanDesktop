@@ -4,6 +4,7 @@
   "description": "察元发布客户端默认能力集",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "dialog:default"
   ]
 }

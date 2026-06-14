@@ -49,6 +49,14 @@ export function App() {
     }
   }
 
+  // 「浏览…」选目录,选中则写入对应输入框(取消选择返回 null,不动)。
+  async function pickInto(setter: (v: string) => void) {
+    try {
+      const dir = await api.pickFolder();
+      if (dir) setter(dir);
+    } catch (e) { setErr(String(e)); }
+  }
+
   async function doDetect() {
     setErr(''); setBusy(true);
     try {
@@ -177,11 +185,17 @@ export function App() {
             <h2 className="card-title">源配置</h2>
             <div className="field">
               <label>git 仓路径(取版本 / 更新内容)</label>
-              <input className="input" placeholder="例:/path/to/chayuan-desktop" value={repo} onChange={(e) => setRepo(e.target.value)} />
+              <div className="row">
+                <input className="input" placeholder="例:/path/to/chayuan-desktop" value={repo} onChange={(e) => setRepo(e.target.value)} />
+                <button className="btn btn-secondary" type="button" onClick={() => pickInto(setRepo)}>浏览…</button>
+              </div>
             </div>
             <div className="field">
               <label>构建产物目录</label>
-              <input className="input" placeholder="例:release/2.0.11/offline" value={buildDir} onChange={(e) => setBuildDir(e.target.value)} />
+              <div className="row">
+                <input className="input" placeholder="例:release/2.0.11/offline" value={buildDir} onChange={(e) => setBuildDir(e.target.value)} />
+                <button className="btn btn-secondary" type="button" onClick={() => pickInto(setBuildDir)}>浏览…</button>
+              </div>
             </div>
             <div className="actions">
               <button className="btn btn-primary" onClick={doDetect} disabled={busy || !buildDir}>{busy ? '检测中…' : '检测'}</button>

@@ -13,6 +13,7 @@ tauri-build = { version = "2.0.0", features = [] }
 
 [dependencies]
 tauri = { version = "2.11", features = [] }
+tauri-plugin-dialog = "2.2.0"  # 源配置「浏览」选目录(同 desktop 同款插件,Rust API)
 # 锁死 brotli 8.0.3 依赖图:brotli-decompressor 5.0.2 / alloc-stdlib 0.2.3 把 alloc-no-stdlib
 # 拉到 3.0.0,与 brotli 自身的 2.0.4 分裂 → StandardAlloc/BrotliAlloc 的 Allocator trait 对不上
 # (E0277 x36)。把引入 <4 范围的这两个 crate 钉回「只吃 2.x」的版本,图里就没任何路径到 3.0.0,

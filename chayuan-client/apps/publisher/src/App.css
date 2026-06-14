@@ -200,5 +200,10 @@ body {
   white-space: pre-wrap;
 }
 
-/* ---- 登录卡片收窄一点(单列表单不必拉满) ---- */
-.card.narrow { max-width: 420px; }
+/* ---- 登录卡片:收窄并水平居中 ---- */
+.card.narrow {
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: clamp(16px, 6vh, 64px);
+}
