@@ -359,6 +359,27 @@ done
 #   --skip-model-check 跳过。Mac 上 PyPI 默认 torch 即 CPU/MPS,无需 --index-url。
 _needs_engines=0; _has_full=0
 for _f in "${FLAVORS[@]}"; do [[ "$_f" != "lite" ]] && _needs_engines=1; [[ "$_f" == "full" ]] && _has_full=1; done
+
+# whisper-server 本机平台二进制:upstream 不发 Linux/Mac 预编译,只能在本机现装/编译。
+# standard/full 需本地 ASR;若本机平台子目录缺 whisper-server → 自动跑
+# install-whisper-server.sh(优先 brew install whisper-cpp,否则源码 cmake build)。
+# 非致命:装不上则本机 ASR 回退 Python/云端。--skip-model-check 跳过。
+if [[ "$_needs_engines" == "1" ]] && [[ "$SKIP_MODEL_CHECK" != "1" ]]; then
+    case "$(uname -s)" in
+        Darwin) [[ "$(uname -m)" == "arm64" ]] && _ws_plat="macos-arm64" || _ws_plat="macos-x64" ;;
+        Linux)  [[ "$(uname -m)" == "aarch64" ]] && _ws_plat="linux-arm64" || _ws_plat="linux-x64" ;;
+        *)      _ws_plat="" ;;
+    esac
+    if [[ -n "$_ws_plat" ]] && [[ ! -x "$SERVER_DIR/vendor/services/whisper-server/$_ws_plat/whisper-server" ]]; then
+        step "本机 whisper-server($_ws_plat)缺失 → 自动安装(brew / 源码 cmake)"
+        _ws_script="$WORKSPACE/scripts/install-whisper-server.sh"
+        if [[ -f "$_ws_script" ]]; then
+            bash "$_ws_script" || note 'install-whisper-server 失败 — 本机 ASR 将回退 Python/云端(不阻断)'
+        else
+            note "$_ws_script 不存在,跳过 whisper 自动安装"
+        fi
+    fi
+fi
 if [[ "$SKIP_MODEL_CHECK" != "1" ]] && command -v poetry >/dev/null 2>&1; then
     if [[ "$_needs_engines" == "1" ]] && [[ -f "$SERVER_DIR/scripts/seed_sherpa_voices.py" ]]; then
         step '深度依赖: seed sherpa 音色(standard/full 必带,无下载途径)'
