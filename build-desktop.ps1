@@ -1612,7 +1612,12 @@ if ($SkipFrontend) {
         if ($ReuseFrontend) {
             # 复用基础框架:置空 tauri 的 beforeBuildCommand(pnpm build:vite),不重建前端,
             # 直接用上一档已构建的 dist/(前端三档相同)。只重打 MSI bundle。
-            $tauriArgs += @('--config', '{"build":{"beforeBuildCommand":""}}')
+            # ⚠ PowerShell 给原生命令传内嵌双引号的 JSON 会被吃掉引号(--config '{...}' 变成
+            #   非法的 {build:{...}}),所以写到临时文件再传**路径**(路径无引号,不被 mangle)。
+            #   用 .NET WriteAllText 写 UTF-8 **无 BOM**(serde_json 不吃 BOM)。
+            $reuseCfg = Join-Path $env:TEMP 'chayuan-reuse-frontend.tauri.conf.json'
+            [System.IO.File]::WriteAllText($reuseCfg, '{"build":{"beforeBuildCommand":""}}')
+            $tauriArgs += @('--config', $reuseCfg)
         }
         Invoke-Step -Name 'tauri-build (bundle-only)' `
             -WorkDir $DesktopDir `
