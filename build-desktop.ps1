@@ -944,6 +944,9 @@ function Get-ServerSourceFingerprint {
     # 6. build args
     [void]$sb.AppendLine(('target:{0}' -f $HostTriple))
     [void]$sb.AppendLine(('strict_vendor:{0}' -f $StrictVendor))
+    # CHAYUAN_LITE_BUILD 决定 torch 打不打(pro=0 打,lite/standard=1 不打)。
+    # 必须进指纹:否则 lite 先建的 torch-free exe 会被 pro 当缓存命中复用 → pro 缺 torch。
+    [void]$sb.AppendLine(('lite_build:{0}' -f $env:CHAYUAN_LITE_BUILD))
 
     # 7. Python 版本(取 poetry 选的 venv 里的 python,如果有的话;否则系统 python)
     $pyv = ''
