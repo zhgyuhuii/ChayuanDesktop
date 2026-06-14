@@ -125,17 +125,29 @@ if (!has('--clients-only')) {
       const mb = (fs.statSync(dest).size / 1048576).toFixed(0);
       summary.push(`离线包(${t}): ${path.relative(ROOT, dest)} (${mb}MB,ISO 自包含 MSI+cab)`);
     } else {
+      // 非 Windows(Mac/Linux):.dmg / .deb / .AppImage 本身自包含,直接收单个安装器。
       const distDir = path.join(ROOT, `dist-${fl}`);
       if (!fs.existsSync(distDir)) { console.error(`未找到 ${t} 离线产物(无 ISO 且无 ${distDir})`); process.exit(1); }
-      const tierDir = path.join(OFFLINE_DIR, `chayuan-${version}-${plat}-${t}`);
-      fs.mkdirSync(tierDir, { recursive: true });
-      let n = 0, bytes = 0;
-      for (const e of fs.readdirSync(distDir)) {
-        const sp = path.join(distDir, e);
-        if (fs.statSync(sp).isFile()) { fs.copyFileSync(sp, path.join(tierDir, e)); n++; bytes += fs.statSync(sp).size; }
+      const SELF_CONTAINED = ['dmg', 'AppImage', 'deb', 'rpm', 'pkg', 'tar.gz'];
+      const arts = pickByExt(distDir, SELF_CONTAINED);
+      if (arts.length) {
+        for (const a of arts) {
+          const dest = copyTo(a.p, OFFLINE_DIR, `chayuan-${version}-${plat}-${t}.${a.ext}`);
+          const mb = (fs.statSync(dest).size / 1048576).toFixed(0);
+          summary.push(`离线包(${t}): ${path.relative(ROOT, dest)} (${mb}MB,自包含安装器)`);
+        }
+      } else {
+        // 兜底:既无 ISO 又无单文件安装器 → 整个 dist 目录搬走(整目录一起分发)。
+        const tierDir = path.join(OFFLINE_DIR, `chayuan-${version}-${plat}-${t}`);
+        fs.mkdirSync(tierDir, { recursive: true });
+        let n = 0, bytes = 0;
+        for (const e of fs.readdirSync(distDir)) {
+          const sp = path.join(distDir, e);
+          if (fs.statSync(sp).isFile()) { fs.copyFileSync(sp, path.join(tierDir, e)); n++; bytes += fs.statSync(sp).size; }
+        }
+        if (!n) { console.error(`${distDir} 里没有文件可收`); process.exit(1); }
+        summary.push(`离线包(${t}): ${path.relative(ROOT, tierDir)}/ (${n} 文件 ~${(bytes/1048576).toFixed(0)}MB,整目录分发)`);
       }
-      if (!n) { console.error(`${distDir} 里没有文件可收`); process.exit(1); }
-      summary.push(`离线包(${t}): ${path.relative(ROOT, tierDir)}/ (${n} 文件 ~${(bytes/1048576).toFixed(0)}MB:MSI+全部 cab;无 ISO 退回目录形式,分发时整个目录一起给)`);
     }
   }
   summary.push('  提醒: lite=纯云零模型;standard=引擎+必带音色(其余模型用户下载);pro=全部模型离线。各档模型需构建机先 seed(sherpa/voxcpm 音色、字体等)。');

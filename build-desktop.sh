@@ -141,6 +141,7 @@ REBUILD_SERVER=0
 SKIP_SERVER_AUTO=0  # 内部状态:Step 1 是被指纹自动跳过,还是 --skip-server 显式跳过
 SKIP_MODEL_CHECK=0
 LITE_ONLY=0
+STANDARD_ONLY=0
 INTEGRATED_ONLY=0
 
 usage() {
@@ -162,7 +163,8 @@ while [[ $# -gt 0 ]]; do
         --verbose|-v)       VERBOSE=1 ;;
         --skip-model-check) SKIP_MODEL_CHECK=1 ;;
         --lite-only)        LITE_ONLY=1 ;;
-        --integrated-only)  INTEGRATED_ONLY=1 ;;
+        --integrated-only|--full-only)  INTEGRATED_ONLY=1 ;;
+        --standard-only)    STANDARD_ONLY=1 ;;
         -h|--help)          usage ;;
         *)
             echo "[FAIL] 未知参数: $1" >&2
@@ -173,19 +175,22 @@ while [[ $# -gt 0 ]]; do
 done
 
 # 互斥检查
-if [[ "$LITE_ONLY" == "1" ]] && [[ "$INTEGRATED_ONLY" == "1" ]]; then
-    echo "[FAIL] --lite-only 与 --integrated-only 互斥,二选一(不带 = 都打)" >&2
+_only_count=$(( LITE_ONLY + STANDARD_ONLY + INTEGRATED_ONLY ))
+if [[ "$_only_count" -gt 1 ]]; then
+    echo "[FAIL] --lite-only / --standard-only / --full-only 三者互斥(不带 = 三档都打)" >&2
     exit 2
 fi
 
-# 决定本次要打哪些 flavor
+# 决定本次要打哪些 flavor(三档:lite/standard/full)
 FLAVORS=()
 if [[ "$LITE_ONLY" == "1" ]]; then
     FLAVORS=(lite)
+elif [[ "$STANDARD_ONLY" == "1" ]]; then
+    FLAVORS=(standard)
 elif [[ "$INTEGRATED_ONLY" == "1" ]]; then
-    FLAVORS=(integrated)
+    FLAVORS=(full)
 else
-    FLAVORS=(lite integrated)
+    FLAVORS=(lite standard full)
 fi
 
 if [[ "$BUNDLE_ONLY" == "1" ]]; then
@@ -317,8 +322,8 @@ if [[ "$CLEAN" == "1" ]]; then
     step '清理'
     rm -rf "$SERVER_DIR/dist" 2>/dev/null && note "清 chayuan-server/dist" || true
     rm -rf "$TAURI_BUNDLE" 2>/dev/null && note "清 src-tauri/target/release/bundle" || true
-    rm -rf "$WORKSPACE/dist-lite" "$WORKSPACE/dist-integrated" 2>/dev/null \
-        && note "清 dist-lite/ + dist-integrated/" || true
+    rm -rf "$WORKSPACE/dist-lite" "$WORKSPACE/dist-standard" "$WORKSPACE/dist-full" 2>/dev/null \
+        && note "清 dist-lite/ + dist-standard/ + dist-full/" || true
 fi
 
 # ── 4b. bundled_models 体检(集成版需要,轻量版仅打印) ─────────────
@@ -341,12 +346,35 @@ fi
 
 # 决策:整合版需要模型;空目录又显式 --integrated-only 时给警告但仍允许
 for flav in "${FLAVORS[@]}"; do
-    if [[ "$flav" == "integrated" ]] && [[ "$SKIP_MODEL_CHECK" != "1" ]] && [[ "$MODEL_CHECK_OK" != "1" ]]; then
+    if [[ "$flav" == "full" ]] && [[ "$SKIP_MODEL_CHECK" != "1" ]] && [[ "$MODEL_CHECK_OK" != "1" ]]; then
         if [[ "$INTEGRATED_ONLY" == "1" ]]; then
-            echo "${C_YELLOW}[WARN]${C_RESET} 集成版构建但 bundled_models 全空,产物效果上等同轻量版" >&2
+            echo "${C_YELLOW}[WARN]${C_RESET} 全量版构建但 bundled_models 全空,产物效果上等同轻量版" >&2
         fi
     fi
 done
+
+# ── 4c. 深度依赖(full 自包含)+ 音色 seed —— 对齐 build-desktop.ps1 Step 0b ──
+#   · standard/full:seed sherpa 音色(无下载途径必带)
+#   · full:pip 装 torch/torchvision/torchaudio/voxcpm + seed VoxCPM-0.5B(数字人/克隆音色)
+#   --skip-model-check 跳过。Mac 上 PyPI 默认 torch 即 CPU/MPS,无需 --index-url。
+_needs_engines=0; _has_full=0
+for _f in "${FLAVORS[@]}"; do [[ "$_f" != "lite" ]] && _needs_engines=1; [[ "$_f" == "full" ]] && _has_full=1; done
+if [[ "$SKIP_MODEL_CHECK" != "1" ]] && command -v poetry >/dev/null 2>&1; then
+    if [[ "$_needs_engines" == "1" ]] && [[ -f "$SERVER_DIR/scripts/seed_sherpa_voices.py" ]]; then
+        step '深度依赖: seed sherpa 音色(standard/full 必带,无下载途径)'
+        ( cd "$SERVER_PKG_DIR" && poetry run python "$SERVER_DIR/scripts/seed_sherpa_voices.py" ) || note 'seed sherpa 失败(不阻断)'
+    fi
+    if [[ "$_has_full" == "1" ]]; then
+        step '深度依赖(full): torch/torchvision/torchaudio/voxcpm + seed VoxCPM-0.5B'
+        ( cd "$SERVER_PKG_DIR" && poetry run pip install torch torchvision torchaudio ) \
+            || { fail 'torch 安装失败(full 数字人需要;spec _collect_required 会 fail-fast)'; exit 6; }
+        ( cd "$SERVER_PKG_DIR" && poetry run pip install voxcpm ) \
+            || { fail 'voxcpm 安装失败(full 克隆音色需要)'; exit 6; }
+        if [[ -f "$SERVER_DIR/scripts/seed_voxcpm.py" ]]; then
+            ( cd "$SERVER_PKG_DIR" && poetry run python "$SERVER_DIR/scripts/seed_voxcpm.py" ) || note 'seed voxcpm 失败(不阻断)'
+        fi
+    fi
+fi
 
 ALL_ARTIFACTS=()    # 每个 flavor 产物:"flavor|src|dest|size_mb"
 
@@ -359,11 +387,16 @@ do_build_flavor() {
     local FLAVOR="$1"
     if [[ "$FLAVOR" == "lite" ]]; then
         export CHAYUAN_LITE_BUILD=1
-        FLAVOR_LABEL="轻量版(lite)"
+        FLAVOR_LABEL="轻量版(lite,纯云)"
+    elif [[ "$FLAVOR" == "standard" ]]; then
+        export CHAYUAN_LITE_BUILD=1
+        FLAVOR_LABEL="集成版(standard)"
     else
         unset CHAYUAN_LITE_BUILD || true
-        FLAVOR_LABEL="集成版(integrated)"
+        FLAVOR_LABEL="全量版(full)"
     fi
+    # 三档真源传给 build.py(优先级高于 CHAYUAN_LITE_BUILD env);决定 caps + 引擎。
+    FLAVOR_FLAG=(--flavor "$FLAVOR")
 
     echo ""
     step "═══ [$FLAVOR_LABEL] 开始 ═══"
@@ -456,7 +489,7 @@ else
         # build.py 路径相对 $SERVER_PKG_DIR:../../packaging/pyinstaller/build.py。
         # 必须在 $SERVER_PKG_DIR 跑,poetry run 才命中刚装好依赖的那个 env。
         invoke_step 'pyinstaller (poetry)' "$SERVER_PKG_DIR" \
-            poetry run python ../../packaging/pyinstaller/build.py --target "$TRIPLE"
+            poetry run python ../../packaging/pyinstaller/build.py --target "$TRIPLE" "${FLAVOR_FLAG[@]}"
     else
         # 裸 python3 分支:没有 poetry 就没法自动装 chayuan-server 依赖。
         # PyInstaller 打的是当前解释器 venv 里的包,缺 click/rich/tiktoken
@@ -474,7 +507,7 @@ else
             exit 127
         fi
         invoke_step 'pyinstaller (python3)' "$SERVER_DIR" \
-            python3 packaging/pyinstaller/build.py --target "$TRIPLE"
+            python3 packaging/pyinstaller/build.py --target "$TRIPLE" "${FLAVOR_FLAG[@]}"
     fi
 
     if [[ ! -f "$SIDECAR_PATH" ]]; then
@@ -504,10 +537,10 @@ fi
 step "Step 1b: 同步 src-tauri/bundled_models/ ($FLAVOR)"
 if command -v poetry >/dev/null 2>&1; then
     invoke_step "sync bundled (poetry)" "$SERVER_DIR" \
-        poetry run python packaging/pyinstaller/build.py --sync-bundled-only --target "$TRIPLE"
+        poetry run python packaging/pyinstaller/build.py --sync-bundled-only --target "$TRIPLE" "${FLAVOR_FLAG[@]}"
 else
     invoke_step "sync bundled (python3)" "$SERVER_DIR" \
-        python3 packaging/pyinstaller/build.py --sync-bundled-only --target "$TRIPLE"
+        python3 packaging/pyinstaller/build.py --sync-bundled-only --target "$TRIPLE" "${FLAVOR_FLAG[@]}"
 fi
 
 # ── 5c. Step 1c: 同步诊断脚本到 src-tauri/tools/ ──────────────────
