@@ -490,11 +490,11 @@ excludes = [
     "black",
     # 2026-05-19 切 --onedir:torch CPU + torchvision + transformers 进 bundle,
     # image-embedding(HF CLIP)直接 in-process import,不再依赖外部 wheel + pip。
-    # ▸ torchaudio:语音走 whisper.cpp / piper,torch 系不依赖 audio backend → 排除
+    # ▸ torchaudio:voxcpm 克隆音色(pro)读参考 wav 需要它 → 改为据 LITE_BUILD 条件
+    #   收/排(见下方 torch 同款条件块);lite/standard 仍排除省体积。
     # ▸ sentence_transformers:embedding/rerank 走 llama-server GGUF,跟 ST 不直接
     #   依赖 → 排除节省 ~200MB
     # ▸ rerankers:同上,rerank 走 llama-server cross-encoder GGUF → 排除
-    "torchaudio",
     "sentence_transformers",
     "rerankers",
     # PaddleOCR 系:Phase 5 已从 pyproject 砍掉;此处兜底防 transitive 引入
@@ -652,10 +652,7 @@ for big in (
     # 多说话人枚举)。有原生 .so/.dll,必须 collect_all 才带得上;漏收则 frozen 下
     # import / 原生库加载失败 → aishell3 174 音色塌成 1。瘦构建无包则 _collect_safe 跳过。
     "sherpa_onnx",
-    # voxcpm:音色克隆 TTS(modality.audio._synthesize_via_voxcpm in-proc 推理)。
-    # 包很小,模型(VoxCPM-0.5B)走 vendor/bundled_models,不在这里。collect_all
-    # 把 voxcpm 的非 .py 资源(默认 config / asset)一并带上;瘦构建无包则跳过。
-    "voxcpm",
+    # voxcpm:已移到下方 full-only _collect_required(只进 pro,确保离线克隆音色可运行)。
     # 数字人 Wav2Lip:torch 已在(克隆引入);音频处理(librosa)+ 科学计算(scipy)
     # 的动态子模块需显式收集。Wav2Lip 权重随 vendor/bundled_models/digital_human/
     # 走 Tauri resources(同 voxcpm,不进 PyInstaller datas)。
@@ -724,10 +721,15 @@ except Exception as _e:  # noqa: BLE001
 # ⚠ full 构建环境要求:torch 必须是 ``+cpu`` 变体(``pip install torch --index-url
 #   https://download.pytorch.org/whl/cpu``),否则会拉 CUDA stub DLL(+500MB)。
 if LITE_BUILD:
-    print("[chayuan-spec] CHAYUAN_LITE_BUILD=1 → 跳过 torch/torchvision/transformers,把它们加进 excludes")
-    excludes.extend(["torch", "torchvision", "transformers"])
+    print("[chayuan-spec] CHAYUAN_LITE_BUILD=1 → 跳过 torch/torchvision/transformers/torchaudio(lite/standard 不打)")
+    excludes.extend(["torch", "torchvision", "transformers", "torchaudio"])
 else:
-    for required in ("torch", "torchvision", "transformers"):
+    # full/pro:全部硬依赖打进包,确保离线可运行(用户要求「全量包打进全部依赖」)。
+    # torch/torchvision/transformers/torchaudio + voxcpm 一律 _collect_required —— 缺则
+    # spec 阶段 fail-fast 逼构建机装齐,绝不静默出一个跑不起来的 pro 包。
+    # ⚠ 打 pro 构建机需:pip install torch torchvision torchaudio voxcpm
+    #    (torch 系选 +cpu:--index-url https://download.pytorch.org/whl/cpu)
+    for required in ("torch", "torchvision", "transformers", "torchaudio", "voxcpm"):
         _dat, _bin, _hid = _collect_required(required)
         datas.extend(_dat)
         binaries.extend(_bin)

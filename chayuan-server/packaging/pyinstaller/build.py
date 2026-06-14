@@ -496,6 +496,18 @@ def canonical_subdirs_for(cap: str) -> tuple[str, ...]:
     return tuple(manifest.canonical_subdirs_for(cap))
 
 
+def full_only_subdirs_for(cap: str) -> tuple[str, ...]:
+    """从 bundle_manifest 拿「只进 full/pro」的子目录集(standard/lite 排除)。"""
+    import importlib
+    pkg_root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(pkg_root))
+    try:
+        manifest = importlib.import_module("bundle_manifest")
+        return tuple(getattr(manifest, "FULL_ONLY_SUBDIRS", {}).get(cap, ()))
+    finally:
+        sys.path.pop(0)
+
+
 def _target_has_installer_size_limit(target_triple: str) -> bool:
     """目标平台的 installer 是否撞 2 GB 单文件限制 — 即:要不要走 external seed 分流。
 
@@ -603,6 +615,7 @@ def sync_bundled_models(
         # 历史遗留子目录(例:embedding/gte-multilingual-base 是 HF transformers,
         # 但当前 canonical 是 bge-m3 GGUF)不打进 installer。
         canon = canonical_subdirs_for(entry.name)
+        cap_full_only = full_only_subdirs_for(entry.name)
         for sub in entry.rglob("*"):
             if not sub.is_file() or sub.name == ".gitkeep":
                 continue
@@ -624,6 +637,13 @@ def sync_bundled_models(
                             f"stale subdir: {rel} (canonical={canon!r})"
                         )
                     continue
+
+            # full-only 子目录(如 voxcpm ~1.5GB):standard/lite 即便带该 cap 也不打。
+            if (not is_full) and len(rel.parts) >= 3 and rel.parts[1] in cap_full_only:
+                n_redundant_skipped += 1
+                if len(redundant_examples) < 5:
+                    redundant_examples.append(f"full-only subdir skipped ({flavor}): {rel}")
+                continue
 
             # 冗余权重剪枝:同 model 目录有 .gguf/.safetensors 时,.bin/.onnx_data/.pt/.pth
             # 都是历史遗留(老版 install 或手动 HF snapshot),装机不需要,直接跳。

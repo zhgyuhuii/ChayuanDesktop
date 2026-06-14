@@ -88,6 +88,18 @@ CANONICAL_MODEL_SUBDIRS: dict[str, tuple[str, ...]] = {
     "digital_human": ("wav2lip", "sadtalker"),
 }
 
+#: 体积大、只进 full/pro 的模型子目录 —— 即便低档(standard)也带该 cap 也排除。
+#: voxcpm 克隆音色(VoxCPM-0.5B ~1.5GB)只进 pro;standard 只留 piper/sherpa 轻量音色。
+FULL_ONLY_SUBDIRS: dict[str, tuple[str, ...]] = {
+    "tts": ("voxcpm",),
+}
+
+
+def is_full_only_subdir(cap: str, subdir_name: str) -> bool:
+    """该 cap 下子目录是否「只进 full/pro」(standard/lite 不打)。"""
+    return subdir_name in FULL_ONLY_SUBDIRS.get(cap, ())
+
+
 
 def canonical_subdirs_for(cap: str) -> tuple[str, ...]:
     """返回 cap 下"当前规范"的子目录名 tuple,未知 cap 返回空 tuple
@@ -119,6 +131,7 @@ __all__ = [
     "FULL_CAPS",
     "FLAVOR_CAPS",
     "CANONICAL_MODEL_SUBDIRS",
+    "FULL_ONLY_SUBDIRS",
     "canonical_subdirs_for",
     "is_canonical_subdir",
     "caps_for",
