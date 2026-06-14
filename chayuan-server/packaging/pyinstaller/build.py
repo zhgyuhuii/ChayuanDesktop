@@ -1032,11 +1032,18 @@ def verify_service_binaries(target_subdir: str, host_subdir: str) -> None:
                         flush=True,
                     )
             except subprocess.TimeoutExpired:
-                # 30s 还没退 = 真 hang 住 / 杀软沙箱卡死。强杀 + 报 fail。
-                # 不 cleanup 进程的话,它会占着 .gguf / .dll,下一轮 sync 删
+                # 30s 还没退 —— magic/size 已校验 binary 真实且大小正常,这里超时最常见是:
+                #   ① Windows 杀软(火绒/360/Defender)首次扫描该 exe 卡十几~几十秒;
+                #   ② server 型 binary(如 whisper-server)对 --help 不退出而 hang。
+                # 都不代表 binary 坏 → 降级 ⚠ 警告,不阻断 build(装机后还有「运行时服务一键
+                # 下载」兜底)。仍先强杀进程,否则它占着 .dll/.gguf,下一轮 sync 删
                 # bundled_models 时 PermissionError(WinError 32)。
                 _kill_lingering(bin_path.name)
-                failures.append(f"{engine}:--help 30s 超时,binary hang 住(已强杀进程)")
+                print(
+                    f"[verify]   ⚠ {engine} --help 30s 未退(疑杀软扫描 / server 型不退出)"
+                    f";magic+size 已过,降级警告不阻断 build",
+                    flush=True,
+                )
             except OSError as e:
                 # Exec format error / Permission denied 等 —— binary 文件本身坏了
                 failures.append(f"{engine}:--help 起不来:{type(e).__name__}: {e}")

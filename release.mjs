@@ -15,7 +15,7 @@
 //   node release.mjs                  版本 +1 + 离线包(standard)+ 上传端 + 下载端
 //   node release.mjs --set 2.0.5      指定版本
 //   node release.mjs --no-bump        不改版本
-//   node release.mjs --tier lite|standard|pro|all  档位(默认 standard;all=一次出三档)
+//   node release.mjs --tier lite|standard|pro|all  档位(默认 all=一次出三档;也可指定单档)
 //   node release.mjs --offline-only   只出离线包
 //   node release.mjs --clients-only   只出上传端+下载端(不改版本、不跑 build-desktop)
 //   node release.mjs --version-only   只调 bump-version.py 升/写版本
@@ -100,7 +100,7 @@ const version = decideVersion();
 log(`版本(经 scripts/bump-version.py):${version}`);
 if (has('--version-only')) { console.log('\n仅写版本号,完成。'); process.exit(0); }
 
-const tier = val('--tier', 'standard');
+const tier = val('--tier', 'all');  // 默认出三档(lite+standard+pro);单档用 --tier lite|standard|pro
 if (!['lite', 'standard', 'pro', 'all'].includes(tier)) { console.error(`--tier 必须 lite|standard|pro|all`); process.exit(1); }
 const tiers = tier === 'all' ? ['lite', 'standard', 'pro'] : [tier];
 const TIER_FLAVOR = { lite: 'lite', standard: 'standard', pro: 'full' };
