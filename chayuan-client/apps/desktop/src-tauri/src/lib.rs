@@ -479,5 +479,22 @@ pub fn run() {
                 let mgr = app_handle.state::<Arc<sidecar::SidecarManager>>();
                 mgr.kill_on_exit();
             }
+
+            // macOS:点 Dock 图标唤回主窗。
+            //
+            // 右上角 X 走 hide()(见 setup 里 CloseRequested)只是把主窗隐藏、程序
+            // 不退。macOS 的 Dock 图标和顶部菜单栏托盘图标是两套东西 —— 托盘双击
+            // 已在 on_tray_icon_event 处理,但点 Dock 图标系统派发的是
+            // applicationShouldHandleReopen,Tauri 暴露成 RunEvent::Reopen,之前
+            // 没人接,导致「点 Dock 图标主窗不出来」。这里补上,复用 tray "show"
+            // 同款 unminimize/show/set_focus 三件套。
+            #[cfg(target_os = "macos")]
+            if let RunEvent::Reopen { .. } = event {
+                if let Some(w) = app_handle.get_webview_window("main") {
+                    let _ = w.unminimize();
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
         });
 }
