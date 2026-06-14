@@ -1,10 +1,25 @@
 import { defineConfig, loadEnv } from 'vite';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// 版本单一真源:src-tauri/tauri.conf.json(bump-version.py 写 VERSION → 同步此处 + pyproject;
+// Tauri 也用它当 MSI/安装包版本)。心跳 ver 必须与安装包版本一致,所以读同一个文件,
+// 不再依赖没人设置的 VITE_APP_VERSION(否则一直回退占位 0.1.0,website 在线主机看不到真版本)。
+function tauriConfVersion(): string {
+  try {
+    const raw = fs.readFileSync(path.resolve(__dirname, 'src-tauri/tauri.conf.json'), 'utf8');
+    const v = JSON.parse(raw)?.version;
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  } catch {
+    /* 读不到就回退 env / 占位 */
+  }
+  return '0.1.0';
+}
 const pkg = (name: string) =>
   path.resolve(__dirname, `../../packages/${name}/src/index.ts`);
 
@@ -87,7 +102,7 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
     },
     define: {
-      __APP_VERSION__: JSON.stringify(env.VITE_APP_VERSION || '0.1.0'),
+      __APP_VERSION__: JSON.stringify(env.VITE_APP_VERSION || tauriConfVersion()),
     },
   };
 });
