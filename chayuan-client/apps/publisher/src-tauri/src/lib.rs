@@ -137,12 +137,17 @@ async fn write_temp(filename: String, contents: Vec<u8>) -> Result<String, Strin
 }
 
 // 源配置「浏览」选目录(git 仓 / 构建产物目录都是文件夹)。用 desktop 同款
-// tauri-plugin-dialog 的 Rust API,前端只 invoke,不引 JS 插件。AppHandle 由 Tauri
-// 自动注入;命令在 worker 线程跑(非主线程),blocking_pick_folder 合法;取消返回 None。
+// tauri-plugin-dialog 的 Rust API,前端只 invoke,不引 JS 插件。
+//
+// ⚠ 必须 async + 回调式 pick_folder(非 blocking_*):Tauri 2 的同步命令跑在主线程,
+//   而 blocking_pick_folder 又要占主线程跑对话框事件循环 → 主线程自锁 → 对话框弹出即卡死。
+//   async 命令在 worker 线程跑,回调把对话框调度到主线程且不阻塞它,这里 await oneshot 拿结果。
 #[tauri::command]
-fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
-    app.dialog().file().blocking_pick_folder().map(|p| p.to_string())
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().pick_folder(move |fp| { let _ = tx.send(fp); });
+    rx.await.ok().flatten().map(|p| p.to_string())
 }
 
 pub fn run() {
