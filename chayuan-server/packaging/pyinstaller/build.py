@@ -555,13 +555,14 @@ def sync_bundled_models(
         (DESKTOP_BUNDLED_MODELS_DIR / ".gitkeep").touch()
         return
 
-    # full 模式按 2 GB 单文件阈值分流 — 仅 Windows 目标平台需要:
-    #   - 小文件:DESKTOP_BUNDLED_MODELS_DIR(嵌进 MSI 资源)
-    #   - 大文件:EXTERNAL_SEED_DIR(ISO 旁挂,装机后从光驱拷)
-    # lite 不走分流(本来就 < 2 GB 单文件,且没 ISO 配套)。
-    # macOS / Linux 目标平台的 installer 无单文件 2 GB 限制(DMG/APFS、DEB、RPM、
-    # AppImage 都支持 TB 级单文件),不分流 — 大文件直接嵌进 .dmg/.deb/...。
-    # 旧的 _guard_oversized_files FATAL 调用已撤 — Windows 上现在自动分流。
+    # full 模式整树分流 — 仅 Windows 目标平台需要:
+    #   - Windows full:整个 bundled_models 走 EXTERNAL_SEED_DIR(ISO 旁挂,装机后从光驱拷),
+    #     MSI 里一个模型文件都不放 —— 否则上万模型小文件灌进 MSI File 表把 32 位 light.exe
+    #     撑爆(静默崩溃),这是 desktop full MSI 反复失败的根因。
+    #   - lite 不分流(模型少;且其 ISO 不带 models_seed)→ 直接嵌 MSI。
+    # macOS / Linux 的 installer(DMG/DEB/RPM/AppImage)无 2 GB / File 表限制,不分流,
+    # 模型直接嵌进 .dmg/.deb/...。
+    # (旧逻辑:只挑单文件 ≥2GB 分流,治不了 File 表行数 → light.exe 仍 OOM,已改为整树。)
     do_external_split = (
         is_full
         and target_triple is not None
@@ -570,9 +571,9 @@ def sync_bundled_models(
 
     print(f"[build] flavor={flavor}, caps = {' / '.join(caps)}, src = {src}", flush=True)
     if do_external_split:
-        print(f"[build] target={target_triple} 撞 2 GB installer 限制 → 大文件分流到 external seed", flush=True)
+        print(f"[build] target={target_triple}(Windows full)→ 整个 bundled_models 走 external seed,不进 MSI(避免 light.exe File 表 OOM)", flush=True)
     elif is_full and target_triple is not None:
-        print(f"[build] target={target_triple} 无 2 GB 限制 → 大文件直接嵌 installer(不分流)", flush=True)
+        print(f"[build] target={target_triple} 无 installer 限制 → bundled_models 直接嵌 installer(不分流)", flush=True)
 
     # 准备 external seed 目录(每次清空,避免上次残留)。即使本次不分流也清一次 —
     # 上次可能跑了 Windows target,这次切到 Linux/Mac,不清会留 stale 大文件混淆。
@@ -661,9 +662,15 @@ def sync_bundled_models(
                         redundant_examples.append(str(rel))
                     continue
 
-            # 单文件 ≥ 2 GB 的:Windows full 模式分流到 external seed;
-            # 非 Windows 或 lite 直接嵌进 bundled_models(这些平台没有 ISO 链路 + 没 2 GB 限制)
-            if size >= _WIN_INSTALLER_FILE_LIMIT and do_external_split:
+            # Windows full(do_external_split):**整个 bundled_models 树都走 external seed**,
+            # 一个模型文件都不进 MSI。原因:full 的 bundled_models 是上万个模型小文件(embedding/
+            # rerank/asr/ocr/tts/voxcpm…),全灌进 MSI 的 File 表会把 32 位 WiX light.exe 撑爆
+            # —— 静默崩溃(无 LGHT 码),正是 desktop full MSI 反复失败的根因。装机首启 bundled_seed
+            # 读 .external_seed_manifest.json,从挂载光驱的 models_seed/ 把它们拷到
+            # <CHAYUAN_ROOT>/models/bundled/ —— 跟「走 MSI 再 seed」的最终落点完全一致,自包含不变。
+            # (旧逻辑只挑单文件 ≥2GB 分流,治不了 File 表行数 → 仍 OOM。)
+            # 非 Windows / lite 不分流:直接嵌进 bundled_models(DMG/DEB 无 2GB 限制;lite 模型少)。
+            if do_external_split:
                 dst = EXTERNAL_SEED_DIR / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(sub, dst)
