@@ -77,17 +77,21 @@ function copyTo(src, destDir, name) { fs.mkdirSync(destDir, { recursive: true })
 // build-desktop 调用,带 CHAYUAN_BUILD_NO_BUMP=1(本脚本已决策版本,禁止它再 +1)。
 const WIN_FLAVOR_FLAG = { lite: '-LiteOnly', standard: '-StandardOnly', full: '-FullOnly' };
 const SH_FLAVOR_FLAG = { lite: '--lite-only', standard: '--standard-only', full: '--integrated-only' };
-function runBuildDesktop(flavor) {
+function runBuildDesktop(flavor, skipClean) {
   const extra = val('--bd', '');
   const env = { ...process.env, CHAYUAN_BUILD_NO_BUMP: '1' };
   if (isWin) {
     const ps1 = path.join(ROOT, 'build-desktop.ps1');
     const flag = WIN_FLAVOR_FLAG[flavor] || '-FullOnly';
-    run(`powershell -NoProfile -ExecutionPolicy Bypass -File "${ps1}" ${flag} ${extra}`, ROOT, env);
+    // 三档 Rust 二进制相同(只换 Tauri 资源):skipClean 档跳过清 target,复用上一档
+    // 的增量编译,省掉整轮 ~10-30 分钟的 Rust 全量冷编译。
+    const sc = skipClean ? ' -SkipCleanTarget' : '';
+    run(`powershell -NoProfile -ExecutionPolicy Bypass -File "${ps1}" ${flag}${sc} ${extra}`, ROOT, env);
   } else {
     const sh = path.join(ROOT, 'build-desktop.sh');
     const flag = SH_FLAVOR_FLAG[flavor] || '--integrated-only';
-    run(`bash "${sh}" ${flag} ${extra}`, ROOT, env);
+    const sc = skipClean ? ' --skip-clean-target' : '';
+    run(`bash "${sh}" ${flag}${sc} ${extra}`, ROOT, env);
   }
 }
 
@@ -107,10 +111,11 @@ const CLIENTS_DIR = path.join(RELEASE_DIR, 'clients');
 const summary = [];
 
 if (!has('--clients-only')) {
-  for (const t of tiers) {
+  for (let ti = 0; ti < tiers.length; ti++) {
+    const t = tiers[ti];
     const fl = TIER_FLAVOR[t];
     log(`构建离线包(${plat} / tier=${t} → flavor=${fl},CHAYUAN_BUILD_NO_BUMP=1)`);
-    runBuildDesktop(fl);
+    runBuildDesktop(fl, ti > 0);  // 第 1 档干净编译;2/3 档跳过清 target,复用 Rust 增量
     const distDir = path.join(ROOT, `dist-${fl}`);
     const arts = pickByExt(distDir, OFFLINE_EXTS);
     if (!arts.length) { console.error(`未在 ${distDir} 找到 ${t} 离线包产物`); process.exit(1); }
