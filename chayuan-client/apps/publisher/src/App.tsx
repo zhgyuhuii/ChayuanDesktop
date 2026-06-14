@@ -9,6 +9,7 @@ import * as api from './api';
 import { makePublishIO } from './tauriIO';
 
 type Step = 1 | 2 | 3 | 4 | 5;
+const STEP_LABELS = ['登录', '检测', '上传', '发布', '清单'] as const;
 
 export function App() {
   const [step, setStep] = React.useState<Step>(1);
@@ -22,6 +23,8 @@ export function App() {
   const [repo, setRepo] = React.useState(() => localStorage.getItem('cy.pub.repo') ?? '');
   const [buildDir, setBuildDir] = React.useState(() => localStorage.getItem('cy.pub.dir') ?? '');
   const [plan, setPlan] = React.useState<DetectionPlan | null>(null);
+  // 更新升级内容(自动取自 git changelog,可编辑;取不到则手动填)。版本级,所有上传项共用。
+  const [notes, setNotes] = React.useState('');
   // 上传/发布
   const [progress, setProgress] = React.useState<Record<string, { received: number; total: number }>>({});
   const [published, setPublished] = React.useState<PublishedAsset[]>([]);
@@ -57,6 +60,8 @@ export function App() {
         api.fetchAdminReleases().catch(() => undefined),
       ]);
       setPlan(planDetection({ scanned, gitVersion: git.version || undefined, online, adminReleases }));
+      // 自动填充更新内容(取自 git 提交)。取不到为空 → 用户手动填。已手改过的不覆盖。
+      setNotes((prev) => (prev.trim() ? prev : (git.changelog || '')));
       setStep(2);
     } catch (e) { setErr(String(e)); } finally { setBusy(false); }
   }
@@ -82,6 +87,7 @@ export function App() {
       setProgress((p) => ({ ...p, [ev.filename]: { received: ev.received, total: ev.total } })));
     const out: PublishedAsset[] = [];
     const version = plan.buildVersion;
+    const notesTrimmed = notes.trim();
     for (const it of selected) {
       try {
         const variant = TIER_VARIANT[it.tier!];
@@ -91,7 +97,7 @@ export function App() {
         const missing = Array.from({ length: init.totalChunks }, (_, i) => i).filter((i) => !received.includes(i));
         // 批量上传缺失块(Rust 端 emit 进度)
         await io._runUpload(init.uploadId, it.filename, init.chunkSize, init.totalChunks, missing);
-        const fin = await io.finalize(init.uploadId, { variant, primary: it.onlineState === 'new', notes: '' });
+        const fin = await io.finalize(init.uploadId, { variant, primary: it.onlineState === 'new', notes: notesTrimmed });
         await io.publish('chayuan', version, it.platform!, variant);
         const ext = parsePackageName(it.filename)?.ext ?? '';
         out.push({ platform: it.platform!, tier: it.tier!, url: fin.url, sha256: fin.sha256, sizeBytes: fin.sizeBytes, unpack: unpackForExt(ext) });
@@ -122,86 +128,145 @@ export function App() {
     } catch (e) { setErr(String(e)); } finally { setBusy(false); }
   }
 
-  // ---- 渲染(精简,核心结构;样式可后续打磨)----
   return (
-    <div style={{ fontFamily: 'system-ui', padding: 20, maxWidth: 920, margin: '0 auto' }}>
-      <h2>察元发布客户端</h2>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {(['登录', '检测', '上传', '发布', '清单'] as const).map((label, i) => (
-          <span key={label} style={{ fontWeight: step === i + 1 ? 700 : 400, color: step >= i + 1 ? '#2563eb' : '#999' }}>
-            {i + 1}.{label}
-          </span>
-        ))}
+    <div className="app">
+      <h1 className="app-title">察元发布客户端</h1>
+
+      <div className="steps">
+        {STEP_LABELS.map((label, i) => {
+          const n = i + 1;
+          const cls = step === n ? 'step active' : step > n ? 'step done' : 'step';
+          return (
+            <React.Fragment key={label}>
+              {i > 0 && <span className="step-line" />}
+              <span className={cls}><span className="step-num">{n}</span>{label}</span>
+            </React.Fragment>
+          );
+        })}
       </div>
-      {err && <pre style={{ color: '#dc2626', whiteSpace: 'pre-wrap' }}>{err}</pre>}
+
+      {err && <pre className="err">{err}</pre>}
 
       {step === 1 && (
-        <div style={{ display: 'grid', gap: 8, maxWidth: 360 }}>
-          <input placeholder="用户名" value={username} onChange={(e) => setUsername(e.target.value)} />
-          <input placeholder="密码" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input placeholder="验证码" value={captchaCode} onChange={(e) => setCaptchaCode(e.target.value)} />
-            <span onClick={refreshCaptcha} style={{ cursor: 'pointer' }} dangerouslySetInnerHTML={{ __html: captcha?.svg ?? '' }} />
+        <div className="card narrow">
+          <h2 className="card-title">登录</h2>
+          <div className="field">
+            <label>用户名</label>
+            <input className="input" placeholder="用户名" value={username} onChange={(e) => setUsername(e.target.value)} />
           </div>
-          <button onClick={doLogin}>登录</button>
+          <div className="field">
+            <label>密码</label>
+            <input className="input" placeholder="密码" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>验证码</label>
+            <div className="row">
+              <input className="input" placeholder="验证码" value={captchaCode} onChange={(e) => setCaptchaCode(e.target.value)} />
+              <span className="captcha-svg" onClick={refreshCaptcha} title="点击刷新" dangerouslySetInnerHTML={{ __html: captcha?.svg ?? '' }} />
+            </div>
+          </div>
+          <div className="actions">
+            <button className="btn btn-primary" onClick={doLogin}>登录</button>
+          </div>
         </div>
       )}
 
       {step === 2 && (
-        <div>
-          <div style={{ display: 'grid', gap: 8, maxWidth: 560, marginBottom: 12 }}>
-            <input placeholder="git 仓路径(取版本/changelog)" value={repo} onChange={(e) => setRepo(e.target.value)} />
-            <input placeholder="构建产物目录" value={buildDir} onChange={(e) => setBuildDir(e.target.value)} />
-            <button onClick={doDetect} disabled={busy || !buildDir}>检测</button>
+        <>
+          <div className="card">
+            <h2 className="card-title">源配置</h2>
+            <div className="field">
+              <label>git 仓路径(取版本 / 更新内容)</label>
+              <input className="input" placeholder="例:/path/to/chayuan-desktop" value={repo} onChange={(e) => setRepo(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>构建产物目录</label>
+              <input className="input" placeholder="例:release/2.0.11/offline" value={buildDir} onChange={(e) => setBuildDir(e.target.value)} />
+            </div>
+            <div className="actions">
+              <button className="btn btn-primary" onClick={doDetect} disabled={busy || !buildDir}>{busy ? '检测中…' : '检测'}</button>
+            </div>
           </div>
+
           {plan && (
             <>
-              <p>本地 {plan.buildVersion ?? '?'} ↔ 线上 {plan.onlineVersion ?? '无'}（{plan.status}）</p>
-              {plan.diagnostics.map((d, i) => <p key={i} style={{ color: '#d97706' }}>⚠ {d}</p>)}
-              <table style={{ width: '100%', fontSize: 13 }}>
-                <thead><tr><th></th><th>文件</th><th>平台</th><th>档位</th><th>线上</th></tr></thead>
-                <tbody>
-                  {plan.items.map((it, i) => (
-                    <tr key={it.filename}>
-                      <td><input type="checkbox" checked={it.selected} onChange={() => toggle(i)} /></td>
-                      <td>{it.filename}</td>
-                      <td>{it.platform ?? <input placeholder="平台" onBlur={(e) => setManual(i, { platform: e.target.value as DetectItem['platform'] })} />}</td>
-                      <td>{it.tier ?? <select onChange={(e) => setManual(i, { tier: e.target.value as DetectItem['tier'] })}>
-                        <option value="">选档</option><option value="lite">轻量版</option><option value="standard">集成版</option><option value="pro">全量版</option></select>}</td>
-                      <td>{it.onlineState}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <button onClick={doUploadPublish} disabled={busy}>上传并发布勾选项</button>
+              <div className="card">
+                <h2 className="card-title">检测结果</h2>
+                <p className="summary">
+                  本地 <b>{plan.buildVersion ?? '?'}</b> ↔ 线上 <b>{plan.onlineVersion ?? '无'}</b>（{plan.status}）
+                </p>
+                {plan.diagnostics.map((d, i) => <p key={i} className="diag">⚠ {d}</p>)}
+                <div className="table-wrap">
+                  <table className="tbl">
+                    <thead><tr><th></th><th>文件</th><th>平台</th><th>档位</th><th>线上</th></tr></thead>
+                    <tbody>
+                      {plan.items.map((it, i) => (
+                        <tr key={it.filename}>
+                          <td><input type="checkbox" checked={it.selected} onChange={() => toggle(i)} /></td>
+                          <td className="fname">{it.filename}</td>
+                          <td>{it.platform ?? <input className="input" placeholder="平台" onBlur={(e) => setManual(i, { platform: e.target.value as DetectItem['platform'] })} />}</td>
+                          <td>{it.tier ?? (
+                            <select className="select" onChange={(e) => setManual(i, { tier: e.target.value as DetectItem['tier'] })}>
+                              <option value="">选档</option><option value="lite">轻量版</option><option value="standard">集成版</option><option value="pro">全量版</option>
+                            </select>
+                          )}</td>
+                          <td><span className={it.onlineState === 'new' ? 'tag new' : 'tag'}>{it.onlineState}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="card">
+                <h2 className="card-title">更新升级内容<span className="sub">自动取自 git 提交,可编辑;取不到请手动填写</span></h2>
+                <textarea
+                  className="textarea"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="本次更新升级内容(每行一条)。检测时若读到 git 仓会自动填充,可在此增删修改;读不到则手动填写。"
+                />
+              </div>
+
+              <div className="actions">
+                <button className="btn btn-primary" onClick={doUploadPublish} disabled={busy}>上传并发布勾选项</button>
+              </div>
             </>
           )}
-        </div>
+        </>
       )}
 
       {step === 3 && (
-        <div>
-          <h3>上传中…</h3>
+        <div className="card">
+          <h2 className="card-title">上传中…</h2>
           {Object.entries(progress).map(([fn, p]) => (
-            <div key={fn}>{fn}: {p.received}/{p.total}
-              <progress value={p.received} max={p.total} style={{ width: '100%' }} /></div>
+            <div key={fn} className="prog-row">
+              <span className="name">{fn}: {p.received}/{p.total}</span>
+              <progress value={p.received} max={p.total} />
+            </div>
           ))}
         </div>
       )}
 
       {step === 4 && (
-        <div>
-          <h3>已发布 {published.length} 个离线包</h3>
-          <ul>{published.map((p) => <li key={p.platform + p.tier}>{p.platform} / {TIER_VARIANT[p.tier]} → {p.url}</li>)}</ul>
-          <button onClick={doManifest} disabled={busy}>生成并发布在线安装器清单</button>
+        <div className="card">
+          <h2 className="card-title">已发布 {published.length} 个离线包</h2>
+          <ul className="result-list">
+            {published.map((p) => <li key={p.platform + p.tier}>{p.platform} / {TIER_VARIANT[p.tier]} → <code>{p.url}</code></li>)}
+          </ul>
+          <div className="actions">
+            <button className="btn btn-primary" onClick={doManifest} disabled={busy}>{busy ? '生成中…' : '生成并发布在线安装器清单'}</button>
+          </div>
         </div>
       )}
 
       {step === 5 && (
-        <div>
-          <h3>完成</h3>
-          <p>本次离线包已发布,在线安装器清单已更新。</p>
-          <ul>{published.map((p) => <li key={p.platform + p.tier}>{p.url}</li>)}</ul>
+        <div className="card">
+          <h2 className="card-title">完成</h2>
+          <p className="summary">本次离线包已发布,在线安装器清单已更新。</p>
+          <ul className="result-list">
+            {published.map((p) => <li key={p.platform + p.tier}><code>{p.url}</code></li>)}
+          </ul>
         </div>
       )}
     </div>
