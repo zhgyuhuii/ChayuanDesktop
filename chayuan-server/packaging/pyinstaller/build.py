@@ -1195,7 +1195,7 @@ def sync_services(*, flavor: str = "full", target_triple: str | None = None) -> 
             n_bytes += dst.stat().st_size
 
     mb = n_bytes / 1024 / 1024
-    flavor_tag = "lite" if lite else "full"
+    flavor_tag = flavor  # flavor 已是字符串(lite 在上方提前 return,这里是 standard/full/pro)
     print(
         f"[build] {flavor_tag}:services 已同步 {n_files} 个文件 ({mb:.1f} MB) "
         f"→ {DESKTOP_SERVICES_DIR}",
