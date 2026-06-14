@@ -141,6 +141,15 @@ if (!has('--clients-only')) {
         }
       } else {
         // 兜底:既无 ISO 又无单文件安装器 → 整个 dist 目录搬走(整目录一起分发)。
+        // ⚠ Mac 下 .app 是目录,这里只收普通文件;若 dist 里只剩 .app(说明 DMG
+        // 没生成,通常是 make-mac-dmg 那步磁盘空间不足、见上面 hdiutil 报错),
+        // 会出现「0 文件可收」。此时不留空文件夹,直接给可操作的报错。
+        const onlyApp = fs.readdirSync(distDir).every((e) => e.endsWith('.app'));
+        if (onlyApp) {
+          console.error(`\n[release] ${t} 档没有可分发安装器:${path.relative(ROOT, distDir)}/ 里只有 .app,没有 DMG。`);
+          console.error(`         多半是上面 make-mac-dmg 那步「设备上无剩余空间」导致 DMG 没生成 —— 清理磁盘后重跑(或单独 --tier ${t})。`);
+          process.exit(1);
+        }
         const tierDir = path.join(OFFLINE_DIR, `chayuan-${version}-${plat}-${t}`);
         fs.mkdirSync(tierDir, { recursive: true });
         let n = 0, bytes = 0;
@@ -148,7 +157,7 @@ if (!has('--clients-only')) {
           const sp = path.join(distDir, e);
           if (fs.statSync(sp).isFile()) { fs.copyFileSync(sp, path.join(tierDir, e)); n++; bytes += fs.statSync(sp).size; }
         }
-        if (!n) { console.error(`${distDir} 里没有文件可收`); process.exit(1); }
+        if (!n) { fs.rmdirSync(tierDir); console.error(`${distDir} 里没有文件可收`); process.exit(1); }
         summary.push(`离线包(${t}): ${path.relative(ROOT, tierDir)}/ (${n} 文件 ~${(bytes/1048576).toFixed(0)}MB,整目录分发)`);
       }
     }

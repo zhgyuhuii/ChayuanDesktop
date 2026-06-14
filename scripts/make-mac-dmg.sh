@@ -64,7 +64,19 @@ INNER_NAME="${INNER_STEM}.app"
 
 echo "[make-mac-dmg] staging: $STAGE"
 echo "[make-mac-dmg] inner app name: $APP_BASE → $INNER_NAME"
-cp -R "$APP" "$STAGE/$INNER_NAME"
+# 用 APFS clonefile(cp -c)做零拷贝克隆,而不是整树复制。
+#
+# 为啥:full .app 可达 7GB+,旧 `cp -R` 会在 $TMPDIR 再实打实复制一份,峰值
+# 占盘 = 原 .app + staging 副本 + hdiutil 输出/临时 ≈ 三倍,大盘也容易爆,
+# 实测 full 档 `hdiutil: create failed - 设备上无剩余空间`。macOS 是 APFS,
+# `cp -c` 走 clonefile(2) 做 copy-on-write 克隆:我们只读不改 staging,克隆
+# 几乎不占额外磁盘。clonefile 仅同卷可用($TMPDIR 与源同在数据卷,通常 OK);
+# 不可用(跨卷/旧文件系统)时回退普通 `cp -R`(占盘多但能用)。
+if ! cp -Rc "$APP" "$STAGE/$INNER_NAME" 2>/dev/null; then
+    echo "[make-mac-dmg] clonefile 不可用,回退普通拷贝(更占临时空间)" >&2
+    rm -rf "$STAGE/$INNER_NAME"
+    cp -R "$APP" "$STAGE/$INNER_NAME"
+fi
 ln -s /Applications "$STAGE/Applications"
 
 # 先卸残留 + 删旧 DMG —— 上一次跑挂在中间会留卷
