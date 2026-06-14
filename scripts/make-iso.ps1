@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   把一个目录打成 ISO 镜像(Windows 10+ 双击自动挂载),用 Windows 自带的
   IMAPI2 COM,无外部依赖。

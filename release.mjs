@@ -6,7 +6,7 @@
 //     的 tauri.conf.json + server pyproject)。本脚本只决策一次版本,然后让 build-desktop
 //     带 CHAYUAN_BUILD_NO_BUMP=1 运行,避免二次 +1。
 //   - 离线包:复用 build-desktop(.ps1/.sh)(含 Rust/link.exe/node/pnpm/模型清单全套校验、
-//     PyInstaller sidecar、ISO),lite -> dist-lite/,standard|pro -> dist-integrated/。
+//     PyInstaller sidecar、ISO),lite -> dist-lite/,standard|pro -> dist-full/(build-desktop 把 integrated 重命名成了 full)。
 //
 // 本脚本自己只做:① 决策版本(调 bump-version.py)② 调 build-desktop 出离线包
 //   ③ 构建上传端(publisher)+ 下载端(installer)④ 收拢到 release/<ver>/{offline,clients}/
@@ -106,7 +106,7 @@ const summary = [];
 if (!has('--clients-only')) {
   log(`构建离线包(${plat} / ${tier},复用 build-desktop ${flavor},CHAYUAN_BUILD_NO_BUMP=1)`);
   runBuildDesktop(flavor);
-  const distDir = path.join(ROOT, flavor === 'lite' ? 'dist-lite' : 'dist-integrated');
+  const distDir = path.join(ROOT, flavor === 'lite' ? 'dist-lite' : 'dist-full');
   const arts = pickByExt(distDir, OFFLINE_EXTS);
   if (!arts.length) { console.error(`未在 ${distDir} 找到离线包产物`); process.exit(1); }
   for (const a of arts) {

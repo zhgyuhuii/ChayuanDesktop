@@ -77,6 +77,7 @@ class Wav2LipEngine:
                 "Wav2Lip 权重未就绪:跑 scripts/seed_digital_human.py 或确认 "
                 "vendor/bundled_models/digital_human/wav2lip_gan.pth 存在"
             )
+        _ensure_torch_or_hint("数字人(Wav2Lip)")
         if Wav2LipEngine._handle is None:
             Wav2LipEngine._handle = w2l.load_models(weights_dir)
         w2l.run(
@@ -86,6 +87,30 @@ class Wav2LipEngine:
         if not os.path.isfile(out_path):
             raise RuntimeError("Wav2Lip 未产出 mp4")
         return out_path
+
+
+def _ensure_torch_or_hint(feature: str) -> None:
+    """Wav2Lip CPU 路径需要 torch。torch 不随 sidecar 打包(spec LITE_BUILD 排除),
+    走「模型配置 → PyTorch」UI 按需装(pro 离线包应随附离线 wheel)。缺失时给可执行
+    指引,而不是抛裸 ImportError。"""
+    try:
+        import torch  # noqa: F401
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    hint = ""
+    try:
+        from chayuan.server.runtime.pytorch_installer import (
+            torch_runtime_unavailable_reason,
+        )
+        hint = torch_runtime_unavailable_reason() or ""
+    except Exception:  # noqa: BLE001
+        pass
+    raise RuntimeError(
+        f"{feature}需要 PyTorch,当前未安装/不可用。"
+        + (f"{hint} " if hint else "")
+        + "请到「模型配置 → PyTorch」页安装后重试。"
+    )
 
 
 def _port_listening(port: int, timeout: float = 0.3) -> bool:

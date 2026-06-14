@@ -70,7 +70,7 @@ CANONICAL_MODEL_SUBDIRS: dict[str, tuple[str, ...]] = {
     "rerank":    ("bge-reranker-v2-m3", "gte-multilingual-reranker-base"),
     "asr":       ("whisper.cpp",),
     "ocr":       ("RapidOCR",),
-    "tts":       ("piper",),
+    "tts":       ("piper", "sherpa-onnx", "voxcpm"),
     "image":     ("clip-vit-base-patch32",),
     # 数字人:一个 cap 两个引擎子目录共存(wav2lip CPU / sadtalker GPU)
     "digital_human": ("wav2lip", "sadtalker"),

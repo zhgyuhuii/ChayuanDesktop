@@ -889,7 +889,7 @@ class AudioPipeline:
     # /bundled_models/tts/sherpa-onnx/<voice_id>/。
     # ──────────────────────────────────────────────────────────────────
 
-    _SHERPA_DEFAULT_VOICE = "vits-zh-ll"
+    _SHERPA_DEFAULT_VOICE = "vits-zh-hf-fanchen-C"  # 对齐 seed_sherpa_voices 实际产出(vits-zh-ll 从未被 seed)
 
     def _synthesize_via_voxcpm(
         self, text: str, *, prompt_wav: str, fmt: str,

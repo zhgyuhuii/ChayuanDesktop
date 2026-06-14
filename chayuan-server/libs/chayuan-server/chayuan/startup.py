@@ -813,10 +813,22 @@ def _safe_kill(p) -> None:
 
 
 def _pid_on_port(port: int) -> int | None:
-    """查询当前 LISTEN 在给定 TCP 端口的 PID。仅用于出错诊断，失败返回 None。"""
-    try:
-        import subprocess
+    """查询当前 LISTEN 在给定 TCP 端口的 PID。跨平台(Windows netstat / Unix lsof)。失败返回 None。"""
+    import subprocess
 
+    try:
+        if sys.platform == "win32":
+            # Windows 没有 lsof —— 用自带 netstat -ano 解析 LISTENING 行末列的 PID。
+            out = subprocess.run(
+                ["netstat", "-ano", "-p", "TCP"],
+                capture_output=True, text=True, timeout=3,
+            )
+            for ln in out.stdout.splitlines():
+                parts = ln.split()
+                if len(parts) >= 5 and "LISTEN" in parts[3].upper():
+                    if parts[1].rsplit(":", 1)[-1] == str(port):
+                        return int(parts[4])
+            return None
         out = subprocess.run(
             ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
             capture_output=True, text=True, timeout=2,
@@ -830,9 +842,19 @@ def _pid_on_port(port: int) -> int | None:
 
 
 def _cmdline_of(pid: int) -> str:
-    try:
-        import subprocess
+    import subprocess
 
+    try:
+        if sys.platform == "win32":
+            # tasklist 返镜像名(如 chayuan-server.exe);足够给"是否察元残留"分类用。
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, timeout=3,
+            )
+            row = out.stdout.strip()
+            if row and row.lower().startswith('"'):
+                return row.split(",", 1)[0].strip('"')
+            return ""
         out = subprocess.run(
             ["ps", "-p", str(pid), "-o", "command="],
             capture_output=True, text=True, timeout=2,
@@ -981,19 +1003,25 @@ def _preflight_port_check(args) -> None:
     is_interactive = sys.stdin.isatty() and sys.stderr.isatty()
 
     # ---- 情况 2：纯察元残留 + 交互式终端 → 弹 Y/n 让用户选择重启 ----
-    if chayuan_pids and not has_foreign and is_interactive:
+    if chayuan_pids and not has_foreign:
         # 友好打印冲突清单；这里隐去 kill 命令，因为我们自己会去杀
         sys.stderr.write(
             "\n" + _format_port_conflicts(problems, interactive_hint=True) + "\n"
         )
         sys.stderr.flush()
-        try:
-            ans = click.confirm(
-                "\n检测到上一次的察元服务仍在运行，是否停止旧服务并重启？",
-                default=True,
-            )
-        except (EOFError, click.exceptions.Abort):
-            ans = False
+        if is_interactive:
+            try:
+                ans = click.confirm(
+                    "\n检测到上一次的察元服务仍在运行，是否停止旧服务并重启？",
+                    default=True,
+                )
+            except (EOFError, click.exceptions.Abort):
+                ans = False
+        else:
+            # 非交互(桌面 Tauri sidecar / 服务托管):冲突全是察元自己的残留,无人可问 →
+            # 自动回收(等价默认 Y)。否则 Windows 上每次有残留实例都 SystemExit(2) 起不来。
+            logger.warning("非交互启动且端口冲突全为察元残留 → 自动停止旧实例并重启")
+            ans = True
 
         if not ans:
             sys.stderr.write("\n已取消启动。\n")

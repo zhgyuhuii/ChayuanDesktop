@@ -40,6 +40,7 @@ from PyInstaller.utils.hooks import (  # noqa: F401  (spec 由 PyInstaller 注�
     collect_all,
     collect_data_files,
     collect_submodules,
+    copy_metadata,
 )
 
 
@@ -79,7 +80,10 @@ hidden_modules += [
     "chayuan.server.chat.handlers.multi_source",
     "chayuan.server.chat.handlers.vision",
     "chayuan.server.chat.handlers.supervisor",
+    "chayuan.server.chat.handlers.video_generation",
 ]
+# piper TTS 在 modality/audio.py 懒加载(import piper.voice),显式列免 AST 漏抓。
+hidden_modules += ["piper", "piper.voice"]
 # tts 连接器 / 数字人引擎按名动态加载,显式收子包兜底(collect_submodules("chayuan") 之外)
 hidden_modules += collect_submodules("chayuan.server.video_generation.digital_human")
 hidden_modules += collect_submodules("chayuan.server.modality.router.connectors")
@@ -175,6 +179,15 @@ for pkg in (
     except Exception:
         # collect_data_files 在包不存在时抛 ModuleNotFoundError;允许跳过
         pass
+
+# imageio ≥2.37 用 importlib.metadata.version("imageio") 动态取版本;frozen 下若没收
+# .dist-info 会抛 PackageNotFoundError('imageio') → moviepy ffmpeg_reader import 失败 →
+# _moviepy_compat 补丁被跳过(新版 ffmpeg 素材被全判废)。补 metadata 兜底。
+for _meta_pkg in ("imageio", "imageio_ffmpeg"):
+    try:
+        datas += copy_metadata(_meta_pkg)
+    except Exception as _e:  # noqa: BLE001
+        print(f"[chayuan-spec] copy_metadata({_meta_pkg!r}) 跳过:{_e!r}")
 
 # chayuan-server 自带的 yaml seed / static / templates。
 # 注意:每行都对应业务代码里硬编码的相对路径,缺哪个 FastAPI 起来时就抛
