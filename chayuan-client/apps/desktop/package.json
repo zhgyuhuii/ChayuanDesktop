@@ -10,6 +10,7 @@
     "build:vite": "vite build",
     "build": "tsc -p tsconfig.json --noEmit && vite build && tauri build",
     "build:full": "tsc -p tsconfig.json --noEmit && vite build && tauri build --bundles msi",
+    "build:full-fast": "tsc -p tsconfig.json --noEmit && vite build && tauri build --bundles msi --profile release-fast",
     "build:integrated": "pnpm run build:full",
     "build:fast": "tsc -p tsconfig.json --noEmit && vite build && tauri build --no-bundle --profile release-fast",
     "build:thin": "tsc -p tsconfig.json --noEmit && VITE_THIN_CLIENT=1 vite build && VITE_THIN_CLIENT=1 tauri build --config src-tauri/tauri.thin.conf.json",

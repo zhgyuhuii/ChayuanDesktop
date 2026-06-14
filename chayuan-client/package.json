@@ -16,6 +16,7 @@
     "build:web": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/web build",
     "build:desktop": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/desktop build",
     "build:desktop:full": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/desktop build:full",
+    "build:desktop:full-fast": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/desktop build:full-fast",
     "build:desktop:integrated": "pnpm run build:desktop:full",
     "build:desktop:fast": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/desktop build:fast",
     "typecheck": "pnpm -r typecheck",

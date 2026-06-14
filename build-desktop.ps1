@@ -124,7 +124,13 @@ param(
     # 没改动时,跳过 Step 1(PyInstaller 编译),只跑 Step 1b(vendor sync)。
     # 改了 Python 代码会自动 cache miss,无需手动清理。-ForceRebuildServer 强制重编。
     # -Clean 也会触发(因为它会删 dist/,指纹随之失效)。
-    [switch]$ForceRebuildServer
+    [switch]$ForceRebuildServer,
+    # Rust 编译提速:走 release-fast profile(关 LTO + codegen-units=16,编译省 ~50%;
+    # 产物落 target\release-fast\)。Rust 体积/启动差异相对 Python sidecar 可忽略。
+    # 默认关(出货走 LTO);迭代/急出包时用。
+    [switch]$FastRust,
+    # 关闭 sccache 自动加速(默认:检测到 sccache 且为冷构建时自动走编译缓存)。
+    [switch]$NoSccache
 )
 
 # 旧名兼容 + 提示
@@ -601,7 +607,18 @@ $ChayuanServerClientDir = Join-Path $ClientDir 'apps\desktop\src-tauri\chayuan-s
 $BinariesDir   = Join-Path $ClientDir 'apps\desktop\src-tauri\binaries'  # 保留:历史路径,新链路不写
 # build.py 在 subprocess 里强制 cwd=chayuan-server/,产物固定落 chayuan-server\dist\。
 $DistDir       = Join-Path $ServerDir 'dist'
-$TauriBundle   = Join-Path $ClientDir 'apps\desktop\src-tauri\target\release\bundle'
+# Rust profile:-FastRust → release-fast(产物在 target\release-fast\);否则默认 release。
+$rustProfileDir = if ($FastRust) { 'release-fast' } else { 'release' }
+$TauriBundle   = Join-Path $ClientDir "apps\desktop\src-tauri\target\$rustProfileDir\bundle"
+if ($FastRust) { Write-Host "[note] Rust profile = release-fast(关 LTO,编译省 ~50%)" -ForegroundColor DarkCyan }
+# sccache:Rust 编译缓存(跨构建持久,clean 后也命中)。装了就在「冷构建」时自动用;
+# 与 Cargo 增量互斥,故 -SkipCleanTarget/-BundleOnly 的增量构建不启用(原生增量更快)。
+$sccacheCmd = Get-Command sccache -ErrorAction SilentlyContinue
+if ($sccacheCmd -and -not $NoSccache -and -not $SkipCleanTarget -and -not $BundleOnly) {
+    $env:RUSTC_WRAPPER = 'sccache'
+    $env:CARGO_INCREMENTAL = '0'   # sccache 要求关 Cargo 增量
+    Write-Host "[note] sccache 已启用(冷构建走编译缓存):$($sccacheCmd.Source)" -ForegroundColor DarkCyan
+}
 
 $pathLen = $WorkspaceRoot.Length
 if ($pathLen -gt 60) {
@@ -1587,11 +1604,14 @@ if ($SkipFrontend) {
             # Windows 上要么 msi 要么 nsis,全量版选 msi。
             $tauriArgs = @('exec', 'tauri', 'build', '--bundles', 'msi')
         }
+        if ($FastRust) { $tauriArgs += @('--profile', 'release-fast') }
         Invoke-Step -Name 'tauri-build (bundle-only)' `
             -WorkDir $DesktopDir `
             -Command 'pnpm' -Arguments $tauriArgs
     } else {
-        $buildScript = if ($useMsi) { 'build:desktop:full' } else { 'build:desktop' }
+        $buildScript = if ($useMsi) {
+            if ($FastRust) { 'build:desktop:full-fast' } else { 'build:desktop:full' }
+        } else { 'build:desktop' }
         Invoke-Step -Name "pnpm-$buildScript" `
             -WorkDir $ClientDir `
             -Command 'pnpm' -Arguments @($buildScript)
