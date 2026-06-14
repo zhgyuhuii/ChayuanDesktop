@@ -166,10 +166,37 @@ if (!has('--clients-only')) {
 }
 
 if (!has('--offline-only')) {
+  const isMac = process.platform === 'darwin';
+  const makeDmg = path.join(ROOT, 'scripts', 'make-mac-dmg.sh');
+  const macArch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
   for (const [app, label] of [['apps/publisher', '上传端(发布客户端)'], ['apps/installer', '下载端(安装器)']]) {
     log(`构建${label}`);
-    run('pnpm tauri build', path.join(CLIENT_ROOT, app));
-    const arts = pickByExt(path.join(CLIENT_ROOT, app, 'src-tauri/target/release/bundle'), CLIENT_EXTS);
+    const appDir = path.join(CLIENT_ROOT, app);
+    const bundleDir = path.join(appDir, 'src-tauri/target/release/bundle');
+    if (isMac) {
+      // Tauri 2 自带 bundle_dmg.sh 在 macOS 14/15 上常因 osascript/hdiutil 挂掉(真错被吞,
+      // 还会让整个 release 中断 —— 见 desktop 同坑,build-desktop.sh 早改走自研脚本)。
+      // 这里客户端也只出 .app,再用项目自研 make-mac-dmg.sh(纯 hdiutil)产 dmg,稳定可重复。
+      run('pnpm tauri build --bundles app', appDir);
+      const macosDir = path.join(bundleDir, 'macos');
+      const appBundle = fs.existsSync(macosDir)
+        ? fs.readdirSync(macosDir).find((n) => n.endsWith('.app')) : null;
+      if (appBundle && fs.existsSync(makeDmg)) {
+        const appPath = path.join(macosDir, appBundle);
+        const stem = appBundle.replace(/\.app$/, '');
+        const dmgOut = path.join(macosDir, `${stem}_${version}_${macArch}.dmg`);
+        try {
+          run(`bash "${makeDmg}" "${appPath}" "${dmgOut}" "Chayuan"`, ROOT);
+        } catch (e) {
+          console.warn(`  ${label} make-mac-dmg 失败,本档无 dmg(.app 仍在 ${macosDir}):${e.message}`);
+        }
+      } else if (!appBundle) {
+        console.warn(`  ${label} 未找到 .app(${macosDir}),跳过 dmg`);
+      }
+    } else {
+      run('pnpm tauri build', appDir);
+    }
+    const arts = pickByExt(bundleDir, CLIENT_EXTS);
     if (!arts.length) { console.warn(`  未找到${label}安装器产物`); continue; }
     for (const a of arts) { const dest = copyTo(a.p, CLIENTS_DIR, path.basename(a.p)); summary.push(`${label}: ${path.relative(ROOT, dest)}`); }
   }
