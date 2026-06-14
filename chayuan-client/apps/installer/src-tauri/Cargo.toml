@@ -13,6 +13,11 @@ tauri-build = { version = "2.0.0", features = [] }
 
 [dependencies]
 tauri = { version = "2.11", features = [] }
+# 锁 alloc-no-stdlib 到 2.0.4:brotli 8.0.3(Tauri 传递依赖)依赖图会分裂——brotli 自身
+# ^2.0 卡在 2.0.4,但 brotli-decompressor 5.0.2 / alloc-stdlib 0.2.3 默认拉 3.0.0,导致
+# StandardAlloc 与 BrotliAlloc 的 Allocator trait 版本对不上(E0277 x36)。三方约束都接受
+# 2.0.4,锁死即统一为单版本。此直接依赖只为钉版本,代码不 use。
+alloc-no-stdlib = "=2.0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["stream"] }
