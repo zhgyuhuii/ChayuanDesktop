@@ -12,9 +12,10 @@
 //   ③ 构建上传端(publisher)+ 下载端(installer)④ 收拢到 release/<ver>/{offline,clients}/
 //
 // 用法(仓库根目录):
-//   node release.mjs                  版本 +1 + 离线包(standard)+ 上传端 + 下载端
+//   node release.mjs                  离线包(用当前 VERSION,不 bump)+ 上传端 + 下载端
 //   node release.mjs --set 2.0.5      指定版本
-//   node release.mjs --no-bump        不改版本
+//   node release.mjs --no-bump        不改版本(已是默认)
+//   node release.mjs --bump          本次构建 +1(默认不 bump;版本号通常在 commit 时 +1)
 //   node release.mjs --tier lite|standard|pro|all  档位(默认 all=一次出三档;也可指定单档)
 //   node release.mjs --offline-only   只出离线包
 //   node release.mjs --clients-only   只出上传端+下载端(不改版本、不跑 build-desktop)
@@ -45,9 +46,11 @@ function capture(cmd, cwd) { return execSync(cmd, { cwd: cwd || ROOT, stdio: ['i
 
 // ---- 版本:复用 scripts/bump-version.py ----
 function decideVersion() {
-  let flag = '';
+  // 默认不 bump:构建用当前 VERSION(同一份代码多次构建版本不变)。版本号跟着「提交代码」
+  // 走 —— 在 commit 时 bump-version +1,不在每次编译时 +1。显式 --bump 才让本次构建 +1。
+  let flag = '--no-bump';
   if (has('--set')) flag = `--set ${val('--set', '')}`;
-  else if (has('--no-bump') || has('--clients-only')) flag = '--no-bump';  // 只出客户端时不改版本
+  else if (has('--bump')) flag = '';  // 显式要求构建时 +1
   const out = capture(`"${PYTHON}" "${BUMP}" ${flag}`.trim());
   const lines = out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   return lines[lines.length - 1] || fs.readFileSync(VERSION_FILE, 'utf8').trim();
