@@ -134,7 +134,13 @@ param(
     # 基础框架复用(叠加模式):跳过前端 install/typecheck/vite 重建(含 tauri 的
     # beforeBuildCommand),复用上一档已建的 dist/ + Rust 编译,只 sync 本档模型 + 重打
     # MSI。用于 --tier all 第 2/3 档:基础框架只建 1 次,其余档叠加资源即可。
-    [switch]$ReuseFrontend
+    [switch]$ReuseFrontend,
+    # 中间产物清理:默认开。每档最终物(ISO)产出后,删 target\release 下「已被拷进
+    # dist 和 ISO」的纯草稿(bundle\msi 的 msi+cab 副本、wix\ linker 草稿、裸
+    # chayuan-desktop.exe)以省盘(三档草稿否则会累积)。dist-{flavor}\ 的 msi+cab 是
+    # ISO 失败时的 zip 分发 fallback,保留不动;缓存(chayuan-server\dist 指纹、
+    # target\release\deps Rust 增量)一律不动。-KeepIntermediate 关闭本步(排查 / 手动 zip)。
+    [switch]$KeepIntermediate
 )
 
 # 旧名兼容 + 提示
@@ -1861,6 +1867,7 @@ if ($SkipFrontend) {
                 }
                 $isoSize = [math]::Round((Get-Item $isoOut).Length / 1MB, 1)
                 Write-Ok "ISO 完成:$isoOut ($isoSize MB)"
+                $isoMade = $true
                 $script:AllArtifacts += [PSCustomObject]@{
                     Flavor = $Flavor
                     Src    = $flavorOut
@@ -1875,6 +1882,46 @@ if ($SkipFrontend) {
                 }
             }
         }
+    }
+
+    # ----------------------------------------------------------------
+    # 清理本档中间产物(裸 exe / WiX 草稿 / bundle 下的 msi+cab 副本)
+    # ----------------------------------------------------------------
+    # dist-{flavor}\ 的 msi+cab 是 ISO 失败时的 zip 分发 fallback,保留不动;这里只删
+    # target\release 下「已被拷进 dist 和 ISO」的纯草稿,省盘(三档草稿否则会累积)。
+    # 仅在 ISO 成功后清: ISO 没出(-NoIso 开发迭代 / 生成失败)时全部保留,方便排查 /
+    # 手动 zip。缓存(chayuan-server\dist 指纹、target\release\deps Rust 增量)一律不动。
+    if ($KeepIntermediate) {
+        Write-Skip "清理中间产物 ($Flavor) -- 跳过:-KeepIntermediate"
+    } elseif (-not $isoMade) {
+        Write-Skip "清理中间产物 ($Flavor) -- 跳过:ISO 未生成,草稿保留供排查 / 手动 zip"
+    } else {
+        Write-Step "清理中间产物 ($Flavor)"
+        $targetRelease = Split-Path -Parent $TauriBundle   # ...\target\release
+        $freedMb = 0.0
+        $scratchPaths = @(
+            (Join-Path $TauriBundle 'msi'),                  # bundle\msi\ 的 *.msi + *.cab(已进 dist + ISO)
+            (Join-Path $targetRelease 'wix'),                # WiX candle/light 草稿(*.wixobj / *.wixpdb)
+            (Join-Path $targetRelease 'chayuan-desktop.exe') # 裸 exe(非安装器)
+        )
+        foreach ($sp in $scratchPaths) {
+            if (Test-Path $sp) {
+                $szMb = 0.0
+                try {
+                    $sum = (Get-ChildItem -LiteralPath $sp -Recurse -File -ErrorAction SilentlyContinue |
+                            Measure-Object -Property Length -Sum).Sum
+                    if ($sum) { $szMb = [math]::Round($sum / 1MB, 1) }
+                } catch { }
+                try {
+                    Remove-Item -LiteralPath $sp -Recurse -Force -ErrorAction Stop
+                    $freedMb += $szMb
+                    Write-Note "删 $sp ($szMb MB)"
+                } catch {
+                    Write-Note "清不掉(被占用,跳过):$sp"
+                }
+            }
+        }
+        Write-Ok "中间产物已清理,约省 $([math]::Round($freedMb,1)) MB(dist-$Flavor 的 msi+cab fallback 保留)"
     }
 }
 

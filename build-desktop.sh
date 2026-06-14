@@ -143,6 +143,7 @@ SKIP_MODEL_CHECK=0
 LITE_ONLY=0
 STANDARD_ONLY=0
 INTEGRATED_ONLY=0
+KEEP_INTERMEDIATE=0  # 默认清理中间产物(mac dmg 出了删 .app 等);--keep-intermediate 关闭
 
 usage() {
     sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
@@ -165,10 +166,11 @@ while [[ $# -gt 0 ]]; do
         --lite-only)        LITE_ONLY=1 ;;
         --integrated-only|--full-only)  INTEGRATED_ONLY=1 ;;
         --standard-only)    STANDARD_ONLY=1 ;;
+        --keep-intermediate) KEEP_INTERMEDIATE=1 ;;
         -h|--help)          usage ;;
         *)
             echo "[FAIL] 未知参数: $1" >&2
-            echo "可用参数:--lite-only / --integrated-only / --skip-model-check / --skip-server / --rebuild-server / --skip-healthcheck / --skip-frontend / --skip-install / --skip-typecheck / --bundle-only / --clean / --skip-clean-target / --verbose" >&2
+            echo "可用参数:--lite-only / --integrated-only / --skip-model-check / --skip-server / --rebuild-server / --skip-healthcheck / --skip-frontend / --skip-install / --skip-typecheck / --bundle-only / --clean / --skip-clean-target / --keep-intermediate / --verbose" >&2
             exit 2 ;;
     esac
     shift
@@ -782,6 +784,33 @@ else
         else
             note "scripts/make-mac-dmg.sh 不存在或不可执行,跳过 DMG"
         fi
+    fi
+
+    # ── 清理本档中间产物 ──────────────────────────────────────────
+    # mac:dmg 成功后 .app 冗余(几 GB 的目录)→ 删 dist 副本 + bundle/macos 原件;
+    #      dmg 没出(失败 / 非 mac)则保留 .app 作 fallback,不碰。
+    # Linux/Win:bundle/{deb,appimage,rpm,nsis,msi}/ 是已拷进 dist 的副本 + 裸 binary,删掉省盘。
+    # 保留:dist-$FLAVOR/ 的安装器(最终物)、chayuan-server/dist 指纹缓存、target/release/deps
+    # Rust 增量。--keep-intermediate 关闭本步。
+    if [[ "$KEEP_INTERMEDIATE" != "1" ]]; then
+        step "清理中间产物 ($FLAVOR)"
+        target_release="$(dirname "$TAURI_BUNDLE")"
+        if ls "$flavor_out"/*.dmg >/dev/null 2>&1; then
+            for app in "$flavor_out"/*.app; do
+                [[ -d "$app" ]] && rm -rf "$app" && note "删 $(basename "$app")(dmg 已生成)"
+            done
+            [[ -d "$TAURI_BUNDLE/macos" ]] && rm -rf "$TAURI_BUNDLE/macos" && note "删 bundle/macos/ 原件"
+        fi
+        for scratch in deb appimage rpm nsis msi; do
+            [[ -d "$TAURI_BUNDLE/$scratch" ]] && rm -rf "$TAURI_BUNDLE/$scratch" \
+                && note "删 bundle/$scratch/(副本已在 dist-$FLAVOR)"
+        done
+        for bare in "$target_release/chayuan-desktop" "$target_release/chayuan-desktop.exe"; do
+            [[ -f "$bare" ]] && rm -f "$bare" && note "删裸 binary $(basename "$bare")"
+        done
+        ok "中间产物已清理(dist-$FLAVOR 安装器保留)"
+    else
+        skip "清理中间产物 ($FLAVOR) [--keep-intermediate]"
     fi
 fi
 
