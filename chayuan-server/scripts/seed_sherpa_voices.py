@@ -96,18 +96,45 @@ def _fetch_to_tmp(url: str, retries: int = 3):
     return None
 
 
-def _download_extract(name: str, bases: "list[str]", dest_root: Path) -> bool:
-    """主源优先,逐个换镜像兜底;每源 3 次重试 + 完整性校验。bases 为候选 base 列表。"""
-    voice_dir = dest_root / name
+def _extract(archive: str, name: str, voice_dir: Path, dest_root: Path) -> bool:
+    """解压 tar.bz2 到 dest_root(包内即 <name>/...),校验出 model+tokens。"""
+    try:
+        print(f"[sherpa]    解压 {name} → {dest_root}")
+        with tarfile.open(archive, "r:bz2") as tar:
+            tar.extractall(dest_root)
+    except Exception as e:  # noqa: BLE001
+        print(f"[sherpa]    解压失败: {type(e).__name__}: {e}")
+        return False
     if _has_model(voice_dir):
-        print(f"[sherpa]    skip(已存在) {name}")
+        print(f"[sherpa]    ok {name}(含 model.onnx + tokens.txt)")
         return True
+    print(f"[sherpa] !! 解压后 {voice_dir} 缺 model.onnx / tokens.txt — 检查包结构")
+    return False
+
+
+def _download_extract(name: str, bases: "list[str]", dest_root: Path) -> bool:
+    """复用优先:已解压→跳过;目标目录已有 <name>.tar.bz2(手动下的)→直接解压不下载;
+    都没有→主源优先逐个换镜像下载(每源 3 次重试 + 完整性校验)。"""
+    voice_dir = dest_root / name
+    # 1) 已解压 → 跳过
+    if _has_model(voice_dir):
+        print(f"[sherpa]    skip(已解压) {name}")
+        return True
+    dest_root.mkdir(parents=True, exist_ok=True)
+    # 2) 目录里已有 <name>.tar.bz2(用户手动下的)→ 直接解压,绝不重新下载
+    local = dest_root / f"{name}.tar.bz2"
+    if local.is_file() and local.stat().st_size > 0:
+        print(f"[sherpa]    发现本地归档 {local.name}({local.stat().st_size} 字节)→ 跳过下载,直接解压")
+        if _extract(str(local), name, voice_dir, dest_root):
+            return True
+        print(f"[sherpa] !! 本地 {local.name} 解压失败(可能不完整);删掉它或重下后再跑")
+        return False
+    # 3) 都没有 → 多源下载(下到临时文件,解压后删)
     try:
         import httpx  # noqa: F401
     except ImportError:
         print("[sherpa] !! 需要 httpx:pip install httpx")
         return False
-    dest_root.mkdir(parents=True, exist_ok=True)
     for base in bases:
         url = f"{base.rstrip('/')}/{name}.tar.bz2"
         print(f"[sherpa]    GET {url}")
@@ -116,17 +143,8 @@ def _download_extract(name: str, bases: "list[str]", dest_root: Path) -> bool:
             print("[sherpa]    × 此源失败,换下一个…")
             continue
         try:
-            print(f"[sherpa]    解压 {name} → {dest_root}")
-            with tarfile.open(tmp, "r:bz2") as tar:
-                tar.extractall(dest_root)  # release 包内即 <name>/...
-            if _has_model(voice_dir):
-                print(f"[sherpa]    ok {name}(经 {base})")
-                return True
-            print(f"[sherpa] !! 解压后 {voice_dir} 缺 model.onnx / tokens.txt — 检查包结构")
-            return False
-        except Exception as e:  # noqa: BLE001
-            print(f"[sherpa]    解压失败: {type(e).__name__}: {e},换下一个源…")
-            continue
+            ok = _extract(tmp, name, voice_dir, dest_root)
+            return ok  # 下到了就不再换源(换源也是同一个包,结构不对换了没用)
         finally:
             if os.path.isfile(tmp):
                 try:
@@ -134,8 +152,8 @@ def _download_extract(name: str, bases: "list[str]", dest_root: Path) -> bool:
                 except OSError:
                     pass
     print(
-        f"[sherpa] !! 所有源都失败 {name};手动从 release 页下 {name}.tar.bz2 "
-        f"解压到 {dest_root}/{name}/(或设 CHAYUAN_SHERPA_BASE 换源)"
+        f"[sherpa] !! 所有源都失败 {name};手动下 {name}.tar.bz2 放到 {dest_root} 后重跑"
+        f"(会自动解压),或设 CHAYUAN_SHERPA_BASE 换源"
     )
     return False
 

@@ -619,6 +619,9 @@ def sync_bundled_models(
         for sub in entry.rglob("*"):
             if not sub.is_file() or sub.name == ".gitkeep":
                 continue
+            # 归档(如 sherpa 手动下的 <name>.tar.bz2)只是下载中转,不进 installer。
+            if sub.suffix.lower() in (".bz2", ".gz", ".tgz", ".xz", ".zip", ".7z"):
+                continue
             rel = sub.relative_to(src)
             size = sub.stat().st_size
 
