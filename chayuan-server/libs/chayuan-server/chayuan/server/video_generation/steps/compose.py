@@ -1011,6 +1011,37 @@ def generate_video(
         if os.name == "nt":
             font_path = font_path.replace("\\", "/")
 
+        # 默认 STHeitiMedium.ttc 是 macOS 专有;干净 Windows/Linux 上不存在 →
+        # ImageFont.truetype 会 FileNotFoundError 让字幕渲染整段失败。平台兜底:
+        # bundled 字体目录 → 平台常见中文系统字体 → 任意可用。
+        if font_path and not os.path.isfile(font_path):
+            import glob as _glob
+            import sys as _sys
+            _cands: list[str] = []
+            try:
+                from chayuan.server.video_generation import binaries as _bin
+                _fd = _bin.get_fonts_dir()
+                if _fd and os.path.isdir(_fd):
+                    for _ext in ("*.ttc", "*.ttf", "*.otf"):
+                        _cands.extend(sorted(_glob.glob(os.path.join(_fd, _ext))))
+            except Exception:  # noqa: BLE001
+                pass
+            if _sys.platform == "win32":
+                _win = os.environ.get("WINDIR", "C:\\Windows")
+                _cands += [os.path.join(_win, "Fonts", _n) for _n in
+                           ("msyh.ttc", "simhei.ttf", "simsun.ttc", "msyhbd.ttc")]
+            elif _sys.platform == "darwin":
+                _cands += ["/System/Library/Fonts/STHeiti Medium.ttc",
+                           "/System/Library/Fonts/PingFang.ttc"]
+            else:
+                _cands += _glob.glob("/usr/share/fonts/**/*.tt[cf]", recursive=True)
+            for _c in _cands:
+                if _c and os.path.isfile(_c):
+                    _resolved = _c.replace("\\", "/") if os.name == "nt" else _c
+                    logger.warning("  ⑤ 默认字体 %s 不存在,回退 %s", params.font_name, _resolved)
+                    font_path = _resolved
+                    break
+
         logger.info(f"  ⑤ font: {font_path}")
 
     def resolve_subtitle_background_color():
