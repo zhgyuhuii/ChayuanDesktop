@@ -10,7 +10,7 @@ export const TIER_VARIANT: Record<Tier, string> = { lite: '轻量版', standard:
 const TIERS: Tier[] = ['lite', 'standard', 'pro'];
 const OSES = ['linux', 'mac', 'win'];
 const ARCHES = ['x86_64', 'arm64'];
-const EXTS = ['tar.gz', 'tar.zst', 'zip', 'exe', 'msi', 'deb', 'dmg', 'AppImage']; // 双段在前,优先匹配;exe/msi/deb/dmg/AppImage 为各平台安装器
+const EXTS = ['tar.gz', 'tar.zst', 'zip', 'exe', 'msi', 'iso', 'deb', 'dmg', 'AppImage']; // 双段在前,优先匹配;exe/msi/iso/deb/dmg/AppImage 为各平台安装器(iso=Win 自包含离线包,挂载后装 MSI)
 
 /** 'zip'|'tar.gz'|'tar.zst' → 解压策略;其余(exe/dmg/AppImage)→ 'none'。 */
 export function unpackForExt(ext: string): string {

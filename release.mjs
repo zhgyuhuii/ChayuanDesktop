@@ -116,12 +116,26 @@ if (!has('--clients-only')) {
     const fl = TIER_FLAVOR[t];
     log(`构建离线包(${plat} / tier=${t} → flavor=${fl},CHAYUAN_BUILD_NO_BUMP=1)`);
     runBuildDesktop(fl, ti > 0);  // 第 1 档干净编译;2/3 档跳过清 target,复用 Rust 增量
-    const distDir = path.join(ROOT, `dist-${fl}`);
-    const arts = pickByExt(distDir, OFFLINE_EXTS);
-    if (!arts.length) { console.error(`未在 ${distDir} 找到 ${t} 离线包产物`); process.exit(1); }
-    for (const a of arts) {
-      const dest = copyTo(a.p, OFFLINE_DIR, `chayuan-${version}-${plat}-${t}.${a.ext}`);
-      summary.push(`离线包(${t}): ${path.relative(ROOT, dest)}`);
+    // 离线包必须自包含。WiX EmbedCab="no" 下 .msi 仅 ~2MB 元数据,真实内容在旁边的多个
+    // cab 里;只收 .msi 装机必报「找不到 cab」(Error 1311/1335)。完整产物 = ISO
+    // (把 MSI + 全部 cab 装在一起)。优先收 ISO;没出 ISO 则退回把整个 dist 目录搬进去。
+    const isoSrc = path.join(ROOT, `chayuan-desktop_${fl}_setup.iso`);
+    if (fs.existsSync(isoSrc)) {
+      const dest = copyTo(isoSrc, OFFLINE_DIR, `chayuan-${version}-${plat}-${t}.iso`);
+      const mb = (fs.statSync(dest).size / 1048576).toFixed(0);
+      summary.push(`离线包(${t}): ${path.relative(ROOT, dest)} (${mb}MB,ISO 自包含 MSI+cab)`);
+    } else {
+      const distDir = path.join(ROOT, `dist-${fl}`);
+      if (!fs.existsSync(distDir)) { console.error(`未找到 ${t} 离线产物(无 ISO 且无 ${distDir})`); process.exit(1); }
+      const tierDir = path.join(OFFLINE_DIR, `chayuan-${version}-${plat}-${t}`);
+      fs.mkdirSync(tierDir, { recursive: true });
+      let n = 0, bytes = 0;
+      for (const e of fs.readdirSync(distDir)) {
+        const sp = path.join(distDir, e);
+        if (fs.statSync(sp).isFile()) { fs.copyFileSync(sp, path.join(tierDir, e)); n++; bytes += fs.statSync(sp).size; }
+      }
+      if (!n) { console.error(`${distDir} 里没有文件可收`); process.exit(1); }
+      summary.push(`离线包(${t}): ${path.relative(ROOT, tierDir)}/ (${n} 文件 ~${(bytes/1048576).toFixed(0)}MB:MSI+全部 cab;无 ISO 退回目录形式,分发时整个目录一起给)`);
     }
   }
   summary.push('  提醒: lite=纯云零模型;standard=引擎+必带音色(其余模型用户下载);pro=全部模型离线。各档模型需构建机先 seed(sherpa/voxcpm 音色、字体等)。');
