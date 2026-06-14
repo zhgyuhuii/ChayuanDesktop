@@ -130,7 +130,11 @@ param(
     # 默认关(出货走 LTO);迭代/急出包时用。
     [switch]$FastRust,
     # 关闭 sccache 自动加速(默认:检测到 sccache 且为冷构建时自动走编译缓存)。
-    [switch]$NoSccache
+    [switch]$NoSccache,
+    # 基础框架复用(叠加模式):跳过前端 install/typecheck/vite 重建(含 tauri 的
+    # beforeBuildCommand),复用上一档已建的 dist/ + Rust 编译,只 sync 本档模型 + 重打
+    # MSI。用于 --tier all 第 2/3 档:基础框架只建 1 次,其余档叠加资源即可。
+    [switch]$ReuseFrontend
 )
 
 # 旧名兼容 + 提示
@@ -1521,16 +1525,16 @@ if ($SkipFrontend) {
 } else {
     Write-Step 'Step 3: chayuan-client Tauri bundle'
 
-    if ($SkipInstall) {
-        Write-Skip 'Step 3a [pnpm install] (--SkipInstall)'
+    if ($SkipInstall -or $ReuseFrontend) {
+        Write-Skip 'Step 3a [pnpm install] (复用基础框架/--SkipInstall)'
     } else {
         Invoke-Step -Name 'pnpm-install' `
             -WorkDir $ClientDir `
             -Command 'pnpm' -Arguments @('install', '--frozen-lockfile')
     }
 
-    if ($SkipTypecheck) {
-        Write-Skip 'Step 3b [pnpm typecheck] (--SkipTypecheck)'
+    if ($SkipTypecheck -or $ReuseFrontend) {
+        Write-Skip 'Step 3b [pnpm typecheck] (复用基础框架/--SkipTypecheck)'
     } else {
         Invoke-Step -Name 'pnpm-typecheck' `
             -WorkDir $ClientDir `
@@ -1576,7 +1580,7 @@ if ($SkipFrontend) {
     # 代价:清掉 Cargo 增量编译缓存,本次 tauri build 会全量重编依赖
     # (Tauri 应用约 +10~30 分钟)。要快速增量打包:用 -BundleOnly(复用缓存)
     # 或 -SkipCleanTarget 跳过本步。BundleOnly 本身依赖缓存,自动跳过清理。
-    if (-not $BundleOnly -and -not $SkipCleanTarget) {
+    if (-not $BundleOnly -and -not $SkipCleanTarget -and -not $ReuseFrontend) {
         $rustTargetDir = Join-Path $ClientDir 'apps\desktop\src-tauri\target'
         if (Test-Path $rustTargetDir) {
             Write-Step 'Clean target/(打包前完全清理 Rust 编译产物,本次为全量冷构建)'
@@ -1593,7 +1597,7 @@ if ($SkipFrontend) {
         Write-Note 'BundleOnly 复用 Cargo 编译缓存,跳过 target/ 清理'
     }
 
-    if ($BundleOnly) {
+    if ($BundleOnly -or $ReuseFrontend) {
         # cargo / vite 走增量缓存,只重做 Tauri bundle(makensis / WiX 等)。
         # 不能直接调 ``pnpm --filter @chayuan/desktop build``,因为那里面带
         # ``tsc + vite build``,与本入口想跳过的 typecheck 重复。
@@ -1605,6 +1609,11 @@ if ($SkipFrontend) {
             $tauriArgs = @('exec', 'tauri', 'build', '--bundles', 'msi')
         }
         if ($FastRust) { $tauriArgs += @('--profile', 'release-fast') }
+        if ($ReuseFrontend) {
+            # 复用基础框架:置空 tauri 的 beforeBuildCommand(pnpm build:vite),不重建前端,
+            # 直接用上一档已构建的 dist/(前端三档相同)。只重打 MSI bundle。
+            $tauriArgs += @('--config', '{"build":{"beforeBuildCommand":""}}')
+        }
         Invoke-Step -Name 'tauri-build (bundle-only)' `
             -WorkDir $DesktopDir `
             -Command 'pnpm' -Arguments $tauriArgs

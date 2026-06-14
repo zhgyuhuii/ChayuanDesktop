@@ -77,7 +77,7 @@ function copyTo(src, destDir, name) { fs.mkdirSync(destDir, { recursive: true })
 // build-desktop 调用,带 CHAYUAN_BUILD_NO_BUMP=1(本脚本已决策版本,禁止它再 +1)。
 const WIN_FLAVOR_FLAG = { lite: '-LiteOnly', standard: '-StandardOnly', full: '-FullOnly' };
 const SH_FLAVOR_FLAG = { lite: '--lite-only', standard: '--standard-only', full: '--integrated-only' };
-function runBuildDesktop(flavor, skipClean) {
+function runBuildDesktop(flavor, reuse) {
   const extra = val('--bd', '');
   const env = { ...process.env, CHAYUAN_BUILD_NO_BUMP: '1' };
   if (isWin) {
@@ -85,13 +85,13 @@ function runBuildDesktop(flavor, skipClean) {
     const flag = WIN_FLAVOR_FLAG[flavor] || '-FullOnly';
     // 三档 Rust 二进制相同(只换 Tauri 资源):skipClean 档跳过清 target,复用上一档
     // 的增量编译,省掉整轮 ~10-30 分钟的 Rust 全量冷编译。
-    const sc = skipClean ? ' -SkipCleanTarget' : '';
-    run(`powershell -NoProfile -ExecutionPolicy Bypass -File "${ps1}" ${flag}${sc} ${extra}`, ROOT, env);
+    const reuseFlag = reuse ? ' -ReuseFrontend' : '';  // 第2/3档:复用基础框架(前端+Rust),只叠加资源重打
+    run(`powershell -NoProfile -ExecutionPolicy Bypass -File "${ps1}" ${flag}${reuseFlag} ${extra}`, ROOT, env);
   } else {
     const sh = path.join(ROOT, 'build-desktop.sh');
     const flag = SH_FLAVOR_FLAG[flavor] || '--integrated-only';
-    const sc = skipClean ? ' --skip-clean-target' : '';
-    run(`bash "${sh}" ${flag}${sc} ${extra}`, ROOT, env);
+    const reuseFlag = reuse ? ' --skip-clean-target' : '';  // sh 暂只复用 Rust 增量(无 -ReuseFrontend)
+    run(`bash "${sh}" ${flag}${reuseFlag} ${extra}`, ROOT, env);
   }
 }
 
