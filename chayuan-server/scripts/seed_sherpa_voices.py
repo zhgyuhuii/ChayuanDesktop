@@ -67,49 +67,77 @@ def _has_model(voice_dir: Path) -> bool:
     return (voice_dir / "model.onnx").is_file() or any(voice_dir.glob("*.onnx"))
 
 
-def _download_extract(name: str, base: str, dest_root: Path) -> bool:
+def _fetch_to_tmp(url: str, retries: int = 3):
+    """下载 url 到临时文件,带重试 + 完整性校验(content-length)。成功返回路径,失败 None。"""
+    import httpx
+    for attempt in range(1, retries + 1):
+        tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".tar.bz2", delete=False) as tf:
+                tmp = tf.name
+            with httpx.Client(timeout=600.0, follow_redirects=True) as client:
+                with client.stream("GET", url) as r:
+                    r.raise_for_status()
+                    total = int(r.headers.get("content-length") or 0)
+                    with open(tmp, "wb") as out:
+                        for chunk in r.iter_bytes(1 << 20):
+                            out.write(chunk)
+            got = os.path.getsize(tmp)
+            if total and got < total:
+                raise IOError(f"不完整 {got}/{total} 字节")
+            return tmp
+        except Exception as e:  # noqa: BLE001
+            print(f"[sherpa]    尝试 {attempt}/{retries} 失败: {type(e).__name__}: {e}")
+            if tmp and os.path.isfile(tmp):
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+    return None
+
+
+def _download_extract(name: str, bases: "list[str]", dest_root: Path) -> bool:
+    """主源优先,逐个换镜像兜底;每源 3 次重试 + 完整性校验。bases 为候选 base 列表。"""
     voice_dir = dest_root / name
     if _has_model(voice_dir):
         print(f"[sherpa]    skip(已存在) {name}")
         return True
-    url = f"{base.rstrip('/')}/{name}.tar.bz2"
     try:
-        import httpx
+        import httpx  # noqa: F401
     except ImportError:
         print("[sherpa] !! 需要 httpx:pip install httpx")
         return False
     dest_root.mkdir(parents=True, exist_ok=True)
-    tmp = None
-    try:
+    for base in bases:
+        url = f"{base.rstrip('/')}/{name}.tar.bz2"
         print(f"[sherpa]    GET {url}")
-        with httpx.Client(timeout=600.0, follow_redirects=True) as client, \
-                tempfile.NamedTemporaryFile(suffix=".tar.bz2", delete=False) as tf:
-            tmp = tf.name
-            with client.stream("GET", url) as r:
-                r.raise_for_status()
-                for chunk in r.iter_bytes(1 << 20):
-                    tf.write(chunk)
-        print(f"[sherpa]    解压 {name} → {dest_root}")
-        with tarfile.open(tmp, "r:bz2") as tar:
-            tar.extractall(dest_root)  # release 包内即 <name>/...
-        if _has_model(voice_dir):
-            print(f"[sherpa]    ok {name}(含 model.onnx + tokens.txt)")
-            return True
-        print(f"[sherpa] !! 解压后 {voice_dir} 缺 model.onnx / tokens.txt — 检查包结构")
-        return False
-    except Exception as e:  # noqa: BLE001
-        print(
-            f"[sherpa] !! 下载/解压 {name} 失败: {type(e).__name__}: {e}\n"
-            f"         可设 CHAYUAN_SHERPA_BASE 换源,或手动从 release 页下 "
-            f"{name}.tar.bz2 解压到 {dest_root}/{name}/"
-        )
-        return False
-    finally:
-        if tmp and os.path.isfile(tmp):
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
+        tmp = _fetch_to_tmp(url)
+        if not tmp:
+            print("[sherpa]    × 此源失败,换下一个…")
+            continue
+        try:
+            print(f"[sherpa]    解压 {name} → {dest_root}")
+            with tarfile.open(tmp, "r:bz2") as tar:
+                tar.extractall(dest_root)  # release 包内即 <name>/...
+            if _has_model(voice_dir):
+                print(f"[sherpa]    ok {name}(经 {base})")
+                return True
+            print(f"[sherpa] !! 解压后 {voice_dir} 缺 model.onnx / tokens.txt — 检查包结构")
+            return False
+        except Exception as e:  # noqa: BLE001
+            print(f"[sherpa]    解压失败: {type(e).__name__}: {e},换下一个源…")
+            continue
+        finally:
+            if os.path.isfile(tmp):
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+    print(
+        f"[sherpa] !! 所有源都失败 {name};手动从 release 页下 {name}.tar.bz2 "
+        f"解压到 {dest_root}/{name}/(或设 CHAYUAN_SHERPA_BASE 换源)"
+    )
+    return False
 
 
 def _detect_num_speakers(voice_dir: Path):
@@ -220,21 +248,27 @@ def main() -> int:
         models = list(DEFAULT_MODELS)
     if args.mirror:
         prefix = MIRRORS.get(args.mirror, args.mirror)  # 也允许直接传前缀 URL
-        base = prefix.rstrip("/") + "/" + DEFAULT_BASE
+        primary = prefix.rstrip("/") + "/" + DEFAULT_BASE
     else:
-        base = os.environ.get("CHAYUAN_SHERPA_BASE") or DEFAULT_BASE
-    # 关键:去掉粘贴长 URL 时被终端折行带进来的 \n 和空格(否则 httpx 报
-    # InvalidURL: non-printable ASCII '\n')。
-    base = "".join(base.split())
+        primary = os.environ.get("CHAYUAN_SHERPA_BASE") or DEFAULT_BASE
+    # 候选源:主源优先,然后自动兜底所有内置镜像(GitHub 国内常断,逐个换)。
+    # "".join(x.split()) 去掉粘贴长 URL 时被终端折行带进来的 \n / 空格。
+    bases = ["".join(primary.split())]
+    for _pref in MIRRORS.values():
+        _m = "".join((_pref.rstrip("/") + "/" + DEFAULT_BASE).split())
+        if _m not in bases:
+            bases.append(_m)
     dest = _bundled_sherpa_dir()
-    print(f"[sherpa] base = {base}")
+    print(f"[sherpa] 候选源 {len(bases)} 个(主 + 兜底镜像):")
+    for _b in bases:
+        print(f"[sherpa]   - {_b}")
     print(f"[sherpa] dest = {dest}")
     print(f"[sherpa] models = {models}")
 
     ok = 0
     for name in models:
         print(f"[sherpa] -- {name}")
-        if _download_extract(name, base, dest):
+        if _download_extract(name, bases, dest):
             ok += 1
     # 写 num_speakers 旁路文件,让 /voices 枚举不依赖运行时 import sherpa_onnx
     for name in models:
