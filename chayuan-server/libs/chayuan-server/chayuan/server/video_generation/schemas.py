@@ -191,6 +191,8 @@ class VgOverlay(BaseModel):
     stroke_width: float = 1.5
     bg: Optional[str] = None
     align: str = "center"
+    fill: Optional[str] = None        # 图形填充色;None=无填充
+    corner_radius: float = 0.0        # 矩形圆角(px)
 
 
 class Timeline(BaseModel):

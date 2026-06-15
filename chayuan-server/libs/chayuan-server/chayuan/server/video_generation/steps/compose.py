@@ -24,6 +24,7 @@ import random
 import gc
 import shutil
 import subprocess
+import tempfile
 from contextlib import redirect_stdout
 from typing import List
 import logging
@@ -41,7 +42,7 @@ from moviepy import (
     vfx,
 )
 from moviepy.video.tools.subtitles import SubtitlesClip
-from PIL import Image, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 from .. import const
 from ..schemas import (
@@ -1061,6 +1062,50 @@ def wrap_text(text, max_width, font="Arial", fontsize=60):
     return result, height
 
 
+def _hex_rgba(s, alpha=255):
+    v = str(s or "").strip().lstrip("#")
+    if len(v) == 6:
+        try:
+            return (int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16), alpha)
+        except ValueError:
+            pass
+    return None
+
+
+def _render_shape_image(ov, W, H):
+    """PIL 画 rect/ellipse/line/arrow 到透明 RGBA PNG,返回临时路径(失败 None)。"""
+    try:
+        w = max(2, int((getattr(ov, "w", 0.3) or 0.3) * W))
+        h = max(2, int((getattr(ov, "h", 0.2) or 0.2) * H))
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        fill = _hex_rgba(getattr(ov, "fill", None)) if getattr(ov, "fill", None) else None
+        sw = max(0, int(round(float(getattr(ov, "stroke_width", 1.5) or 0))))
+        stroke = _hex_rgba(getattr(ov, "stroke_color", "#000000")) if sw > 0 else None
+        t = getattr(ov, "type", "rect")
+        m = sw // 2 + 1
+        box = [m, m, w - m - 1, h - m - 1]
+        if t == "rect":
+            rad = max(0, int(float(getattr(ov, "corner_radius", 0.0) or 0.0)))
+            d.rounded_rectangle(box, radius=rad, fill=fill, outline=stroke, width=(max(1, sw) if stroke else 0))
+        elif t == "ellipse":
+            d.ellipse(box, fill=fill, outline=stroke, width=(max(1, sw) if stroke else 0))
+        elif t in ("line", "arrow"):
+            col = stroke or (0, 0, 0, 255)
+            y = h // 2
+            d.line([(m, y), (w - m - 1, y)], fill=col, width=max(1, sw or 2))
+            if t == "arrow":
+                a = max(6, (sw or 2) * 3)
+                d.polygon([(w - m - 1, y), (w - m - 1 - a, y - a // 2), (w - m - 1 - a, y + a // 2)], fill=col)
+        fd, path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        img.save(path)
+        return path
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[overlay] 图形渲染失败 %s: %s", getattr(ov, "id", "?"), exc)
+        return None
+
+
 def _render_overlays(video_clip, overlays, W, H, font_path):
     """A 期只渲染 type=='text' 的叠加元素;其它 type 跳过(B-D 期)。单个失败跳过不影响成片。"""
     if not overlays:
@@ -1068,28 +1113,35 @@ def _render_overlays(video_clip, overlays, W, H, font_path):
     clips = []
     for ov in overlays:
         try:
-            if getattr(ov, "type", "text") != "text":
-                continue
-            txt = (getattr(ov, "text", "") or "").strip()
-            if not txt:
-                continue
+            ovtype = getattr(ov, "type", "text")
             start_s = max(0.0, (getattr(ov, "track_start_ms", 0) or 0) / 1000.0)
             dur = max(0.2, (getattr(ov, "duration_ms", 3000) or 3000) / 1000.0)
-            w_px = max(2, int((getattr(ov, "w", 0.5) or 0.5) * W))
-            ov_font = getattr(ov, "font_name", "") or ""
-            if ov_font and not os.path.isfile(ov_font):
-                cand = os.path.join(utils.font_dir(), ov_font)
-                ov_font = cand if os.path.isfile(cand) else font_path
-            tc = TextClip(
-                text=txt, font=(ov_font or font_path),
-                font_size=int(getattr(ov, "font_size", 48) or 48),
-                color=getattr(ov, "text_color", "#ffffff") or "#ffffff",
-                stroke_color=getattr(ov, "stroke_color", "#000000") or "#000000",
-                stroke_width=float(getattr(ov, "stroke_width", 1.5) or 0),
-                bg_color=(getattr(ov, "bg", None) or None),
-                method="caption", size=(w_px, None),
-                text_align=getattr(ov, "align", "center") or "center",
-            )
+            if ovtype == "text":
+                txt = (getattr(ov, "text", "") or "").strip()
+                if not txt:
+                    continue
+                w_px = max(2, int((getattr(ov, "w", 0.5) or 0.5) * W))
+                ov_font = getattr(ov, "font_name", "") or ""
+                if ov_font and not os.path.isfile(ov_font):
+                    cand = os.path.join(utils.font_dir(), ov_font)
+                    ov_font = cand if os.path.isfile(cand) else font_path
+                tc = TextClip(
+                    text=txt, font=(ov_font or font_path),
+                    font_size=int(getattr(ov, "font_size", 48) or 48),
+                    color=getattr(ov, "text_color", "#ffffff") or "#ffffff",
+                    stroke_color=getattr(ov, "stroke_color", "#000000") or "#000000",
+                    stroke_width=float(getattr(ov, "stroke_width", 1.5) or 0),
+                    bg_color=(getattr(ov, "bg", None) or None),
+                    method="caption", size=(w_px, None),
+                    text_align=getattr(ov, "align", "center") or "center",
+                )
+            elif ovtype in ("rect", "ellipse", "line", "arrow"):
+                sp = _render_shape_image(ov, W, H)
+                if not sp:
+                    continue
+                tc = ImageClip(sp)
+            else:
+                continue
             tc = tc.with_start(start_s).with_end(start_s + dur)
             tc = tc.with_position((int((getattr(ov, "x", 0.1) or 0) * W), int((getattr(ov, "y", 0.1) or 0) * H)))
             rot = float(getattr(ov, "rotation", 0.0) or 0.0)
