@@ -90,7 +90,12 @@ export const ModelSupportHelpDialog: React.FC<ModelSupportHelpDialogProps> = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="z-[200] w-[min(900px,92vw)] max-w-[900px] max-h-[80vh] overflow-hidden p-0"
+        // z 必须高于打开它的模型菜单容器:ScriptGenDialog / GeneratePanel / PresetEditor /
+        // BatchModePage 里的 ModelMenuList 用 z-[260](因其本身在 z-[200] 对话框内)。
+        // 而 ? 帮助按钮 stopPropagation 故意不关菜单(否则按钮连同本弹窗被卸载),菜单一直
+        // 开着;本弹窗若仍 z-[200] 会被 z-[260] 菜单盖住 → 右上角关闭按钮被遮挡。提到 z-[280]
+        // (仍低于无关的 z-300/400)即在所有模型菜单之上。
+        className="z-[280] w-[min(900px,92vw)] max-w-[900px] max-h-[80vh] overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
       >
         <DialogHeader className="border-b border-[var(--cy-border-subtle)] px-5 py-4 pr-12">
