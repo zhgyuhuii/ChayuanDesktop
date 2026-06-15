@@ -50,6 +50,12 @@ const DASHSCOPE_VOICES: VoiceOption[] = [
 ];
 const FORMAT_OPTIONS = ['mp3', 'wav', 'opus'] as const;
 const LOCAL_PREFIX = 'local-tts:';
+const LOCAL_ENGINES: Array<{ id: VgVoiceProvider; label: string }> = [
+  { id: 'piper', label: 'Piper' },
+  { id: 'edge', label: 'Edge' },
+  { id: 'sherpa', label: 'Sherpa' },
+  { id: 'clone', label: '克隆' },
+];
 const LANG_OPTIONS = [
   { v: '', l: '不限' }, { v: 'zh', l: '中文' }, { v: 'en', l: 'English' },
   { v: 'ja', l: '日本語' }, { v: 'ko', l: '한국어' },
@@ -125,6 +131,30 @@ export const TtsVoiceParamBar: React.FC<{ compact?: boolean }> = ({ compact = fa
     }
   };
 
+  const curEngine = isLocal ? modelId.slice(LOCAL_PREFIX.length) : '';
+  const engineChips = (
+    <>
+      <span className="opacity-60">引擎</span>
+      <div className="flex items-center gap-0.5">
+        {LOCAL_ENGINES.map((e) => (
+          <button
+            key={e.id}
+            type="button"
+            onClick={() => { setModel(LOCAL_PREFIX + e.id, undefined, 'tts'); setParams({ voice_provider: e.id, voice_name: '' }); }}
+            aria-pressed={curEngine === e.id}
+            title={`本地引擎 · ${e.label}`}
+            className={cn('inline-flex h-6 items-center rounded-md px-1.5 text-[10px] transition-colors',
+              curEngine === e.id ? 'bg-[var(--cy-ink-700)] text-white' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}
+          >
+            {e.label}
+          </button>
+        ))}
+      </div>
+      {isVendorCloud && <span className="text-[10px] text-[var(--cy-text-tertiary)]">(云端模型在下方模型选择处切换)</span>}
+      <span className="mx-1 opacity-30">·</span>
+    </>
+  );
+
   const speedPopover = (
     <VerticalSliderPopover
       value={rate} min={0.25} max={4} step={0.05}
@@ -150,6 +180,7 @@ export const TtsVoiceParamBar: React.FC<{ compact?: boolean }> = ({ compact = fa
     const fmt = typeof params.response_format === 'string' ? params.response_format : 'mp3';
     return (
       <div role="toolbar" aria-label="TTS 参数(云端)" className={cn('flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]', compact && 'gap-1')}>
+        {engineChips}
         <span className="opacity-60">音色</span>
         <select value={voice} onChange={(e) => setParams({ voice: e.target.value })} className={selCls}>
           {voiceList.map((v) => (<option key={v.value} value={v.value} title={v.hint}>{v.label}</option>))}
@@ -179,12 +210,6 @@ export const TtsVoiceParamBar: React.FC<{ compact?: boolean }> = ({ compact = fa
           className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] disabled:opacity-50">
           {previewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
         </button>
-        <span className="mx-1 opacity-30">·</span>
-        <button type="button" onClick={() => setModel(LOCAL_PREFIX + 'piper', undefined, 'tts')}
-          title="改用本地引擎(piper/edge/sherpa/克隆)"
-          className="inline-flex h-6 items-center rounded-md border border-[var(--cy-border-subtle)] px-1.5 text-[10px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
-          本地引擎
-        </button>
       </div>
     );
   }
@@ -196,6 +221,7 @@ export const TtsVoiceParamBar: React.FC<{ compact?: boolean }> = ({ compact = fa
   const voiceName = typeof params.voice_name === 'string' ? params.voice_name : '';
   return (
     <div role="toolbar" aria-label="TTS 参数(本地)" className={cn('flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]', compact && 'gap-1')}>
+      {engineChips}
       <VoicePicker
         value={{ voice_provider: vpProvider, voice_name: voiceName }}
         onChange={(v) => {
@@ -205,6 +231,7 @@ export const TtsVoiceParamBar: React.FC<{ compact?: boolean }> = ({ compact = fa
         language={language}
         previewRate={rate}
         previewVolume={volume}
+        hideProviderChips
       />
       <span className="mx-1 opacity-30">·</span>
       {speedPopover}
