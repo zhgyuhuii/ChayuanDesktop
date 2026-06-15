@@ -52,7 +52,9 @@ export const VoicePicker: React.FC<{
   previewRate?: number;
   /** 试听音量,默认 1.0 */
   previewVolume?: number;
-}> = ({ value, onChange, language = '', previewRate = 1.0, previewVolume = 1.0 }) => {
+  /** 隐藏「后端」引擎 chip 行(由外部下拉接管引擎选择时用);默认显示 */
+  hideProviderChips?: boolean;
+}> = ({ value, onChange, language = '', previewRate = 1.0, previewVolume = 1.0, hideProviderChips = false }) => {
   const qc = useQueryClient();
 
   const voicesQ = useQuery({
@@ -240,24 +242,27 @@ export const VoicePicker: React.FC<{
 
   return (
     <>
-      {/* 后端 */}
-      <span className="opacity-60">后端</span>
-      <div className="flex items-center gap-0.5">
-        {PROVIDERS.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => onChange({ voice_provider: p.id, voice_name: '' })}
-            aria-pressed={value.voice_provider === p.id}
-            className={cn(chipCls(value.voice_provider === p.id), 'gap-1')}
-          >
-            {p.offline ? <WifiOff className="h-3 w-3" /> : <Wifi className="h-3 w-3" />}
-            {p.label}
-          </button>
-        ))}
-      </div>
-
-      <span className="mx-1 opacity-30">·</span>
+      {/* 后端引擎 chip 行(hideProviderChips 时由外部下拉接管,隐藏避免双重控件) */}
+      {!hideProviderChips && (
+        <>
+          <span className="opacity-60">后端</span>
+          <div className="flex items-center gap-0.5">
+            {PROVIDERS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onChange({ voice_provider: p.id, voice_name: '' })}
+                aria-pressed={value.voice_provider === p.id}
+                className={cn(chipCls(value.voice_provider === p.id), 'gap-1')}
+              >
+                {p.offline ? <WifiOff className="h-3 w-3" /> : <Wifi className="h-3 w-3" />}
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <span className="mx-1 opacity-30">·</span>
+        </>
+      )}
 
       {/* 音色 select — 限宽 ~5 字,鼠标悬停 title 显示全名 */}
       <span className="opacity-60">音色</span>
