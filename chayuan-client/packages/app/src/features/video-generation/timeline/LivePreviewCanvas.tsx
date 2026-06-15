@@ -87,8 +87,9 @@ export const LivePreviewCanvas: React.FC<{
   onCrop?: (clipId: string, crop: { x: number; y: number; w: number; h: number }) => void;
   selectedClipId?: string | null;
   onSelectClip?: (clipId: string | null) => void;
+  backgroundColor?: string;
   cues?: SrtCue[];
-}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, cues }) => {
+}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, backgroundColor = '#000000', cues }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const cue = (cues ?? []).find((c) => playheadMs >= c.startMs && playheadMs < c.endMs);
@@ -151,7 +152,7 @@ export const LivePreviewCanvas: React.FC<{
   };
 
   return (
-    <div ref={boxRef} className="relative h-full w-full overflow-hidden bg-black"
+    <div ref={boxRef} className="relative h-full w-full overflow-hidden" style={{ background: backgroundColor }}
       onPointerDown={(e) => { if (e.target === e.currentTarget) onSelectClip?.(null); }}>
       {!anyVisible && (
         <div className="absolute inset-0 flex items-center justify-center text-xs text-white/50">拖素材到视频轨即可预览</div>

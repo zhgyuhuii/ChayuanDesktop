@@ -346,6 +346,7 @@ export const VgTimelineEditorPage: React.FC = () => {
                   onCrop={onCrop}
                   selectedClipId={selectedClipId}
                   onSelectClip={setSelectedClipId}
+                  backgroundColor={params.background_color}
                   onModeChange={setPreviewMode}
                   cues={cues}
                   taskId={draft.taskId} audioFileName={draft.audioFileName}

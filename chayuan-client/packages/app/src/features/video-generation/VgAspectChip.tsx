@@ -85,6 +85,16 @@ export const VgOutputSettings: React.FC = () => {
       <span className="opacity-60">画幅</span>
       <VgAspectPicker />
 
+      {/* 背景色 — 画面空白处(letterbox/间隙);人人可用 */}
+      <span className="ml-1.5 opacity-60">背景</span>
+      <input type="color" value={params.background_color}
+        onChange={(e) => patch({ background_color: e.target.value })}
+        title="画面空白处背景色" className="h-6 w-7 rounded border border-[var(--cy-border-subtle)] bg-transparent p-0" />
+      {['#000000', '#ffffff', '#1f2937'].map((c) => (
+        <button key={c} type="button" title={c} onClick={() => patch({ background_color: c })}
+          className="h-5 w-5 rounded border border-[var(--cy-border-subtle)]" style={{ background: c }} />
+      ))}
+
       {/* 个数 — 下拉省宽 */}
       <span className="ml-1.5 opacity-60">个数</span>
       <select value={params.video_count}

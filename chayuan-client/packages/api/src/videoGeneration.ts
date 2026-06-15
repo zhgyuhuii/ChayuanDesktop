@@ -106,6 +106,7 @@ export interface VgVideoParams {
   /** 时间轴 EDL;非空时后端按它精确渲染(P1 后端已支持)。 */
   timeline?: VgTimeline | null;
   video_aspect: VgVideoAspect;
+  background_color: string;     // 画面空白处背景色(letterbox/间隙),默认黑;人人可用
   /** 精确像素覆盖(都 >0 时优先于 video_aspect);支持电脑尺寸 / 自定义画幅。 */
   video_width?: number | null;
   video_height?: number | null;
@@ -238,6 +239,7 @@ export const VG_DEFAULT_PARAMS: VgVideoParams = {
   video_terms: null,
   timeline: null,
   video_aspect: '9:16',
+  background_color: '#000000',
   video_concat_mode: 'random',
   video_transition_mode: '',
   video_clip_duration: 5,
