@@ -45,8 +45,8 @@ export const TimelineTracks: React.FC<{
   selectedClipId?: string | null;
   onSelectClip?: (clipId: string) => void;
   overlays?: import('@chayuan/api').VgOverlay[];
-  selectedOverlayId?: string | null;
-  onSelectOverlay?: (id: string | null) => void;
+  selectedOverlayIds?: string[];
+  onSelectOverlay?: (id: string | null, additive?: boolean) => void;
   onOverlayPatch?: (id: string, patch: { track_start_ms?: number; duration_ms?: number }) => void;
   onOverlayDelete?: (id: string) => void;
   /** 旁白音频块显示名(主题名)+ 时长。 */
@@ -55,7 +55,7 @@ export const TimelineTracks: React.FC<{
   onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
   /** 播放头命令式驱动 ref(rAF 每帧推 DOM,不重渲整条时间轴);透传给 Playhead。 */
   playheadDriveRef?: React.MutableRefObject<((ms: number) => void) | null>;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, overlays, selectedOverlayId, onSelectOverlay, onOverlayPatch, onOverlayDelete, narrationName, narrationDurationMs, onTransitionMenu, playheadDriveRef }) => {
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, overlays, selectedOverlayIds, onSelectOverlay, onOverlayPatch, onOverlayDelete, narrationName, narrationDurationMs, onTransitionMenu, playheadDriveRef }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   // 刻度固定:右侧面板自成垂直滚动容器,左侧轨道头列 scrollTop 跟随同步
   const lanesScrollRef = React.useRef<HTMLDivElement>(null);
@@ -219,7 +219,7 @@ export const TimelineTracks: React.FC<{
               editable onCuesChange={onCuesChange}
               onCueContextMenu={(e, idx) => onLaneContextMenu?.(e, 'subtitle', String(idx))} />
             <OverlayLane overlays={overlays} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx}
-              selectedOverlayId={selectedOverlayId} onSelect={onSelectOverlay}
+              selectedOverlayIds={selectedOverlayIds} onSelect={onSelectOverlay}
               onPatch={onOverlayPatch} onDelete={onOverlayDelete} />
           </div>
           {/* 播放头:贯穿刻度 + 所有轨道;手柄在最顶(刻度上方) */}

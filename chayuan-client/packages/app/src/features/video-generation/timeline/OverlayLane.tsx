@@ -8,15 +8,15 @@ export const OverlayLane: React.FC<{
   overlays?: VgOverlay[];
   pxPerSec: number;
   contentWidthPx: number;
-  selectedOverlayId?: string | null;
-  onSelect?: (id: string | null) => void;
+  selectedOverlayIds?: string[];
+  onSelect?: (id: string | null, additive?: boolean) => void;
   onPatch?: (id: string, patch: { track_start_ms?: number; duration_ms?: number }) => void;
   onDelete?: (id: string) => void;
-}> = ({ overlays, pxPerSec, contentWidthPx, selectedOverlayId = null, onSelect, onPatch, onDelete }) => {
+}> = ({ overlays, pxPerSec, contentWidthPx, selectedOverlayIds = [], onSelect, onPatch, onDelete }) => {
   const px = (ms: number) => (ms / 1000) * pxPerSec;
   const drag = (e: React.PointerEvent, ov: VgOverlay, mode: 'move' | 'l' | 'r') => {
     e.preventDefault(); e.stopPropagation();
-    onSelect?.(ov.id);
+    onSelect?.(ov.id, e.ctrlKey || e.metaKey);
     if (!onPatch) return;
     const sx = e.clientX;
     const s0 = ov.track_start_ms; const d0 = ov.duration_ms;
@@ -32,7 +32,7 @@ export const OverlayLane: React.FC<{
   return (
     <div className="relative border-b border-[var(--cy-border-subtle)]" style={{ height: TRACK_H, width: contentWidthPx }}>
       {(overlays || []).map((ov) => {
-        const sel = selectedOverlayId === ov.id;
+        const sel = selectedOverlayIds.includes(ov.id);
         return (
           <div key={ov.id}
             onPointerDown={(e) => drag(e, ov, 'move')}

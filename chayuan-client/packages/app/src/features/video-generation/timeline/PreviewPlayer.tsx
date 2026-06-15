@@ -34,8 +34,8 @@ export const PreviewPlayer: React.FC<{
   onSelectClip: (clipId: string | null) => void;
   backgroundColor: string;
   overlays?: VgOverlay[];
-  selectedOverlayId?: string | null;
-  onSelectOverlay?: (id: string | null) => void;
+  selectedOverlayIds?: string[];
+  onSelectOverlay?: (id: string | null, additive?: boolean) => void;
   onOverlayTransform?: (id: string, tf: Partial<VgOverlay>) => void;
   /** 模式上提:父组件据此决定是否跑实时播放引擎(proxy 模式由 proxy <video> 自己驱动)。 */
   onModeChange?: (mode: 'live' | 'proxy') => void;
@@ -45,7 +45,7 @@ export const PreviewPlayer: React.FC<{
   taskId?: string | null;
   audioFileName?: string | null;
   composeParams?: unknown;
-}> = ({ timeline, aspect, width, height, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform, cropEditingClipId, onCrop, selectedClipId, onSelectClip, backgroundColor, overlays, selectedOverlayId, onSelectOverlay, onOverlayTransform, onModeChange, cues, taskId, audioFileName, composeParams }) => {
+}> = ({ timeline, aspect, width, height, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform, cropEditingClipId, onCrop, selectedClipId, onSelectClip, backgroundColor, overlays, selectedOverlayIds, onSelectOverlay, onOverlayTransform, onModeChange, cues, taskId, audioFileName, composeParams }) => {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
   const [url, setUrl] = React.useState<string | null>(null);
@@ -113,7 +113,7 @@ export const PreviewPlayer: React.FC<{
             onPause={() => onPlayingChange(false)}
           />
         ) : (
-          <LivePreviewCanvas timeline={timeline} playheadMs={playheadMs} playing={playing} onTransform={onTransform} cropEditingClipId={cropEditingClipId} onCrop={onCrop} selectedClipId={selectedClipId} onSelectClip={onSelectClip} backgroundColor={backgroundColor} overlays={overlays} selectedOverlayId={selectedOverlayId} onSelectOverlay={onSelectOverlay} onOverlayTransform={onOverlayTransform} cues={cues} />
+          <LivePreviewCanvas timeline={timeline} playheadMs={playheadMs} playing={playing} onTransform={onTransform} cropEditingClipId={cropEditingClipId} onCrop={onCrop} selectedClipId={selectedClipId} onSelectClip={onSelectClip} backgroundColor={backgroundColor} overlays={overlays} selectedOverlayIds={selectedOverlayIds} onSelectOverlay={onSelectOverlay} onOverlayTransform={onOverlayTransform} cues={cues} />
         )}
       </div>
       <div className="flex items-center gap-2">

@@ -89,11 +89,11 @@ export const LivePreviewCanvas: React.FC<{
   onSelectClip?: (clipId: string | null) => void;
   backgroundColor?: string;
   overlays?: VgOverlay[];
-  selectedOverlayId?: string | null;
-  onSelectOverlay?: (id: string | null) => void;
+  selectedOverlayIds?: string[];
+  onSelectOverlay?: (id: string | null, additive?: boolean) => void;
   onOverlayTransform?: (id: string, tf: Partial<VgOverlay>) => void;
   cues?: SrtCue[];
-}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, backgroundColor = '#000000', overlays, selectedOverlayId = null, onSelectOverlay, onOverlayTransform, cues }) => {
+}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, backgroundColor = '#000000', overlays, selectedOverlayIds = [], onSelectOverlay, onOverlayTransform, cues }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const cue = (cues ?? []).find((c) => playheadMs >= c.startMs && playheadMs < c.endMs);
@@ -255,21 +255,22 @@ export const LivePreviewCanvas: React.FC<{
       })}
       {/* 叠加元素(A 期文字):命中时间段才渲染;选中显几何手柄;双击文字改字 */}
       {activeOverlays.map((ov) => {
-        const sel = selectedOverlayId === ov.id;
+        const sel = selectedOverlayIds.includes(ov.id);
         return (
           <div key={ov.id} data-cy-overlay className={'absolute ' + (sel ? '' : 'cursor-move')}
             style={{
               left: `${ov.x * 100}%`, top: `${ov.y * 100}%`, width: `${ov.w * 100}%`, height: `${ov.h * 100}%`,
               transform: `rotate(${ov.rotation ?? 0}deg)`, opacity: ov.opacity ?? 1, zIndex: 150 + (ov.z ?? 0),
             }}
-            onPointerDown={(e) => { onSelectOverlay?.(ov.id); dragOv(e, ov.id, 'move', { x: ov.x, y: ov.y, w: ov.w, h: ov.h }); }}>
+            onPointerDown={(e) => { if (!sel) onSelectOverlay?.(ov.id, e.ctrlKey || e.metaKey); dragOv(e, ov.id, 'move', { x: ov.x, y: ov.y, w: ov.w, h: ov.h }); }}
+            onClick={(e) => { if (e.ctrlKey || e.metaKey) onSelectOverlay?.(ov.id, true); }}>
             {ov.type === 'text' && (
               <div
                 contentEditable={sel}
                 suppressContentEditableWarning
                 onDoubleClick={(e) => { (e.currentTarget as HTMLElement).focus(); }}
                 onBlur={(e) => onOverlayTransform?.(ov.id, { text: (e.currentTarget.textContent || '').trim() })}
-                onPointerDown={(e) => { if (sel) e.stopPropagation(); }}
+                onPointerDown={(e) => { if (sel && selectedOverlayIds.length === 1) e.stopPropagation(); }}
                 className="flex h-full w-full items-center outline-none"
                 style={{
                   color: ov.text_color || '#fff', fontSize: `${(ov.font_size ?? 48) / 10}cqw`,
@@ -305,8 +306,10 @@ export const LivePreviewCanvas: React.FC<{
               </svg>
             )}
             {sel && (
+              <span className="pointer-events-none absolute inset-0 border-2 border-[var(--cy-brand-500)]" />
+            )}
+            {sel && selectedOverlayIds.length === 1 && (
               <>
-                <span className="pointer-events-none absolute inset-0 border-2 border-[var(--cy-brand-500)]" />
                 {CORNERS.map(({ c: corner, cls }) => (
                   <span key={corner} onPointerDown={(e) => dragOv(e, ov.id, corner, { x: ov.x, y: ov.y, w: ov.w, h: ov.h })}
                     className={`absolute h-3 w-3 rounded-full border border-white bg-[var(--cy-brand-600)] ${cls}`} />

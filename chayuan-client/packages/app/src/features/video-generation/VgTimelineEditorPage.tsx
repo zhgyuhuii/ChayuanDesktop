@@ -144,20 +144,20 @@ export const VgTimelineEditorPage: React.FC = () => {
   const [selectedTrackId, setSelectedTrackId] = React.useState<string | null>(null);
   // #10:跨轨选中 clip + Delete/Backspace 删除(焦点在输入框时不拦)
   const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
-  const [selectedOverlayId, setSelectedOverlayId] = React.useState<string | null>(null);
+  const [selectedOverlayIds, setSelectedOverlayIds] = React.useState<string[]>([]);
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-      if (!selectedClipId && !selectedOverlayId) return;
+      if (!selectedClipId && selectedOverlayIds.length === 0) return;
       const el = document.activeElement as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
       e.preventDefault();
-      if (selectedOverlayId) { onTimelineChange(deleteOverlay(timeline, selectedOverlayId)); setSelectedOverlayId(null); }
+      if (selectedOverlayIds.length) { let tl = timeline; for (const oid of selectedOverlayIds) tl = deleteOverlay(tl, oid); onTimelineChange(tl); setSelectedOverlayIds([]); }
       else if (selectedClipId) { onTimelineChange(deleteAnyClip(timeline, selectedClipId)); setSelectedClipId(null); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedClipId, selectedOverlayId, timeline]);
+  }, [selectedClipId, selectedOverlayIds, timeline]);
   const onSetTransform = (clipId: string, tf: { x?: number; y?: number; scale?: number; rotation?: number; flip_h?: boolean; flip_v?: boolean; opacity?: number }) => onTimelineChange(patchClip(timeline, clipId, tf));
   // 裁剪编辑态(P2 几何):同一时间只一个 clip 在裁剪;onCrop 经 patchClip(带 clamp)写入。
   const [cropEditingClipId, setCropEditingClipId] = React.useState<string | null>(null);
@@ -166,23 +166,44 @@ export const VgTimelineEditorPage: React.FC = () => {
   // 选中片段(供预览头部几何工具条用 —— 工具条放头部不挡画面)
   const selClip = selectedClipId ? (timeline.tracks || []).flatMap((t) => t.clips || []).find((c) => c.id === selectedClipId) : null;
   // 叠加元素(A 期文字):选中与片段选中互斥
-  const onSelectOverlay = (id: string | null) => { setSelectedOverlayId(id); if (id) setSelectedClipId(null); };
-  const selectClip = (id: string | null) => { setSelectedClipId(id); if (id) setSelectedOverlayId(null); };
-  const onOverlayTransform = (id: string, tf: Partial<VgOverlay>) => onTimelineChange(patchOverlay(timeline, id, tf));
+  const onSelectOverlay = (id: string | null, additive = false) => {
+    if (!id) { setSelectedOverlayIds([]); return; }
+    if (additive) { setSelectedOverlayIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])); }
+    else { setSelectedOverlayIds([id]); setSelectedClipId(null); }
+  };
+  const selectClip = (id: string | null) => { setSelectedClipId(id); if (id) setSelectedOverlayIds([]); };
+  const onOverlayTransform = (id: string, tf: Partial<VgOverlay>) => {
+    if ((tf.x !== undefined || tf.y !== undefined) && selectedOverlayIds.length > 1 && selectedOverlayIds.includes(id)) {
+      const cur = (timeline.overlays || []).find((o) => o.id === id);
+      if (cur) {
+        const dx = tf.x !== undefined ? tf.x - (cur.x ?? 0) : 0;
+        const dy = tf.y !== undefined ? tf.y - (cur.y ?? 0) : 0;
+        let tl = timeline;
+        for (const oid of selectedOverlayIds) {
+          const o = (tl.overlays || []).find((x) => x.id === oid);
+          if (o) tl = patchOverlay(tl, oid, { x: (o.x ?? 0) + dx, y: (o.y ?? 0) + dy });
+        }
+        onTimelineChange(tl);
+        return;
+      }
+    }
+    onTimelineChange(patchOverlay(timeline, id, tf));
+  };
   const overlayImgInputRef = React.useRef<HTMLInputElement | null>(null);
   const onAddOverlay = (type: 'text' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'image' | 'mosaic') => {
     if (type === 'image') { overlayImgInputRef.current?.click(); return; }
     const { timeline: tl, id } = addOverlay(timeline, type, playheadMs);
-    onTimelineChange(tl); setSelectedOverlayId(id); setSelectedClipId(null);
+    onTimelineChange(tl); setSelectedOverlayIds([id]); setSelectedClipId(null);
   };
   const onOverlayImagePicked = async (file?: File) => {
     if (!file) return;
     try {
       const r = await videoGeneration.uploadOverlayImage(file);
       const { timeline: tl, id } = addOverlay(timeline, 'image', playheadMs, r.name);
-      onTimelineChange(tl); setSelectedOverlayId(id); setSelectedClipId(null);
+      onTimelineChange(tl); setSelectedOverlayIds([id]); setSelectedClipId(null);
     } catch (e) { reportError(e as Error, '叠加图片上传失败'); }
   };
+  const selectedOverlayId = selectedOverlayIds.length === 1 ? selectedOverlayIds[0]! : null;
   const selOverlay = selectedOverlayId ? (timeline.overlays || []).find((ov) => ov.id === selectedOverlayId) : null;
   // #26 片段间转场菜单
   const [txMenu, setTxMenu] = React.useState<{ x: number; y: number; clipId: string } | null>(null);
@@ -431,7 +452,7 @@ export const VgTimelineEditorPage: React.FC = () => {
                   onSelectClip={selectClip}
                   backgroundColor={params.background_color}
                   overlays={timeline.overlays}
-                  selectedOverlayId={selectedOverlayId}
+                  selectedOverlayIds={selectedOverlayIds}
                   onSelectOverlay={onSelectOverlay}
                   onOverlayTransform={onOverlayTransform}
                   onModeChange={setPreviewMode}
@@ -534,10 +555,10 @@ export const VgTimelineEditorPage: React.FC = () => {
           selectedClipId={selectedClipId}
           onSelectClip={selectClip}
           overlays={timeline.overlays}
-          selectedOverlayId={selectedOverlayId}
+          selectedOverlayIds={selectedOverlayIds}
           onSelectOverlay={onSelectOverlay}
           onOverlayPatch={(id, patch) => onTimelineChange(patchOverlay(timeline, id, patch))}
-          onOverlayDelete={(id) => { onTimelineChange(deleteOverlay(timeline, id)); setSelectedOverlayId(null); }}
+          onOverlayDelete={(id) => { onTimelineChange(deleteOverlay(timeline, id)); setSelectedOverlayIds((prev) => prev.filter((x) => x !== id)); }}
           playheadDriveRef={playheadDriveRef}
           narrationName={narrationName}
           narrationDurationMs={draft.audioDurationMs || (peaks.length ? contentMs : 0)}
