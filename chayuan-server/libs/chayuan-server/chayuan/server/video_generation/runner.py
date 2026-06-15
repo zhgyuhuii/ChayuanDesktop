@@ -743,7 +743,7 @@ def _persist_vg_videos(task_id: str, params, final_videos: list[str]) -> None:
             p = _prepend(p, _intro_p, wd, bg=_bg, threads=_thr, w=_W, h=_H)
         if _outro_p:
             p = _user_outro(p, _outro_p, wd, bg=_bg, threads=_thr, w=_W, h=_H)
-        return _maybe_outro(p, wd, threads=_thr)
+        return _maybe_outro(p, wd, threads=_thr, w=_W, h=_H)
 
     final_videos = [_frame(p) for p in final_videos]
     for path in final_videos:

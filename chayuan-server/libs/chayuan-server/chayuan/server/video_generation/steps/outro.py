@@ -122,9 +122,35 @@ def _outro_source() -> str | None:
     return None
 
 
+def _fit_chain(src: str, out: str, *, w: int, h: int, fps: str,
+               mode: str = "blur", pad: str = "black") -> str:
+    """把输入流 src 适配到 w*h 的滤镜链,输出到标签 out(形如 "[v1]")。
+
+    - blur(默认):同画面「模糊放大」铺底 + 居中适配前景。四周不再是黑框,而是
+      该画面自身的虚化延伸,与正片观感融为一体、看着像刻意设计的过场;
+    - cover:裁剪铺满(无边,但会裁掉画面四周);
+    - pad :缩放居中 + 纯色补边(旧行为,宽高比不一致时会出现明显的"框")。
+    """
+    common = f"fps={fps},setsar=1,format=yuv420p"
+    if mode == "cover":
+        return (f"{src}scale={w}:{h}:force_original_aspect_ratio=increase,"
+                f"crop={w}:{h},{common}{out}")
+    if mode == "pad":
+        return (f"{src}scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color={pad},{common}{out}")
+    b = out.strip("[]")  # 派生唯一中间标签,避免与其它链冲突
+    return (
+        f"{src}split=2[{b}bg][{b}fg];"
+        f"[{b}bg]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=20:1[{b}bb];"
+        f"[{b}fg]scale={w}:{h}:force_original_aspect_ratio=decrease[{b}ff];"
+        f"[{b}bb][{b}ff]overlay=(W-w)/2:(H-h)/2,{common}{out}"
+    )
+
+
 def _build_cmd(ff: str, main: str, outro: str, out: str, *, w: int, h: int,
-               outro_audio: bool, outro_dur: float, fps: str, threads: int) -> list[str]:
-    """已知主视频 w/h:把片尾缩放到 w*h 补黑边,统一 fps/sar/pixfmt + aac/44100/stereo 后拼接。"""
+               outro_audio: bool, outro_dur: float, fps: str, threads: int,
+               fit: str = "blur") -> list[str]:
+    """已知主视频 w/h:把片尾适配到 w*h(默认模糊铺底无黑框),统一 fps/sar/pixfmt + aac/44100/stereo 后拼接。"""
     inputs = ["-i", main, "-i", outro]
     a_outro = "[1:a]"
     if not outro_audio:
@@ -132,11 +158,9 @@ def _build_cmd(ff: str, main: str, outro: str, out: str, *, w: int, h: int,
         inputs += ["-f", "lavfi", "-t", f"{dur:.3f}",
                    "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
         a_outro = "[2:a]"
-    vf_outro = (f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,fps={fps},setsar=1,format=yuv420p")
     fc = (
         f"[0:v]scale={w}:{h},fps={fps},setsar=1,format=yuv420p[v0];"
-        f"[1:v]{vf_outro}[v1];"
+        + _fit_chain("[1:v]", "[v1]", w=w, h=h, fps=fps, mode=fit) + ";"
         f"[0:a]aformat=sample_rates=44100:channel_layouts=stereo[a0];"
         f"{a_outro}aformat=sample_rates=44100:channel_layouts=stereo[a1];"
         f"[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"
@@ -162,8 +186,12 @@ def _build_cmd_scale2ref(ff: str, main: str, outro: str, out: str, *, fps: str, 
 
 
 def append_outro(main_path: str, work_dir: str, *, outro_path: str, threads: int = 2,
-                 fps: int = 30) -> str:
-    """把 outro_path 拼到 main_path 末尾,原地替换。失败返回原 main_path,绝不抛。"""
+                 fps: int = 30, w: int | None = None, h: int | None = None,
+                 fit: str = "blur") -> str:
+    """把 outro_path 拼到 main_path 末尾,原地替换。失败返回原 main_path,绝不抛。
+
+    w/h 优先用调用方(runner)传入的目标分辨率:既免依赖 ffprobe,也保证模糊铺底
+    按正片分辨率精确生成。"""
     marker = main_path + ".outro.done"
     if os.path.isfile(marker):
         return main_path
@@ -173,10 +201,13 @@ def append_outro(main_path: str, work_dir: str, *, outro_path: str, threads: int
         m = _probe(main_path)
         o = _probe(outro_path)
         fps_eff = (m.get("fps") if m else "") or str(fps or 30)
-        if m and o:
-            cmd = _build_cmd(ff, main_path, outro_path, tmp, w=m["w"], h=m["h"],
-                             outro_audio=o["has_audio"], outro_dur=o["dur"],
-                             fps=fps_eff, threads=threads)
+        cw = int(w) if w else (m["w"] if m else None)
+        ch = int(h) if h else (m["h"] if m else None)
+        if cw and ch:
+            cmd = _build_cmd(ff, main_path, outro_path, tmp, w=cw, h=ch,
+                             outro_audio=(o["has_audio"] if o else True),
+                             outro_dur=(o["dur"] if o else 0.0),
+                             fps=fps_eff, threads=threads, fit=fit)
         else:
             cmd = _build_cmd_scale2ref(ff, main_path, outro_path, tmp, fps=fps_eff, threads=threads)
         r = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -202,7 +233,8 @@ def append_outro(main_path: str, work_dir: str, *, outro_path: str, threads: int
 
 
 def maybe_append_outro(main_path: str, work_dir: str | None = None, *,
-                       threads: int = 2, fps: int = 30) -> str:
+                       threads: int = 2, fps: int = 30, w: int | None = None,
+                       h: int | None = None, fit: str = "blur") -> str:
     """会员不动;非会员且能定位到 video_end.mp4 时拼片尾。返回最终视频路径(失败=原路径)。"""
     try:
         if not main_path or not os.path.isfile(main_path):
@@ -218,7 +250,8 @@ def maybe_append_outro(main_path: str, work_dir: str | None = None, *,
             logger.warning("[outro] 未定位到片尾资产 %s,跳过加片尾", OUTRO_FILENAME)
             return main_path
         wd = work_dir or os.path.dirname(main_path) or "."
-        return append_outro(main_path, wd, outro_path=outro, threads=threads, fps=fps)
+        return append_outro(main_path, wd, outro_path=outro, threads=threads, fps=fps,
+                            w=w, h=h, fit=fit)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[outro] maybe_append_outro 异常,保留原视频: %s", exc)
         return main_path
@@ -242,7 +275,7 @@ def _pad_color(bg) -> str:
 
 
 def _build_concat_cmd(ff, main, extra, out, *, position, w, h, extra_is_image,
-                      extra_audio, extra_dur, fps, threads, pad):
+                      extra_audio, extra_dur, fps, threads, pad, fit="blur"):
     inputs = ["-i", main]
     if extra_is_image:
         dur = extra_dur if extra_dur > 0 else 3.0
@@ -255,11 +288,9 @@ def _build_concat_cmd(ff, main, extra, out, *, position, w, h, extra_is_image,
         inputs += ["-f", "lavfi", "-t", f"{dur:.3f}",
                    "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
         a_extra = "[2:a]"
-    vf_extra = (f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color={pad},fps={fps},setsar=1,format=yuv420p")
     base = (
         f"[0:v]scale={w}:{h},fps={fps},setsar=1,format=yuv420p[vm];"
-        f"[1:v]{vf_extra}[ve];"
+        + _fit_chain("[1:v]", "[ve]", w=w, h=h, fps=fps, mode=fit, pad=pad) + ";"
         f"[0:a]aformat=sample_rates=44100:channel_layouts=stereo[am];"
         f"{a_extra}aformat=sample_rates=44100:channel_layouts=stereo[ae];"
     )
@@ -271,7 +302,8 @@ def _build_concat_cmd(ff, main, extra, out, *, position, w, h, extra_is_image,
 
 
 def _concat_clip(main_path, extra_path, work_dir, *, position, bg=(0, 0, 0),
-                 threads=2, fps=30, marker_suffix=".extra.done", w=None, h=None):
+                 threads=2, fps=30, marker_suffix=".extra.done", w=None, h=None,
+                 fit="blur"):
     marker = main_path + marker_suffix
     if os.path.isfile(marker):
         return main_path
@@ -300,7 +332,7 @@ def _concat_clip(main_path, extra_path, work_dir, *, position, bg=(0, 0, 0),
         cmd = _build_concat_cmd(
             ff, main_path, extra_path, tmp, position=position, w=cw, h=ch,
             extra_is_image=is_img, extra_audio=e_audio, extra_dur=e_dur,
-            fps=eff_fps, threads=threads, pad=_pad_color(bg),
+            fps=eff_fps, threads=threads, pad=_pad_color(bg), fit=fit,
         )
         r = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if r.returncode != 0 or not os.path.isfile(tmp):
@@ -324,13 +356,13 @@ def _concat_clip(main_path, extra_path, work_dir, *, position, bg=(0, 0, 0),
         return main_path
 
 
-def maybe_prepend_intro(main_path, intro_path, work_dir=None, *, bg=(0, 0, 0), threads=2, fps=30, w=None, h=None):
+def maybe_prepend_intro(main_path, intro_path, work_dir=None, *, bg=(0, 0, 0), threads=2, fps=30, w=None, h=None, fit="blur"):
     wd = work_dir or os.path.dirname(main_path) or "."
     return _concat_clip(main_path, intro_path, wd, position="head", bg=bg,
-                        threads=threads, fps=fps, marker_suffix=".intro.done", w=w, h=h)
+                        threads=threads, fps=fps, marker_suffix=".intro.done", w=w, h=h, fit=fit)
 
 
-def append_user_outro(main_path, outro_path, work_dir=None, *, bg=(0, 0, 0), threads=2, fps=30, w=None, h=None):
+def append_user_outro(main_path, outro_path, work_dir=None, *, bg=(0, 0, 0), threads=2, fps=30, w=None, h=None, fit="blur"):
     wd = work_dir or os.path.dirname(main_path) or "."
     return _concat_clip(main_path, outro_path, wd, position="tail", bg=bg,
-                        threads=threads, fps=fps, marker_suffix=".useroutro.done", w=w, h=h)
+                        threads=threads, fps=fps, marker_suffix=".useroutro.done", w=w, h=h, fit=fit)
