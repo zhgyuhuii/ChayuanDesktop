@@ -248,6 +248,8 @@ class VideoParams(BaseModel):
     text_fore_color: str = "#FFFFFF"
     text_background_color: Union[bool, str] = True  # True=黑底, False=无, str=自定义
     background_color: str = "#000000"               # 画面空白处背景色(letterbox/间隙/合成底);人人可用
+    intro_clip: Optional[str] = None                # 片头文件名(项目覆盖;None=用全局默认);仅付费生效
+    outro_clip: Optional[str] = None                # 片尾文件名(项目覆盖;None=用全局默认);仅付费生效
     stroke_color: str = "#000000"
     stroke_width: float = Field(default=1.5, ge=0.0, le=10.0)
 

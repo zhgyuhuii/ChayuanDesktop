@@ -703,12 +703,48 @@ def _persist_vg_videos(task_id: str, params, final_videos: list[str]) -> None:
     base_name = (head or raw or "视频")[:14]
     title = f"{base_name} · {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
-    # 非会员:给每份最终成品拼接片尾(会员/失败均返回原路径,不影响产出)
-    from .steps.outro import maybe_append_outro as _maybe_outro
-    final_videos = [
-        _maybe_outro(p, os.path.dirname(p), threads=max(1, int(getattr(params, "n_threads", 2) or 2)))
-        for p in final_videos
-    ]
+    # 输出框架:片头(付费)→ 自定义片尾(付费)→ 非会员强制 video_end(maybe_append_outro 内部判定)。
+    from .steps.outro import (
+        maybe_append_outro as _maybe_outro, maybe_prepend_intro as _prepend,
+        append_user_outro as _user_outro, resolve_intro_outro as _resolve_io, _MEMBER_APPS,
+    )
+    from .steps.compose import _bg_rgb
+    from .steps.vg_output_defaults import load_defaults as _load_def
+    from ._helpers import _chayuan_root as _croot, intro_outro_dir as _io_dir
+    _thr = max(1, int(getattr(params, "n_threads", 2) or 2))
+    _bg = _bg_rgb(params)
+    try:
+        from chayuan.server.license import engine as _eng
+        from chayuan.server.license.config import load_license_config as _load_lic
+        _paid = _eng.is_paid_member(_croot(), _load_lic(), _MEMBER_APPS)
+    except Exception:  # noqa: BLE001
+        _paid = False
+    _g = _load_def()
+    _intro, _outro = _resolve_io(
+        params_intro=getattr(params, "intro_clip", None),
+        params_outro=getattr(params, "outro_clip", None),
+        global_intro=_g.get("intro_clip"), global_outro=_g.get("outro_clip"), paid=_paid,
+    )
+
+    def _io_path(name):
+        if not name:
+            return None
+        if os.path.isabs(name) and os.path.isfile(name):
+            return name
+        cand = os.path.join(_io_dir(), os.path.basename(name))
+        return cand if os.path.isfile(cand) else None
+
+    _intro_p, _outro_p = _io_path(_intro), _io_path(_outro)
+
+    def _frame(p):
+        wd = os.path.dirname(p)
+        if _intro_p:
+            p = _prepend(p, _intro_p, wd, bg=_bg, threads=_thr)
+        if _outro_p:
+            p = _user_outro(p, _outro_p, wd, bg=_bg, threads=_thr)
+        return _maybe_outro(p, wd, threads=_thr)
+
+    final_videos = [_frame(p) for p in final_videos]
     for path in final_videos:
         try:
             size = os.path.getsize(path) if os.path.isfile(path) else 0

@@ -222,3 +222,106 @@ def maybe_append_outro(main_path: str, work_dir: str | None = None, *,
     except Exception as exc:  # noqa: BLE001
         logger.warning("[outro] maybe_append_outro 异常,保留原视频: %s", exc)
         return main_path
+
+
+# ── 用户片头/片尾(付费)+ 背景色补边:复用上面的缩放/补边/统一/拼接思路 ──────────
+_IMG_EXT = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif")
+
+
+def resolve_intro_outro(*, params_intro, params_outro, global_intro, global_outro, paid):
+    """生效片头/片尾:项目优先、缺则全局;非付费一律 (None, None)。"""
+    if not paid:
+        return (None, None)
+    return (params_intro or global_intro or None, params_outro or global_outro or None)
+
+
+def _pad_color(bg) -> str:
+    if isinstance(bg, (tuple, list)) and len(bg) == 3:
+        return "0x%02x%02x%02x" % (int(bg[0]), int(bg[1]), int(bg[2]))
+    return "black"
+
+
+def _build_concat_cmd(ff, main, extra, out, *, position, w, h, extra_is_image,
+                      extra_audio, extra_dur, fps, threads, pad):
+    inputs = ["-i", main]
+    if extra_is_image:
+        dur = extra_dur if extra_dur > 0 else 3.0
+        inputs += ["-loop", "1", "-t", f"{dur:.3f}", "-i", extra]
+    else:
+        inputs += ["-i", extra]
+    a_extra = "[1:a]"
+    if extra_is_image or not extra_audio:
+        dur = extra_dur if extra_dur > 0 else 3.0
+        inputs += ["-f", "lavfi", "-t", f"{dur:.3f}",
+                   "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
+        a_extra = "[2:a]"
+    vf_extra = (f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color={pad},fps={fps},setsar=1,format=yuv420p")
+    base = (
+        f"[0:v]scale={w}:{h},fps={fps},setsar=1,format=yuv420p[vm];"
+        f"[1:v]{vf_extra}[ve];"
+        f"[0:a]aformat=sample_rates=44100:channel_layouts=stereo[am];"
+        f"{a_extra}aformat=sample_rates=44100:channel_layouts=stereo[ae];"
+    )
+    order = "[ve][ae][vm][am]" if position == "head" else "[vm][am][ve][ae]"
+    fc = base + order + "concat=n=2:v=1:a=1[v][a]"
+    return [ff, "-y", *inputs, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+            "-threads", str(threads or 2), out]
+
+
+def _concat_clip(main_path, extra_path, work_dir, *, position, bg=(0, 0, 0),
+                 threads=2, fps=30, marker_suffix=".extra.done"):
+    marker = main_path + marker_suffix
+    if os.path.isfile(marker):
+        return main_path
+    if not (main_path and os.path.isfile(main_path)) or not (extra_path and os.path.isfile(extra_path)):
+        return main_path
+    try:
+        ff = _ffmpeg()
+        tmp = os.path.join(work_dir, os.path.splitext(os.path.basename(main_path))[0] + ".concat.mp4")
+        m = _probe(main_path)
+        if not m:
+            logger.warning("[intro/outro] 主视频 probe 失败,跳过 %s", position)
+            return main_path
+        ext = os.path.splitext(extra_path)[1].lower()
+        is_img = ext in _IMG_EXT
+        e = None if is_img else _probe(extra_path)
+        cmd = _build_concat_cmd(
+            ff, main_path, extra_path, tmp, position=position, w=m["w"], h=m["h"],
+            extra_is_image=is_img, extra_audio=(e["has_audio"] if e else False),
+            extra_dur=(e["dur"] if e else 3.0), fps=(m.get("fps") or str(fps or 30)),
+            threads=threads, pad=_pad_color(bg),
+        )
+        r = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if r.returncode != 0 or not os.path.isfile(tmp):
+            logger.warning("[intro/outro] ffmpeg %s 失败,保留原视频: %s",
+                           position, (r.stderr or r.stdout or "").strip()[-400:])
+            if os.path.isfile(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+            return main_path
+        os.replace(tmp, main_path)
+        try:
+            open(marker, "w").close()
+        except OSError:
+            pass
+        logger.info("[intro/outro] 已拼接 %s: %s", position, main_path)
+        return main_path
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[intro/outro] %s 异常,保留原视频: %s", position, exc)
+        return main_path
+
+
+def maybe_prepend_intro(main_path, intro_path, work_dir=None, *, bg=(0, 0, 0), threads=2, fps=30):
+    wd = work_dir or os.path.dirname(main_path) or "."
+    return _concat_clip(main_path, intro_path, wd, position="head", bg=bg,
+                        threads=threads, fps=fps, marker_suffix=".intro.done")
+
+
+def append_user_outro(main_path, outro_path, work_dir=None, *, bg=(0, 0, 0), threads=2, fps=30):
+    wd = work_dir or os.path.dirname(main_path) or "."
+    return _concat_clip(main_path, outro_path, wd, position="tail", bg=bg,
+                        threads=threads, fps=fps, marker_suffix=".useroutro.done")
