@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { ChevronLeft, ChevronRight, Trash2, Replace, Volume2, VolumeX } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Replace, Volume2, VolumeX, SlidersHorizontal } from 'lucide-react';
+import { ClipPropertyPopover } from './ClipPropertyPopover';
 import type { VgTimeline as VgTimelineData } from '@chayuan/api';
 import { clipDurMs, deleteClip, reorderClip, setClipDuration, setClipIn, setClipStart, normalizeMontage, setClipMuted } from './timelineEdit';
 import { TRANSITIONS, hasTransition } from './transitions';
@@ -35,11 +36,13 @@ export const VgTimeline: React.FC<{
   onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
 }> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, clipThumb, videoTrackOnly, onReplaceClip, onClipContextMenu, trackId, selectedClipId, onSelectClip, onTransitionMenu }) => {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [propOpenId, setPropOpenId] = React.useState<string | null>(null);
   const pps = pxPerSec ?? PX_PER_SEC;
   const videoTrack = trackId
     ? (timeline.tracks || []).find((t) => t.id === trackId)
     : (timeline.tracks || []).find((t) => t.kind === 'video');
   const clips = videoTrack?.clips ?? [];
+  const isPip = !!videoTrack?.removable; // 附加轨/PIP 才显示透明度+变换
 
   // editable 下用 clipDurMs(out-in / duration_ms)算宽,编辑后更准;
   // 只读沿用相邻 start 差。轨道总宽取两者最大,保证拖宽后容器跟着撑开。
@@ -158,6 +161,10 @@ export const VgTimeline: React.FC<{
                     />
                   </>
                 )}
+                {propOpenId === s.id && onChange && (
+                  <ClipPropertyPopover timeline={timeline} clip={clips[s.idx]!} isPip={isPip}
+                    onChange={onChange} onClose={() => setPropOpenId(null)} />
+                )}
                 {selected && onChange && editable && (
                   <div className="absolute -top-6 left-0 z-30 flex items-center gap-0.5 rounded bg-[var(--cy-surface-base)] p-0.5 shadow ring-1 ring-[var(--cy-border-subtle)]">
                     <button type="button" onClick={(e) => { e.stopPropagation(); onChange(reorderClip(timeline, s.id, s.idx - 1)); }}
@@ -181,6 +188,10 @@ export const VgTimeline: React.FC<{
                       className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
                       title={clips[s.idx]!.muted ? '取消静音(混入该片段原声)' : '静音该片段原声'}>
                       {clips[s.idx]!.muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                    </button>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setPropOpenId((id) => (id === s.id ? null : s.id)); }}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]" title="属性(透明度/音量/位置缩放)">
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
                     </button>
                     <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedId(null); onChange(deleteClip(timeline, s.id)); }}
                       className="inline-flex h-5 w-5 items-center justify-center rounded text-rose-600 hover:bg-rose-50" title="删除片段">
