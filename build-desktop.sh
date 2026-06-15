@@ -393,6 +393,12 @@ if [[ "$SKIP_MODEL_CHECK" != "1" ]] && command -v poetry >/dev/null 2>&1; then
             || { fail 'torch 安装失败(full 数字人需要;spec _collect_required 会 fail-fast)'; exit 6; }
         ( cd "$SERVER_PKG_DIR" && poetry run pip install voxcpm ) \
             || { fail 'voxcpm 安装失败(full 克隆音色需要)'; exit 6; }
+        # voxcpm 依赖 gradio<7,>=6 → gradio 6 把 fastapi/starlette/python-multipart 顶到最新,
+        # 覆盖 chayuan-server 钉的 fastapi ~0.109.2 / python-multipart 0.0.9(nicegui 1.4.x 也要
+        # fastapi<0.110)→ sidecar 运行时崩。只用 voxcpm 推理(不碰 gradio),装完还原 web 栈
+        # (装 fastapi 带回兼容 starlette;gradio 留着但不 import/不打包)。
+        ( cd "$SERVER_PKG_DIR" && poetry run pip install "fastapi~=0.109.2" "python-multipart==0.0.9" ) \
+            || note 'web 栈还原失败 — sidecar 可能因 fastapi/nicegui 不匹配起不来'
         if [[ -f "$SERVER_DIR/scripts/seed_voxcpm.py" ]]; then
             ( cd "$SERVER_PKG_DIR" && poetry run python "$SERVER_DIR/scripts/seed_voxcpm.py" ) || note 'seed voxcpm 失败(不阻断)'
         fi
