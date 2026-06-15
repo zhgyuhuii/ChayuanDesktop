@@ -454,8 +454,6 @@ export const VgTimelineEditorPage: React.FC = () => {
           onReorderVideoTrack={(tid, dir) => onTimelineChange(reorderVideoTrack(timeline, tid, dir))}
           selectedClipId={selectedClipId}
           onSelectClip={setSelectedClipId}
-          cropEditingClipId={cropEditingClipId}
-          onToggleCropClip={onToggleCropClip}
           playheadDriveRef={playheadDriveRef}
           narrationName={narrationName}
           narrationDurationMs={draft.audioDurationMs || (peaks.length ? contentMs : 0)}
