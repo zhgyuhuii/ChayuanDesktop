@@ -94,6 +94,12 @@ export const MaterialLibraryPage: React.FC = () => {
   };
 
   const clearSelected = () => setSelectedIds(new Set());
+  const selectAll = () => setSelectedIds(new Set(items.map((m) => m.material_id)));
+  const invertSelection = () => setSelectedIds((prev) => {
+    const next = new Set<string>();
+    for (const m of items) if (!prev.has(m.material_id)) next.add(m.material_id);
+    return next;
+  });
 
   return (
     <div
@@ -150,6 +156,24 @@ export const MaterialLibraryPage: React.FC = () => {
           ))}
         </div>
         <div className="ml-auto flex items-center gap-1.5">
+          {items.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={selectAll}
+                className="inline-flex items-center rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
+              >
+                全选
+              </button>
+              <button
+                type="button"
+                onClick={invertSelection}
+                className="inline-flex items-center rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]"
+              >
+                反选
+              </button>
+            </>
+          )}
           {selectedIds.size > 0 && (
             <>
               <span className="text-xs text-[var(--cy-text-tertiary)]">已选 {selectedIds.size} 个</span>

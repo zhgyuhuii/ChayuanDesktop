@@ -11,7 +11,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { getPlatform } from '@chayuan/platform-shared';
 import {
   Video, Download, Trash2, RefreshCw, LayoutGrid, List as ListIcon, Play,
-  Clapperboard, UserRound, Loader2, AlertTriangle,
+  Clapperboard, UserRound, Loader2, AlertTriangle, CheckSquare, Square,
 } from 'lucide-react';
 import {
   videoGeneration, digitalHuman,
@@ -42,6 +42,8 @@ export const VideoCenterPage: React.FC = () => {
   const { completed, active, isLoading, vgError, dhError } = useUnifiedVideos();
   const [view, setView] = React.useState<'card' | 'list'>('card');
   const [filter, setFilter] = React.useState<Filter>('all');
+  const [multiSel, setMultiSel] = React.useState(false);
+  const [selectedKeys, setSelectedKeys] = React.useState<Set<string>>(() => new Set());
 
   const shown = React.useMemo(
     () => (filter === 'all' ? completed : completed.filter((v) => v.source === filter)),
@@ -91,6 +93,29 @@ export const VideoCenterPage: React.FC = () => {
     void navigate({ to: '/video-generation' as never });
   };
 
+  const toggleSel = (k: string) => setSelectedKeys((p) => {
+    const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n;
+  });
+  const selectAll = () => setSelectedKeys(new Set(shown.map((v) => v.key)));
+  const invertSel = () => setSelectedKeys((p) => {
+    const n = new Set<string>(); for (const v of shown) if (!p.has(v.key)) n.add(v.key); return n;
+  });
+  const exitMulti = () => { setMultiSel(false); setSelectedKeys(new Set()); };
+  const onDeleteSelected = async () => {
+    if (selectedKeys.size === 0) return;
+    if (!(await confirmDialog(`删除选中的 ${selectedKeys.size} 个视频?磁盘文件会一并清掉。`, { danger: true }))) return;
+    const map = new Map(shown.map((v) => [v.key, v] as const));
+    for (const k of selectedKeys) {
+      const u = map.get(k);
+      if (!u) continue;
+      try {
+        if (u.source === 'vg') await delVg.mutateAsync((u.raw as VgVideo).video_id);
+        else await delDh.mutateAsync((u.raw as DhTaskStatus).task_id);
+      } catch (e) { reportError(e as Error); }
+    }
+    exitMulti();
+  };
+
   return (
     <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 overflow-y-auto cy-hide-scrollbar px-6 py-8">
       <header className="flex items-start justify-between gap-3">
@@ -125,6 +150,27 @@ export const VideoCenterPage: React.FC = () => {
             {FILTER_LABEL[f]}
           </button>
         ))}
+        <div className="ml-auto flex items-center gap-1.5">
+          {!multiSel ? (
+            <button type="button" onClick={() => setMultiSel(true)} disabled={shown.length === 0}
+              className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)] disabled:opacity-50">
+              <CheckSquare className="h-3.5 w-3.5" /> 多选
+            </button>
+          ) : (
+            <>
+              <button type="button" onClick={selectAll}
+                className="inline-flex items-center rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]">全选</button>
+              <button type="button" onClick={invertSel}
+                className="inline-flex items-center rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]">反选</button>
+              <button type="button" onClick={() => void onDeleteSelected()} disabled={selectedKeys.size === 0}
+                className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 hover:border-rose-300 disabled:opacity-50">
+                <Trash2 className="h-3 w-3" /> 删除选中 ({selectedKeys.size})
+              </button>
+              <button type="button" onClick={exitMulti}
+                className="inline-flex items-center rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]">退出</button>
+            </>
+          )}
+        </div>
       </div>
 
       {(vgError || dhError) && (
@@ -175,6 +221,9 @@ export const VideoCenterPage: React.FC = () => {
           {shown.map((u) => (
             <UnifiedCard
               key={u.key} u={u} mode={view}
+              multiSel={multiSel}
+              checked={selectedKeys.has(u.key)}
+              onToggleSelect={() => toggleSel(u.key)}
               onDownload={() => void onDownload(u)}
               onDelete={() => void onDelete(u)}
               onCopyRedo={u.source === 'vg' ? () => onCopyRedo(u.raw as VgVideo) : undefined}
@@ -196,18 +245,27 @@ const SourceBadge: React.FC<{ source: 'vg' | 'dh' }> = ({ source }) => (
 const UnifiedCard: React.FC<{
   u: UnifiedVideo;
   mode: 'card' | 'list';
+  multiSel?: boolean;
+  checked?: boolean;
+  onToggleSelect?: () => void;
   onDownload: () => void;
   onDelete: () => void;
   onCopyRedo?: () => void;
-}> = ({ u, mode, onDownload, onDelete, onCopyRedo }) => {
+}> = ({ u, mode, multiSel = false, checked = false, onToggleSelect, onDownload, onDelete, onCopyRedo }) => {
   const [expanded, setExpanded] = React.useState(false);
   const meta = `${u.width || '?'}×${u.height || '?'}${u.durationMs ? ` · ${Math.round(u.durationMs / 1000)}s` : ''}${u.createdAt ? ` · ${new Date(u.createdAt).toLocaleString()}` : ''}`;
   const iconBtn = 'inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[10px] text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)]';
 
   if (mode === 'list') {
     return (
-      <li className="rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]">
+      <li className={'rounded-lg border bg-[var(--cy-surface-base)] ' + (checked ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/40' : 'border-[var(--cy-border-subtle)]')}>
         <div className="flex items-center gap-2 px-3 py-2">
+          {multiSel && (
+            <button type="button" onClick={onToggleSelect} title={checked ? '取消选择' : '选择'}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-[var(--cy-brand-600)]">
+              {checked ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4 text-[var(--cy-text-tertiary)]" />}
+            </button>
+          )}
           <button type="button" onClick={() => setExpanded((x) => !x)} title="播放/收起"
             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)] hover:bg-[var(--cy-brand-100)]">
             <Play className="h-3.5 w-3.5" />
@@ -230,8 +288,17 @@ const UnifiedCard: React.FC<{
   }
 
   return (
-    <li className="relative overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)]">
+    <li className={'relative overflow-hidden rounded-xl border bg-[var(--cy-surface-base)] ' + (checked ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/40' : 'border-[var(--cy-border-subtle)]')}>
       <div className="absolute left-2 top-2 z-10"><SourceBadge source={u.source} /></div>
+      {multiSel && (
+        <span className="absolute right-2 top-2 z-30 rounded bg-black/55 p-0.5 text-white">
+          {checked ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+        </span>
+      )}
+      {multiSel && (
+        <button type="button" onClick={onToggleSelect} title={checked ? '取消选择' : '选择'}
+          className="absolute inset-0 z-20" />
+      )}
       <video src={u.fileUrl} controls preload="metadata" className="w-full bg-black"
         style={{ aspectRatio: u.width && u.height ? `${u.width} / ${u.height}` : '9 / 16', maxHeight: '40vh' }} />
       <div className="p-3">
