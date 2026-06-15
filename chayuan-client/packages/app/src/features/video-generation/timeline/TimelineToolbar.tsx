@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Film, ChevronUp, ChevronDown, Sparkles, FileText, Captions, Volume2, Type, Music, Loader2 } from 'lucide-react';
+import { Film, ChevronUp, ChevronDown, Sparkles, Wand2, FileText, Captions, Volume2, Type, Music, Loader2 } from 'lucide-react';
 
 interface TimelineToolbarProps {
   timelineCollapsed: boolean;
@@ -20,8 +20,15 @@ const SETTINGS = [
   ['bgm', '背景音乐', Music],
 ] as const;
 
-const editBtn =
-  'inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--cy-border-strong)] px-3 text-xs text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]';
+// icon-only ghost:动作类(无选中态)
+const iconBtn =
+  'inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)] transition-colors';
+// icon-only 开关:设置类(单选,选中=brand-50)
+const iconToggle = (active: boolean) =>
+  'inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ' +
+  (active
+    ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]'
+    : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]');
 
 export const TimelineToolbar: React.FC<TimelineToolbarProps> = ({
   timelineCollapsed,
@@ -47,14 +54,14 @@ export const TimelineToolbar: React.FC<TimelineToolbarProps> = ({
 
       {/* 脚本/字幕编辑 + 语音/字幕/背景音乐(单选),同一行 */}
       <div className="inline-flex flex-wrap items-center gap-2">
-        <button type="button" onClick={onScriptGen} className={editBtn}>
-          <Sparkles className="h-3.5 w-3.5" /> 生成脚本
+        <button type="button" onClick={onScriptGen} className={iconBtn} title="生成脚本" aria-label="生成脚本">
+          <Wand2 className="h-4 w-4" />
         </button>
-        <button type="button" onClick={onScriptEdit} className={editBtn}>
-          <FileText className="h-3.5 w-3.5" /> 编辑脚本
+        <button type="button" onClick={onScriptEdit} className={iconBtn} title="编辑脚本" aria-label="编辑脚本">
+          <FileText className="h-4 w-4" />
         </button>
-        <button type="button" onClick={onSubtitleEdit} className={editBtn}>
-          <Captions className="h-3.5 w-3.5" /> 编辑字幕
+        <button type="button" onClick={onSubtitleEdit} className={iconBtn} title="编辑字幕" aria-label="编辑字幕">
+          <Captions className="h-4 w-4" />
         </button>
 
         <span className="mx-0.5 h-5 w-px bg-[var(--cy-border-subtle)]" />
@@ -67,12 +74,9 @@ export const TimelineToolbar: React.FC<TimelineToolbarProps> = ({
             <button key={k} type="button"
               onClick={() => onSettingsPanel(active ? null : k)}
               aria-pressed={active}
-              title={`${label}设置`}
-              className={'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs transition-colors ' +
-                (active
-                  ? 'border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]'
-                  : 'border-[var(--cy-border-strong)] text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]')}>
-              <Icon className="h-3.5 w-3.5 text-[var(--cy-brand-500)]" /> {label}
+              title={`${label}设置`} aria-label={`${label}设置`}
+              className={iconToggle(active)}>
+              <Icon className="h-4 w-4" />
             </button>
           );
         })}
