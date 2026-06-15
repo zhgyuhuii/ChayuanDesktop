@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Mic, Captions, Music, Music2, Clapperboard, PictureInPicture2, Volume2, VolumeX } from 'lucide-react';
+import { Mic, Captions, Music, Music2, Clapperboard, PictureInPicture2, Volume2, VolumeX, SlidersVertical } from 'lucide-react';
 import type { VgTimeline, VgTimelineTrack } from '@chayuan/api';
 import type { SrtCue } from './srtParse';
 import { msToPx, pxToMs } from './timelineScale';
@@ -12,6 +12,7 @@ import { AudioWaveTrack } from './AudioWaveTrack';
 import { AudioInsertTrack } from './AudioInsertTrack';
 import { SubtitleCueTrack } from './SubtitleCueTrack';
 import { BgmTrack } from './BgmTrack';
+import { VerticalSliderPopover } from './VerticalSliderPopover';
 import { VG_MATERIAL_DND_MIME, type DraggedMaterial } from './timelineEdit';
 
 const HEADER_W = 84;
@@ -118,9 +119,10 @@ export const TimelineTracks: React.FC<{
                       {allMuted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
                     </button>
                     {!allMuted && (
-                      <input type="range" min={0} max={1.5} step={0.05} value={vol} title={`音量 ${vol.toFixed(2)}`}
-                        onChange={(e) => onTimelineChange(setTrackAudio(timeline, tr.id, { volume: Number(e.target.value) }))}
-                        className="w-10 accent-[var(--cy-brand-500)]" />
+                      <VerticalSliderPopover value={vol} min={0} max={1.5} step={0.05}
+                        title={`音量 ${vol.toFixed(2)}`} format={(v) => v.toFixed(2)}
+                        icon={<SlidersVertical className="h-3 w-3" />}
+                        onChange={(v) => onTimelineChange(setTrackAudio(timeline, tr.id, { volume: v }))} />
                     )}
                   </span>
                 );
