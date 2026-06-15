@@ -49,3 +49,34 @@ export function patchOverlay(t: VgTimeline, id: string, patch: OverlayPatch): Vg
 export function deleteOverlay(t: VgTimeline, id: string): VgTimeline {
   return { ...t, overlays: (t.overlays || []).filter((o) => o.id !== id) };
 }
+
+/** 关键帧间插值出当前位置(playhead);<2 关键帧返回静态 x/y。 */
+export function overlayPosAt(ov: VgOverlay, playheadMs: number): { x: number; y: number } {
+  const kfs = (ov.keyframes || []).slice().sort((a, b) => a.t - b.t);
+  if (kfs.length < 2) return { x: ov.x, y: ov.y };
+  const rel = ov.duration_ms > 0 ? clampN((playheadMs - ov.track_start_ms) / ov.duration_ms, 0, 1) : 0;
+  if (rel <= kfs[0]!.t) return { x: kfs[0]!.x, y: kfs[0]!.y };
+  const last = kfs[kfs.length - 1]!;
+  if (rel >= last.t) return { x: last.x, y: last.y };
+  for (let i = 0; i < kfs.length - 1; i++) {
+    const a = kfs[i]!; const b = kfs[i + 1]!;
+    if (a.t <= rel && rel <= b.t) {
+      const f = b.t > a.t ? (rel - a.t) / (b.t - a.t) : 0;
+      return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+    }
+  }
+  return { x: ov.x, y: ov.y };
+}
+
+/** 在 playhead 处记录一个位置关键帧(用元素当前 x/y);同位置(t 接近)的覆盖。 */
+export function addKeyframe(t: VgTimeline, id: string, playheadMs: number): VgTimeline {
+  const ov = (t.overlays || []).find((o) => o.id === id);
+  if (!ov) return t;
+  const rel = ov.duration_ms > 0 ? clampN((playheadMs - ov.track_start_ms) / ov.duration_ms, 0, 1) : 0;
+  const kfs = [...(ov.keyframes || []).filter((k) => Math.abs(k.t - rel) > 0.01), { t: rel, x: ov.x, y: ov.y }].sort((a, b) => a.t - b.t);
+  return patchOverlay(t, id, { keyframes: kfs });
+}
+
+export function clearKeyframes(t: VgTimeline, id: string): VgTimeline {
+  return patchOverlay(t, id, { keyframes: [] });
+}

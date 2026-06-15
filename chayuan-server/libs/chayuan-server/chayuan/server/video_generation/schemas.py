@@ -177,6 +177,13 @@ class TimelineTrack(BaseModel):
     label: str = ""
 
 
+class OverlayKf(BaseModel):
+    """位置关键帧:t=相对该元素时长 0-1;x/y 归一位置。"""
+    t: float = 0.0
+    x: float = 0.0
+    y: float = 0.0
+
+
 class VgOverlay(BaseModel):
     """预览叠加元素(A 期渲染 text;B-D 期 rect/ellipse/line/arrow/image/mosaic 预留)。
     位置/大小归一(0-1),作用于成片画面之上。"""
@@ -205,6 +212,7 @@ class VgOverlay(BaseModel):
     anim_in: str = "none"             # 入场动画 none/fade
     anim_out: str = "none"            # 出场动画 none/fade
     anim_dur: float = 0.5             # 动画时长(秒)
+    keyframes: List[OverlayKf] = Field(default_factory=list)  # 位置关键帧(运动路径,≥2 生效)
 
 
 class Timeline(BaseModel):

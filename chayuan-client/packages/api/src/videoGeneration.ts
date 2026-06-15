@@ -111,6 +111,7 @@ export interface VgOverlay {
   anim_in?: 'none' | 'fade';
   anim_out?: 'none' | 'fade';
   anim_dur?: number;
+  keyframes?: { t: number; x: number; y: number }[];  // 位置关键帧(运动路径)
 }
 
 export interface VgTimeline {

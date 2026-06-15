@@ -1184,6 +1184,28 @@ def _render_overlays(video_clip, overlays, W, H, font_path):
                 continue
             tc = tc.with_start(start_s).with_end(start_s + dur)
             tc = tc.with_position((int((getattr(ov, "x", 0.1) or 0) * W), int((getattr(ov, "y", 0.1) or 0) * H)))
+            _kfs = sorted(getattr(ov, "keyframes", None) or [], key=lambda k: getattr(k, "t", 0))
+            if len(_kfs) >= 2:
+                def _posfn(time, kfs=_kfs, _dur=dur, _W=W, _H=H):
+                    rel = 0.0 if _dur <= 0 else max(0.0, min(1.0, time / _dur))
+                    if rel <= kfs[0].t:
+                        kx, ky = kfs[0].x, kfs[0].y
+                    elif rel >= kfs[-1].t:
+                        kx, ky = kfs[-1].x, kfs[-1].y
+                    else:
+                        kx, ky = kfs[-1].x, kfs[-1].y
+                        for i in range(len(kfs) - 1):
+                            a, b = kfs[i], kfs[i + 1]
+                            if a.t <= rel <= b.t:
+                                f = (rel - a.t) / (b.t - a.t) if b.t > a.t else 0.0
+                                kx = a.x + (b.x - a.x) * f
+                                ky = a.y + (b.y - a.y) * f
+                                break
+                    return (int(kx * _W), int(ky * _H))
+                try:
+                    tc = tc.with_position(_posfn)
+                except Exception:  # noqa: BLE001
+                    pass
             rot = float(getattr(ov, "rotation", 0.0) or 0.0)
             if abs(rot) > 0.01:
                 tc = tc.rotated(rot)

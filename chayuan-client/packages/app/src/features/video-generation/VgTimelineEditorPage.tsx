@@ -17,7 +17,7 @@ import { buildTimelineFromMaterials } from './timeline/buildTimeline';
 import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, setClipTransition, applyProbedDuration, patchClip, type DraggedMaterial } from './timeline/timelineEdit';
 import { TRANSITIONS } from './timeline/transitions';
 import { addTrack, removeTrack, reorderVideoTrack } from './timeline/trackOps';
-import { addOverlay, patchOverlay, deleteOverlay } from './timeline/overlayEdit';
+import { addOverlay, patchOverlay, deleteOverlay, addKeyframe, clearKeyframes } from './timeline/overlayEdit';
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
 import { ScriptGenDialog } from './timeline/ScriptGenDialog';
 import { ScriptEditorDialog } from './timeline/ScriptEditorDialog';
@@ -431,6 +431,14 @@ export const VgTimelineEditorPage: React.FC = () => {
                       className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px]">
                       <option value="none">无</option><option value="fade">淡出</option>
                     </select>
+                    <span className="ml-1 text-[10px] text-[var(--cy-text-tertiary)]">运动</span>
+                    <button type="button" title="在播放头处记录位置关键帧" onClick={() => onTimelineChange(addKeyframe(timeline, selOverlay.id, playheadMs))}
+                      className="inline-flex h-6 items-center rounded border border-[var(--cy-border-subtle)] px-1.5 text-[11px] hover:bg-[var(--cy-surface-2)]">+关键帧</button>
+                    <span className="text-[10px] tabular-nums text-[var(--cy-text-tertiary)]">{(selOverlay.keyframes?.length ?? 0)}</span>
+                    {(selOverlay.keyframes?.length ?? 0) > 0 && (
+                      <button type="button" title="清除关键帧" onClick={() => onTimelineChange(clearKeyframes(timeline, selOverlay.id))}
+                        className="text-[10px] text-[var(--cy-text-tertiary)] hover:text-rose-600">清</button>
+                    )}
                     {selOverlay.type === 'text' && (
                       <select value="" title="文字预设"
                         onChange={(e) => {
