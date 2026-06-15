@@ -274,7 +274,7 @@ export function replaceClipSource(
 }
 
 /** 逐片段属性写入的单一入口(带 clamp)。x/y∈[0,1]、scale∈[0.05,1]、opacity∈[0,1]、volume∈[0,1.5]、z 取整。 */
-export type ClipPatch = Partial<Pick<VgTimelineClip, 'opacity' | 'volume' | 'muted' | 'x' | 'y' | 'scale' | 'z' | 'rotation' | 'flip_h' | 'flip_v' | 'crop'>>;
+export type ClipPatch = Partial<Pick<VgTimelineClip, 'opacity' | 'volume' | 'muted' | 'x' | 'y' | 'scale' | 'z' | 'rotation' | 'flip_h' | 'flip_v' | 'crop' | 'color'>>;
 export function patchClip(t: VgTimeline, clipId: string, patch: ClipPatch): VgTimeline {
   const apply = (c: VgTimelineClip): VgTimelineClip => {
     const n: VgTimelineClip = { ...c };
@@ -294,6 +294,13 @@ export function patchClip(t: VgTimeline, clipId: string, patch: ClipPatch): VgTi
       const w = clampN(patch.crop.w, 0.05, 1 - x);
       const h = clampN(patch.crop.h, 0.05, 1 - y);
       n.crop = { x, y, w, h };
+    }
+    if (patch.color !== undefined) {
+      n.color = {
+        brightness: clampN(patch.color.brightness ?? 1, 0, 3),
+        contrast: clampN(patch.color.contrast ?? 1, 0, 3),
+        saturation: clampN(patch.color.saturation ?? 1, 0, 3),
+      };
     }
     return n;
   };

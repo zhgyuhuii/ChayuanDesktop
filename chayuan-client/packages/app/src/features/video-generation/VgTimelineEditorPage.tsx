@@ -158,7 +158,7 @@ export const VgTimelineEditorPage: React.FC = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedClipId, selectedOverlayIds, timeline]);
-  const onSetTransform = (clipId: string, tf: { x?: number; y?: number; scale?: number; rotation?: number; flip_h?: boolean; flip_v?: boolean; opacity?: number }) => onTimelineChange(patchClip(timeline, clipId, tf));
+  const onSetTransform = (clipId: string, tf: { x?: number; y?: number; scale?: number; rotation?: number; flip_h?: boolean; flip_v?: boolean; opacity?: number; color?: { brightness: number; contrast: number; saturation: number } }) => onTimelineChange(patchClip(timeline, clipId, tf));
   // 裁剪编辑态(P2 几何):同一时间只一个 clip 在裁剪;onCrop 经 patchClip(带 clamp)写入。
   const [cropEditingClipId, setCropEditingClipId] = React.useState<string | null>(null);
   const onToggleCropClip = (clipId: string) => setCropEditingClipId((id) => (id === clipId ? null : clipId));
@@ -437,6 +437,29 @@ export const VgTimelineEditorPage: React.FC = () => {
                     className="h-1 w-16 accent-[var(--cy-brand-500)] disabled:cursor-not-allowed" />
                   <span className="w-7 text-right text-[10px] tabular-nums text-[var(--cy-text-secondary)]">{Math.round((selClip?.opacity ?? 1) * 100)}%</span>
                   <span className="ml-1 w-9 text-right text-[10px] tabular-nums text-[var(--cy-text-tertiary)]">{Math.round(selClip?.rotation ?? 0)}°</span>
+                  <span className="mx-1 h-5 w-px shrink-0 bg-[var(--cy-border-subtle)]" />
+                  <span className="text-[10px] text-[var(--cy-text-tertiary)]">调色</span>
+                  <select disabled={!selClip} title="调色预设" value=""
+                    onChange={(e) => {
+                      const P: Record<string, { brightness: number; contrast: number; saturation: number }> = {
+                        orig: { brightness: 1, contrast: 1, saturation: 1 }, bw: { brightness: 1, contrast: 1, saturation: 0 },
+                        vivid: { brightness: 1, contrast: 1.05, saturation: 1.4 }, warm: { brightness: 1.05, contrast: 1.05, saturation: 1.1 },
+                        hc: { brightness: 1, contrast: 1.3, saturation: 1 },
+                      };
+                      const v = P[e.target.value]; if (selClip && v) onSetTransform(selClip.id, { color: v });
+                    }}
+                    className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px] disabled:cursor-not-allowed">
+                    <option value="">预设</option><option value="orig">原图</option><option value="bw">黑白</option><option value="vivid">鲜艳</option><option value="warm">暖</option><option value="hc">高对比</option>
+                  </select>
+                  {(['brightness', 'contrast', 'saturation'] as const).map((k) => (
+                    <label key={k} className="flex items-center gap-0.5 text-[10px] text-[var(--cy-text-tertiary)]">
+                      {k === 'brightness' ? '亮' : k === 'contrast' ? '对' : '饱'}
+                      <input type="range" min={0} max={3} step={0.05} disabled={!selClip}
+                        value={selClip?.color?.[k] ?? 1}
+                        onChange={(e) => selClip && onSetTransform(selClip.id, { color: { brightness: 1, contrast: 1, saturation: 1, ...(selClip.color || {}), [k]: parseFloat(e.target.value) } })}
+                        className="h-1 w-12 accent-[var(--cy-brand-500)] disabled:cursor-not-allowed" />
+                    </label>
+                  ))}
                 </div>
                 </div>
                 )}

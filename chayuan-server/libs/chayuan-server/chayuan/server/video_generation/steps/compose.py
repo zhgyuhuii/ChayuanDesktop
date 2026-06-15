@@ -360,6 +360,7 @@ def _build_edl_render_plan(timeline, video_aspect, *, source_resolver, width=Non
             "x": float(getattr(c, "x", 0.0) or 0.0),
             "y": float(getattr(c, "y", 0.0) or 0.0),
             "scale": float(getattr(c, "scale", 1.0) or 1.0),
+            "color": (c.color.model_dump() if getattr(c, "color", None) else None),
         })
     return plan
 
@@ -419,10 +420,39 @@ def _build_pip_layers(timeline, *, source_resolver) -> list:
                 "flip_h": bool(getattr(c, "flip_h", False)),
                 "flip_v": bool(getattr(c, "flip_v", False)),
                 "crop": (c.crop.model_dump() if getattr(c, "crop", None) else None),
+                "color": (c.color.model_dump() if getattr(c, "color", None) else None),
             })
     # ti 小的(上层)要排到列表末尾 → 降序
     layers.sort(key=lambda ly: ly["z"], reverse=True)
     return layers
+
+
+def _apply_color(clip, color):
+    """调色(P4):亮度*b → 对比度(x-128)*c+128 → 饱和度灰度混合。全 1 或无则跳过。"""
+    if not color:
+        return clip
+    b = float(color.get("brightness", 1.0) or 1.0)
+    c = float(color.get("contrast", 1.0) or 1.0)
+    s = float(color.get("saturation", 1.0) or 1.0)
+    if abs(b - 1) < 0.001 and abs(c - 1) < 0.001 and abs(s - 1) < 0.001:
+        return clip
+    import numpy as np
+
+    def _fn(frame):
+        f = frame.astype("float32")
+        if abs(b - 1) >= 0.001:
+            f = f * b
+        if abs(c - 1) >= 0.001:
+            f = (f - 128.0) * c + 128.0
+        if abs(s - 1) >= 0.001 and f.ndim == 3 and f.shape[2] >= 3:
+            gray = (f[..., 0] * 0.299 + f[..., 1] * 0.587 + f[..., 2] * 0.114)[..., None]
+            f = gray + (f - gray) * s
+        return np.clip(f, 0, 255).astype("uint8")
+
+    try:
+        return clip.image_transform(_fn)
+    except Exception:  # noqa: BLE001
+        return clip
 
 
 def _apply_pip_geometry(clip, ly):
@@ -457,6 +487,7 @@ def _apply_pip_geometry(clip, ly):
             clip = clip.rotated(rot)
         except Exception:  # noqa: BLE001
             pass
+    clip = _apply_color(clip, ly.get("color"))
     return clip
 
 

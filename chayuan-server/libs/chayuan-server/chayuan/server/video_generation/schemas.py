@@ -128,6 +128,13 @@ class SrtCue(BaseModel):
     text: str = ""
 
 
+class ClipColor(BaseModel):
+    """逐片段调色(P4):各 1.0=原图。"""
+    brightness: float = 1.0
+    contrast: float = 1.0
+    saturation: float = 1.0
+
+
 class CropRect(BaseModel):
     """画中画裁剪保留区(归一 0-1)。x/y=保留区左上角,w/h=保留区尺寸。"""
     x: float = 0.0
@@ -158,6 +165,7 @@ class TimelineClip(BaseModel):
     flip_h: bool = False                            # 水平镜像
     flip_v: bool = False                            # 垂直镜像
     crop: Optional[CropRect] = None                 # 归一保留区;None=全幅
+    color: Optional[ClipColor] = None               # 调色(P4);None=原图
 
 
 class TimelineTrack(BaseModel):

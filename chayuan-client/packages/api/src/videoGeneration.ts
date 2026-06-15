@@ -77,6 +77,7 @@ export interface VgTimelineClip {
   flip_h?: boolean;           // 水平镜像
   flip_v?: boolean;           // 垂直镜像
   crop?: { x: number; y: number; w: number; h: number };  // 归一保留区
+  color?: { brightness: number; contrast: number; saturation: number };  // 调色(P4)
 }
 export interface VgTimelineTrack {
   id: string;
