@@ -73,6 +73,10 @@ export interface VgTimelineClip {
   scale?: number;
   z?: number;
   opacity?: number;           // 画中画层不透明度 0-1(1=不透明);后端 schema 已有
+  rotation?: number;          // 几何(P2,仅 PIP):顺时针角度 -180..180
+  flip_h?: boolean;           // 水平镜像
+  flip_v?: boolean;           // 垂直镜像
+  crop?: { x: number; y: number; w: number; h: number };  // 归一保留区
 }
 export interface VgTimelineTrack {
   id: string;

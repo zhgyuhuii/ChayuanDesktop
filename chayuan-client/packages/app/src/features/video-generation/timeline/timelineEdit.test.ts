@@ -203,3 +203,16 @@ it('patchClip 只改目标 clip,其它 clip/轨不动', () => {
   expect(r.tracks[0]!.clips![0]).toEqual(tlPip().tracks[0]!.clips![0]);
   expect(r.tracks[1]!.clips![0]!.muted).toBe(true);
 });
+
+it('patchClip clamp rotation[-180,180] + flip 布尔 + crop 约束', () => {
+  const a = patchClip(tlPip(), 'b', { rotation: 200 }).tracks[1]!.clips![0]!;
+  expect(a.rotation).toBe(180);
+  const b = patchClip(tlPip(), 'b', { rotation: -999, flip_h: true }).tracks[1]!.clips![0]!;
+  expect(b.rotation).toBe(-180);
+  expect(b.flip_h).toBe(true);
+  // crop 越界收缩:x=0.8 → w 上限 1-0.8=0.2;h 下限 0.05
+  const c = patchClip(tlPip(), 'b', { crop: { x: 0.8, y: 0.5, w: 0.9, h: 0.01 } }).tracks[1]!.clips![0]!.crop!;
+  expect(c.x).toBe(0.8);
+  expect(c.w).toBeCloseTo(0.2);
+  expect(c.h).toBe(0.05);
+});

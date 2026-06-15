@@ -274,7 +274,7 @@ export function replaceClipSource(
 }
 
 /** 逐片段属性写入的单一入口(带 clamp)。x/y∈[0,1]、scale∈[0.05,1]、opacity∈[0,1]、volume∈[0,1.5]、z 取整。 */
-export type ClipPatch = Partial<Pick<VgTimelineClip, 'opacity' | 'volume' | 'muted' | 'x' | 'y' | 'scale' | 'z'>>;
+export type ClipPatch = Partial<Pick<VgTimelineClip, 'opacity' | 'volume' | 'muted' | 'x' | 'y' | 'scale' | 'z' | 'rotation' | 'flip_h' | 'flip_v' | 'crop'>>;
 export function patchClip(t: VgTimeline, clipId: string, patch: ClipPatch): VgTimeline {
   const apply = (c: VgTimelineClip): VgTimelineClip => {
     const n: VgTimelineClip = { ...c };
@@ -285,6 +285,16 @@ export function patchClip(t: VgTimeline, clipId: string, patch: ClipPatch): VgTi
     if (patch.y !== undefined) n.y = clampN(patch.y, 0, 1);
     if (patch.scale !== undefined) n.scale = clampN(patch.scale, 0.05, 1);
     if (patch.z !== undefined) n.z = Math.round(patch.z);
+    if (patch.rotation !== undefined) n.rotation = clampN(patch.rotation, -180, 180);
+    if (patch.flip_h !== undefined) n.flip_h = patch.flip_h;
+    if (patch.flip_v !== undefined) n.flip_v = patch.flip_v;
+    if (patch.crop !== undefined) {
+      const x = clampN(patch.crop.x, 0, 0.95);
+      const y = clampN(patch.crop.y, 0, 0.95);
+      const w = clampN(patch.crop.w, 0.05, 1 - x);
+      const h = clampN(patch.crop.h, 0.05, 1 - y);
+      n.crop = { x, y, w, h };
+    }
     return n;
   };
   return {
