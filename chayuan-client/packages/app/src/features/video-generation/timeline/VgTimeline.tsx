@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { ChevronLeft, ChevronRight, Trash2, Replace, Volume2, VolumeX, SlidersHorizontal } from 'lucide-react';
 import { ClipPropertyPopover } from './ClipPropertyPopover';
+import { Popover, PopoverTrigger, PopoverContent } from '@chayuan/ui';
 import type { VgTimeline as VgTimelineData } from '@chayuan/api';
 import { clipDurMs, deleteClip, reorderClip, setClipDuration, setClipIn, setClipStart, normalizeMontage, setClipMuted } from './timelineEdit';
 import { TRANSITIONS, hasTransition } from './transitions';
@@ -166,12 +167,6 @@ export const VgTimeline: React.FC<{
                     />
                   </>
                 )}
-                {propOpenId === s.id && onChange && (
-                  <ClipPropertyPopover timeline={timeline} clip={clips[s.idx]!} isPip={isPip}
-                    cropEditing={cropEditingClipId === clips[s.idx]!.id}
-                    onToggleCrop={() => onToggleCropClip?.(clips[s.idx]!.id)}
-                    onChange={onChange} onClose={() => setPropOpenId(null)} />
-                )}
                 {selected && onChange && editable && (
                   <div className="absolute -top-6 left-0 z-30 flex items-center gap-0.5 rounded bg-[var(--cy-surface-base)] p-0.5 shadow ring-1 ring-[var(--cy-border-subtle)]">
                     <button type="button" onClick={(e) => { e.stopPropagation(); onChange(reorderClip(timeline, s.id, s.idx - 1)); }}
@@ -196,10 +191,22 @@ export const VgTimeline: React.FC<{
                       title={clips[s.idx]!.muted ? '取消静音(混入该片段原声)' : '静音该片段原声'}>
                       {clips[s.idx]!.muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
                     </button>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setPropOpenId((id) => (id === s.id ? null : s.id)); }}
-                      className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]" title="属性(透明度/音量/位置缩放)">
-                      <SlidersHorizontal className="h-3.5 w-3.5" />
-                    </button>
+                    {onChange && (
+                      <Popover open={propOpenId === s.id} onOpenChange={(open) => setPropOpenId(open ? s.id : null)}>
+                        <PopoverTrigger asChild>
+                          <button type="button" onClick={(e) => e.stopPropagation()}
+                            className="inline-flex h-5 w-5 items-center justify-center rounded text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]" title="属性(透明度/音量/位置/缩放/几何)">
+                            <SlidersHorizontal className="h-3.5 w-3.5" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent side="top" align="start" sideOffset={6} className="w-56 p-2">
+                          <ClipPropertyPopover timeline={timeline} clip={clips[s.idx]!} isPip={isPip}
+                            cropEditing={cropEditingClipId === clips[s.idx]!.id}
+                            onToggleCrop={() => onToggleCropClip?.(clips[s.idx]!.id)}
+                            onChange={onChange} />
+                        </PopoverContent>
+                      </Popover>
+                    )}
                     <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedId(null); onChange(deleteClip(timeline, s.id)); }}
                       className="inline-flex h-5 w-5 items-center justify-center rounded text-rose-600 hover:bg-rose-50" title="删除片段">
                       <Trash2 className="h-3.5 w-3.5" />

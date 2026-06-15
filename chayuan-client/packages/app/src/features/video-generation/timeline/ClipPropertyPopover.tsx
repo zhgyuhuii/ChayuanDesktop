@@ -25,25 +25,15 @@ export const ClipPropertyPopover: React.FC<{
   cropEditing: boolean;
   onToggleCrop: () => void;
   onChange: (t: VgTimeline) => void;
-  onClose: () => void;
-}> = ({ timeline, clip, isPip, cropEditing, onToggleCrop, onChange, onClose }) => {
-  const ref = React.useRef<HTMLDivElement | null>(null);
-  React.useEffect(() => {
-    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey); };
-  }, [onClose]);
-
+}> = ({ timeline, clip, isPip, cropEditing, onToggleCrop, onChange }) => {
+  // 定位/外部点击/Esc 全交给外层 Radix Popover(portal,脱离时间轴 overflow 裁剪)。
   const set = (patch: ClipPatch) => onChange(patchClip(timeline, clip.id, patch));
   const muted = !!clip.muted;
   const opacity = clip.opacity ?? 1;
   const volume = clip.volume ?? 1;
 
   return (
-    <div ref={ref} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onPointerUp={(e) => e.stopPropagation()}
-      className="absolute -top-2 left-0 z-[230] w-52 -translate-y-full rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-2 text-[11px] shadow-xl">
+    <div className="text-[11px] text-[var(--cy-text-primary)]">
       <p className="mb-1 font-medium text-[var(--cy-text-secondary)]">片段属性</p>
 
       {isPip && (
