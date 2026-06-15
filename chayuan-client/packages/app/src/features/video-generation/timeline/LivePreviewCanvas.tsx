@@ -92,7 +92,7 @@ export const LivePreviewCanvas: React.FC<{
   overlays?: VgOverlay[];
   selectedOverlayId?: string | null;
   onSelectOverlay?: (id: string | null) => void;
-  onOverlayTransform?: (id: string, tf: { x?: number; y?: number; w?: number; h?: number; rotation?: number; opacity?: number; text?: string }) => void;
+  onOverlayTransform?: (id: string, tf: Partial<VgOverlay>) => void;
   onAddOverlay?: (type: VgOverlay['type']) => void;
   cues?: SrtCue[];
 }> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, backgroundColor = '#000000', overlays, selectedOverlayId = null, onSelectOverlay, onOverlayTransform, onAddOverlay, cues }) => {

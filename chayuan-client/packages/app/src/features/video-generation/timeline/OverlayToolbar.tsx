@@ -9,10 +9,10 @@ export const OverlayToolbar: React.FC<{
   const items: { type: VgOverlay['type'] | 'select'; icon: React.ReactNode; label: string; enabled: boolean }[] = [
     { type: 'select', icon: <MousePointer2 className="h-4 w-4" />, label: '选择/移动', enabled: true },
     { type: 'text', icon: <Type className="h-4 w-4" />, label: '文字', enabled: true },
-    { type: 'rect', icon: <Square className="h-4 w-4" />, label: '矩形(即将上线)', enabled: false },
-    { type: 'ellipse', icon: <Circle className="h-4 w-4" />, label: '椭圆(即将上线)', enabled: false },
-    { type: 'line', icon: <Minus className="h-4 w-4" />, label: '直线(即将上线)', enabled: false },
-    { type: 'arrow', icon: <MoveUpRight className="h-4 w-4" />, label: '箭头(即将上线)', enabled: false },
+    { type: 'rect', icon: <Square className="h-4 w-4" />, label: '矩形', enabled: true },
+    { type: 'ellipse', icon: <Circle className="h-4 w-4" />, label: '椭圆', enabled: true },
+    { type: 'line', icon: <Minus className="h-4 w-4" />, label: '直线', enabled: true },
+    { type: 'arrow', icon: <MoveUpRight className="h-4 w-4" />, label: '箭头', enabled: true },
     { type: 'image', icon: <Smile className="h-4 w-4" />, label: '贴纸/图片(即将上线)', enabled: false },
     { type: 'mosaic', icon: <Grid2x2 className="h-4 w-4" />, label: '马赛克(即将上线)', enabled: false },
   ];

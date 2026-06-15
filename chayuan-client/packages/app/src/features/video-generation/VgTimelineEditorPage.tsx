@@ -5,7 +5,7 @@ import { Loader2, AlertTriangle, RefreshCw, Eye, EyeOff, FlipHorizontal2, FlipVe
 import { Popover, PopoverTrigger, PopoverContent } from '@chayuan/ui';
 import { OutputFramingSection } from './sections/OutputFramingSection';
 import { VgAspectPicker } from './VgAspectPicker';
-import { videoGeneration, type VgTimeline } from '@chayuan/api';
+import { videoGeneration, type VgTimeline, type VgOverlay } from '@chayuan/api';
 import { useVgComposer, scriptHashOf } from './store/vgComposer';
 import { MediaPoolPanel } from './timeline/MediaPoolPanel';
 import { PreviewPlayer } from './timeline/PreviewPlayer';
@@ -166,7 +166,7 @@ export const VgTimelineEditorPage: React.FC = () => {
   // 叠加元素(A 期文字):选中与片段选中互斥
   const [selectedOverlayId, setSelectedOverlayId] = React.useState<string | null>(null);
   const onSelectOverlay = (id: string | null) => { setSelectedOverlayId(id); if (id) setSelectedClipId(null); };
-  const onOverlayTransform = (id: string, tf: { x?: number; y?: number; w?: number; h?: number; rotation?: number; opacity?: number; text?: string }) => onTimelineChange(patchOverlay(timeline, id, tf));
+  const onOverlayTransform = (id: string, tf: Partial<VgOverlay>) => onTimelineChange(patchOverlay(timeline, id, tf));
   const onAddOverlay = (type: 'text' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'image' | 'mosaic') => {
     const { timeline: tl, id } = addOverlay(timeline, type, playheadMs);
     onTimelineChange(tl); setSelectedOverlayId(id); setSelectedClipId(null);

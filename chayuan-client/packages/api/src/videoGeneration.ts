@@ -104,6 +104,8 @@ export interface VgOverlay {
   stroke_width?: number;
   bg?: string | null;
   align?: 'left' | 'center' | 'right';
+  fill?: string | null;       // 图形填充
+  corner_radius?: number;     // 矩形圆角 px
 }
 
 export interface VgTimeline {

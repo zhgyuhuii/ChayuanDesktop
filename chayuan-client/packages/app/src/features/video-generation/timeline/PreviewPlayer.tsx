@@ -36,7 +36,7 @@ export const PreviewPlayer: React.FC<{
   overlays?: VgOverlay[];
   selectedOverlayId?: string | null;
   onSelectOverlay?: (id: string | null) => void;
-  onOverlayTransform?: (id: string, tf: { x?: number; y?: number; w?: number; h?: number; rotation?: number; opacity?: number; text?: string }) => void;
+  onOverlayTransform?: (id: string, tf: Partial<VgOverlay>) => void;
   onAddOverlay?: (type: VgOverlay['type']) => void;
   /** 模式上提:父组件据此决定是否跑实时播放引擎(proxy 模式由 proxy <video> 自己驱动)。 */
   onModeChange?: (mode: 'live' | 'proxy') => void;

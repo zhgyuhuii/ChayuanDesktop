@@ -6,11 +6,18 @@ let _seq = 0;
 /** 新建叠加元素(画面中心默认框、时长 3s、起点 = atMs)。返回新时间轴 + 新元素 id。 */
 export function addOverlay(t: VgTimeline, type: VgOverlay['type'], atMs: number): { timeline: VgTimeline; id: string } {
   const id = `ov-${Math.round(atMs)}-${_seq++}`;
+  const isShape = type === 'rect' || type === 'ellipse' || type === 'line' || type === 'arrow';
+  const noFill = type === 'line' || type === 'arrow';
   const ov: VgOverlay = {
     id, type, track_start_ms: Math.max(0, Math.round(atMs)), duration_ms: 3000,
-    x: 0.25, y: 0.4, w: 0.5, h: 0.2, rotation: 0, opacity: 1, z: 0,
+    x: 0.25, y: 0.4, w: isShape ? 0.3 : 0.5, h: 0.2, rotation: 0, opacity: 1, z: 0,
     text: type === 'text' ? '双击编辑文字' : '', font_size: 48,
-    text_color: '#ffffff', stroke_color: '#000000', stroke_width: 1.5, align: 'center',
+    text_color: '#ffffff',
+    stroke_color: isShape ? '#ffffff' : '#000000',
+    stroke_width: isShape ? 3 : 1.5,
+    align: 'center',
+    fill: isShape ? (noFill ? null : '#ffffff33') : undefined,
+    corner_radius: 0,
   };
   return { timeline: { ...t, overlays: [...(t.overlays || []), ov] }, id };
 }
