@@ -19,6 +19,7 @@ export function addOverlay(t: VgTimeline, type: VgOverlay['type'], atMs: number,
     fill: isShape ? (noFill ? null : '#ffffff33') : undefined,
     corner_radius: 0,
     ...(type === 'image' ? { w: 0.3, h: 0.3, stroke_width: 0, src } : {}),
+    ...(type === 'mosaic' ? { w: 0.3, h: 0.2, stroke_width: 0 } : {}),
   };
   return { timeline: { ...t, overlays: [...(t.overlays || []), ov] }, id };
 }

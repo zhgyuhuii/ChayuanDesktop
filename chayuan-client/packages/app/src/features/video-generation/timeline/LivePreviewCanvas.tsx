@@ -296,6 +296,10 @@ export const LivePreviewCanvas: React.FC<{
               <img src={videoGeneration.overlayImageFileUrl(ov.src)} alt="" draggable={false}
                 className="pointer-events-none h-full w-full object-contain" />
             )}
+            {ov.type === 'mosaic' && (
+              <div className="pointer-events-none h-full w-full border border-white/40"
+                style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', background: 'rgba(255,255,255,0.04)' } as React.CSSProperties} />
+            )}
             {(ov.type === 'line' || ov.type === 'arrow') && (
               <svg className="pointer-events-none h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
                 <line x1={2} y1={50} x2={ov.type === 'arrow' ? 88 : 98} y2={50}

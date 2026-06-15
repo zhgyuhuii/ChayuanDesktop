@@ -14,7 +14,7 @@ export const OverlayToolbar: React.FC<{
     { type: 'line', icon: <Minus className="h-4 w-4" />, label: '直线', enabled: true },
     { type: 'arrow', icon: <MoveUpRight className="h-4 w-4" />, label: '箭头', enabled: true },
     { type: 'image', icon: <Smile className="h-4 w-4" />, label: '图片/贴纸', enabled: true },
-    { type: 'mosaic', icon: <Grid2x2 className="h-4 w-4" />, label: '马赛克(即将上线)', enabled: false },
+    { type: 'mosaic', icon: <Grid2x2 className="h-4 w-4" />, label: '马赛克/模糊', enabled: true },
   ];
   return (
     <div className="flex w-9 shrink-0 flex-col items-center gap-0.5 border-r border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] py-1">
