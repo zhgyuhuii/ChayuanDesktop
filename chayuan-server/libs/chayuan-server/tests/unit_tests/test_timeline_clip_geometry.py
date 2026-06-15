@@ -36,3 +36,14 @@ def test_pip_layers_carry_geometry():
     ly = layers[0]
     assert ly["rotation"] == 45.0 and ly["flip_h"] is True and ly["flip_v"] is False
     assert ly["crop"] == {"x": 0.1, "y": 0.0, "w": 0.8, "h": 0.9}
+
+
+def test_edl_plan_carries_geometry():
+    from chayuan.server.video_generation.steps.compose import _build_edl_render_plan
+    tl = Timeline(tracks=[TimelineTrack(id="main", kind="video", clips=[
+        TimelineClip(id="m", source={"path": "/x.mp4"}, track_start_ms=0, out_ms=3000,
+                     rotation=90.0, scale=0.5, x=0.2, opacity=0.8,
+                     crop={"x": 0, "y": 0, "w": 0.5, "h": 1})])])
+    plan = _build_edl_render_plan(tl, "9:16", source_resolver=lambda s: s.get("path", ""))
+    assert plan and plan[0]["rotation"] == 90.0 and plan[0]["scale"] == 0.5
+    assert plan[0]["opacity"] == 0.8 and plan[0]["crop"] == {"x": 0, "y": 0, "w": 0.5, "h": 1}

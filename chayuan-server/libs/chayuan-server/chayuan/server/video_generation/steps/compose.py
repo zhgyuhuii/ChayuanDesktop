@@ -351,6 +351,14 @@ def _build_edl_render_plan(timeline, video_aspect, *, source_resolver, width=Non
             "target_w": target_w,
             "target_h": target_h,
             "transition": (getattr(c, "transition", "none") or "none"),
+            "rotation": float(getattr(c, "rotation", 0.0) or 0.0),
+            "flip_h": bool(getattr(c, "flip_h", False)),
+            "flip_v": bool(getattr(c, "flip_v", False)),
+            "crop": (c.crop.model_dump() if getattr(c, "crop", None) else None),
+            "opacity": float(getattr(c, "opacity", 1.0) or 1.0),
+            "x": float(getattr(c, "x", 0.0) or 0.0),
+            "y": float(getattr(c, "y", 0.0) or 0.0),
+            "scale": float(getattr(c, "scale", 1.0) or 1.0),
         })
     return plan
 
@@ -449,6 +457,27 @@ def _apply_pip_geometry(clip, ly):
         except Exception:  # noqa: BLE001
             pass
     return clip
+
+
+def _render_main_segment(clip, item, W, H):
+    """主轨单段:crop/flip/rotate 总应用;有自由变换(scale/位置/opacity)则合成黑底,否则 resize 填满(零回归)。"""
+    clip = _apply_pip_geometry(clip, item)
+    scale = float(item.get("scale", 1.0) or 1.0)
+    x = float(item.get("x", 0.0) or 0.0)
+    y = float(item.get("y", 0.0) or 0.0)
+    op = float(item.get("opacity", 1.0) or 1.0)
+    free = scale < 0.999 or abs(x) > 1e-3 or abs(y) > 1e-3 or op < 0.999
+    if not free:
+        return clip.resized(new_size=(W, H))
+    inner = clip.resized(width=max(2, int(W * max(0.05, min(1.0, scale)))))
+    inner = inner.with_position((int(x * W), int(y * H)))
+    if op < 0.999 and hasattr(inner, "with_opacity"):
+        try:
+            inner = inner.with_opacity(op)
+        except Exception:  # noqa: BLE001
+            pass
+    base = ColorClip(size=(W, H), color=(0, 0, 0)).with_duration(clip.duration)
+    return CompositeVideoClip([base, inner])
 
 
 def _build_extra_audios(timeline, *, source_resolver) -> list:
@@ -569,7 +598,7 @@ def render_from_edl(
             dur = p["end_s"] if p["end_s"] is not None else 3.0
             seg_path = os.path.join(output_dir, f"edl-seg-{i}.mp4")
             try:
-                img = ImageClip(p["path"]).with_duration(dur).resized(new_size=(video_width, video_height))
+                img = _render_main_segment(ImageClip(p["path"]).with_duration(dur), p, video_width, video_height)
                 if i > 0:
                     img = _apply_transition(img, p.get("transition", "none"))
                 img.write_videofile(seg_path, logger=None, fps=fps, codec=video_codec)
@@ -587,7 +616,7 @@ def render_from_edl(
             end_s = min(end_s, src_dur)
             if end_s <= start_s:
                 end_s = min(start_s + 1.0, src_dur)
-            seg = clip.subclipped(start_s, end_s).resized(new_size=(video_width, video_height))
+            seg = _render_main_segment(clip.subclipped(start_s, end_s), p, video_width, video_height)
             if i > 0:
                 seg = _apply_transition(seg, p.get("transition", "none"))
             seg_path = os.path.join(output_dir, f"edl-seg-{i}.mp4")
