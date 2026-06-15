@@ -358,12 +358,59 @@ export const VgTimelineEditorPage: React.FC = () => {
               <div className="flex min-h-0 flex-1 flex-col">
               {/* 预览头:画幅条 + 折叠 */}
               <div className="px-3 pt-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 overflow-x-auto">
                   <VgAspectPicker compact />
+                {/* 片段几何工具条:常显;未选素材时灰禁用,选中后可编辑(不挡画面) */}
+                <div className={'flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1.5 py-0.5 transition-opacity ' + (selClip ? '' : 'opacity-50')}
+                  title={selClip ? undefined : '先在预览/时间轴选中片段'}>
+                  <span className="text-[10px] text-[var(--cy-text-tertiary)]">片段</span>
+                  <button type="button" disabled={!selClip} title="水平翻转" onClick={() => selClip && onSetTransform(selClip.id, { flip_h: !selClip.flip_h })}
+                    className={'inline-flex h-6 w-6 items-center justify-center rounded disabled:cursor-not-allowed ' + (selClip?.flip_h ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-secondary)] enabled:hover:bg-[var(--cy-surface-2)]')}><FlipHorizontal2 className="h-3.5 w-3.5" /></button>
+                  <button type="button" disabled={!selClip} title="垂直翻转" onClick={() => selClip && onSetTransform(selClip.id, { flip_v: !selClip.flip_v })}
+                    className={'inline-flex h-6 w-6 items-center justify-center rounded disabled:cursor-not-allowed ' + (selClip?.flip_v ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-secondary)] enabled:hover:bg-[var(--cy-surface-2)]')}><FlipVertical2 className="h-3.5 w-3.5" /></button>
+                  <button type="button" disabled={!selClip} title={selClip && cropEditingClipId === selClip.id ? '完成裁剪' : '裁剪(在预览拖框)'} onClick={() => selClip && onToggleCropClip(selClip.id)}
+                    className={'inline-flex h-6 w-6 items-center justify-center rounded disabled:cursor-not-allowed ' + (selClip && cropEditingClipId === selClip.id ? 'bg-[var(--cy-brand-500)] text-white' : 'text-[var(--cy-text-secondary)] enabled:hover:bg-[var(--cy-surface-2)]')}><Crop className="h-3.5 w-3.5" /></button>
+                  <span className="ml-1 text-[10px] text-[var(--cy-text-tertiary)]">透明度</span>
+                  <input type="range" min={0} max={1} step={0.05} disabled={!selClip} value={selClip?.opacity ?? 1}
+                    onChange={(e) => selClip && onSetTransform(selClip.id, { opacity: Number(e.target.value) })}
+                    className="h-1 w-16 accent-[var(--cy-brand-500)] disabled:cursor-not-allowed" />
+                  <span className="w-7 text-right text-[10px] tabular-nums text-[var(--cy-text-secondary)]">{Math.round((selClip?.opacity ?? 1) * 100)}%</span>
+                  <span className="ml-1 w-9 text-right text-[10px] tabular-nums text-[var(--cy-text-tertiary)]">{Math.round(selClip?.rotation ?? 0)}°</span>
+                  <span className="mx-1 h-5 w-px shrink-0 bg-[var(--cy-border-subtle)]" />
+                  <span className="text-[10px] text-[var(--cy-text-tertiary)]">调色</span>
+                  <select disabled={!selClip} title="调色预设" value=""
+                    onChange={(e) => {
+                      const P: Record<string, { brightness: number; contrast: number; saturation: number }> = {
+                        orig: { brightness: 1, contrast: 1, saturation: 1 }, bw: { brightness: 1, contrast: 1, saturation: 0 },
+                        vivid: { brightness: 1, contrast: 1.05, saturation: 1.4 }, warm: { brightness: 1.05, contrast: 1.05, saturation: 1.1 },
+                        hc: { brightness: 1, contrast: 1.3, saturation: 1 },
+                      };
+                      const v = P[e.target.value]; if (selClip && v) onSetTransform(selClip.id, { color: v });
+                    }}
+                    className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px] disabled:cursor-not-allowed">
+                    <option value="">预设</option><option value="orig">原图</option><option value="bw">黑白</option><option value="vivid">鲜艳</option><option value="warm">暖</option><option value="hc">高对比</option>
+                  </select>
+                  {(['brightness', 'contrast', 'saturation'] as const).map((k) => (
+                    <label key={k} className="flex items-center gap-0.5 text-[10px] text-[var(--cy-text-tertiary)]">
+                      {k === 'brightness' ? '亮' : k === 'contrast' ? '对' : '饱'}
+                      <input type="range" min={0} max={3} step={0.05} disabled={!selClip}
+                        value={selClip?.color?.[k] ?? 1}
+                        onChange={(e) => selClip && onSetTransform(selClip.id, { color: { brightness: 1, contrast: 1, saturation: 1, ...(selClip.color || {}), [k]: parseFloat(e.target.value) } })}
+                        className="h-1 w-12 accent-[var(--cy-brand-500)] disabled:cursor-not-allowed" />
+                    </label>
+                  ))}
+                  <span className="mx-1 h-5 w-px shrink-0 bg-[var(--cy-border-subtle)]" />
+                  <span className="text-[10px] text-[var(--cy-text-tertiary)]">变速</span>
+                  <select disabled={!selClip} title="变速" value={String(selClip?.speed ?? 1)}
+                    onChange={(e) => selClip && onSetTransform(selClip.id, { speed: parseFloat(e.target.value) })}
+                    className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px] disabled:cursor-not-allowed">
+                    {['0.25', '0.5', '0.75', '1', '1.5', '2', '3', '4'].map((v) => <option key={v} value={v}>{v}×</option>)}
+                  </select>
+                </div>
                   <Popover>
                     <PopoverTrigger asChild>
                       <button type="button" title="背景 / 片头片尾"
-                        className="ml-auto inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                        className="ml-2 inline-flex shrink-0 items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
                         <SlidersHorizontal className="h-3 w-3" /> 输出
                       </button>
                     </PopoverTrigger>
@@ -372,11 +419,11 @@ export const VgTimelineEditorPage: React.FC = () => {
                     </PopoverContent>
                   </Popover>
                   <button type="button" onClick={() => setPreviewCollapsed((v) => !v)}
-                    className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                    className="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
                     <EyeOff className="h-3 w-3" /> 折叠预览
                   </button>
                 </div>
-                {(selClip || selOverlay) && (
+                {selOverlay && (
                   <div className="mt-1 flex items-center gap-1 overflow-x-auto pb-0.5">
                 {selOverlay && (
                   <div className="flex items-center gap-1 rounded-md border border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)]/40 px-1.5 py-0.5">
@@ -456,53 +503,6 @@ export const VgTimelineEditorPage: React.FC = () => {
                     )}
                   </div>
                 )}
-                {/* 片段几何工具条:常显;未选素材时灰禁用,选中后可编辑(不挡画面) */}
-                <div className={'flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1.5 py-0.5 transition-opacity ' + (selClip ? '' : 'opacity-50')}
-                  title={selClip ? undefined : '先在预览/时间轴选中片段'}>
-                  <span className="text-[10px] text-[var(--cy-text-tertiary)]">片段</span>
-                  <button type="button" disabled={!selClip} title="水平翻转" onClick={() => selClip && onSetTransform(selClip.id, { flip_h: !selClip.flip_h })}
-                    className={'inline-flex h-6 w-6 items-center justify-center rounded disabled:cursor-not-allowed ' + (selClip?.flip_h ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-secondary)] enabled:hover:bg-[var(--cy-surface-2)]')}><FlipHorizontal2 className="h-3.5 w-3.5" /></button>
-                  <button type="button" disabled={!selClip} title="垂直翻转" onClick={() => selClip && onSetTransform(selClip.id, { flip_v: !selClip.flip_v })}
-                    className={'inline-flex h-6 w-6 items-center justify-center rounded disabled:cursor-not-allowed ' + (selClip?.flip_v ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-secondary)] enabled:hover:bg-[var(--cy-surface-2)]')}><FlipVertical2 className="h-3.5 w-3.5" /></button>
-                  <button type="button" disabled={!selClip} title={selClip && cropEditingClipId === selClip.id ? '完成裁剪' : '裁剪(在预览拖框)'} onClick={() => selClip && onToggleCropClip(selClip.id)}
-                    className={'inline-flex h-6 w-6 items-center justify-center rounded disabled:cursor-not-allowed ' + (selClip && cropEditingClipId === selClip.id ? 'bg-[var(--cy-brand-500)] text-white' : 'text-[var(--cy-text-secondary)] enabled:hover:bg-[var(--cy-surface-2)]')}><Crop className="h-3.5 w-3.5" /></button>
-                  <span className="ml-1 text-[10px] text-[var(--cy-text-tertiary)]">透明度</span>
-                  <input type="range" min={0} max={1} step={0.05} disabled={!selClip} value={selClip?.opacity ?? 1}
-                    onChange={(e) => selClip && onSetTransform(selClip.id, { opacity: Number(e.target.value) })}
-                    className="h-1 w-16 accent-[var(--cy-brand-500)] disabled:cursor-not-allowed" />
-                  <span className="w-7 text-right text-[10px] tabular-nums text-[var(--cy-text-secondary)]">{Math.round((selClip?.opacity ?? 1) * 100)}%</span>
-                  <span className="ml-1 w-9 text-right text-[10px] tabular-nums text-[var(--cy-text-tertiary)]">{Math.round(selClip?.rotation ?? 0)}°</span>
-                  <span className="mx-1 h-5 w-px shrink-0 bg-[var(--cy-border-subtle)]" />
-                  <span className="text-[10px] text-[var(--cy-text-tertiary)]">调色</span>
-                  <select disabled={!selClip} title="调色预设" value=""
-                    onChange={(e) => {
-                      const P: Record<string, { brightness: number; contrast: number; saturation: number }> = {
-                        orig: { brightness: 1, contrast: 1, saturation: 1 }, bw: { brightness: 1, contrast: 1, saturation: 0 },
-                        vivid: { brightness: 1, contrast: 1.05, saturation: 1.4 }, warm: { brightness: 1.05, contrast: 1.05, saturation: 1.1 },
-                        hc: { brightness: 1, contrast: 1.3, saturation: 1 },
-                      };
-                      const v = P[e.target.value]; if (selClip && v) onSetTransform(selClip.id, { color: v });
-                    }}
-                    className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px] disabled:cursor-not-allowed">
-                    <option value="">预设</option><option value="orig">原图</option><option value="bw">黑白</option><option value="vivid">鲜艳</option><option value="warm">暖</option><option value="hc">高对比</option>
-                  </select>
-                  {(['brightness', 'contrast', 'saturation'] as const).map((k) => (
-                    <label key={k} className="flex items-center gap-0.5 text-[10px] text-[var(--cy-text-tertiary)]">
-                      {k === 'brightness' ? '亮' : k === 'contrast' ? '对' : '饱'}
-                      <input type="range" min={0} max={3} step={0.05} disabled={!selClip}
-                        value={selClip?.color?.[k] ?? 1}
-                        onChange={(e) => selClip && onSetTransform(selClip.id, { color: { brightness: 1, contrast: 1, saturation: 1, ...(selClip.color || {}), [k]: parseFloat(e.target.value) } })}
-                        className="h-1 w-12 accent-[var(--cy-brand-500)] disabled:cursor-not-allowed" />
-                    </label>
-                  ))}
-                  <span className="mx-1 h-5 w-px shrink-0 bg-[var(--cy-border-subtle)]" />
-                  <span className="text-[10px] text-[var(--cy-text-tertiary)]">变速</span>
-                  <select disabled={!selClip} title="变速" value={String(selClip?.speed ?? 1)}
-                    onChange={(e) => selClip && onSetTransform(selClip.id, { speed: parseFloat(e.target.value) })}
-                    className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px] disabled:cursor-not-allowed">
-                    {['0.25', '0.5', '0.75', '1', '1.5', '2', '3', '4'].map((v) => <option key={v} value={v}>{v}×</option>)}
-                  </select>
-                </div>
                 </div>
                 )}
               </div>
