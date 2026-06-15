@@ -24,6 +24,9 @@ export default {
   nav: {
     newChat: 'Neues Gespräch',
     knowledge: 'Wissensdatenbank',
+    knowledgeBase: 'Wissensdatenbank',
+    materials: 'Materialien',
+    videos: 'Videos',
     modelMarket: 'Modellanbieter',
     modelGallery: 'Modellgalerie',
     aiVideo: 'AI Video',

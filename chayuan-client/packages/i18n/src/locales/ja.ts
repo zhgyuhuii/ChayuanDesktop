@@ -24,6 +24,9 @@ export default {
   nav: {
     newChat: '新しい会話',
     knowledge: 'ナレッジベース',
+    knowledgeBase: 'ナレッジベース',
+    materials: '素材',
+    videos: '動画',
     modelMarket: 'モデルベンダー',
     modelGallery: 'モデルギャラリー',
     aiVideo: 'AI Video',

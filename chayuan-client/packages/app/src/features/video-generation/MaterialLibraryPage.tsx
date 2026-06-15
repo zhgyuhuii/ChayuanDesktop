@@ -107,7 +107,7 @@ export const MaterialLibraryPage: React.FC = () => {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="inline-flex items-center gap-2 text-xl font-semibold text-[var(--cy-text-primary)]">
-            <Library className="h-5 w-5" /> 素材库
+            <Library className="h-5 w-5" /> 素材中心
           </h1>
           <p className="mt-1 text-sm text-[var(--cy-text-tertiary)]">
             我上传 + 出厂内置 + 在线下载缓存 — 视频生成 wizard step 5 共用这套数据源

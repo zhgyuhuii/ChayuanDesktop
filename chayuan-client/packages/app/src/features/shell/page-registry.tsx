@@ -107,6 +107,9 @@ const VgMaterialLibraryPage = React.lazy(() =>
 const VgVideoLibraryPage = React.lazy(() =>
   import('../video-generation/VideoLibraryPage').then((m) => ({ default: m.VideoLibraryPage })),
 );
+const VgVideoCenterPage = React.lazy(() =>
+  import('../video-generation/VideoCenterPage').then((m) => ({ default: m.VideoCenterPage })),
+);
 // 在线办公功能占位页 —— 单机版不支持的「察元办公 / 智能空间 / 应用中心 /
 // 我的待办 / 训练数据中心」点击后进此页,按 feature key 参数化做流式介绍。
 const OnlineFeaturePage = React.lazy(() =>
@@ -358,13 +361,19 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
   {
     pattern: /^\/video-generation\/materials$/,
     render: () => <VgMaterialLibraryPage />,
-    defaultTitle: '素材库',
+    defaultTitle: '素材中心',
     defaultIcon: 'library',
   },
   {
     pattern: /^\/video-generation\/library$/,
     render: () => <VgVideoLibraryPage />,
     defaultTitle: '我的视频',
+    defaultIcon: 'video',
+  },
+  {
+    pattern: /^\/video-generation\/videos$/,
+    render: () => <VgVideoCenterPage />,
+    defaultTitle: '视频中心',
     defaultIcon: 'video',
   },
   {

@@ -26,6 +26,9 @@ export default {
   nav: {
     newChat: 'New Chat',
     knowledge: 'Knowledge Hub',
+    knowledgeBase: 'Knowledge Base',
+    materials: 'Materials',
+    videos: 'Videos',
     modelMarket: 'Model Vendors',
     modelGallery: 'Model Gallery',
     mcp: 'MCP',

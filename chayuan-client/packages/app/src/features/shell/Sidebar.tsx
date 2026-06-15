@@ -33,6 +33,9 @@ import {
   Tags,
   Lock,
   MessageSquarePlus,
+  FolderOpen,
+  Video,
+  ChevronDown,
 } from 'lucide-react';
 import { useNavigate, useLocation } from '@tanstack/react-router';
 // uuid / useQueryClient / upsertConversation 之前用于 onNewChat 预建会话,
@@ -71,10 +74,20 @@ interface NavItem {
   to: string;
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** 可展开父菜单:点击只 toggle 不导航 */
+  group?: boolean;
+  children?: ReadonlyArray<NavItem>;
 }
 
 const NAV_ITEMS: ReadonlyArray<NavItem> = [
-  { to: '/kb', labelKey: 'nav.knowledge', icon: Library },
+  {
+    to: '/kb', labelKey: 'nav.knowledge', icon: Library, group: true,
+    children: [
+      { to: '/kb', labelKey: 'nav.knowledgeBase', icon: Library },
+      { to: '/video-generation/materials', labelKey: 'nav.materials', icon: FolderOpen },
+      { to: '/video-generation/videos', labelKey: 'nav.videos', icon: Video },
+    ],
+  },
   { to: '/marketplace', labelKey: 'nav.modelMarket', icon: Server },
   { to: '/model-gallery', labelKey: 'nav.modelGallery', icon: Store },
   { to: '/mcp', labelKey: 'nav.mcp', icon: Plug },
@@ -114,6 +127,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
   const navigate = useNavigate();
   const location = useLocation();
   const [feedbackOpen, setFeedbackOpen] = React.useState(false);
+  // 「知识中心」父菜单展开态(持久化;默认展开)
+  const [kcOpen, setKcOpen] = React.useState(() => localStorage.getItem('sidebar.kc.expanded') !== '0');
+  const toggleKc = () => setKcOpen((v) => { localStorage.setItem('sidebar.kc.expanded', v ? '0' : '1'); return !v; });
+  // 「在线办公」分组折叠态(持久化;默认展开)
+  const [onlineOpen, setOnlineOpen] = React.useState(() => localStorage.getItem('sidebar.online.expanded') !== '0');
+  const toggleOnline = () => setOnlineOpen((v) => { localStorage.setItem('sidebar.online.expanded', v ? '0' : '1'); return !v; });
 
   const onNavItem = (to: string, titleKey: string, icon: string) => {
     open(to, { title: titleKey, icon });
@@ -204,6 +223,42 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
         <nav className="mt-3 flex flex-col gap-0.5 px-2 text-sm">
           {NAV_ITEMS.map((it) => {
             const Icon = it.icon;
+            // 可展开父菜单(知识中心):点击只 toggle,子项缩进渲染
+            if (it.group && it.children) {
+              return (
+                <div key={it.to}>
+                  <button
+                    type="button"
+                    onClick={toggleKc}
+                    className="flex w-full items-center gap-2 rounded-full px-3 py-1.5 text-left text-[var(--cy-text-secondary)] transition-colors hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]"
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="flex-1">{t(it.labelKey)}</span>
+                    <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', kcOpen ? '' : '-rotate-90')} />
+                  </button>
+                  {kcOpen && it.children.map((c) => {
+                    const CIcon = c.icon;
+                    const cActive = location.pathname === c.to;
+                    return (
+                      <button
+                        key={c.to}
+                        type="button"
+                        onClick={() => onNavItem(c.to, c.labelKey, iconKeyFor(c.to))}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-full py-1.5 pl-9 pr-3 text-left transition-colors',
+                          cActive
+                            ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]'
+                            : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]',
+                        )}
+                      >
+                        <CIcon className="h-4 w-4" />
+                        {t(c.labelKey)}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            }
             const active = location.pathname === it.to;
             return (
               <button
@@ -255,10 +310,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
       {/* 在线办公功能组 —— 单机版不支持,点击进占位页(流式介绍 + 联系商务) */}
       {!collapsed && (
         <div className="shrink-0 border-t border-[var(--cy-border-subtle)] px-2 py-2">
-          <p className="mb-1 flex items-center gap-1 px-2 text-[11px] font-medium uppercase tracking-wider text-[var(--cy-text-tertiary)]">
+          <button
+            type="button"
+            onClick={toggleOnline}
+            className="mb-1 flex w-full items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]"
+          >
             <Lock className="h-3 w-3" />
-            {t('nav.onlineGroup')}
-          </p>
+            <span className="flex-1 text-left">{t('nav.onlineGroup')}</span>
+            <ChevronDown className={cn('h-3 w-3 transition-transform', onlineOpen ? '' : '-rotate-90')} />
+          </button>
+          {onlineOpen && (
           <nav className="flex flex-col gap-0.5 text-sm">
             {ONLINE_NAV_ITEMS.map((it) => {
               const Icon = it.icon;
@@ -285,6 +346,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
               );
             })}
           </nav>
+          )}
         </div>
       )}
 
@@ -358,6 +420,8 @@ function iconKeyFor(path: string): string {
   if (path === '/model-gallery') return 'store';
   if (path === '/mcp') return 'plug';
   if (path === '/tools') return 'wrench';
+  if (path === '/video-generation/materials') return 'folder';
+  if (path === '/video-generation/videos') return 'video';
   if (path === '/ai-video') return 'film';
   if (path === '/history') return 'clock';
   if (path === '/annotation') return 'tag';

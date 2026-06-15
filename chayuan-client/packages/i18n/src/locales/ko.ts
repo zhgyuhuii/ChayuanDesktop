@@ -24,6 +24,9 @@ export default {
   nav: {
     newChat: '새 대화',
     knowledge: '지식 베이스',
+    knowledgeBase: '지식 베이스',
+    materials: '소재',
+    videos: '비디오',
     modelMarket: '모델 공급업체',
     modelGallery: '모델 갤러리',
     aiVideo: 'AI Video',

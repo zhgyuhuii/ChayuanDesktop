@@ -26,6 +26,9 @@ export default {
   nav: {
     newChat: '新建对话',
     knowledge: '知识中心',
+    knowledgeBase: '知识库',
+    materials: '素材中心',
+    videos: '视频中心',
     modelMarket: '模型厂商',
     modelGallery: '模型广场',
     mcp: 'MCP服务',
