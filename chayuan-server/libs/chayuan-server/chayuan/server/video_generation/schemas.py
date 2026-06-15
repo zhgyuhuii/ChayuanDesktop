@@ -158,6 +158,7 @@ class TimelineClip(BaseModel):
     x: float = 0.0
     y: float = 0.0
     scale: float = 1.0
+    speed: float = 1.0                               # 变速倍率(P3);1=原速
     z: int = 0
     opacity: float = 1.0                            # 画中画层不透明度 0-1(1=不透明)
     # 几何变换(P2):仅画中画/附加视频层有效,主轨 concat 不读

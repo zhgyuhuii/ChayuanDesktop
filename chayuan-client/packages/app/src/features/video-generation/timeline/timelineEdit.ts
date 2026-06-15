@@ -49,9 +49,11 @@ export function roundTimeline(t: VgTimeline): VgTimeline {
 /** clip 有效时长(ms):优先 out-in;否则 duration_ms;再否则 1000。 */
 export function clipDurMs(c: VgTimelineClip): number {
   const inMs = c.in_ms ?? 0;
-  if (c.out_ms && c.out_ms > inMs) return c.out_ms - inMs;
-  if (c.duration_ms && c.duration_ms > 0) return c.duration_ms;
-  return 1000;
+  const sp = (c.speed && c.speed > 0) ? c.speed : 1;
+  let base = 1000;
+  if (c.out_ms && c.out_ms > inMs) base = c.out_ms - inMs;
+  else if (c.duration_ms && c.duration_ms > 0) base = c.duration_ms;
+  return base / sp;
 }
 
 /** 主视频轨下标 = 第一条 removable=false 的视频轨(主/蒙太奇轨);没有则第一条视频轨。
@@ -274,7 +276,7 @@ export function replaceClipSource(
 }
 
 /** 逐片段属性写入的单一入口(带 clamp)。x/y∈[0,1]、scale∈[0.05,1]、opacity∈[0,1]、volume∈[0,1.5]、z 取整。 */
-export type ClipPatch = Partial<Pick<VgTimelineClip, 'opacity' | 'volume' | 'muted' | 'x' | 'y' | 'scale' | 'z' | 'rotation' | 'flip_h' | 'flip_v' | 'crop' | 'color'>>;
+export type ClipPatch = Partial<Pick<VgTimelineClip, 'opacity' | 'volume' | 'muted' | 'x' | 'y' | 'scale' | 'z' | 'rotation' | 'flip_h' | 'flip_v' | 'crop' | 'color' | 'speed'>>;
 export function patchClip(t: VgTimeline, clipId: string, patch: ClipPatch): VgTimeline {
   const apply = (c: VgTimelineClip): VgTimelineClip => {
     const n: VgTimelineClip = { ...c };
@@ -285,6 +287,7 @@ export function patchClip(t: VgTimeline, clipId: string, patch: ClipPatch): VgTi
     if (patch.y !== undefined) n.y = clampN(patch.y, 0, 1);
     if (patch.scale !== undefined) n.scale = clampN(patch.scale, 0.05, 1);
     if (patch.z !== undefined) n.z = Math.round(patch.z);
+    if (patch.speed !== undefined) n.speed = clampN(patch.speed, 0.25, 4);
     if (patch.rotation !== undefined) n.rotation = clampN(patch.rotation, -180, 180);
     if (patch.flip_h !== undefined) n.flip_h = patch.flip_h;
     if (patch.flip_v !== undefined) n.flip_v = patch.flip_v;

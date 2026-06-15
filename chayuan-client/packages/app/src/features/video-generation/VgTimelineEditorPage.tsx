@@ -158,7 +158,7 @@ export const VgTimelineEditorPage: React.FC = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedClipId, selectedOverlayIds, timeline]);
-  const onSetTransform = (clipId: string, tf: { x?: number; y?: number; scale?: number; rotation?: number; flip_h?: boolean; flip_v?: boolean; opacity?: number; color?: { brightness: number; contrast: number; saturation: number } }) => onTimelineChange(patchClip(timeline, clipId, tf));
+  const onSetTransform = (clipId: string, tf: { x?: number; y?: number; scale?: number; rotation?: number; flip_h?: boolean; flip_v?: boolean; opacity?: number; speed?: number; color?: { brightness: number; contrast: number; saturation: number } }) => onTimelineChange(patchClip(timeline, clipId, tf));
   // 裁剪编辑态(P2 几何):同一时间只一个 clip 在裁剪;onCrop 经 patchClip(带 clamp)写入。
   const [cropEditingClipId, setCropEditingClipId] = React.useState<string | null>(null);
   const onToggleCropClip = (clipId: string) => setCropEditingClipId((id) => (id === clipId ? null : clipId));
@@ -495,6 +495,13 @@ export const VgTimelineEditorPage: React.FC = () => {
                         className="h-1 w-12 accent-[var(--cy-brand-500)] disabled:cursor-not-allowed" />
                     </label>
                   ))}
+                  <span className="mx-1 h-5 w-px shrink-0 bg-[var(--cy-border-subtle)]" />
+                  <span className="text-[10px] text-[var(--cy-text-tertiary)]">变速</span>
+                  <select disabled={!selClip} title="变速" value={String(selClip?.speed ?? 1)}
+                    onChange={(e) => selClip && onSetTransform(selClip.id, { speed: parseFloat(e.target.value) })}
+                    className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px] disabled:cursor-not-allowed">
+                    {['0.25', '0.5', '0.75', '1', '1.5', '2', '3', '4'].map((v) => <option key={v} value={v}>{v}×</option>)}
+                  </select>
                 </div>
                 </div>
                 )}

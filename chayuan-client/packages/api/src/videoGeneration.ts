@@ -71,6 +71,7 @@ export interface VgTimelineClip {
   x?: number;                 // 画中画 0-1 归一位置/缩放/层级(P5c-2)
   y?: number;
   scale?: number;
+  speed?: number;             // 变速倍率(P3)
   z?: number;
   opacity?: number;           // 画中画层不透明度 0-1(1=不透明);后端 schema 已有
   rotation?: number;          // 几何(P2,仅 PIP):顺时针角度 -180..180

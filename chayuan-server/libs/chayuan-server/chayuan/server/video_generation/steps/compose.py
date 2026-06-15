@@ -360,6 +360,7 @@ def _build_edl_render_plan(timeline, video_aspect, *, source_resolver, width=Non
             "x": float(getattr(c, "x", 0.0) or 0.0),
             "y": float(getattr(c, "y", 0.0) or 0.0),
             "scale": float(getattr(c, "scale", 1.0) or 1.0),
+            "speed": float(getattr(c, "speed", 1.0) or 1.0),
             "color": (c.color.model_dump() if getattr(c, "color", None) else None),
         })
     return plan
@@ -410,6 +411,7 @@ def _build_pip_layers(timeline, *, source_resolver) -> list:
                 "x": float(getattr(c, "x", 0.0) or 0.0),
                 "y": float(getattr(c, "y", 0.0) or 0.0),
                 "scale": float(getattr(c, "scale", 0.4) or 0.4),
+                "speed": float(getattr(c, "speed", 1.0) or 1.0),
                 "z": ti,  # 轨道索引派生:小 = 上层
                 "start_s": max(0.0, c.track_start_ms / 1000.0),
                 "dur": dur,
@@ -425,6 +427,20 @@ def _build_pip_layers(timeline, *, source_resolver) -> list:
     # ti 小的(上层)要排到列表末尾 → 降序
     layers.sort(key=lambda ly: ly["z"], reverse=True)
     return layers
+
+
+def _speed_scaled(clip, sp):
+    """变速(P3):自然变速(原声跟着变调)。1 或异常返回原 clip。"""
+    sp = float(sp or 1.0)
+    if abs(sp - 1) < 0.001:
+        return clip
+    try:
+        return clip.with_speed_scaled(sp)
+    except Exception:  # noqa: BLE001
+        try:
+            return clip.with_effects([vfx.MultiplySpeed(sp)])
+        except Exception:  # noqa: BLE001
+            return clip
 
 
 def _apply_color(clip, color):
@@ -659,13 +675,13 @@ def render_from_edl(
             end_s = min(end_s, src_dur)
             if end_s <= start_s:
                 end_s = min(start_s + 1.0, src_dur)
-            seg = _render_main_segment(clip.subclipped(start_s, end_s), p, video_width, video_height, _bg_rgb(params))
+            seg = _render_main_segment(_speed_scaled(clip.subclipped(start_s, end_s), p.get("speed", 1.0)), p, video_width, video_height, _bg_rgb(params))
             if i > 0:
                 seg = _apply_transition(seg, p.get("transition", "none"))
             seg_path = os.path.join(output_dir, f"edl-seg-{i}.mp4")
             seg.write_videofile(seg_path, logger=None, fps=fps, codec=video_codec)
             clip_files.append(seg_path)
-            total += (end_s - start_s)
+            total += (end_s - start_s) / max(0.1, float(p.get("speed", 1.0) or 1.0))
         finally:
             close_clip(clip)
 
@@ -704,6 +720,7 @@ def render_from_edl(
                     oc = _open_video_clip_quietly(ly["path"])
                     if ly["dur"]:
                         oc = oc.subclipped(0, min(ly["dur"], oc.duration))
+                    oc = _speed_scaled(oc, ly.get("speed", 1.0))
                 oc = _apply_pip_geometry(oc, ly)
                 # 绝对像素定位:左上角 = (x*W, y*H),与前端预览 left:x% / top:y% 一一对应。
                 # 不用 relative=True —— moviepy 的相对定位是 x*(W-w)(右缘锚定)语义,
@@ -824,6 +841,7 @@ def render_proxy_from_timeline(
                     oc = _open_video_clip_quietly(ly["path"])
                     if ly["dur"]:
                         oc = oc.subclipped(0, min(ly["dur"], oc.duration))
+                    oc = _speed_scaled(oc, ly.get("speed", 1.0))
                 oc = _apply_pip_geometry(oc, ly)
                 # 绝对像素定位(同 render_from_edl):左上角 = (x*pw, y*ph),对齐前端预览。
                 oc = oc.resized(width=ow).with_position(
