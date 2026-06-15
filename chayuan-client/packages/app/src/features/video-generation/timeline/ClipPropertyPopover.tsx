@@ -65,12 +65,14 @@ export const ClipPropertyPopover: React.FC<{
         <span className="w-8 shrink-0 text-right tabular-nums">{volume.toFixed(2)}</span>
       </label>
 
+      {/* 层级 z 不放控件:后端 _build_pip_layers 按「轨道顺序」决定层级、不读 clip.z,
+          预览也按轨道下标排 zIndex —— 暴露 z 数值是「调了不生效」的误导控件,故不提供。
+          画中画层级由上下拖动视频轨调整。 */}
       {isPip && (
         <div className="grid grid-cols-2 gap-1">
           <NumField label="位置X" value={clip.x ?? 0} step={0.01} min={0} max={1} onChange={(v) => set({ x: v })} />
           <NumField label="位置Y" value={clip.y ?? 0} step={0.01} min={0} max={1} onChange={(v) => set({ y: v })} />
           <NumField label="缩放" value={clip.scale ?? 1} step={0.01} min={0.05} max={1} onChange={(v) => set({ scale: v })} />
-          <NumField label="层级" value={clip.z ?? 0} step={1} min={0} max={99} onChange={(v) => set({ z: v })} />
         </div>
       )}
     </div>
