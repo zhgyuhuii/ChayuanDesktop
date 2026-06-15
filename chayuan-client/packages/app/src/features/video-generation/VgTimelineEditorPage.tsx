@@ -144,19 +144,20 @@ export const VgTimelineEditorPage: React.FC = () => {
   const [selectedTrackId, setSelectedTrackId] = React.useState<string | null>(null);
   // #10:跨轨选中 clip + Delete/Backspace 删除(焦点在输入框时不拦)
   const [selectedClipId, setSelectedClipId] = React.useState<string | null>(null);
+  const [selectedOverlayId, setSelectedOverlayId] = React.useState<string | null>(null);
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-      if (!selectedClipId) return;
+      if (!selectedClipId && !selectedOverlayId) return;
       const el = document.activeElement as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
       e.preventDefault();
-      onTimelineChange(deleteAnyClip(timeline, selectedClipId));
-      setSelectedClipId(null);
+      if (selectedOverlayId) { onTimelineChange(deleteOverlay(timeline, selectedOverlayId)); setSelectedOverlayId(null); }
+      else if (selectedClipId) { onTimelineChange(deleteAnyClip(timeline, selectedClipId)); setSelectedClipId(null); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedClipId, timeline]);
+  }, [selectedClipId, selectedOverlayId, timeline]);
   const onSetTransform = (clipId: string, tf: { x?: number; y?: number; scale?: number; rotation?: number; flip_h?: boolean; flip_v?: boolean; opacity?: number }) => onTimelineChange(patchClip(timeline, clipId, tf));
   // 裁剪编辑态(P2 几何):同一时间只一个 clip 在裁剪;onCrop 经 patchClip(带 clamp)写入。
   const [cropEditingClipId, setCropEditingClipId] = React.useState<string | null>(null);
@@ -165,8 +166,8 @@ export const VgTimelineEditorPage: React.FC = () => {
   // 选中片段(供预览头部几何工具条用 —— 工具条放头部不挡画面)
   const selClip = selectedClipId ? (timeline.tracks || []).flatMap((t) => t.clips || []).find((c) => c.id === selectedClipId) : null;
   // 叠加元素(A 期文字):选中与片段选中互斥
-  const [selectedOverlayId, setSelectedOverlayId] = React.useState<string | null>(null);
   const onSelectOverlay = (id: string | null) => { setSelectedOverlayId(id); if (id) setSelectedClipId(null); };
+  const selectClip = (id: string | null) => { setSelectedClipId(id); if (id) setSelectedOverlayId(null); };
   const onOverlayTransform = (id: string, tf: Partial<VgOverlay>) => onTimelineChange(patchOverlay(timeline, id, tf));
   const overlayImgInputRef = React.useRef<HTMLInputElement | null>(null);
   const onAddOverlay = (type: 'text' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'image' | 'mosaic') => {
@@ -427,7 +428,7 @@ export const VgTimelineEditorPage: React.FC = () => {
                   cropEditingClipId={cropEditingClipId}
                   onCrop={onCrop}
                   selectedClipId={selectedClipId}
-                  onSelectClip={setSelectedClipId}
+                  onSelectClip={selectClip}
                   backgroundColor={params.background_color}
                   overlays={timeline.overlays}
                   selectedOverlayId={selectedOverlayId}
@@ -531,7 +532,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           onSelectTrack={setSelectedTrackId}
           onReorderVideoTrack={(tid, dir) => onTimelineChange(reorderVideoTrack(timeline, tid, dir))}
           selectedClipId={selectedClipId}
-          onSelectClip={setSelectedClipId}
+          onSelectClip={selectClip}
           overlays={timeline.overlays}
           selectedOverlayId={selectedOverlayId}
           onSelectOverlay={onSelectOverlay}
