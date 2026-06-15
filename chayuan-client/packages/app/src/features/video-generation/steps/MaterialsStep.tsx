@@ -168,6 +168,16 @@ const MineTab: React.FC<{
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['vg.materials'] }); },
     onError: (e) => reportError(e as Error, '删除素材失败'),
   });
+  const [delSel, setDelSel] = React.useState<Set<string>>(new Set());
+  const toggleDel = (id: string) => setDelSel((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const batchDelete = async () => {
+    const ids = [...delSel];
+    if (!ids.length) return;
+    if (!(await confirmDialog(`删除选中的 ${ids.length} 个素材?磁盘文件会一并清掉。`, { danger: true }))) return;
+    for (const id of ids) { try { await videoGeneration.deleteMaterial(id, { drop_file: true }); } catch (e) { reportError(e as Error, '删除素材失败'); } }
+    setDelSel(new Set());
+    void qc.invalidateQueries({ queryKey: ['vg.materials'] });
+  };
 
   if (q.isLoading) return <div className="text-xs text-[var(--cy-text-tertiary)]">加载中…</div>;
   if (q.isError) {
@@ -195,6 +205,14 @@ const MineTab: React.FC<{
   );
   return (
     <>
+      {delSel.size > 0 && (
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">
+          已勾选 {delSel.size} 个
+          <button type="button" onClick={() => void batchDelete()}
+            className="inline-flex items-center gap-1 rounded bg-rose-600 px-2 py-0.5 text-white hover:bg-rose-700"><Trash2 className="h-3 w-3" /> 删除选中</button>
+          <button type="button" onClick={() => setDelSel(new Set())} className="ml-auto text-rose-500 hover:underline">取消</button>
+        </div>
+      )}
       <ul className={view === 'list' ? 'flex flex-col gap-1' : 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4'}>
         {items.map((m: VgMaterial) => {
           const url = m.path;
@@ -215,6 +233,9 @@ const MineTab: React.FC<{
                 onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, m }); }}
                 className={'group flex items-center gap-2 rounded-lg border p-1 text-left transition-colors ' +
                   (chosen ? 'border-[var(--cy-brand-500)]' : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
+                <input type="checkbox" title="勾选以批量删除" checked={delSel.has(m.material_id)}
+                  onClick={(e) => e.stopPropagation()} onChange={() => toggleDel(m.material_id)}
+                  className="ml-1 h-4 w-4 shrink-0 cursor-pointer accent-rose-600" />
                 <button type="button" onClick={() => onToggle(item)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                   <span className="flex h-9 w-14 shrink-0 items-center justify-center overflow-hidden rounded bg-[var(--cy-surface-2)]">{thumb(m, fileUrl, true)}</span>
                   <span className="min-w-0 flex-1">
@@ -235,6 +256,9 @@ const MineTab: React.FC<{
               }
             >
               <PlayBadge image={isImg(m)} onClick={() => setPreview(m)} />
+              <input type="checkbox" title="勾选以批量删除" checked={delSel.has(m.material_id)}
+                onClick={(e) => e.stopPropagation()} onChange={() => toggleDel(m.material_id)}
+                className="absolute right-1.5 top-1.5 z-10 h-4 w-4 cursor-pointer accent-rose-600" />
               <button type="button" onClick={() => onToggle(item)} className="block w-full text-left">
                 <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden">
                   {thumb(m, fileUrl)}
