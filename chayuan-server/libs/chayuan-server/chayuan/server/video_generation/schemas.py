@@ -179,10 +179,12 @@ class TimelineTrack(BaseModel):
 
 
 class OverlayKf(BaseModel):
-    """位置关键帧:t=相对该元素时长 0-1;x/y 归一位置。"""
+    """关键帧:t=相对该元素时长 0-1;x/y 归一位置;w/h 归一尺寸。"""
     t: float = 0.0
     x: float = 0.0
     y: float = 0.0
+    w: float = 0.5
+    h: float = 0.2
 
 
 class VgOverlay(BaseModel):

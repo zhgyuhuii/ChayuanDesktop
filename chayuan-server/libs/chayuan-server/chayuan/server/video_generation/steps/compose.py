@@ -1224,6 +1224,28 @@ def _render_overlays(video_clip, overlays, W, H, font_path):
                     tc = tc.with_position(_posfn)
                 except Exception:  # noqa: BLE001
                     pass
+
+                def _sizefn(time, kfs=_kfs, _dur=dur, _W=W, _H=H):
+                    rel = 0.0 if _dur <= 0 else max(0.0, min(1.0, time / _dur))
+                    if rel <= kfs[0].t:
+                        kw, kh = getattr(kfs[0], "w", 0.5), getattr(kfs[0], "h", 0.2)
+                    elif rel >= kfs[-1].t:
+                        kw, kh = getattr(kfs[-1], "w", 0.5), getattr(kfs[-1], "h", 0.2)
+                    else:
+                        kw, kh = getattr(kfs[-1], "w", 0.5), getattr(kfs[-1], "h", 0.2)
+                        for i in range(len(kfs) - 1):
+                            a, b = kfs[i], kfs[i + 1]
+                            if a.t <= rel <= b.t:
+                                f = (rel - a.t) / (b.t - a.t) if b.t > a.t else 0.0
+                                kw = getattr(a, "w", 0.5) + (getattr(b, "w", 0.5) - getattr(a, "w", 0.5)) * f
+                                kh = getattr(a, "h", 0.2) + (getattr(b, "h", 0.2) - getattr(a, "h", 0.2)) * f
+                                break
+                    return (max(2, int(kw * _W)), max(2, int(kh * _H)))
+                if any(abs(getattr(k, "w", 0.5) - getattr(_kfs[0], "w", 0.5)) > 0.001 or abs(getattr(k, "h", 0.2) - getattr(_kfs[0], "h", 0.2)) > 0.001 for k in _kfs):
+                    try:
+                        tc = tc.resized(_sizefn)
+                    except Exception:  # noqa: BLE001
+                        pass
             rot = float(getattr(ov, "rotation", 0.0) or 0.0)
             if abs(rot) > 0.01:
                 tc = tc.rotated(rot)

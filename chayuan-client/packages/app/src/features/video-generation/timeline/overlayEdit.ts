@@ -51,21 +51,24 @@ export function deleteOverlay(t: VgTimeline, id: string): VgTimeline {
 }
 
 /** 关键帧间插值出当前位置(playhead);<2 关键帧返回静态 x/y。 */
-export function overlayPosAt(ov: VgOverlay, playheadMs: number): { x: number; y: number } {
+export function overlayPosAt(ov: VgOverlay, playheadMs: number): { x: number; y: number; w: number; h: number } {
   const kfs = (ov.keyframes || []).slice().sort((a, b) => a.t - b.t);
-  if (kfs.length < 2) return { x: ov.x, y: ov.y };
+  const base = { x: ov.x, y: ov.y, w: ov.w, h: ov.h };
+  if (kfs.length < 2) return base;
+  const kw = (k: { w?: number }) => k.w ?? ov.w;
+  const kh = (k: { h?: number }) => k.h ?? ov.h;
   const rel = ov.duration_ms > 0 ? clampN((playheadMs - ov.track_start_ms) / ov.duration_ms, 0, 1) : 0;
-  if (rel <= kfs[0]!.t) return { x: kfs[0]!.x, y: kfs[0]!.y };
-  const last = kfs[kfs.length - 1]!;
-  if (rel >= last.t) return { x: last.x, y: last.y };
+  const first = kfs[0]!; const last = kfs[kfs.length - 1]!;
+  if (rel <= first.t) return { x: first.x, y: first.y, w: kw(first), h: kh(first) };
+  if (rel >= last.t) return { x: last.x, y: last.y, w: kw(last), h: kh(last) };
   for (let i = 0; i < kfs.length - 1; i++) {
     const a = kfs[i]!; const b = kfs[i + 1]!;
     if (a.t <= rel && rel <= b.t) {
       const f = b.t > a.t ? (rel - a.t) / (b.t - a.t) : 0;
-      return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+      return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, w: kw(a) + (kw(b) - kw(a)) * f, h: kh(a) + (kh(b) - kh(a)) * f };
     }
   }
-  return { x: ov.x, y: ov.y };
+  return base;
 }
 
 /** 在 playhead 处记录一个位置关键帧(用元素当前 x/y);同位置(t 接近)的覆盖。 */
@@ -73,7 +76,7 @@ export function addKeyframe(t: VgTimeline, id: string, playheadMs: number): VgTi
   const ov = (t.overlays || []).find((o) => o.id === id);
   if (!ov) return t;
   const rel = ov.duration_ms > 0 ? clampN((playheadMs - ov.track_start_ms) / ov.duration_ms, 0, 1) : 0;
-  const kfs = [...(ov.keyframes || []).filter((k) => Math.abs(k.t - rel) > 0.01), { t: rel, x: ov.x, y: ov.y }].sort((a, b) => a.t - b.t);
+  const kfs = [...(ov.keyframes || []).filter((k) => Math.abs(k.t - rel) > 0.01), { t: rel, x: ov.x, y: ov.y, w: ov.w, h: ov.h }].sort((a, b) => a.t - b.t);
   return patchOverlay(t, id, { keyframes: kfs });
 }
 

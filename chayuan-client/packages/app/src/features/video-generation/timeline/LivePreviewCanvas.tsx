@@ -269,11 +269,11 @@ export const LivePreviewCanvas: React.FC<{
       {/* 叠加元素(A 期文字):命中时间段才渲染;选中显几何手柄;双击文字改字 */}
       {activeOverlays.map((ov) => {
         const sel = selectedOverlayIds.includes(ov.id);
-        const opos = (ov.keyframes && ov.keyframes.length >= 2) ? overlayPosAt(ov, playheadMs) : { x: ov.x, y: ov.y };
+        const opos = (ov.keyframes && ov.keyframes.length >= 2) ? overlayPosAt(ov, playheadMs) : { x: ov.x, y: ov.y, w: ov.w, h: ov.h };
         return (
           <div key={ov.id} data-cy-overlay className={'absolute ' + (sel ? '' : 'cursor-move')}
             style={{
-              left: `${opos.x * 100}%`, top: `${opos.y * 100}%`, width: `${ov.w * 100}%`, height: `${ov.h * 100}%`,
+              left: `${opos.x * 100}%`, top: `${opos.y * 100}%`, width: `${opos.w * 100}%`, height: `${opos.h * 100}%`,
               transform: `rotate(${ov.rotation ?? 0}deg)`, opacity: (ov.opacity ?? 1) * overlayAnimFactor(ov, playheadMs), zIndex: 150 + (ov.z ?? 0),
             }}
             onPointerDown={(e) => { if (!sel) onSelectOverlay?.(ov.id, e.ctrlKey || e.metaKey); dragOv(e, ov.id, 'move', { x: ov.x, y: ov.y, w: ov.w, h: ov.h }); }}
