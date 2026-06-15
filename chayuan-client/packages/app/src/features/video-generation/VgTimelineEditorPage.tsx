@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Loader2, AlertTriangle, RefreshCw, Eye, EyeOff, FlipHorizontal2, FlipVertical2, Crop, SlidersHorizontal } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@chayuan/ui';
 import { OutputFramingSection } from './sections/OutputFramingSection';
+import { OverlayToolbar } from './timeline/OverlayToolbar';
 import { VgAspectPicker } from './VgAspectPicker';
 import { videoGeneration, type VgTimeline, type VgOverlay } from '@chayuan/api';
 import { useVgComposer, scriptHashOf } from './store/vgComposer';
@@ -329,7 +330,10 @@ export const VgTimelineEditorPage: React.FC = () => {
               <span className="[writing-mode:vertical-rl]">展开预览</span>
             </button>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1">
+              {/* 叠加元素工具条:贴左侧分隔条,在视频区域外 */}
+              <OverlayToolbar onAdd={onAddOverlay} />
+              <div className="flex min-h-0 flex-1 flex-col">
               {/* 预览头:画幅条 + 折叠 */}
               <div className="flex items-center gap-2 px-3 pt-2">
                 <VgAspectPicker compact />
@@ -429,12 +433,12 @@ export const VgTimelineEditorPage: React.FC = () => {
                   selectedOverlayId={selectedOverlayId}
                   onSelectOverlay={onSelectOverlay}
                   onOverlayTransform={onOverlayTransform}
-                  onAddOverlay={onAddOverlay}
                   onModeChange={setPreviewMode}
                   cues={cues}
                   taskId={draft.taskId} audioFileName={draft.audioFileName}
                   composeParams={{ ...params, timeline }}
                 />
+              </div>
               </div>
             </div>
           )}

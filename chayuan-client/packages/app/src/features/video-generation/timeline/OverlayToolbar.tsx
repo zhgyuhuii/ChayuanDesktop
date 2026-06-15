@@ -17,14 +17,13 @@ export const OverlayToolbar: React.FC<{
     { type: 'mosaic', icon: <Grid2x2 className="h-4 w-4" />, label: '马赛克(即将上线)', enabled: false },
   ];
   return (
-    <div className="absolute left-0 top-0 z-[30] flex w-9 flex-col items-center gap-0.5 rounded-r-md bg-black/40 py-1 backdrop-blur-sm"
-      onPointerDown={(e) => e.stopPropagation()}>
+    <div className="flex w-9 shrink-0 flex-col items-center gap-0.5 border-r border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] py-1">
       {items.map((it) => (
         <button key={it.type} type="button" title={it.label} aria-label={it.label}
           disabled={!it.enabled}
           onClick={() => { if (it.enabled && it.type !== 'select') onAdd(it.type as VgOverlay['type']); }}
-          className={'inline-flex h-7 w-7 items-center justify-center rounded text-white/90 transition-colors ' +
-            (it.enabled ? 'hover:bg-white/20' : 'cursor-not-allowed opacity-35')}>
+          className={'inline-flex h-7 w-7 items-center justify-center rounded text-[var(--cy-text-secondary)] transition-colors ' +
+            (it.enabled ? 'hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]' : 'cursor-not-allowed opacity-35')}>
           {it.icon}
         </button>
       ))}

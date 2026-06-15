@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { videoGeneration, type VgTimeline, type VgTimelineClip, type VgOverlay } from '@chayuan/api';
-import { OverlayToolbar } from './OverlayToolbar';
 import { clipDurMs } from './timelineEdit';
 import type { SrtCue } from './srtParse';
 
@@ -93,9 +92,8 @@ export const LivePreviewCanvas: React.FC<{
   selectedOverlayId?: string | null;
   onSelectOverlay?: (id: string | null) => void;
   onOverlayTransform?: (id: string, tf: Partial<VgOverlay>) => void;
-  onAddOverlay?: (type: VgOverlay['type']) => void;
   cues?: SrtCue[];
-}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, backgroundColor = '#000000', overlays, selectedOverlayId = null, onSelectOverlay, onOverlayTransform, onAddOverlay, cues }) => {
+}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, backgroundColor = '#000000', overlays, selectedOverlayId = null, onSelectOverlay, onOverlayTransform, cues }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const cue = (cues ?? []).find((c) => playheadMs >= c.startMs && playheadMs < c.endMs);
@@ -320,7 +318,6 @@ export const LivePreviewCanvas: React.FC<{
           </div>
         );
       })}
-      {onAddOverlay && <OverlayToolbar onAdd={onAddOverlay} />}
 
       {/* 字幕叠层:当前 playhead 命中的 cue,底部居中(与画面/音频同 playhead → 可核对对齐) */}
       {cue && (
