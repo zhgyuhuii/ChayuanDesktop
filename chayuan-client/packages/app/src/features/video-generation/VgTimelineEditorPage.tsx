@@ -16,7 +16,7 @@ import { buildTimelineFromMaterials } from './timeline/buildTimeline';
 import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, setClipTransition, applyProbedDuration, patchClip, type DraggedMaterial } from './timeline/timelineEdit';
 import { TRANSITIONS } from './timeline/transitions';
 import { addTrack, removeTrack, reorderVideoTrack } from './timeline/trackOps';
-import { addOverlay, patchOverlay } from './timeline/overlayEdit';
+import { addOverlay, patchOverlay, deleteOverlay } from './timeline/overlayEdit';
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
 import { ScriptGenDialog } from './timeline/ScriptGenDialog';
 import { ScriptEditorDialog } from './timeline/ScriptEditorDialog';
@@ -472,6 +472,11 @@ export const VgTimelineEditorPage: React.FC = () => {
           onReorderVideoTrack={(tid, dir) => onTimelineChange(reorderVideoTrack(timeline, tid, dir))}
           selectedClipId={selectedClipId}
           onSelectClip={setSelectedClipId}
+          overlays={timeline.overlays}
+          selectedOverlayId={selectedOverlayId}
+          onSelectOverlay={onSelectOverlay}
+          onOverlayPatch={(id, patch) => onTimelineChange(patchOverlay(timeline, id, patch))}
+          onOverlayDelete={(id) => { onTimelineChange(deleteOverlay(timeline, id)); setSelectedOverlayId(null); }}
           playheadDriveRef={playheadDriveRef}
           narrationName={narrationName}
           narrationDurationMs={draft.audioDurationMs || (peaks.length ? contentMs : 0)}

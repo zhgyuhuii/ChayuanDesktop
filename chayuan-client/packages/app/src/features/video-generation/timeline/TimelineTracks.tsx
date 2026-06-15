@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Mic, Captions, Music, Music2, Clapperboard, PictureInPicture2, Volume2, VolumeX, SlidersVertical } from 'lucide-react';
+import { Mic, Captions, Music, Music2, Clapperboard, PictureInPicture2, Volume2, VolumeX, SlidersVertical, Type } from 'lucide-react';
 import type { VgTimeline, VgTimelineTrack } from '@chayuan/api';
 import type { SrtCue } from './srtParse';
 import { msToPx, pxToMs } from './timelineScale';
@@ -11,6 +11,7 @@ import { VgTimeline as VideoTrack } from './VgTimeline';
 import { AudioWaveTrack } from './AudioWaveTrack';
 import { AudioInsertTrack } from './AudioInsertTrack';
 import { SubtitleCueTrack } from './SubtitleCueTrack';
+import { OverlayLane } from './OverlayLane';
 import { BgmTrack } from './BgmTrack';
 import { VerticalSliderPopover } from './VerticalSliderPopover';
 import { VG_MATERIAL_DND_MIME, type DraggedMaterial } from './timelineEdit';
@@ -43,13 +44,18 @@ export const TimelineTracks: React.FC<{
   onReorderVideoTrack?: (trackId: string, dir: 'up' | 'down') => void;
   selectedClipId?: string | null;
   onSelectClip?: (clipId: string) => void;
+  overlays?: import('@chayuan/api').VgOverlay[];
+  selectedOverlayId?: string | null;
+  onSelectOverlay?: (id: string | null) => void;
+  onOverlayPatch?: (id: string, patch: { track_start_ms?: number; duration_ms?: number }) => void;
+  onOverlayDelete?: (id: string) => void;
   /** 旁白音频块显示名(主题名)+ 时长。 */
   narrationName?: string;
   narrationDurationMs?: number;
   onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
   /** 播放头命令式驱动 ref(rAF 每帧推 DOM,不重渲整条时间轴);透传给 Playhead。 */
   playheadDriveRef?: React.MutableRefObject<((ms: number) => void) | null>;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationName, narrationDurationMs, onTransitionMenu, playheadDriveRef }) => {
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, overlays, selectedOverlayId, onSelectOverlay, onOverlayPatch, onOverlayDelete, narrationName, narrationDurationMs, onTransitionMenu, playheadDriveRef }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   // 刻度固定:右侧面板自成垂直滚动容器,左侧轨道头列 scrollTop 跟随同步
   const lanesScrollRef = React.useRef<HTMLDivElement>(null);
@@ -57,7 +63,7 @@ export const TimelineTracks: React.FC<{
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const audioTracks = (timeline.tracks || []).filter((t) => t.kind === 'audio');
   const audioLanes: (VgTimelineTrack | null)[] = audioTracks.length ? audioTracks : [null]; // 至少一条插入音频 lane(可拖)
-  const laneCount = videoTracks.length + 1 /*旁白*/ + audioLanes.length + 1 /*音乐*/ + 1 /*字幕*/;
+  const laneCount = videoTracks.length + 1 /*旁白*/ + audioLanes.length + 1 /*音乐*/ + 1 /*字幕*/ + 1 /*叠加*/;
   const lanesH = TRACK_H * laneCount;
   const selCls = (id?: string) => (id && id === selectedTrackId ? ' ring-2 ring-inset ring-[var(--cy-brand-400)]' : '');
   // 时间轴各轨是专用 drop 区 → dragover 一律 preventDefault(否则浏览器禁止 drop)。
@@ -139,6 +145,7 @@ export const TimelineTracks: React.FC<{
         ))}
         <TrackHeader label="音乐" icon={<Music className="h-3 w-3" />} />
         <TrackHeader label="字幕" icon={<Captions className="h-3 w-3" />} />
+        <TrackHeader label="叠加" icon={<Type className="h-3 w-3" />} />
       </div>
       {/* 右:横向+纵向滚动容器;刻度 sticky 固定在顶,左列 scrollTop 跟随 */}
       <div
@@ -211,6 +218,9 @@ export const TimelineTracks: React.FC<{
             <SubtitleCueTrack cues={cues} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx}
               editable onCuesChange={onCuesChange}
               onCueContextMenu={(e, idx) => onLaneContextMenu?.(e, 'subtitle', String(idx))} />
+            <OverlayLane overlays={overlays} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx}
+              selectedOverlayId={selectedOverlayId} onSelect={onSelectOverlay}
+              onPatch={onOverlayPatch} onDelete={onOverlayDelete} />
           </div>
           {/* 播放头:贯穿刻度 + 所有轨道;手柄在最顶(刻度上方) */}
           <Playhead playheadMs={playheadMs} pxPerSec={pxPerSec} heightPx={RULER_H + lanesH} durationMs={durationMs} onSeekMs={onSeekMs} driveRef={playheadDriveRef} />
