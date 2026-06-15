@@ -1,6 +1,7 @@
 import type { VgTimeline, VgTimelineClip } from '@chayuan/api';
 
 const MIN_DUR = 200;
+const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /** 设置某视频轨所有 clip 的内嵌音频(静音/音量)——视频轨左侧声音开关+音量用。 */
 export function setTrackAudio(t: VgTimeline, trackId: string, patch: { muted?: boolean; volume?: number }): VgTimeline {
@@ -272,13 +273,32 @@ export function replaceClipSource(
   return { ...t, tracks };
 }
 
-/** 单个 clip 的静音开关(视频帧上的静音按钮用;后端 compose 据 muted 决定是否混入原声)。 */
+/** 逐片段属性写入的单一入口(带 clamp)。x/y∈[0,1]、scale∈[0.05,1]、opacity∈[0,1]、volume∈[0,1.5]、z 取整。 */
+export type ClipPatch = Partial<Pick<VgTimelineClip, 'opacity' | 'volume' | 'muted' | 'x' | 'y' | 'scale' | 'z'>>;
+export function patchClip(t: VgTimeline, clipId: string, patch: ClipPatch): VgTimeline {
+  const apply = (c: VgTimelineClip): VgTimelineClip => {
+    const n: VgTimelineClip = { ...c };
+    if (patch.opacity !== undefined) n.opacity = clampN(patch.opacity, 0, 1);
+    if (patch.volume !== undefined) n.volume = clampN(patch.volume, 0, 1.5);
+    if (patch.muted !== undefined) n.muted = patch.muted;
+    if (patch.x !== undefined) n.x = clampN(patch.x, 0, 1);
+    if (patch.y !== undefined) n.y = clampN(patch.y, 0, 1);
+    if (patch.scale !== undefined) n.scale = clampN(patch.scale, 0.05, 1);
+    if (patch.z !== undefined) n.z = Math.round(patch.z);
+    return n;
+  };
+  return {
+    ...t,
+    tracks: (t.tracks || []).map((tr) => ({
+      ...tr,
+      clips: (tr.clips || []).map((c) => (c.id === clipId ? apply(c) : c)),
+    })),
+  };
+}
+
+/** 单个 clip 的静音开关(视频帧静音按钮用;后端 compose 据 muted 决定是否混入原声)。 */
 export function setClipMuted(t: VgTimeline, clipId: string, muted: boolean): VgTimeline {
-  const tracks = (t.tracks || []).map((tr) => ({
-    ...tr,
-    clips: (tr.clips || []).map((c) => (c.id === clipId ? { ...c, muted } : c)),
-  }));
-  return { ...t, tracks };
+  return patchClip(t, clipId, { muted });
 }
 
 /** 往 audio 轨追加一个插入音频 clip(顺序排在该轨末尾)。

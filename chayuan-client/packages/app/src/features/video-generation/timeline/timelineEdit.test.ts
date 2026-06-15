@@ -170,3 +170,36 @@ it('deleteAnyClip removes from audio track too', () => {
   expect(r.tracks.find((x) => x.kind === 'audio')!.clips).toHaveLength(0);
   expect(r.tracks.find((x) => x.kind === 'video')!.clips).toHaveLength(1);
 });
+
+import { patchClip } from './timelineEdit';
+
+const tlPip = (): VgTimeline => ({
+  version: 1, duration_ms: 0,
+  tracks: [
+    { id: 'v', kind: 'video', clips: [{ id: 'a', source: {}, track_start_ms: 0, in_ms: 0, out_ms: 3000 }] },
+    { id: 'v2', kind: 'video', removable: true, clips: [{ id: 'b', source: {}, track_start_ms: 0, in_ms: 0, out_ms: 2000, x: 0.5, y: 0.1, scale: 0.4, z: 1 }] },
+  ],
+});
+
+it('patchClip 设 opacity 并 clamp 到 [0,1]', () => {
+  expect(patchClip(tlPip(), 'b', { opacity: 1.5 }).tracks[1]!.clips![0]!.opacity).toBe(1);
+  expect(patchClip(tlPip(), 'b', { opacity: -0.3 }).tracks[1]!.clips![0]!.opacity).toBe(0);
+});
+
+it('patchClip clamp scale[0.05,1] / x,y[0,1] / z 取整', () => {
+  const c = patchClip(tlPip(), 'b', { scale: 2, x: -0.2, y: 1.4, z: 2.7 }).tracks[1]!.clips![0]!;
+  expect(c.scale).toBe(1);
+  expect(c.x).toBe(0);
+  expect(c.y).toBe(1);
+  expect(c.z).toBe(3);
+});
+
+it('patchClip volume clamp 到 [0,1.5]', () => {
+  expect(patchClip(tlPip(), 'a', { volume: 5 }).tracks[0]!.clips![0]!.volume).toBe(1.5);
+});
+
+it('patchClip 只改目标 clip,其它 clip/轨不动', () => {
+  const r = patchClip(tlPip(), 'b', { muted: true });
+  expect(r.tracks[0]!.clips![0]).toEqual(tlPip().tracks[0]!.clips![0]);
+  expect(r.tracks[1]!.clips![0]!.muted).toBe(true);
+});

@@ -72,6 +72,7 @@ export interface VgTimelineClip {
   y?: number;
   scale?: number;
   z?: number;
+  opacity?: number;           // 画中画层不透明度 0-1(1=不透明);后端 schema 已有
 }
 export interface VgTimelineTrack {
   id: string;
