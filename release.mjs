@@ -21,6 +21,7 @@
 //   node release.mjs --clients-only   只出上传端+下载端(不改版本、不跑 build-desktop)
 //   node release.mjs --version-only   只调 bump-version.py 升/写版本
 //   node release.mjs --bd "<参数>"    透传给 build-desktop,如 --bd "-SkipModelCheck"
+//   node release.mjs --keep-iso      保留根目录原 ISO(默认拷进 release/offline 后删,省盘)
 //
 // 双击:Windows 用 release.cmd,mac/Linux 用 release.sh。
 
@@ -77,6 +78,26 @@ function pickByExt(dir, exts) {
 }
 function copyTo(src, destDir, name) { fs.mkdirSync(destDir, { recursive: true }); const d = path.join(destDir, name); fs.copyFileSync(src, d); return d; }
 
+// ---- 磁盘空间预检(WiX light.exe 在盘满时静默失败、无报错;三档 full 包占用叠加易耗尽) ----
+function freeGB(dir) {
+  try { const st = fs.statfsSync(dir); return (st.bsize * st.bavail) / (1024 ** 3); }
+  catch { return null; }  // 旧 Node 无 statfsSync → 跳过预检(不阻断)
+}
+function requireFreeGB(dir, needGB, label) {
+  const free = freeGB(dir);
+  if (free == null) { console.warn(`  [release] 无法检测磁盘空间,跳过预检(${dir})`); return; }
+  console.log(`  磁盘剩余 ${free.toFixed(1)}GB(${label} 约需 ${needGB}GB)`);
+  if (free < needGB) {
+    const root = path.parse(path.resolve(dir)).root;
+    console.error(`\n[release] 磁盘空间不足:${root} 仅剩 ${free.toFixed(1)}GB,${label}约需 ${needGB}GB。`);
+    console.error(`         WiX light.exe / ISO 制作在盘满时会「静默失败」(一行报错都没有)。`);
+    console.error(`         清理磁盘后重试,或用 --tier 分档单独构建以降低峰值占用。`);
+    process.exit(1);
+  }
+}
+const TIER_FREE_GB = { lite: 4, standard: 8, pro: 12 };
+const CLIENT_FREE_GB = 3;
+
 // build-desktop 调用,带 CHAYUAN_BUILD_NO_BUMP=1(本脚本已决策版本,禁止它再 +1)。
 const WIN_FLAVOR_FLAG = { lite: '-LiteOnly', standard: '-StandardOnly', full: '-FullOnly' };
 const SH_FLAVOR_FLAG = { lite: '--lite-only', standard: '--standard-only', full: '--integrated-only' };
@@ -118,6 +139,7 @@ if (!has('--clients-only')) {
     const t = tiers[ti];
     const fl = TIER_FLAVOR[t];
     log(`构建离线包(${plat} / tier=${t} → flavor=${fl},CHAYUAN_BUILD_NO_BUMP=1)`);
+    requireFreeGB(ROOT, TIER_FREE_GB[t] ?? 8, `离线包 ${t} 档`);
     runBuildDesktop(fl, ti > 0);  // 第 1 档干净编译;2/3 档跳过清 target,复用 Rust 增量
     // 离线包必须自包含。WiX EmbedCab="no" 下 .msi 仅 ~2MB 元数据,真实内容在旁边的多个
     // cab 里;只收 .msi 装机必报「找不到 cab」(Error 1311/1335)。完整产物 = ISO
@@ -127,6 +149,8 @@ if (!has('--clients-only')) {
       const dest = copyTo(isoSrc, OFFLINE_DIR, `chayuan-${version}-${plat}-${t}.iso`);
       const mb = (fs.statSync(dest).size / 1048576).toFixed(0);
       summary.push(`离线包(${t}): ${path.relative(ROOT, dest)} (${mb}MB,ISO 自包含 MSI+cab)`);
+      // 削峰:已拷进 release/offline/,删根目录原 ISO,避免三档叠加把盘占满(--keep-iso 保留)
+      if (!has('--keep-iso')) { try { fs.rmSync(isoSrc, { force: true }); } catch { /* 忽略 */ } }
     } else {
       // 非 Windows(Mac/Linux):.dmg / .deb / .AppImage 本身自包含,直接收单个安装器。
       const distDir = path.join(ROOT, `dist-${fl}`);
@@ -166,6 +190,7 @@ if (!has('--clients-only')) {
 }
 
 if (!has('--offline-only')) {
+  requireFreeGB(ROOT, CLIENT_FREE_GB, '客户端(上传端+下载端)');
   const isMac = process.platform === 'darwin';
   const makeDmg = path.join(ROOT, 'scripts', 'make-mac-dmg.sh');
   const macArch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
