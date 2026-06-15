@@ -169,11 +169,36 @@ class TimelineTrack(BaseModel):
     label: str = ""
 
 
+class VgOverlay(BaseModel):
+    """预览叠加元素(A 期渲染 text;B-D 期 rect/ellipse/line/arrow/image/mosaic 预留)。
+    位置/大小归一(0-1),作用于成片画面之上。"""
+    id: str
+    type: str = "text"
+    track_start_ms: int = 0
+    duration_ms: int = 3000
+    x: float = 0.1
+    y: float = 0.1
+    w: float = 0.5
+    h: float = 0.2
+    rotation: float = 0.0
+    opacity: float = 1.0
+    z: int = 0
+    text: str = ""
+    font_name: str = ""
+    font_size: int = 48
+    text_color: str = "#ffffff"
+    stroke_color: str = "#000000"
+    stroke_width: float = 1.5
+    bg: Optional[str] = None
+    align: str = "center"
+
+
 class Timeline(BaseModel):
     """用户编辑的剪辑决策表(EDL)。runner 有它就精确照渲,否则走自动路径。"""
     version: int = 1
     duration_ms: int = Field(default=0, ge=0)
     tracks: List[TimelineTrack] = Field(default_factory=list)
+    overlays: List["VgOverlay"] = Field(default_factory=list)
 
 
 # ─────────────────────────────────────────────────────────────────────
