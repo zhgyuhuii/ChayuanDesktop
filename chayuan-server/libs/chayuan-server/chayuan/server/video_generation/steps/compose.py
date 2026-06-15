@@ -459,7 +459,18 @@ def _apply_pip_geometry(clip, ly):
     return clip
 
 
-def _render_main_segment(clip, item, W, H):
+def _bg_rgb(params) -> tuple:
+    """params.background_color (#rrggbb) -> (r,g,b);缺失/非法回退黑。"""
+    v = str(getattr(params, "background_color", "") or "").strip().lstrip("#")
+    if len(v) == 6:
+        try:
+            return (int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16))
+        except ValueError:
+            pass
+    return (0, 0, 0)
+
+
+def _render_main_segment(clip, item, W, H, bg=(0, 0, 0)):
     """主轨单段:crop/flip/rotate 总应用;有自由变换(scale/位置/opacity)则合成黑底,否则 resize 填满(零回归)。"""
     clip = _apply_pip_geometry(clip, item)
     scale = float(item.get("scale", 1.0) or 1.0)
@@ -476,7 +487,7 @@ def _render_main_segment(clip, item, W, H):
             inner = inner.with_opacity(op)
         except Exception:  # noqa: BLE001
             pass
-    base = ColorClip(size=(W, H), color=(0, 0, 0)).with_duration(clip.duration)
+    base = ColorClip(size=(W, H), color=bg).with_duration(clip.duration)
     return CompositeVideoClip([base, inner])
 
 
@@ -598,7 +609,7 @@ def render_from_edl(
             dur = p["end_s"] if p["end_s"] is not None else 3.0
             seg_path = os.path.join(output_dir, f"edl-seg-{i}.mp4")
             try:
-                img = _render_main_segment(ImageClip(p["path"]).with_duration(dur), p, video_width, video_height)
+                img = _render_main_segment(ImageClip(p["path"]).with_duration(dur), p, video_width, video_height, _bg_rgb(params))
                 if i > 0:
                     img = _apply_transition(img, p.get("transition", "none"))
                 img.write_videofile(seg_path, logger=None, fps=fps, codec=video_codec)
@@ -616,7 +627,7 @@ def render_from_edl(
             end_s = min(end_s, src_dur)
             if end_s <= start_s:
                 end_s = min(start_s + 1.0, src_dur)
-            seg = _render_main_segment(clip.subclipped(start_s, end_s), p, video_width, video_height)
+            seg = _render_main_segment(clip.subclipped(start_s, end_s), p, video_width, video_height, _bg_rgb(params))
             if i > 0:
                 seg = _apply_transition(seg, p.get("transition", "none"))
             seg_path = os.path.join(output_dir, f"edl-seg-{i}.mp4")
@@ -635,7 +646,7 @@ def render_from_edl(
     if clip_files and total < target_dur - 0.2:
         try:
             gap = target_dur - total
-            black = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(gap)
+            black = ColorClip(size=(video_width, video_height), color=_bg_rgb(params)).with_duration(gap)
             black_path = os.path.join(output_dir, "edl-black.mp4")
             black.write_videofile(black_path, logger=None, fps=fps, codec=video_codec)
             close_clip(black)
@@ -911,7 +922,7 @@ def combine_videos(
                     new_width = int(clip_w * scale_factor)
                     new_height = int(clip_h * scale_factor)
 
-                    background = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(clip_duration)
+                    background = ColorClip(size=(video_width, video_height), color=_bg_rgb(params)).with_duration(clip_duration)
                     clip_resized = clip.resized(new_size=(new_width, new_height)).with_position("center")
                     clip = CompositeVideoClip([background, clip_resized])
                     
