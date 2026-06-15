@@ -4,10 +4,11 @@
  */
 import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Upload } from 'lucide-react';
+import { Loader2, Upload, Volume2 } from 'lucide-react';
 import { videoGeneration, vgBgmFileUrl, type VgBgmItem } from '@chayuan/api';
 import { useVgComposer } from '../store/vgComposer';
 import { reportError } from '../../../store/errorDialog';
+import { VerticalSliderPopover } from '../timeline/VerticalSliderPopover';
 
 export const BgmSection: React.FC = () => {
   const params = useVgComposer((s) => s.params);
@@ -60,6 +61,18 @@ export const BgmSection: React.FC = () => {
         {params.bgm_type === 'file' && selected && (
           <audio src={vgBgmFileUrl(selected.name)} controls className="h-8" />
         )}
+        {params.bgm_type !== 'none' && (
+          <VerticalSliderPopover
+            value={params.bgm_volume}
+            min={0}
+            max={1}
+            step={0.05}
+            icon={<Volume2 className="h-3.5 w-3.5" />}
+            title="BGM 音量"
+            format={(v) => `${Math.round(v * 100)}%`}
+            onChange={(v) => patch({ bgm_volume: v })}
+          />
+        )}
         <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
           className="inline-flex items-center gap-1 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1.5 text-xs hover:border-[var(--cy-border-strong)] disabled:opacity-50">
           {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} 上传 BGM
@@ -67,16 +80,6 @@ export const BgmSection: React.FC = () => {
         <input ref={inputRef} type="file" accept="audio/*" className="hidden"
           onChange={(e) => void onUpload(e.target.files?.[0])} />
       </div>
-      {params.bgm_type !== 'none' && (
-        <div className="mt-2">
-          <label className="flex items-center justify-between text-xs text-[var(--cy-text-tertiary)]">
-            BGM 音量 <span>{Math.round(params.bgm_volume * 100)}%</span>
-          </label>
-          <input type="range" min={0} max={1} step={0.05} value={params.bgm_volume}
-            onChange={(e) => patch({ bgm_volume: parseFloat(e.target.value) })}
-            className="mt-1 w-full max-w-md accent-[var(--cy-brand-500)]" />
-        </div>
-      )}
     </section>
   );
 };
