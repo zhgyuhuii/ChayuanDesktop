@@ -908,6 +908,63 @@ async def upload_intro_outro(
     return {"name": os.path.basename(target_name), "path": target_path, "kind": kind, "size": size}
 
 
+_OVERLAY_IMG_EXT = ("jpg", "jpeg", "png", "webp", "gif", "bmp")
+
+
+@video_generation_router.get("/overlay-asset", summary="列叠加图片/贴纸(用户上传)")
+def list_overlay_asset(
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    from chayuan.server.video_generation._helpers import overlay_assets_dir
+    items: List[Dict[str, Any]] = []
+    d = overlay_assets_dir()
+    if os.path.isdir(d):
+        for f in sorted(os.listdir(d)):
+            ext = f.rsplit(".", 1)[-1].lower() if "." in f else ""
+            if ext in _OVERLAY_IMG_EXT:
+                p = os.path.join(d, f)
+                items.append({"name": f, "path": p, "size": os.path.getsize(p)})
+    return {"count": len(items), "items": items}
+
+
+@video_generation_router.get("/overlay-asset/{name}/file", summary="叠加图片文件流式")
+def serve_overlay_asset(
+    name: str = FPath(..., max_length=255),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> FileResponse:
+    from chayuan.server.video_generation._helpers import overlay_assets_dir
+    base = os.path.basename(name)
+    p = os.path.join(overlay_assets_dir(), base)
+    if os.path.isfile(p):
+        return FileResponse(p)
+    raise HTTPException(404, f"overlay asset not found: {base}")
+
+
+@video_generation_router.post(
+    "/overlay-asset", summary="上传叠加图片/贴纸", status_code=status.HTTP_201_CREATED,
+)
+async def upload_overlay_asset(
+    file: UploadFile = File(...),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    from chayuan.server.video_generation._helpers import overlay_assets_dir, parse_extension
+    ext = parse_extension(file.filename or "")
+    if ext not in _OVERLAY_IMG_EXT:
+        raise HTTPException(415, f"不支持的叠加图片类型: .{ext}")
+    target_dir = overlay_assets_dir()
+    target_name = file.filename or f"upload_{int(time.time())}.{ext}"
+    target_path = os.path.join(target_dir, os.path.basename(target_name))
+    size = 0
+    with open(target_path, "wb") as out:
+        while True:
+            chunk = await file.read(1 << 20)
+            if not chunk:
+                break
+            out.write(chunk)
+            size += len(chunk)
+    return {"name": os.path.basename(target_name), "path": target_path, "size": size}
+
+
 @video_generation_router.get(
     "/fonts", summary="列字体(vendor/bundled_fonts + 用户字体合并)",
 )

@@ -219,6 +219,13 @@ def intro_outro_dir() -> str:
     return str(d)
 
 
+def overlay_assets_dir() -> str:
+    """叠加图片/贴纸用户上传目录。"""
+    d = _chayuan_root() / "video_generation" / "overlay_assets"
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+
+
 def clips_dir() -> str:
     """内置离线素材片段目录(可选,full 包预装)。"""
 

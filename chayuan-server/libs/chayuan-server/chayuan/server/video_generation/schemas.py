@@ -193,6 +193,7 @@ class VgOverlay(BaseModel):
     align: str = "center"
     fill: Optional[str] = None        # 图形填充色;None=无填充
     corner_radius: float = 0.0        # 矩形圆角(px)
+    src: Optional[str] = None         # 图片叠加文件名(type=image)
 
 
 class Timeline(BaseModel):

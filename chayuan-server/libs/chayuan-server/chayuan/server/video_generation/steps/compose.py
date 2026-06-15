@@ -1140,6 +1140,15 @@ def _render_overlays(video_clip, overlays, W, H, font_path):
                 if not sp:
                     continue
                 tc = ImageClip(sp)
+            elif ovtype == "image":
+                src = getattr(ov, "src", None)
+                if not src:
+                    continue
+                from .._helpers import overlay_assets_dir
+                sp = src if (os.path.isabs(src) and os.path.isfile(src)) else os.path.join(overlay_assets_dir(), os.path.basename(src))
+                if not os.path.isfile(sp):
+                    continue
+                tc = ImageClip(sp).resized(width=max(2, int((getattr(ov, "w", 0.3) or 0.3) * W)))
             else:
                 continue
             tc = tc.with_start(start_s).with_end(start_s + dur)
