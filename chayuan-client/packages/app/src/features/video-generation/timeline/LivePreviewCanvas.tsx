@@ -225,6 +225,7 @@ export const LivePreviewCanvas: React.FC<{
                 ? { inset: 0, zIndex: 10 + (videoTracks.length - i) }
                 : { left: `${x * 100}%`, top: `${y * 100}%`, width: `${scale * 100}%`, zIndex: 10 + (videoTracks.length - i) }),
               opacity: c.opacity ?? 1, // 预览反映片段不透明度(主轨 clip 不会被设 opacity → 1)
+              filter: c.color ? `brightness(${c.color.brightness ?? 1}) contrast(${c.color.contrast ?? 1}) saturate(${c.color.saturation ?? 1})` : undefined, // 调色预览(CSS 近似成片 numpy)
               // 几何(P2):非裁剪态套 rotate/flip + crop 的 clip-path;裁剪态显示完整源便于拖框
               ...(editing ? {} : {
                 transform: `rotate(${c.rotation ?? 0}deg) scaleX(${c.flip_h ? -1 : 1}) scaleY(${c.flip_v ? -1 : 1})`,

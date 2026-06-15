@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, AlertTriangle, RefreshCw, Eye, EyeOff, FlipHorizontal2, FlipVertical2, Crop, SlidersHorizontal } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCw, Eye, EyeOff, FlipHorizontal2, FlipVertical2, Crop, SlidersHorizontal, Palette } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@chayuan/ui';
 import { OutputFramingSection } from './sections/OutputFramingSection';
 import { OverlayToolbar } from './timeline/OverlayToolbar';
@@ -376,36 +376,6 @@ export const VgTimelineEditorPage: React.FC = () => {
                     className="h-1 w-16 accent-[var(--cy-brand-500)] disabled:cursor-not-allowed" />
                   <span className="w-7 text-right text-[10px] tabular-nums text-[var(--cy-text-secondary)]">{Math.round((selClip?.opacity ?? 1) * 100)}%</span>
                   <span className="ml-1 w-9 text-right text-[10px] tabular-nums text-[var(--cy-text-tertiary)]">{Math.round(selClip?.rotation ?? 0)}°</span>
-                  <span className="mx-1 h-5 w-px shrink-0 bg-[var(--cy-border-subtle)]" />
-                  <span className="text-[10px] text-[var(--cy-text-tertiary)]">调色</span>
-                  <select disabled={!selClip} title="调色预设" value=""
-                    onChange={(e) => {
-                      const P: Record<string, { brightness: number; contrast: number; saturation: number }> = {
-                        orig: { brightness: 1, contrast: 1, saturation: 1 }, bw: { brightness: 1, contrast: 1, saturation: 0 },
-                        vivid: { brightness: 1, contrast: 1.05, saturation: 1.4 }, warm: { brightness: 1.05, contrast: 1.05, saturation: 1.1 },
-                        hc: { brightness: 1, contrast: 1.3, saturation: 1 },
-                      };
-                      const v = P[e.target.value]; if (selClip && v) onSetTransform(selClip.id, { color: v });
-                    }}
-                    className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px] disabled:cursor-not-allowed">
-                    <option value="">预设</option><option value="orig">原图</option><option value="bw">黑白</option><option value="vivid">鲜艳</option><option value="warm">暖</option><option value="hc">高对比</option>
-                  </select>
-                  {(['brightness', 'contrast', 'saturation'] as const).map((k) => (
-                    <label key={k} className="flex items-center gap-0.5 text-[10px] text-[var(--cy-text-tertiary)]">
-                      {k === 'brightness' ? '亮' : k === 'contrast' ? '对' : '饱'}
-                      <input type="range" min={0} max={3} step={0.05} disabled={!selClip}
-                        value={selClip?.color?.[k] ?? 1}
-                        onChange={(e) => selClip && onSetTransform(selClip.id, { color: { brightness: 1, contrast: 1, saturation: 1, ...(selClip.color || {}), [k]: parseFloat(e.target.value) } })}
-                        className="h-1 w-12 accent-[var(--cy-brand-500)] disabled:cursor-not-allowed" />
-                    </label>
-                  ))}
-                  <span className="mx-1 h-5 w-px shrink-0 bg-[var(--cy-border-subtle)]" />
-                  <span className="text-[10px] text-[var(--cy-text-tertiary)]">变速</span>
-                  <select disabled={!selClip} title="变速" value={String(selClip?.speed ?? 1)}
-                    onChange={(e) => selClip && onSetTransform(selClip.id, { speed: parseFloat(e.target.value) })}
-                    className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px] disabled:cursor-not-allowed">
-                    {['0.25', '0.5', '0.75', '1', '1.5', '2', '3', '4'].map((v) => <option key={v} value={v}>{v}×</option>)}
-                  </select>
                 </div>
                   <Popover>
                     <PopoverTrigger asChild>
@@ -532,6 +502,51 @@ export const VgTimelineEditorPage: React.FC = () => {
                   composeParams={{ ...params, timeline }}
                 />
               </div>
+              </div>
+              <div className="flex w-9 shrink-0 flex-col items-center border-l border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] py-1">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" title="调色 / 变速"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                      <Palette className="h-4 w-4" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent side="left" align="start" className="max-h-[60vh] w-48 space-y-2 overflow-y-auto text-[11px]">
+                    {selClip ? (
+                      <>
+                        <div className="font-medium text-[var(--cy-text-secondary)]">调色</div>
+                        <select title="调色预设" value=""
+                          onChange={(e) => {
+                            const P: Record<string, { brightness: number; contrast: number; saturation: number }> = {
+                              orig: { brightness: 1, contrast: 1, saturation: 1 }, bw: { brightness: 1, contrast: 1, saturation: 0 },
+                              vivid: { brightness: 1, contrast: 1.05, saturation: 1.4 }, warm: { brightness: 1.05, contrast: 1.05, saturation: 1.1 },
+                              hc: { brightness: 1, contrast: 1.3, saturation: 1 },
+                            };
+                            const v = P[e.target.value]; if (v) onSetTransform(selClip.id, { color: v });
+                          }}
+                          className="h-7 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1">
+                          <option value="">预设…</option><option value="orig">原图</option><option value="bw">黑白</option><option value="vivid">鲜艳</option><option value="warm">暖</option><option value="hc">高对比</option>
+                        </select>
+                        {(['brightness', 'contrast', 'saturation'] as const).map((k) => (
+                          <label key={k} className="flex flex-col gap-0.5">
+                            <span className="flex justify-between text-[10px] text-[var(--cy-text-tertiary)]"><span>{k === 'brightness' ? '亮度' : k === 'contrast' ? '对比度' : '饱和度'}</span><span className="tabular-nums">{(selClip.color?.[k] ?? 1).toFixed(2)}</span></span>
+                            <input type="range" min={0} max={3} step={0.05} value={selClip.color?.[k] ?? 1}
+                              onChange={(e) => onSetTransform(selClip.id, { color: { brightness: 1, contrast: 1, saturation: 1, ...(selClip.color || {}), [k]: parseFloat(e.target.value) } })}
+                              className="w-full accent-[var(--cy-brand-500)]" />
+                          </label>
+                        ))}
+                        <div className="pt-1 font-medium text-[var(--cy-text-secondary)]">变速</div>
+                        <select title="变速" value={String(selClip.speed ?? 1)}
+                          onChange={(e) => onSetTransform(selClip.id, { speed: parseFloat(e.target.value) })}
+                          className="h-7 w-full rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1">
+                          {['0.25', '0.5', '0.75', '1', '1.5', '2', '3', '4'].map((v) => <option key={v} value={v}>{v}×</option>)}
+                        </select>
+                      </>
+                    ) : (
+                      <p className="text-[var(--cy-text-tertiary)]">先在预览/时间轴选中片段</p>
+                    )}
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
           )}

@@ -33,12 +33,12 @@ function setDragData(e: React.DragEvent, m: DraggedMaterial) {
   e.dataTransfer.effectAllowed = 'copy';
 }
 
-/** 素材卡左上角小播放角标(各类素材统一)。点击弹预览窗。 */
-const PlayBadge: React.FC<{ onClick: () => void }> = ({ onClick }) => (
+/** 素材卡左上角小角标:图片=预览眼睛,视频/音频=播放。点击弹预览窗。 */
+const PlayBadge: React.FC<{ onClick: () => void; image?: boolean }> = ({ onClick, image }) => (
   <button type="button" title="预览"
     onClick={(e) => { e.stopPropagation(); onClick(); }}
     className="absolute left-1.5 top-1.5 z-10 inline-flex h-5 w-5 items-center justify-center rounded-full bg-black/55 text-white hover:bg-black/80">
-    <Play className="h-3 w-3" />
+    {image ? <Eye className="h-3 w-3" /> : <Play className="h-3 w-3" />}
   </button>
 );
 
@@ -234,7 +234,7 @@ const MineTab: React.FC<{
                         : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')
               }
             >
-              <PlayBadge onClick={() => setPreview(m)} />
+              <PlayBadge image={isImg(m)} onClick={() => setPreview(m)} />
               <button type="button" onClick={() => onToggle(item)} className="block w-full text-left">
                 <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden">
                   {thumb(m, fileUrl)}
@@ -378,7 +378,7 @@ const OnlineTab: React.FC<{
                 })}
                 className="group relative cursor-grab overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] transition-colors hover:border-[var(--cy-border-strong)] active:cursor-grabbing"
                 title="拖到时间轴视频轨">
-                <PlayBadge onClick={() => setPreview(item.url)} />
+                <PlayBadge image={/\\.(jpg|jpeg|png|webp|bmp|gif)(\\?|$)/i.test(item.url)} onClick={() => setPreview(item.url)} />
                 <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden text-xs text-[var(--cy-text-tertiary)]">
                   {/* 有服务端缩略图(Pexels)用 img;没有(Pixabay 常缺)才用视频首帧兜底 */}
                   {item.image
@@ -497,7 +497,7 @@ const LinkTab: React.FC<{ qc: ReturnType<typeof useQueryClient> }> = ({ qc }) =>
                   className={'group relative overflow-hidden rounded-xl border transition-colors ' +
                     (chosen ? 'border-[var(--cy-brand-500)] ring-2 ring-[var(--cy-brand-500)]/30'
                             : 'border-[var(--cy-border-subtle)] hover:border-[var(--cy-border-strong)]')}>
-                  <PlayBadge onClick={() => setPv(it)} />
+                  <PlayBadge image={it.kind === 'image'} onClick={() => setPv(it)} />
                   <button type="button" onClick={() => toggle(it.url)} className="block w-full cursor-grab text-left active:cursor-grabbing" title="拖到时间轴 / 点选批量加入素材库">
                     <div className="aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden text-xs text-[var(--cy-text-tertiary)]">
                       {it.thumb ? <img src={it.thumb} alt="" draggable={false} className="h-full w-full object-cover" loading="lazy" />
