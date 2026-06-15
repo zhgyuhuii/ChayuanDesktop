@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { FlipHorizontal2, FlipVertical2, Crop } from 'lucide-react';
 import { videoGeneration, type VgTimeline, type VgTimelineClip } from '@chayuan/api';
 import { clipDurMs } from './timelineEdit';
 import type { SrtCue } from './srtParse';
@@ -82,11 +83,14 @@ export const LivePreviewCanvas: React.FC<{
   timeline: VgTimeline;
   playheadMs: number;
   playing?: boolean;
-  onTransform: (clipId: string, tf: { x?: number; y?: number; scale?: number }) => void;
+  onTransform: (clipId: string, tf: { x?: number; y?: number; scale?: number; rotation?: number; flip_h?: boolean; flip_v?: boolean; opacity?: number }) => void;
   cropEditingClipId?: string | null;
   onCrop?: (clipId: string, crop: { x: number; y: number; w: number; h: number }) => void;
+  selectedClipId?: string | null;
+  onSelectClip?: (clipId: string | null) => void;
+  onToggleCrop?: (clipId: string) => void;
   cues?: SrtCue[];
-}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, cues }) => {
+}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, onToggleCrop, cues }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const cue = (cues ?? []).find((c) => playheadMs >= c.startMs && playheadMs < c.endMs);
@@ -132,9 +136,25 @@ export const LivePreviewCanvas: React.FC<{
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   };
+  // 旋转手柄:按指针相对层中心的角度算 rotation(顶部为 0°),Shift 吸附 15°。
+  const dragRotate = (e: React.PointerEvent, clipId: string) => {
+    e.preventDefault(); e.stopPropagation();
+    const layerEl = (e.currentTarget as HTMLElement).closest('[data-cy-layer]') as HTMLElement | null;
+    const r = layerEl?.getBoundingClientRect(); if (!r) return;
+    const cx = r.left + r.width / 2; const cy = r.top + r.height / 2;
+    const move = (ev: PointerEvent) => {
+      let deg = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI + 90;
+      if (deg > 180) deg -= 360;
+      if (ev.shiftKey) deg = Math.round(deg / 15) * 15;
+      onTransform(clipId, { rotation: Math.max(-180, Math.min(180, Math.round(deg))) });
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
 
   return (
-    <div ref={boxRef} className="relative h-full w-full overflow-hidden bg-black">
+    <div ref={boxRef} className="relative h-full w-full overflow-hidden bg-black"
+      onPointerDown={(e) => { if (e.target === e.currentTarget) onSelectClip?.(null); }}>
       {!anyVisible && (
         <div className="absolute inset-0 flex items-center justify-center text-xs text-white/50">拖素材到视频轨即可预览</div>
       )}
@@ -146,6 +166,7 @@ export const LivePreviewCanvas: React.FC<{
         const x = c.x ?? 0; const y = c.y ?? 0; const scale = c.scale ?? 1; // 无 transform = 满画幅
         const full = x === 0 && y === 0 && scale >= 0.999;
         const editing = cropEditingClipId === c.id;       // 裁剪编辑态:显示完整源 + 裁剪框
+        const sel = selectedClipId === c.id;
         const cr = c.crop ?? { x: 0, y: 0, w: 1, h: 1 };
         return (
           <div key={c.id} data-cy-layer className={'group absolute ' + (editing ? '' : 'cursor-move')}
@@ -163,17 +184,38 @@ export const LivePreviewCanvas: React.FC<{
               }),
               ...transitionStyle(c, playheadMs), // #26 实时模拟入场转场(fade/slide)
             }}
-            onPointerDown={editing ? undefined : (e) => drag(e, c.id, 'move', { x, y, scale })}>
+            onPointerDown={editing ? undefined : (e) => { onSelectClip?.(c.id); drag(e, c.id, 'move', { x, y, scale }); }}>
             <ClipMedia url={url} clip={c} playheadMs={playheadMs} playing={playing} isImage={clipIsImage(c, url)}
               className={full ? 'pointer-events-none h-full w-full object-contain' : 'pointer-events-none w-full'} />
             {!editing && (
               <>
-                {/* 悬停显图层边框 + 四角控制点(满画幅图层也可微调) */}
-                <span className="pointer-events-none absolute inset-0 border-2 border-transparent group-hover:border-[var(--cy-brand-500)]" />
+                {/* 选中或悬停显边框 + 四角缩放点 */}
+                <span className={'pointer-events-none absolute inset-0 border-2 ' + (sel ? 'border-[var(--cy-brand-500)]' : 'border-transparent group-hover:border-[var(--cy-brand-500)]')} />
                 {CORNERS.map(({ c: corner, cls }) => (
                   <span key={corner} onPointerDown={(e) => drag(e, c.id, corner, { x, y, scale })}
-                    className={`absolute h-3 w-3 rounded-full border border-white bg-[var(--cy-brand-600)] opacity-0 group-hover:opacity-100 ${cls}`} />
+                    className={`absolute h-3 w-3 rounded-full border border-white bg-[var(--cy-brand-600)] ${sel ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} ${cls}`} />
                 ))}
+                {sel && (
+                  <>
+                    {/* 旋转手柄(放层内顶部,避免被画布 overflow 裁) */}
+                    <span onPointerDown={(e) => dragRotate(e, c.id)} title="旋转(Shift 吸附 15°)"
+                      className="absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 cursor-grab rounded-full border-2 border-white bg-[var(--cy-brand-600)] shadow" style={{ top: 6 }} />
+                    {/* 工具条:翻转/裁剪/透明度(层内底部) */}
+                    <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md bg-[var(--cy-surface-base)]/95 p-0.5 shadow ring-1 ring-[var(--cy-border-subtle)]" style={{ bottom: 6 }}
+                      onPointerDown={(e) => e.stopPropagation()}>
+                      <button type="button" title="水平翻转" onClick={(e) => { e.stopPropagation(); onTransform(c.id, { flip_h: !c.flip_h }); }}
+                        className={'inline-flex h-6 w-6 items-center justify-center rounded ' + (c.flip_h ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}><FlipHorizontal2 className="h-3.5 w-3.5" /></button>
+                      <button type="button" title="垂直翻转" onClick={(e) => { e.stopPropagation(); onTransform(c.id, { flip_v: !c.flip_v }); }}
+                        className={'inline-flex h-6 w-6 items-center justify-center rounded ' + (c.flip_v ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}><FlipVertical2 className="h-3.5 w-3.5" /></button>
+                      <button type="button" title="裁剪(在预览拖框)" onClick={(e) => { e.stopPropagation(); onToggleCrop?.(c.id); }}
+                        className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"><Crop className="h-3.5 w-3.5" /></button>
+                      <span className="px-0.5 text-[10px] tabular-nums text-[var(--cy-text-secondary)]">{Math.round((c.opacity ?? 1) * 100)}%</span>
+                      <input type="range" min={0} max={1} step={0.05} value={c.opacity ?? 1}
+                        onChange={(e) => onTransform(c.id, { opacity: Number(e.target.value) })}
+                        className="h-1 w-14 accent-[var(--cy-brand-500)]" />
+                    </div>
+                  </>
+                )}
               </>
             )}
             {editing && (

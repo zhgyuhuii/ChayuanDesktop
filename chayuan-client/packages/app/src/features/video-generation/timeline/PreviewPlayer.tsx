@@ -27,9 +27,12 @@ export const PreviewPlayer: React.FC<{
   onTimeMs: (ms: number) => void;
   onPlayingChange: (playing: boolean) => void;
   onFreshGenerated: () => void;
-  onTransform: (clipId: string, tf: { x?: number; y?: number; scale?: number }) => void;
+  onTransform: (clipId: string, tf: { x?: number; y?: number; scale?: number; rotation?: number; flip_h?: boolean; flip_v?: boolean; opacity?: number }) => void;
   cropEditingClipId: string | null;
   onCrop: (clipId: string, crop: { x: number; y: number; w: number; h: number }) => void;
+  selectedClipId: string | null;
+  onSelectClip: (clipId: string | null) => void;
+  onToggleCrop: (clipId: string) => void;
   /** 模式上提:父组件据此决定是否跑实时播放引擎(proxy 模式由 proxy <video> 自己驱动)。 */
   onModeChange?: (mode: 'live' | 'proxy') => void;
   /** 字幕 cues:实时画布按 playhead 叠当前字幕;精确预览时也烧进 proxy。 */
@@ -38,7 +41,7 @@ export const PreviewPlayer: React.FC<{
   taskId?: string | null;
   audioFileName?: string | null;
   composeParams?: unknown;
-}> = ({ timeline, aspect, width, height, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform, cropEditingClipId, onCrop, onModeChange, cues, taskId, audioFileName, composeParams }) => {
+}> = ({ timeline, aspect, width, height, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform, cropEditingClipId, onCrop, selectedClipId, onSelectClip, onToggleCrop, onModeChange, cues, taskId, audioFileName, composeParams }) => {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
   const [url, setUrl] = React.useState<string | null>(null);
@@ -106,7 +109,7 @@ export const PreviewPlayer: React.FC<{
             onPause={() => onPlayingChange(false)}
           />
         ) : (
-          <LivePreviewCanvas timeline={timeline} playheadMs={playheadMs} playing={playing} onTransform={onTransform} cropEditingClipId={cropEditingClipId} onCrop={onCrop} cues={cues} />
+          <LivePreviewCanvas timeline={timeline} playheadMs={playheadMs} playing={playing} onTransform={onTransform} cropEditingClipId={cropEditingClipId} onCrop={onCrop} selectedClipId={selectedClipId} onSelectClip={onSelectClip} onToggleCrop={onToggleCrop} cues={cues} />
         )}
       </div>
       <div className="flex items-center gap-2">
