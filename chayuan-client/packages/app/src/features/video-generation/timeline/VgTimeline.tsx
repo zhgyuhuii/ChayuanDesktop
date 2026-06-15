@@ -48,7 +48,6 @@ export const VgTimeline: React.FC<{
   const clips = videoTrack?.clips ?? [];
   // PIP/附加轨才显示透明度+位置/缩放。判定用 removable:主轨(第一条视频轨)恒为 removable=false,
   // 与后端 _build_pip_layers「video_tracks[1:] 为 PIP 层」在当前轨道构造下等价(主轨永远在首位且不可删)。
-  const isPip = !!videoTrack?.removable;
 
   // editable 下用 clipDurMs(out-in / duration_ms)算宽,编辑后更准;
   // 只读沿用相邻 start 差。轨道总宽取两者最大,保证拖宽后容器跟着撑开。
@@ -200,7 +199,7 @@ export const VgTimeline: React.FC<{
                           </button>
                         </PopoverTrigger>
                         <PopoverContent side="top" align="start" sideOffset={6} className="w-56 p-2">
-                          <ClipPropertyPopover timeline={timeline} clip={clips[s.idx]!} isPip={isPip}
+                          <ClipPropertyPopover timeline={timeline} clip={clips[s.idx]!}
                             cropEditing={cropEditingClipId === clips[s.idx]!.id}
                             onToggleCrop={() => onToggleCropClip?.(clips[s.idx]!.id)}
                             onChange={onChange} />

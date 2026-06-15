@@ -14,18 +14,17 @@ const NumField: React.FC<{ label: string; value: number; step: number; min: numb
 );
 
 /**
- * 选中片段的「属性」弹层。复用 VgAspectPicker 的点外关/Esc 范式。
- * isPip=true(画中画/附加视频轨)才显示透明度 + 位置/缩放/层级(后端只对 PIP 层 with_opacity、
- * 主轨拼接没有透明度/层级语义)。所有写入走 patchClip(带 clamp)。
+ * 选中片段的「属性」弹层(数值精调;预览 gizmo 是主交互)。承载于 Radix Popover(portal)。
+ * 几何(透明度/旋转/翻转/裁剪/位置/缩放)主轨与画中画通用 —— 后端主轨已走 _render_main_segment。
+ * 所有写入走 patchClip(带 clamp)。
  */
 export const ClipPropertyPopover: React.FC<{
   timeline: VgTimeline;
   clip: VgTimelineClip;
-  isPip: boolean;
   cropEditing: boolean;
   onToggleCrop: () => void;
   onChange: (t: VgTimeline) => void;
-}> = ({ timeline, clip, isPip, cropEditing, onToggleCrop, onChange }) => {
+}> = ({ timeline, clip, cropEditing, onToggleCrop, onChange }) => {
   // 定位/外部点击/Esc 全交给外层 Radix Popover(portal,脱离时间轴 overflow 裁剪)。
   const set = (patch: ClipPatch) => onChange(patchClip(timeline, clip.id, patch));
   const muted = !!clip.muted;
@@ -36,7 +35,7 @@ export const ClipPropertyPopover: React.FC<{
     <div className="text-[11px] text-[var(--cy-text-primary)]">
       <p className="mb-1 font-medium text-[var(--cy-text-secondary)]">片段属性</p>
 
-      {isPip && (
+      {(
         <label className="mb-1 flex items-center gap-2">
           <span className="w-10 shrink-0 text-[var(--cy-text-tertiary)]">透明度</span>
           <input type="range" min={0} max={1} step={0.05} value={opacity}
@@ -57,8 +56,8 @@ export const ClipPropertyPopover: React.FC<{
         <span className="w-8 shrink-0 text-right tabular-nums">{volume.toFixed(2)}</span>
       </label>
 
-      {/* 几何变换(P2)—— 仅 PIP 层:旋转 / 翻转 / 裁剪 */}
-      {isPip && (
+      {/* 几何变换(P2)—— 主轨/画中画通用:旋转 / 翻转 / 裁剪 */}
+      {(
         <>
           <label className="mb-1 flex items-center gap-2">
             <RotateCw className="h-3.5 w-3.5 shrink-0 text-[var(--cy-text-tertiary)]" />
@@ -90,7 +89,7 @@ export const ClipPropertyPopover: React.FC<{
       {/* 层级 z 不放控件:后端 _build_pip_layers 按「轨道顺序」决定层级、不读 clip.z,
           预览也按轨道下标排 zIndex —— 暴露 z 数值是「调了不生效」的误导控件,故不提供。
           画中画层级由上下拖动视频轨调整。 */}
-      {isPip && (
+      {(
         <div className="grid grid-cols-2 gap-1">
           <NumField label="位置X" value={clip.x ?? 0} step={0.01} min={0} max={1} onChange={(v) => set({ x: v })} />
           <NumField label="位置Y" value={clip.y ?? 0} step={0.01} min={0} max={1} onChange={(v) => set({ y: v })} />
