@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, AlertTriangle, RefreshCw, Eye, EyeOff, FileText } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCw, Eye, EyeOff, FileText, FlipHorizontal2, FlipVertical2, Crop } from 'lucide-react';
 import { VgAspectPicker } from './VgAspectPicker';
 import { videoGeneration, type VgTimeline } from '@chayuan/api';
 import { useVgComposer, scriptHashOf } from './store/vgComposer';
@@ -158,6 +158,8 @@ export const VgTimelineEditorPage: React.FC = () => {
   const [cropEditingClipId, setCropEditingClipId] = React.useState<string | null>(null);
   const onToggleCropClip = (clipId: string) => setCropEditingClipId((id) => (id === clipId ? null : clipId));
   const onCrop = (clipId: string, crop: { x: number; y: number; w: number; h: number }) => onTimelineChange(patchClip(timeline, clipId, { crop }));
+  // 选中片段(供预览头部几何工具条用 —— 工具条放头部不挡画面)
+  const selClip = selectedClipId ? (timeline.tracks || []).flatMap((t) => t.clips || []).find((c) => c.id === selectedClipId) : null;
   // #26 片段间转场菜单
   const [txMenu, setTxMenu] = React.useState<{ x: number; y: number; clipId: string } | null>(null);
   React.useEffect(() => {
@@ -309,6 +311,23 @@ export const VgTimelineEditorPage: React.FC = () => {
               {/* 预览头:画幅条 + 折叠 */}
               <div className="flex items-center gap-2 px-3 pt-2">
                 <VgAspectPicker compact />
+                {/* 片段几何工具条:常显;未选素材时灰禁用,选中后可编辑(不挡画面) */}
+                <div className={'flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1.5 py-0.5 transition-opacity ' + (selClip ? '' : 'opacity-50')}
+                  title={selClip ? undefined : '先在预览/时间轴选中片段'}>
+                  <span className="text-[10px] text-[var(--cy-text-tertiary)]">片段</span>
+                  <button type="button" disabled={!selClip} title="水平翻转" onClick={() => selClip && onSetTransform(selClip.id, { flip_h: !selClip.flip_h })}
+                    className={'inline-flex h-6 w-6 items-center justify-center rounded disabled:cursor-not-allowed ' + (selClip?.flip_h ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-secondary)] enabled:hover:bg-[var(--cy-surface-2)]')}><FlipHorizontal2 className="h-3.5 w-3.5" /></button>
+                  <button type="button" disabled={!selClip} title="垂直翻转" onClick={() => selClip && onSetTransform(selClip.id, { flip_v: !selClip.flip_v })}
+                    className={'inline-flex h-6 w-6 items-center justify-center rounded disabled:cursor-not-allowed ' + (selClip?.flip_v ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-secondary)] enabled:hover:bg-[var(--cy-surface-2)]')}><FlipVertical2 className="h-3.5 w-3.5" /></button>
+                  <button type="button" disabled={!selClip} title={selClip && cropEditingClipId === selClip.id ? '完成裁剪' : '裁剪(在预览拖框)'} onClick={() => selClip && onToggleCropClip(selClip.id)}
+                    className={'inline-flex h-6 w-6 items-center justify-center rounded disabled:cursor-not-allowed ' + (selClip && cropEditingClipId === selClip.id ? 'bg-[var(--cy-brand-500)] text-white' : 'text-[var(--cy-text-secondary)] enabled:hover:bg-[var(--cy-surface-2)]')}><Crop className="h-3.5 w-3.5" /></button>
+                  <span className="ml-1 text-[10px] text-[var(--cy-text-tertiary)]">透明度</span>
+                  <input type="range" min={0} max={1} step={0.05} disabled={!selClip} value={selClip?.opacity ?? 1}
+                    onChange={(e) => selClip && onSetTransform(selClip.id, { opacity: Number(e.target.value) })}
+                    className="h-1 w-16 accent-[var(--cy-brand-500)] disabled:cursor-not-allowed" />
+                  <span className="w-7 text-right text-[10px] tabular-nums text-[var(--cy-text-secondary)]">{Math.round((selClip?.opacity ?? 1) * 100)}%</span>
+                  <span className="ml-1 w-9 text-right text-[10px] tabular-nums text-[var(--cy-text-tertiary)]">{Math.round(selClip?.rotation ?? 0)}°</span>
+                </div>
                 <button type="button" onClick={() => setPreviewCollapsed((v) => !v)}
                   className="ml-auto inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
                   <EyeOff className="h-3 w-3" /> 折叠预览
@@ -327,7 +346,6 @@ export const VgTimelineEditorPage: React.FC = () => {
                   onCrop={onCrop}
                   selectedClipId={selectedClipId}
                   onSelectClip={setSelectedClipId}
-                  onToggleCrop={onToggleCropClip}
                   onModeChange={setPreviewMode}
                   cues={cues}
                   taskId={draft.taskId} audioFileName={draft.audioFileName}

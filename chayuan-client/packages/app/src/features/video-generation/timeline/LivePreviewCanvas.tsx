@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { FlipHorizontal2, FlipVertical2, Crop } from 'lucide-react';
 import { videoGeneration, type VgTimeline, type VgTimelineClip } from '@chayuan/api';
 import { clipDurMs } from './timelineEdit';
 import type { SrtCue } from './srtParse';
@@ -88,9 +87,8 @@ export const LivePreviewCanvas: React.FC<{
   onCrop?: (clipId: string, crop: { x: number; y: number; w: number; h: number }) => void;
   selectedClipId?: string | null;
   onSelectClip?: (clipId: string | null) => void;
-  onToggleCrop?: (clipId: string) => void;
   cues?: SrtCue[];
-}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, onToggleCrop, cues }) => {
+}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, cues }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const cue = (cues ?? []).find((c) => playheadMs >= c.startMs && playheadMs < c.endMs);
@@ -196,25 +194,9 @@ export const LivePreviewCanvas: React.FC<{
                     className={`absolute h-3 w-3 rounded-full border border-white bg-[var(--cy-brand-600)] ${sel ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} ${cls}`} />
                 ))}
                 {sel && (
-                  <>
-                    {/* 旋转手柄(放层内顶部,避免被画布 overflow 裁) */}
-                    <span onPointerDown={(e) => dragRotate(e, c.id)} title="旋转(Shift 吸附 15°)"
-                      className="absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 cursor-grab rounded-full border-2 border-white bg-[var(--cy-brand-600)] shadow" style={{ top: 6 }} />
-                    {/* 工具条:翻转/裁剪/透明度(层内底部) */}
-                    <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md bg-[var(--cy-surface-base)]/95 p-0.5 shadow ring-1 ring-[var(--cy-border-subtle)]" style={{ bottom: 6 }}
-                      onPointerDown={(e) => e.stopPropagation()}>
-                      <button type="button" title="水平翻转" onClick={(e) => { e.stopPropagation(); onTransform(c.id, { flip_h: !c.flip_h }); }}
-                        className={'inline-flex h-6 w-6 items-center justify-center rounded ' + (c.flip_h ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}><FlipHorizontal2 className="h-3.5 w-3.5" /></button>
-                      <button type="button" title="垂直翻转" onClick={(e) => { e.stopPropagation(); onTransform(c.id, { flip_v: !c.flip_v }); }}
-                        className={'inline-flex h-6 w-6 items-center justify-center rounded ' + (c.flip_v ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}><FlipVertical2 className="h-3.5 w-3.5" /></button>
-                      <button type="button" title="裁剪(在预览拖框)" onClick={(e) => { e.stopPropagation(); onToggleCrop?.(c.id); }}
-                        className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"><Crop className="h-3.5 w-3.5" /></button>
-                      <span className="px-0.5 text-[10px] tabular-nums text-[var(--cy-text-secondary)]">{Math.round((c.opacity ?? 1) * 100)}%</span>
-                      <input type="range" min={0} max={1} step={0.05} value={c.opacity ?? 1}
-                        onChange={(e) => onTransform(c.id, { opacity: Number(e.target.value) })}
-                        className="h-1 w-14 accent-[var(--cy-brand-500)]" />
-                    </div>
-                  </>
+                  /* 旋转手柄(层内顶部,直接操作不挡控制条;翻转/裁剪/透明度移到预览头部工具条) */
+                  <span onPointerDown={(e) => dragRotate(e, c.id)} title="旋转(Shift 吸附 15°)"
+                    className="absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 cursor-grab rounded-full border-2 border-white bg-[var(--cy-brand-600)] shadow" style={{ top: 6 }} />
                 )}
               </>
             )}
