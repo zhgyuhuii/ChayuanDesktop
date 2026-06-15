@@ -419,6 +419,33 @@ export const VgTimelineEditorPage: React.FC = () => {
                     <input type="range" min={0} max={1} step={0.05} value={selOverlay.opacity ?? 1} title="透明度"
                       onChange={(e) => onOverlayTransform(selOverlay.id, { opacity: parseFloat(e.target.value) })}
                       className="h-1 w-14 accent-[var(--cy-brand-500)]" />
+                    <span className="ml-1 text-[10px] text-[var(--cy-text-tertiary)]">入</span>
+                    <select value={selOverlay.anim_in || 'none'} title="入场动画"
+                      onChange={(e) => onOverlayTransform(selOverlay.id, { anim_in: e.target.value as 'none' | 'fade' })}
+                      className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px]">
+                      <option value="none">无</option><option value="fade">淡入</option>
+                    </select>
+                    <span className="text-[10px] text-[var(--cy-text-tertiary)]">出</span>
+                    <select value={selOverlay.anim_out || 'none'} title="出场动画"
+                      onChange={(e) => onOverlayTransform(selOverlay.id, { anim_out: e.target.value as 'none' | 'fade' })}
+                      className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px]">
+                      <option value="none">无</option><option value="fade">淡出</option>
+                    </select>
+                    {selOverlay.type === 'text' && (
+                      <select value="" title="文字预设"
+                        onChange={(e) => {
+                          const P: Record<string, Partial<VgOverlay>> = {
+                            title: { text_color: '#ffffff', stroke_color: '#000000', stroke_width: 3, font_size: 64, bg: null },
+                            warn: { text_color: '#ff3b30', stroke_color: '#000000', stroke_width: 4, font_size: 56, bg: null },
+                            cap: { text_color: '#ffffff', stroke_color: '#000000', stroke_width: 0, font_size: 40, bg: '#000000' },
+                            neon: { text_color: '#39ff14', stroke_color: '#39ff14', stroke_width: 2, font_size: 56, bg: null },
+                          };
+                          const v = P[e.target.value]; if (v) onOverlayTransform(selOverlay.id, v);
+                        }}
+                        className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px]">
+                        <option value="">字样</option><option value="title">标题白</option><option value="warn">警示红</option><option value="cap">字幕黑底</option><option value="neon">霓虹</option>
+                      </select>
+                    )}
                   </div>
                 )}
                 {/* 片段几何工具条:常显;未选素材时灰禁用,选中后可编辑(不挡画面) */}

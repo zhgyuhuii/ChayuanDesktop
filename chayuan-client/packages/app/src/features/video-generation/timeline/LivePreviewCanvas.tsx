@@ -78,6 +78,18 @@ const ClipMedia: React.FC<{ url: string; clip: VgTimelineClip; playheadMs: numbe
  * 定位(无 transform 默认满画幅),层级 = 轨道列表顺序(越靠上 = 越上层,遮盖下层),
  * 其余透明。黑色仅作底(没有任何画面处显黑)。每个图层悬停显边框+四角控制点,可拖移/缩放。
  */
+/** 叠加元素入场/出场淡入淡出 → 当前 playhead 的不透明度系数(0-1)。 */
+function overlayAnimFactor(ov: VgOverlay, playheadMs: number): number {
+  const ad = (ov.anim_dur ?? 0.5) * 1000;
+  if (ad <= 0) return 1;
+  const el = playheadMs - ov.track_start_ms;
+  const rem = ov.track_start_ms + ov.duration_ms - playheadMs;
+  let f = 1;
+  if (ov.anim_in === 'fade' && el < ad) f = Math.max(0, Math.min(1, el / ad));
+  if (ov.anim_out === 'fade' && rem < ad) f = Math.min(f, Math.max(0, Math.min(1, rem / ad)));
+  return f;
+}
+
 export const LivePreviewCanvas: React.FC<{
   timeline: VgTimeline;
   playheadMs: number;
@@ -260,7 +272,7 @@ export const LivePreviewCanvas: React.FC<{
           <div key={ov.id} data-cy-overlay className={'absolute ' + (sel ? '' : 'cursor-move')}
             style={{
               left: `${ov.x * 100}%`, top: `${ov.y * 100}%`, width: `${ov.w * 100}%`, height: `${ov.h * 100}%`,
-              transform: `rotate(${ov.rotation ?? 0}deg)`, opacity: ov.opacity ?? 1, zIndex: 150 + (ov.z ?? 0),
+              transform: `rotate(${ov.rotation ?? 0}deg)`, opacity: (ov.opacity ?? 1) * overlayAnimFactor(ov, playheadMs), zIndex: 150 + (ov.z ?? 0),
             }}
             onPointerDown={(e) => { if (!sel) onSelectOverlay?.(ov.id, e.ctrlKey || e.metaKey); dragOv(e, ov.id, 'move', { x: ov.x, y: ov.y, w: ov.w, h: ov.h }); }}
             onClick={(e) => { if (e.ctrlKey || e.metaKey) onSelectOverlay?.(ov.id, true); }}>

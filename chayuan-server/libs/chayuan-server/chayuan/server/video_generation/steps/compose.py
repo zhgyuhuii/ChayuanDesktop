@@ -1190,6 +1190,19 @@ def _render_overlays(video_clip, overlays, W, H, font_path):
             op = float(getattr(ov, "opacity", 1.0) or 1.0)
             if op < 0.999 and hasattr(tc, "with_opacity"):
                 tc = tc.with_opacity(op)
+            _ain = getattr(ov, "anim_in", "none") or "none"
+            _aout = getattr(ov, "anim_out", "none") or "none"
+            _ad = min(float(getattr(ov, "anim_dur", 0.5) or 0.5), max(0.1, dur / 2.0))
+            _eff = []
+            if _ain == "fade" and hasattr(vfx, "CrossFadeIn"):
+                _eff.append(vfx.CrossFadeIn(_ad))
+            if _aout == "fade" and hasattr(vfx, "CrossFadeOut"):
+                _eff.append(vfx.CrossFadeOut(_ad))
+            if _eff:
+                try:
+                    tc = tc.with_effects(_eff)
+                except Exception:  # noqa: BLE001
+                    pass
             clips.append(tc)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[overlay] 跳过一个叠加元素: %s", exc)

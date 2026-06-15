@@ -202,6 +202,9 @@ class VgOverlay(BaseModel):
     fill: Optional[str] = None        # 图形填充色;None=无填充
     corner_radius: float = 0.0        # 矩形圆角(px)
     src: Optional[str] = None         # 图片叠加文件名(type=image)
+    anim_in: str = "none"             # 入场动画 none/fade
+    anim_out: str = "none"            # 出场动画 none/fade
+    anim_dur: float = 0.5             # 动画时长(秒)
 
 
 class Timeline(BaseModel):

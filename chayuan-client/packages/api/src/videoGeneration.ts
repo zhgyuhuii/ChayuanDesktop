@@ -108,6 +108,9 @@ export interface VgOverlay {
   fill?: string | null;       // 图形填充
   corner_radius?: number;     // 矩形圆角 px
   src?: string;               // 图片叠加文件名(type=image)
+  anim_in?: 'none' | 'fade';
+  anim_out?: 'none' | 'fade';
+  anim_dur?: number;
 }
 
 export interface VgTimeline {
