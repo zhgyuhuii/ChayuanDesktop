@@ -1165,6 +1165,49 @@ def _render_overlays(video_clip, overlays, W, H, font_path):
     return CompositeVideoClip([video_clip, *clips]) if clips else video_clip
 
 
+def _apply_mosaics(output_file, overlays, W, H):
+    """对 mosaic 叠加元素:ffmpeg 各区域 boxblur + 按时间段 overlay 回原片(原地替换)。失败保留原片。"""
+    mos = [o for o in (overlays or []) if getattr(o, "type", "") == "mosaic"]
+    if not mos or not output_file or not os.path.isfile(output_file):
+        return output_file
+    try:
+        from .outro import _ffmpeg
+        ff = _ffmpeg()
+        n = len(mos)
+        parts = ["[0:v]split=%d[base]%s" % (n + 1, "".join("[c%d]" % i for i in range(n)))]
+        prev = "base"
+        for i, o in enumerate(mos):
+            x = max(0, int((getattr(o, "x", 0.1) or 0) * W))
+            y = max(0, int((getattr(o, "y", 0.1) or 0) * H))
+            w = max(2, int((getattr(o, "w", 0.3) or 0.3) * W)); w -= w % 2
+            h = max(2, int((getattr(o, "h", 0.2) or 0.2) * H)); h -= h % 2
+            ss = max(0.0, (getattr(o, "track_start_ms", 0) or 0) / 1000.0)
+            ee = ss + max(0.2, (getattr(o, "duration_ms", 3000) or 3000) / 1000.0)
+            parts.append("[c%d]crop=%d:%d:%d:%d,boxblur=12:2[b%d]" % (i, w, h, x, y, i))
+            out = "vout" if i == n - 1 else "v%d" % (i + 1)
+            parts.append("[%s][b%d]overlay=%d:%d:enable='between(t,%.3f,%.3f)'[%s]" % (prev, i, x, y, ss, ee, out))
+            prev = out
+        fc = ";".join(parts)
+        tmp = output_file + ".mosaic.mp4"
+        cmd = [ff, "-y", "-i", output_file, "-filter_complex", fc, "-map", "[vout]",
+               "-map", "0:a?", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "copy", tmp]
+        r = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if r.returncode != 0 or not os.path.isfile(tmp):
+            logger.warning("[mosaic] ffmpeg 失败,保留原片: %s", (r.stderr or r.stdout or "").strip()[-400:])
+            if os.path.isfile(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+            return output_file
+        os.replace(tmp, output_file)
+        logger.info("[mosaic] 已应用 %d 个马赛克区域: %s", n, output_file)
+        return output_file
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[mosaic] 异常,保留原片: %s", exc)
+        return output_file
+
+
 def generate_video(
     video_path: str,
     audio_path: str,
@@ -1389,6 +1432,10 @@ def generate_video(
         )
     video_clip.close()
     del video_clip
+    try:
+        _apply_mosaics(output_file, overlays, video_width, video_height)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[mosaic] 后处理跳过: %s", exc)
 
 
 def preprocess_video(materials: List[MaterialInfo], clip_duration=4):
