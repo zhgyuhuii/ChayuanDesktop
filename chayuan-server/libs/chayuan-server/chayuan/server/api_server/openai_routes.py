@@ -449,14 +449,21 @@ async def create_modality_completion(
     # 3. 推 capability + 查 platform 元信息
     #    配置优先:info["model_type"] 表示该模型被配置在哪类 *_models 字段里,
     #    优先据此判断 capability;配置未命中(None)时退回前缀推断 classify_capability。
-    info = get_model_info(model_name=actual_model, platform_name=explicit_platform)
-    if not info:
-        raise HTTPException(
-            status_code=404,
-            detail=f"未在 model_platform 表里找到模型「{actual_model}」",
-        )
-    from chayuan.server.modality.router.routing import capability_from_config
-    cap = capability_from_config(actual_model, info) or classify_capability(actual_model)
+    # 本地引擎伪模型(local-tts:piper/edge/sherpa/clone):不在 model_platform 表里,
+    # 跳过 DB 查找,直接判 TTS;本地连接器不需要任何上游凭证。
+    is_local_tts = isinstance(actual_model, str) and actual_model.startswith("local-tts:")
+    if is_local_tts:
+        info = {}
+        cap = Capability.TTS
+    else:
+        info = get_model_info(model_name=actual_model, platform_name=explicit_platform)
+        if not info:
+            raise HTTPException(
+                status_code=404,
+                detail=f"未在 model_platform 表里找到模型「{actual_model}」",
+            )
+        from chayuan.server.modality.router.routing import capability_from_config
+        cap = capability_from_config(actual_model, info) or classify_capability(actual_model)
     # 健壮性:能走到模态路由(/v1/modality/completions)的模型就不该是 chat —— 对话走
     # /v1/chat/completions。若用户把明显的多模态生成模型(如 doubao-seedance-*-i2v、
     # wanx-t2v 等,名字能判出 t2v/t2i/tts/asr)误配成 model_type=llm,这里以模型名为准,

@@ -44,6 +44,8 @@ class Capability(str, Enum):
 #
 # 命中前缀就强分类;命中不到一律视为 chat。
 _PREFIX_TO_CAP: List[tuple[str, Capability]] = [
+    # 本地引擎伪模型(语音合成对话模式:local-tts:piper/edge/sherpa/clone)
+    ("local-tts:",             Capability.TTS),
     # 顺序敏感:更精确的前缀写前面(qwen-image-edit 优先于 qwen-image)
     ("qwen-image-edit",        Capability.IMAGE_EDIT),
     ("qwen-image",             Capability.T2I),
@@ -139,6 +141,8 @@ def classify_capability(model_name: str) -> Capability:
 #
 # 表填模型名族 → vendor;router pick_connector 时先看这个,再回退 platform_type。
 _PREFIX_TO_VENDOR: List[tuple[str, str]] = [
+    # 本地引擎伪模型 → 本地 TTS 连接器(不走上游厂商)
+    ("local-tts:",       "local"),
     # DashScope 系
     ("qwen-image-edit",  "dashscope"),
     ("qwen-image",       "dashscope"),

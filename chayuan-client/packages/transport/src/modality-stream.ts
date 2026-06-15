@@ -125,6 +125,8 @@ export function classifyModalityCapability(
   modelName: string | null | undefined,
 ): ModalityCapability {
   if (!modelName) return 'chat';
+  // 本地引擎伪模型(语音合成对话模式:local-tts:piper/edge/sherpa/clone)→ tts
+  if (modelName.toLowerCase().trim().startsWith('local-tts:')) return 'tts';
   let low = modelName.toLowerCase().trim();
   if (low.includes('::')) low = low.split('::', 2)[1] ?? low;
 
