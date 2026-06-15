@@ -1,6 +1,5 @@
 import type { VgTimeline, VgTimelineTrack } from '@chayuan/api';
-
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+import { patchClip } from './timelineEdit';
 
 /** 追加一条可删空轨(video/audio)。 */
 export function addTrack(t: VgTimeline, kind: 'video' | 'audio'): VgTimeline {
@@ -44,18 +43,5 @@ export function setClipTransform(
   clipId: string,
   tf: { x?: number; y?: number; scale?: number; z?: number },
 ): VgTimeline {
-  const tracks = (t.tracks || []).map((tr) => ({
-    ...tr,
-    clips: (tr.clips || []).map((c) => {
-      if (c.id !== clipId) return c;
-      return {
-        ...c,
-        ...(tf.x != null ? { x: clamp(tf.x, 0, 1) } : {}),
-        ...(tf.y != null ? { y: clamp(tf.y, 0, 1) } : {}),
-        ...(tf.scale != null ? { scale: clamp(tf.scale, 0.05, 1) } : {}),
-        ...(tf.z != null ? { z: Math.round(tf.z) } : {}),
-      };
-    }),
-  }));
-  return { ...t, tracks };
+  return patchClip(t, clipId, tf);
 }
