@@ -11,7 +11,7 @@ import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
 import { useUsageGate, UsageGateDialogs } from '../license';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
-import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, setClipTransition, applyProbedDuration, type DraggedMaterial } from './timeline/timelineEdit';
+import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, setClipTransition, applyProbedDuration, patchClip, type DraggedMaterial } from './timeline/timelineEdit';
 import { TRANSITIONS } from './timeline/transitions';
 import { addTrack, removeTrack, setClipTransform, reorderVideoTrack } from './timeline/trackOps';
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
@@ -154,6 +154,10 @@ export const VgTimelineEditorPage: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedClipId, timeline]);
   const onSetTransform = (clipId: string, tf: { x?: number; y?: number; scale?: number }) => onTimelineChange(setClipTransform(timeline, clipId, tf));
+  // 裁剪编辑态(P2 几何):同一时间只一个 clip 在裁剪;onCrop 经 patchClip(带 clamp)写入。
+  const [cropEditingClipId, setCropEditingClipId] = React.useState<string | null>(null);
+  const onToggleCropClip = (clipId: string) => setCropEditingClipId((id) => (id === clipId ? null : clipId));
+  const onCrop = (clipId: string, crop: { x: number; y: number; w: number; h: number }) => onTimelineChange(patchClip(timeline, clipId, { crop }));
   // #26 片段间转场菜单
   const [txMenu, setTxMenu] = React.useState<{ x: number; y: number; clipId: string } | null>(null);
   React.useEffect(() => {
@@ -319,6 +323,8 @@ export const VgTimelineEditorPage: React.FC = () => {
                   onPlayingChange={setPlaying}
                   onFreshGenerated={() => setProxyStale(false)}
                   onTransform={onSetTransform}
+                  cropEditingClipId={cropEditingClipId}
+                  onCrop={onCrop}
                   onModeChange={setPreviewMode}
                   cues={cues}
                   taskId={draft.taskId} audioFileName={draft.audioFileName}
@@ -427,6 +433,8 @@ export const VgTimelineEditorPage: React.FC = () => {
           onReorderVideoTrack={(tid, dir) => onTimelineChange(reorderVideoTrack(timeline, tid, dir))}
           selectedClipId={selectedClipId}
           onSelectClip={setSelectedClipId}
+          cropEditingClipId={cropEditingClipId}
+          onToggleCropClip={onToggleCropClip}
           playheadDriveRef={playheadDriveRef}
           narrationName={narrationName}
           narrationDurationMs={draft.audioDurationMs || (peaks.length ? contentMs : 0)}

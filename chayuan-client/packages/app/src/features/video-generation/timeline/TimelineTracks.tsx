@@ -43,13 +43,15 @@ export const TimelineTracks: React.FC<{
   onReorderVideoTrack?: (trackId: string, dir: 'up' | 'down') => void;
   selectedClipId?: string | null;
   onSelectClip?: (clipId: string) => void;
+  cropEditingClipId?: string | null;
+  onToggleCropClip?: (clipId: string) => void;
   /** 旁白音频块显示名(主题名)+ 时长。 */
   narrationName?: string;
   narrationDurationMs?: number;
   onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
   /** 播放头命令式驱动 ref(rAF 每帧推 DOM,不重渲整条时间轴);透传给 Playhead。 */
   playheadDriveRef?: React.MutableRefObject<((ms: number) => void) | null>;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, narrationName, narrationDurationMs, onTransitionMenu, playheadDriveRef }) => {
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, cropEditingClipId, onToggleCropClip, narrationName, narrationDurationMs, onTransitionMenu, playheadDriveRef }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
   // 刻度固定:右侧面板自成垂直滚动容器,左侧轨道头列 scrollTop 跟随同步
   const lanesScrollRef = React.useRef<HTMLDivElement>(null);
@@ -180,6 +182,7 @@ export const TimelineTracks: React.FC<{
                   <VideoTrack timeline={timeline} trackId={tr.id} editable videoTrackOnly pxPerSec={pxPerSec}
                     thumbUrlOf={!tr.removable ? thumbUrlOf : undefined} clipThumb={clipThumb} onChange={onTimelineChange} onReplaceClip={onReplaceClip}
                     selectedClipId={selectedClipId} onSelectClip={onSelectClip}
+                    cropEditingClipId={cropEditingClipId} onToggleCropClip={onToggleCropClip}
                     onTransitionMenu={onTransitionMenu}
                     onClipContextMenu={(e, clipId) => onLaneContextMenu?.(e, 'video', clipId, tr.id, !!tr.removable)} />
                 </div>

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Volume2, VolumeX, RotateCw, FlipHorizontal2, FlipVertical2, Crop } from 'lucide-react';
 import type { VgTimeline, VgTimelineClip } from '@chayuan/api';
 import { patchClip, type ClipPatch } from './timelineEdit';
 
@@ -22,9 +22,11 @@ export const ClipPropertyPopover: React.FC<{
   timeline: VgTimeline;
   clip: VgTimelineClip;
   isPip: boolean;
+  cropEditing: boolean;
+  onToggleCrop: () => void;
   onChange: (t: VgTimeline) => void;
   onClose: () => void;
-}> = ({ timeline, clip, isPip, onChange, onClose }) => {
+}> = ({ timeline, clip, isPip, cropEditing, onToggleCrop, onChange, onClose }) => {
   const ref = React.useRef<HTMLDivElement | null>(null);
   React.useEffect(() => {
     const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
@@ -64,6 +66,36 @@ export const ClipPropertyPopover: React.FC<{
           className="flex-1 accent-[var(--cy-brand-500)] disabled:opacity-40" />
         <span className="w-8 shrink-0 text-right tabular-nums">{volume.toFixed(2)}</span>
       </label>
+
+      {/* 几何变换(P2)—— 仅 PIP 层:旋转 / 翻转 / 裁剪 */}
+      {isPip && (
+        <>
+          <label className="mb-1 flex items-center gap-2">
+            <RotateCw className="h-3.5 w-3.5 shrink-0 text-[var(--cy-text-tertiary)]" />
+            <input type="range" min={-180} max={180} step={1} value={clip.rotation ?? 0}
+              onChange={(e) => set({ rotation: Number(e.target.value) })}
+              className="flex-1 accent-[var(--cy-brand-500)]" />
+            <span className="w-9 shrink-0 text-right tabular-nums">{Math.round(clip.rotation ?? 0)}°</span>
+          </label>
+          <div className="mb-1 flex items-center gap-1">
+            <button type="button" title="水平翻转" aria-pressed={!!clip.flip_h}
+              onClick={() => set({ flip_h: !clip.flip_h })}
+              className={'inline-flex h-7 w-7 items-center justify-center rounded ' + (clip.flip_h ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
+              <FlipHorizontal2 className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" title="垂直翻转" aria-pressed={!!clip.flip_v}
+              onClick={() => set({ flip_v: !clip.flip_v })}
+              className={'inline-flex h-7 w-7 items-center justify-center rounded ' + (clip.flip_v ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
+              <FlipVertical2 className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" title={cropEditing ? '完成裁剪' : '裁剪（在预览里拖框）'} aria-pressed={cropEditing}
+              onClick={onToggleCrop}
+              className={'ml-auto inline-flex h-7 items-center gap-1 rounded px-2 text-[11px] ' + (cropEditing ? 'bg-[var(--cy-brand-500)] text-white' : 'text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]')}>
+              <Crop className="h-3.5 w-3.5" /> {cropEditing ? '完成裁剪' : '裁剪'}
+            </button>
+          </div>
+        </>
+      )}
 
       {/* 层级 z 不放控件:后端 _build_pip_layers 按「轨道顺序」决定层级、不读 clip.z,
           预览也按轨道下标排 zIndex —— 暴露 z 数值是「调了不生效」的误导控件,故不提供。

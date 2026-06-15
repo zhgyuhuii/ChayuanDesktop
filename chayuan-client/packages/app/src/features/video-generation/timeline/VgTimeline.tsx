@@ -34,7 +34,10 @@ export const VgTimeline: React.FC<{
   onSelectClip?: (clipId: string) => void;
   /** 点片段间转场块(#26):在切点打开转场菜单。 */
   onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
-}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, clipThumb, videoTrackOnly, onReplaceClip, onClipContextMenu, trackId, selectedClipId, onSelectClip, onTransitionMenu }) => {
+  /** 裁剪编辑态(P2 几何):由父级管,传给 ClipPropertyPopover 的「裁剪」切换。 */
+  cropEditingClipId?: string | null;
+  onToggleCropClip?: (clipId: string) => void;
+}> = ({ timeline, editable, onChange, onClipClick, pxPerSec, thumbUrlOf, clipThumb, videoTrackOnly, onReplaceClip, onClipContextMenu, trackId, selectedClipId, onSelectClip, onTransitionMenu, cropEditingClipId, onToggleCropClip }) => {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [propOpenId, setPropOpenId] = React.useState<string | null>(null);
   const pps = pxPerSec ?? PX_PER_SEC;
@@ -165,6 +168,8 @@ export const VgTimeline: React.FC<{
                 )}
                 {propOpenId === s.id && onChange && (
                   <ClipPropertyPopover timeline={timeline} clip={clips[s.idx]!} isPip={isPip}
+                    cropEditing={cropEditingClipId === clips[s.idx]!.id}
+                    onToggleCrop={() => onToggleCropClip?.(clips[s.idx]!.id)}
                     onChange={onChange} onClose={() => setPropOpenId(null)} />
                 )}
                 {selected && onChange && editable && (

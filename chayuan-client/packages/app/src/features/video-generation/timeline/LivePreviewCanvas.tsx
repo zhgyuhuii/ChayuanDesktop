@@ -83,8 +83,10 @@ export const LivePreviewCanvas: React.FC<{
   playheadMs: number;
   playing?: boolean;
   onTransform: (clipId: string, tf: { x?: number; y?: number; scale?: number }) => void;
+  cropEditingClipId?: string | null;
+  onCrop?: (clipId: string, crop: { x: number; y: number; w: number; h: number }) => void;
   cues?: SrtCue[];
-}> = ({ timeline, playheadMs, playing = false, onTransform, cues }) => {
+}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, cues }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const cue = (cues ?? []).find((c) => playheadMs >= c.startMs && playheadMs < c.endMs);
@@ -111,6 +113,25 @@ export const LivePreviewCanvas: React.FC<{
     { c: 'sw', cls: '-bottom-1.5 -left-1.5 cursor-nesw-resize' },
     { c: 'se', cls: '-bottom-1.5 -right-1.5 cursor-nwse-resize' },
   ];
+  // 裁剪框拖拽:归一到该图层显示框(= 源帧,与后端 cropped 同基准);clamp 走父级 patchClip。
+  const dragCrop = (e: React.PointerEvent, clipId: string, mode: 'move' | Corner, cur: { x: number; y: number; w: number; h: number }) => {
+    e.preventDefault(); e.stopPropagation();
+    const layerEl = (e.currentTarget as HTMLElement).closest('[data-cy-layer]') as HTMLElement | null;
+    const rect = layerEl?.getBoundingClientRect(); if (!rect || !onCrop) return;
+    const sx = e.clientX; const sy = e.clientY;
+    const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - sx) / rect.width; const dy = (ev.clientY - sy) / rect.height;
+      if (mode === 'move') { onCrop(clipId, { x: cur.x + dx, y: cur.y + dy, w: cur.w, h: cur.h }); return; }
+      let { x, y, w, h } = cur;
+      if (mode === 'se') { w = cur.w + dx; h = cur.h + dy; }
+      else if (mode === 'nw') { x = cur.x + dx; y = cur.y + dy; w = cur.w - dx; h = cur.h - dy; }
+      else if (mode === 'ne') { y = cur.y + dy; w = cur.w + dx; h = cur.h - dy; }
+      else { x = cur.x + dx; w = cur.w - dx; h = cur.h + dy; }  // sw
+      onCrop(clipId, { x, y, w, h });
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
 
   return (
     <div ref={boxRef} className="relative h-full w-full overflow-hidden bg-black">
@@ -124,24 +145,48 @@ export const LivePreviewCanvas: React.FC<{
         const url = clipUrl(c); if (!url) return null;
         const x = c.x ?? 0; const y = c.y ?? 0; const scale = c.scale ?? 1; // 无 transform = 满画幅
         const full = x === 0 && y === 0 && scale >= 0.999;
+        const editing = cropEditingClipId === c.id;       // 裁剪编辑态:显示完整源 + 裁剪框
+        const cr = c.crop ?? { x: 0, y: 0, w: 1, h: 1 };
         return (
-          <div key={c.id} className="group absolute cursor-move"
+          <div key={c.id} data-cy-layer className={'group absolute ' + (editing ? '' : 'cursor-move')}
             style={{
               ...(full
                 ? { inset: 0, zIndex: 10 + (videoTracks.length - i) }
                 : { left: `${x * 100}%`, top: `${y * 100}%`, width: `${scale * 100}%`, zIndex: 10 + (videoTracks.length - i) }),
               opacity: c.opacity ?? 1, // 预览反映片段不透明度(主轨 clip 不会被设 opacity → 1)
+              // 几何(P2):非裁剪态套 rotate/flip + crop 的 clip-path;裁剪态显示完整源便于拖框
+              ...(editing ? {} : {
+                transform: `rotate(${c.rotation ?? 0}deg) scaleX(${c.flip_h ? -1 : 1}) scaleY(${c.flip_v ? -1 : 1})`,
+                clipPath: c.crop
+                  ? `inset(${c.crop.y * 100}% ${(1 - (c.crop.x + c.crop.w)) * 100}% ${(1 - (c.crop.y + c.crop.h)) * 100}% ${c.crop.x * 100}%)`
+                  : undefined,
+              }),
               ...transitionStyle(c, playheadMs), // #26 实时模拟入场转场(fade/slide)
             }}
-            onPointerDown={(e) => drag(e, c.id, 'move', { x, y, scale })}>
+            onPointerDown={editing ? undefined : (e) => drag(e, c.id, 'move', { x, y, scale })}>
             <ClipMedia url={url} clip={c} playheadMs={playheadMs} playing={playing} isImage={clipIsImage(c, url)}
               className={full ? 'pointer-events-none h-full w-full object-contain' : 'pointer-events-none w-full'} />
-            {/* 悬停显图层边框 + 四角控制点(满画幅图层也可微调) */}
-            <span className="pointer-events-none absolute inset-0 border-2 border-transparent group-hover:border-[var(--cy-brand-500)]" />
-            {CORNERS.map(({ c: corner, cls }) => (
-              <span key={corner} onPointerDown={(e) => drag(e, c.id, corner, { x, y, scale })}
-                className={`absolute h-3 w-3 rounded-full border border-white bg-[var(--cy-brand-600)] opacity-0 group-hover:opacity-100 ${cls}`} />
-            ))}
+            {!editing && (
+              <>
+                {/* 悬停显图层边框 + 四角控制点(满画幅图层也可微调) */}
+                <span className="pointer-events-none absolute inset-0 border-2 border-transparent group-hover:border-[var(--cy-brand-500)]" />
+                {CORNERS.map(({ c: corner, cls }) => (
+                  <span key={corner} onPointerDown={(e) => drag(e, c.id, corner, { x, y, scale })}
+                    className={`absolute h-3 w-3 rounded-full border border-white bg-[var(--cy-brand-600)] opacity-0 group-hover:opacity-100 ${cls}`} />
+                ))}
+              </>
+            )}
+            {editing && (
+              // 裁剪框:box-shadow 大扩散 = 框外变暗(被画布 overflow-hidden 裁到画布边);可拖移 + 四角缩放
+              <div className="absolute cursor-move border-2 border-[var(--cy-brand-500)]"
+                style={{ left: `${cr.x * 100}%`, top: `${cr.y * 100}%`, width: `${cr.w * 100}%`, height: `${cr.h * 100}%`, boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)' }}
+                onPointerDown={(e) => dragCrop(e, c.id, 'move', cr)}>
+                {CORNERS.map(({ c: corner, cls }) => (
+                  <span key={corner} onPointerDown={(e) => dragCrop(e, c.id, corner, cr)}
+                    className={`absolute h-3 w-3 rounded-full border border-white bg-[var(--cy-brand-600)] ${cls}`} />
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
