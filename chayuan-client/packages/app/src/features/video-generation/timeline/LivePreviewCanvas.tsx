@@ -286,6 +286,22 @@ export const LivePreviewCanvas: React.FC<{
                 {ov.text}
               </div>
             )}
+            {(ov.type === 'rect' || ov.type === 'ellipse') && (
+              <div className="pointer-events-none h-full w-full" style={{
+                background: ov.fill || 'transparent',
+                border: (ov.stroke_width ?? 0) > 0 ? `${ov.stroke_width}px solid ${ov.stroke_color || '#fff'}` : 'none',
+                borderRadius: ov.type === 'ellipse' ? '50%' : (ov.corner_radius || 0),
+              }} />
+            )}
+            {(ov.type === 'line' || ov.type === 'arrow') && (
+              <svg className="pointer-events-none h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <line x1={2} y1={50} x2={ov.type === 'arrow' ? 88 : 98} y2={50}
+                  stroke={ov.stroke_color || '#fff'} strokeWidth={ov.stroke_width || 3} vectorEffect="non-scaling-stroke" />
+                {ov.type === 'arrow' && (
+                  <polygon points="98,50 86,42 86,58" fill={ov.stroke_color || '#fff'} />
+                )}
+              </svg>
+            )}
             {sel && (
               <>
                 <span className="pointer-events-none absolute inset-0 border-2 border-[var(--cy-brand-500)]" />
