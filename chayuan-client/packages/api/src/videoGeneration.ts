@@ -86,10 +86,31 @@ export interface VgTimelineTrack {
   removable?: boolean;        // 用户添加的轨可删(P5c-2)
   label?: string;
 }
+export interface VgOverlay {
+  id: string;
+  type: 'text' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'image' | 'mosaic';
+  track_start_ms: number;
+  duration_ms: number;
+  x: number; y: number; w: number; h: number;   // 归一 0-1
+  rotation?: number;
+  opacity?: number;
+  z?: number;
+  // 文字样式(A 期)
+  text?: string;
+  font_name?: string;
+  font_size?: number;
+  text_color?: string;
+  stroke_color?: string;
+  stroke_width?: number;
+  bg?: string | null;
+  align?: 'left' | 'center' | 'right';
+}
+
 export interface VgTimeline {
   version?: number;
   duration_ms?: number;
   tracks: VgTimelineTrack[];
+  overlays?: VgOverlay[];
 }
 
 /** 后端 VideoParams 全字段;前端 vgComposer store 字段一一对应 */
