@@ -14,7 +14,7 @@ import { TransportBar } from './timeline/TransportBar';
 import { TimelineTracks } from './timeline/TimelineTracks';
 import { useUsageGate, UsageGateDialogs } from '../license';
 import { buildTimelineFromMaterials } from './timeline/buildTimeline';
-import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, setClipTransition, applyProbedDuration, patchClip, type DraggedMaterial } from './timeline/timelineEdit';
+import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, setClipTransition, applyProbedDuration, patchClip, splitAtMs, type DraggedMaterial } from './timeline/timelineEdit';
 import { TRANSITIONS } from './timeline/transitions';
 import { addTrack, removeTrack, reorderVideoTrack } from './timeline/trackOps';
 import { addOverlay, patchOverlay, deleteOverlay } from './timeline/overlayEdit';
@@ -635,6 +635,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           overlays={timeline.overlays}
           selectedOverlayIds={selectedOverlayIds}
           onSelectOverlay={onSelectOverlay}
+          onSplitAt={(ms) => { onTimelineChange(splitAtMs(timeline, ms)); setSelectedClipId(null); }}
           onOverlayPatch={(id, patch) => onTimelineChange(patchOverlay(timeline, id, patch))}
           onOverlayDelete={(id) => { onTimelineChange(deleteOverlay(timeline, id)); setSelectedOverlayIds((prev) => prev.filter((x) => x !== id)); }}
           playheadDriveRef={playheadDriveRef}

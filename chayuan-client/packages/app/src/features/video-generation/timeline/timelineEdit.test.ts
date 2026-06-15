@@ -216,3 +216,35 @@ it('patchClip clamp rotation[-180,180] + flip 布尔 + crop 约束', () => {
   expect(c.w).toBeCloseTo(0.2);
   expect(c.h).toBe(0.05);
 });
+
+import { splitAtMs } from './timelineEdit';
+
+it('splitAtMs 切视频片段为两段(in/out 按比例)', () => {
+  const tl = { version: 1, duration_ms: 0, tracks: [
+    { id: 'v', kind: 'video', clips: [{ id: 'c1', source: {}, track_start_ms: 0, in_ms: 0, out_ms: 4000 }] },
+  ] } as any;
+  const r = splitAtMs(tl, 1000);
+  const clips = r.tracks[0]!.clips!;
+  expect(clips.length).toBe(2);
+  expect(clips[0]!.out_ms).toBe(1000);
+  expect(clips[1]!.in_ms).toBe(1000);
+  expect(clips[1]!.out_ms).toBe(4000);
+  expect(clips[1]!.track_start_ms).toBe(1000);
+});
+
+it('splitAtMs 不在片段内则不切', () => {
+  const tl = { version: 1, duration_ms: 0, tracks: [
+    { id: 'v', kind: 'video', clips: [{ id: 'c1', source: {}, track_start_ms: 0, in_ms: 0, out_ms: 2000 }] },
+  ] } as any;
+  expect(splitAtMs(tl, 5000).tracks[0]!.clips!.length).toBe(1);
+});
+
+it('splitAtMs 变速片段按 speed 切源', () => {
+  const tl = { version: 1, duration_ms: 0, tracks: [
+    { id: 'v', kind: 'video', clips: [{ id: 'c1', source: {}, track_start_ms: 0, in_ms: 0, out_ms: 4000, speed: 2 }] },
+  ] } as any;
+  // 时间轴占用 = 4000/2 = 2000;在 tl=1000 切 → 源消耗 1000*2=2000
+  const clips = splitAtMs(tl, 1000).tracks[0]!.clips!;
+  expect(clips[0]!.out_ms).toBe(2000);
+  expect(clips[1]!.in_ms).toBe(2000);
+});

@@ -7,7 +7,8 @@ export const TimeRuler: React.FC<{
   pxPerSec: number;
   contentWidthPx: number;
   onSeekMs: (ms: number) => void;
-}> = ({ durationMs, pxPerSec, contentWidthPx, onSeekMs }) => {
+  onContextMenuAtMs?: (ms: number, e: React.MouseEvent) => void;
+}> = ({ durationMs, pxPerSec, contentWidthPx, onSeekMs, onContextMenuAtMs }) => {
   // 主刻度间隔(秒):px/秒 越小,间隔越大,避免数字挤一起
   const stepSec = pxPerSec >= 40 ? 1 : pxPerSec >= 20 ? 2 : pxPerSec >= 10 ? 5 : 10;
   const minorPerMajor = 5;                       // 每个主刻度分 5 个次刻度
@@ -28,6 +29,12 @@ export const TimeRuler: React.FC<{
       onClick={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
         onSeekMs(Math.max(0, Math.min(durationMs, pxToMs(e.clientX - rect.left, pxPerSec))));
+      }}
+      onContextMenu={(e) => {
+        if (!onContextMenuAtMs) return;
+        e.preventDefault();
+        const rect = e.currentTarget.getBoundingClientRect();
+        onContextMenuAtMs(Math.max(0, pxToMs(e.clientX - rect.left, pxPerSec)), e);
       }}
     >
       {/* 次刻度短线 */}

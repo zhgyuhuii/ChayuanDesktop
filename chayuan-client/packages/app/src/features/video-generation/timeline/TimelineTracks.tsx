@@ -47,6 +47,7 @@ export const TimelineTracks: React.FC<{
   overlays?: import('@chayuan/api').VgOverlay[];
   selectedOverlayIds?: string[];
   onSelectOverlay?: (id: string | null, additive?: boolean) => void;
+  onSplitAt?: (ms: number) => void;
   onOverlayPatch?: (id: string, patch: { track_start_ms?: number; duration_ms?: number }) => void;
   onOverlayDelete?: (id: string) => void;
   /** 旁白音频块显示名(主题名)+ 时长。 */
@@ -55,8 +56,9 @@ export const TimelineTracks: React.FC<{
   onTransitionMenu?: (e: React.MouseEvent, clipId: string) => void;
   /** 播放头命令式驱动 ref(rAF 每帧推 DOM,不重渲整条时间轴);透传给 Playhead。 */
   playheadDriveRef?: React.MutableRefObject<((ms: number) => void) | null>;
-}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, overlays, selectedOverlayIds, onSelectOverlay, onOverlayPatch, onOverlayDelete, narrationName, narrationDurationMs, onTransitionMenu, playheadDriveRef }) => {
+}> = ({ timeline, durationMs, pxPerSec, playheadMs, peaks, peaksLoading, cues, bgmName, bgmUrl, contentMs, thumbUrlOf, clipThumb, onSeekMs, onTimelineChange, onDropMaterial, onDropAudio, onCuesChange, onReplaceClip, onLaneContextMenu, selectedTrackId, onSelectTrack, onReorderVideoTrack, selectedClipId, onSelectClip, overlays, selectedOverlayIds, onSelectOverlay, onOverlayPatch, onOverlayDelete, onSplitAt, narrationName, narrationDurationMs, onTransitionMenu, playheadDriveRef }) => {
   const contentWidthPx = Math.max(240, msToPx(durationMs, pxPerSec));
+  const [rulerMenu, setRulerMenu] = React.useState<{ ms: number; x: number; y: number } | null>(null);
   // 刻度固定:右侧面板自成垂直滚动容器,左侧轨道头列 scrollTop 跟随同步
   const lanesScrollRef = React.useRef<HTMLDivElement>(null);
   const headerColRef = React.useRef<HTMLDivElement>(null);
@@ -155,7 +157,8 @@ export const TimelineTracks: React.FC<{
       >
         <div className="relative" style={{ width: contentWidthPx }}>
           <div className="sticky top-0 z-20 bg-[var(--cy-surface-1)]">
-            <TimeRuler durationMs={durationMs} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx} onSeekMs={onSeekMs} />
+            <TimeRuler durationMs={durationMs} pxPerSec={pxPerSec} contentWidthPx={contentWidthPx} onSeekMs={onSeekMs}
+              onContextMenuAtMs={onSplitAt ? (ms, e) => setRulerMenu({ ms, x: e.clientX, y: e.clientY }) : undefined} />
           </div>
           <div className="relative" style={{ height: lanesH }}>
             {/* 视频轨们(第 0 条 = 主轨可编辑;其余 = PIP 显示+拖入+右键) */}
@@ -226,6 +229,19 @@ export const TimelineTracks: React.FC<{
           <Playhead playheadMs={playheadMs} pxPerSec={pxPerSec} heightPx={RULER_H + lanesH} durationMs={durationMs} onSeekMs={onSeekMs} driveRef={playheadDriveRef} />
         </div>
       </div>
+      {rulerMenu && (
+        <>
+          <div className="fixed inset-0 z-[290]" onClick={() => setRulerMenu(null)} onContextMenu={(e) => { e.preventDefault(); setRulerMenu(null); }} />
+          <div className="fixed z-[300] min-w-[8rem] rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] py-1 text-xs shadow-xl"
+            style={{ left: rulerMenu.x, top: rulerMenu.y }}>
+            <button type="button"
+              onClick={() => { onSplitAt?.(rulerMenu.ms); setRulerMenu(null); }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
+              在此分割({(rulerMenu.ms / 1000).toFixed(1)}s)
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 };

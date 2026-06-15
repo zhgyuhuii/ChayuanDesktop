@@ -56,6 +56,41 @@ export function clipDurMs(c: VgTimelineClip): number {
   return base / sp;
 }
 
+let _splitSeq = 0;
+/** 在时间轴绝对时刻 T(ms)把单个 clip 切成两段(razor)。不跨越则原样返回 [c]。 */
+export function splitClip(c: VgTimelineClip, T: number): VgTimelineClip[] {
+  const start = c.track_start_ms ?? 0;
+  const dur = clipDurMs(c);
+  const tlOffset = T - start;
+  if (tlOffset <= 1 || tlOffset >= dur - 1) return [c];   // 不在片段内部
+  const sp = (c.speed && c.speed > 0) ? c.speed : 1;
+  const inMs = c.in_ms ?? 0;
+  const sfx = `${Date.now().toString(36)}${_splitSeq++}`;
+  const a: VgTimelineClip = { ...c, id: `${c.id}-a${sfx}` };
+  const b: VgTimelineClip = { ...c, id: `${c.id}-b${sfx}`, track_start_ms: Math.round(T) };
+  if (c.kind === 'image') {
+    a.duration_ms = Math.round(tlOffset); a.out_ms = 0;
+    b.in_ms = inMs; b.duration_ms = Math.round(dur - tlOffset); b.out_ms = 0;
+  } else {
+    const srcSplit = Math.round(inMs + tlOffset * sp);
+    a.in_ms = inMs; a.out_ms = srcSplit; a.duration_ms = Math.round(tlOffset);
+    b.in_ms = srcSplit; b.out_ms = (c.out_ms && c.out_ms > srcSplit) ? c.out_ms : 0; b.duration_ms = Math.round(dur - tlOffset);
+  }
+  return [a, b];
+}
+
+/** 在时刻 T 分割所有视频/音频轨上跨越该点的片段(razor across all tracks)。 */
+export function splitAtMs(t: VgTimeline, T: number): VgTimeline {
+  return {
+    ...t,
+    tracks: (t.tracks || []).map((tr) =>
+      (tr.kind === 'video' || tr.kind === 'audio')
+        ? { ...tr, clips: (tr.clips || []).flatMap((c) => splitClip(c, T)) }
+        : tr,
+    ),
+  };
+}
+
 /** 主视频轨下标 = 第一条 removable=false 的视频轨(主/蒙太奇轨);没有则第一条视频轨。
  *  主轨身份跟「轨道」走,不绑死 index 0 —— 这样上下拖动重排时主轨整体移动而非只换素材。 */
 function mainVideoIdx(t: VgTimeline): number {
