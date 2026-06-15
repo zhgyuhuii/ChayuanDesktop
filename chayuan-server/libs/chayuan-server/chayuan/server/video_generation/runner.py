@@ -158,8 +158,11 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
         else:
             # manual / srt 模式 — script 由用户提供
             video_script = params.video_script
-        if not video_script and params.script_source.value != "srt":
+        # 无脚本但有时间轴(纯素材/音乐合成)→ 走「无旁白」EDL,不再强制脚本非空
+        edl_mode = _use_edl(params)
+        if not video_script and params.script_source.value != "srt" and not edl_mode:
             return _mark_failed(task_id, "脚本为空(LLM 调用失败或用户未填)")
+        silent = (not video_script) and edl_mode  # 无旁白:跳过 TTS/字幕,时长由时间轴决定
         tasks_store.update_progress(
             task_id, progress=10, result_patch={"script": video_script},
         )
@@ -206,23 +209,32 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
         # ── 3. audio (TTS) ─────────────────────────────────────────
         if _is_canceled(task_id):
             return _mark_canceled(task_id)
-        audio_file = _resolve_audio_path(task_id)
-        tts_result = _tts_step.synthesize(
-            video_script, audio_file,
-            voice_provider=params.voice_provider,
-            voice_name=params.voice_name or None,
-            voice_rate=params.voice_rate, voice_volume=params.voice_volume,
-        )
-        if not tts_result:
-            return _mark_failed(task_id, "TTS 失败 — provider 都没成功")
-        tasks_store.update_progress(
-            task_id, progress=35,
-            result_patch={
-                "audio_file": tts_result.audio_file,
-                "audio_duration_ms": tts_result.duration_ms,
-                "tts_provider": tts_result.provider,
-            },
-        )
+        if silent:
+            # 无旁白:跳过 TTS,音频靠背景音乐/音频轨/视频原声在 compose 阶段混入
+            audio_file = ""
+            audio_duration_ms = 0
+            tts_cues: list = []
+        else:
+            audio_file = _resolve_audio_path(task_id)
+            tts_result = _tts_step.synthesize(
+                video_script, audio_file,
+                voice_provider=params.voice_provider,
+                voice_name=params.voice_name or None,
+                voice_rate=params.voice_rate, voice_volume=params.voice_volume,
+            )
+            if not tts_result:
+                return _mark_failed(task_id, "TTS 失败 — provider 都没成功")
+            audio_file = tts_result.audio_file
+            audio_duration_ms = tts_result.duration_ms
+            tts_cues = tts_result.cues
+            tasks_store.update_progress(
+                task_id, progress=35,
+                result_patch={
+                    "audio_file": tts_result.audio_file,
+                    "audio_duration_ms": tts_result.duration_ms,
+                    "tts_provider": tts_result.provider,
+                },
+            )
         if stop_at == "audio":
             return _mark_complete(task_id, progress=100)
 
@@ -233,9 +245,11 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
         if params.script_source.value == "srt" and params.srt_cues:
             cues = list(params.srt_cues)
         else:
-            cues = tts_result.cues
+            cues = tts_cues
         if cues:
             _subtitle_step.write_srt(cues, subtitle_path)
+        else:
+            subtitle_path = ""  # 无字幕(无旁白且非 srt)→ compose 跳过
         tasks_store.update_progress(
             task_id, progress=50, result_patch={"subtitle_path": subtitle_path},
         )
@@ -245,12 +259,16 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
         # ── 5. materials ──────────────────────────────────────────
         if _is_canceled(task_id):
             return _mark_canceled(task_id)
-        materials_paths = _resolve_materials(
-            task_id, params, video_terms,
-            audio_duration_ms=tts_result.duration_ms,
-        )
-        if not materials_paths:
-            return _mark_failed(task_id, _materials_failure_reason(params, video_terms))
+        if edl_mode:
+            # 时间轴自带素材源(material_id/url),_compose_via_edl 从 timeline 解析;无需 _resolve_materials
+            materials_paths: list[str] = []
+        else:
+            materials_paths = _resolve_materials(
+                task_id, params, video_terms,
+                audio_duration_ms=audio_duration_ms,
+            )
+            if not materials_paths:
+                return _mark_failed(task_id, _materials_failure_reason(params, video_terms))
         tasks_store.update_progress(
             task_id, progress=70, result_patch={"materials": materials_paths},
         )
@@ -267,13 +285,13 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
             result_patch={"stage": "compose", "stage_hint": "正在合成视频(CPU 渲染,可能需要 1-3 分钟)"},
         )
         logger.info("[runner] task %s 进入 compose(materials=%d)", task_id, len(materials_paths))
-        if _use_edl(params):
-            final_videos = [_compose_via_edl(task_id, params, tts_result.audio_file, subtitle_path)]
+        if edl_mode:
+            final_videos = [_compose_via_edl(task_id, params, audio_file, subtitle_path)]
             combined_videos = []
         else:
             final_videos, combined_videos = _compose_videos(
                 task_id, params, materials_paths,
-                audio_file=tts_result.audio_file, subtitle_path=subtitle_path,
+                audio_file=audio_file, subtitle_path=subtitle_path,
             )
         if not final_videos:
             return _mark_failed(task_id, "moviepy 合成失败 — 详见日志")

@@ -67,6 +67,7 @@ export interface VgTimelineClip {
   volume?: number;            // 音量(音频轨 + 视频 clip 内嵌音频共用)
   muted?: boolean;            // 视频 clip:静音其内嵌音频
   duration_ms?: number;       // 前端编辑用的有效时长;后端只用 in/out
+  kind?: 'image' | 'video';   // 前端编辑用:素材类型(预览按它判断图/视频;material_id 文件 URL 无扩展名,靠 URL 判不出)。后端 Pydantic 忽略此字段
   x?: number;                 // 画中画 0-1 归一位置/缩放/层级(P5c-2)
   y?: number;
   scale?: number;

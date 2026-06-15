@@ -88,17 +88,19 @@ export const PresetList: React.FC<PresetListProps> = ({ presets, onChanged, onGe
           <span className="truncate text-[10px] text-[var(--cy-text-tertiary)]" title={p.voice_name || p.voice_provider}>
             {p.voice_name || p.voice_provider}
           </span>
-          {/* 快捷入口:发布/打开公开页对话 / 生成 */}
+          {/* 快捷入口:生成(「打开公开页」按需求隐藏 —— 桌面单机版不走在线公开页) */}
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => void onOpenPublic(p)}
-              disabled={openingId === p.id}
-              title="发布并打开公开页(在线对话)"
-              className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md bg-[var(--cy-brand-500)] text-[10px] text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50"
-            >
-              <ExternalLink className="h-3 w-3" /> {openingId === p.id ? '打开中…' : '打开公开页'}
-            </button>
+            {false && (
+              <button
+                type="button"
+                onClick={() => void onOpenPublic(p)}
+                disabled={openingId === p.id}
+                title="发布并打开公开页(在线对话)"
+                className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md bg-[var(--cy-brand-500)] text-[10px] text-white hover:bg-[var(--cy-brand-600)] disabled:opacity-50"
+              >
+                <ExternalLink className="h-3 w-3" /> {openingId === p.id ? '打开中…' : '打开公开页'}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onGenerate?.(p.id)}

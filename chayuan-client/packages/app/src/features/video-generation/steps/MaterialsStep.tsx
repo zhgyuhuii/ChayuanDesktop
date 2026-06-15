@@ -276,9 +276,10 @@ const MineTab: React.FC<{
             {isImg(preview) ? (
               <img src={vgMaterialFileUrl(preview.material_id)} alt={preview.name} className="max-h-[85vh] max-w-[85vw] rounded-lg" />
             ) : isAudio(preview) ? (
-              <audio src={vgMaterialFileUrl(preview.material_id)} controls autoPlay className="w-[80vw] max-w-xl" />
+              // 不 autoPlay:桌面 webview 对"无元素手势的自动播放"会强制静音;点原生播放键(真手势)才稳出声
+              <audio src={vgMaterialFileUrl(preview.material_id)} controls className="w-[80vw] max-w-xl" />
             ) : (
-              <video src={vgMaterialFileUrl(preview.material_id)} controls autoPlay className="max-h-[85vh] max-w-[85vw] rounded-lg" />
+              <video src={vgMaterialFileUrl(preview.material_id)} controls playsInline className="max-h-[85vh] max-w-[85vw] rounded-lg" />
             )}
           </div>
         </div>

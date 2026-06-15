@@ -513,11 +513,14 @@ def render_from_edl(
     if not plan:
         raise RuntimeError("EDL 没有可渲染的视频片段(video 轨为空或素材解析失败)")
 
-    audio_clip = AudioFileClip(audio_file)
-    try:
-        audio_duration = audio_clip.duration
-    finally:
-        close_clip(audio_clip)
+    # 无旁白合成(纯素材/音乐):audio_file 为空 → 时长由视频/音频轨决定
+    audio_duration = 0.0
+    if audio_file and os.path.exists(audio_file):
+        audio_clip = AudioFileClip(audio_file)
+        try:
+            audio_duration = audio_clip.duration
+        finally:
+            close_clip(audio_clip)
 
     clip_files: list[str] = []
     total = 0.0
@@ -1107,9 +1110,12 @@ def generate_video(
         return _clip
 
     video_clip = _open_video_clip_quietly(video_path)
-    audio_clip = AudioFileClip(audio_path).with_effects(
-        [afx.MultiplyVolume(params.voice_volume)]
-    )
+    # 旁白(可空):无旁白合成时仅靠背景音乐 / 音频轨 / 视频原声;按层收集后再统一合成
+    audio_layers: list = []
+    if audio_path and os.path.exists(audio_path):
+        audio_layers.append(
+            AudioFileClip(audio_path).with_effects([afx.MultiplyVolume(params.voice_volume)])
+        )
 
     def make_textclip(text):
         return TextClip(
@@ -1138,7 +1144,7 @@ def generate_video(
                     afx.AudioLoop(duration=video_clip.duration),
                 ]
             )
-            audio_clip = CompositeAudioClip([audio_clip, bgm_clip])
+            audio_layers.append(bgm_clip)
         except Exception as e:
             logger.error(f"failed to add bgm: {str(e)}")
 
@@ -1157,24 +1163,35 @@ def generate_video(
             ea_clip = _ac.with_effects(
                 [afx.MultiplyVolume(float(ea.get("volume", 1.0)))]
             ).with_start(float(ea.get("start_s", 0.0)))
-            audio_clip = CompositeAudioClip([audio_clip, ea_clip])
+            audio_layers.append(ea_clip)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[compose] 插入音频混音失败,跳过 %s: %s", ea.get("path"), exc)
 
-    video_clip = video_clip.with_audio(audio_clip)
-    # 显式沿用输入音频的采样率；如果取不到，再回退到 MoviePy 默认的 44100Hz。
-    # 这样可以减少不同运行环境，尤其是 Docker 环境中再次重采样带来的音质波动。
-    output_audio_fps = int(getattr(audio_clip, "fps", 0) or 44100)
-    video_clip.write_videofile(
-        output_file,
-        audio_codec=audio_codec,
-        audio_fps=output_audio_fps,
-        audio_bitrate=audio_bitrate,
-        temp_audiofile_path=output_dir,
-        threads=params.n_threads or 2,
-        logger=None,
-        fps=fps,
-    )
+    if audio_layers:
+        audio_clip = audio_layers[0] if len(audio_layers) == 1 else CompositeAudioClip(audio_layers)
+        video_clip = video_clip.with_audio(audio_clip)
+        # 显式沿用输入音频的采样率；如果取不到，再回退到 MoviePy 默认的 44100Hz。
+        # 这样可以减少不同运行环境，尤其是 Docker 环境中再次重采样带来的音质波动。
+        output_audio_fps = int(getattr(audio_clip, "fps", 0) or 44100)
+        video_clip.write_videofile(
+            output_file,
+            audio_codec=audio_codec,
+            audio_fps=output_audio_fps,
+            audio_bitrate=audio_bitrate,
+            temp_audiofile_path=output_dir,
+            threads=params.n_threads or 2,
+            logger=None,
+            fps=fps,
+        )
+    else:
+        # 完全无音频(无旁白 + 无音乐 + 无可混的视频原声)→ 写纯画面,避免 moviepy 对空音频报错
+        video_clip.write_videofile(
+            output_file,
+            temp_audiofile_path=output_dir,
+            threads=params.n_threads or 2,
+            logger=None,
+            fps=fps,
+        )
     video_clip.close()
     del video_clip
 

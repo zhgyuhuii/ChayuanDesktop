@@ -10,6 +10,9 @@ function clipUrl(c: VgTimelineClip): string | null {
   return null;
 }
 const isImageUrl = (u: string) => /\.(jpg|jpeg|png|webp|bmp|gif)(\?|$)/i.test(u);
+/** clip 是否图像:优先 kind(拖入时落库);否则靠 URL 扩展名(在线图片有扩展名)。
+ *  material_id 文件 URL 无扩展名 → 老草稿无 kind 时返回 false,由 ClipMedia 的 onError 自愈兜底。 */
+const clipIsImage = (c: VgTimelineClip, url: string) => (c.kind ? c.kind === 'image' : isImageUrl(url));
 const TX_MS = 1000; // 转场时长(与 compose 的 1s 一致)
 
 /** 片段入场转场 → 当前 playhead 的样式(opacity/transform)。none/超过转场窗口 → 空。 */
@@ -36,12 +39,16 @@ function clipAt(clips: VgTimelineClip[] | undefined, playheadMs: number): VgTime
   return null;
 }
 
-/** 视频元素:暂停时按 playhead seek 静帧;播放时真 play(),仅在漂移大时校正。 */
-const FrameVideo: React.FC<{ url: string; clip: VgTimelineClip; playheadMs: number; playing: boolean; className?: string }>
-  = ({ url, clip, playheadMs, playing, className }) => {
+/** 视频元素:暂停时按 playhead seek 静帧;播放时真 play(),仅在漂移大时校正。
+ *  原声:播放时按 clip.muted/volume 出声(暂停/拖动时静音,避免 seek 噪音);成片混音由后端 _build_extra_audios 负责。 */
+const FrameVideo: React.FC<{ url: string; clip: VgTimelineClip; playheadMs: number; playing: boolean; className?: string; onMediaError?: () => void }>
+  = ({ url, clip, playheadMs, playing, className, onMediaError }) => {
   const ref = React.useRef<HTMLVideoElement | null>(null);
   React.useEffect(() => {
     const v = ref.current; if (!v) return;
+    // 播放时按 clip 设置出声;暂停/拖动时静音(逐帧 seek 不放原声)。volume 钳到 [0,1](轨道音量可到 1.5,HTMLMediaElement 上限 1)。
+    v.muted = !playing || !!clip.muted;
+    v.volume = Math.max(0, Math.min(1, clip.volume ?? 1));
     const t = Math.max(0, (playheadMs - clip.track_start_ms) / 1000 + (clip.in_ms ?? 0) / 1000);
     if (playing) {
       if (v.paused) { try { if (t >= 0) v.currentTime = t; } catch { /* noop */ } void v.play().catch(() => undefined); }
@@ -51,8 +58,19 @@ const FrameVideo: React.FC<{ url: string; clip: VgTimelineClip; playheadMs: numb
       const apply = () => { if (Math.abs(v.currentTime - t) > 0.05) { try { v.currentTime = t; } catch { /* noop */ } } };
       if (v.readyState >= 1) apply(); else v.addEventListener('loadedmetadata', apply, { once: true });
     }
-  }, [url, playheadMs, playing, clip.track_start_ms, clip.in_ms]);
-  return <video ref={ref} src={url} muted preload="metadata" className={className} />;
+  }, [url, playheadMs, playing, clip.track_start_ms, clip.in_ms, clip.muted, clip.volume]);
+  return <video ref={ref} src={url} preload="metadata" playsInline className={className} onError={() => onMediaError?.()} />;
+};
+
+/** 图/视频自适应:按 isImage 初始渲染;加载出错(老草稿无 kind、类型判错)自愈切换。 */
+const ClipMedia: React.FC<{ url: string; clip: VgTimelineClip; playheadMs: number; playing: boolean; className?: string; isImage: boolean }>
+  = ({ url, clip, playheadMs, playing, className, isImage }) => {
+  const [mode, setMode] = React.useState<'image' | 'video'>(isImage ? 'image' : 'video');
+  React.useEffect(() => { setMode(isImage ? 'image' : 'video'); }, [isImage, url]);
+  if (mode === 'image') {
+    return <img src={url} alt="" draggable={false} className={className} onError={() => setMode('video')} />;
+  }
+  return <FrameVideo url={url} clip={clip} playheadMs={playheadMs} playing={playing} className={className} onMediaError={() => setMode('image')} />;
 };
 
 /**
@@ -115,9 +133,8 @@ export const LivePreviewCanvas: React.FC<{
               ...transitionStyle(c, playheadMs), // #26 实时模拟入场转场(fade/slide)
             }}
             onPointerDown={(e) => drag(e, c.id, 'move', { x, y, scale })}>
-            {isImageUrl(url)
-              ? <img src={url} alt="" draggable={false} className={full ? 'pointer-events-none h-full w-full object-contain' : 'pointer-events-none w-full'} />
-              : <FrameVideo url={url} clip={c} playheadMs={playheadMs} playing={playing} className={full ? 'pointer-events-none h-full w-full object-contain' : 'pointer-events-none w-full'} />}
+            <ClipMedia url={url} clip={c} playheadMs={playheadMs} playing={playing} isImage={clipIsImage(c, url)}
+              className={full ? 'pointer-events-none h-full w-full object-contain' : 'pointer-events-none w-full'} />
             {/* 悬停显图层边框 + 四角控制点(满画幅图层也可微调) */}
             <span className="pointer-events-none absolute inset-0 border-2 border-transparent group-hover:border-[var(--cy-brand-500)]" />
             {CORNERS.map(({ c: corner, cls }) => (

@@ -89,7 +89,7 @@ export const OnlineAvatarList: React.FC = () => {
               <div className="text-[11px] text-[var(--cy-text-tertiary)]">{ratioLabel(it.video_width, it.video_height)}</div>
               <div className="flex items-center gap-1.5">
                 <button type="button" title="复制链接" className={iconBtn} onClick={() => void copy(it.url)}><Link2 className="h-4 w-4" /></button>
-                <button type="button" title="打开公开页" className={iconBtn} onClick={() => open(it.url)}><ExternalLink className="h-4 w-4" /></button>
+                {false && <button type="button" title="打开公开页" className={iconBtn} onClick={() => open(it.url)}><ExternalLink className="h-4 w-4" /></button>}
                 <button type="button" title={it.chat_enabled ? '关闭对话(转纯观看)' : '开启对话'} className={iconBtn}
                   onClick={() => void toggle(it, { chat_enabled: !it.chat_enabled })}>
                   {it.chat_enabled ? <MessageSquare className="h-4 w-4" /> : <MessageSquareOff className="h-4 w-4" />}
@@ -146,7 +146,7 @@ export const OnlineAvatarList: React.FC = () => {
                   <td className="py-1">
                     <div className="flex gap-1.5">
                       <button type="button" title="复制链接" className={iconBtn} onClick={() => void copy(it.url)}><Link2 className="h-4 w-4" /></button>
-                      <button type="button" title="打开公开页" className={iconBtn} onClick={() => open(it.url)}><ExternalLink className="h-4 w-4" /></button>
+                      {false && <button type="button" title="打开公开页" className={iconBtn} onClick={() => open(it.url)}><ExternalLink className="h-4 w-4" /></button>}
                       <button type="button" title={it.matte ? '关闭抠像' : '开启抠像(去背景纯色,仅留人像)'} className={iconBtn}
                         onClick={() => void toggle(it, { matte: !it.matte })}>
                         <Scissors className={`h-4 w-4 ${it.matte ? 'text-[var(--cy-brand-500)]' : ''}`} />

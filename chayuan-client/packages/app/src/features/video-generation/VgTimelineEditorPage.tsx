@@ -222,21 +222,38 @@ export const VgTimelineEditorPage: React.FC = () => {
     previewStopRef.current = playAudioTimeline(items, () => { previewStopRef.current = null; });
   };
 
-  // ── 提交:finalize 草稿(复用 audio/subtitle,只 compose) ──
+  // 时间轴有内容(视频轨有 clip)即可提交 —— 不强制先生成旁白
+  const hasVideoClips = (timeline.tracks ?? []).some((t) => t.kind === 'video' && (t.clips?.length ?? 0) > 0);
+  const canSubmit = draft.state === 'ready' || hasVideoClips;
+
+  const afterSubmitNav = () => {
+    notifySuccess('已提交合成', '前往「我的视频」看进度');
+    openTab('/video-generation/library', { title: '我的视频', icon: 'video' });
+    void navigate({ to: '/video-generation/library' as never });
+  };
+
+  // ── 提交合成 ──
+  // 1) 草稿已就绪(有旁白+字幕)→ finalize:复用 audio/subtitle,只 compose,保留用户编辑的字幕。
+  // 2) 否则(无旁白草稿)→ 直接按时间轴提交一个完整任务:有脚本则后端生成旁白,无脚本则
+  //    后端走「无旁白」EDL 合成(纯素材+背景音乐/音频轨)。满足「只要有素材/音乐即可合成」。
   const onSubmit = async () => {
-    if (draft.state !== 'ready' || !draft.taskId) { reportError(new Error('草稿尚未就绪,稍候再试')); return; }
-    const taskId = draft.taskId;   // 闭包内固定,避免 string|null 收窄丢失
+    if (draft.state === 'generating') { reportError(new Error('旁白生成中,请稍候再提交')); return; }
+    if (!hasVideoClips && draft.state !== 'ready') { reportError(new Error('请先往视频轨添加素材')); return; }
     await gate.guard(async () => {   // 按次扣减「视频编辑」额度,用完弹购买
       setSubmitting(true);
       try {
-        // 透传当前画幅/精确尺寸,使成片按预览左上角的最终选择渲染(否则用草稿原始尺寸)
-        await videoGeneration.finalizeDraft(
-          taskId, roundTimeline(timeline), cues.length ? cues : undefined,
-          { video_aspect: params.video_aspect, video_width: params.video_width, video_height: params.video_height },
-        );
-        notifySuccess('已提交合成', '前往「我的视频」看进度');
-        openTab('/video-generation/library', { title: '我的视频', icon: 'video' });
-        void navigate({ to: '/video-generation/library' as never });
+        if (draft.state === 'ready' && draft.taskId) {
+          // 透传当前画幅/精确尺寸,使成片按预览左上角的最终选择渲染(否则用草稿原始尺寸)
+          await videoGeneration.finalizeDraft(
+            draft.taskId, roundTimeline(timeline), cues.length ? cues : undefined,
+            { video_aspect: params.video_aspect, video_width: params.video_width, video_height: params.video_height },
+          );
+        } else {
+          await videoGeneration.submitTask(
+            { ...params, timeline: roundTimeline(timeline) }, { stop_at: 'video' },
+          );
+        }
+        afterSubmitNav();
       } catch (e) { reportError(e as Error, '提交失败'); }
       finally { setSubmitting(false); }
     });
@@ -390,7 +407,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           settingsPanel={settingsPanel}
           onSettingsPanel={setSettingsPanel}
           submitting={submitting}
-          canSubmit={draft.state === 'ready'}
+          canSubmit={canSubmit}
           onSubmit={() => void onSubmit()}
         />
         {!timelineCollapsed && (
@@ -473,7 +490,7 @@ export const VgTimelineEditorPage: React.FC = () => {
           <div className="max-h-[80vh] w-[min(720px,92vw)] overflow-y-auto cy-hide-scrollbar rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-3" onClick={(e) => e.stopPropagation()}>
             <p className="mb-2 text-sm font-semibold text-[var(--cy-text-primary)]">选择替换素材(我的素材库)</p>
             <ReplacePicker onPick={(m) => {
-              onTimelineChange(replaceClipSource(timeline, replacingClipId, { material_id: m.material_id }));
+              onTimelineChange(replaceClipSource(timeline, replacingClipId, { material_id: m.material_id }, mimeKind(m.mime) === 'image' ? 'image' : 'video'));
               setReplacingClipId(null);
             }} />
           </div>

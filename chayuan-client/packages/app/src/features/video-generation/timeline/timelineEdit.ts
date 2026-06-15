@@ -208,6 +208,7 @@ export function appendClipFromMaterial(
       in_ms: 0,
       out_ms: dur,
       duration_ms: isImage ? dur : (m.durationMs || 0),
+      kind: isImage ? 'image' : 'video', // 预览据此判断图/视频(material_id URL 无扩展名)
     };
   };
 
@@ -257,15 +258,25 @@ export function setClipTransition(t: VgTimeline, clipId: string, transition: str
   return { ...t, tracks };
 }
 
-/** 替换 clip 的素材源,保留 in/out/时长/位置。 */
+/** 替换 clip 的素材源,保留 in/out/时长/位置。kind 已知则一并更新(预览判图/视频)。 */
 export function replaceClipSource(
   t: VgTimeline,
   clipId: string,
   source: { material_id?: string; url?: string },
+  kind?: 'image' | 'video',
 ): VgTimeline {
   const tracks = (t.tracks || []).map((tr) => ({
     ...tr,
-    clips: (tr.clips || []).map((c) => (c.id === clipId ? { ...c, source } : c)),
+    clips: (tr.clips || []).map((c) => (c.id === clipId ? { ...c, source, ...(kind ? { kind } : {}) } : c)),
+  }));
+  return { ...t, tracks };
+}
+
+/** 单个 clip 的静音开关(视频帧上的静音按钮用;后端 compose 据 muted 决定是否混入原声)。 */
+export function setClipMuted(t: VgTimeline, clipId: string, muted: boolean): VgTimeline {
+  const tracks = (t.tracks || []).map((tr) => ({
+    ...tr,
+    clips: (tr.clips || []).map((c) => (c.id === clipId ? { ...c, muted } : c)),
   }));
   return { ...t, tracks };
 }
