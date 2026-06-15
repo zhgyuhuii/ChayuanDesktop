@@ -729,7 +729,7 @@ export async function vgGetOutputDefaults(): Promise<VgOutputDefaults> {
 }
 
 export async function vgSetOutputDefaults(d: Partial<VgOutputDefaults>): Promise<VgOutputDefaults> {
-  return rd<VgOutputDefaults>('/api/v1/video-generation/output-defaults', { method: 'PUT', body: JSON.stringify(d) });
+  return rd<VgOutputDefaults>('/api/v1/video-generation/output-defaults', { method: 'PUT', body: d });
 }
 
 export async function vgListFonts(): Promise<{ count: number; items: VgFontItem[] }> {
