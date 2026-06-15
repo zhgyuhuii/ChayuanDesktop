@@ -128,6 +128,14 @@ class SrtCue(BaseModel):
     text: str = ""
 
 
+class CropRect(BaseModel):
+    """画中画裁剪保留区(归一 0-1)。x/y=保留区左上角,w/h=保留区尺寸。"""
+    x: float = 0.0
+    y: float = 0.0
+    w: float = 1.0
+    h: float = 1.0
+
+
 class TimelineClip(BaseModel):
     """时间轴上的一段素材引用(EDL clip)。"""
     id: str
@@ -145,6 +153,11 @@ class TimelineClip(BaseModel):
     scale: float = 1.0
     z: int = 0
     opacity: float = 1.0                            # 画中画层不透明度 0-1(1=不透明)
+    # 几何变换(P2):仅画中画/附加视频层有效,主轨 concat 不读
+    rotation: float = 0.0                           # 顺时针角度 -180..180
+    flip_h: bool = False                            # 水平镜像
+    flip_v: bool = False                            # 垂直镜像
+    crop: Optional[CropRect] = None                 # 归一保留区;None=全幅
 
 
 class TimelineTrack(BaseModel):

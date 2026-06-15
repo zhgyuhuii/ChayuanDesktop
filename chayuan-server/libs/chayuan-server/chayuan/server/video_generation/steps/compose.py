@@ -38,6 +38,7 @@ from moviepy import (
     TextClip,
     VideoFileClip,
     afx,
+    vfx,
 )
 from moviepy.video.tools.subtitles import SubtitlesClip
 from PIL import Image, ImageFont
@@ -405,10 +406,49 @@ def _build_pip_layers(timeline, *, source_resolver) -> list:
                 "is_image": is_image,
                 "transition": (getattr(c, "transition", "none") or "none"),
                 "opacity": float(getattr(c, "opacity", 1.0) or 1.0),
+                "rotation": float(getattr(c, "rotation", 0.0) or 0.0),
+                "flip_h": bool(getattr(c, "flip_h", False)),
+                "flip_v": bool(getattr(c, "flip_v", False)),
+                "crop": (c.crop.model_dump() if getattr(c, "crop", None) else None),
             })
     # ti 小的(上层)要排到列表末尾 → 降序
     layers.sort(key=lambda ly: ly["z"], reverse=True)
     return layers
+
+
+def _apply_pip_geometry(clip, ly):
+    """对 PIP clip 按固定顺序应用 crop -> flip -> rotate(在 resize/position 之前)。
+
+    与前端预览(LivePreviewCanvas)同序:crop(clip-path)-> rotate/flip(transform)。
+    crop 归一基准 = 源帧(clip.w/clip.h),与前端裁剪框一致。
+    """
+    crop = ly.get("crop")
+    if crop:
+        W, H = clip.w, clip.h
+        x1, y1 = int(crop["x"] * W), int(crop["y"] * H)
+        x2, y2 = int((crop["x"] + crop["w"]) * W), int((crop["y"] + crop["h"]) * H)
+        if x2 > x1 and y2 > y1:
+            try:
+                clip = clip.cropped(x1=x1, y1=y1, x2=x2, y2=y2)
+            except Exception:  # noqa: BLE001
+                pass
+    eff = []
+    if ly.get("flip_h"):
+        eff.append(vfx.MirrorX())
+    if ly.get("flip_v"):
+        eff.append(vfx.MirrorY())
+    if eff:
+        try:
+            clip = clip.with_effects(eff)
+        except Exception:  # noqa: BLE001
+            pass
+    rot = ly.get("rotation") or 0.0
+    if abs(rot) > 0.01:
+        try:
+            clip = clip.rotated(rot)
+        except Exception:  # noqa: BLE001
+            pass
+    return clip
 
 
 def _build_extra_audios(timeline, *, source_resolver) -> list:
@@ -592,6 +632,7 @@ def render_from_edl(
                     oc = _open_video_clip_quietly(ly["path"])
                     if ly["dur"]:
                         oc = oc.subclipped(0, min(ly["dur"], oc.duration))
+                oc = _apply_pip_geometry(oc, ly)
                 # 绝对像素定位:左上角 = (x*W, y*H),与前端预览 left:x% / top:y% 一一对应。
                 # 不用 relative=True —— moviepy 的相对定位是 x*(W-w)(右缘锚定)语义,
                 # 跟前端"左上角按比例"不一致,会导致"调了位置但成片没按调的来"。
@@ -710,6 +751,7 @@ def render_proxy_from_timeline(
                     oc = _open_video_clip_quietly(ly["path"])
                     if ly["dur"]:
                         oc = oc.subclipped(0, min(ly["dur"], oc.duration))
+                oc = _apply_pip_geometry(oc, ly)
                 # 绝对像素定位(同 render_from_edl):左上角 = (x*pw, y*ph),对齐前端预览。
                 oc = oc.resized(width=ow).with_position(
                     (int(ly["x"] * pw), int(ly["y"] * ph))
