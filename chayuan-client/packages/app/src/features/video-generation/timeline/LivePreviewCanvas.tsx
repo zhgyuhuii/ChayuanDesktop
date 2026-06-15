@@ -130,6 +130,7 @@ export const LivePreviewCanvas: React.FC<{
               ...(full
                 ? { inset: 0, zIndex: 10 + (videoTracks.length - i) }
                 : { left: `${x * 100}%`, top: `${y * 100}%`, width: `${scale * 100}%`, zIndex: 10 + (videoTracks.length - i) }),
+              opacity: c.opacity ?? 1, // 预览反映片段不透明度(主轨 clip 不会被设 opacity → 1)
               ...transitionStyle(c, playheadMs), // #26 实时模拟入场转场(fade/slide)
             }}
             onPointerDown={(e) => drag(e, c.id, 'move', { x, y, scale })}>
