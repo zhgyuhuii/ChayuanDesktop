@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, AlertTriangle, RefreshCw, Eye, EyeOff, FileText, FlipHorizontal2, FlipVertical2, Crop, SlidersHorizontal } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCw, Eye, EyeOff, FlipHorizontal2, FlipVertical2, Crop, SlidersHorizontal } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@chayuan/ui';
 import { OutputFramingSection } from './sections/OutputFramingSection';
 import { VgAspectPicker } from './VgAspectPicker';
@@ -395,16 +395,6 @@ export const VgTimelineEditorPage: React.FC = () => {
       {/* transport */}
       <TransportBar playing={playing} currentMs={playheadMs} durationMs={contentMs} pxPerSec={pxPerSec}
         onPlayPause={() => setPlaying((v) => !v)} onZoom={setPxPerSec} />
-      {/* 草稿状态条 */}
-      {!canGen && (
-        <div className="flex items-center gap-2 bg-[var(--cy-surface-1)] px-3 py-1.5 text-xs text-[var(--cy-text-tertiary)]">
-          还没有脚本 —— 点「编辑脚本」手动输入/粘贴,或「生成脚本」用 AI 生成;之后按语音配置合成旁白。
-          <button type="button" onClick={() => setScriptEditOpen(true)}
-            className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-strong)] px-2 py-0.5 text-[var(--cy-text-primary)] hover:bg-[var(--cy-surface-2)]">
-            <FileText className="h-3 w-3" /> 编辑脚本
-          </button>
-        </div>
-      )}
       {canGen && draft.state === 'idle' && (
         <div className="flex items-center gap-2 bg-[var(--cy-surface-1)] px-3 py-1.5 text-xs text-[var(--cy-text-secondary)]">
           旁白未生成。
