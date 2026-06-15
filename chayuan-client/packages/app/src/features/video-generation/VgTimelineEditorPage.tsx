@@ -357,10 +357,29 @@ export const VgTimelineEditorPage: React.FC = () => {
               <OverlayToolbar onAdd={onAddOverlay} />
               <div className="flex min-h-0 flex-1 flex-col">
               {/* 预览头:画幅条 + 折叠 */}
-              <div className="flex items-center gap-2 px-3 pt-2">
-                <VgAspectPicker compact />
+              <div className="px-3 pt-2">
+                <div className="flex items-center gap-2">
+                  <VgAspectPicker compact />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button type="button" title="背景 / 片头片尾"
+                        className="ml-auto inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                        <SlidersHorizontal className="h-3 w-3" /> 输出
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent side="bottom" align="end" className="w-[24rem]">
+                      <OutputFramingSection />
+                    </PopoverContent>
+                  </Popover>
+                  <button type="button" onClick={() => setPreviewCollapsed((v) => !v)}
+                    className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                    <EyeOff className="h-3 w-3" /> 折叠预览
+                  </button>
+                </div>
+                {(selClip || selOverlay) && (
+                  <div className="mt-1 flex items-center gap-1 overflow-x-auto pb-0.5">
                 {selOverlay && (
-                  <div className="flex flex-wrap items-center gap-1 rounded-md border border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)]/40 px-1.5 py-0.5">
+                  <div className="flex items-center gap-1 rounded-md border border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)]/40 px-1.5 py-0.5">
                     <span className="text-[10px] text-[var(--cy-text-tertiary)]">{selOverlay.type === 'text' ? '文字' : '图形'}</span>
                     {selOverlay.type === 'text' && (
                       <>
@@ -419,21 +438,8 @@ export const VgTimelineEditorPage: React.FC = () => {
                   <span className="w-7 text-right text-[10px] tabular-nums text-[var(--cy-text-secondary)]">{Math.round((selClip?.opacity ?? 1) * 100)}%</span>
                   <span className="ml-1 w-9 text-right text-[10px] tabular-nums text-[var(--cy-text-tertiary)]">{Math.round(selClip?.rotation ?? 0)}°</span>
                 </div>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button type="button" title="背景 / 片头片尾"
-                      className="ml-auto inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
-                      <SlidersHorizontal className="h-3 w-3" /> 输出
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent side="bottom" align="end" className="w-[24rem]">
-                    <OutputFramingSection />
-                  </PopoverContent>
-                </Popover>
-                <button type="button" onClick={() => setPreviewCollapsed((v) => !v)}
-                  className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
-                  <EyeOff className="h-3 w-3" /> 折叠预览
-                </button>
+                </div>
+                )}
               </div>
               <div className="min-h-0 flex-1 p-3">
                 <input ref={overlayImgInputRef} type="file" accept="image/*" className="hidden"

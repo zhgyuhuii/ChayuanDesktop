@@ -1,7 +1,14 @@
 import * as React from 'react';
-import { Type, Trash2 } from 'lucide-react';
+import { Type, Trash2, Square, Circle, Minus, MoveUpRight, Image as ImageIcon, Grid2x2 } from 'lucide-react';
 import { TRACK_H } from './TrackHeader';
 import type { VgOverlay } from '@chayuan/api';
+
+const OV_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  text: Type, rect: Square, ellipse: Circle, line: Minus, arrow: MoveUpRight, image: ImageIcon, mosaic: Grid2x2,
+};
+const OV_LABEL: Record<string, string> = {
+  text: '文字', rect: '矩形', ellipse: '椭圆', line: '直线', arrow: '箭头', image: '图片', mosaic: '马赛克',
+};
 
 /** 时间轴叠加轨:每个叠加元素一个可拖位置 + 两端拉时长的条。 */
 export const OverlayLane: React.FC<{
@@ -40,8 +47,8 @@ export const OverlayLane: React.FC<{
             className={'absolute top-1 flex h-[calc(100%-8px)] cursor-grab items-center gap-1 overflow-hidden rounded px-1 text-[10px] text-white ' +
               (sel ? 'ring-2 ring-white bg-[var(--cy-brand-600)]' : 'bg-[var(--cy-brand-500)]/80')}
             style={{ left: px(ov.track_start_ms), width: Math.max(12, px(ov.duration_ms)) }}>
-            <Type className="h-2.5 w-2.5 shrink-0" />
-            <span className="truncate">{ov.text || '文字'}</span>
+            {(() => { const Ic = OV_ICON[ov.type] || Type; return <Ic className="h-2.5 w-2.5 shrink-0" />; })()}
+            <span className="truncate">{ov.type === 'text' ? (ov.text || '文字') : (OV_LABEL[ov.type] || ov.type)}</span>
             {sel && (
               <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDelete?.(ov.id); }}
                 className="ml-auto shrink-0 text-white/90 hover:text-rose-200"><Trash2 className="h-2.5 w-2.5" /></button>
