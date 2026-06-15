@@ -16,6 +16,7 @@ import { buildTimelineFromMaterials } from './timeline/buildTimeline';
 import { appendClipFromMaterial, appendAudioClip, replaceClipSource, deleteAnyClip, roundTimeline, setClipTransition, applyProbedDuration, patchClip, type DraggedMaterial } from './timeline/timelineEdit';
 import { TRANSITIONS } from './timeline/transitions';
 import { addTrack, removeTrack, reorderVideoTrack } from './timeline/trackOps';
+import { addOverlay, patchOverlay } from './timeline/overlayEdit';
 import { TrackContextMenu, type TrackMenuCtx } from './timeline/TrackContextMenu';
 import { ScriptGenDialog } from './timeline/ScriptGenDialog';
 import { ScriptEditorDialog } from './timeline/ScriptEditorDialog';
@@ -162,6 +163,14 @@ export const VgTimelineEditorPage: React.FC = () => {
   const onCrop = (clipId: string, crop: { x: number; y: number; w: number; h: number }) => onTimelineChange(patchClip(timeline, clipId, { crop }));
   // 选中片段(供预览头部几何工具条用 —— 工具条放头部不挡画面)
   const selClip = selectedClipId ? (timeline.tracks || []).flatMap((t) => t.clips || []).find((c) => c.id === selectedClipId) : null;
+  // 叠加元素(A 期文字):选中与片段选中互斥
+  const [selectedOverlayId, setSelectedOverlayId] = React.useState<string | null>(null);
+  const onSelectOverlay = (id: string | null) => { setSelectedOverlayId(id); if (id) setSelectedClipId(null); };
+  const onOverlayTransform = (id: string, tf: { x?: number; y?: number; w?: number; h?: number; rotation?: number; opacity?: number; text?: string }) => onTimelineChange(patchOverlay(timeline, id, tf));
+  const onAddOverlay = (type: 'text' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'image' | 'mosaic') => {
+    const { timeline: tl, id } = addOverlay(timeline, type, playheadMs);
+    onTimelineChange(tl); setSelectedOverlayId(id); setSelectedClipId(null);
+  };
   // #26 片段间转场菜单
   const [txMenu, setTxMenu] = React.useState<{ x: number; y: number; clipId: string } | null>(null);
   React.useEffect(() => {
@@ -360,6 +369,11 @@ export const VgTimelineEditorPage: React.FC = () => {
                   selectedClipId={selectedClipId}
                   onSelectClip={setSelectedClipId}
                   backgroundColor={params.background_color}
+                  overlays={timeline.overlays}
+                  selectedOverlayId={selectedOverlayId}
+                  onSelectOverlay={onSelectOverlay}
+                  onOverlayTransform={onOverlayTransform}
+                  onAddOverlay={onAddOverlay}
                   onModeChange={setPreviewMode}
                   cues={cues}
                   taskId={draft.taskId} audioFileName={draft.audioFileName}

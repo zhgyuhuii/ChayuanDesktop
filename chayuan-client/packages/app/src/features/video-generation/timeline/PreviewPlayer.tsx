@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Loader2, RefreshCw, Pencil } from 'lucide-react';
-import { videoGeneration, type VgTimeline } from '@chayuan/api';
+import { videoGeneration, type VgTimeline, type VgOverlay } from '@chayuan/api';
 import { reportError } from '../../../store/errorDialog';
 import { LivePreviewCanvas } from './LivePreviewCanvas';
 import type { SrtCue } from './srtParse';
@@ -33,6 +33,11 @@ export const PreviewPlayer: React.FC<{
   selectedClipId: string | null;
   onSelectClip: (clipId: string | null) => void;
   backgroundColor: string;
+  overlays?: VgOverlay[];
+  selectedOverlayId?: string | null;
+  onSelectOverlay?: (id: string | null) => void;
+  onOverlayTransform?: (id: string, tf: { x?: number; y?: number; w?: number; h?: number; rotation?: number; opacity?: number; text?: string }) => void;
+  onAddOverlay?: (type: VgOverlay['type']) => void;
   /** 模式上提:父组件据此决定是否跑实时播放引擎(proxy 模式由 proxy <video> 自己驱动)。 */
   onModeChange?: (mode: 'live' | 'proxy') => void;
   /** 字幕 cues:实时画布按 playhead 叠当前字幕;精确预览时也烧进 proxy。 */
@@ -41,7 +46,7 @@ export const PreviewPlayer: React.FC<{
   taskId?: string | null;
   audioFileName?: string | null;
   composeParams?: unknown;
-}> = ({ timeline, aspect, width, height, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform, cropEditingClipId, onCrop, selectedClipId, onSelectClip, backgroundColor, onModeChange, cues, taskId, audioFileName, composeParams }) => {
+}> = ({ timeline, aspect, width, height, playheadMs, seekMs, playing, stale, onTimeMs, onPlayingChange, onFreshGenerated, onTransform, cropEditingClipId, onCrop, selectedClipId, onSelectClip, backgroundColor, overlays, selectedOverlayId, onSelectOverlay, onOverlayTransform, onAddOverlay, onModeChange, cues, taskId, audioFileName, composeParams }) => {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const urlRef = React.useRef<string | null>(null);
   const [url, setUrl] = React.useState<string | null>(null);
@@ -109,7 +114,7 @@ export const PreviewPlayer: React.FC<{
             onPause={() => onPlayingChange(false)}
           />
         ) : (
-          <LivePreviewCanvas timeline={timeline} playheadMs={playheadMs} playing={playing} onTransform={onTransform} cropEditingClipId={cropEditingClipId} onCrop={onCrop} selectedClipId={selectedClipId} onSelectClip={onSelectClip} backgroundColor={backgroundColor} cues={cues} />
+          <LivePreviewCanvas timeline={timeline} playheadMs={playheadMs} playing={playing} onTransform={onTransform} cropEditingClipId={cropEditingClipId} onCrop={onCrop} selectedClipId={selectedClipId} onSelectClip={onSelectClip} backgroundColor={backgroundColor} overlays={overlays} selectedOverlayId={selectedOverlayId} onSelectOverlay={onSelectOverlay} onOverlayTransform={onOverlayTransform} onAddOverlay={onAddOverlay} cues={cues} />
         )}
       </div>
       <div className="flex items-center gap-2">

@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { videoGeneration, type VgTimeline, type VgTimelineClip } from '@chayuan/api';
+import { videoGeneration, type VgTimeline, type VgTimelineClip, type VgOverlay } from '@chayuan/api';
+import { OverlayToolbar } from './OverlayToolbar';
 import { clipDurMs } from './timelineEdit';
 import type { SrtCue } from './srtParse';
 
@@ -88,8 +89,13 @@ export const LivePreviewCanvas: React.FC<{
   selectedClipId?: string | null;
   onSelectClip?: (clipId: string | null) => void;
   backgroundColor?: string;
+  overlays?: VgOverlay[];
+  selectedOverlayId?: string | null;
+  onSelectOverlay?: (id: string | null) => void;
+  onOverlayTransform?: (id: string, tf: { x?: number; y?: number; w?: number; h?: number; rotation?: number; opacity?: number; text?: string }) => void;
+  onAddOverlay?: (type: VgOverlay['type']) => void;
   cues?: SrtCue[];
-}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, backgroundColor = '#000000', cues }) => {
+}> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, backgroundColor = '#000000', overlays, selectedOverlayId = null, onSelectOverlay, onOverlayTransform, onAddOverlay, cues }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const cue = (cues ?? []).find((c) => playheadMs >= c.startMs && playheadMs < c.endMs);
@@ -150,6 +156,40 @@ export const LivePreviewCanvas: React.FC<{
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   };
+
+  // 叠加元素拖拽(归一到画布框);move 改 x/y,四角改 w/h,旋转改 rotation。
+  const dragOv = (e: React.PointerEvent, id: string, mode: 'move' | Corner, cur: { x: number; y: number; w: number; h: number }) => {
+    e.preventDefault(); e.stopPropagation();
+    const box = boxRef.current?.getBoundingClientRect(); if (!box || !onOverlayTransform) return;
+    const sx = e.clientX; const sy = e.clientY;
+    const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - sx) / box.width; const dy = (ev.clientY - sy) / box.height;
+      if (mode === 'move') { onOverlayTransform(id, { x: cur.x + dx, y: cur.y + dy }); return; }
+      let { x, y, w, h } = cur;
+      if (mode === 'se') { w = cur.w + dx; h = cur.h + dy; }
+      else if (mode === 'nw') { x = cur.x + dx; y = cur.y + dy; w = cur.w - dx; h = cur.h - dy; }
+      else if (mode === 'ne') { y = cur.y + dy; w = cur.w + dx; h = cur.h - dy; }
+      else { x = cur.x + dx; w = cur.w - dx; h = cur.h + dy; }
+      onOverlayTransform(id, { x, y, w, h });
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
+  const dragOvRotate = (e: React.PointerEvent, id: string) => {
+    e.preventDefault(); e.stopPropagation();
+    const el = (e.currentTarget as HTMLElement).closest('[data-cy-overlay]') as HTMLElement | null;
+    const r = el?.getBoundingClientRect(); if (!r || !onOverlayTransform) return;
+    const cx = r.left + r.width / 2; const cy = r.top + r.height / 2;
+    const move = (ev: PointerEvent) => {
+      let deg = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI + 90;
+      if (deg > 180) deg -= 360;
+      if (ev.shiftKey) deg = Math.round(deg / 15) * 15;
+      onOverlayTransform(id, { rotation: Math.max(-180, Math.min(180, Math.round(deg))) });
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
+  const activeOverlays = (overlays || []).filter((ov) => playheadMs >= ov.track_start_ms && playheadMs < ov.track_start_ms + ov.duration_ms);
 
   return (
     <div ref={boxRef} className="relative h-full w-full overflow-hidden" style={{ background: backgroundColor }}
@@ -215,6 +255,53 @@ export const LivePreviewCanvas: React.FC<{
           </div>
         );
       })}
+      {/* 叠加元素(A 期文字):命中时间段才渲染;选中显几何手柄;双击文字改字 */}
+      {activeOverlays.map((ov) => {
+        const sel = selectedOverlayId === ov.id;
+        return (
+          <div key={ov.id} data-cy-overlay className={'absolute ' + (sel ? '' : 'cursor-move')}
+            style={{
+              left: `${ov.x * 100}%`, top: `${ov.y * 100}%`, width: `${ov.w * 100}%`, height: `${ov.h * 100}%`,
+              transform: `rotate(${ov.rotation ?? 0}deg)`, opacity: ov.opacity ?? 1, zIndex: 150 + (ov.z ?? 0),
+            }}
+            onPointerDown={(e) => { onSelectOverlay?.(ov.id); dragOv(e, ov.id, 'move', { x: ov.x, y: ov.y, w: ov.w, h: ov.h }); }}>
+            {ov.type === 'text' && (
+              <div
+                contentEditable={sel}
+                suppressContentEditableWarning
+                onDoubleClick={(e) => { (e.currentTarget as HTMLElement).focus(); }}
+                onBlur={(e) => onOverlayTransform?.(ov.id, { text: (e.currentTarget.textContent || '').trim() })}
+                onPointerDown={(e) => { if (sel) e.stopPropagation(); }}
+                className="flex h-full w-full items-center outline-none"
+                style={{
+                  color: ov.text_color || '#fff', fontSize: `${(ov.font_size ?? 48) / 10}cqw`,
+                  fontFamily: ov.font_name || undefined,
+                  textAlign: (ov.align as 'left' | 'center' | 'right') || 'center',
+                  justifyContent: ov.align === 'left' ? 'flex-start' : ov.align === 'right' ? 'flex-end' : 'center',
+                  WebkitTextStroke: (ov.stroke_width ?? 0) > 0 ? `${ov.stroke_width}px ${ov.stroke_color || '#000'}` : undefined,
+                  background: ov.bg || undefined,
+                  textShadow: '0 1px 2px rgba(0,0,0,.6)', containerType: 'inline-size',
+                } as React.CSSProperties}
+              >
+                {ov.text}
+              </div>
+            )}
+            {sel && (
+              <>
+                <span className="pointer-events-none absolute inset-0 border-2 border-[var(--cy-brand-500)]" />
+                {CORNERS.map(({ c: corner, cls }) => (
+                  <span key={corner} onPointerDown={(e) => dragOv(e, ov.id, corner, { x: ov.x, y: ov.y, w: ov.w, h: ov.h })}
+                    className={`absolute h-3 w-3 rounded-full border border-white bg-[var(--cy-brand-600)] ${cls}`} />
+                ))}
+                <span onPointerDown={(e) => dragOvRotate(e, ov.id)} title="旋转"
+                  className="absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 cursor-grab rounded-full border-2 border-white bg-[var(--cy-brand-600)] shadow" style={{ top: 4 }} />
+              </>
+            )}
+          </div>
+        );
+      })}
+      {onAddOverlay && <OverlayToolbar onAdd={onAddOverlay} />}
+
       {/* 字幕叠层:当前 playhead 命中的 cue,底部居中(与画面/音频同 playhead → 可核对对齐) */}
       {cue && (
         <div className="pointer-events-none absolute inset-x-0 bottom-[6%] z-[200] flex justify-center px-[6%]">
