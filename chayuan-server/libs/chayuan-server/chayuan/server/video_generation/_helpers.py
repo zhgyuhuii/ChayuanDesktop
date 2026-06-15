@@ -212,6 +212,13 @@ def song_dir() -> str:
     return str(d)
 
 
+def intro_outro_dir() -> str:
+    """片头/片尾用户上传目录(付费可设;仅用户上传,无 bundled)。"""
+    d = _chayuan_root() / "video_generation" / "intro_outro"
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
+
+
 def clips_dir() -> str:
     """内置离线素材片段目录(可选,full 包预装)。"""
 

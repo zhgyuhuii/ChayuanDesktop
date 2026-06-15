@@ -831,6 +831,83 @@ async def upload_bgm(
     return {"name": target_name, "path": target_path, "size": size}
 
 
+@video_generation_router.get("/output-defaults", summary="VG 输出全局默认(背景色/片头/片尾)")
+def get_output_defaults(
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    from chayuan.server.video_generation.steps.vg_output_defaults import load_defaults
+    return load_defaults()
+
+
+@video_generation_router.put("/output-defaults", summary="保存 VG 输出全局默认")
+def put_output_defaults(
+    body: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    from chayuan.server.video_generation.steps.vg_output_defaults import save_defaults
+    allowed = {k: body[k] for k in ("background_color", "intro_clip", "outro_clip") if k in body}
+    return save_defaults(allowed)
+
+
+_INTRO_OUTRO_EXT = ("mp4", "mov", "webm", "jpg", "jpeg", "png", "webp")
+
+
+@video_generation_router.get("/intro-outro", summary="列片头/片尾(用户上传)")
+def list_intro_outro(
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    from chayuan.server.video_generation._helpers import intro_outro_dir
+    items: List[Dict[str, Any]] = []
+    d = intro_outro_dir()
+    if os.path.isdir(d):
+        for f in sorted(os.listdir(d)):
+            ext = f.rsplit(".", 1)[-1].lower() if "." in f else ""
+            if ext in _INTRO_OUTRO_EXT:
+                p = os.path.join(d, f)
+                kind = "image" if ext in ("jpg", "jpeg", "png", "webp") else "video"
+                items.append({"name": f, "path": p, "kind": kind, "size": os.path.getsize(p)})
+    return {"count": len(items), "items": items}
+
+
+@video_generation_router.get("/intro-outro/{name}/file", summary="片头/片尾文件流式")
+def serve_intro_outro_file(
+    name: str = FPath(..., max_length=255),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> FileResponse:
+    from chayuan.server.video_generation._helpers import intro_outro_dir
+    base = os.path.basename(name)
+    p = os.path.join(intro_outro_dir(), base)
+    if os.path.isfile(p):
+        return FileResponse(p)
+    raise HTTPException(404, f"intro/outro not found: {base}")
+
+
+@video_generation_router.post(
+    "/intro-outro", summary="上传片头/片尾文件", status_code=status.HTTP_201_CREATED,
+)
+async def upload_intro_outro(
+    file: UploadFile = File(...),
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
+) -> Dict[str, Any]:
+    from chayuan.server.video_generation._helpers import intro_outro_dir, parse_extension
+    ext = parse_extension(file.filename or "")
+    if ext not in _INTRO_OUTRO_EXT:
+        raise HTTPException(415, f"不支持的片头/片尾类型: .{ext}")
+    target_dir = intro_outro_dir()
+    target_name = file.filename or f"upload_{int(time.time())}.{ext}"
+    target_path = os.path.join(target_dir, os.path.basename(target_name))
+    size = 0
+    with open(target_path, "wb") as out:
+        while True:
+            chunk = await file.read(1 << 20)
+            if not chunk:
+                break
+            out.write(chunk)
+            size += len(chunk)
+    kind = "image" if ext in ("jpg", "jpeg", "png", "webp") else "video"
+    return {"name": os.path.basename(target_name), "path": target_path, "kind": kind, "size": size}
+
+
 @video_generation_router.get(
     "/fonts", summary="列字体(vendor/bundled_fonts + 用户字体合并)",
 )
