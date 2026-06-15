@@ -1,7 +1,9 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, AlertTriangle, RefreshCw, Eye, EyeOff, FileText, FlipHorizontal2, FlipVertical2, Crop } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCw, Eye, EyeOff, FileText, FlipHorizontal2, FlipVertical2, Crop, SlidersHorizontal } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '@chayuan/ui';
+import { OutputFramingSection } from './sections/OutputFramingSection';
 import { VgAspectPicker } from './VgAspectPicker';
 import { videoGeneration, type VgTimeline } from '@chayuan/api';
 import { useVgComposer, scriptHashOf } from './store/vgComposer';
@@ -328,8 +330,19 @@ export const VgTimelineEditorPage: React.FC = () => {
                   <span className="w-7 text-right text-[10px] tabular-nums text-[var(--cy-text-secondary)]">{Math.round((selClip?.opacity ?? 1) * 100)}%</span>
                   <span className="ml-1 w-9 text-right text-[10px] tabular-nums text-[var(--cy-text-tertiary)]">{Math.round(selClip?.rotation ?? 0)}°</span>
                 </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" title="背景 / 片头片尾"
+                      className="ml-auto inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                      <SlidersHorizontal className="h-3 w-3" /> 输出
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent side="bottom" align="end" className="w-[24rem]">
+                    <OutputFramingSection />
+                  </PopoverContent>
+                </Popover>
                 <button type="button" onClick={() => setPreviewCollapsed((v) => !v)}
-                  className="ml-auto inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                  className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
                   <EyeOff className="h-3 w-3" /> 折叠预览
                 </button>
               </div>

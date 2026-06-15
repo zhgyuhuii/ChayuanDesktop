@@ -107,6 +107,8 @@ export interface VgVideoParams {
   timeline?: VgTimeline | null;
   video_aspect: VgVideoAspect;
   background_color: string;     // 画面空白处背景色(letterbox/间隙),默认黑;人人可用
+  intro_clip?: string | null;   // 片头文件名(项目覆盖;空=用全局默认);仅付费生效
+  outro_clip?: string | null;   // 片尾文件名(项目覆盖;空=用全局默认);仅付费生效
   /** 精确像素覆盖(都 >0 时优先于 video_aspect);支持电脑尺寸 / 自定义画幅。 */
   video_width?: number | null;
   video_height?: number | null;
@@ -704,6 +706,32 @@ export async function vgUploadBgm(file: File): Promise<{ name: string; path: str
   return rd<{ name: string; path: string; size: number }>('/api/v1/video-generation/bgm', { method: 'POST', body: fd });
 }
 
+export interface VgIntroOutroItem { name: string; path: string; kind: 'video' | 'image'; size: number }
+export interface VgOutputDefaults { background_color: string; intro_clip: string | null; outro_clip: string | null }
+
+export function vgIntroOutroFileUrl(name: string): string {
+  const cfg = getClientConfig();
+  return `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/video-generation/intro-outro/${encodeURIComponent(name)}/file`;
+}
+
+export async function vgListIntroOutro(): Promise<{ count: number; items: VgIntroOutroItem[] }> {
+  return rd<{ count: number; items: VgIntroOutroItem[] }>('/api/v1/video-generation/intro-outro');
+}
+
+export async function vgUploadIntroOutro(file: File): Promise<VgIntroOutroItem> {
+  const fd = new FormData();
+  fd.append('file', file);
+  return rd<VgIntroOutroItem>('/api/v1/video-generation/intro-outro', { method: 'POST', body: fd });
+}
+
+export async function vgGetOutputDefaults(): Promise<VgOutputDefaults> {
+  return rd<VgOutputDefaults>('/api/v1/video-generation/output-defaults');
+}
+
+export async function vgSetOutputDefaults(d: Partial<VgOutputDefaults>): Promise<VgOutputDefaults> {
+  return rd<VgOutputDefaults>('/api/v1/video-generation/output-defaults', { method: 'PUT', body: JSON.stringify(d) });
+}
+
 export async function vgListFonts(): Promise<{ count: number; items: VgFontItem[] }> {
   return rd<{ count: number; items: VgFontItem[] }>('/api/v1/video-generation/fonts');
 }
@@ -929,6 +957,11 @@ export const videoGeneration = {
   bgmFileUrl: vgBgmFileUrl,
   listBgm: vgListBgm,
   uploadBgm: vgUploadBgm,
+  listIntroOutro: vgListIntroOutro,
+  uploadIntroOutro: vgUploadIntroOutro,
+  introOutroFileUrl: vgIntroOutroFileUrl,
+  getOutputDefaults: vgGetOutputDefaults,
+  setOutputDefaults: vgSetOutputDefaults,
   listFonts: vgListFonts,
   listVoices: vgListVoices,
   downloadVoice: vgDownloadVoice,
