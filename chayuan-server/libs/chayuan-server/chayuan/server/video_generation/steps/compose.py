@@ -707,6 +707,7 @@ def render_from_edl(
         output_file=output_file,
         params=params,
         extra_audios=_build_extra_audios(timeline, source_resolver=source_resolver),
+        overlays=getattr(timeline, "overlays", None),
     )
     return output_file
 
@@ -822,6 +823,7 @@ def render_proxy_from_timeline(
             output_file=output_file,
             params=low_params,
             extra_audios=_build_extra_audios(timeline, source_resolver=source_resolver),
+            overlays=getattr(timeline, "overlays", None),
         )
     return output_file
 
@@ -1059,6 +1061,49 @@ def wrap_text(text, max_width, font="Arial", fontsize=60):
     return result, height
 
 
+def _render_overlays(video_clip, overlays, W, H, font_path):
+    """A 期只渲染 type=='text' 的叠加元素;其它 type 跳过(B-D 期)。单个失败跳过不影响成片。"""
+    if not overlays:
+        return video_clip
+    clips = []
+    for ov in overlays:
+        try:
+            if getattr(ov, "type", "text") != "text":
+                continue
+            txt = (getattr(ov, "text", "") or "").strip()
+            if not txt:
+                continue
+            start_s = max(0.0, (getattr(ov, "track_start_ms", 0) or 0) / 1000.0)
+            dur = max(0.2, (getattr(ov, "duration_ms", 3000) or 3000) / 1000.0)
+            w_px = max(2, int((getattr(ov, "w", 0.5) or 0.5) * W))
+            ov_font = getattr(ov, "font_name", "") or ""
+            if ov_font and not os.path.isfile(ov_font):
+                cand = os.path.join(utils.font_dir(), ov_font)
+                ov_font = cand if os.path.isfile(cand) else font_path
+            tc = TextClip(
+                text=txt, font=(ov_font or font_path),
+                font_size=int(getattr(ov, "font_size", 48) or 48),
+                color=getattr(ov, "text_color", "#ffffff") or "#ffffff",
+                stroke_color=getattr(ov, "stroke_color", "#000000") or "#000000",
+                stroke_width=float(getattr(ov, "stroke_width", 1.5) or 0),
+                bg_color=(getattr(ov, "bg", None) or None),
+                method="caption", size=(w_px, None),
+                text_align=getattr(ov, "align", "center") or "center",
+            )
+            tc = tc.with_start(start_s).with_end(start_s + dur)
+            tc = tc.with_position((int((getattr(ov, "x", 0.1) or 0) * W), int((getattr(ov, "y", 0.1) or 0) * H)))
+            rot = float(getattr(ov, "rotation", 0.0) or 0.0)
+            if abs(rot) > 0.01:
+                tc = tc.rotated(rot)
+            op = float(getattr(ov, "opacity", 1.0) or 1.0)
+            if op < 0.999 and hasattr(tc, "with_opacity"):
+                tc = tc.with_opacity(op)
+            clips.append(tc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[overlay] 跳过一个叠加元素: %s", exc)
+    return CompositeVideoClip([video_clip, *clips]) if clips else video_clip
+
+
 def generate_video(
     video_path: str,
     audio_path: str,
@@ -1066,6 +1111,7 @@ def generate_video(
     output_file: str,
     params: VideoParams,
     extra_audios: list | None = None,
+    overlays: list | None = None,
 ):
     video_width, video_height = resolve_resolution(
         params.video_aspect, getattr(params, "video_width", None), getattr(params, "video_height", None)
@@ -1215,6 +1261,12 @@ def generate_video(
             clip = create_text_clip(subtitle_item=item)
             text_clips.append(clip)
         video_clip = CompositeVideoClip([video_clip, *text_clips])
+
+    # 叠加元素(A 期文字)— 叠在画面/字幕之上
+    try:
+        video_clip = _render_overlays(video_clip, overlays or [], video_width, video_height, font_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[overlay] 渲染叠加失败,跳过: %s", exc)
 
     bgm_file = get_bgm_file(bgm_type=params.bgm_type, bgm_file=params.bgm_file)
     if bgm_file:
