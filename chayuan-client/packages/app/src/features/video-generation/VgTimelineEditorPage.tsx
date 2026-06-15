@@ -171,6 +171,7 @@ export const VgTimelineEditorPage: React.FC = () => {
     const { timeline: tl, id } = addOverlay(timeline, type, playheadMs);
     onTimelineChange(tl); setSelectedOverlayId(id); setSelectedClipId(null);
   };
+  const selOverlay = selectedOverlayId ? (timeline.overlays || []).find((ov) => ov.id === selectedOverlayId) : null;
   // #26 片段间转场菜单
   const [txMenu, setTxMenu] = React.useState<{ x: number; y: number; clipId: string } | null>(null);
   React.useEffect(() => {
@@ -322,6 +323,49 @@ export const VgTimelineEditorPage: React.FC = () => {
               {/* 预览头:画幅条 + 折叠 */}
               <div className="flex items-center gap-2 px-3 pt-2">
                 <VgAspectPicker compact />
+                {selOverlay && (
+                  <div className="flex flex-wrap items-center gap-1 rounded-md border border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)]/40 px-1.5 py-0.5">
+                    <span className="text-[10px] text-[var(--cy-text-tertiary)]">{selOverlay.type === 'text' ? '文字' : '图形'}</span>
+                    {selOverlay.type === 'text' && (
+                      <>
+                        <input type="color" value={selOverlay.text_color || '#ffffff'} title="文字色"
+                          onChange={(e) => onOverlayTransform(selOverlay.id, { text_color: e.target.value })}
+                          className="h-6 w-7 rounded border border-[var(--cy-border-subtle)] bg-transparent p-0" />
+                        <input type="number" min={8} max={200} value={selOverlay.font_size ?? 48} title="字号"
+                          onChange={(e) => onOverlayTransform(selOverlay.id, { font_size: parseInt(e.target.value, 10) || 48 })}
+                          className="h-6 w-12 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px]" />
+                        <select value={selOverlay.align || 'center'} title="对齐"
+                          onChange={(e) => onOverlayTransform(selOverlay.id, { align: e.target.value as 'left' | 'center' | 'right' })}
+                          className="h-6 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px]">
+                          <option value="left">左</option><option value="center">中</option><option value="right">右</option>
+                        </select>
+                      </>
+                    )}
+                    {(selOverlay.type === 'rect' || selOverlay.type === 'ellipse') && (
+                      <label className="flex items-center gap-0.5 text-[10px] text-[var(--cy-text-tertiary)]">填充
+                        <input type="color" value={(selOverlay.fill && selOverlay.fill.slice(0, 7)) || '#ffffff'} title="填充色"
+                          onChange={(e) => onOverlayTransform(selOverlay.id, { fill: e.target.value })}
+                          className="h-6 w-7 rounded border border-[var(--cy-border-subtle)] bg-transparent p-0" />
+                        <button type="button" title="无填充" onClick={() => onOverlayTransform(selOverlay.id, { fill: null })}
+                          className="rounded px-1 hover:bg-[var(--cy-surface-2)]">无</button>
+                      </label>
+                    )}
+                    {selOverlay.type === 'rect' && (
+                      <input type="number" min={0} max={200} value={selOverlay.corner_radius ?? 0} title="圆角"
+                        onChange={(e) => onOverlayTransform(selOverlay.id, { corner_radius: parseInt(e.target.value, 10) || 0 })}
+                        className="h-6 w-12 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px]" />
+                    )}
+                    <input type="color" value={selOverlay.stroke_color || '#000000'} title="描边色"
+                      onChange={(e) => onOverlayTransform(selOverlay.id, { stroke_color: e.target.value })}
+                      className="h-6 w-7 rounded border border-[var(--cy-border-subtle)] bg-transparent p-0" />
+                    <input type="number" min={0} max={40} step={0.5} value={selOverlay.stroke_width ?? 1.5} title="描边宽"
+                      onChange={(e) => onOverlayTransform(selOverlay.id, { stroke_width: parseFloat(e.target.value) || 0 })}
+                      className="h-6 w-12 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-1 text-[11px]" />
+                    <input type="range" min={0} max={1} step={0.05} value={selOverlay.opacity ?? 1} title="透明度"
+                      onChange={(e) => onOverlayTransform(selOverlay.id, { opacity: parseFloat(e.target.value) })}
+                      className="h-1 w-14 accent-[var(--cy-brand-500)]" />
+                  </div>
+                )}
                 {/* 片段几何工具条:常显;未选素材时灰禁用,选中后可编辑(不挡画面) */}
                 <div className={'flex items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1.5 py-0.5 transition-opacity ' + (selClip ? '' : 'opacity-50')}
                   title={selClip ? undefined : '先在预览/时间轴选中片段'}>
