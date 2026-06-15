@@ -271,7 +271,7 @@ def _build_concat_cmd(ff, main, extra, out, *, position, w, h, extra_is_image,
 
 
 def _concat_clip(main_path, extra_path, work_dir, *, position, bg=(0, 0, 0),
-                 threads=2, fps=30, marker_suffix=".extra.done"):
+                 threads=2, fps=30, marker_suffix=".extra.done", w=None, h=None):
     marker = main_path + marker_suffix
     if os.path.isfile(marker):
         return main_path
@@ -280,18 +280,27 @@ def _concat_clip(main_path, extra_path, work_dir, *, position, bg=(0, 0, 0),
     try:
         ff = _ffmpeg()
         tmp = os.path.join(work_dir, os.path.splitext(os.path.basename(main_path))[0] + ".concat.mp4")
-        m = _probe(main_path)
-        if not m:
-            logger.warning("[intro/outro] 主视频 probe 失败,跳过 %s", position)
-            return main_path
+        # 宽高优先用调用方(runner)传入的目标分辨率,避免依赖 ffprobe(桌面包可能不带 ffprobe)。
+        if w and h:
+            cw, ch, eff_fps = int(w), int(h), str(fps or 30)
+        else:
+            m = _probe(main_path)
+            if not m:
+                logger.warning("[intro/outro] 主视频 probe 失败且未传 w/h,跳过 %s", position)
+                return main_path
+            cw, ch, eff_fps = m["w"], m["h"], (m.get("fps") or str(fps or 30))
         ext = os.path.splitext(extra_path)[1].lower()
         is_img = ext in _IMG_EXT
-        e = None if is_img else _probe(extra_path)
+        if is_img:
+            e_audio, e_dur = False, 3.0
+        else:
+            e = _probe(extra_path)
+            e_audio = e["has_audio"] if e else True   # ffprobe 缺失时假定视频有音轨
+            e_dur = e["dur"] if e else 0.0
         cmd = _build_concat_cmd(
-            ff, main_path, extra_path, tmp, position=position, w=m["w"], h=m["h"],
-            extra_is_image=is_img, extra_audio=(e["has_audio"] if e else False),
-            extra_dur=(e["dur"] if e else 3.0), fps=(m.get("fps") or str(fps or 30)),
-            threads=threads, pad=_pad_color(bg),
+            ff, main_path, extra_path, tmp, position=position, w=cw, h=ch,
+            extra_is_image=is_img, extra_audio=e_audio, extra_dur=e_dur,
+            fps=eff_fps, threads=threads, pad=_pad_color(bg),
         )
         r = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if r.returncode != 0 or not os.path.isfile(tmp):
@@ -315,13 +324,13 @@ def _concat_clip(main_path, extra_path, work_dir, *, position, bg=(0, 0, 0),
         return main_path
 
 
-def maybe_prepend_intro(main_path, intro_path, work_dir=None, *, bg=(0, 0, 0), threads=2, fps=30):
+def maybe_prepend_intro(main_path, intro_path, work_dir=None, *, bg=(0, 0, 0), threads=2, fps=30, w=None, h=None):
     wd = work_dir or os.path.dirname(main_path) or "."
     return _concat_clip(main_path, intro_path, wd, position="head", bg=bg,
-                        threads=threads, fps=fps, marker_suffix=".intro.done")
+                        threads=threads, fps=fps, marker_suffix=".intro.done", w=w, h=h)
 
 
-def append_user_outro(main_path, outro_path, work_dir=None, *, bg=(0, 0, 0), threads=2, fps=30):
+def append_user_outro(main_path, outro_path, work_dir=None, *, bg=(0, 0, 0), threads=2, fps=30, w=None, h=None):
     wd = work_dir or os.path.dirname(main_path) or "."
     return _concat_clip(main_path, outro_path, wd, position="tail", bg=bg,
-                        threads=threads, fps=fps, marker_suffix=".useroutro.done")
+                        threads=threads, fps=fps, marker_suffix=".useroutro.done", w=w, h=h)

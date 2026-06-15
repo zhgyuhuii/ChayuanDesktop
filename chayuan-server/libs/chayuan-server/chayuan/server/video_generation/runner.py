@@ -736,12 +736,13 @@ def _persist_vg_videos(task_id: str, params, final_videos: list[str]) -> None:
 
     _intro_p, _outro_p = _io_path(_intro), _io_path(_outro)
 
+    _W, _H = aspect_res  # 目标分辨率,传给拼接避免依赖 ffprobe
     def _frame(p):
         wd = os.path.dirname(p)
         if _intro_p:
-            p = _prepend(p, _intro_p, wd, bg=_bg, threads=_thr)
+            p = _prepend(p, _intro_p, wd, bg=_bg, threads=_thr, w=_W, h=_H)
         if _outro_p:
-            p = _user_outro(p, _outro_p, wd, bg=_bg, threads=_thr)
+            p = _user_outro(p, _outro_p, wd, bg=_bg, threads=_thr, w=_W, h=_H)
         return _maybe_outro(p, wd, threads=_thr)
 
     final_videos = [_frame(p) for p in final_videos]
