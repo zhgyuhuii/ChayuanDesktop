@@ -377,21 +377,6 @@ export const VgTimelineEditorPage: React.FC = () => {
                   <span className="w-7 text-right text-[10px] tabular-nums text-[var(--cy-text-secondary)]">{Math.round((selClip?.opacity ?? 1) * 100)}%</span>
                   <span className="ml-1 w-9 text-right text-[10px] tabular-nums text-[var(--cy-text-tertiary)]">{Math.round(selClip?.rotation ?? 0)}°</span>
                 </div>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button type="button" title="背景 / 片头片尾"
-                        className="ml-2 inline-flex shrink-0 items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
-                        <SlidersHorizontal className="h-3 w-3" /> 输出
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent side="bottom" align="end" className="w-[24rem]">
-                      <OutputFramingSection />
-                    </PopoverContent>
-                  </Popover>
-                  <button type="button" onClick={() => setPreviewCollapsed((v) => !v)}
-                    className="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--cy-border-subtle)] px-2 py-0.5 text-[11px] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
-                    <EyeOff className="h-3 w-3" /> 折叠预览
-                  </button>
                 </div>
                 {selOverlay && (
                   <div className="mt-1 flex items-center gap-1 overflow-x-auto pb-0.5">
@@ -495,7 +480,11 @@ export const VgTimelineEditorPage: React.FC = () => {
                 />
               </div>
               </div>
-              <div className="flex w-9 shrink-0 flex-col items-center border-l border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] py-1">
+              <div className="flex w-9 shrink-0 flex-col items-center gap-1 border-l border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] py-1">
+                <button type="button" title="折叠预览" onClick={() => setPreviewCollapsed((v) => !v)}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                  <EyeOff className="h-4 w-4" />
+                </button>
                 <Popover>
                   <PopoverTrigger asChild>
                     <button type="button" title="调色 / 变速"
@@ -537,6 +526,17 @@ export const VgTimelineEditorPage: React.FC = () => {
                     ) : (
                       <p className="text-[var(--cy-text-tertiary)]">先在预览/时间轴选中片段</p>
                     )}
+                  </PopoverContent>
+                </Popover>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" title="输出"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent side="left" align="end" className="w-[24rem]">
+                    <OutputFramingSection />
                   </PopoverContent>
                 </Popover>
               </div>

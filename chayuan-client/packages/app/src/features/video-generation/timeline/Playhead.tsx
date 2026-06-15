@@ -11,9 +11,11 @@ export const Playhead: React.FC<{
   heightPx: number;
   durationMs: number;
   onSeekMs: (ms: number) => void;
+  /** 右键播放头手柄 → 在当前播放头位置分割(与刻度右键同一菜单)。 */
+  onContextMenuAtMs?: (ms: number, e: React.MouseEvent) => void;
   /** 播放时由 rAF 命令式驱动:注册一个 setter,直接改本元素 transform(不触发 React 重渲)。 */
   driveRef?: React.MutableRefObject<((ms: number) => void) | null>;
-}> = ({ playheadMs, pxPerSec, heightPx, durationMs, onSeekMs, driveRef }) => {
+}> = ({ playheadMs, pxPerSec, heightPx, durationMs, onSeekMs, onContextMenuAtMs, driveRef }) => {
   const elRef = React.useRef<HTMLDivElement | null>(null);
   // 注册命令式驱动(pxPerSec 变化时重注册,保证换算正确)
   React.useEffect(() => {
@@ -51,7 +53,8 @@ export const Playhead: React.FC<{
       <div
         className="pointer-events-auto absolute -top-0.5 -left-2 flex flex-col items-center cursor-ew-resize"
         onPointerDown={startDrag}
-        title="拖动定位播放头"
+        onContextMenu={onContextMenuAtMs ? (e) => { e.preventDefault(); e.stopPropagation(); onContextMenuAtMs(playheadMs, e); } : undefined}
+        title="拖动定位播放头(右键在此分割)"
       >
         <div className="h-2.5 w-4 rounded-[2px] bg-[var(--cy-brand-600)] shadow" />
         <div className="h-0 w-0 border-x-[5px] border-t-[5px] border-x-transparent border-t-[var(--cy-brand-600)]" />

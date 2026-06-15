@@ -226,7 +226,9 @@ export const TimelineTracks: React.FC<{
               onPatch={onOverlayPatch} onDelete={onOverlayDelete} />
           </div>
           {/* 播放头:贯穿刻度 + 所有轨道;手柄在最顶(刻度上方) */}
-          <Playhead playheadMs={playheadMs} pxPerSec={pxPerSec} heightPx={RULER_H + lanesH} durationMs={durationMs} onSeekMs={onSeekMs} driveRef={playheadDriveRef} />
+          <Playhead playheadMs={playheadMs} pxPerSec={pxPerSec} heightPx={RULER_H + lanesH} durationMs={durationMs} onSeekMs={onSeekMs}
+            onContextMenuAtMs={onSplitAt ? (ms, e) => setRulerMenu({ ms, x: e.clientX, y: e.clientY }) : undefined}
+            driveRef={playheadDriveRef} />
         </div>
       </div>
       {rulerMenu && (
