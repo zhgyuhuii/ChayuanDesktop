@@ -106,6 +106,7 @@ export interface VgOverlay {
   align?: 'left' | 'center' | 'right';
   fill?: string | null;       // 图形填充
   corner_radius?: number;     // 矩形圆角 px
+  src?: string;               // 图片叠加文件名(type=image)
 }
 
 export interface VgTimeline {
@@ -747,6 +748,21 @@ export async function vgUploadIntroOutro(file: File): Promise<VgIntroOutroItem> 
   return rd<VgIntroOutroItem>('/api/v1/video-generation/intro-outro', { method: 'POST', body: fd });
 }
 
+export function vgOverlayImageFileUrl(name: string): string {
+  const cfg = getClientConfig();
+  return `${(cfg.baseURL || '').replace(/\/+$/, '')}/api/v1/video-generation/overlay-asset/${encodeURIComponent(name)}/file`;
+}
+
+export async function vgListOverlayImages(): Promise<{ count: number; items: { name: string; path: string; size: number }[] }> {
+  return rd('/api/v1/video-generation/overlay-asset');
+}
+
+export async function vgUploadOverlayImage(file: File): Promise<{ name: string; path: string; size: number }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  return rd('/api/v1/video-generation/overlay-asset', { method: 'POST', body: fd });
+}
+
 export async function vgGetOutputDefaults(): Promise<VgOutputDefaults> {
   return rd<VgOutputDefaults>('/api/v1/video-generation/output-defaults');
 }
@@ -985,6 +1001,9 @@ export const videoGeneration = {
   introOutroFileUrl: vgIntroOutroFileUrl,
   getOutputDefaults: vgGetOutputDefaults,
   setOutputDefaults: vgSetOutputDefaults,
+  uploadOverlayImage: vgUploadOverlayImage,
+  listOverlayImages: vgListOverlayImages,
+  overlayImageFileUrl: vgOverlayImageFileUrl,
   listFonts: vgListFonts,
   listVoices: vgListVoices,
   downloadVoice: vgDownloadVoice,

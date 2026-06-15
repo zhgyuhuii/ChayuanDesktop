@@ -293,6 +293,10 @@ export const LivePreviewCanvas: React.FC<{
                 borderRadius: ov.type === 'ellipse' ? '50%' : (ov.corner_radius || 0),
               }} />
             )}
+            {ov.type === 'image' && ov.src && (
+              <img src={videoGeneration.overlayImageFileUrl(ov.src)} alt="" draggable={false}
+                className="pointer-events-none h-full w-full object-contain" />
+            )}
             {(ov.type === 'line' || ov.type === 'arrow') && (
               <svg className="pointer-events-none h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
                 <line x1={2} y1={50} x2={ov.type === 'arrow' ? 88 : 98} y2={50}

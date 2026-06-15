@@ -167,9 +167,19 @@ export const VgTimelineEditorPage: React.FC = () => {
   const [selectedOverlayId, setSelectedOverlayId] = React.useState<string | null>(null);
   const onSelectOverlay = (id: string | null) => { setSelectedOverlayId(id); if (id) setSelectedClipId(null); };
   const onOverlayTransform = (id: string, tf: Partial<VgOverlay>) => onTimelineChange(patchOverlay(timeline, id, tf));
+  const overlayImgInputRef = React.useRef<HTMLInputElement | null>(null);
   const onAddOverlay = (type: 'text' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'image' | 'mosaic') => {
+    if (type === 'image') { overlayImgInputRef.current?.click(); return; }
     const { timeline: tl, id } = addOverlay(timeline, type, playheadMs);
     onTimelineChange(tl); setSelectedOverlayId(id); setSelectedClipId(null);
+  };
+  const onOverlayImagePicked = async (file?: File) => {
+    if (!file) return;
+    try {
+      const r = await videoGeneration.uploadOverlayImage(file);
+      const { timeline: tl, id } = addOverlay(timeline, 'image', playheadMs, r.name);
+      onTimelineChange(tl); setSelectedOverlayId(id); setSelectedClipId(null);
+    } catch (e) { reportError(e as Error, '叠加图片上传失败'); }
   };
   const selOverlay = selectedOverlayId ? (timeline.overlays || []).find((ov) => ov.id === selectedOverlayId) : null;
   // #26 片段间转场菜单
@@ -400,6 +410,8 @@ export const VgTimelineEditorPage: React.FC = () => {
                 </button>
               </div>
               <div className="min-h-0 flex-1 p-3">
+                <input ref={overlayImgInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={(e) => { void onOverlayImagePicked(e.target.files?.[0]); e.currentTarget.value = ''; }} />
                 <PreviewPlayer
                   timeline={timeline} aspect={params.video_aspect}
                   width={params.video_width} height={params.video_height}

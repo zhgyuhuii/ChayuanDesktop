@@ -4,7 +4,7 @@ const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, 
 let _seq = 0;
 
 /** 新建叠加元素(画面中心默认框、时长 3s、起点 = atMs)。返回新时间轴 + 新元素 id。 */
-export function addOverlay(t: VgTimeline, type: VgOverlay['type'], atMs: number): { timeline: VgTimeline; id: string } {
+export function addOverlay(t: VgTimeline, type: VgOverlay['type'], atMs: number, src?: string): { timeline: VgTimeline; id: string } {
   const id = `ov-${Math.round(atMs)}-${_seq++}`;
   const isShape = type === 'rect' || type === 'ellipse' || type === 'line' || type === 'arrow';
   const noFill = type === 'line' || type === 'arrow';
@@ -18,6 +18,7 @@ export function addOverlay(t: VgTimeline, type: VgOverlay['type'], atMs: number)
     align: 'center',
     fill: isShape ? (noFill ? null : '#ffffff33') : undefined,
     corner_radius: 0,
+    ...(type === 'image' ? { w: 0.3, h: 0.3, stroke_width: 0, src } : {}),
   };
   return { timeline: { ...t, overlays: [...(t.overlays || []), ov] }, id };
 }
