@@ -97,7 +97,6 @@ DESKTOP_BUNDLED_MODELS_DIR = DESKTOP_SRC_TAURI / "bundled_models"
 # <install_dir>/{bundled_fonts,bundled_bgm,bundled_video_clips,services}/。
 # video_generation/binaries.py::_vendor_root() 装机路径探测会撞 sys.executable
 # 同级 vendor/ 找不到 → fallback 直接平铺到 install_dir(M3.D6 binaries 改造)。
-DESKTOP_BUNDLED_FONTS_DIR = DESKTOP_SRC_TAURI / "bundled_fonts"
 DESKTOP_BUNDLED_BGM_DIR = DESKTOP_SRC_TAURI / "bundled_bgm"
 DESKTOP_BUNDLED_VIDEO_CLIPS_DIR = DESKTOP_SRC_TAURI / "bundled_video_clips"
 DESKTOP_VG_SERVICES_DIR = DESKTOP_SRC_TAURI / "services"  # 内置 imagemagick/<platform>/
@@ -813,7 +812,6 @@ def sync_video_generation_assets(*, target_triple: Optional[str] = None) -> None
     """
 
     items = [
-        (ROOT / "vendor" / "bundled_fonts", DESKTOP_BUNDLED_FONTS_DIR),
         (ROOT / "vendor" / "bundled_bgm", DESKTOP_BUNDLED_BGM_DIR),
         (ROOT / "vendor" / "bundled_video_clips", DESKTOP_BUNDLED_VIDEO_CLIPS_DIR),
     ]
