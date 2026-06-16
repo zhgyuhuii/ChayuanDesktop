@@ -242,6 +242,28 @@ def run_first_launch_hooks() -> FirstLaunchReport:
         logger.warning("[first_launch] seed_bundled_models 失败: %r", e)
         report.errors.append(f"seed_bundled_models: {type(e).__name__}: {e}")
 
+    # 1.2) 磁盘空间告警(只警告,不阻断 seed)
+    try:
+        import shutil as _shutil
+        _tgt = report.seeded_target or "."
+        _free_gb = _shutil.disk_usage(_tgt).free / (1024 ** 3)
+        if _free_gb < 5:
+            logger.warning(
+                "[first_launch] 数据目录所在盘剩余 %.1fGB(<5GB),模型/视频生成可能因磁盘不足失败", _free_gb
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[first_launch] 磁盘空间检测跳过: %r", e)
+
+    # 1.3) seed 随包 bgm -> <CHAYUAN_ROOT>/video_generation/bgm(数据目录自包含)
+    try:
+        from chayuan.server.model_registry.bundled_seed import seed_bundled_bgm
+        bgm_rep = seed_bundled_bgm()
+        for err in bgm_rep.errors:
+            report.errors.append(f"seed_bgm: {err}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[first_launch] seed_bundled_bgm 失败: %r", e)
+        report.errors.append(f"seed_bundled_bgm: {type(e).__name__}: {e}")
+
     # 1.5) bundled cap 有内容 → 自动开 preload/auto_start(装机即用)
     # 必须放在 step 5 preload_map 之前,这样翻完的 preload_* 能立刻被拉起。
     try:
