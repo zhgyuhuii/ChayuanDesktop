@@ -260,6 +260,34 @@ def _onedir_root() -> Path:
     )
 
 
+def _prune_broken_symlinks(root: Path) -> int:
+    """删除 ``root`` 下所有断链（指向不存在目标的符号链接）。
+
+    背景：macOS 上 PyInstaller PKG fixup 阶段会在 ``_internal/`` 根目录留下
+    指向不存在目标的 ``libssl.3.dylib`` / ``libcrypto.3.dylib`` 等断链（真
+    OpenSSL 已被 spec 落到 ``_internal/_chayuan_openssl/``，启动期 rthook 从
+    那里加载，根目录断链对运行时无害）。但 Tauri 的 ``bundle.resources`` glob
+    ``chayuan-server/**/*`` 在 ``tauri build`` 阶段会逐个校验资源路径存在，
+    断链 ``Path::exists()`` 跟随到不存在的目标 -> 返 false ->
+    ``resource path ... doesn't exist`` -> 整个构建 exit 101。
+
+    所以拷进 Tauri 资源后必须把断链清掉。只删"链接本身指向的目标不存在"的
+    断链；Linux 上正常 ``.so`` 软链（目标存在）会被 ``os.path.exists`` 跟随
+    判为存在，不受影响。
+    """
+    removed = 0
+    for q in root.rglob("*"):
+        try:
+            if q.is_symlink() and not q.exists():  # exists() 跟随链接 -> 断链为 False
+                q.unlink()
+                removed += 1
+        except OSError:
+            pass
+    if removed:
+        print(f"[build] 清理断链 {removed} 个（PyInstaller fixup 残留，Tauri 资源校验会卡）", flush=True)
+    return removed
+
+
 def copy_to_tauri_resources() -> Path:
     """把 ``dist/chayuan-server/`` 整树拷到 Tauri ``resources/chayuan-server/``。
 
@@ -283,6 +311,8 @@ def copy_to_tauri_resources() -> Path:
     # 整个 copytree。symlinks=True 按原样把符号链接搬过去,broken 仍 broken
     # 但不阻塞拷贝,Linux 下正常 .so 软链也一并保留(省体积、保持原结构)。
     shutil.copytree(src, dst, symlinks=True)
+    # 删断链：Tauri 资源校验不允许指向不存在目标的符号链。
+    _prune_broken_symlinks(dst)
     # Windows 不需要 chmod;macOS/Linux 上 bootloader exe 必须可执行。
     if platform.system() != "Windows":
         exe = dst / "chayuan-server"
