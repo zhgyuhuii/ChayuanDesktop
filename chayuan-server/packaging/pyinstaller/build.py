@@ -567,6 +567,13 @@ def sync_bundled_models(
         and target_triple is not None
         and _target_has_installer_size_limit(target_triple)
     )
+    # 2026-06-16: per-cap split (all platforms). EXTERNAL_CAPS -> models_seed,
+    # 其余小 cap 直接嵌 Tauri resources。do_external_split 仅保留给下方日志/预建目录。
+    import importlib as _il
+    try:
+        external_caps_set = set(_il.import_module("bundle_manifest").EXTERNAL_CAPS)
+    except Exception:  # noqa: BLE001
+        external_caps_set = {"chat", "embedding", "rerank", "image", "digital_human"}
 
     print(f"[build] flavor={flavor}, caps = {' / '.join(caps)}, src = {src}", flush=True)
     if do_external_split:
@@ -616,6 +623,7 @@ def sync_bundled_models(
         # 但当前 canonical 是 bge-m3 GGUF)不打进 installer。
         canon = canonical_subdirs_for(entry.name)
         cap_full_only = full_only_subdirs_for(entry.name)
+        cap_external = entry.name in external_caps_set
         for sub in entry.rglob("*"):
             if not sub.is_file() or sub.name == ".gitkeep":
                 continue
@@ -669,7 +677,7 @@ def sync_bundled_models(
             # <CHAYUAN_ROOT>/models/bundled/ —— 跟「走 MSI 再 seed」的最终落点完全一致,自包含不变。
             # (旧逻辑只挑单文件 ≥2GB 分流,治不了 File 表行数 → 仍 OOM。)
             # 非 Windows / lite 不分流:直接嵌进 bundled_models(DMG/DEB 无 2GB 限制;lite 模型少)。
-            if do_external_split:
+            if cap_external:
                 dst = EXTERNAL_SEED_DIR / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(sub, dst)
