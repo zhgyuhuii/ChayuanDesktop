@@ -22,6 +22,7 @@ import { notifySuccess, reportError } from '../../store/errorDialog';
 import { useUsageGate, UsageGateDialogs } from '../license';
 
 import { vgComposerStore, resolveVgChatModel } from './store/vgComposerStore';
+import { buildTimelineFromMaterials } from './timeline/buildTimeline';
 import { useVgComposer } from './store/vgComposer';
 import { VgComposerToolbar } from './VgComposerToolbar';
 import { VgMessageExtras } from './VgMessageExtras';
@@ -295,6 +296,10 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
                   st.setScriptSlot('manual', script);
                   st.setScriptSource('manual');
                   st.resetDraft();
+                  // 把已选素材显式建成时间轴,带进编辑页(否则编辑页的 params.timeline 可能是
+                  // 上次的陈旧/空值,覆盖掉新选素材 → 轨道/预览空)。无素材则清 null,让编辑页据空素材自建。
+                  const mats = st.params.video_materials ?? [];
+                  st.patchParams({ timeline: mats.length ? buildTimelineFromMaterials(mats) : null });
                   goTimeline();
                 }}
               />
