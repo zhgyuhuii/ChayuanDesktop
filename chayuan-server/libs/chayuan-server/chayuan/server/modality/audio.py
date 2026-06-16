@@ -226,6 +226,18 @@ def _tts_worker_loop(conn):  # noqa: ANN001
     """长驻 sherpa 子进程主循环:持有一个 AudioPipeline(模型缓存常驻),逐条处理
     合成请求(text, voice, fmt)。原生崩溃只杀本子进程,父进程 _SherpaWorker 会检测并重启。"""
     try:
+        import faulthandler as _fh2, os as _os2
+        from chayuan.settings import Settings as _S2
+        _d2 = _S2.basic_settings.LOG_PATH
+        _d2.mkdir(parents=True, exist_ok=True)
+        global _TTS_WORKER_FAULT_FP
+        _TTS_WORKER_FAULT_FP = open(str(_d2 / "crash.log"), "a", buffering=1, encoding="utf-8")
+        _TTS_WORKER_FAULT_FP.write("\n=== faulthandler enabled (tts worker pid=%d) ===\n" % _os2.getpid())
+        _TTS_WORKER_FAULT_FP.flush()
+        _fh2.enable(file=_TTS_WORKER_FAULT_FP, all_threads=True)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         pipe = AudioPipeline()
     except BaseException:  # noqa: BLE001
         return

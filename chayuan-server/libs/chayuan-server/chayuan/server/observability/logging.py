@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 
 _REQUEST_ID: ContextVar[str] = ContextVar("chayuan_request_id", default="-")
 _INITIALIZED: bool = False
+_FAULT_FP = None  # faulthandler 输出文件句柄(模块级持有,防 GC 关闭)
 
 
 def current_request_id() -> str:
@@ -96,6 +97,22 @@ def init_logging() -> None:
     if _INITIALIZED:
         return
     _INITIALIZED = True
+
+    # faulthandler:原生崩溃(段错误/abort)普通 logging 抓不到、日志会突然中断。
+    # 这里在致命信号时把各线程 Python 栈 dump 到 <CHAYUAN_ROOT>/data/logs/crash.log,
+    # 让"日志没了"的崩溃留下现场(哪个调用崩的)。
+    try:
+        import faulthandler as _faulthandler
+        from chayuan.settings import Settings as _S_fh
+        _fh_dir = _S_fh.basic_settings.LOG_PATH
+        _fh_dir.mkdir(parents=True, exist_ok=True)
+        global _FAULT_FP
+        _FAULT_FP = open(str(_fh_dir / "crash.log"), "a", buffering=1, encoding="utf-8")
+        _FAULT_FP.write("\n=== faulthandler enabled (main process) ===\n")
+        _FAULT_FP.flush()
+        _faulthandler.enable(file=_FAULT_FP, all_threads=True)
+    except Exception:  # noqa: BLE001
+        pass
 
     try:
         from chayuan.settings import Settings
