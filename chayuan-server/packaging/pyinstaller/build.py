@@ -1467,7 +1467,8 @@ def main() -> None:
     # spec(2026-05-19 起)据 CHAYUAN_LITE_BUILD=1 把 torch/torchvision/transformers 加进
     # excludes 而不是 _collect_required,lite bundle 体积从 1.6 GB → 1.1 GB。
     # 即便用户走 --lite CLI 而不是 env,这里也把决定写回 env 让 subprocess 继承。
-    os.environ["CHAYUAN_LITE_BUILD"] = "1" if lite else "0"
+    # torch/transformers 排除只对 lite flavor(纯云端);standard/full 都要本地框架。
+    os.environ["CHAYUAN_LITE_BUILD"] = "1" if flavor == "lite" else "0"
 
     run_pyinstaller(extra)
     if not args.no_copy:

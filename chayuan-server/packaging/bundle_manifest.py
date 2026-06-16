@@ -36,17 +36,11 @@ from __future__ import annotations
 #: lite 轻量版随包:文本嵌入 + 重排 + 语音识别 的小模型(均有 GGUF,~0.5GB),
 #: 配合引擎二进制(llama-server/whisper-server,build.py sync_services)装机即可本地
 #: 检索 / 语音识别;chat 主力模型权重大,仍按需下载或走云端。
-LITE_CAPS: tuple[str, ...] = (
-    "embedding",
-    "rerank",
-    "asr",
-)
+LITE_CAPS: tuple[str, ...] = ()  # 纯云端:零模型(小模型也走云/下载);配合 lite 构建排除 torch/transformers,最小包
 
 #: standard 只内置 tts —— piper+sherpa 音色没有用户下载途径必须随包;其余
 #: embedding/rerank/chat/asr/ocr 都有下载功能,用户按需下(故不在 standard 随包)。
-STANDARD_CAPS: tuple[str, ...] = (
-    "tts",
-)
+STANDARD_CAPS: tuple[str, ...] = ()  # 本地框架齐全(torch+引擎随包),但零模型 —— 全部模型(含 tts)一键下载
 
 #: pro/full 全量版随包嵌入的 capability(磁盘 ~ 3.1 GB,含 chat 主力模型 + 数字人)
 FULL_CAPS: tuple[str, ...] = (
