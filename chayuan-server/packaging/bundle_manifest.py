@@ -29,12 +29,18 @@ install-bundled-models 都跟着走。
 from __future__ import annotations
 
 # 三档能力集(对齐 layout.yaml §5 releases + 桌面「音色必带」约束):
-#  · lite 轻量版    —— 纯云:零本地模型/引擎,AI 全走云端(用户配厂商 key)
+#  · lite 轻量版    —— 随包 嵌入/重排/语音识别 小模型 + 引擎二进制;chat 走云端或按需下载
 #  · standard 集成版 —— 运行时/引擎齐全,模型走云端或用户下载;只内置「无下载途径」的音色
 #  · pro/full 全量版 —— 全部模型随包,离线可运行
 #
-#: lite 不内置任何 cap(纯云)
-LITE_CAPS: tuple[str, ...] = ()
+#: lite 轻量版随包:文本嵌入 + 重排 + 语音识别 的小模型(均有 GGUF,~0.5GB),
+#: 配合引擎二进制(llama-server/whisper-server,build.py sync_services)装机即可本地
+#: 检索 / 语音识别;chat 主力模型权重大,仍按需下载或走云端。
+LITE_CAPS: tuple[str, ...] = (
+    "embedding",
+    "rerank",
+    "asr",
+)
 
 #: standard 只内置 tts —— piper+sherpa 音色没有用户下载途径必须随包;其余
 #: embedding/rerank/chat/asr/ocr 都有下载功能,用户按需下(故不在 standard 随包)。
