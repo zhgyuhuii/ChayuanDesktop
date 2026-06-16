@@ -101,10 +101,13 @@ export const MessageActionPanel: React.FC<{
     const text = prompt.trim();
     if (!text) { setErr('请输入文稿'); return; }
     const vg = useVgComposer.getState();
-    vg.setScriptSource('manual');
-    vg.setScriptSlot('manual', text);
-    openTab('/video-generation', { title: '图文成片', icon: 'video' });
-    void navigate({ to: '/video-generation' as never });
+    vg.setScriptSource('manual');       // 用手动脚本(不让 AI 重写)
+    vg.setScriptSlot('manual', text);   // 写入并 mirror 到 params.video_script
+    vg.patchParams({ video_subject: text.slice(0, 30) });
+    vg.setStep(2);                       // 跳到「脚本」步骤,文稿可见可编辑
+    // 走向导版(有可见脚本步骤);对话式 VgChatPage 草稿态不显示已载脚本
+    openTab('/video-generation/wizard', { title: '图文成片', icon: 'video' });
+    void navigate({ to: '/video-generation/wizard' as never });
   };
 
   const dlName = `${def.label}-${Date.now()}`;
