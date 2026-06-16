@@ -623,7 +623,13 @@ def sync_bundled_models(
         # 但当前 canonical 是 bge-m3 GGUF)不打进 installer。
         canon = canonical_subdirs_for(entry.name)
         cap_full_only = full_only_subdirs_for(entry.name)
-        cap_external = entry.name in external_caps_set
+        # 平台感知:仅 Windows(MSI File 表限制)把大 cap 外置到 models_seed→ISO;
+        # macOS/Linux 无此限制 → 大 cap 直接嵌 app 资源,首启 clonefile/reflink 进数据目录。
+        cap_external = (
+            entry.name in external_caps_set
+            and target_triple is not None
+            and _target_has_installer_size_limit(target_triple)
+        )
         for sub in entry.rglob("*"):
             if not sub.is_file() or sub.name == ".gitkeep":
                 continue

@@ -81,6 +81,24 @@ def _should_replace(src: Path, dst: Path) -> bool:
     return False
 
 
+def _clone_or_copy(src: Path, dst: Path) -> None:
+    """同盘写时复制(macOS clonefile / Linux reflink),省空间;失败回退 shutil.copy2。
+    用于把内置模型从 app 资源 seed 进数据目录时避免「安装目录+数据目录」双份占用。"""
+    import platform as _plat
+    import subprocess as _sp
+    sysname = _plat.system()
+    try:
+        if sysname == "Darwin":
+            _sp.run(["cp", "-c", str(src), str(dst)], check=True, capture_output=True)
+            return
+        if sysname == "Linux":
+            _sp.run(["cp", "--reflink=auto", str(src), str(dst)], check=True, capture_output=True)
+            return
+    except Exception:  # noqa: BLE001
+        pass  # 跨盘/非 CoW 文件系统/无 cp → 回退普通复制
+    shutil.copy2(src, dst)
+
+
 def _copy_tree(src_root: Path, dst_root: Path, tag: str, report: SeedReport) -> None:
     """把 ``src_root`` 整树拷贝到 ``dst_root``,逐项判 skip / replace。"""
     if not src_root.is_dir():
@@ -102,7 +120,7 @@ def _copy_tree(src_root: Path, dst_root: Path, tag: str, report: SeedReport) -> 
                 if not _should_replace(src, dst):
                     report.skipped.append(f"{tag}/{rel}")
                     continue
-            shutil.copy2(src, dst)
+            _clone_or_copy(src, dst)
             report.copied.append(f"{tag}/{rel}")
         except OSError as e:
             report.errors.append(f"{tag}/{rel}: {type(e).__name__}: {e}")
