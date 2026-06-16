@@ -143,6 +143,10 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   //    避免「明明配了模型却还要手动再选一次」(为用户自动选择)。
   React.useEffect(() => {
     if (modelsWithLocal.length === 0) return;
+    // 本地引擎伪模型(语音合成:local-tts:piper/edge/sherpa/clone)不在 /v1/models 里,
+    // 但是合法选择(后端本地连接器路由)——不要把它当"凭空模型"纠正成第一个真模型,
+    // 否则会把语音合成模式翻成第一个真模型的能力(如 whisper→语音识别)。
+    if (typeof modelId === 'string' && modelId.startsWith('local-tts:')) return;
     if (!current) {
       // onlyChat 时默认落在第一个可用对话模型(否则可能默认选到 tts/t2i)
       const pickable = onlyChat
@@ -172,7 +176,7 @@ export const ComposerModelPill: React.FC<ComposerModelPillProps> = ({
   const currentLogo = resolveLogo(current?.platform_name, current?.id);
   // pill 上显示用 displayLabel(本地模型短化:Qwen3-4B-Instruct-2507 而不是
   // models/bundled/chat/Qwen3-4B-Instruct-2507-GGUF);完整 id 仍走 title hover。
-  const currentLabel = current ? displayLabel(current) : (modelId || '— 未选 —');
+  const currentLabel = current ? displayLabel(current) : (modelId ? displayLabel({ id: modelId }) : '— 未选 —');
   const compact = true || iconOnly;
 
   return (
