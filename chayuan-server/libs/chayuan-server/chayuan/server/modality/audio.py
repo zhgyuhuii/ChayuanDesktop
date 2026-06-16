@@ -222,6 +222,21 @@ if not _HAS_ZHCONV:
     )
 
 
+def _sherpa_subprocess_entry(text, voice, fmt, out_path):  # noqa: ANN001
+    """子进程入口:跑 sherpa 实际合成(_synthesize_via_sherpa_inproc),结果字节写 out_path。
+    原生崩溃只杀本子进程。模块级函数以便 multiprocessing spawn 序列化目标。"""
+    import os as _os
+    try:
+        data = AudioPipeline()._synthesize_via_sherpa_inproc(text, voice=voice, fmt=fmt)
+        if data:
+            with open(out_path, "wb") as _f:
+                _f.write(data)
+            _os._exit(0)
+        _os._exit(3)
+    except BaseException:  # noqa: BLE001 — 子进程内任何失败都用退出码表达,绝不上抛
+        _os._exit(2)
+
+
 class AudioPipeline:
     """ASR + TTS 两个入口，都 fail-soft。"""
 
@@ -1139,6 +1154,57 @@ class AudioPipeline:
         return None
 
     def _synthesize_via_sherpa(
+        self, text: str, *, voice: str, fmt: str,
+    ) -> Optional[bytes]:
+        """进程隔离包装:实际合成在 **子进程** 跑。sherpa-onnx / onnxruntime 的
+        C++ 段错误(某些音色/模型会触发)只会杀子进程,**不连累 API 服务**;
+        子进程崩溃 / 超时 → 返 None 由 caller fallback。Python 的 try/except
+        接不住原生段错误,这是唯一可靠的"不崩服务"做法。
+        调试可设 CHAYUAN_TTS_INPROC=1 关掉隔离(进程内直跑,会暴露崩溃)。"""
+        if os.environ.get("CHAYUAN_TTS_INPROC", "").strip().lower() in ("1", "true", "yes"):
+            return self._synthesize_via_sherpa_inproc(text, voice=voice, fmt=fmt)
+        import multiprocessing as _mp
+        import tempfile as _tf
+        out_path = None
+        try:
+            fd, out_path = _tf.mkstemp(prefix="chayuan_sherpa_", suffix=".bin")
+            os.close(fd)
+            proc = _mp.get_context("spawn").Process(
+                target=_sherpa_subprocess_entry,
+                args=(text, voice, fmt, out_path),
+                daemon=True,
+            )
+            proc.start()
+            proc.join(timeout=180)
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(5)
+                logger.warning("[tts:sherpa] 子进程超时(>180s),已终止")
+                return None
+            if proc.exitcode != 0:
+                logger.warning(
+                    "[tts:sherpa] 子进程退出码=%s(负值=原生崩溃/被信号杀,已隔离,服务不受影响)",
+                    proc.exitcode,
+                )
+                return None
+            try:
+                with open(out_path, "rb") as _f:
+                    data = _f.read()
+            except OSError:
+                data = b""
+            return data or None
+        except Exception as e:  # noqa: BLE001
+            # 调度本身失败(mp 不可用等)——为"不崩服务"优先,不回退进程内,直接判失败。
+            logger.warning("[tts:sherpa] 子进程隔离调度失败,判合成失败: %r", e)
+            return None
+        finally:
+            if out_path:
+                try:
+                    os.remove(out_path)
+                except OSError:
+                    pass
+
+    def _synthesize_via_sherpa_inproc(
         self, text: str, *, voice: str, fmt: str,
     ) -> Optional[bytes]:
         """sherpa-onnx VITS 本地推理。任何环节失败/未配置返 None,由 caller
