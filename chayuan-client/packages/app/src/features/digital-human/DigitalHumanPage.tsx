@@ -5,11 +5,10 @@ import { PresetList } from './PresetList';
 import { DhStudio } from './DhStudio';
 import { DhTaskList } from './DhTaskList';
 import { OnlineAvatarList } from './OnlineAvatarList';
-import { OnlineFeaturePage } from '../online/OnlineFeaturePage';
 import { useSingleMachineMode } from '../first-run/useSingleMachineMode';
 
 type DhTab = 'studio' | 'videos' | 'online' | 'presets';
-const TABS: DhTab[] = ['studio', 'videos', 'online', 'presets'];
+const ALL_TABS: DhTab[] = ['studio', 'videos', 'online', 'presets'];
 const TAB_LABEL: Record<DhTab, string> = {
   studio: '工作台', videos: '数字人视频', online: '在线数字人', presets: '数字人设置',
 };
@@ -17,8 +16,13 @@ const TAB_LABEL: Record<DhTab, string> = {
 export const DigitalHumanPage: React.FC = () => {
   const [tab, setTab] = React.useState<DhTab>('studio');
   const [genPresetId, setGenPresetId] = React.useState<string | undefined>(undefined);
-  // 单机版:在线数字人依赖服务端,整页占位为「仅在线版可用」;服务版才渲染真实列表
+  // 单机版:在线数字人依赖服务端 → 整个 tab(连入口带内容)隐藏,不挂载;
+  // 仅服务/在线版展示真实在线形象库。(此前是 tab 内渲染文案占位,现按要求彻底隐藏)
   const singleMachine = useSingleMachineMode();
+  const tabs = React.useMemo<DhTab[]>(
+    () => (singleMachine ? ALL_TABS.filter((k) => k !== 'online') : ALL_TABS),
+    [singleMachine],
+  );
   const presetsQ = useQuery({ queryKey: ['dh.presets'], queryFn: digitalHuman.listPresets });
   const presets = presetsQ.data?.items ?? [];
 
@@ -31,7 +35,7 @@ export const DigitalHumanPage: React.FC = () => {
   return (
     <div className="flex h-full flex-col p-4">
       <div className="mb-3 flex items-center gap-2">
-        {TABS.map((k) => (
+        {tabs.map((k) => (
           <button key={k} onClick={() => setTab(k)}
             className={`h-8 rounded-md px-3 text-sm ${tab === k
               ? 'bg-[var(--cy-ink-700)] text-white'
@@ -48,9 +52,12 @@ export const DigitalHumanPage: React.FC = () => {
       <div className={tab === 'videos' ? 'min-h-0 flex-1 overflow-hidden' : 'hidden'}>
         <DhTaskList />
       </div>
-      <div className={tab === 'online' ? 'min-h-0 flex-1 overflow-hidden' : 'hidden'}>
-        {singleMachine ? <OnlineFeaturePage featureKey="digital-human-online" /> : <OnlineAvatarList />}
-      </div>
+      {/* 在线数字人:单机版完全隐藏(不挂载);仅服务/在线版渲染真实在线形象库 */}
+      {!singleMachine && (
+        <div className={tab === 'online' ? 'min-h-0 flex-1 overflow-hidden' : 'hidden'}>
+          <OnlineAvatarList />
+        </div>
+      )}
       <div className={tab === 'presets' ? 'min-h-0 flex-1 overflow-hidden' : 'hidden'}>
         <PresetList presets={presets} onChanged={() => void presetsQ.refetch()} onGenerate={goGenerate} />
       </div>
