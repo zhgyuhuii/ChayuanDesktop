@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import threading
+import time
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Optional
@@ -425,6 +426,21 @@ def _resolve_materials(
     # 2) 在线源
     if params.video_source != "local" and video_terms:
         try:
+            budget_s = float(os.environ.get("CHAYUAN_VG_MATERIALS_BUDGET_S", "180") or 180)
+            deadline = time.monotonic() + max(30.0, budget_s)
+
+            def _on_materials_progress(done_n: int, total_n: int, frac: float) -> None:
+                # 素材下载占进度 50% → 68%(留 70% 给"下载完成"那一跳),
+                # 并写 stage_hint 让前端不再卡在"字幕生成"标签。
+                pct = 50 + int(18 * max(0.0, min(1.0, frac)))
+                tasks_store.update_progress(
+                    task_id, progress=pct,
+                    result_patch={
+                        "stage": "materials",
+                        "stage_hint": f"正在下载素材 {done_n}/{max(total_n, done_n)} 段",
+                    },
+                )
+
             paths = materials_step.download_videos(
                 task_id, list(video_terms),
                 source=params.video_source,
@@ -432,6 +448,8 @@ def _resolve_materials(
                 video_contact_mode=VideoConcatMode(params.video_concat_mode.value),
                 audio_duration=audio_duration_s,
                 max_clip_duration=max_clip,
+                on_progress=_on_materials_progress,
+                phase_deadline=deadline,
             )
             # 下载到的在线片段持久化进素材库,库里「网络/pexels」可浏览+复用(best-effort)
             _persist_online_materials(task_id, params.video_source, paths)

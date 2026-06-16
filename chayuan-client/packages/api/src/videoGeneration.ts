@@ -178,6 +178,8 @@ export interface VgTaskResultPartial {
   materials?: string[];
   final_videos?: string[];
   combined_videos?: string[];
+  stage?: string;
+  stage_hint?: string;
   [k: string]: unknown;
 }
 

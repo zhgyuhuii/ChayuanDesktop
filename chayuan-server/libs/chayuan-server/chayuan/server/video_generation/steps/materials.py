@@ -16,10 +16,13 @@
 """
 from __future__ import annotations
 
+import math
 import os
 import random
 import threading
-from typing import List
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable, List, Optional
 from urllib.parse import urlencode
 
 import requests
@@ -198,7 +201,7 @@ def search_videos_pixabay(
     return []
 
 
-def save_video(video_url: str, save_dir: str = "") -> str:
+def save_video(video_url: str, save_dir: str = "", *, max_seconds: float = 0.0) -> str:
     if not save_dir:
         save_dir = utils.storage_dir("cache_videos")
 
@@ -219,17 +222,37 @@ def save_video(video_url: str, save_dir: str = "") -> str:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
     }
 
-    # if video does not exist, download it
-    with open(video_path, "wb") as f:
-        f.write(
-            requests.get(
-                video_url,
-                headers=headers,
-                proxies=config.proxy,
-                verify=_get_tls_verify(),
-                timeout=(60, 240),
-            ).content
-        )
+    # if video does not exist, download it(流式 → 临时文件 → 原子改名;
+    # 避免超时/中断留下"半截但看着有效"的缓存被下次当成功命中)
+    tmp_path = f"{video_path}.part"
+    deadline = (time.monotonic() + max_seconds) if max_seconds and max_seconds > 0 else None
+    try:
+        with requests.get(
+            video_url,
+            headers=headers,
+            proxies=config.proxy,
+            verify=_get_tls_verify(),
+            timeout=(30, 60),
+            stream=True,
+        ) as resp:
+            resp.raise_for_status()
+            with open(tmp_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=262144):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    if deadline is not None and time.monotonic() > deadline:
+                        raise TimeoutError(
+                            f"download exceeded {max_seconds:.0f}s budget: {video_url}"
+                        )
+        os.replace(tmp_path, video_path)
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
     if os.path.exists(video_path) and os.path.getsize(video_path) > 0:
         clip = None
@@ -299,7 +322,22 @@ def download_videos(
     video_contact_mode: VideoConcatMode = VideoConcatMode.random,
     audio_duration: float = 0.0,
     max_clip_duration: int = 5,
+    *,
+    on_progress: Optional[Callable[[int, int, float], None]] = None,
+    phase_deadline: Optional[float] = None,
+    max_workers: int = 0,
 ) -> List[str]:
+    """搜索 + 并发下载在线片段。
+
+    相比上游逐个串行下载,这里:
+      - 搜索阶段(快,几个 HTTP)仍顺序;
+      - 下载阶段用线程池**并发**(国内访问 Pexels/Pixabay 慢,串行是
+        "卡在 50%" 的主因);
+      - ``on_progress(done, target, frac)`` 每完成一个片段回调一次,
+        让 runner 把进度从 50% 往 70% 推、并写 stage_hint;
+      - ``phase_deadline``(time.monotonic 时刻)到点即停,不再无限等
+        —— 拿到几段就用几段,一段没有则交由上层 fallback 本地库。
+    """
     valid_video_items = []
     valid_video_urls = []
     found_duration = 0.0
@@ -324,7 +362,6 @@ def download_videos(
     logger.info(
         f"found total videos: {len(valid_video_items)}, required duration: {audio_duration} seconds, found duration: {found_duration} seconds"
     )
-    video_paths = []
 
     material_directory = config.app.get("material_directory", "").strip()
     if material_directory == "task":
@@ -335,25 +372,80 @@ def download_videos(
     if video_contact_mode.value == VideoConcatMode.random.value:
         random.shuffle(valid_video_items)
 
-    total_duration = 0.0
-    for item in valid_video_items:
-        try:
-            logger.info(f"downloading video: {item.url}")
-            saved_video_path = save_video(
-                video_url=item.url, save_dir=material_directory
-            )
+    if not valid_video_items:
+        logger.info("downloaded 0 videos")
+        return []
+
+    # 够时长需要多少段(+一半 buffer 给下载失败留余量)
+    need = max(1, math.ceil(max(1.0, audio_duration) / max(1, max_clip_duration)))
+    candidates = valid_video_items[: need + max(2, need // 2)]
+    total_target = min(need, len(candidates))
+
+    # 单片下载时间预算:整阶段剩余预算,限制在 [20s, 120s]
+    if phase_deadline is not None:
+        remain = max(5.0, phase_deadline - time.monotonic())
+        per_dl = max(20.0, min(120.0, remain))
+    else:
+        per_dl = 120.0
+
+    workers = max_workers if max_workers and max_workers > 0 else min(6, len(candidates))
+    results: "dict[int, str]" = {}
+    durations: "dict[int, float]" = {}
+
+    executor = ThreadPoolExecutor(max_workers=workers)
+    fut_index = {}
+    for idx, item in enumerate(candidates):
+        logger.info(f"downloading video: {item.url}")
+        fut = executor.submit(
+            save_video, item.url, material_directory, max_seconds=per_dl
+        )
+        fut_index[fut] = (idx, item)
+
+    try:
+        for fut in as_completed(fut_index):
+            idx, item = fut_index[fut]
+            try:
+                saved_video_path = fut.result()
+            except Exception as e:  # noqa: BLE001
+                logger.error(
+                    f"failed to download video: {utils.to_json(item)} => {str(e)}"
+                )
+                saved_video_path = ""
             if saved_video_path:
                 logger.info(f"video saved: {saved_video_path}")
-                video_paths.append(saved_video_path)
-                seconds = min(max_clip_duration, item.duration)
-                total_duration += seconds
-                if total_duration > audio_duration:
-                    logger.info(
-                        f"total duration of downloaded videos: {total_duration} seconds, skip downloading more"
+                results[idx] = saved_video_path
+                durations[idx] = min(max_clip_duration, item.duration)
+
+            acc = sum(durations.values())
+            if on_progress is not None:
+                try:
+                    on_progress(
+                        len(results),
+                        max(total_target, len(results)),
+                        min(1.0, acc / max(1.0, audio_duration)),
                     )
-                    break
-        except Exception as e:
-            logger.error(f"failed to download video: {utils.to_json(item)} => {str(e)}")
+                except Exception:  # noqa: BLE001
+                    pass
+
+            over_budget = (
+                phase_deadline is not None and time.monotonic() > phase_deadline
+            )
+            if acc > audio_duration:
+                logger.info(
+                    f"total duration of downloaded videos: {acc} seconds, skip downloading more"
+                )
+                break
+            if over_budget:
+                logger.warning(
+                    "[materials] 阶段时间预算耗尽,停止等待剩余下载(已得 %d 段)",
+                    len(results),
+                )
+                break
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    # 保留候选顺序(video_concat_mode=sequential 时拼接顺序有意义)
+    video_paths = [results[i] for i in sorted(results.keys())]
     logger.info(f"downloaded {len(video_paths)} videos")
     return video_paths
 

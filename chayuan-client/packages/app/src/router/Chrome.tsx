@@ -37,6 +37,7 @@ import { useCrossWindowSync } from '../features/shell/useCrossWindowSync';
 import { useGlobalDetachedLaneSync } from '../features/model-arena/DetachedLaneRoute';
 import { DetachedToolbar } from '../features/shell/DetachedToolbar';
 import { ArtifactPanel } from '../features/artifact/ArtifactPanel';
+import { VgTaskFab } from '../features/video-generation/VgTaskFab';
 import { CommandPaletteRoot } from '../features/cmdk/CommandPalette';
 import { useDesktopIntegrations } from '../features/desktop/useDesktopIntegrations';
 import { ErrorDialogRoot } from '../features/shell/ErrorDialog';
@@ -142,6 +143,7 @@ export const Chrome: React.FC = () => {
       <PromptRoot />
       <DetachedToolbar />
       <ImageEmbedderInstallDialog />
+      <VgTaskFab />
     </div>
   );
 };

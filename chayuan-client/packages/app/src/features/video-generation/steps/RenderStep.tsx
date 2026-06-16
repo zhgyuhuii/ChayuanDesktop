@@ -30,7 +30,10 @@ const STEP_LABELS: Record<number, string> = {
   100: '完成',
 };
 
-function progressLabel(progress: number): string {
+function progressLabel(progress: number, stageHint?: string | null): string {
+  // 后端在素材下载等长阶段会写 stage_hint(如"正在下载素材 3/8 段"),
+  // 优先显示它,避免 50→70 区间一直卡在"字幕生成"标签。
+  if (stageHint && stageHint.trim()) return stageHint.trim();
   // 取小于等于 progress 的最大档位
   const thresholds = Object.keys(STEP_LABELS).map(Number).sort((a, b) => a - b);
   let label = STEP_LABELS[5];
@@ -190,7 +193,7 @@ const IdlePane: React.FC<{
 
 const RunningPane: React.FC<{ task: VgTask; onCancel: () => void }> = ({ task, onCancel }) => {
   const progress = task.progress;
-  const label = progressLabel(progress);
+  const label = progressLabel(progress, task.result?.stage_hint);
   return (
     <div className="rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-8 text-center">
       <div

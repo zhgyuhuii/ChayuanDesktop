@@ -35,7 +35,8 @@ const STEP_LABELS: Record<number, string> = {
   100: '完成',
 };
 
-function progressLabel(progress: number): string {
+function progressLabel(progress: number, stageHint?: string | null): string {
+  if (stageHint && stageHint.trim()) return stageHint.trim();
   const thresholds = Object.keys(STEP_LABELS).map(Number).sort((a, b) => a - b);
   let label = STEP_LABELS[5];
   for (const t of thresholds) {
@@ -186,7 +187,7 @@ const TaskProgressRow: React.FC<{
   };
 
   const progress = task.progress;
-  const label = progressLabel(progress);
+  const label = progressLabel(progress, task.result?.stage_hint);
   const subject = vgTaskName(task.params, '(未命名主题)');
   const isTerminal = task.state === 'complete' || task.state === 'failed' || task.state === 'canceled';
 
