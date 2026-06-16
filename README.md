@@ -66,7 +66,7 @@
 - [九、HTTP API 接口总览](#九http-api-接口总览)
 - [十、开发者搭建指南](#十开发者搭建指南)
   - [10.4 本地打包(Windows / macOS / Linux 命令)](#104-本地打包默认双产物轻量版--集成版)
-  - [10.8 装完后诊断与故障排查](#108-装完后诊断与故障排查) ⭐ services 目录空 / 服务起不来必读
+  - [10.9 装完后诊断与故障排查](#109-装完后诊断与故障排查) ⭐ services 目录空 / 服务起不来必读
 - [十一、使用教程入口](#十一使用教程入口)
 - [十二、安全 · 隐私 · 离线](#十二安全--隐私--离线)
 - [十三、路线图](#十三路线图)
@@ -1207,18 +1207,54 @@ full 加上 chat/image。
      导致服务起不来,2026-05-18 修)
    - **Step 1c** 同步 `scripts/diagnose-auto-start.ps1` → `src-tauri/tools/`,
      installer 装机后落到 `<install>/resources/tools/diagnose-auto-start.ps1`,
-     用户原地可跑做故障排查(见 §10.8)
+     用户原地可跑做故障排查(见 §10.9)
    - **Step 2** `/healthz` 探测确认 sidecar 能起来
    - **Step 3** Tauri bundle 出 `.dmg / .deb / .AppImage / .msi / .exe`
      并按 flavor 后缀拷到 `dist-<flavor>/`
 3. **本次产物清单** — 总结表列出 `flavor / 文件名 / 大小`。
 
-### 10.5 三平台 CI
+### 10.5 发布端 / 下载端(publisher / installer)客户端独立打包
+
+「发布端 / 下载端」是两个独立的 Tauri 客户端,**不属于** §10.4 的桌面三档(lite/standard/pro)离线包,由根目录 `release.mjs` 驱动:
+
+| 叫法 | 实体 | 目录 |
+|---|---|---|
+| 发布端 / 上传端 | 察元发布客户端(publisher) | `chayuan-client/apps/publisher` |
+| 下载端 | 安装器(installer) | `chayuan-client/apps/installer` |
+
+#### 一次打两端(推荐)
+
+```bash
+node release.mjs --clients-only
+```
+
+`--clients-only` 跳过版本 bump 和 `build-desktop`(三档离线包),只依次 `pnpm tauri build`
+出**发布端 + 下载端**,产物收拢到 `release/<版本>/clients/`。需 ≥ 8 GB 空闲磁盘
+(Rust release 编译 + WiX 临时;盘满时 WiX `light.exe` 会静默失败,故脚本会先做磁盘预检)。
+
+#### 只打其中一端
+
+`release.mjs` 没有单独出某一端的开关(`--clients-only` 总是两端一起出),要单独打就直接进对应 app 跑 Tauri:
+
+```bash
+# 只打发布端(上传端)
+cd chayuan-client/apps/publisher && pnpm tauri build
+
+# 只打下载端(安装器)
+cd chayuan-client/apps/installer && pnpm tauri build
+```
+
+> 单 app 方式**不会**自动产 macOS dmg(release.mjs 用自研 `scripts/make-mac-dmg.sh`
+> 兜 Tauri 自带 bundle_dmg.sh 在 macOS 14/15 上挂掉的坑),也**不会**把产物拷到
+> `release/<ver>/clients/`;Windows / Linux 直出 `.msi / .exe / .deb / .AppImage` 则无差异。
+> macOS 上需要 dmg,仍用 `node release.mjs --clients-only`。
+
+### 10.6 三平台 CI
 
 GitHub Actions 矩阵 5 个 runner:`macos-13` / `macos-14` / `ubuntu-22.04` / `ubuntu-24.04-arm` / `windows-2022`,
 触发条件 + 产物下载 详见 [`chayuan-client/.github/workflows/build-desktop.yml`](chayuan-client/.github/workflows/build-desktop.yml)。
 
-### 10.6 项目结构
+### 10.7 项目结构
 
 ```
 /chayuan-desktop/
@@ -1262,7 +1298,7 @@ GitHub Actions 矩阵 5 个 runner:`macos-13` / `macos-14` / `ubuntu-22.04` / `u
         └── platform-web/           ← Web 适配层
 ```
 
-### 10.7 验证清单(release 前必跑)
+### 10.8 验证清单(release 前必跑)
 
 ```bash
 # 后端测试
@@ -1276,7 +1312,7 @@ pnpm typecheck
 
 详见 [PACKAGING.md §8](PACKAGING.md)。
 
-### 10.8 装完后诊断与故障排查
+### 10.9 装完后诊断与故障排查
 
 > **典型问题**:装完启动 app,本地模型服务(chat/embedding/rerank/asr/image-embedding)
 > 全部 `state=stopped` 或 `state=failed`,知识库检索 / 对话拿不到本地推理。
