@@ -181,7 +181,10 @@ def _open_image_clip_with_fallback(image_path: str):
         return ImageClip(sanitized_path), sanitized_path
 
 
-def _open_video_clip_quietly(video_path: str, audio: bool = False) -> VideoFileClip:
+_IMAGE_MATERIAL_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff")
+
+
+def _open_video_clip_quietly(video_path: str, audio: bool = False, image_duration: float = 5.0):
     """
     安静地打开视频文件，避免 MoviePy 2.1.x 把 ffmpeg 探测信息直接打印到 stdout。
 
@@ -197,6 +200,12 @@ def _open_video_clip_quietly(video_path: str, audio: bool = False) -> VideoFileC
        最终音频会在 `generate_video()` 阶段统一挂载；
     3. 如果依赖库确实输出了内容，降级为 debug 日志，便于必要时排查。
     """
+    # 静态图片素材(png/jpg…):moviepy 用 VideoFileClip 打开会因 ffmpeg "Duration: N/A"
+    # → parse_duration 正则 None.group() 崩(OSError: failed to read the duration of file)。
+    # 改用 ImageClip + 固定时长,当作一段静帧视频;下游 subclipped/resized/size 均兼容。
+    if os.path.splitext(video_path)[1].lower() in _IMAGE_MATERIAL_EXTS:
+        return ImageClip(video_path).with_duration(max(0.1, float(image_duration)))
+
     captured_stdout = io.StringIO()
     with redirect_stdout(captured_stdout):
         clip = VideoFileClip(video_path, audio=audio)
