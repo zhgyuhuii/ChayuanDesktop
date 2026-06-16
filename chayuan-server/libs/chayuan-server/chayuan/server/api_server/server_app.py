@@ -67,6 +67,20 @@ def create_app(run_mode: str = None):
     app = FastAPI(title="察元AI助手", version=__version__)
     MakeFastAPIOffline(app)
 
+    # 全局异常兜底:任何未被路由捕获的 Python 异常 → 记日志(含 traceback)+ 返回 500,
+    # 不让异常冒泡。注意:**原生段错误(如 sherpa-onnx/onnxruntime C++ 崩溃)Python 捕捉不到**,
+    # 那类必须靠「子进程隔离」(见 modality/audio.py sherpa 合成),本兜底只覆盖 Python 层。
+    import logging as _logging
+    from fastapi import Request as _Req
+    from fastapi.responses import JSONResponse as _JSONResp
+
+    @app.exception_handler(Exception)
+    async def _global_exception_handler(request: _Req, exc: Exception):  # noqa: ANN001
+        _logging.getLogger("chayuan.server_app").exception(
+            "[global-exc] 未捕获异常 %s %s: %r", request.method, request.url.path, exc
+        )
+        return _JSONResp(status_code=500, content={"detail": "internal server error", "error": str(exc)})
+
     # 中间件挂载顺序（Starlette 语义：后加的在外层执行）：
     #   1) CORS（最外层，先处理跨域预检）
     #   2) RateLimit（次外层，尽早拒绝超额请求，避免无意义下游消耗）
