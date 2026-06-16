@@ -131,6 +131,12 @@ def caps_for(flavor: str) -> tuple[str, ...]:
     return FLAVOR_CAPS[flavor]
 
 
+# 打包分流(2026-06-16):随每个安装包嵌入的小 cap vs 走外置 seed 介质的大 cap。
+# 两集合不相交,并集 = local_index.BUNDLED_CAPABILITY_DIRS。
+EMBED_CAPS = frozenset({"tts", "ocr", "asr", "custom"})
+EXTERNAL_CAPS = frozenset({"chat", "embedding", "rerank", "image", "digital_human"})
+
+
 __all__ = [
     "LITE_CAPS",
     "STANDARD_CAPS",
@@ -141,4 +147,6 @@ __all__ = [
     "canonical_subdirs_for",
     "is_canonical_subdir",
     "caps_for",
+    "EMBED_CAPS",
+    "EXTERNAL_CAPS",
 ]
