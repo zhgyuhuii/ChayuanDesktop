@@ -10,6 +10,9 @@ import { getClientConfig } from '@chayuan/api';
 import { streamModality, isFilePart } from '@chayuan/transport';
 import { reportError } from '../../../store/errorDialog';
 import { downloadUrlAsFile } from '../../../lib/downloadMedia';
+import { useNavigate } from '@tanstack/react-router';
+import { useTabsStore } from '../../../store/tabs';
+import { useVgComposer } from '../../video-generation/store/vgComposer';
 import { ACTION_TYPES } from './actionTypes';
 import { useAvailableModelsByCapability, pickBestModel } from '../../home/capabilityCards/useAvailableModelsByCapability';
 import type { ActionTypeKey } from './intentDetect';
@@ -92,6 +95,18 @@ export const MessageActionPanel: React.FC<{
     }
   };
 
+  const navigate = useNavigate();
+  const openTab = useTabsStore((s) => s.open);
+  const onSlideshow = () => {
+    const text = prompt.trim();
+    if (!text) { setErr('请输入文稿'); return; }
+    const vg = useVgComposer.getState();
+    vg.setScriptSource('manual');
+    vg.setScriptSlot('manual', text);
+    openTab('/video-generation', { title: '图文成片', icon: 'video' });
+    void navigate({ to: '/video-generation' as never });
+  };
+
   const dlName = `${def.label}-${Date.now()}`;
 
   return (
@@ -140,6 +155,13 @@ export const MessageActionPanel: React.FC<{
         {busy && (
           <button type="button" onClick={() => abortRef.current?.abort()}
             className="inline-flex h-7 items-center rounded-lg border border-[var(--cy-border-subtle)] px-3 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">取消</button>
+        )}
+        {type === 't2v' && (
+          <button type="button" onClick={onSlideshow}
+            className="inline-flex h-7 items-center rounded-lg border border-[var(--cy-border-subtle)] px-3 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]"
+            title="用此文稿走「图文成片」(脚本→配音→素材→合成)">
+            用此文稿做图文成片 →
+          </button>
         )}
         {err && <span className="inline-flex items-center gap-1 text-xs text-rose-600"><AlertTriangle className="h-3.5 w-3.5" />{err}</span>}
       </div>
