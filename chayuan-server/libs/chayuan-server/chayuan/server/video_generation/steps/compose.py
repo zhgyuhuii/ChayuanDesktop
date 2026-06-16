@@ -898,6 +898,7 @@ def combine_videos(
     threads: int = 2,
     video_width: int | None = None,
     video_height: int | None = None,
+    background_color: tuple = (0, 0, 0),  # letterbox 补边色(RGB);调用方按 params.background_color 传入
 ) -> str:
     audio_clip = AudioFileClip(audio_file)
     try:
@@ -983,7 +984,7 @@ def combine_videos(
                     new_width = int(clip_w * scale_factor)
                     new_height = int(clip_h * scale_factor)
 
-                    background = ColorClip(size=(video_width, video_height), color=_bg_rgb(params)).with_duration(clip_duration)
+                    background = ColorClip(size=(video_width, video_height), color=background_color).with_duration(clip_duration)
                     clip_resized = clip.resized(new_size=(new_width, new_height)).with_position("center")
                     clip = CompositeVideoClip([background, clip_resized])
                     

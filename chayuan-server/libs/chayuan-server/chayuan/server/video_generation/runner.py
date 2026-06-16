@@ -592,6 +592,7 @@ def _compose_videos(
                 threads=max(1, int(params.n_threads)),
                 video_width=getattr(params, "video_width", None),
                 video_height=getattr(params, "video_height", None),
+                background_color=compose_step._bg_rgb(params),
             )
             compose_step.generate_video(
                 video_path=combined_path,
