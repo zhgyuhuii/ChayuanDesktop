@@ -49,6 +49,9 @@ import { useAttachments } from './useAttachments';
 import { useChayuanChat } from './useChayuanChat';
 import type { ChatMessage } from './useChayuanChat';
 import { useModalitySubmit } from './useModalitySubmit';
+import { MessageActionPanel, type GeneratedArtifact } from './messageActions/MessageActionPanel';
+import { detectActionIntent, keywordIntent, type ActionTypeKey } from './messageActions/intentDetect';
+import { ACTION_TYPES } from './messageActions/actionTypes';
 import { getClientConfig } from '@chayuan/api';
 import { classifyModalityCapability } from '@chayuan/transport';
 import {
@@ -518,6 +521,72 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     };
   }, [regenerateRef]);
 
+  // ── 对话内联产出面板(语音/图像/视频)─────────────────────────────────
+  const [actionPanels, setActionPanels] = React.useState<Record<string, { type: ActionTypeKey; prompt: string }>>({});
+  const actionProcessedRef = React.useRef<Set<string>>(new Set());
+  const prevStreamingRef = React.useRef(false);
+  const closeActionPanel = React.useCallback((msgId: string) => {
+    setActionPanels((p) => { const n = { ...p }; delete n[msgId]; return n; });
+  }, []);
+  // 手动:点消息「产出」按钮 → 开面板(默认 tts;已判过意图则用其类型)
+  const onActionOpen = React.useCallback((m: ChatMessage) => {
+    setActionPanels((p) => ({ ...p, [m.id]: p[m.id] ?? { type: 'tts', prompt: m.content || '' } }));
+  }, []);
+  // 产物挂回该消息 files(复用既有渲染 + 持久化)
+  const onActionArtifact = React.useCallback((msgId: string, a: GeneratedArtifact) => {
+    chat.setMessages((prev) => prev.map((m) => m.id === msgId
+      ? { ...m, files: [...(m.files ?? []), { mediaType: a.mediaType, url: a.url, metadata: a.metadata }] }
+      : m));
+  }, [chat]);
+  // 自动:assistant 回复"刚完成"(流式 true→false)→ 判意图 → 命中则开面板
+  React.useEffect(() => {
+    const streaming = chat.isStreaming || modalitySubmit.isStreaming;
+    const justFinished = prevStreamingRef.current && !streaming;
+    prevStreamingRef.current = streaming;
+    if (!justFinished) return;
+    const msgs = chat.messages;
+    if (msgs.length < 2) return;
+    const last = msgs[msgs.length - 1];
+    if (!last || last.role !== 'assistant' || last.streaming) return;
+    // 跳过 modality 生成消息(它本身就是产物,不再二次产出)
+    if (!last.content || last.taskCapability || (last.files && last.files.length > 0)) return;
+    if (actionProcessedRef.current.has(last.id)) return;
+    actionProcessedRef.current.add(last.id);
+    const user = msgs[msgs.length - 2];
+    const userText = user && user.role === 'user' ? user.content : '';
+    if (!userText) return;
+    // 预过滤:省掉纯问答的 LLM 调用
+    const actionable = keywordIntent(userText) !== null
+      || /生成|帮我做|帮我写|画[一张幅]|合成|转语音|配音|做[个张一]|朗读|读一下|视频|图片|图像|海报|插画/.test(userText);
+    if (!actionable) return;
+    const chatModelId = pickBestModel(byCapRef.current.get('chat'))?.id ?? null;
+    const asstId = last.id;
+    const asstText = last.content;
+    void detectActionIntent({ userText, assistantText: asstText, chatModelId }).then((r) => {
+      if (r.type !== 'none' && ACTION_TYPES[r.type]) {
+        setActionPanels((p) => (p[asstId] ? p : { ...p, [asstId]: { type: r.type as ActionTypeKey, prompt: r.prompt || asstText } }));
+      }
+    });
+  }, [chat.isStreaming, modalitySubmit.isStreaming, chat.messages]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 逐条 assistant 的 extraSlot:父级 extraSlot + 产出面板
+  const combinedExtraSlot = React.useCallback((m: ChatMessage) => {
+    const entry = actionPanels[m.id];
+    return (
+      <>
+        {extraSlot ? extraSlot(m) : null}
+        {entry ? (
+          <MessageActionPanel
+            type={entry.type}
+            initialPrompt={entry.prompt}
+            onClose={() => closeActionPanel(m.id)}
+            onArtifact={(a) => onActionArtifact(m.id, a)}
+          />
+        ) : null}
+      </>
+    );
+  }, [actionPanels, extraSlot, closeActionPanel, onActionArtifact]);
+
   // R3.6: VgChatPage 等场景化页面需要从 extraSlot 回调里改 message.metadata,
   // 把内部 chat.setMessages 借给父级。引用稳定;只在挂载/卸载时绑解绑。
   React.useEffect(() => {
@@ -547,7 +616,8 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
             void chat.editMessage(id, newContent);
           }}
           onBranch={(id) => void chat.branchFrom(id)}
-          extraSlot={extraSlot}
+          extraSlot={combinedExtraSlot}
+          onAction={onActionOpen}
           assistantEditable={assistantEditable}
         />
       ) : convMissing ? (

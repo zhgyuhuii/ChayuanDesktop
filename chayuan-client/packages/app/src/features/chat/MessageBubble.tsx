@@ -24,9 +24,11 @@ export interface MessageBubbleProps {
   onEdit?: (id: string, newContent: string) => void;
   extraSlot?: React.ReactNode;
   onBranch?: (id: string) => void;
+  /** 「产出」按钮(对话内联产出:语音/图像/视频);父级提供时显示 */
+  onAction?: () => void;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegenerate, onResume, onEdit, onBranch, extraSlot }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegenerate, onResume, onEdit, onBranch, extraSlot, onAction }) => {
   const isUser = message.role === 'user';
   const [feedback, setFeedback] = React.useState<1 | -1 | null>(null);
   const [editing, setEditing] = React.useState(false);
@@ -307,6 +309,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
             <Button variant="ghost" size="icon" onClick={onRegenerate} aria-label="重新生成">
               <RefreshCw className="h-3.5 w-3.5" />
             </Button>
+            {onAction && (
+              <Button variant="ghost" size="icon" onClick={onAction} aria-label="产出(语音/图像/视频)" title="产出:合成语音/生成图像视频">
+                <Sparkles className="h-3.5 w-3.5" />
+              </Button>
+            )}
             {onBranch && (
               <Button variant="ghost" size="icon" onClick={() => onBranch(message.id)} aria-label="从此分叉">
                 <GitBranch className="h-3.5 w-3.5" />
