@@ -259,7 +259,7 @@ const MineTab: React.FC<{
               <PlayBadge image={isImg(m)} onClick={() => setPreview(m)} />
               <input type="checkbox" title="勾选以批量删除" checked={delSel.has(m.material_id)}
                 onClick={(e) => e.stopPropagation()} onChange={() => toggleDel(m.material_id)}
-                className="absolute right-1.5 top-1.5 z-10 h-4 w-4 cursor-pointer accent-rose-600" />
+                className="absolute right-1.5 bottom-1.5 z-10 h-4 w-4 cursor-pointer accent-rose-600" />
               <button type="button" onClick={() => onToggle(item)} className="block w-full text-left">
                 <div className="relative aspect-video w-full bg-[var(--cy-surface-2)] flex items-center justify-center overflow-hidden">
                   {thumb(m, fileUrl)}
