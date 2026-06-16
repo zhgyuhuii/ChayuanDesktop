@@ -222,19 +222,93 @@ if not _HAS_ZHCONV:
     )
 
 
-def _sherpa_subprocess_entry(text, voice, fmt, out_path):  # noqa: ANN001
-    """子进程入口:跑 sherpa 实际合成(_synthesize_via_sherpa_inproc),结果字节写 out_path。
-    原生崩溃只杀本子进程。模块级函数以便 multiprocessing spawn 序列化目标。"""
-    import os as _os
+def _sherpa_worker_loop(conn):  # noqa: ANN001
+    """长驻 sherpa 子进程主循环:持有一个 AudioPipeline(模型缓存常驻),逐条处理
+    合成请求(text, voice, fmt)。原生崩溃只杀本子进程,父进程 _SherpaWorker 会检测并重启。"""
     try:
-        data = AudioPipeline()._synthesize_via_sherpa_inproc(text, voice=voice, fmt=fmt)
-        if data:
-            with open(out_path, "wb") as _f:
-                _f.write(data)
-            _os._exit(0)
-        _os._exit(3)
-    except BaseException:  # noqa: BLE001 — 子进程内任何失败都用退出码表达,绝不上抛
-        _os._exit(2)
+        pipe = AudioPipeline()
+    except BaseException:  # noqa: BLE001
+        return
+    while True:
+        try:
+            req = conn.recv()
+        except (EOFError, OSError):
+            break
+        if req is None:
+            break
+        text, voice, fmt = req
+        try:
+            data = pipe._synthesize_via_sherpa_inproc(text, voice=voice, fmt=fmt)
+            conn.send(("ok", data))
+        except BaseException as e:  # noqa: BLE001
+            try:
+                conn.send(("err", repr(e)))
+            except OSError:
+                break
+
+
+class _SherpaWorker:
+    """长驻 sherpa 合成子进程管理器:模型常驻避免每条重载;子进程崩溃自动重启,
+    隔离不崩主服务。synth 受 _lock 串行(synth CPU 绑定,批量任务排队即可)。"""
+
+    def __init__(self):
+        import threading as _th
+        self._lock = _th.Lock()
+        self._proc = None
+        self._conn = None
+
+    def _kill(self):
+        try:
+            if self._proc is not None and self._proc.is_alive():
+                self._proc.terminate()
+                self._proc.join(5)
+        except Exception:  # noqa: BLE001
+            pass
+        self._proc = None
+        try:
+            if self._conn is not None:
+                self._conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+        self._conn = None
+
+    def _ensure(self):
+        if self._proc is not None and self._proc.is_alive():
+            return
+        self._kill()
+        import multiprocessing as _mp
+        ctx = _mp.get_context("spawn")
+        parent_conn, child_conn = ctx.Pipe()
+        proc = ctx.Process(target=_sherpa_worker_loop, args=(child_conn,), daemon=True)
+        proc.start()
+        child_conn.close()
+        self._proc, self._conn = proc, parent_conn
+
+    def synth(self, text, voice, fmt, timeout=180):  # noqa: ANN001
+        with self._lock:
+            try:
+                self._ensure()
+                self._conn.send((text, voice, fmt))
+                if not self._conn.poll(timeout):
+                    logger.warning("[tts:sherpa] worker 超时(>%ss),重启", timeout)
+                    self._kill()
+                    return None
+                kind, payload = self._conn.recv()
+            except (EOFError, OSError, BrokenPipeError) as e:
+                logger.warning("[tts:sherpa] worker 崩溃/管道断(已隔离,服务不受影响),重启: %r", e)
+                self._kill()
+                return None
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[tts:sherpa] worker 调度异常,重启: %r", e)
+                self._kill()
+                return None
+            if kind == "ok":
+                return payload or None
+            logger.warning("[tts:sherpa] 合成失败: %s", payload)
+            return None
+
+
+_SHERPA_WORKER = _SherpaWorker()
 
 
 class AudioPipeline:
@@ -1156,53 +1230,13 @@ class AudioPipeline:
     def _synthesize_via_sherpa(
         self, text: str, *, voice: str, fmt: str,
     ) -> Optional[bytes]:
-        """进程隔离包装:实际合成在 **子进程** 跑。sherpa-onnx / onnxruntime 的
-        C++ 段错误(某些音色/模型会触发)只会杀子进程,**不连累 API 服务**;
-        子进程崩溃 / 超时 → 返 None 由 caller fallback。Python 的 try/except
-        接不住原生段错误,这是唯一可靠的"不崩服务"做法。
-        调试可设 CHAYUAN_TTS_INPROC=1 关掉隔离(进程内直跑,会暴露崩溃)。"""
+        """进程隔离 + 模型常驻:实际合成在**长驻子进程**(_SHERPA_WORKER)里跑,
+        模型只加载一次、批量复用(VG 批量不再每条重载 ~1-2s);sherpa-onnx /
+        onnxruntime 的 C++ 段错误只杀该子进程并自动重启,**不连累 API 服务**;
+        崩溃 / 超时返 None 由 caller fallback。CHAYUAN_TTS_INPROC=1 关隔离(调试)。"""
         if os.environ.get("CHAYUAN_TTS_INPROC", "").strip().lower() in ("1", "true", "yes"):
             return self._synthesize_via_sherpa_inproc(text, voice=voice, fmt=fmt)
-        import multiprocessing as _mp
-        import tempfile as _tf
-        out_path = None
-        try:
-            fd, out_path = _tf.mkstemp(prefix="chayuan_sherpa_", suffix=".bin")
-            os.close(fd)
-            proc = _mp.get_context("spawn").Process(
-                target=_sherpa_subprocess_entry,
-                args=(text, voice, fmt, out_path),
-                daemon=True,
-            )
-            proc.start()
-            proc.join(timeout=180)
-            if proc.is_alive():
-                proc.terminate()
-                proc.join(5)
-                logger.warning("[tts:sherpa] 子进程超时(>180s),已终止")
-                return None
-            if proc.exitcode != 0:
-                logger.warning(
-                    "[tts:sherpa] 子进程退出码=%s(负值=原生崩溃/被信号杀,已隔离,服务不受影响)",
-                    proc.exitcode,
-                )
-                return None
-            try:
-                with open(out_path, "rb") as _f:
-                    data = _f.read()
-            except OSError:
-                data = b""
-            return data or None
-        except Exception as e:  # noqa: BLE001
-            # 调度本身失败(mp 不可用等)——为"不崩服务"优先,不回退进程内,直接判失败。
-            logger.warning("[tts:sherpa] 子进程隔离调度失败,判合成失败: %r", e)
-            return None
-        finally:
-            if out_path:
-                try:
-                    os.remove(out_path)
-                except OSError:
-                    pass
+        return _SHERPA_WORKER.synth(text, voice, fmt)
 
     def _synthesize_via_sherpa_inproc(
         self, text: str, *, voice: str, fmt: str,
