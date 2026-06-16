@@ -108,6 +108,23 @@ def init_logging() -> None:
     if not root.handlers:
         root.addHandler(logging.StreamHandler())
 
+    # 文件 sink:把标准 logging 全量落到 <CHAYUAN_ROOT>/data/logs/chayuan-server.log,
+    # 补齐「只有 loguru 写文件、标准 logging 只去 stdout」导致 data/logs 日志不全的缺口。
+    # (放在下方 formatter/filter 循环之前,让该 handler 也自动获得统一 formatter + rid。)
+    try:
+        from logging.handlers import RotatingFileHandler
+        from chayuan.settings import Settings as _S
+        _log_dir = _S.basic_settings.LOG_PATH
+        _log_dir.mkdir(parents=True, exist_ok=True)
+        if not any(isinstance(h, RotatingFileHandler) for h in root.handlers):
+            _fh = RotatingFileHandler(
+                str(_log_dir / "chayuan-server.log"),
+                maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8",
+            )
+            root.addHandler(_fh)
+    except Exception:  # noqa: BLE001
+        pass  # 文件 sink 失败不影响 stdout 日志
+
     rid_filter = RequestIdFilter()
     if json_logs:
         fmt: logging.Formatter = JsonFormatter()
