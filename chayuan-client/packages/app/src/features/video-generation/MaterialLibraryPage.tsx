@@ -354,9 +354,20 @@ const MaterialGridCard: React.FC<{
           {m.duration_ms ? ` · ${Math.round(m.duration_ms / 1000)}s` : ''}
         </p>
       </div>
-      {selected && (
-        <span className="absolute right-2 top-2 inline-block h-5 w-5 rounded-full border-2 border-white bg-[var(--cy-brand-500)] shadow"></span>
-      )}
+      {/* 选中态用复选框样式(始终可见空框,选中打勾)— 取代原来"奇怪"的实心圆点 */}
+      <span
+        aria-hidden="true"
+        className={
+          'pointer-events-none absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-[5px] border-2 shadow transition-colors ' +
+          (selected
+            ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-500)] text-white'
+            : 'border-white bg-black/25 text-transparent')
+        }
+      >
+        <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3">
+          <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
     </button>
   </li>
 );
