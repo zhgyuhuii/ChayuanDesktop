@@ -555,13 +555,18 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     const user = msgs[msgs.length - 2];
     const userText = user && user.role === 'user' ? user.content : '';
     if (!userText) return;
-    // 预过滤:省掉纯问答的 LLM 调用
-    const actionable = keywordIntent(userText) !== null
-      || /生成|帮我做|帮我写|画[一张幅]|合成|转语音|配音|做[个张一]|朗读|读一下|视频|图片|图像|海报|插画/.test(userText);
-    if (!actionable) return;
-    const chatModelId = pickBestModel(byCapRef.current.get('chat'))?.id ?? null;
     const asstId = last.id;
     const asstText = last.content;
+    // 关键词已明确命中 → 立即同步开面板(不等 LLM,避免 chatCompletion 超时/卡导致不出)
+    const kw = keywordIntent(userText);
+    if (kw && ACTION_TYPES[kw]) {
+      setActionPanels((p) => (p[asstId] ? p : { ...p, [asstId]: { type: kw, prompt: asstText } }));
+      return;
+    }
+    // 无明确关键词但像是要产出 → 用对话模型判意图(失败回退不开)
+    const actionable = /生成|帮我做|帮我写|画[一张幅]|做[个张一]|海报|插画|配图/.test(userText);
+    if (!actionable) return;
+    const chatModelId = pickBestModel(byCapRef.current.get('chat'))?.id ?? null;
     void detectActionIntent({ userText, assistantText: asstText, chatModelId }).then((r) => {
       if (r.type !== 'none' && ACTION_TYPES[r.type]) {
         setActionPanels((p) => (p[asstId] ? p : { ...p, [asstId]: { type: r.type as ActionTypeKey, prompt: r.prompt || asstText } }));
