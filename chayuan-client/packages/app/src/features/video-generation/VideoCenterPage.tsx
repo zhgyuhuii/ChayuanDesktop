@@ -84,6 +84,7 @@ export const VideoCenterPage: React.FC = () => {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 暂隐藏,保留待恢复
   const onCopyRedo = (v: VgVideo) => {
     const merged: VgVideoParams = { ...VG_DEFAULT_PARAMS, ...(v.params_snapshot as Partial<VgVideoParams>) };
     patchParams(merged);
@@ -226,7 +227,8 @@ export const VideoCenterPage: React.FC = () => {
               onToggleSelect={() => toggleSel(u.key)}
               onDownload={() => void onDownload(u)}
               onDelete={() => void onDelete(u)}
-              onCopyRedo={u.source === 'vg' ? () => onCopyRedo(u.raw as VgVideo) : undefined}
+              // 「用参数重做」暂隐藏:参数未正确传回,修好前不在视频中心卡片暴露(逻辑保留:onCopyRedo)
+              onCopyRedo={undefined}
             />
           ))}
         </ul>
