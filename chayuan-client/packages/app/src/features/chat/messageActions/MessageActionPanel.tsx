@@ -36,6 +36,16 @@ export const MessageActionPanel: React.FC<{
     if (best) setPickedModel(best.platform_name ? `${best.platform_name}::${best.id}` : best.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pickModels.length]);
+  const [refImg, setRefImg] = React.useState<{ mime: string; dataB64: string; preview: string } | null>(null);
+  const refInputRef = React.useRef<HTMLInputElement | null>(null);
+  const onPickRef = async (file: File | undefined) => {
+    if (!file) return;
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf); const CH = 0x8000; let bin = '';
+    for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode(...bytes.subarray(i, i + CH));
+    const b64 = btoa(bin);
+    setRefImg({ mime: file.type || 'image/png', dataB64: b64, preview: `data:${file.type || 'image/png'};base64,${b64}` });
+  };
   const [busy, setBusy] = React.useState(false);
   const [artifact, setArtifact] = React.useState<GeneratedArtifact | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
@@ -54,10 +64,12 @@ export const MessageActionPanel: React.FC<{
       const baseUrl = getClientConfig().baseURL || '';
       const model = def.usesModelPicker ? pickedModel : def.buildModel(settings);
       if (!model) { setErr('请选择生成模型'); setBusy(false); return; }
+      if (def.needsRefImage && !refImg) { setErr('请先上传参考图'); setBusy(false); return; }
       const stream = streamModality({
         model,
         prompt: text,
         params: def.buildParams(settings),
+        attachments: refImg ? [{ mime: refImg.mime, dataB64: refImg.dataB64 }] : undefined,
         baseUrl,
       }, ctrl.signal);
       let found: GeneratedArtifact | null = null;
@@ -104,6 +116,17 @@ export const MessageActionPanel: React.FC<{
               return <option key={val} value={val}>{m.platform_display_name ? `${m.platform_display_name} · ${m.id}` : m.id}</option>;
             })}
           </select>
+        </div>
+      )}
+      {def.needsRefImage && (
+        <div className="mb-2 flex items-center gap-2 text-[11px] text-[var(--cy-text-secondary)]">
+          <input ref={refInputRef} type="file" accept="image/*" className="hidden"
+            onChange={(e) => { void onPickRef(e.target.files?.[0]); e.target.value = ''; }} />
+          <button type="button" onClick={() => refInputRef.current?.click()}
+            className="inline-flex h-6 items-center gap-1 rounded-md border border-[var(--cy-border-subtle)] px-2 text-[10px] hover:bg-[var(--cy-surface-2)]">
+            上传参考图
+          </button>
+          {refImg && <img src={refImg.preview} alt="参考图" className="h-8 w-8 rounded object-cover" />}
         </div>
       )}
       <Settings value={settings} onChange={setSettings} />
