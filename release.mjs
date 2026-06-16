@@ -189,6 +189,23 @@ if (!has('--clients-only')) {
   summary.push('  提醒: lite=纯云零模型;standard=引擎+必带音色(其余模型用户下载);pro=全部模型离线。各档模型需构建机先 seed(sherpa/voxcpm 音色、字体等)。');
 }
 
+// models_seed 介质(pro 等带 GB 大模型的档):build.py 按 cap 把 EXTERNAL_CAPS 写到
+// chayuan-server/dist/models_seed/。收拢到 release/<ver>/seed/,用户烧/挂为卷标 CHAYUAN_FULL,
+// 首启从介质 seed 进数据目录。lite/standard 无大模型 → 该目录空,跳过。
+if (!has('--clients-only')) {
+  const seedSrc = path.join(ROOT, 'chayuan-server', 'dist', 'models_seed');
+  if (fs.existsSync(seedSrc) && fs.readdirSync(seedSrc).length) {
+    const seedDest = path.join(RELEASE_DIR, 'seed', 'models_seed');
+    fs.mkdirSync(path.dirname(seedDest), { recursive: true });
+    fs.rmSync(seedDest, { recursive: true, force: true });
+    fs.cpSync(seedSrc, seedDest, { recursive: true });
+    let bytes = 0;
+    const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const fp = path.join(d, e.name); if (e.isDirectory()) walk(fp); else bytes += fs.statSync(fp).size; } };
+    walk(seedDest);
+    summary.push(`models_seed 介质: ${path.relative(ROOT, seedDest)}/ (~${(bytes / 1048576).toFixed(0)}MB; 烧/挂为卷标 CHAYUAN_FULL, 首启自动 seed 进数据目录)`);
+  }
+}
+
 if (!has('--offline-only')) {
   requireFreeGB(ROOT, CLIENT_FREE_GB, '客户端(上传端+下载端)');
   const isMac = process.platform === 'darwin';
