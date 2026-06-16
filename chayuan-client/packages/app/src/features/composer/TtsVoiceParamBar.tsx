@@ -221,6 +221,11 @@ export const TtsVoiceParamBar: React.FC<{ compact?: boolean }> = ({ compact = fa
   const voiceName = typeof params.voice_name === 'string' ? params.voice_name : '';
   return (
     <div role="toolbar" aria-label="TTS 参数(本地)" className={cn('flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]', compact && 'gap-1')}>
+      <span className="opacity-60">语言</span>
+      <select value={language} onChange={(e) => setParams({ language: e.target.value })} className={selCls} title="语言">
+        {LANG_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+      </select>
+      <span className="mx-1 opacity-30">·</span>
       {engineChips}
       <VoicePicker
         value={{ voice_provider: vpProvider, voice_name: voiceName }}
@@ -236,9 +241,6 @@ export const TtsVoiceParamBar: React.FC<{ compact?: boolean }> = ({ compact = fa
       <span className="mx-1 opacity-30">·</span>
       {speedPopover}
       {volumePopover}
-      <select value={language} onChange={(e) => setParams({ language: e.target.value })} className={selCls} title="语言">
-        {LANG_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-      </select>
     </div>
   );
 };
