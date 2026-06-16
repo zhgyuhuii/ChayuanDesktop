@@ -106,15 +106,24 @@ def _vendor_root() -> Path:
         if (candidate / "services").is_dir():
             return candidate
 
-    # frozen 路径(PyInstaller):exe 同级 vendor/
+    # frozen 路径(PyInstaller / Tauri 装机):
+    # ⚠ Tauri 把 exe 放在 <Resources>/chayuan-server/,而 services / bundled_bgm /
+    #   bundled_models 等平铺在 <Resources>/(即 exe_dir 的【父级】)。所以不能只看
+    #   exe_dir —— 要在 exe_dir 及其上若干层里找。(此前只看 exe_dir 导致 bgm/字体/
+    #   imagemagick 全部"不存在",虽然实际已打进 Resources/。)
     try:
         exe_dir = Path(sys.executable).resolve().parent
-        candidate = exe_dir / "vendor"
-        if (candidate / "services").is_dir():
-            return candidate
-        # Tauri 装机后平铺:exe_dir 直接含 bundled_fonts / services / ...
-        if (exe_dir / "services").is_dir() or (exe_dir / "bundled_fonts").is_dir():
-            return exe_dir
+        for base in (exe_dir, exe_dir.parent, exe_dir.parent.parent):
+            if (base / "vendor" / "services").is_dir():
+                return base / "vendor"
+            # Tauri 平铺布局:base 直接含 services / bundled_bgm / bundled_models / bundled_fonts
+            if (
+                (base / "services").is_dir()
+                or (base / "bundled_bgm").is_dir()
+                or (base / "bundled_models").is_dir()
+                or (base / "bundled_fonts").is_dir()
+            ):
+                return base
     except Exception:  # noqa: BLE001
         pass
 
