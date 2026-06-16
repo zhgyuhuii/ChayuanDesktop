@@ -6,7 +6,9 @@ describe('keywordIntent', () => {
     expect(keywordIntent('帮我写段开场白并合成语音')).toBe('tts');
     expect(keywordIntent('读一下这段')).toBe('tts');
     expect(keywordIntent('生成一张猫的图')).toBe('t2i');
+    expect(keywordIntent('生成玻璃杯宣传图')).toBe('t2i');
     expect(keywordIntent('做个短视频')).toBe('t2v');
+    expect(keywordIntent('生成玻璃杯宣传视频')).toBe('t2v');
     expect(keywordIntent('让这张图动起来')).toBe('i2v');
     expect(keywordIntent('帮我改图换个背景')).toBe('image_edit');
     expect(keywordIntent('普通问题没有媒体')).toBe(null);

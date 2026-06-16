@@ -8,11 +8,11 @@ export type ActionTypeKey = 'tts' | 't2i' | 'image_edit' | 't2v' | 'i2v';
 export type IntentType = ActionTypeKey | 'none';
 
 const KW: Array<[RegExp, ActionTypeKey]> = [
-  [/合成语音|生成语音|转语音|朗读|读一下|读出来|配音/, 'tts'],
+  [/合成语音|生成.{0,8}语音|转语音|朗读|读一下|读出来|配音/, 'tts'],
   [/图生视频|让.{0,6}动起来/, 'i2v'],
-  [/生成视频|做.{0,4}视频|短视频/, 't2v'],
+  [/生成.{0,8}视频|做.{0,6}视频|短视频|宣传片|宣传视频/, 't2v'],
   [/图像编辑|改图|修图|p一下|抠图/, 'image_edit'],
-  [/生成.{0,8}图(?!文)|生成图|画一[张幅]|配图|做[张个]图|海报|插画/, 't2i'],
+  [/生成.{0,8}图(?!文)|画一[张幅]|配图|做[张个]图|海报|插画/, 't2i'],
 ];
 
 export function keywordIntent(text: string): ActionTypeKey | null {
