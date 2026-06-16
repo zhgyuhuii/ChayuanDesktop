@@ -3,10 +3,12 @@
  * 每类型自带:设置组件(受控)、默认设置、由设置构造 modality 的 model + params。
  */
 import * as React from 'react';
-import { Volume2 } from 'lucide-react';
+import { Volume2, Image as ImageIcon, Clapperboard } from 'lucide-react';
 import type { ModalityCapability } from '@chayuan/transport';
 import type { ActionTypeKey } from './intentDetect';
 import { TtsActionSettings, DEFAULT_TTS_SETTINGS, type TtsSettings } from './TtsActionSettings';
+import { ImageActionSettings, DEFAULT_IMAGE_SETTINGS, type ImageSettings } from './ImageActionSettings';
+import { VideoActionSettings, DEFAULT_VIDEO_SETTINGS, type VideoSettings } from './VideoActionSettings';
 
 export interface ActionTypeDef<S = unknown> {
   key: ActionTypeKey;
@@ -21,6 +23,8 @@ export interface ActionTypeDef<S = unknown> {
   buildParams: (s: S) => Record<string, unknown>;
   /** 产物 mediaType 前缀(用于面板内展示分发) */
   artifactKind: 'audio' | 'image' | 'video';
+  /** true 时面板显示「模型选择」(图像/视频选真模型);tts 用本地引擎不需要 */
+  usesModelPicker?: boolean;
 }
 
 const TTS_DEF: ActionTypeDef<TtsSettings> = {
@@ -40,7 +44,35 @@ const TTS_DEF: ActionTypeDef<TtsSettings> = {
   artifactKind: 'audio',
 };
 
+const T2I_DEF: ActionTypeDef<ImageSettings> = {
+  key: 't2i',
+  label: '生成图像',
+  icon: ImageIcon,
+  capability: 't2i',
+  Settings: ImageActionSettings,
+  defaultSettings: DEFAULT_IMAGE_SETTINGS,
+  buildModel: () => '', // 由面板模型选择决定
+  buildParams: (s) => ({ size: s.size, n: s.n }),
+  artifactKind: 'image',
+  usesModelPicker: true,
+};
+
+const T2V_DEF: ActionTypeDef<VideoSettings> = {
+  key: 't2v',
+  label: '生成视频',
+  icon: Clapperboard,
+  capability: 't2v',
+  Settings: VideoActionSettings,
+  defaultSettings: DEFAULT_VIDEO_SETTINGS,
+  buildModel: () => '',
+  buildParams: (s) => ({ size: s.size, duration: s.duration }),
+  artifactKind: 'video',
+  usesModelPicker: true,
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const ACTION_TYPES: Partial<Record<ActionTypeKey, ActionTypeDef<any>>> = {
   tts: TTS_DEF,
+  t2i: T2I_DEF,
+  t2v: T2V_DEF,
 };

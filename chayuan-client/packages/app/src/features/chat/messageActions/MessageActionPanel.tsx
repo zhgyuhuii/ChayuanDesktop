@@ -11,6 +11,7 @@ import { streamModality, isFilePart } from '@chayuan/transport';
 import { reportError } from '../../../store/errorDialog';
 import { downloadUrlAsFile } from '../../../lib/downloadMedia';
 import { ACTION_TYPES } from './actionTypes';
+import { useAvailableModelsByCapability, pickBestModel } from '../../home/capabilityCards/useAvailableModelsByCapability';
 import type { ActionTypeKey } from './intentDetect';
 
 export interface GeneratedArtifact { mediaType: string; url: string; metadata?: Record<string, unknown> }
@@ -25,6 +26,16 @@ export const MessageActionPanel: React.FC<{
   const [prompt, setPrompt] = React.useState(initialPrompt);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [settings, setSettings] = React.useState<any>(def?.defaultSettings);
+  const { byCap } = useAvailableModelsByCapability();
+  const pickModels = def?.usesModelPicker ? (byCap.get(def.capability) ?? []) : [];
+  const [pickedModel, setPickedModel] = React.useState<string>('');
+  React.useEffect(() => {
+    if (!def?.usesModelPicker) return;
+    if (pickedModel) return;
+    const best = pickBestModel(pickModels);
+    if (best) setPickedModel(best.platform_name ? `${best.platform_name}::${best.id}` : best.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickModels.length]);
   const [busy, setBusy] = React.useState(false);
   const [artifact, setArtifact] = React.useState<GeneratedArtifact | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
@@ -41,8 +52,10 @@ export const MessageActionPanel: React.FC<{
     const ctrl = new AbortController(); abortRef.current = ctrl;
     try {
       const baseUrl = getClientConfig().baseURL || '';
+      const model = def.usesModelPicker ? pickedModel : def.buildModel(settings);
+      if (!model) { setErr('请选择生成模型'); setBusy(false); return; }
       const stream = streamModality({
-        model: def.buildModel(settings),
+        model,
         prompt: text,
         params: def.buildParams(settings),
         baseUrl,
@@ -79,7 +92,20 @@ export const MessageActionPanel: React.FC<{
       </div>
       <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
         className="mb-2 w-full resize-y rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1.5 text-xs text-[var(--cy-text-primary)] focus-visible:outline-none"
-        placeholder="要合成/生成的文字…" />
+        placeholder="要合成/生成的文字/提示词…" />
+      {def.usesModelPicker && (
+        <div className="mb-2 flex items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
+          <span className="opacity-60">模型</span>
+          <select value={pickedModel} onChange={(e) => setPickedModel(e.target.value)}
+            className="h-6 max-w-[16rem] rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1.5 text-[10px] text-[var(--cy-text-primary)] focus-visible:outline-none">
+            {pickModels.length === 0 && <option value="">(无可用模型,去模型厂商配置)</option>}
+            {pickModels.map((m) => {
+              const val = m.platform_name ? `${m.platform_name}::${m.id}` : m.id;
+              return <option key={val} value={val}>{m.platform_display_name ? `${m.platform_display_name} · ${m.id}` : m.id}</option>;
+            })}
+          </select>
+        </div>
+      )}
       <Settings value={settings} onChange={setSettings} />
       <div className="mt-2 flex items-center gap-2">
         <button type="button" onClick={() => void onGenerate()} disabled={busy}
