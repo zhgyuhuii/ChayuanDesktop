@@ -42,6 +42,7 @@ import { startCapabilityChat } from './capabilityCards/startCapabilityChat';
 import { HomeFxLayer } from './homeFx/HomeFxLayer';
 import { CardAura } from './homeFx/CardAura';
 import { LicenseDialog } from '../license/LicenseDialog';
+import { ModelSupportHelpDialog } from '../composer/ModelSupportHelpDialog';
 
 // ── 5 张功能入口卡定义 ──────────────────────────────────────────────
 interface CapItem {
@@ -183,14 +184,18 @@ export const HomePage: React.FC = () => {
     return t('home.greeting.evening');
   }, [t]);
 
+  // 「AI视频生成」无 t2v 模型时打开「模型支持说明」(锚定文生视频 t2v 段),与文生视频能力卡一致
+  const [videoHelpOpen, setVideoHelpOpen] = React.useState(false);
+
   const onCapClick = (cap: CapItem) => {
     // AI视频生成块:开一个对话式 t2v(对话生成视频),不走普通路由 navigate。
     // 复用能力卡的「按模型类型开始对话」逻辑;无可用 t2v 模型则引导去模型厂商。
     if (cap.id === 'ai-video') {
       const best = pickBestModel(byCap.get('t2v'));
       if (!best) {
-        open('/marketplace', { title: '模型厂商', icon: 'server' });
-        void navigate({ to: '/marketplace' as never });
+        // 与「文生视频」能力卡一致:无可用 t2v 模型 → 打开「模型支持说明」并锚定到
+        // 文生视频(t2v)段,引导申请/配置;不再直接甩去模型厂商页(原行为与文生视频不一致)。
+        setVideoHelpOpen(true);
         return;
       }
       startCapabilityChat(
@@ -413,6 +418,8 @@ export const HomePage: React.FC = () => {
       {/* 激活弹窗 — 复用 LicenseDialog。app 与购买二维码保持一致(chat);
           激活时后端按序列号自身编码的模块发放权益,不受此 app 限制。 */}
       <LicenseDialog app="chat" open={licOpen} onOpenChange={setLicOpen} />
+      {/* 「AI视频生成」无 t2v 模型时引导:模型支持说明锚定文生视频段(与能力卡同一弹窗) */}
+      <ModelSupportHelpDialog open={videoHelpOpen} onOpenChange={setVideoHelpOpen} initialCap="t2v" />
     </div>
   );
 };
