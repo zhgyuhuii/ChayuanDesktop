@@ -45,7 +45,6 @@ export function ShareDialog({
   app,
   open,
   onOpenChange,
-  remainingFree,
   onBuy,
 }: ShareDialogProps): React.ReactElement {
   const [qr, setQr] = React.useState<string>('');
@@ -127,7 +126,7 @@ export function ShareDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>今日还可免费用 {remainingFree} 次</DialogTitle>
+          <DialogTitle>邀好友安装 · 解锁更多次数</DialogTitle>
           <DialogDescription>
             邀好友安装得次数；也可直接购买授权解除限制
           </DialogDescription>
