@@ -1150,13 +1150,11 @@ def sync_services(*, flavor: str = "full", target_triple: str | None = None) -> 
         shutil.rmtree(DESKTOP_SERVICES_DIR)
     DESKTOP_SERVICES_DIR.mkdir(parents=True, exist_ok=True)
 
-    # lite = 纯云:零本地模型 → 不打任何推理引擎 launcher(llama-server/whisper 等)。
-    # standard/pro 才打(它们带音色/可下载模型,需要本地引擎跑)。
+    # lite/standard/pro 一律同步推理引擎 launcher(llama-server / whisper-server 等):
+    # 引擎二进制本身只 ~50MB,带上后 lite 用户下个 GGUF 或对接本地服务即可本地跑
+    # (模型服务 / 语音识别引擎装机即在),不必纯云。模型权重才是大头,由
+    # sync_bundled_models 按 flavor 决定打不打;此处只管引擎二进制。
     flavor = (flavor or "full").strip().lower()
-    if flavor == "lite":
-        (DESKTOP_SERVICES_DIR / ".gitkeep").touch()
-        print("[build] flavor=lite(纯云)→ 不打推理引擎二进制", flush=True)
-        return
 
     if not SERVICES_SRC.is_dir():
         print(f"[build] 警告:services 源不存在 {SERVICES_SRC},集成版退化为空目录", flush=True)
@@ -1209,7 +1207,7 @@ def sync_services(*, flavor: str = "full", target_triple: str | None = None) -> 
             n_bytes += dst.stat().st_size
 
     mb = n_bytes / 1024 / 1024
-    flavor_tag = flavor  # flavor 已是字符串(lite 在上方提前 return,这里是 standard/full/pro)
+    flavor_tag = flavor  # flavor 已规范化(lite/standard/full/pro 都同步 services)
     print(
         f"[build] {flavor_tag}:services 已同步 {n_files} 个文件 ({mb:.1f} MB) "
         f"→ {DESKTOP_SERVICES_DIR}",
