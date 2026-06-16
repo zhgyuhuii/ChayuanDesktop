@@ -96,7 +96,7 @@ function requireFreeGB(dir, needGB, label) {
   }
 }
 const TIER_FREE_GB = { lite: 4, standard: 8, pro: 12 };
-const CLIENT_FREE_GB = 3;
+const CLIENT_FREE_GB = 8;  // 客户端要 Rust release 编译 + WiX 临时;3GB 太低(盘满时 light.exe 静默失败),提到 8
 
 // build-desktop 调用,带 CHAYUAN_BUILD_NO_BUMP=1(本脚本已决策版本,禁止它再 +1)。
 const WIN_FLAVOR_FLAG = { lite: '-LiteOnly', standard: '-StandardOnly', full: '-FullOnly' };
@@ -202,7 +202,7 @@ if (!has('--offline-only')) {
       // Tauri 2 自带 bundle_dmg.sh 在 macOS 14/15 上常因 osascript/hdiutil 挂掉(真错被吞,
       // 还会让整个 release 中断 —— 见 desktop 同坑,build-desktop.sh 早改走自研脚本)。
       // 这里客户端也只出 .app,再用项目自研 make-mac-dmg.sh(纯 hdiutil)产 dmg,稳定可重复。
-      run('pnpm tauri build --bundles app', appDir);
+      run('pnpm tauri build --bundles app --verbose', appDir);
       const macosDir = path.join(bundleDir, 'macos');
       const appBundle = fs.existsSync(macosDir)
         ? fs.readdirSync(macosDir).find((n) => n.endsWith('.app')) : null;
@@ -219,7 +219,7 @@ if (!has('--offline-only')) {
         console.warn(`  ${label} 未找到 .app(${macosDir}),跳过 dmg`);
       }
     } else {
-      run('pnpm tauri build', appDir);
+      run('pnpm tauri build --verbose', appDir);  // --verbose:WiX light.exe 失败时透出真实报错(否则 Tauri 只说 failed to run light.exe)
     }
     const arts = pickByExt(bundleDir, CLIENT_EXTS);
     if (!arts.length) { console.warn(`  未找到${label}安装器产物`); continue; }
