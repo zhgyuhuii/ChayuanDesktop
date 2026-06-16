@@ -94,8 +94,8 @@ export const BatchModePage: React.FC = () => {
         '前往"我的视频"查看进度',
       );
       // 跳"我的视频"看 N 个 task 进度
-      openTab('/video-generation/library', { title: '我的视频', icon: 'video' });
-      void navigate({ to: '/video-generation/library' as never });
+      openTab('/video-generation/videos', { title: '视频中心', icon: 'video' });
+      void navigate({ to: '/video-generation/videos' as never });
     } catch (e) {
       reportError(e as Error, '批量提交失败');
     } finally {
@@ -112,8 +112,8 @@ export const BatchModePage: React.FC = () => {
     void navigate({ to: '/video-generation/materials' as never });
   };
   const goLibrary = () => {
-    openTab('/video-generation/library', { title: '我的视频', icon: 'video' });
-    void navigate({ to: '/video-generation/library' as never });
+    openTab('/video-generation/videos', { title: '视频中心', icon: 'video' });
+    void navigate({ to: '/video-generation/videos' as never });
   };
 
   return (

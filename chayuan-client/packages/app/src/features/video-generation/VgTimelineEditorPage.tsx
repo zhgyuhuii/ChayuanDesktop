@@ -279,8 +279,8 @@ export const VgTimelineEditorPage: React.FC = () => {
 
   const afterSubmitNav = () => {
     notifySuccess('已提交合成', '前往「我的视频」看进度');
-    openTab('/video-generation/library', { title: '我的视频', icon: 'video' });
-    void navigate({ to: '/video-generation/library' as never });
+    openTab('/video-generation/videos', { title: '视频中心', icon: 'video' });
+    void navigate({ to: '/video-generation/videos' as never });
   };
 
   // ── 提交合成 ──

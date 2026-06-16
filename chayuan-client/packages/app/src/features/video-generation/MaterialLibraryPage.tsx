@@ -11,11 +11,12 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Library, LayoutGrid, LayoutList, Loader2, Trash2, Upload, X,
+  Library, LayoutGrid, LayoutList, Loader2, Trash2, Upload, X, KeyRound,
 } from 'lucide-react';
 import { videoGeneration, type VgMaterial } from '@chayuan/api';
 import { reportError, notifySuccess } from '../../store/errorDialog';
 import { confirmDialog } from '../../store/confirmDialog';
+import { OnlineSourceChips } from './sections/OnlineSourceChips';
 
 type View = 'grid' | 'list';
 type Source = 'all' | 'upload' | 'bundled' | 'pexels' | 'pixabay';
@@ -39,6 +40,7 @@ export const MaterialLibraryPage: React.FC = () => {
   const [view, setView] = React.useState<View>('grid');
   const [source, setSource] = React.useState<Source>('all');
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
+  const [keyMgrOpen, setKeyMgrOpen] = React.useState(false);
 
   const q = useQuery({
     queryKey: ['vg.materials', { source, page: 1, page_size: 100 }],
@@ -220,6 +222,23 @@ export const MaterialLibraryPage: React.FC = () => {
             <LayoutList className="h-3.5 w-3.5" />
           </button>
         </div>
+      </div>
+
+      {/* 在线素材源 API Key(去申请 / 设置)—— 复用 OnlineSourceChips */}
+      <div className="rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
+        <button type="button" onClick={() => setKeyMgrOpen((v) => !v)}
+          className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+          <KeyRound className="h-3.5 w-3.5" /> 在线源 API Key(去申请 / 设置)
+          <span className="ml-auto text-[var(--cy-text-tertiary)]">{keyMgrOpen ? '收起' : '展开'}</span>
+        </button>
+        {keyMgrOpen && (
+          <div className="px-2.5 pb-2.5">
+            <OnlineSourceChips
+              selected={source === 'pexels' || source === 'pixabay' ? source : ''}
+              onSelect={(n) => { if (n === 'pexels' || n === 'pixabay') setSource(n); }}
+            />
+          </div>
+        )}
       </div>
 
       {/* 上传中提示 */}

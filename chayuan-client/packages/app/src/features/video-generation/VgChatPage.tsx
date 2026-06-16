@@ -61,8 +61,8 @@ export const VgChatPage: React.FC<VgChatPageProps> = ({ conversationId = null })
     void navigate({ to: '/video-generation/materials' as never });
   }, [openTab, navigate]);
   const goLibrary = React.useCallback(() => {
-    openTab('/video-generation/library', { title: '我的视频', icon: 'video' });
-    void navigate({ to: '/video-generation/library' as never });
+    openTab('/video-generation/videos', { title: '视频中心', icon: 'video' });
+    void navigate({ to: '/video-generation/videos' as never });
   }, [openTab, navigate]);
 
   // ── VgMessageExtras 回调 ────────────────────────────────────
