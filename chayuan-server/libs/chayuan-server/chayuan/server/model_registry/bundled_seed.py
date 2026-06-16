@@ -368,4 +368,59 @@ def seed_bundled_models(*, target_dir: Optional[Path] = None) -> SeedReport:
     return report
 
 
-__all__ = ["SeedReport", "seed_bundled_models"]
+
+
+def seed_bundled_bgm(
+    *, target_dir=None, source_dir=None
+) -> "SeedReport":
+    """把随包内置 bgm(app 资源 vendor/bundled_bgm)种到
+    ``<CHAYUAN_ROOT>/video_generation/bgm``。与 seed_bundled_models 平行:
+    幂等、用户优先、只读源。``source_dir`` / ``target_dir`` 仅测试用注入。"""
+    report = SeedReport()
+    if source_dir is not None:
+        src = Path(source_dir)
+    else:
+        from chayuan.server.video_generation import binaries
+        bgm = binaries.get_bgm_dir()
+        src = Path(bgm) if bgm else None
+    if src is None or not src.is_dir():
+        logger.debug("[bundled-seed] bgm 源未找到,跳过")
+        return report
+    report.source = str(src)
+
+    if target_dir is not None:
+        dst = Path(target_dir)
+    else:
+        from chayuan.server.video_generation import _helpers
+        dst = Path(_helpers.song_dir())
+    report.target = str(dst)
+    try:
+        dst.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        msg = f"create bgm dir {dst}: {type(e).__name__}: {e}"
+        report.errors.append(msg)
+        logger.warning("[bundled-seed] %s", msg)
+        return report
+
+    _copy_tree(src, dst, "bgm", report)
+    if report.copied or report.errors:
+        logger.info(
+            "[bundled-seed] bgm src=%s -> dst=%s copied=%d skipped=%d errors=%d",
+            report.source, report.target,
+            len(report.copied), len(report.skipped), len(report.errors),
+        )
+    return report
+
+
+def seed_all_bundled(
+    *, models_target=None, bgm_target=None, bgm_source=None
+) -> dict:
+    """首启动统一 seed:模型(小 cap 随包 + 大 cap 外置介质,见 seed_bundled_models)
+    + bgm(随包)。返回 ``{"models": SeedReport, "bgm": SeedReport}``。"""
+    return {
+        "models": seed_bundled_models(target_dir=models_target),
+        "bgm": seed_bundled_bgm(target_dir=bgm_target, source_dir=bgm_source),
+    }
+
+
+__all__ = ["SeedReport", "seed_bundled_models", "seed_bundled_bgm", "seed_all_bundled"]
