@@ -2063,10 +2063,3 @@ def material_thumbnail(
     if not got:
         raise HTTPException(502, "thumbnail extract failed")
     return FileResponse(got, media_type="image/jpeg")
-
-
-@video_generation_router.get("/system-fonts")
-async def list_system_fonts_endpoint() -> Dict[str, Any]:
-    """列出系统可用字体(family + path),供字幕字体下拉使用 —— 替代随包 bundled_fonts。"""
-    from chayuan.server.video_generation import system_fonts
-    return {"fonts": system_fonts.list_system_fonts()}
