@@ -14,7 +14,9 @@ export function buildTimelineFromMaterials(
       const isHttp = /^https?:\/\//.test(m.url);
       const clip: VgTimelineClip = {
         id: `c${i}`,
-        source: isHttp ? { url: m.url } : { path: m.url },
+        // 优先 material_id(本地素材预览经 /file 解析;裸 path 浏览器/WKWebView 加载不了 → 轨道/预览空)。
+        source: m.material_id ? { material_id: m.material_id } : isHttp ? { url: m.url } : { path: m.url },
+        kind: m.kind === 'image' ? 'image' : 'video',
         track_start_ms: cursorMs,
         in_ms: 0,
         out_ms: 0,

@@ -217,7 +217,7 @@ const MineTab: React.FC<{
       <ul className={view === 'list' ? 'flex flex-col gap-1' : 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4'}>
         {items.map((m: VgMaterial) => {
           const url = m.path;
-          const item: VgMaterialInfo = { provider: m.source, url, duration: Math.round(m.duration_ms / 1000) };
+          const item: VgMaterialInfo = { provider: m.source, url, duration: Math.round(m.duration_ms / 1000), material_id: m.material_id, kind: isImg(m) ? 'image' : 'video' };
           const chosen = selected.some((s) => s.url === url);
           const fileUrl = vgMaterialFileUrl(m.material_id);
           const dragProps = {

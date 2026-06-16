@@ -49,6 +49,10 @@ export interface VgMaterialInfo {
   provider: string;
   url: string;
   duration: number;
+  /** 本地素材的 id —— 时间轴 clip 用它解析 /file 预览 URL(裸 path 浏览器加载不了)。在线素材无。 */
+  material_id?: string;
+  /** 素材类型 —— 预览据此判断图/视频(material_id 文件 URL 无扩展名判不出)。 */
+  kind?: 'image' | 'video' | 'audio';
   /** 在线搜索结果的预览缩略图 URL(本地素材为空)。 */
   image?: string;
 }
