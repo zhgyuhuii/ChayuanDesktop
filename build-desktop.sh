@@ -389,16 +389,25 @@ if [[ "$SKIP_MODEL_CHECK" != "1" ]] && command -v poetry >/dev/null 2>&1; then
     fi
     if [[ "$_has_full" == "1" ]]; then
         step '深度依赖(full): torch/torchvision/torchaudio/voxcpm + seed VoxCPM-0.5B'
-        ( cd "$SERVER_PKG_DIR" && poetry run pip install torch torchvision torchaudio ) \
-            || { fail 'torch 安装失败(full 数字人需要;spec _collect_required 会 fail-fast)'; exit 6; }
-        ( cd "$SERVER_PKG_DIR" && poetry run pip install voxcpm ) \
-            || { fail 'voxcpm 安装失败(full 克隆音色需要)'; exit 6; }
-        # voxcpm 依赖 gradio<7,>=6 → gradio 6 把 fastapi/starlette/python-multipart 顶到最新,
-        # 覆盖 chayuan-server 钉的 fastapi ~0.109.2 / python-multipart 0.0.9(nicegui 1.4.x 也要
-        # fastapi<0.110)→ sidecar 运行时崩。只用 voxcpm 推理(不碰 gradio),装完还原 web 栈
-        # (装 fastapi 带回兼容 starlette;gradio 留着但不 import/不打包)。
-        ( cd "$SERVER_PKG_DIR" && poetry run pip install "fastapi~=0.109.2" "python-multipart==0.0.9" ) \
-            || note 'web 栈还原失败 — sidecar 可能因 fastapi/nicegui 不匹配起不来'
+        # 幂等:已装则跳过。否则每次构建都重跑 pip(torch 巨大;voxcpm 更糟——它拖
+        # gradio<7,>=6,gradio6 反复把 fastapi/starlette/python-multipart/transformers/
+        # huggingface_hub 全顶到最新再被还原,既慢又 churn 环境(用户实测「装好的又装一次」)。
+        if ( cd "$SERVER_PKG_DIR" && poetry run python -c "import torch" ) >/dev/null 2>&1; then
+            note 'torch 已就绪,跳过安装'
+        else
+            ( cd "$SERVER_PKG_DIR" && poetry run pip install torch torchvision torchaudio ) \
+                || { fail 'torch 安装失败(full 数字人需要;spec _collect_required 会 fail-fast)'; exit 6; }
+        fi
+        if ( cd "$SERVER_PKG_DIR" && poetry run python -c "import voxcpm" ) >/dev/null 2>&1; then
+            note 'voxcpm 已就绪,跳过安装(免 gradio 依赖反复 churn 整个环境)'
+        else
+            ( cd "$SERVER_PKG_DIR" && poetry run pip install voxcpm ) \
+                || { fail 'voxcpm 安装失败(full 克隆音色需要)'; exit 6; }
+            # 只用 voxcpm 推理(不碰 gradio),装完还原被 gradio6 顶掉的 web 栈
+            # (fastapi ~0.109.2 / python-multipart 0.0.9;nicegui 1.4.x 也要 fastapi<0.110)。
+            ( cd "$SERVER_PKG_DIR" && poetry run pip install "fastapi~=0.109.2" "python-multipart==0.0.9" ) \
+                || note 'web 栈还原失败 — sidecar 可能因 fastapi/nicegui 不匹配起不来'
+        fi
         if [[ -f "$SERVER_DIR/scripts/seed_voxcpm.py" ]]; then
             ( cd "$SERVER_PKG_DIR" && poetry run python "$SERVER_DIR/scripts/seed_voxcpm.py" ) || note 'seed voxcpm 失败(不阻断)'
         fi

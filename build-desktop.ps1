@@ -1161,26 +1161,36 @@ if ($SkipInstallVendor -or $SkipModelCheck) {
         }
         if ($Flavors -contains 'full') {
             Write-Step '深度依赖(pro): 装 torch +cpu / torchaudio / voxcpm + seed VoxCPM-0.5B'
-            & poetry run pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host '[FAIL] torch +cpu 安装失败 — pro 数字人(Wav2Lip)需要,spec 会 fail-fast。' -ForegroundColor Red
-                Write-Host '  手动:cd chayuan-server\libs\chayuan-server; poetry run pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu' -ForegroundColor DarkYellow
-                Pop-Location; Restore-Console; exit 6
+            # 幂等:已装则跳过。voxcpm 拖 gradio<7,>=6,gradio6 反复把 fastapi/starlette/
+            # python-multipart/transformers/huggingface_hub 顶到最新再被还原,既慢又 churn
+            # 环境(用户实测「装好的又装一次」);torch 也巨大。已装就别重跑。
+            & poetry run python -c "import torch" *> $null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Note 'torch 已就绪,跳过安装'
+            } else {
+                & poetry run pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host '[FAIL] torch +cpu 安装失败 — pro 数字人(Wav2Lip)需要,spec 会 fail-fast。' -ForegroundColor Red
+                    Write-Host '  手动:cd chayuan-server\libs\chayuan-server; poetry run pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu' -ForegroundColor DarkYellow
+                    Pop-Location; Restore-Console; exit 6
+                }
             }
-            & poetry run pip install voxcpm
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host '[FAIL] voxcpm 安装失败 — pro 克隆音色需要,spec 会 fail-fast。' -ForegroundColor Red
-                Pop-Location; Restore-Console; exit 6
+            & poetry run python -c "import voxcpm" *> $null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Note 'voxcpm 已就绪,跳过安装(免 gradio 依赖反复 churn 整个环境)'
+            } else {
+                & poetry run pip install voxcpm
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host '[FAIL] voxcpm 安装失败 — pro 克隆音色需要,spec 会 fail-fast。' -ForegroundColor Red
+                    Pop-Location; Restore-Console; exit 6
+                }
+                # 只用 voxcpm 推理(voxcpm2_server 懒加载 `from voxcpm import VoxCPM`,不碰
+                # gradio),装完还原被 gradio6 顶掉的 web 栈(fastapi ~0.109.2 / python-multipart
+                # 0.0.9;nicegui 1.4.x 也要 fastapi<0.110),否则 sidecar nicegui/fastapi 不匹配崩。
+                Write-Step '深度依赖(pro): 还原 web 栈(voxcpm/gradio 顶版 fastapi 后)'
+                & poetry run pip install "fastapi~=0.109.2" "python-multipart==0.0.9"
+                if ($LASTEXITCODE -ne 0) { Write-Note 'web 栈还原失败 — sidecar 可能因 fastapi/nicegui 不匹配起不来,请手动:poetry run pip install "fastapi~=0.109.2" "python-multipart==0.0.9"' }
             }
-            # voxcpm 依赖 gradio<7,>=6 → gradio 6 硬要新版 fastapi,pip install voxcpm 会把
-            # fastapi/starlette/python-multipart 顶到最新,覆盖 chayuan-server 钉的
-            # fastapi ~0.109.2 / python-multipart 0.0.9(nicegui 1.4.x 也要 fastapi<0.110)
-            # → 打进 sidecar 后 nicegui/fastapi API 不匹配,运行时崩。我们只用 voxcpm 推理
-            # (voxcpm2_server 懒加载 `from voxcpm import VoxCPM`,不碰 gradio),装完把 web 栈
-            # 还原(装 fastapi 会带回兼容的 starlette;gradio 留着但 sidecar 不 import/不打包)。
-            Write-Step '深度依赖(pro): 还原 web 栈(voxcpm/gradio 顶版 fastapi 后)'
-            & poetry run pip install "fastapi~=0.109.2" "python-multipart==0.0.9"
-            if ($LASTEXITCODE -ne 0) { Write-Note 'web 栈还原失败 — sidecar 可能因 fastapi/nicegui 不匹配起不来,请手动:poetry run pip install "fastapi~=0.109.2" "python-multipart==0.0.9"' }
             $seedVox = Join-Path $ServerDir 'scripts\seed_voxcpm.py'
             if (Test-Path $seedVox) {
                 & poetry run python $seedVox
