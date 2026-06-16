@@ -45,7 +45,9 @@
       "bundled_models/**/*",
       "services/**/*",
       "tools/**/*",
+      "bundled_bgm/*",
       "bundled_bgm/**/*",
+      "bundled_video_clips/*",
       "bundled_video_clips/**/*"
     ],
     "icon": [
