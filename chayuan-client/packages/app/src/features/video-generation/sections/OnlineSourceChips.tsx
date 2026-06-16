@@ -10,13 +10,16 @@ import { Settings2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { videoGeneration, type VgSourceConfig } from '@chayuan/api';
 
 const KNOWN_SOURCES = [
-  { name: 'pexels',   label: 'Pexels',   needsKey: true },
-  { name: 'pixabay',  label: 'Pixabay',  needsKey: true },
-  { name: 'unsplash', label: 'Unsplash', needsKey: true },
-  { name: 'youtube',  label: 'YouTube',  needsKey: true },
-  { name: 'vimeo',    label: 'Vimeo',    needsKey: true },
-  { name: 'ytdlp',    label: 'yt-dlp (通用 URL)', needsKey: false },
+  { name: 'pexels',   label: 'Pexels',   needsKey: true,  applyUrl: 'https://www.pexels.com/api/new/' },
+  { name: 'pixabay',  label: 'Pixabay',  needsKey: true,  applyUrl: 'https://pixabay.com/api/docs/' },
+  { name: 'unsplash', label: 'Unsplash', needsKey: true,  applyUrl: 'https://unsplash.com/developers' },
+  { name: 'youtube',  label: 'YouTube',  needsKey: true,  applyUrl: 'https://console.cloud.google.com/apis/credentials' },
+  { name: 'vimeo',    label: 'Vimeo',    needsKey: true,  applyUrl: 'https://developer.vimeo.com/apps' },
+  { name: 'ytdlp',    label: 'yt-dlp (通用 URL)', needsKey: false, applyUrl: '' },
 ];
+const APPLY_URL: Record<string, string> = Object.fromEntries(
+  KNOWN_SOURCES.filter((s) => s.applyUrl).map((s) => [s.name, s.applyUrl]),
+);
 
 export const OnlineSourceChips: React.FC<{
   selected: string;
@@ -75,6 +78,12 @@ export const OnlineSourceChips: React.FC<{
         <div className="rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-xs">
           <p className="mb-1.5">
             为 <b>{editing}</b> 设置 API Key:
+            {APPLY_URL[editing] && (
+              <a href={APPLY_URL[editing]} target="_blank" rel="noopener noreferrer"
+                className="ml-1 font-medium text-[var(--cy-brand-600)] underline-offset-2 hover:underline">
+                去申请 Key ↗
+              </a>
+            )}
             {cfgByName.get(editing)?.has_api_key && (
               <span className="ml-1 text-emerald-600">
                 已配置(出于安全不回显;留空保存=保持不变,填写则覆盖)

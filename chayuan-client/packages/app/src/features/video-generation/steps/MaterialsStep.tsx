@@ -12,7 +12,7 @@
 import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Library, Search, Upload, X, CheckCircle2, Loader2, AlertCircle, Trash2, Eye, Link2, Play, Sparkles,
+  Library, Search, Upload, X, CheckCircle2, Loader2, AlertCircle, Trash2, Eye, Link2, Play, Sparkles, KeyRound,
 } from 'lucide-react';
 import {
   videoGeneration,
@@ -26,6 +26,7 @@ import { useVgComposer } from '../store/vgComposer';
 import { reportError } from '../../../store/errorDialog';
 import { confirmDialog } from '../../../store/confirmDialog';
 import { VG_MATERIAL_DND_MIME, type DraggedMaterial } from '../timeline/timelineEdit';
+import { OnlineSourceChips } from '../sections/OnlineSourceChips';
 
 /** 把素材拖拽 payload 写进 dataTransfer(时间轴视频轨 drop 区读)。 */
 function setDragData(e: React.DragEvent, m: DraggedMaterial) {
@@ -313,6 +314,28 @@ const MineTab: React.FC<{
 };
 
 // ─────────────────────────────────────────────────────────────────────
+/** 在线素材源 API Key 管理(去申请 + 设置 Key)——复用 OnlineSourceChips。可折叠。 */
+const OnlineKeyManager: React.FC<{ source: 'pexels' | 'pixabay'; onSelectSearchable: (n: 'pexels' | 'pixabay') => void }> = ({ source, onSelectSearchable }) => {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div className="rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
+      <button type="button" onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]">
+        <KeyRound className="h-3.5 w-3.5" /> 在线源 API Key(去申请 / 设置)
+        <span className="ml-auto text-[var(--cy-text-tertiary)]">{open ? '收起' : '展开'}</span>
+      </button>
+      {open && (
+        <div className="px-2.5 pb-2.5">
+          <OnlineSourceChips
+            selected={source}
+            onSelect={(n) => { if (n === 'pexels' || n === 'pixabay') onSelectSearchable(n); }}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
 // 在线搜索
 // ─────────────────────────────────────────────────────────────────────
 
@@ -359,6 +382,7 @@ const OnlineTab: React.FC<{
 
   return (
     <div className="space-y-3">
+      <OnlineKeyManager source={source} onSelectSearchable={(n) => setSource(n)} />
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex gap-1.5">
           {(['pexels', 'pixabay'] as const).map((s) => (
