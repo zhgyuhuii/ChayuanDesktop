@@ -131,11 +131,18 @@ export const VoicePicker: React.FC<{
         voice_rate: previewRate,
         voice_volume: previewVolume,
       });
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-      urlRef.current = URL.createObjectURL(r.blob);
+      // ⚠ Tauri WKWebView(macOS)不支持 blob: URL 作 <audio> 媒体源 → play() 报
+      // NotSupportedError。改用 data: URL(base64,内联),WKWebView 支持正常。
+      const wavBlob = r.blob.type ? r.blob : new Blob([r.blob], { type: 'audio/wav' });
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result as string);
+        fr.onerror = () => reject(fr.error ?? new Error('读取音频失败'));
+        fr.readAsDataURL(wavBlob);
+      });
       const a = audioRef.current ?? new Audio();
       audioRef.current = a;
-      a.src = urlRef.current;
+      a.src = dataUrl;
       await a.play();
     } catch (e) {
       reportError(e as Error, '试听失败');
