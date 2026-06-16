@@ -22,6 +22,7 @@
 //   node release.mjs --version-only   只调 bump-version.py 升/写版本
 //   node release.mjs --bd "<参数>"    透传给 build-desktop,如 --bd "-SkipModelCheck"
 //   node release.mjs --keep-iso      保留根目录原 ISO(默认拷进 release/offline 后删,省盘)
+//   node release.mjs --keep-dist     保留 dist-{flavor} 中间产物(默认收进 release/ 后删,避免双份)
 //
 // 双击:Windows 用 release.cmd,mac/Linux 用 release.sh。
 
@@ -184,6 +185,10 @@ if (!has('--clients-only')) {
         if (!n) { fs.rmdirSync(tierDir); console.error(`${distDir} 里没有文件可收`); process.exit(1); }
         summary.push(`离线包(${t}): ${path.relative(ROOT, tierDir)}/ (${n} 文件 ~${(bytes/1048576).toFixed(0)}MB,整目录分发)`);
       }
+    }
+    // 削峰:本档已收进 release/offline/,删 dist-{flavor} 中间产物,避免与 release/ 重复占用(--keep-dist 保留)
+    if (!has('--keep-dist')) {
+      try { fs.rmSync(path.join(ROOT, `dist-${fl}`), { recursive: true, force: true }); } catch { /* 忽略 */ }
     }
   }
   summary.push('  提醒: lite=纯云零模型;standard=引擎+必带音色(其余模型用户下载);pro=全部模型离线。各档模型需构建机先 seed(sherpa/voxcpm 音色、字体等)。');
