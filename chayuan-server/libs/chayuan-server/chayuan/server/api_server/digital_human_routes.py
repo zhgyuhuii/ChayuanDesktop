@@ -603,6 +603,30 @@ def delete_task(tid: str, drop_file: bool = Query(True),
     return {"ok": dh_jobs.delete_task(tid, drop_files=drop_file)}
 
 
+def _persist_material_file(src_path: str, stem: str) -> str:
+    """把 DH 产物从易失的任务目录拷进持久素材存储，返回新路径（失败回退原路径）。
+
+    DH 产物原落在 ``task_dir(dh-<tid>)``，会被 ``delete_task(drop_files=True)`` /
+    任务清理 ``rmtree`` 删掉；material 若直接指向那里，任务一删 ``serve_material_file``
+    就 404（前端「我的素材」预览弹问号）。拷进 ``storage/materials/`` 才持久，且
+    正好命中 serve_material_file 的 ``storage_dir('materials')/basename`` 兜底
+    （数据目录迁移后旧绝对路径失效也能按文件名救回）。文件名带 tid 去重，避免
+    多个 DH 产物都叫 digital_human.mp4 在素材目录撞名。
+    """
+    import shutil as _shutil
+    from chayuan.server.video_generation._helpers import storage_dir
+    try:
+        dst_dir = storage_dir("materials", create=True)
+        ext = os.path.splitext(src_path)[1] or ".mp4"
+        dst = os.path.join(dst_dir, f"{stem}{ext}")
+        if os.path.abspath(src_path) != os.path.abspath(dst):
+            _shutil.copy2(src_path, dst)
+        return dst
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[dh] 持久化素材失败，沿用任务目录路径: %r", e)
+        return src_path
+
+
 @digital_human_router.post("/tasks/{tid}/to-timeline")
 def task_to_timeline(tid: str = FPath(..., max_length=64),
                      user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
@@ -617,13 +641,14 @@ def task_to_timeline(tid: str = FPath(..., max_length=64),
         owner = _owner_id_of(user)
     except Exception:  # noqa: BLE001
         owner = None
+    persisted_main = _persist_material_file(st.result_path, f"dh-{tid}")
     row = materials_store.create_material(
         source="digital_human",
         name=os.path.basename(st.result_path),
-        path=st.result_path,
+        path=persisted_main,
         owner_id=owner,
         mime="video/mp4",
-        size=os.path.getsize(st.result_path),
+        size=os.path.getsize(persisted_main),
         tags=[f"dh_task_{tid}"],
     )
     result_material_id = row.get("material_id")
@@ -638,13 +663,15 @@ def task_to_timeline(tid: str = FPath(..., max_length=64),
             sp = seg.get("path") or ""
             if not sp or not os.path.isfile(sp):
                 raise FileNotFoundError(f"段文件缺失: {sp!r}")
+            sp_persisted = _persist_material_file(
+                sp, f"dh-{tid}-{os.path.splitext(os.path.basename(sp))[0]}")
             m = materials_store.create_material(
                 source="digital_human_role",
                 name=os.path.basename(sp),
-                path=sp,
+                path=sp_persisted,
                 owner_id=owner,
                 mime="video/mp4",
-                size=os.path.getsize(sp),
+                size=os.path.getsize(sp_persisted),
                 duration_ms=int(seg.get("duration_ms") or 0),
                 tags=[f"dh_task_{tid}", f"role_{seg.get('role_index')}"],
             )
