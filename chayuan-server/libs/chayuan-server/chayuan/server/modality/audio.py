@@ -222,7 +222,7 @@ if not _HAS_ZHCONV:
     )
 
 
-def _sherpa_worker_loop(conn):  # noqa: ANN001
+def _tts_worker_loop(conn):  # noqa: ANN001
     """长驻 sherpa 子进程主循环:持有一个 AudioPipeline(模型缓存常驻),逐条处理
     合成请求(text, voice, fmt)。原生崩溃只杀本子进程,父进程 _SherpaWorker 会检测并重启。"""
     try:
@@ -236,9 +236,10 @@ def _sherpa_worker_loop(conn):  # noqa: ANN001
             break
         if req is None:
             break
-        text, voice, fmt = req
+        engine, text, kwargs = req
         try:
-            data = pipe._synthesize_via_sherpa_inproc(text, voice=voice, fmt=fmt)
+            method = getattr(pipe, "_synthesize_via_%s_inproc" % engine)
+            data = method(text, **kwargs)
             conn.send(("ok", data))
         except BaseException as e:  # noqa: BLE001
             try:
@@ -247,7 +248,7 @@ def _sherpa_worker_loop(conn):  # noqa: ANN001
                 break
 
 
-class _SherpaWorker:
+class _TtsWorker:
     """长驻 sherpa 合成子进程管理器:模型常驻避免每条重载;子进程崩溃自动重启,
     隔离不崩主服务。synth 受 _lock 串行(synth CPU 绑定,批量任务排队即可)。"""
 
@@ -279,36 +280,36 @@ class _SherpaWorker:
         import multiprocessing as _mp
         ctx = _mp.get_context("spawn")
         parent_conn, child_conn = ctx.Pipe()
-        proc = ctx.Process(target=_sherpa_worker_loop, args=(child_conn,), daemon=True)
+        proc = ctx.Process(target=_tts_worker_loop, args=(child_conn,), daemon=True)
         proc.start()
         child_conn.close()
         self._proc, self._conn = proc, parent_conn
 
-    def synth(self, text, voice, fmt, timeout=180):  # noqa: ANN001
+    def synth(self, engine, text, kwargs, timeout=180):  # noqa: ANN001
         with self._lock:
             try:
                 self._ensure()
-                self._conn.send((text, voice, fmt))
+                self._conn.send((engine, text, kwargs))
                 if not self._conn.poll(timeout):
-                    logger.warning("[tts:sherpa] worker 超时(>%ss),重启", timeout)
+                    logger.warning("[tts:worker] %s worker 超时(>%ss),重启", engine, timeout)
                     self._kill()
                     return None
                 kind, payload = self._conn.recv()
             except (EOFError, OSError, BrokenPipeError) as e:
-                logger.warning("[tts:sherpa] worker 崩溃/管道断(已隔离,服务不受影响),重启: %r", e)
+                logger.warning("[tts:worker] %s worker 崩溃/管道断(已隔离,服务不受影响),重启: %r", engine, e)
                 self._kill()
                 return None
             except Exception as e:  # noqa: BLE001
-                logger.warning("[tts:sherpa] worker 调度异常,重启: %r", e)
+                logger.warning("[tts:worker] %s worker 调度异常,重启: %r", engine, e)
                 self._kill()
                 return None
             if kind == "ok":
                 return payload or None
-            logger.warning("[tts:sherpa] 合成失败: %s", payload)
+            logger.warning("[tts:worker] %s 合成失败: %s", engine, payload)
             return None
 
 
-_SHERPA_WORKER = _SherpaWorker()
+_TTS_WORKER = _TtsWorker()
 
 
 class AudioPipeline:
@@ -983,6 +984,16 @@ class AudioPipeline:
     def _synthesize_via_voxcpm(
         self, text: str, *, prompt_wav: str, fmt: str,
     ) -> Optional[bytes]:
+        """进程隔离 + 模型常驻包装(同 sherpa):实际推理在长驻 worker 子进程跑,
+        voxcpm 原生崩溃(CPU SDPA 等)只杀子进程并自动重启,不连累 API 服务;
+        失败返 None 由 caller fallback piper。CHAYUAN_TTS_INPROC=1 关隔离(调试)。"""
+        if os.environ.get("CHAYUAN_TTS_INPROC", "").strip().lower() in ("1", "true", "yes"):
+            return self._synthesize_via_voxcpm_inproc(text, prompt_wav=prompt_wav, fmt=fmt)
+        return _TTS_WORKER.synth("voxcpm", text, {"prompt_wav": prompt_wav, "fmt": fmt})
+
+    def _synthesize_via_voxcpm_inproc(
+        self, text: str, *, prompt_wav: str, fmt: str,
+    ) -> Optional[bytes]:
         """VoxCPM 0.5B 本地音色克隆。prompt_wav = 参考人声路径(空=默认音色)。
         in-process 推理(与 sherpa 同模式),失败返 None 由 caller fallback piper。
         """
@@ -1236,7 +1247,7 @@ class AudioPipeline:
         崩溃 / 超时返 None 由 caller fallback。CHAYUAN_TTS_INPROC=1 关隔离(调试)。"""
         if os.environ.get("CHAYUAN_TTS_INPROC", "").strip().lower() in ("1", "true", "yes"):
             return self._synthesize_via_sherpa_inproc(text, voice=voice, fmt=fmt)
-        return _SHERPA_WORKER.synth(text, voice, fmt)
+        return _TTS_WORKER.synth("sherpa", text, {"voice": voice, "fmt": fmt})
 
     def _synthesize_via_sherpa_inproc(
         self, text: str, *, voice: str, fmt: str,
