@@ -6,6 +6,8 @@
 import * as React from 'react';
 import { Loader2, CircleCheck, AlertTriangle, Square, Download } from 'lucide-react';
 import { videoGeneration, vgTaskFileUrl, type VgTask } from '@chayuan/api';
+import { getPlatform } from '@chayuan/platform-shared';
+import { reportError } from '../../store/errorDialog';
 
 const STEP_LABELS: Record<number, string> = {
   5: '准备', 10: '生成脚本', 20: '生成关键词', 35: '语音合成',
@@ -67,10 +69,20 @@ export const RenderProgressCard: React.FC<RenderProgressCardProps> = ({ taskId, 
                   className="w-full bg-black" style={{ aspectRatio: '9 / 16', maxHeight: '40vh' }} />
                 <div className="flex items-center justify-between gap-2 p-1.5 text-[10px]">
                   <span className="truncate">{name}</span>
-                  <a href={vgTaskFileUrl(taskId, name, true)} download
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      // Tauri WKWebView 不支持 <a download> 存盘 → 统一 fetch blob + saveBinary(弹原生保存框)
+                      try {
+                        const { blob } = await videoGeneration.downloadTaskFile(taskId, name);
+                        await getPlatform().fs.saveBinary(name, blob);
+                      } catch (e) {
+                        reportError(e as Error, '下载失败');
+                      }
+                    }}
                     className="inline-flex items-center gap-0.5 rounded border border-[var(--cy-border-subtle)] px-1.5 py-0.5">
                     <Download className="h-3 w-3" /> 下载
-                  </a>
+                  </button>
                 </div>
               </li>
             );
