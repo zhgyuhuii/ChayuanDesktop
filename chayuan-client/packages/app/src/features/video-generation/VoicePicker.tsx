@@ -88,7 +88,11 @@ export const VoicePicker: React.FC<{
   React.useEffect(() => {
     if (voices.length === 0) return;
     if (voices.some((v) => v.id === value.voice_name)) return;
-    onChange({ ...value, voice_name: voices[0]!.id });
+    // 语言「自动」(未过滤)时不能直接取 voices[0] —— piper 音色按字母序首个常是非中文
+    // (ar_/de_/en_…),拿它念中文会乱码。优先挑中文音色作默认;挑不到再退第一个。
+    // (选了具体语言时 voices 已按语言过滤,find 命中即该语言首个,行为不变。)
+    const pick = voices.find((v) => (v.language || '').toLowerCase().startsWith('zh')) ?? voices[0]!;
+    onChange({ ...value, voice_name: pick.id });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, value.voice_provider, allVoices.length]);
 
