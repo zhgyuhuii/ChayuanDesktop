@@ -1218,6 +1218,15 @@ def main(all, api, config, single_machine):
             )
             _db_ready = False
 
+        # 启动期写探测:DB 只读 / 打不开时打一条醒目可操作错误(带 chown 命令),把
+        # 根因从"之后每个请求 500 刷屏"提前到启动期。不阻断启动(配置面板仍可起)。
+        # 即便 create_tables 已因只读失败(_db_ready=False),这条也会跑、给出修复指引。
+        try:
+            from chayuan.server.db.base import probe_db_writable
+            probe_db_writable()
+        except Exception as _e:  # noqa: BLE001
+            logger.debug("db 写探测调用异常(忽略):%r", _e)
+
         if _db_ready:
             # P3：在 create_tables 之后跑幂等 schema 迁移（加列 / 建用户表 / 建授权表 /
             # 建配置中心表）。任何一步失败都只记日志，不影响服务继续起来。

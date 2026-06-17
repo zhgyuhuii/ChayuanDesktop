@@ -149,6 +149,60 @@ engine = _build_engine()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+
+def probe_db_writable() -> bool:
+    """启动期探一次主 DB 是否真能写:取一次写锁(``BEGIN IMMEDIATE``)再 ``ROLLBACK``,
+    不改数据。只读 / 打不开时打一条醒目可操作的错误(带库路径 + chown 命令)并返回
+    False;正常返回 True。
+
+    背景:数据目录被某次 sudo/root 进程建成 root 属主后,普通用户跑 sidecar 写不动,
+    之后**每个** DB 请求(知识库 / 视频任务 / 配置保存)都 500 刷屏却看不出根因。这里
+    把它提前到启动期一条大字报。不抛、不阻断启动(配置面板仍可起来供用户修)。transient
+    的 busy/locked 不算(避免误报)。用 raw_connection 绕开 SQLAlchemy 隐式事务。
+    """
+    import logging as _logging
+    _log = _logging.getLogger("chayuan.server.db")
+    _raw = None
+    try:
+        _raw = engine.raw_connection()
+        _cur = _raw.cursor()
+        _cur.execute("BEGIN IMMEDIATE")
+        _cur.execute("ROLLBACK")
+        _cur.close()
+        return True
+    except Exception as e:  # noqa: BLE001
+        _m = str(e).lower()
+        if not ("readonly" in _m or "read-only" in _m or "unable to open" in _m):
+            # busy / locked / 非权限类 —— 不是只读/打不开,别误报
+            _log.debug("[db-probe] 写探测非权限类异常,忽略:%r", e)
+            return True
+        try:
+            _db_path = engine.url.database or ""
+        except Exception:  # noqa: BLE001
+            _db_path = ""
+        _data_dir = os.path.dirname(_db_path) if _db_path else "<CHAYUAN_ROOT>/data"
+        _banner = (
+            "\n==================== 察元 数据库不可写 ====================\n"
+            f"主数据库写入被拒:{type(e).__name__}: {e}\n"
+            f"  库文件:{_db_path or '<未知>'}\n"
+            "几乎都是数据目录被 root / 别的用户拥有(某次 sudo 或打包进程建的),\n"
+            "当前进程写不动 -> 之后每个 DB 请求都会 500(知识库 / 视频任务 / 配置保存)。\n"
+            "修复(改回自己属主后重启服务):\n"
+            f'  sudo chown -R "$(whoami)" "{_data_dir}"\n'
+            "本次不阻断启动,配置面板仍可打开。\n"
+            "========================================================\n"
+        )
+        _log.error(_banner)
+        sys.stderr.write(_banner)
+        sys.stderr.flush()
+        return False
+    finally:
+        if _raw is not None:
+            try:
+                _raw.close()
+            except Exception:  # noqa: BLE001
+                pass
+
 Base: DeclarativeMeta = declarative_base()
 
 
