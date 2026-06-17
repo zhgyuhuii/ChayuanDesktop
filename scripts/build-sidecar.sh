@@ -6,19 +6,32 @@
 #                torch 半套或缺 -> 自动重装完整版再打;装不全则中止(绝不打残包)。
 #   --lite     :不打 torch(音色试听 piper/edge/sherpa 都不需要;chat 改运行时下载)。
 #
+# 用哪个 python:默认用**当前激活**的 python(你现在是 conda py312)。要换:
+#   CHAYUAN_PY="poetry run python" bash scripts/build-sidecar.sh
+#
 # 用法:
 #   bash scripts/build-sidecar.sh                       # full(带 torch)
 #   bash scripts/build-sidecar.sh --lite                # lite(不带 torch)
-#   FORCE_TORCH_REINSTALL=1 bash scripts/build-sidecar.sh   # 强制重装 torch 再打
+#   FORCE_TORCH_REINSTALL=1 bash scripts/build-sidecar.sh
 set -u
 
-cd "$(cd "$(dirname "$0")/.." && pwd)"   # 仓库根
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_PY="$REPO/chayuan-server/packaging/pyinstaller/build.py"
+PY="${CHAYUAN_PY:-python}"          # 当前激活的 python;可 CHAYUAN_PY 覆盖
 LITE=""
 [ "${1:-}" = "--lite" ] && LITE="--lite"
 
+if [ ! -f "$BUILD_PY" ]; then
+  echo "[FAIL] 找不到 $BUILD_PY —— 在仓库根目录跑本脚本。"; exit 1
+fi
+echo "== 用 python: $PY ($($PY -c 'import sys;print(sys.version.split()[0])' 2>/dev/null || echo '?'))"
+if ! $PY -c 'import PyInstaller' >/dev/null 2>&1; then
+  echo "[FAIL] 这个 python 里没装 PyInstaller(构建依赖不全)。确认你在能跑 server 的那个 env(py312),"
+  echo "       或 CHAYUAN_PY=... 指定正确 python。"; exit 1
+fi
+
 torch_state() {
-  # 输出 COMPLETE / HALF / MISSING
-  poetry run python - <<'PY' 2>/dev/null
+  $PY - <<'PY' 2>/dev/null
 import os, sys
 try:
     import torch
@@ -30,25 +43,22 @@ PY
 }
 
 reinstall_torch() {
-  if [ "$(uname -s)" = "Darwin" ]; then
-    src=""   # macOS(arm64/x86)默认 PyPI 就是对的 wheel,**不要**用 /whl/cpu(没 mac arm64)
-  else
-    src="--index-url https://download.pytorch.org/whl/cpu"
-  fi
-  echo "   -> 装完整 CPU torch ($([ -n "$src" ] && echo "$src" || echo "默认 PyPI"))..."
-  poetry run pip install --force-reinstall --no-cache-dir torch torchvision torchaudio $src
+  if [ "$(uname -s)" = "Darwin" ]; then src=""    # macOS 默认 PyPI 才有 arm64 wheel
+  else src="--index-url https://download.pytorch.org/whl/cpu"; fi
+  echo "   -> 装完整 torch ($([ -n "$src" ] && echo "$src" || echo "默认 PyPI"))..."
+  $PY -m pip install --force-reinstall --no-cache-dir torch torchvision torchaudio $src
 }
 
 if [ -z "$LITE" ]; then
   echo "== full 构建:体检 torch =="
-  st="$(torch_state)"; echo "   torch 状态: ${st:-未知}"
+  st="$(torch_state)"; echo "   torch 状态: ${st:-读取失败}"
   if [ "$st" != "COMPLETE" ] || [ "${FORCE_TORCH_REINSTALL:-0}" = "1" ]; then
     echo "   ($st / 或强制) -> 重装 torch"
     reinstall_torch
-    st="$(torch_state)"; echo "   重装后 torch 状态: ${st:-未知}"
+    st="$(torch_state)"; echo "   重装后 torch 状态: ${st:-读取失败}"
     if [ "$st" != "COMPLETE" ]; then
       echo "[FAIL] torch 仍非 COMPLETE。**别 full 打包**(会出起不来的残包)。"
-      echo "       要么继续修 torch,要么改用:  bash scripts/build-sidecar.sh --lite"
+      echo "       继续修 torch,或改用:  bash scripts/build-sidecar.sh --lite"
       exit 1
     fi
   fi
@@ -57,13 +67,10 @@ else
   echo "== lite 构建:跳过 torch(piper/edge/sherpa 不需要;chat 运行时下载)=="
 fi
 
-echo "== 运行: poetry run python packaging/pyinstaller/build.py $LITE --offline =="
-poetry run python packaging/pyinstaller/build.py $LITE --offline
+echo "== 运行: $PY $BUILD_PY $LITE --offline =="
+$PY "$BUILD_PY" $LITE --offline
 rc=$?
-if [ "$rc" != "0" ]; then
-  echo "[FAIL] build.py 退出码 $rc,看上方报错。"
-  exit "$rc"
-fi
+[ "$rc" != "0" ] && { echo "[FAIL] build.py 退出码 $rc,看上方报错。"; exit "$rc"; }
 echo
-echo "== 构建完成。下一步:用新产物替换/重装 App -> **完全退出再重开** -> 验证 =="
-echo "   ./scripts/check-tts.sh        # 先看版本是否 >=2.0.114,再看四档"
+echo "== 构建完成。替换/重装 App -> **完全退出再重开** -> 验证: =="
+echo "   ./scripts/check-tts.sh"
