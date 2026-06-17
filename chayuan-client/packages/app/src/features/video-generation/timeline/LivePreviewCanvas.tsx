@@ -108,6 +108,8 @@ export const LivePreviewCanvas: React.FC<{
   cues?: SrtCue[];
 }> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, backgroundColor = '#000000', overlays, selectedOverlayIds = [], onSelectOverlay, onOverlayTransform, cues }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
+  // 叠加文字编辑态:**双击**才进编辑(contentEditable),单击只选中/可拖。
+  const [editingOvId, setEditingOvId] = React.useState<string | null>(null);
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
   const cue = (cues ?? []).find((c) => playheadMs >= c.startMs && playheadMs < c.endMs);
   const anyVisible = videoTracks.some((tr) => clipAt(tr.clips, playheadMs));
@@ -270,6 +272,7 @@ export const LivePreviewCanvas: React.FC<{
       {/* 叠加元素(A 期文字):命中时间段才渲染;选中显几何手柄;双击文字改字 */}
       {activeOverlays.map((ov) => {
         const sel = selectedOverlayIds.includes(ov.id);
+        const editing = editingOvId === ov.id && sel;
         const opos = (ov.keyframes && ov.keyframes.length >= 2) ? overlayPosAt(ov, playheadMs) : { x: ov.x, y: ov.y, w: ov.w, h: ov.h };
         return (
           <div key={ov.id} data-cy-overlay className={'absolute ' + (sel ? '' : 'cursor-move')}
@@ -281,12 +284,12 @@ export const LivePreviewCanvas: React.FC<{
             onClick={(e) => { if (e.ctrlKey || e.metaKey) onSelectOverlay?.(ov.id, true); }}>
             {ov.type === 'text' && (
               <div
-                contentEditable={sel}
+                contentEditable={editing}
                 suppressContentEditableWarning
-                onDoubleClick={(e) => { (e.currentTarget as HTMLElement).focus(); }}
-                onBlur={(e) => onOverlayTransform?.(ov.id, { text: (e.currentTarget.textContent || '').trim() })}
-                onPointerDown={(e) => { if (sel && selectedOverlayIds.length === 1) e.stopPropagation(); }}
-                className="flex h-full w-full items-center outline-none"
+                onDoubleClick={(e) => { const el = e.currentTarget as HTMLElement; setEditingOvId(ov.id); requestAnimationFrame(() => el.focus()); }}
+                onBlur={(e) => { setEditingOvId((cur) => (cur === ov.id ? null : cur)); onOverlayTransform?.(ov.id, { text: (e.currentTarget.textContent || '').trim() }); }}
+                onPointerDown={(e) => { if (editing) e.stopPropagation(); }}
+                className={'flex h-full w-full items-center outline-none ' + (editing ? 'cursor-text' : '')}
                 style={{
                   color: ov.text_color || '#fff', fontSize: `${(ov.font_size ?? 48) / 10}cqw`,
                   fontFamily: ov.font_name || undefined,
