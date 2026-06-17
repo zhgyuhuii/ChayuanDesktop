@@ -401,6 +401,40 @@ async def list_models(type: Optional[str] = None, check_access: bool = False) ->
     except Exception as e:  # noqa: BLE001
         logger.debug("local_index 注入失败,跳过:%r", e)
 
+    # 折叠「全路径 vs 裸 basename」的本地重复:同一本地模型有时被两条命名路径
+    # 各列一次 —— 一条 local-<cap> 平台用全路径 models/bundled/chat/<name>(sidecar /
+    # auto_assign / local_index 都用它,可路由),一条裸 <name>(老 local 命名空间)。
+    # 「脚本选模型」等下拉因此出现两条同名。按 (model_type, basename) 分组,仅当同组
+    # 同时存在「带路径分隔符的全路径条」+「裸 basename 条」且两条都属本地(platform_name
+    # 以 'local' 开头)时,丢弃裸 basename 条、保留全路径条。只动本地条,绝不碰厂商平台,
+    # 避免误删不同厂商的同名模型。
+    try:
+        import os as _os_dedup
+        _grp: Dict[Tuple[str, str], List[int]] = {}
+        for _i, _r in enumerate(data):
+            _id = str(_r.get("id") or "")
+            if not _id or not str(_r.get("platform_name") or "").startswith("local"):
+                continue
+            _grp.setdefault(
+                (str(_r.get("model_type") or ""), _os_dedup.basename(_id)), []
+            ).append(_i)
+        _drop_idx: set = set()
+        for _key, _members in _grp.items():
+            if len(_members) < 2:
+                continue
+            _full = [j for j in _members
+                     if ("/" in str(data[j].get("id") or "")
+                         or "\\" in str(data[j].get("id") or ""))]
+            _bare = [j for j in _members
+                     if "/" not in str(data[j].get("id") or "")
+                     and "\\" not in str(data[j].get("id") or "")]
+            if _full and _bare:
+                _drop_idx.update(_bare)  # 保留全路径(可路由),丢裸 basename
+        if _drop_idx:
+            data = [_r for _i, _r in enumerate(data) if _i not in _drop_idx]
+    except Exception as _e:  # noqa: BLE001
+        logger.debug("本地模型全路径/basename 去重跳过:%r", _e)
+
     # 按 platform_name 排序,同 platform 内按 id 排序,前端分组显示更稳定
     data.sort(key=lambda r: (r.get("platform_name") or "", r.get("id") or ""))
     return {"object": "list", "data": data}
