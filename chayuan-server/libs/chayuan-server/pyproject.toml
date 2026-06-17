@@ -4,7 +4,7 @@ name = "chayuan-server"
 # 改版本要么 ① 跑 scripts/bump-version.py 自动 +1 + 同步 tauri/pyproject,
 # 要么 ② 跑 scripts/bump-version.py --set X.Y.Z 改成显式值。
 # 不要手动改这一行——build-desktop.{sh,ps1} 启动时会自动跑 bump,会被覆盖。
-version = "2.0.146"
+version = "2.0.147"
 description = "察元AI助手服务（chayuan-server）：基于 LangChain 的本地知识库与 Agent 对话服务。"
 authors = ["北京智灵鸟科技中心"]
 packages = [
@@ -67,7 +67,7 @@ piper-tts = ">=1.2,<2.0"
 #   多音字处理 + heteronym FST)。跟 piper 同 in-process 模式(纯 Python wheel +
 #   onnxruntime,跨平台),不引新进程/端口。video_generation 模块 voice_provider=
 #   sherpa 时走这条;piper 仍是默认快速档,edge-tts 在线备选。
-sherpa-onnx = ">=1.13,<2.0"
+sherpa-onnx = "1.13.2"  # 钉死:范围会被 poetry lock 顶到新版,装机覆盖被占用的 _sherpa_onnx.pyd 时 PermissionError(中文 Windows 实测)。要升级先确保无进程/Defender 占用再手动放开。
 # 跨平台 ffmpeg static binary(~30 MB),pip install 时下载对应平台 wheel。
 # 用途:ASR 路径把浏览器 MediaRecorder 录的 webm/opus 转 16kHz mono wav 喂
 # whisper.cpp(它某些 build 不解 webm),也给 video.py 抽帧/抽音兜底。免去
