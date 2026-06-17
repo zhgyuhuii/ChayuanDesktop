@@ -25,8 +25,8 @@ import { reportError } from '../../store/errorDialog';
 import { confirmDialog } from '../../store/confirmDialog';
 import { downloadUrlAsFile } from '../../lib/downloadMedia';
 
-type Filter = 'all' | 'vg' | 'dh';
-const FILTER_LABEL: Record<Filter, string> = { all: '全部', vg: '图文成片', dh: '数字人' };
+type Filter = 'all' | 'vg';
+const FILTER_LABEL: Record<Filter, string> = { all: '全部', vg: '图文成片' };
 
 const safeName = (title: string) =>
   `${(title || '视频').replace(/[\\/:*?"<>|·]/g, '_').replace(/\s+/g, '_').slice(0, 40)}.mp4`;
@@ -39,7 +39,7 @@ export const VideoCenterPage: React.FC = () => {
   const setStep = useVgComposer((s) => s.setStep);
   const setActiveTaskId = useVgComposer((s) => s.setActiveTaskId);
 
-  const { completed, active, isLoading, vgError, dhError } = useUnifiedVideos();
+  const { completed, active, isLoading, vgError } = useUnifiedVideos();
   const [view, setView] = React.useState<'card' | 'list'>('card');
   const [filter, setFilter] = React.useState<Filter>('all');
   const [multiSel, setMultiSel] = React.useState(false);
@@ -125,7 +125,7 @@ export const VideoCenterPage: React.FC = () => {
             <Video className="h-5 w-5" /> 视频中心
           </h1>
           <p className="mt-1 text-sm text-[var(--cy-text-tertiary)]">
-            图文成片与数字人视频统一管理 · 在线播放 / 下载 / 删除
+            图文成片统一管理 · 在线播放 / 下载 / 删除
           </p>
         </div>
         <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-[var(--cy-border-subtle)]">
@@ -142,7 +142,7 @@ export const VideoCenterPage: React.FC = () => {
 
       {/* 来源筛选 */}
       <div className="flex flex-wrap items-center gap-1.5">
-        {(['all', 'vg', 'dh'] as Filter[]).map((f) => (
+        {(['all', 'vg'] as Filter[]).map((f) => (
           <button key={f} type="button" onClick={() => setFilter(f)}
             className={'rounded-full border px-3 py-1 text-xs transition-colors ' +
               (filter === f
@@ -174,10 +174,8 @@ export const VideoCenterPage: React.FC = () => {
         </div>
       </div>
 
-      {(vgError || dhError) && (
-        <p className="text-xs text-rose-700">
-          {vgError ? '图文成片加载失败。' : ''}{dhError ? '数字人加载失败。' : ''}
-        </p>
+      {vgError && (
+        <p className="text-xs text-rose-700">图文成片加载失败。</p>
       )}
       {isLoading && <p className="text-sm text-[var(--cy-text-tertiary)]">加载中…</p>}
 
@@ -215,7 +213,7 @@ export const VideoCenterPage: React.FC = () => {
       {shown.length === 0 && !isLoading ? (
         <div className="rounded-xl border-2 border-dashed border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-10 text-center">
           <p className="text-sm text-[var(--cy-text-secondary)]">还没有视频</p>
-          <p className="mt-1 text-xs text-[var(--cy-text-tertiary)]">到「视频生成」或「数字人」生成后会在这里汇总</p>
+          <p className="mt-1 text-xs text-[var(--cy-text-tertiary)]">到「视频生成」生成后会在这里汇总</p>
         </div>
       ) : (
         <ul className={view === 'card' ? 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3' : 'flex flex-col gap-1.5'}>

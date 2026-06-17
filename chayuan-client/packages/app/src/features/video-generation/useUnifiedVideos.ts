@@ -1,16 +1,11 @@
 /**
- * 视频中心数据源:并行拉「图文成片」(vg.videos) 与「数字人」(dh.tasks),
- * 归一为 UnifiedVideo 并分区。仅当存在进行中的 DH 任务时才对 dh.tasks 开 3s 轮询。
+ * 视频中心数据源:汇总「图文成片」(vg.videos)。
+ * 数字人已全局隐藏 → 不再并拉 dh.tasks(原 hasActiveDh 轮询逻辑已下线;
+ * 恢复数字人时从 git 历史还原本文件即可)。
  */
 import { useQuery } from '@tanstack/react-query';
-import { videoGeneration, digitalHuman, type DhTaskStatus } from '@chayuan/api';
+import { videoGeneration } from '@chayuan/api';
 import { mergeUnifiedVideos } from './unifiedVideos';
-
-function hasActiveDh(items: DhTaskStatus[] | undefined): boolean {
-  return (items ?? []).some(
-    (t) => t.state !== 'complete' && t.state !== 'failed' && t.state !== 'canceled',
-  );
-}
 
 export function useUnifiedVideos() {
   const vq = useQuery({
@@ -18,19 +13,14 @@ export function useUnifiedVideos() {
     queryFn: () => videoGeneration.listVideos({ page: 1, page_size: 100 }),
     staleTime: 30_000,
   });
-  const dq = useQuery({
-    queryKey: ['dh.tasks'],
-    queryFn: digitalHuman.listTasks,
-    // 仅进行中任务存在时轮询,避免空转
-    refetchInterval: (q) => (hasActiveDh(q.state.data?.items) ? 3000 : false),
-  });
 
-  const { completed, active } = mergeUnifiedVideos(vq.data?.items ?? [], dq.data ?? { items: [] });
+  // dh 传空 → 视频中心只剩 VG;active(数字人进行中)恒为空。
+  const { completed, active } = mergeUnifiedVideos(vq.data?.items ?? [], { items: [] });
   return {
     completed,
     active,
-    isLoading: vq.isLoading || dq.isLoading,
+    isLoading: vq.isLoading,
     vgError: (vq.error as Error | null) ?? null,
-    dhError: (dq.error as Error | null) ?? null,
+    dhError: null as Error | null,
   };
 }
