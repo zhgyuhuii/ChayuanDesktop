@@ -32,6 +32,7 @@ TAURI_CONF = REPO_ROOT / "chayuan-client" / "apps" / "desktop" / "src-tauri" / "
 INSTALLER_CONF = REPO_ROOT / "chayuan-client" / "apps" / "installer" / "src-tauri" / "tauri.conf.json"
 PUBLISHER_CONF = REPO_ROOT / "chayuan-client" / "apps" / "publisher" / "src-tauri" / "tauri.conf.json"
 PYPROJECT = REPO_ROOT / "chayuan-server" / "libs" / "chayuan-server" / "pyproject.toml"
+INIT_PY = REPO_ROOT / "chayuan-server" / "libs" / "chayuan-server" / "chayuan" / "__init__.py"
 
 
 _SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -93,6 +94,32 @@ def sync_pyproject(new_version: str) -> bool:
     return True
 
 
+def sync_init_fallback(new_version: str) -> bool:
+    """同步 chayuan/__init__.py 的 _FALLBACK_VERSION。
+
+    frozen(PyInstaller)bundle 里 importlib.metadata 读不到 chayuan-server 的安装
+    元信息 -> __version__ 回退到 _FALLBACK_VERSION。若它不跟版本走,装机版自报版本
+    永远是那个兜底常量(实测 1.0.0.0),诊断脚本据此判版本就全错。这里一起改。
+    """
+    if not INIT_PY.is_file():
+        print(f"[bump-version] WARN __init__.py missing: {INIT_PY}", file=sys.stderr)
+        return False
+    text = INIT_PY.read_text(encoding="utf-8")
+    new_text, n = re.subn(
+        r'(^\s*_FALLBACK_VERSION\s*=\s*")[^"]+(")',
+        rf"\g<1>{new_version}\g<2>",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if n == 0:
+        print(f"[bump-version] WARN no `_FALLBACK_VERSION = \"...\"` in {INIT_PY}", file=sys.stderr)
+        return False
+    if new_text != text:
+        INIT_PY.write_text(new_text, encoding="utf-8")
+    return True
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-bump", action="store_true",
@@ -125,10 +152,12 @@ def main() -> int:
 
     ok_tauri = all(sync_tauri(new, c) for c in (TAURI_CONF, INSTALLER_CONF, PUBLISHER_CONF))
     ok_py = sync_pyproject(new)
+    ok_init = sync_init_fallback(new)
 
     msg = f"[bump-version] {action}"
     msg += f"  tauri={'OK' if ok_tauri else 'SKIP'}"
     msg += f"  pyproject={'OK' if ok_py else 'SKIP'}"
+    msg += f"  init={'OK' if ok_init else 'SKIP'}"
     print(msg, file=sys.stderr)
     print(new)
     return 0
