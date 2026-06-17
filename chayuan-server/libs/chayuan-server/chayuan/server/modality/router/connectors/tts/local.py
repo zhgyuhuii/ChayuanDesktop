@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import tempfile
@@ -62,7 +63,15 @@ class LocalTTSConnector(Connector):
             f"modality_tts_{os.getpid()}_{abs(hash(text)) % 1000000}.wav",
         )
         try:
-            result = synthesize(
+            # synthesize 是阻塞调用(本地 TTS worker 锁 + 管道 poll，最长可达
+            # 180s)。这里是 async generator，跑在主 API 进程的 **事件循环** 上
+            # (modality TaskManager 的后台 asyncio.Task)。直接同步调用会把整个
+            # 事件循环卡住 —— 期间所有其它请求(知识库对话、视频画幅/分辨率配置
+            # 拉取等)全部 hang，表现为「主服务挂了」。必须丢到线程池跑，事件循环
+            # 才不被独占。dev 下 worker 热、阻塞短不明显;打包后冷启/重试导致长
+            # 时间阻塞,问题才暴露。
+            result = await asyncio.to_thread(
+                synthesize,
                 text, tmp, voice_provider=engine, voice_name=voice_name,
                 voice_rate=rate, voice_volume=volume,
             )
