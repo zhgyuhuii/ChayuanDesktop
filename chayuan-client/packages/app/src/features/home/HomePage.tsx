@@ -261,24 +261,26 @@ export const HomePage: React.FC = () => {
   return (
     <div
       className={[
-        // 内容左对齐(mr-auto 而非 mx-auto)— 避免大屏 + sidebar 展开
-        // 时容器水平居中,卡片跟左侧 sidebar 之间出现过大空白(用户:
-        // "主页内容如卡片 与左侧的面板离的太远")。
-        // cy-hide-scrollbar(globals.css)隐藏视觉滚动条但保留滚动能
-        // 力 — 解决 sidebar 折叠/展开切换时 overflow-y:auto 弹滚动条
-        // 在右侧"占位 15px"造成抖动 → 视觉"右侧被遮挡"假象。
-        // overflow-x-hidden 兜底防 fx 子元素越界。
-        'relative isolate mr-auto flex h-full flex-col',
+        // 根容器铺满主区(全宽)—— 让背景特效层(HomeFxLayer,absolute inset:0)
+        // 横铺到主区最右边缘(用户:"动画没到最右侧屏幕")。内容卡片再单独包一层
+        // max-w + mr-auto 左对齐(见下方内容 wrapper),既保留"卡片不离 sidebar
+        // 太远",又让动画铺满右侧不留空。
+        // cy-hide-scrollbar 隐藏滚动条但保留滚动;overflow-x-hidden 兜底防 fx 越界。
+        'relative isolate flex h-full w-full flex-col',
         'overflow-x-hidden overflow-y-auto cy-hide-scrollbar',
-        'w-full max-w-5xl xl:max-w-6xl 2xl:max-w-7xl',
-        'gap-8 py-10',
       ].join(' ')}
-      style={{ paddingLeft: 'clamp(1.5rem, 2.5vw, 3rem)', paddingRight: 'clamp(1.5rem, 2.5vw, 3rem)' }}
     >
       {/* 特效层 — 金龙/凤凰/星空在背景层,内容卡片用 z-10 浮在上面不被遮。
           isolate 强制 HomePage 创建 stacking context,让 fx 的 z:0 严格沉到
           本页内容下方,不会跑到 sidebar/header 之上。 */}
       <HomeFxLayer />
+
+      {/* 内容列:max-w + mr-auto 左对齐(不随主区变宽而居中/拉远);
+          fx 在其后、铺满根容器全宽。原来 max-w/mr-auto 在根上 → fx 被夹到内容宽度。 */}
+      <div
+        className="relative z-10 mr-auto flex w-full max-w-5xl xl:max-w-6xl 2xl:max-w-7xl flex-col gap-8 py-10"
+        style={{ paddingLeft: 'clamp(1.5rem, 2.5vw, 3rem)', paddingRight: 'clamp(1.5rem, 2.5vw, 3rem)' }}
+      >
 
       {/* ── 1. Greeting(Logo + 早/午/晚 + 用户名)───────────────── */}
       <div className="relative z-10 flex items-center gap-3">
@@ -420,6 +422,7 @@ export const HomePage: React.FC = () => {
       <LicenseDialog app="chat" open={licOpen} onOpenChange={setLicOpen} />
       {/* 「AI视频生成」无 t2v 模型时引导:模型支持说明锚定文生视频段(与能力卡同一弹窗) */}
       <ModelSupportHelpDialog open={videoHelpOpen} onOpenChange={setVideoHelpOpen} initialCap="t2v" />
+      </div>
     </div>
   );
 };
