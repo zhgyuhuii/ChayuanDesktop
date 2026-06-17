@@ -2,7 +2,7 @@
 
 ## 背景
 
-moviepy 2.1.2 的 ``FfmpegInfosParser.parse_metadata_field_value`` 用
+moviepy 2.1.2 的 ``FFmpegInfosParser.parse_metadata_field_value`` 用
 ``line.split(":", 1)`` 解包成 ``(field, value)``,**假设每条 metadata / side-data
 行都含冒号**。新版 ffmpeg 在 stream 信息里会输出无冒号的 side-data 行,例如
 pexels 用 ffmpeg 8 编码的素材:
@@ -55,10 +55,37 @@ def apply_moviepy_compat_patches() -> None:
         logger.warning("[vg] moviepy 兼容补丁跳过:import ffmpeg_reader 失败: %r", e)
         return
 
-    parser_cls = getattr(ffmpeg_reader, "FfmpegInfosParser", None)
+    parser_cls = getattr(ffmpeg_reader, "FFmpegInfosParser", None)
     if parser_cls is None:
-        logger.warning("[vg] moviepy 兼容补丁跳过:未找到 FfmpegInfosParser")
-        return
+        # 兜底:frozen(PyInstaller)下若该类被改名/重定位,按"含
+        # parse_metadata_field_value 方法"扫模块里任意类,robust 到重命名。
+        import inspect
+        cands = [
+            obj for _name, obj in vars(ffmpeg_reader).items()
+            if inspect.isclass(obj) and hasattr(obj, "parse_metadata_field_value")
+        ]
+        if cands:
+            parser_cls = cands[0]
+            logger.info(
+                "[vg] FFmpegInfosParser 直接 getattr 没到,按方法扫到 %s,继续打补丁",
+                parser_cls.__name__,
+            )
+        else:
+            # 打全诊断:到底装的哪个 moviepy、模块里有哪些类 —— 便于定位
+            # 为何 frozen 找不到(dev 能找到)。
+            try:
+                import moviepy as _mp
+                _ver = getattr(_mp, "__version__", "?")
+                _file = getattr(_mp, "__file__", "?")
+            except Exception:  # noqa: BLE001
+                _ver = _file = "?"
+            _classes = [n for n, o in vars(ffmpeg_reader).items() if inspect.isclass(o)]
+            logger.warning(
+                "[vg] moviepy 兼容补丁跳过:未找到 FFmpegInfosParser"
+                "(moviepy=%s @ %s;ffmpeg_reader=%s;含类=%s)",
+                _ver, _file, getattr(ffmpeg_reader, "__file__", "?"), _classes,
+            )
+            return
 
     orig = getattr(parser_cls, "parse_metadata_field_value", None)
     if orig is None or getattr(orig, _PATCH_FLAG, False):

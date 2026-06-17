@@ -47,3 +47,26 @@ def test_safe_parse_value_with_colon_keeps_remainder():
         "handler_name",
         "a:b:c",
     )
+
+
+def test_patch_actually_applies_to_real_moviepy():
+    """真·回归:补丁必须能在真实 moviepy 上找到 FFmpegInfosParser 并打上。
+
+    历史 bug:补丁找的类名 FfmpegInfosParser(Ff)与 moviepy 2.1.2 真实类名
+    FFmpegInfosParser(FF)大小写不符,getattr 永远 None,补丁从没生效——
+    纯函数单测测不出。这条用真实 moviepy 兜底,类名再改大小写就会红。
+    sandbox 无 moviepy 时 skip。
+    """
+    pytest.importorskip("moviepy")
+    from moviepy.video.io import ffmpeg_reader
+    from chayuan.server.video_generation._moviepy_compat import (
+        apply_moviepy_compat_patches,
+        _PATCH_FLAG,
+    )
+
+    apply_moviepy_compat_patches()
+    cls = getattr(ffmpeg_reader, "FFmpegInfosParser", None)
+    assert cls is not None, "moviepy 类名变了,_moviepy_compat 需同步更新"
+    assert getattr(cls.parse_metadata_field_value, _PATCH_FLAG, False), (
+        "兼容补丁未真正打到 FFmpegInfosParser.parse_metadata_field_value 上"
+    )
