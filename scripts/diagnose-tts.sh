@@ -15,7 +15,7 @@ set -u
 BASE="${1:-${CHAYUAN_API:-http://127.0.0.1:62581}}"
 BASE="${BASE%/}"
 TEXT="你好，这是语音合成测试。"
-OUT="${TMPDIR:-/tmp}/chayuan-tts-probe"
+OUT="${TMPDIR:-/tmp}"; OUT="${OUT%/}/chayuan-tts-probe"
 mkdir -p "$OUT"
 
 echo
@@ -31,8 +31,9 @@ echo "/healthz: 200  (服务在跑)"
 
 probe() {
   provider="$1"; voice="$2"
-  if [ -n "$voice" ]; then vn="\"$voice\""; else vn="null"; fi
-  body="{\"video_script\":\"$TEXT\",\"voice_provider\":\"$provider\",\"voice_name\":$vn,\"voice_rate\":1.0,\"voice_volume\":1.0}"
+  # voice_name 是必填 string,后端用 `body.voice_name or None` 把空串当默认音色;
+  # 传 null 会被 pydantic 422 拒(string_type)。无音色时一律传空串。
+  body="{\"video_script\":\"$TEXT\",\"voice_provider\":\"$provider\",\"voice_name\":\"$voice\",\"voice_rate\":1.0,\"voice_volume\":1.0}"
   hdr="$OUT/$provider.h"; wav="$OUT/$provider.wav"
   code=$(curl -s -D "$hdr" -o "$wav" -w '%{http_code}' --max-time 120 \
          -H 'Content-Type: application/json' -X POST \
