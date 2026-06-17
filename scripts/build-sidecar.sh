@@ -12,14 +12,21 @@
 # 用法:
 #   bash scripts/build-sidecar.sh                       # full(带 torch)
 #   bash scripts/build-sidecar.sh --lite                # lite(不带 torch)
+#   bash scripts/build-sidecar.sh --lite --install      # 构建后自动替进 /Applications/Chayuan.app
 #   FORCE_TORCH_REINSTALL=1 bash scripts/build-sidecar.sh
 set -u
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_PY="$REPO/chayuan-server/packaging/pyinstaller/build.py"
 PY="${CHAYUAN_PY:-python}"          # 当前激活的 python;可 CHAYUAN_PY 覆盖
-LITE=""
-[ "${1:-}" = "--lite" ] && LITE="--lite"
+LITE=""; INSTALL=""
+for _a in "$@"; do
+  case "$_a" in
+    --lite) LITE="--lite" ;;
+    --install) INSTALL=1 ;;
+    *) echo "[WARN] 未知参数: $_a (支持 --lite / --install)" ;;
+  esac
+done
 
 if [ ! -f "$BUILD_PY" ]; then
   echo "[FAIL] 找不到 $BUILD_PY —— 在仓库根目录跑本脚本。"; exit 1
@@ -76,6 +83,27 @@ echo "== 运行: $PY $BUILD_PY $LITE --offline =="
 $PY "$BUILD_PY" $LITE --offline
 rc=$?
 [ "$rc" != "0" ] && { echo "[FAIL] build.py 退出码 $rc,看上方报错。"; exit "$rc"; }
+echo "== 构建完成。 =="
+
+if [ -n "$INSTALL" ]; then
+  APP="${CHAYUAN_APP:-/Applications/Chayuan.app}"
+  SRC="$REPO/chayuan-server/dist/chayuan-server"
+  DST="$APP/Contents/Resources/chayuan-server"
+  echo "== --install: 把新 sidecar 替进 $APP =="
+  [ -d "$SRC" ] || { echo "[FAIL] 没找到构建产物 $SRC"; exit 1; }
+  [ -d "$APP" ] || { echo "[FAIL] 没找到已安装 App $APP(用 CHAYUAN_APP=/path/to/X.app 指定)"; exit 1; }
+  echo "   退出 App + 杀旧 sidecar(免占文件/端口)..."
+  osascript -e 'tell application "Chayuan" to quit' >/dev/null 2>&1 || true
+  pkill -f 'Chayuan.app/Contents/Resources/chayuan-server/chayuan-server' 2>/dev/null || true
+  sleep 1
+  echo "   rsync 替换 $DST ..."
+  mkdir -p "$DST"
+  rsync -a --delete "$SRC"/ "$DST"/ || { echo "[FAIL] rsync 失败"; exit 1; }
+  echo "   ad-hoc 重签名(改过内容签名会失效,否则 macOS 可能拒启)..."
+  codesign --force --deep --sign - "$APP" >/dev/null 2>&1     && echo "   [OK] 已签"     || echo "   [WARN] codesign 失败 —— 首次打开右键->打开 绕过 Gatekeeper 即可。"
+  echo "[OK] sidecar 已替进 App。重开 Chayuan 即用新后端。"
+  echo "   ⚠ 只换了 **sidecar/后端**;前端(data: URL 等 UI 修复)要整包重建(tauri build)才有。"
+fi
+
 echo
-echo "== 构建完成。替换/重装 App -> **完全退出再重开** -> 验证: =="
-echo "   ./scripts/check-tts.sh"
+echo "== 验证:重开 App 后 ->  ./scripts/check-tts.sh"
