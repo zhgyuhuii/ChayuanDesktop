@@ -220,7 +220,7 @@ export const HomePage: React.FC = () => {
   };
 
   const onConfigureModel = () => {
-    open('/marketplace', { title: '模型厂商', icon: 'server' });
+    open('/marketplace', { title: '模型', icon: 'server' });
     void navigate({ to: '/marketplace' as never });
   };
 
