@@ -387,30 +387,45 @@ if [[ "$SKIP_MODEL_CHECK" != "1" ]] && command -v poetry >/dev/null 2>&1; then
         step '深度依赖: seed sherpa 音色(standard/full 必带,无下载途径)'
         ( cd "$SERVER_PKG_DIR" && poetry run python "$SERVER_DIR/scripts/seed_sherpa_voices.py" ) || note 'seed sherpa 失败(不阻断)'
     fi
-    if [[ "$_has_full" == "1" ]]; then
-        step '深度依赖(full): torch/torchvision/torchaudio/voxcpm + seed VoxCPM-0.5B'
+    if [[ "$_needs_engines" == "1" ]]; then
+        step '深度依赖(standard/full): torch/torchvision/torchaudio + voxcpm(本地框架随包)'
+        # standard 与 full 都打本地深度学习框架:spec 在 CHAYUAN_LITE_BUILD=0 时对二者一致
+        # _collect_required torch/torchvision/transformers/torchaudio/voxcpm(缺则 fail-fast)。
+        # 数字人(Wav2Lip)+ 图像向量化(CLIP)硬依赖 torch → 两档都要装机即可跑,不再
+        # 「UI 按需装」。模型权重另算:standard 零权重(按需下载),full 才随包。
         # 幂等:已装则跳过。否则每次构建都重跑 pip(torch 巨大;voxcpm 更糟——它拖
         # gradio<7,>=6,gradio6 反复把 fastapi/starlette/python-multipart/transformers/
         # huggingface_hub 全顶到最新再被还原,既慢又 churn 环境(用户实测「装好的又装一次」)。
-        if ( cd "$SERVER_PKG_DIR" && poetry run python -c "import torch" ) >/dev/null 2>&1; then
-            note 'torch 已就绪,跳过安装'
+        # ⚠ 完整性检测:import 成功还不够 —— voxcpm 等克隆框架常把 torch 搞成「半套」
+        # (libtorch native 库缺失),装机后 import torch 加载 .dylib/.so 失败 → 数字人/图像
+        # 报「未检测到 PyTorch」。这里跑 torch.tensor() 强制加载 native 库 + 验 torchvision,
+        # 任一不过就彻底卸两遍再干净装,绝不把残包打进 bundle(与 build-sidecar.sh 同款严格)。
+        _torch_complete() { ( cd "$SERVER_PKG_DIR" && poetry run python -c "import torch,torchvision; torch.tensor([0.0])" ) >/dev/null 2>&1; }
+        if _torch_complete; then
+            note 'torch 完整(native 库可加载),跳过安装'
         else
+            note 'torch 缺失/半套 -> 彻底卸两遍再干净装一套配套的'
+            ( cd "$SERVER_PKG_DIR" && poetry run pip uninstall -y torch torchvision torchaudio ) >/dev/null 2>&1 || true
+            ( cd "$SERVER_PKG_DIR" && poetry run pip uninstall -y torch torchvision torchaudio ) >/dev/null 2>&1 || true
             ( cd "$SERVER_PKG_DIR" && poetry run pip install torch torchvision torchaudio ) \
-                || { fail 'torch 安装失败(full 数字人需要;spec _collect_required 会 fail-fast)'; exit 6; }
+                || { fail 'torch 安装失败(数字人/图像向量需要;spec _collect_required 会 fail-fast)'; exit 6; }
+            _torch_complete || { fail 'torch 重装后仍非完整 -- 别打残包(装机 import torch 会崩)。先修 torch 再打。'; exit 6; }
         fi
         if ( cd "$SERVER_PKG_DIR" && poetry run python -c "import voxcpm" ) >/dev/null 2>&1; then
             note 'voxcpm 已就绪,跳过安装(免 gradio 依赖反复 churn 整个环境)'
         else
             ( cd "$SERVER_PKG_DIR" && poetry run pip install voxcpm ) \
-                || { fail 'voxcpm 安装失败(full 克隆音色需要)'; exit 6; }
+                || { fail 'voxcpm 安装失败(克隆音色框架;spec _collect_required 会 fail-fast)'; exit 6; }
             # 只用 voxcpm 推理(不碰 gradio),装完还原被 gradio6 顶掉的 web 栈
             # (fastapi ~0.109.2 / python-multipart 0.0.9;nicegui 1.4.x 也要 fastapi<0.110)。
             ( cd "$SERVER_PKG_DIR" && poetry run pip install "fastapi~=0.109.2" "python-multipart==0.0.9" ) \
                 || note 'web 栈还原失败 — sidecar 可能因 fastapi/nicegui 不匹配起不来'
         fi
-        if [[ -f "$SERVER_DIR/scripts/seed_voxcpm.py" ]]; then
-            ( cd "$SERVER_PKG_DIR" && poetry run python "$SERVER_DIR/scripts/seed_voxcpm.py" ) || note 'seed voxcpm 失败(不阻断)'
-        fi
+    fi
+    # VoxCPM-0.5B 是克隆音色「模型权重」,只进 full(standard 零模型权重,按需下载)。
+    if [[ "$_has_full" == "1" ]] && [[ -f "$SERVER_DIR/scripts/seed_voxcpm.py" ]]; then
+        step '深度依赖(full): seed VoxCPM-0.5B 克隆音色权重'
+        ( cd "$SERVER_PKG_DIR" && poetry run python "$SERVER_DIR/scripts/seed_voxcpm.py" ) || note 'seed voxcpm 失败(不阻断)'
     fi
 fi
 
@@ -427,8 +442,10 @@ do_build_flavor() {
         export CHAYUAN_LITE_BUILD=1
         FLAVOR_LABEL="轻量版(lite,纯云)"
     elif [[ "$FLAVOR" == "standard" ]]; then
-        export CHAYUAN_LITE_BUILD=1
-        FLAVOR_LABEL="集成版(standard)"
+        # 集成版也打本地 torch 框架(build.py:1501 同样按 flavor 设 0;此处对齐避免歧义)。
+        # 数字人/图像向量化硬依赖 torch → 集成版装机即可跑(模型权重仍按需下载)。
+        export CHAYUAN_LITE_BUILD=0
+        FLAVOR_LABEL="集成版(standard,带 torch 框架)"
     else
         unset CHAYUAN_LITE_BUILD || true
         FLAVOR_LABEL="全量版(full)"

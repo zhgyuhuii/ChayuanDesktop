@@ -485,8 +485,9 @@ if sys.platform == "darwin":
 # 2026-06-14:数字人(digital_human / Wav2Lip)+ voxcpm 克隆音色硬依赖 torch,且都在
 # FULL_CAPS(pro)。torch 必须随 pro 包,否则装机 `import torch` → No module named 'torch'。
 # 改回据 CHAYUAN_LITE_BUILD 决定(由 build.py / build-desktop.ps1 按 flavor 设):
-#   · lite/standard(=1)→ LITE_BUILD=True  → 排除 torch(纯云/无 DH,省 ~480MB)
-#   · pro/full     (=0)→ LITE_BUILD=False → _collect_required 打 torch/torchvision/transformers
+#   · lite          (=1)→ LITE_BUILD=True  → 排除 torch(纯云,省 ~480MB)
+#   · standard/full (=0)→ LITE_BUILD=False → _collect_required 打 torch/torchvision/transformers/torchaudio/voxcpm
+#     (build.py:1501 据 flavor 设:仅 lite=1,standard 与 pro/full 均=0 → 二者都随包 torch)
 # ⚠ 打 pro 的构建环境必须先装 torch +cpu 变体:
 #     pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 #   否则 _collect_required 在 spec 阶段 fail-fast(这是预期:漏装当场报,而不是装机才崩)。
@@ -513,7 +514,7 @@ excludes = [
     # 2026-05-19 切 --onedir:torch CPU + torchvision + transformers 进 bundle,
     # image-embedding(HF CLIP)直接 in-process import,不再依赖外部 wheel + pip。
     # ▸ torchaudio:voxcpm 克隆音色(pro)读参考 wav 需要它 → 改为据 LITE_BUILD 条件
-    #   收/排(见下方 torch 同款条件块);lite/standard 仍排除省体积。
+    #   收/排(见下方 torch 同款条件块);仅 lite 排除省体积,standard/full 随包。
     # ▸ sentence_transformers:embedding/rerank 走 llama-server GGUF,跟 ST 不直接
     #   依赖 → 排除节省 ~200MB
     # ▸ rerankers:同上,rerank 走 llama-server cross-encoder GGUF → 排除

@@ -51,7 +51,7 @@ FULL_CAPS: tuple[str, ...] = (
     "tts",
     "chat",
     # "image",  # 图像向量化(CLIP-B/32,~580 MB)已移除,暂不随包打;恢复时取消本行注释即可(2026-06-13)
-    "digital_human",  # 数字人引擎权重(Wav2Lip CPU + SadTalker GPU);只进 full,torch 走 UI 按需装
+    "digital_human",  # 数字人引擎权重(Wav2Lip CPU + SadTalker GPU);只进 full。torch 框架随 standard+full 包(非 UI 按需装),standard 只缺权重(按需下载)
 )
 
 #: 集成清单 alias 表,便于按 flavor 字符串拿对应清单。pro 是 full 的别名。
