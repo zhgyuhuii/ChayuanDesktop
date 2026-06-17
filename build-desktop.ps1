@@ -227,6 +227,11 @@ try {
         $cur = (chcp) 2>$null
         if ($cur -match '(\d+)') { $origOEMcp = $matches[1] }
         chcp 65001 > $null 2>&1
+        # 中文 Windows 上 poetry/pip 子进程默认按 GBK(cp936)解码子进程 stdout,
+        # 遇到 UTF-8/二进制字节(如 sherpa-onnx 1.13.3 安装输出里的 0x80)就
+        # UnicodeDecodeError 崩在 subprocess.communicate。强制 Python UTF-8 模式根治。
+        $env:PYTHONUTF8 = '1'
+        $env:PYTHONIOENCODING = 'utf-8'
     }
 } catch {
     # 切不动也无所谓,继续
