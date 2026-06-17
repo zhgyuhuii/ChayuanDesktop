@@ -21,7 +21,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import {
-  Library, Pen, ScanText, Mic, Clapperboard, UserRound,
+  Library, Pen, ScanText, Mic, Clapperboard, Volume2,
   AlertCircle, Film, Wand2,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
@@ -112,11 +112,11 @@ const CAPS: ReadonlyArray<CapItem> = [
     iconBg: 'bg-gradient-to-br from-indigo-400 to-purple-500',
   },
   {
-    id: 'digital-human',
-    icon: UserRound,
-    title: '数字人',
-    subtitle: '选形象 + 绑音色 → 文案口播 → 一键生成讲话视频',
-    to: '/digital-human',
+    id: 'tts',
+    icon: Volume2,
+    title: '语音合成',
+    subtitle: '文字转语音 · 多音色 / 本地引擎(piper / sherpa)· 朗读并导出音频',
+    to: '/chat',
     gradient: 'from-teal-50 to-cyan-100 dark:from-teal-900/30 dark:to-cyan-800/40',
     iconBg: 'bg-gradient-to-br from-teal-400 to-cyan-500',
   },
@@ -172,6 +172,8 @@ export const HomePage: React.FC = () => {
 
   // 「AI视频生成」无 t2v 模型时打开「模型支持说明」(锚定文生视频 t2v 段),与文生视频能力卡一致
   const [videoHelpOpen, setVideoHelpOpen] = React.useState(false);
+  // 模型支持说明弹窗锚定的能力段(ai-video→t2v / 语音合成→tts 共用此弹窗)
+  const [helpCap, setHelpCap] = React.useState<'t2v' | 'tts'>('t2v');
 
   const onCapClick = (cap: CapItem) => {
     // AI视频生成块:开一个对话式 t2v(对话生成视频),不走普通路由 navigate。
@@ -181,11 +183,27 @@ export const HomePage: React.FC = () => {
       if (!best) {
         // 与「文生视频」能力卡一致:无可用 t2v 模型 → 打开「模型支持说明」并锚定到
         // 文生视频(t2v)段,引导申请/配置;不再直接甩去模型厂商页(原行为与文生视频不一致)。
+        setHelpCap('t2v');
         setVideoHelpOpen(true);
         return;
       }
       startCapabilityChat(
         { cap: 't2v', model: best },
+        { navigate: (to) => void navigate({ to: to as never }) },
+      );
+      return;
+    }
+    // 「语音合成」块:跟能力卡 tts 一致 —— 开一个对话式 TTS(文字转语音)。
+    // 有可用 tts 模型(含本地 piper/sherpa 引擎)直接开;无则弹模型支持说明锚到 tts 段。
+    if (cap.id === 'tts') {
+      const best = pickBestModel(byCap.get('tts'));
+      if (!best) {
+        setHelpCap('tts');
+        setVideoHelpOpen(true);
+        return;
+      }
+      startCapabilityChat(
+        { cap: 'tts', model: best },
         { navigate: (to) => void navigate({ to: to as never }) },
       );
       return;
@@ -407,7 +425,7 @@ export const HomePage: React.FC = () => {
           激活时后端按序列号自身编码的模块发放权益,不受此 app 限制。 */}
       <LicenseDialog app="chat" open={licOpen} onOpenChange={setLicOpen} />
       {/* 「AI视频生成」无 t2v 模型时引导:模型支持说明锚定文生视频段(与能力卡同一弹窗) */}
-      <ModelSupportHelpDialog open={videoHelpOpen} onOpenChange={setVideoHelpOpen} initialCap="t2v" />
+      <ModelSupportHelpDialog open={videoHelpOpen} onOpenChange={setVideoHelpOpen} initialCap={helpCap} />
       </div>
     </div>
   );
