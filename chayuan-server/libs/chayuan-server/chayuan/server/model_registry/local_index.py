@@ -406,18 +406,6 @@ def _candidate_roots(*, bundled_cap_dir: Optional[str] = None) -> List[Tuple[Pat
         for sub in DEFAULT_LAYOUT_DIRS:
             if (md / sub).is_dir():
                 roots.append((md / sub, sub))
-    # 安装包/打包内自带模型(只读源)也挂进来作**兜底**:即便首启 seed 没把模型
-    # 拷进数据目录(权限/磁盘/中断),模型服务也能**直接从安装包里跑**——
-    # LocalModelEntry.path 指向 app 内绝对路径,llama-server 只读它即可推理。
-    # 必须放在数据目录根之后:同名模型(下方 scan_once 按 cap+basename 去重)
-    # 数据目录可写副本优先,包内只在数据目录没有时顶上。tag="models" 让 model_id
-    # 与数据目录布局一致(models/<cap>/<model>),避免 id 漂移。
-    try:
-        _pkg = bundled_models_dir()
-        if _pkg and _pkg.is_dir() and _pkg.resolve() != md.resolve():
-            roots.append((_pkg, "models"))
-    except Exception:  # noqa: BLE001
-        pass
     # vendor 子目录也扫一下：vendor/runtimes/*/models
     try:
         from chayuan.server.runtime.vendor_loader import discover_vendor
