@@ -406,6 +406,18 @@ def _candidate_roots(*, bundled_cap_dir: Optional[str] = None) -> List[Tuple[Pat
         for sub in DEFAULT_LAYOUT_DIRS:
             if (md / sub).is_dir():
                 roots.append((md / sub, sub))
+    # 安装包/打包内自带模型(只读源)也挂进来作**兜底**:即便首启 seed 没把模型
+    # 拷进数据目录(权限/磁盘/中断),模型服务也能**直接从安装包里跑**——
+    # LocalModelEntry.path 指向 app 内绝对路径,llama-server 只读它即可推理。
+    # 必须放在数据目录根之后:同名模型(下方 scan_once 按 cap+basename 去重)
+    # 数据目录可写副本优先,包内只在数据目录没有时顶上。tag="models" 让 model_id
+    # 与数据目录布局一致(models/<cap>/<model>),避免 id 漂移。
+    try:
+        _pkg = bundled_models_dir()
+        if _pkg and _pkg.is_dir() and _pkg.resolve() != md.resolve():
+            roots.append((_pkg, "models"))
+    except Exception:  # noqa: BLE001
+        pass
     # vendor 子目录也扫一下：vendor/runtimes/*/models
     try:
         from chayuan.server.runtime.vendor_loader import discover_vendor
@@ -523,6 +535,7 @@ def scan_once(*, persist: bool = True, bundled_cap_dir: Optional[str] = None) ->
     """
     seen_ids: Set[str] = set()
     seen_real: Set[str] = set()
+    seen_basename: Set[Tuple[str, str]] = set()   # (capability, 模型名)→ 跨根/跨布局去重
     entries: List[LocalModelEntry] = []
     # cap-scoped:把游标定位进 bundled/<cap>;root 仍是 models 顶层,
     # relpath 因此保持以 bundled/<cap>/ 开头,与全量扫描一致。
@@ -545,6 +558,15 @@ def scan_once(*, persist: bool = True, bundled_cap_dir: Optional[str] = None) ->
             if real_key in seen_real:
                 continue
             ident = identify_path(path, default_id=model_id)
+            # 同一模型(同 capability + 同名)可能同时出现在数据目录(models/<cap>/
+            # 或 seed 的 models/bundled/<cap>/)和安装包(app bundled_models)→
+            # 按 (cap, 名字) 去重,先扫到的(数据目录,在根列表里更靠前)胜出。
+            # 这同时根治"对话模型本地出现 3 个一模一样的名称"(bundled/ 前缀差异 +
+            # 多根扫描导致的重复条目)。
+            _bn_key = (str(ident.capability or ""), path.name)
+            if _bn_key in seen_basename:
+                continue
+            seen_basename.add(_bn_key)
             try:
                 if path.is_file():
                     size = path.stat().st_size
