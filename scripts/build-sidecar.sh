@@ -43,10 +43,15 @@ PY
 }
 
 reinstall_torch() {
+  # 克隆框架(voxcpm)安装常把 torch 搞成半套/重复条目 —— 仅 --force-reinstall 清不掉
+  # 残留。先彻底卸(两遍清重复),再干净装一套配套的 torch/vision/audio。
+  echo "   -> 先彻底卸残破 torch(清半套/重复条目)..."
+  $PY -m pip uninstall -y torch torchvision torchaudio >/dev/null 2>&1 || true
+  $PY -m pip uninstall -y torch torchvision torchaudio >/dev/null 2>&1 || true
   if [ "$(uname -s)" = "Darwin" ]; then src=""    # macOS 默认 PyPI 才有 arm64 wheel
   else src="--index-url https://download.pytorch.org/whl/cpu"; fi
-  echo "   -> 装完整 torch ($([ -n "$src" ] && echo "$src" || echo "默认 PyPI"))..."
-  $PY -m pip install --force-reinstall --no-cache-dir torch torchvision torchaudio $src
+  echo "   -> 干净装完整 torch ($([ -n "$src" ] && echo "$src" || echo "默认 PyPI"))..."
+  $PY -m pip install --no-cache-dir torch torchvision torchaudio $src
 }
 
 if [ -z "$LITE" ]; then
