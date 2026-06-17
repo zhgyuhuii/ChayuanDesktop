@@ -177,7 +177,10 @@ for pkg in (
     # 这份数据,frozen 下 espeak 回退到编译期写死的 CI 路径
     # (/Users/runner/work/piper1-gpl/.../espeak-ng-data)→ "phontab: No such file"
     # → piper 音素化失败、试听出不来声。收集后 get_data_path() 命中包内副本。
+    # 两个包都收:不同 piper 版本可能把 espeak-ng-data 放在 piper/ 自己包内,
+    # 或交给 espeakng_loader/。配合 audio._ensure_espeak_data_path() 运行时兜底。
     "espeakng_loader",
+    "piper",
 ):
     try:
         d = collect_data_files(pkg)

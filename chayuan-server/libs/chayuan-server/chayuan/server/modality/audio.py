@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Optional, Tuple
@@ -395,6 +396,37 @@ def probe_tts_worker(timeout: float = 60.0) -> bool:
     except Exception:  # noqa: BLE001
         pass
     return False
+
+
+def _ensure_espeak_data_path() -> None:
+    """frozen 下 piper 的 espeak-ng 默认按**编译期写死的 CI 路径**找 espeak-ng-data
+    (/Users/runner/.../espeak-ng-data),装机机器上没有 → "phontab: No such file" →
+    piper 音素化失败、试听无声。这里在 import piper 前,把已随包收集的 espeak-ng-data
+    的**父目录**设进 ``ESPEAK_DATA_PATH``(espeak-ng 在未显式给 path 时读这个 env,
+    去 ``<ESPEAK_DATA_PATH>/espeak-ng-data/`` 找)。源码态本就找得到,此函数是 no-op。
+    """
+    if os.environ.get("ESPEAK_DATA_PATH"):
+        return
+    cands = []
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        cands.append(os.path.join(mei, "piper", "espeak-ng-data"))
+        cands.append(os.path.join(mei, "espeakng_loader", "espeak-ng-data"))
+    try:
+        import espeakng_loader as _enl  # type: ignore
+        dp = _enl.get_data_path()
+        if dp:
+            cands.append(dp)
+    except Exception:  # noqa: BLE001
+        pass
+    for d in cands:
+        try:
+            if d and os.path.isdir(d):
+                os.environ["ESPEAK_DATA_PATH"] = os.path.dirname(d)
+                logger.info("[tts:piper] ESPEAK_DATA_PATH := %s", os.path.dirname(d))
+                return
+        except Exception:  # noqa: BLE001
+            continue
 
 
 class AudioPipeline:
@@ -882,6 +914,10 @@ class AudioPipeline:
         self, text: str, *, voice: str, fmt: str,
     ) -> Optional[bytes]:
         """piper-tts 本地推理。任何环节失败/未配置返 None,由 caller fallback edge-tts。"""
+        try:
+            _ensure_espeak_data_path()  # frozen 下让 espeak 找到 espeak-ng-data
+        except Exception:  # noqa: BLE001
+            pass
         try:
             from piper.voice import PiperVoice  # type: ignore
         except Exception as e:  # noqa: BLE001
