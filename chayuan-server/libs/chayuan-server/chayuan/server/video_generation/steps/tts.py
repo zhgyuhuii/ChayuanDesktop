@@ -203,7 +203,8 @@ def _synthesize_via_clone(
     voice_name: Optional[str],
 ) -> Optional[TtsResult]:
     """音色克隆:voice_name="clone:<id>" → 取 voice_clones_dir/<id>.wav 作参考人声,
-    走 AudioPipeline 的 voxcpm 分支(in-process)。失败返 None 由 caller fallback piper。"""
+    走 AudioPipeline 的 voxcpm 分支(经 _TTS_WORKER 子进程隔离,非 in-process)。
+    失败返 None 由 caller fallback piper。"""
     import os as _os
     from chayuan.server.video_generation._helpers import voice_clones_dir
 

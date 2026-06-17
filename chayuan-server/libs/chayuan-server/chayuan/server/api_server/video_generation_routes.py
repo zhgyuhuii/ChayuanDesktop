@@ -221,15 +221,18 @@ def preview_audio(
 
     import tempfile
     from chayuan.server.video_generation.steps import tts as tts_step
+    from chayuan.server.modality.audio import tts_call_timeout
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
     try:
-        result = tts_step.synthesize(
-            text, tmp.name,
-            voice_provider=body.voice_provider,
-            voice_name=body.voice_name or None,
-            voice_rate=body.voice_rate, voice_volume=body.voice_volume,
-        )
+        # 交互试听压短 worker 等待:慢/卡时 60s 内失败回 piper,不把请求线程占住 180s。
+        with tts_call_timeout(60):
+            result = tts_step.synthesize(
+                text, tmp.name,
+                voice_provider=body.voice_provider,
+                voice_name=body.voice_name or None,
+                voice_rate=body.voice_rate, voice_volume=body.voice_volume,
+            )
         if not result:
             # CLAUDE.md "修 bug 前的强制纪律" — 502 不能 catch-all 吞细节。
             # synthesize 已把每一档失败 warning 进 server log,但客户端拿不到。

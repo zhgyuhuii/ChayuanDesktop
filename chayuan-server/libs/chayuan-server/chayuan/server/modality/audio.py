@@ -298,6 +298,11 @@ class _TtsWorker:
         self._proc, self._conn = proc, parent_conn
 
     def synth(self, engine, text, kwargs, timeout=180):  # noqa: ANN001
+        # 线程级覆盖:交互试听(/preview-audio)用 tts_call_timeout(60) 把等待压短,
+        # 避免本地 worker 慢/卡时一次合成把请求线程占满 180s(端点同线程调用,可见)。
+        _ov = getattr(_TTS_CALL_CTX, "timeout", None)
+        if _ov:
+            timeout = _ov
         with self._lock:
             try:
                 self._ensure()
@@ -319,6 +324,30 @@ class _TtsWorker:
                 return payload or None
             logger.warning("[tts:worker] %s 合成失败: %s", engine, payload)
             return None
+
+
+import threading as _threading_mod
+import contextlib as _contextlib_mod
+
+# TTS worker 等待超时的线程级覆盖(默认 180s 太长,不适合交互试听)。
+_TTS_CALL_CTX = _threading_mod.local()
+
+
+@_contextlib_mod.contextmanager
+def tts_call_timeout(seconds: int):
+    """临时把当前线程内 ``_TtsWorker.synth`` 的等待超时改短。
+
+    交互试听(``/preview-audio``,文本 <=200 字)合成本应几秒出,180s 默认是给
+    长脚本批量渲染留的。试听若命中 worker 慢/卡,180s 会把同步端点的请求线程占住
+    很久。端点用 ``with tts_call_timeout(60):`` 包一层即可压短(端点与 synth 同线程,
+    threadlocal 可见);超时后 synth 重启 worker 并返回 None,caller fallback piper。
+    """
+    _prev = getattr(_TTS_CALL_CTX, "timeout", None)
+    _TTS_CALL_CTX.timeout = int(seconds)
+    try:
+        yield
+    finally:
+        _TTS_CALL_CTX.timeout = _prev
 
 
 _TTS_WORKER = _TtsWorker()
