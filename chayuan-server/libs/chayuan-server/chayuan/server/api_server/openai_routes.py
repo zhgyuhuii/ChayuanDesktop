@@ -358,6 +358,20 @@ async def list_models(type: Optional[str] = None, check_access: bool = False) ->
         "speech-to-text":  "speech2text",
         "text-to-audio":   "text2speech",
     }
+    # 去重:sidecar 注册的 ``local-<cap>`` 平台已经把「所有已下载模型」列进
+    # llm_models(_list_downloaded_models 与 local_index 同源 model_id),若这里再
+    # 无脑注入一遍,同一模型会在「本地模型」分组里出现两条 —— 一条 local-<cap>
+    # (可路由)、一条裸 local(老命名空间,不可路由)→ 用户看到重复名。
+    # 按 id + basename 收集已存在的本地模型(basename 兜住路径前缀差异),命中即跳。
+    import os as _os
+    _seen_local: set = set()
+    for _r in data:
+        _pn = str(_r.get("platform_name") or "")
+        if _pn == "local" or _pn.startswith("local-"):
+            _mid = str(_r.get("id") or "")
+            if _mid:
+                _seen_local.add(_mid)
+                _seen_local.add(_os.path.basename(_mid))
     try:
         from chayuan.server.model_registry.local_index import get_local_index
         idx = get_local_index()
@@ -367,8 +381,15 @@ async def list_models(type: Optional[str] = None, check_access: bool = False) ->
                 continue
             if type and cap_short != type:
                 continue
+            mid = entry.model_id
+            base = _os.path.basename(mid or "")
+            if (mid in _seen_local) or (base and base in _seen_local):
+                continue  # 已被 local-<cap> 平台覆盖,或注入自身重复 → 不重复列
+            _seen_local.add(mid)
+            if base:
+                _seen_local.add(base)
             data.append({
-                "id": entry.model_id,
+                "id": mid,
                 "object": "model",
                 "owned_by": "local",
                 "platform_name": "local",
