@@ -23,6 +23,7 @@ import { useVgComposer } from './store/vgComposer';
 import { resolveVgChatModel } from './store/vgComposerStore';
 import { reportError } from '../../store/errorDialog';
 import type { ChatMessage } from '../chat/useChayuanChat';
+import { blobToAudioDataUrl } from './blobToDataUrl';
 
 const RATE_OPTIONS = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0] as const;
 const VOLUME_OPTIONS = [0.8, 1.0, 1.2] as const;
@@ -101,11 +102,10 @@ export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
         voice_rate: params.voice_rate,
         voice_volume: params.voice_volume,
       });
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-      urlRef.current = URL.createObjectURL(r.blob);
       const a = audioRef.current ?? new Audio();
       audioRef.current = a;
-      a.src = urlRef.current;
+      // WKWebView 不支持 blob: 作 <audio> 源(NotSupportedError)→ data: URL
+      a.src = await blobToAudioDataUrl(r.blob);
       await a.play();
     } catch (e) {
       reportError(e as Error, '试听失败');

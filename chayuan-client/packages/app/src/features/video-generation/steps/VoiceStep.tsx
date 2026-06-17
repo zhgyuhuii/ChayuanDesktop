@@ -20,6 +20,7 @@ import {
 import { useVgComposer } from '../store/vgComposer';
 import { VOICE_PREVIEW_TEXT } from '../voicePreviewText';
 import { reportError } from '../../../store/errorDialog';
+import { blobToAudioDataUrl } from '../blobToDataUrl';
 
 const PROVIDERS: Array<{ id: VgVoiceProvider; label: string; hint: string; offline: boolean }> = [
   { id: 'piper',  label: 'piper(本地快速)', hint: 'CPU ~1× 实时,无网可用,音色机器味较重',  offline: true },
@@ -86,8 +87,8 @@ export const VoiceStep: React.FC = () => {
         voice_rate: params.voice_rate,
         voice_volume: params.voice_volume,
       });
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      const url = URL.createObjectURL(r.blob);
+      // WKWebView 不支持 blob: 作 <audio> 源(NotSupportedError)→ data: URL
+      const url = await blobToAudioDataUrl(r.blob);
       setPreviewUrl(url);
       const el = audioRef.current ?? new Audio();
       audioRef.current = el;
