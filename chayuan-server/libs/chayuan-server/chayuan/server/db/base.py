@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import sys
 
 from sqlalchemy import create_engine
@@ -19,6 +20,27 @@ from sqlalchemy.ext.declarative import DeclarativeMeta, declarative_base
 from sqlalchemy.orm import sessionmaker
 
 from chayuan.settings import Settings
+
+
+def _ensure_writable(path: str) -> None:
+    """尽力补回属主写位(self-heal 只读 db / 目录)。
+
+    SQLite 写库要目录可写(建 -wal/-journal/-shm);db 文件或其目录只读会报
+    ``attempt to write a readonly database``。常见于数据目录被某次 sudo/root
+    进程创建后,普通用户跑 sidecar 写不动。这里尽力 chmod u+w;若文件/目录被
+    **别的用户(root)拥有**,chmod 会 PermissionError —— 那种只能用户
+    ``sudo chown -R <自己> <数据目录>`` 修属主,代码救不了,只能在日志里喊。
+    """
+    try:
+        mode = os.stat(path).st_mode
+        if not (mode & stat.S_IWUSR):
+            os.chmod(path, mode | stat.S_IWUSR)
+    except Exception as _e:  # noqa: BLE001
+        sys.stderr.write(
+            f"[chayuan][db] {path!r} 不可写且无法 chmod({_e!r});"
+            f"若是数据目录被 root 拥有,请 `sudo chown -R $(whoami) <数据目录>`。\n"
+        )
+        sys.stderr.flush()
 
 
 def _create_sqlite_engine(uri: str, bs):
@@ -46,6 +68,10 @@ def _create_sqlite_engine(uri: str, bs):
             parent = os.path.dirname(os.path.abspath(db_path))
             if parent:
                 os.makedirs(parent, exist_ok=True)
+                # 自愈只读目录/文件 → 否则 "attempt to write a readonly database"
+                _ensure_writable(parent)
+                if os.path.isfile(db_path):
+                    _ensure_writable(db_path)
     except Exception as _e:  # noqa: BLE001 — 兜底失败不阻断,交给 create_engine 时再报
         sys.stderr.write(f"[chayuan][db] sqlite 父目录兜底创建失败:{_e!r}\n")
         sys.stderr.flush()
