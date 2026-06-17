@@ -817,6 +817,23 @@ def install_pytorch_cmd(variant: str, offline: bool, force: bool):
     sys.exit(1)
 
 
+@main.command(
+    "diagnose-tts",
+    help="逐档自检本地语音合成后端(piper/edge/sherpa/克隆),报精确根因。"
+         "建议带与 sidecar 相同的 CHAYUAN_ROOT 跑,模型/参考音频路径才对得上。",
+)
+def diagnose_tts() -> None:
+    """安装包内跑:用 frozen 自身 python 逐档隔离测 TTS,不走 fallback 掩盖。"""
+    import sys as _sys
+    try:
+        from chayuan.server.modality.tts_diagnose import print_report
+    except Exception as e:  # noqa: BLE001
+        _sys.stderr.write(f"[diagnose-tts] 加载诊断模块失败: {e!r}\n")
+        raise SystemExit(2)
+    ok = print_report()
+    raise SystemExit(0 if ok else 1)
+
+
 @main.command("worker", help="启动异步入库 worker（基于 Arq）。需配置 REDIS_URL 并 pip install arq")
 @click.option("--burst", is_flag=True, default=False, help="跑完队列里现有任务就退出")
 @click.option("--max-jobs", type=int, default=None, help="覆盖 ARQ_MAX_JOBS")
