@@ -617,6 +617,53 @@ def create_app(run_mode: str = None):
                 )
             return _cb
 
+        async def _auto_start_with_retry(_cap: str):
+            """首启自动拉起：失败则后台自动重试，把用户原来手点的「重试」自动化。
+
+            首启常见**瞬态**失败：冷盘读 GB 模型 / 与其它首启工作（字体缓存、
+            索引、其它 sidecar）抢 IO+CPU，导致 60s 内 /health 没返 200；或
+            bundled 模型 seed（clonefile 进数据目录）刚好还没完成→「模型未就绪」。
+            手动重试再跑同一 start() 就成功——这里自动重试几次消掉首启竞态。
+            对**确定性**失败（binary 缺 / 二进制错位）提前返回，不空转 4 次。
+            """
+            mgr = reg.get(_cap)
+            _MAX_RESPAWN = 3          # 瞬态失败最多再拉起几次
+            _SETTLE_POLL = 2.0        # "starting" 态轮询间隔
+            _SETTLE_MAX = 75.0        # 等单次拉起落定上限（> HEALTH_READY_TIMEOUT 60s）
+            respawns = 0
+            # start() 内联 await 健康检查：stopped/failed → 真 spawn 并阻塞到 ready/failed；
+            # 若另一条路径（bootstrap_preload_from_bundled→first_launch 预热）已先置
+            # state=starting，则立即返回 starting，由下面轮询等它落定，避免双拉竞态。
+            status = await mgr.start()
+            while True:
+                state = getattr(status, "state", None)
+                if state == "ready":
+                    return status
+                if state == "starting":
+                    waited = 0.0
+                    while waited < _SETTLE_MAX and getattr(mgr.status, "state", None) == "starting":
+                        await _asyncio.sleep(_SETTLE_POLL)
+                        waited += _SETTLE_POLL
+                    status = mgr.status
+                    if getattr(status, "state", None) == "starting":
+                        return status            # 75s 仍 starting（异常），不再纠缠，避免死循环
+                    continue
+                # failed / stopped —— 判定确定性 vs 瞬态
+                err = str(getattr(status, "last_error", "") or "")
+                if ("不在 vendor" in err) or ("二进制错位" in err):
+                    return status                       # binary 缺/错位，重拉无意义
+                if ("模型未就绪" in err) and respawns >= 1:
+                    return status                       # 模型确实没装，容一次 seed 竞态后停
+                if respawns >= _MAX_RESPAWN:
+                    return status
+                respawns += 1
+                _say(
+                    f"{_cap}: 首启拉起 {state}（{err[:80]}），自动重拉 "
+                    f"({respawns}/{_MAX_RESPAWN})..."
+                )
+                await _asyncio.sleep(_SETTLE_POLL)
+                status = await mgr.start()
+
         for cap in LocalRuntimeRegistry.CAPABILITIES:
             flag = get_auto(cap)
             if not flag:
@@ -624,7 +671,7 @@ def create_app(run_mode: str = None):
                 continue
             _say(f"{cap}: auto_start=True,后台拉起中(不阻塞 lifespan)...")
             try:
-                task = _asyncio.create_task(reg.get(cap).start())
+                task = _asyncio.create_task(_auto_start_with_retry(cap))
                 task.add_done_callback(_make_done_cb(cap))
             except Exception as e:  # noqa: BLE001
                 log.exception(
