@@ -172,6 +172,12 @@ for pkg in (
     "click",
     "rich",
     "tabulate",
+    # piper TTS 的音素化依赖 espeak-ng 的数据(phontab/phondata/语言规则)。
+    # piper1-gpl 通过 espeakng_loader.get_data_path()(包内相对路径)定位它;不收集
+    # 这份数据,frozen 下 espeak 回退到编译期写死的 CI 路径
+    # (/Users/runner/work/piper1-gpl/.../espeak-ng-data)→ "phontab: No such file"
+    # → piper 音素化失败、试听出不来声。收集后 get_data_path() 命中包内副本。
+    "espeakng_loader",
 ):
     try:
         d = collect_data_files(pkg)
