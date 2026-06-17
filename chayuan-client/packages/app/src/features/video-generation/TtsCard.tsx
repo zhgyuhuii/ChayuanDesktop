@@ -47,11 +47,19 @@ export const TtsCard: React.FC<TtsCardProps> = ({ tts, onChange, previewText }) 
         voice_provider: tts.provider, voice_name: tts.voice || undefined,
         voice_rate: tts.rate, voice_volume: tts.volume,
       });
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-      urlRef.current = URL.createObjectURL(r.blob);
+      // ⚠ Tauri WKWebView(macOS)不支持 blob: URL 作 <audio> 媒体源 → play() 报
+      // NotSupportedError（打包后才暴露，dev 浏览器支持 blob）。改用 data: URL 内联，
+      // 跟 VoicePicker 试听同款修法。
+      const wavBlob = r.blob.type ? r.blob : new Blob([r.blob], { type: 'audio/wav' });
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result as string);
+        fr.onerror = () => reject(fr.error);
+        fr.readAsDataURL(wavBlob);
+      });
       const a = audioRef.current ?? new Audio();
       audioRef.current = a;
-      a.src = urlRef.current;
+      a.src = dataUrl;
       await a.play();
     } catch (e) { reportError(e as Error, '试听失败'); }
     finally { setPreviewing(false); }

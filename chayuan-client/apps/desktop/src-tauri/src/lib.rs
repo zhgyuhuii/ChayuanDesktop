@@ -351,13 +351,13 @@ pub fn run() {
 
             // ── 系统托盘 ────────────────────────────────────────────
             // 菜单(从上到下):
-            //   打开察元 AI
+            //   打开
             //   ─── 分隔 ───
             //   重启
             //   关于
             //   ─── 分隔 ───
             //   退出
-            let show     = MenuItem::with_id(app, "show",     "打开察元 AI", true, None::<&str>)?;
+            let show     = MenuItem::with_id(app, "show",     "打开", true, None::<&str>)?;
             let sep1     = PredefinedMenuItem::separator(app)?;
             let restart  = MenuItem::with_id(app, "restart",  "重启",         true, None::<&str>)?;
             let about    = MenuItem::with_id(app, "about",    "关于",         true, None::<&str>)?;
