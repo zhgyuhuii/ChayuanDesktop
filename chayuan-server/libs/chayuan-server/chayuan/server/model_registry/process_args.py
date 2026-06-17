@@ -219,8 +219,16 @@ def _expand_to_model_file(
         r.missing.append(capability)
         r.reason = f"{capability} entry {entry.model_id!r} 路径既不是文件也不是目录:{p}"
         return None
-    # rglob 兼容 HF snapshot 偶尔落子目录的布局
-    candidates = [c for c in p.rglob(f"*{suffix}") if c.is_file()]
+    # rglob 兼容 HF snapshot 偶尔落子目录的布局。
+    # ⚠ 跳过 .前缀临时/缓存目录里的权重:``._____temp`` = install_model 下载没下完
+    # 留下的残片,``.cache`` = HF 缓存。否则 rglob 会把没下完的(往往更小的)量化
+    # 也当候选,且因体积小被下方"优先小量化"挑中,llama-server 加载残缺 gguf 直接
+    # 退出码 1(实测:embedding 同目录有好的 Q8_0,却去加载 ._____temp/Q5_K_M)。
+    candidates = [
+        c for c in p.rglob(f"*{suffix}")
+        if c.is_file()
+        and not any(part.startswith(".") for part in c.relative_to(p).parts)
+    ]
     if not candidates:
         r.missing.append(capability)
         r.reason = (
