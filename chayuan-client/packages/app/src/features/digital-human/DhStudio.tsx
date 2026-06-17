@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
 import { digitalHuman, type AvatarSlot, type DigitalHumanPreset } from '@chayuan/api';
 import { GeneratePanel } from './GeneratePanel';
 import { CanvasStage, type CanvasProduct } from './CanvasStage';
@@ -21,7 +21,7 @@ const collapseBtnCls =
  * 数字人工作台:左设置 / 拖拽分隔 / 右预览。左设置 / 右预览可折叠成细条,点细条展开。
  * (生成任务与数字人视频列表已独立到「数字人视频」tab。)
  */
-export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPublished?: () => void; onGenerated?: (taskId: string) => void }> = ({ presets, initialPresetId, onPublished, onGenerated }) => {
+export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId?: string; onPublished?: () => void; onGenerated?: (taskId: string) => void; onGoPresets?: () => void }> = ({ presets, initialPresetId, onPublished, onGenerated, onGoPresets }) => {
   const qc = useQueryClient();
   // 商品选中:点右侧预览的商品图 → 高亮左侧列表对应行(双向)。
   const [selProd, setSelProd] = React.useState<string | null>(null);
@@ -202,6 +202,28 @@ export const DhStudio: React.FC<{ presets: DigitalHumanPreset[]; initialPresetId
       </div>
     </div>
   );
+
+  // 工作台为空(还没建任何数字人)→ 引导去「数字人设置」添加,而不是给一个空壳工作台。
+  if (presets.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 rounded-xl bg-[var(--cy-surface-2)] p-8 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--cy-surface-1)] text-[var(--cy-text-tertiary)]">
+          <UserPlus className="h-8 w-8" />
+        </div>
+        <div className="space-y-1">
+          <div className="text-base font-medium text-[var(--cy-text-primary)]">还没有数字人</div>
+          <div className="max-w-sm text-sm text-[var(--cy-text-tertiary)]">先在「数字人设置」里添加一个数字人形象,再回到工作台生成视频。</div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onGoPresets?.()}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--cy-brand-500)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--cy-brand-600)]"
+        >
+          <UserPlus className="h-4 w-4" /> 去添加数字人
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col gap-2">
