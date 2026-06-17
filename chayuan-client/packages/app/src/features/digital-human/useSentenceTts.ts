@@ -2,6 +2,7 @@ import * as React from 'react';
 import { videoGeneration } from '@chayuan/api';
 import type { VgVoiceProvider } from '@chayuan/api';
 import { takeCompleteSentences } from './liveSentences';
+import { blobToAudioDataUrl } from '../video-generation/blobToDataUrl';
 
 interface VoiceCfg {
   voice_provider?: VgVoiceProvider;
@@ -33,11 +34,10 @@ export function useSentenceTts(voice: VoiceCfg, enabled: boolean) {
         voice_provider: voice.voice_provider,
         voice_name: voice.voice_name || undefined,
       });
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-      urlRef.current = URL.createObjectURL(blob);
       const a = audioRef.current ?? new Audio();
       audioRef.current = a;
-      a.src = urlRef.current;
+      // WKWebView 不支持 blob: 作 <audio> 源(NotSupportedError)→ data: URL
+      a.src = await blobToAudioDataUrl(blob);
       await new Promise<void>((resolve) => {
         a.onended = () => resolve();
         a.onerror = () => resolve();
