@@ -574,8 +574,19 @@ def llama_install_info() -> Dict[str, Any]:
 def runtime_diagnose() -> Dict[str, Any]:
     """跑所有本地 runtime 健康检查,返报告 JSON。"""
     from chayuan.server.diagnose import run_all_checks
-    report = run_all_checks()
-    return _ok(report.to_dict())
+    try:
+        report = run_all_checks()
+        return _ok(report.to_dict())
+    except Exception as e:  # noqa: BLE001
+        import traceback as _tb
+        logger.exception("[diagnose] run_all_checks 失败")
+        # 诊断接口自身崩了不能给裸 500(客户端 curl -f 看不到 body,只剩 "error: 500")
+        # —— 把根因 + 栈尾塞进正常 envelope,让诊断工具直接显示出来。
+        return _ok({
+            "error": f"{type(e).__name__}: {e}",
+            "traceback": _tb.format_exc().strip().splitlines()[-15:],
+            "hint": "诊断接口自身异常。常见:CHAYUAN_ROOT 解析失败 / 某 check 模块 import 失败。",
+        })
 
 
 # ─────── /runtime/llama/{capability}/* — Plan 3B 多 capability ───────

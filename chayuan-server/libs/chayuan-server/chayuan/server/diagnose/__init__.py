@@ -24,7 +24,11 @@ def _resolve_chayuan_root() -> Path:
 
 def run_all_checks() -> DiagnoseReport:
     """跑 15 项 check,聚合成报告。单个 check 抛异常不阻塞其它 check。"""
-    root = _resolve_chayuan_root()
+    try:
+        root = _resolve_chayuan_root()
+    except Exception:  # noqa: BLE001 — root 解析失败不该让整个诊断 500
+        import os as _os
+        root = Path(_os.environ.get("CHAYUAN_ROOT") or ".").resolve()
     settings_path = root / "model_registry" / "local_runtime.yaml"
     status_path = root / "runtime.json"
 
