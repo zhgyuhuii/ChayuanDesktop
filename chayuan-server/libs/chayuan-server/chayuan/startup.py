@@ -231,6 +231,38 @@ def _kill_previous_instance(
         )
         return
 
+    # ── 防误杀健康实例(打包态「试听/任意操作把服务搞崩溃」根因)──────────────
+    # 重复的 `chayuan start`(desktop 误判 sidecar 状态后重拉 / 全量 restart 等)
+    # 会走到这里。实测打包态:服务起好后第二个 start 进来,把**活着且在正常服务**
+    # 的上一份实例 SIGKILL → 用户看到「主服务崩溃」(知识库问答 / 画幅选择 全挂)。
+    # 这里先探一次旧实例的 API /healthz:仍 200 说明它在好好服务,本次重复启动直接
+    # 退避(clean exit),把端口让给活实例,绝不杀它。
+    # 安全性:正常「重启服务」会先把旧父进程 SIGTERM 杀掉,届时 /healthz 探测自然
+    # 失败 → 走下面原杀进程逻辑,不受影响;探测任何异常也都 fall through 到原行为
+    # (最坏情况 == 改动前),不会挡住合法启动。dev 态不经 desktop spawn,不触发。
+    try:
+        from chayuan.settings import Settings as _S_hp
+        _srv = getattr(_S_hp.basic_settings, "API_SERVER", {}) or {}
+        _api_port = int(_srv.get("port") or 62581) if isinstance(_srv, dict) else 62581
+    except Exception:  # noqa: BLE001
+        _api_port = 62581
+    try:
+        import urllib.request as _ureq_hp
+        with _ureq_hp.urlopen(
+            f"http://127.0.0.1:{_api_port}/healthz", timeout=2.0
+        ) as _resp_hp:
+            _prev_healthy = (getattr(_resp_hp, "status", None) == 200)
+    except Exception:  # noqa: BLE001
+        _prev_healthy = False
+    if _prev_healthy:
+        logger.warning(
+            "检测到已有健康实例(pid=%d)正在 127.0.0.1:%d 正常服务(/healthz 200)；"
+            "本次重复启动退避,不杀活实例(避免「服务崩溃」)。如确需强制重启,"
+            "请用配置面板「重启服务」(会先优雅停旧实例)。",
+            pid, _api_port,
+        )
+        raise SystemExit(0)
+
     logger.warning(
         "检测到上一次 `chayuan start` 的父进程仍在运行（pid=%d，argv=%s），"
         "发送终止信号让它清理并退出...",
