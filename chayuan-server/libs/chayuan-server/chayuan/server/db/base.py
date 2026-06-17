@@ -11,6 +11,7 @@ SQLite 特殊处理：
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 from sqlalchemy import create_engine
@@ -34,6 +35,20 @@ def _create_sqlite_engine(uri: str, bs):
             "[chayuan][db] 使用 SQLite(单机/桌面默认)。上生产前请切 Postgres,详见 docs/scalability.md。\n"
         )
     sys.stderr.flush()
+    # SQLite 不会创建中间目录:父目录缺失 → sqlite3.OperationalError
+    # "unable to open database file"。进程重启后 CHAYUAN_ROOT 解析变化 / 数据
+    # 目录迁移都可能让父目录不在,这里兜底建一次(幂等),否则每次请求打表都
+    # 抛未捕获异常,前端轮询下日志几分钟撑到上百 MB。
+    try:
+        from sqlalchemy.engine.url import make_url
+        db_path = make_url(uri).database or ""
+        if db_path and db_path != ":memory:":
+            parent = os.path.dirname(os.path.abspath(db_path))
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+    except Exception as _e:  # noqa: BLE001 — 兜底失败不阻断,交给 create_engine 时再报
+        sys.stderr.write(f"[chayuan][db] sqlite 父目录兜底创建失败:{_e!r}\n")
+        sys.stderr.flush()
     return create_engine(
         uri,
         connect_args={"check_same_thread": False},

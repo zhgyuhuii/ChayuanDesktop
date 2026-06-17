@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 import uuid
 from collections import deque
@@ -28,6 +29,41 @@ from typing import Any, Awaitable, Callable, Deque, Dict, Optional, Tuple
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+
+
+# ---------------------------------------------------------------------------
+# 未捕获异常日志限流:前端轮询型端点(如 list_tasks)若因 DB 等持续失败,
+# 每次请求都打整条 traceback 会把日志在几分钟内撑到上百 MB(用户实测 100M)。
+# 按"异常类型 + 最末栈帧(file:line)"签名,同签名 60s 内只打一次全栈,其余
+# 只记一行简讯,既保留首现场又不刷屏。
+# ---------------------------------------------------------------------------
+_EXC_LOG_LOCK = threading.Lock()
+_EXC_LOG_LAST: Dict[str, float] = {}
+_EXC_LOG_WINDOW_SEC = 60.0
+
+
+def _exc_signature(exc: BaseException) -> str:
+    tb = exc.__traceback__
+    last = None
+    while tb is not None:
+        last = tb
+        tb = tb.tb_next
+    if last is not None:
+        co = last.tb_frame.f_code
+        return f"{type(exc).__name__}:{co.co_filename}:{last.tb_lineno}"
+    return type(exc).__name__
+
+
+def _should_log_full_traceback(exc: BaseException) -> bool:
+    """同签名异常 60s 内只放行一次全栈,杜绝轮询失败刷爆日志。"""
+    sig = _exc_signature(exc)
+    now = time.monotonic()
+    with _EXC_LOG_LOCK:
+        last = _EXC_LOG_LAST.get(sig, 0.0)
+        if now - last >= _EXC_LOG_WINDOW_SEC:
+            _EXC_LOG_LAST[sig] = now
+            return True
+    return False
 
 logger = logging.getLogger("chayuan.api.middleware")
 
@@ -65,8 +101,14 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
         try:
             response = await call_next(request)
-        except Exception:
-            logger.exception("[rid=%s] unhandled exception", rid)
+        except Exception as exc:
+            if _should_log_full_traceback(exc):
+                logger.exception("[rid=%s] unhandled exception", rid)
+            else:
+                logger.error(
+                    "[rid=%s] unhandled exception(同类重复,堆栈已抑制 60s): %s: %s",
+                    rid, type(exc).__name__, exc,
+                )
             raise
         response.headers[self.header] = rid
         return response
