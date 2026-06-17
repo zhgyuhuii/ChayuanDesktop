@@ -218,6 +218,19 @@ def _offline_wheels_dir() -> Optional[Path]:
     except (IndexError, OSError):
         pass
 
+    # Mac .app:torch_wheels 跟 bundled_models 同层在 Contents/Resources/,
+    # 而 exe 在 Resources/chayuan-server/ → 上面 argv0.parent 差一层。复用
+    # bundled_models_dir 的正确解析,取其同级 torch_wheels(mac/win 都对)。
+    try:
+        from chayuan.server.model_registry.local_index import bundled_models_dir
+        _bm = bundled_models_dir()
+        if _bm is not None:
+            p = Path(_bm).parent / "torch_wheels"
+            if p.is_dir() and any(p.rglob("*.whl")):
+                return p
+    except Exception:  # noqa: BLE001
+        pass
+
     # dev: <repo>/libs/chayuan-server/chayuan/server/runtime/pytorch_installer.py
     #       parents[5] = <repo>(chayuan-server 仓库根)
     try:
@@ -245,6 +258,19 @@ def _find_install_torch_wheels_dir() -> Optional[Path]:
             if p.is_dir() and any(p.rglob("*.whl")):
                 return p
     except (IndexError, OSError):
+        pass
+    # Mac .app:sidecar exe 在 Contents/Resources/chayuan-server/,torch_wheels 跟
+    # bundled_models 同层落在 Contents/Resources/ → argv0.parent/torch_wheels 差一层。
+    # 复用已验证的 bundled_models_dir 解析(它正确处理 mac/win 布局),torch_wheels
+    # 是它的同级目录。修 2026-05-19 起 mac 装机版 torch 离线 wheel 找不到的回归。
+    try:
+        from chayuan.server.model_registry.local_index import bundled_models_dir
+        _bm = bundled_models_dir()
+        if _bm is not None:
+            p = Path(_bm).parent / "torch_wheels"
+            if p.is_dir() and any(p.rglob("*.whl")):
+                return p
+    except Exception:  # noqa: BLE001
         pass
     # dev / 测试:dev 仓库的 vendor 兜底,让首启在 dev 环境也能 seed
     try:

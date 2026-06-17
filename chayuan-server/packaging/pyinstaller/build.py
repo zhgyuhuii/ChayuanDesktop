@@ -1143,10 +1143,26 @@ def sync_torch_wheels() -> None:
 
     # 2. 拷到 Tauri 资源 + 同时为大文件预备 ISO seed(目前 CPU wheel < 250MB,
     #    都走 Tauri 路径;未来 CUDA wheel ≥ 2GB 单文件可在这里扩展分流逻辑)。
+    # 只 ship 本机平台的 wheel —— vendor/torch_wheels 含 4 平台(win/linux/mac x2),
+    # 全打进 mac DMG 白白多 ~750MB。按构建机平台筛对应子目录(未知平台不筛,全 ship)。
+    import platform as _plat
+    _sys = _plat.system(); _mach = _plat.machine().lower()
+    if _sys == "Darwin":
+        _host_pref = "macosx_11_0_arm64" if _mach in ("arm64", "aarch64") else "macosx_10_9_x86_64"
+    elif _sys == "Linux":
+        _host_pref = "manylinux2014_x86_64" if _mach in ("x86_64", "amd64") else "manylinux2014_aarch64"
+    elif _sys == "Windows":
+        _host_pref = "win_amd64"
+    else:
+        _host_pref = None
+
     n_tauri = 0
     bytes_tauri = 0
     for sub in sorted(src.iterdir()):
         if not sub.is_dir() or sub.name.startswith("."):
+            continue
+        if _host_pref and not sub.name.startswith(_host_pref):
+            print(f"[build] torch_wheels 跳过非本机平台 {sub.name}(本机={_host_pref})", flush=True)
             continue
         for whl in sub.glob("*.whl"):
             dst = desktop_dst / sub.name / whl.name
