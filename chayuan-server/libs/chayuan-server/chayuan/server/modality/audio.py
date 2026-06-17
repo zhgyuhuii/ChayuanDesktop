@@ -249,6 +249,13 @@ def _tts_worker_loop(conn):  # noqa: ANN001
         if req is None:
             break
         engine, text, kwargs = req
+        if engine == "__ping__":
+            # 启动自检 ping:不做合成、不依赖模型,只验 spawn + 管道往返是否通
+            try:
+                conn.send(("ok", b"pong"))
+            except OSError:
+                break
+            continue
         try:
             method = getattr(pipe, "_synthesize_via_%s_inproc" % engine)
             data = method(text, **kwargs)
@@ -351,6 +358,43 @@ def tts_call_timeout(seconds: int):
 
 
 _TTS_WORKER = _TtsWorker()
+
+
+def probe_tts_worker(timeout: float = 60.0) -> bool:
+    """启动期自检:ping 一次 TTS worker 子进程,验证本环境 ``multiprocessing.spawn``
+    重入 + ``freeze_support`` 拦截 + 管道往返都正常 —— **不做真合成、不依赖任何模型**。
+
+    动机:本地语音合成的 sherpa / 克隆音色走 ``_TtsWorker`` 子进程隔离(spawn)。
+    打包(frozen)态若 runtime hook 没正确拦截 spawn 重入,worker 起不来 → 音色试听
+    失败;dev 跑真 python 碰不到。这里把"dev 能打包不能"从用户点试听才发现,提前到
+    启动日志一条大字报。返回 True=worker 链路通(并顺带把 worker 预热好)。
+    """
+    import sys as _sys
+    try:
+        res = _TTS_WORKER.synth("__ping__", "", {}, timeout=timeout)
+    except Exception as e:  # noqa: BLE001 — synth 内部已兜底,这里再保一层
+        logger.debug("[tts-probe] ping 调用异常:%r", e)
+        res = None
+    if res in (b"pong", "pong"):
+        logger.info("[tts-probe] TTS worker 子进程自检通过(spawn + 管道往返正常,已预热)")
+        return True
+    _banner = (
+        "\n========== 察元 TTS worker 启动自检失败 ==========\n"
+        "本地语音合成的隔离子进程(sherpa / 克隆音色用)在本环境无法 spawn 或无响应。\n"
+        "  影响:音色试听(sherpa / 克隆)会失败或回退 piper。\n"
+        "  典型:打包(frozen)态 multiprocessing.spawn 重入未被 runtime hook 正确拦截;\n"
+        "        dev 跑真 python 不会复现 —— 这正是「开发能、打包不能」的来源。\n"
+        "  排查:data/logs 里看 [mp-freeze] 子进程 argv 与 [tts:worker] 日志,确认\n"
+        "        spawn 出的子进程跑成了 worker,而不是回落到 Click CLI。\n"
+        "================================================\n"
+    )
+    logger.error(_banner)
+    try:
+        _sys.stderr.write(_banner)
+        _sys.stderr.flush()
+    except Exception:  # noqa: BLE001
+        pass
+    return False
 
 
 class AudioPipeline:

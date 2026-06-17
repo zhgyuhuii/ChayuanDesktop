@@ -449,6 +449,31 @@ def create_app(run_mode: str = None):
     # stdout,Tauri sidecar / 直接 uvicorn run 都可见;同时把 settings 文件路径 +
     # 当前值 + 启动结果 + log_path 一起打,任何状态都好排查。
     @app.on_event("startup")
+    async def _probe_tts_worker_bg() -> None:
+        """TTS worker 子进程启动自检(后台、不阻塞 lifespan)。frozen 打包态
+        multiprocessing.spawn 重入若被 runtime hook 漏拦,worker 起不来 → 音色试听
+        (sherpa / 克隆)失败;dev 跑真 python 碰不到。启动时 ping 一次 worker,把
+        「开发能、打包不能」提前到启动日志。"""
+        import asyncio as _asyncio
+        import logging as _logging
+        _log = _logging.getLogger("chayuan.startup")
+        try:
+            from chayuan.server.modality.audio import probe_tts_worker
+
+            def _done(t: "_asyncio.Task") -> None:
+                try:
+                    ok = t.result()
+                    _log.info("[tts-probe] TTS worker 自检 %s", "通过" if ok else "失败(见上方大字报)")
+                except Exception as _e:  # noqa: BLE001
+                    _log.warning("[tts-probe] 自检任务异常:%r", _e)
+
+            _t = _asyncio.create_task(_asyncio.to_thread(probe_tts_worker))
+            _t.add_done_callback(_done)
+            _log.info("[tts-probe] TTS worker 后台自检中(不阻塞 lifespan)...")
+        except Exception as _e:  # noqa: BLE001
+            _log.debug("[tts-probe] 调度失败(忽略):%r", _e)
+
+    @app.on_event("startup")
     async def _auto_start_rapidocr() -> None:
         import logging as _logging
         import sys as _sys
