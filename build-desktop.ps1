@@ -140,7 +140,8 @@ param(
     # chayuan-desktop.exe)以省盘(三档草稿否则会累积)。dist-{flavor}\ 的 msi+cab 是
     # ISO 失败时的 zip 分发 fallback,保留不动;缓存(chayuan-server\dist 指纹、
     # target\release\deps Rust 增量)一律不动。-KeepIntermediate 关闭本步(排查 / 手动 zip)。
-    [switch]$KeepIntermediate
+    [switch]$KeepIntermediate,
+    [switch]$Bump  # 本次构建把 patch +1(默认不 +1,只同步当前 VERSION;与 release 一致)
 )
 
 # 旧名兼容 + 提示
@@ -592,14 +593,15 @@ try {
     exit 1
 }
 
-# 0a. 版本号自增 + 同步
-# 真源:repo 根 VERSION (X.Y.Z)。每跑一次 build,scripts/bump-version.py 把
-# patch 段 +1,同步写到 tauri.conf.json + chayuan-server/pyproject.toml。
-# CHAYUAN_BUILD_NO_BUMP=1 时只同步不递增,适合 CI 调试复刻已有版本。
+# 0a. 版本号同步(默认不 +1)
+# 真源:repo 根 VERSION (X.Y.Z)。默认只把当前 VERSION 同步到 tauri.conf /
+# pyproject(--no-bump),**不递增** —— 与 release.mjs / build-desktop.sh 默认
+# 一致,保证 release 入口和直接跑 build-desktop 出来的版本号永远相同。
+# 仅 -Bump 时才 patch +1;env CHAYUAN_BUILD_NO_BUMP=1 永远压过 -Bump 强制只同步。
 $bumpScript = Join-Path $WorkspaceRoot 'scripts\bump-version.py'
 if (Test-Path $bumpScript) {
     $bumpArgs = @($bumpScript)
-    if ($env:CHAYUAN_BUILD_NO_BUMP -eq '1') { $bumpArgs += '--no-bump' }
+    if (-not $Bump -or $env:CHAYUAN_BUILD_NO_BUMP -eq '1') { $bumpArgs += '--no-bump' }
     try {
         $BuildVersion = (& python $bumpArgs) | Select-Object -Last 1
         Write-Host "[build-desktop] BUILD_VERSION=$BuildVersion"

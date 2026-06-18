@@ -19,6 +19,7 @@
 #   ./build-desktop.sh --clean                          构建前先清 dist + bundle
 #   ./build-desktop.sh --skip-clean-target              跳过"打包前清 target/"(默认会清=全量冷构建)
 #   ./build-desktop.sh --verbose                        透传 PyInstaller / pnpm 完整 stdout
+#   ./build-desktop.sh --bump                            本次构建把 patch +1(默认不 +1,只同步当前 VERSION)
 #
 # 双产物说明
 # ---------
@@ -69,18 +70,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKSPACE="$SCRIPT_DIR"
 
-# ── 0a. 版本号自增 + 同步 ──────────────────────────────────────────
-# 真源:repo 根 VERSION (X.Y.Z)。
-# 每跑一次 build,scripts/bump-version.py 把 patch 段 +1,同步写到
-# tauri.conf.json + chayuan-server/pyproject.toml。Tauri/PyInstaller 后续
-# 读到的就是新版本。--no-bump 子命令(可加 env CHAYUAN_BUILD_NO_BUMP=1
-# 触发)只同步不递增,适合 CI 调试时复刻已有版本。
-if [[ "${CHAYUAN_BUILD_NO_BUMP:-0}" == "1" ]]; then
-    BUILD_VERSION="$(python3 "$WORKSPACE/scripts/bump-version.py" --no-bump)" || true
-else
-    BUILD_VERSION="$(python3 "$WORKSPACE/scripts/bump-version.py")" || true
-fi
-echo "[build-desktop] BUILD_VERSION=$BUILD_VERSION"
+# ── 0a. 版本号同步 ────────────────────────────────────────────────
+# 真源:repo 根 VERSION (X.Y.Z)。实际调用挪到「参数解析之后」(见下方),
+# 因为要先知道有没有传 --bump。默认只同步当前 VERSION、**不 +1**,与
+# release.mjs 默认一致 —— release 入口与直接跑 build-desktop 版本号永远相同。
 
 SERVER_DIR="$WORKSPACE/chayuan-server"
 SERVER_PKG_DIR="$SERVER_DIR/libs/chayuan-server"
@@ -137,6 +130,7 @@ BUNDLE_ONLY=0
 CLEAN=0
 SKIP_CLEAN_TARGET=0   # 默认每次打包前完全清 Rust target/;传 --skip-clean-target 关闭
 VERBOSE=0
+BUMP=0  # 默认只同步版本、不 +1;传 --bump 才 patch +1(与 release 默认一致)
 REBUILD_SERVER=0
 SKIP_SERVER_AUTO=0  # 内部状态:Step 1 是被指纹自动跳过,还是 --skip-server 显式跳过
 SKIP_MODEL_CHECK=0
@@ -162,6 +156,7 @@ while [[ $# -gt 0 ]]; do
         --clean)            CLEAN=1 ;;
         --skip-clean-target) SKIP_CLEAN_TARGET=1 ;;
         --verbose|-v)       VERBOSE=1 ;;
+        --bump)             BUMP=1 ;;
         --skip-model-check) SKIP_MODEL_CHECK=1 ;;
         --lite-only)        LITE_ONLY=1 ;;
         --integrated-only|--full-only)  INTEGRATED_ONLY=1 ;;
@@ -170,7 +165,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)          usage ;;
         *)
             echo "[FAIL] 未知参数: $1" >&2
-            echo "可用参数:--lite-only / --integrated-only / --skip-model-check / --skip-server / --rebuild-server / --skip-healthcheck / --skip-frontend / --skip-install / --skip-typecheck / --bundle-only / --clean / --skip-clean-target / --keep-intermediate / --verbose" >&2
+            echo "可用参数:--lite-only / --integrated-only / --skip-model-check / --skip-server / --rebuild-server / --skip-healthcheck / --skip-frontend / --skip-install / --skip-typecheck / --bundle-only / --clean / --skip-clean-target / --keep-intermediate / --verbose / --bump" >&2
             exit 2 ;;
     esac
     shift
@@ -182,6 +177,17 @@ if [[ "$_only_count" -gt 1 ]]; then
     echo "[FAIL] --lite-only / --standard-only / --full-only 三者互斥(不带 = 三档都打)" >&2
     exit 2
 fi
+
+# ── 0a. 版本号同步(默认不 +1)────────────────────────────────────
+# 默认只把当前 VERSION 同步到 tauri.conf / pyproject(--no-bump),不递增 ——
+# 与 release.mjs 默认一致,保证 release 入口和直接跑 build-desktop 版本号相同。
+# 仅 --bump 时才 +1;env CHAYUAN_BUILD_NO_BUMP=1 永远压过 --bump,强制只同步。
+if [[ "$BUMP" == "1" && "${CHAYUAN_BUILD_NO_BUMP:-0}" != "1" ]]; then
+    BUILD_VERSION="$(python3 "$WORKSPACE/scripts/bump-version.py")" || true
+else
+    BUILD_VERSION="$(python3 "$WORKSPACE/scripts/bump-version.py" --no-bump)" || true
+fi
+echo "[build-desktop] BUILD_VERSION=$BUILD_VERSION"
 
 # 决定本次要打哪些 flavor(三档:lite/standard/full)
 FLAVORS=()
