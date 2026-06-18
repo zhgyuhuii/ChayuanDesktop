@@ -162,6 +162,12 @@ export const VoicePicker: React.FC<{
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const recRef = React.useRef<MediaRecorder | null>(null);
   const chunksRef = React.useRef<Blob[]>([]);
+  // Tauri WebView 用自定义协议 tauri://localhost 加载,WebKit 不把它当 secure
+  // context → navigator.mediaDevices 整个 undefined,浏览器录音不可用。此时只
+  // 保留「上传音频文件」通路,录音按钮隐藏,避免点了报"无法访问麦克风"误导。
+  const micSupported = typeof navigator !== 'undefined'
+    && !!navigator.mediaDevices?.getUserMedia
+    && typeof MediaRecorder !== 'undefined';
   React.useEffect(
     () => () => { try { recRef.current?.stop(); } catch { /* noop */ } },
     [],
@@ -197,6 +203,10 @@ export const VoicePicker: React.FC<{
   };
 
   const startRec = async () => {
+    if (!micSupported) {
+      reportError(new Error('当前环境不支持浏览器录音,请改用「上传」选择音频文件'), '录音不可用');
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream);
@@ -293,7 +303,7 @@ export const VoicePicker: React.FC<{
             {voicesQ.isLoading ? '加载中…'
               : value.voice_provider === 'sherpa' ? '(无 sherpa 模型,去模型广场下载)'
               : value.voice_provider === 'edge' ? '(空 — 请重启后端)'
-              : value.voice_provider === 'clone' ? '(还没有克隆音色,点上传/录音)'
+              : value.voice_provider === 'clone' ? (micSupported ? '(还没有克隆音色,点上传/录音)' : '(还没有克隆音色,点上传)')
               : '(无可用音色)'}
           </option>
         )}
@@ -336,20 +346,22 @@ export const VoicePicker: React.FC<{
           >
             <Upload className="h-3 w-3" /> 上传
           </button>
-          <button
-            type="button"
-            onClick={() => (recording ? stopRec() : void startRec())}
-            disabled={cloneBusy}
-            className={cn(
-              'inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[10px] disabled:opacity-50',
-              recording
-                ? 'bg-rose-500 text-white hover:bg-rose-600'
-                : 'border border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]',
-            )}
-          >
-            {recording ? <Square className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
-            {recording ? '停止' : '录音'}
-          </button>
+          {micSupported && (
+            <button
+              type="button"
+              onClick={() => (recording ? stopRec() : void startRec())}
+              disabled={cloneBusy}
+              className={cn(
+                'inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[10px] disabled:opacity-50',
+                recording
+                  ? 'bg-rose-500 text-white hover:bg-rose-600'
+                  : 'border border-[var(--cy-border-subtle)] text-[var(--cy-text-secondary)] hover:bg-[var(--cy-surface-2)]',
+              )}
+            >
+              {recording ? <Square className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
+              {recording ? '停止' : '录音'}
+            </button>
+          )}
           {value.voice_name.startsWith('clone:') && (
             <>
               <button
