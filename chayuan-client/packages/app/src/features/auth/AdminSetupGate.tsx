@@ -34,6 +34,18 @@ export const AdminSetupGate: React.FC = () => {
         instanceName: instanceName.trim() || undefined,
       });
       setUser(res.user);
+      // 以服务端为准重拉 /auth/config 确认 admin 已建(状态一致性保证)。
+      // 重拉本身失败不回退:setup 已 200 即权威,兜底直接关门。
+      let stillRequired = false;
+      try {
+        stillRequired = (await authApi.config()).admin_setup_required;
+      } catch {
+        stillRequired = false;
+      }
+      if (stillRequired) {
+        setErr('管理员保存未生效,请刷新重试');
+        return;
+      }
       useLoginModalStore.getState().setAdminSetupRequired(false);
     } catch (e2) {
       const status = (e2 as { status?: number })?.status;
