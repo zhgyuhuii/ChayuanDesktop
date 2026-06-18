@@ -161,6 +161,15 @@ def _synthesize_via_sherpa(
     except Exception as e:  # noqa: BLE001
         logger.warning("[tts:sherpa] AudioPipeline import 失败: %r", e)
         return None
+    # sherpa 真不可用(.pyd 与 .py 版本错配 / 没装,如 ImportError OfflineDiacritization)时,
+    # modality 会**静默回退 piper 并返回 piper 音频**;若这里仍标 provider="sherpa",就让
+    # X-Tts-Provider=sherpa 实为 piper(用户实测"四档音色都成 piper",header 说谎)。
+    # 先探一次 sherpa_onnx 是否真能 import;不能就返回 None,让 caller 回退并**如实标 piper**。
+    try:
+        import sherpa_onnx  # noqa: F401
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[tts:sherpa] sherpa_onnx 不可用,放弃 sherpa(将如实回退 piper): %r", e)
+        return None
     am = AudioPipeline()
     fmt = _ext(voice_file) or "wav"
     voice_id = voice_name or ""

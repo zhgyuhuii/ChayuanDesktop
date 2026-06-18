@@ -421,6 +421,21 @@ if [[ "$SKIP_MODEL_CHECK" != "1" ]] && command -v poetry >/dev/null 2>&1; then
             ( cd "$SERVER_PKG_DIR" && poetry run pip install "fastapi~=0.109.2" "python-multipart==0.0.9" ) \
                 || note 'web 栈还原失败 — sidecar 可能因 fastapi/nicegui 不匹配起不来'
         fi
+        # sherpa-onnx 完整性:.py 与 .pyd 版本必须一致。半成品(新 .py + 旧 .pyd,常因
+        # 升级时 .pyd 被占用没覆盖成)装机后 ImportError: cannot import name
+        # 'OfflineDiacritization',sherpa 试听静默回退 piper(实测四档音色都成 piper)。
+        # import 不过就彻底卸两遍 + 干净重装钉死版本,再测仍不过即中止,绝不打坏包。
+        _sherpa_ok() { ( cd "$SERVER_PKG_DIR" && poetry run python -c "import sherpa_onnx" ) >/dev/null 2>&1; }
+        if _sherpa_ok; then
+            note 'sherpa_onnx import 正常(.py/.pyd 版本一致)'
+        else
+            note 'sherpa_onnx import 失败(.py/.pyd 错配)-> 彻底卸两遍再干净重装 1.13.2'
+            ( cd "$SERVER_PKG_DIR" && poetry run pip uninstall -y sherpa-onnx ) >/dev/null 2>&1 || true
+            ( cd "$SERVER_PKG_DIR" && poetry run pip uninstall -y sherpa-onnx ) >/dev/null 2>&1 || true
+            ( cd "$SERVER_PKG_DIR" && poetry run pip install --no-cache-dir --force-reinstall "sherpa-onnx==1.13.2" ) \
+                || { fail 'sherpa-onnx 重装失败'; exit 6; }
+            _sherpa_ok || { fail 'sherpa_onnx import 仍失败 -- 别打残包(装机后 sherpa 静默回退 piper)。确保无进程占用 _sherpa_onnx 再重试。'; exit 6; }
+        fi
     fi
     # VoxCPM-0.5B 是克隆音色「模型权重」,只进 full(standard 零模型权重,按需下载)。
     if [[ "$_has_full" == "1" ]] && [[ -f "$SERVER_DIR/scripts/seed_voxcpm.py" ]]; then

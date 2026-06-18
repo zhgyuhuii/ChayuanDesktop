@@ -1163,6 +1163,25 @@ if ($SkipInstallVendor -or $SkipModelCheck) {
                 & poetry run python $seedSherpa
                 if ($LASTEXITCODE -ne 0) { Write-Note 'seed_sherpa_voices 失败 — sherpa 音色将缺(不阻断后续)' }
             } else { Write-Note "$seedSherpa 不存在,跳过 sherpa seed" }
+            # sherpa-onnx 包完整性:.py 与 .pyd 版本必须一致。半成品(新 .py + 旧 .pyd,常因
+            # 升级时 _sherpa_onnx.pyd 被进程/Defender 占用没覆盖成)装机后 ImportError:
+            # cannot import name 'OfflineDiacritization',sherpa 试听静默回退 piper(实测四档都成
+            # piper)。import 不过就彻底卸两遍 + 干净重装钉死版本,再测仍不过即中止,不打坏包。
+            & poetry run python -c "import sherpa_onnx" *> $null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Note 'sherpa_onnx import 正常(.py/.pyd 版本一致)'
+            } else {
+                Write-Note 'sherpa_onnx import 失败(.py/.pyd 错配)-> 彻底卸两遍再干净重装 1.13.2'
+                & poetry run pip uninstall -y sherpa-onnx *> $null
+                & poetry run pip uninstall -y sherpa-onnx *> $null
+                & poetry run pip install --no-cache-dir --force-reinstall "sherpa-onnx==1.13.2"
+                & poetry run python -c "import sherpa_onnx" *> $null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host '[FAIL] sherpa_onnx import 仍失败 -- 别打残包(装机后 sherpa 音色静默回退 piper)。' -ForegroundColor Red
+                    Write-Host '  多半 _sherpa_onnx.pyd 被进程/Defender 占用删不掉。先 taskkill /F /IM python.exe + 关 IDE/Defender 实时保护,再重试。' -ForegroundColor DarkYellow
+                    Pop-Location; Restore-Console; exit 6
+                }
+            }
         }
         if ($Flavors -contains 'full') {
             Write-Step '深度依赖(pro): 装 torch +cpu / torchaudio / voxcpm + seed VoxCPM-0.5B'
