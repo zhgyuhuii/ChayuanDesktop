@@ -11,18 +11,24 @@
   - ``Cache-Control: immutable``(内容寻址,产物字节级不可变 → 浏览器可长存)
   - HEAD(返 200 + Content-Length,前端预探测)
 
-鉴权(本单机版):
-  - 不做强鉴权 — 单机服务,artifacts URL 已包含 SHA256(64 字符)实际充当 token
-  - 多用户/服务端场景后续接 ``require_auth_enabled`` 中间件 + per-user owner 校验
+鉴权(双版本):
+  - 单机版(AUTH_REQUIRED=false):``require_auth_enabled`` 透明放行,artifacts URL
+    含 SHA256(64 字符)实际充当 capability token,行为不变。
+  - 网络版(AUTH_REQUIRED=true):要求登录态,挡掉匿名访问。媒体标签(<img>/<audio>
+    /<video>)带不了 Authorization 头 → 走 HttpOnly cookie(credentials 模式)或
+    URL 上的 ``?token=``(已把 /v1/artifacts/ 加入中间件 query-token 白名单)。
+  - **不做 per-owner 强校验**:内容寻址去重下同一 SHA 可合法属于多个用户(同内容
+    只存一份),且 64-hex SHA 不可枚举 → 要求登录态已是相称防护。
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 
+from chayuan.server.auth.deps import require_auth_enabled
 from chayuan.server.modality.router.artifacts import (
     find_by_filename,
     guess_mime_from_filename,
@@ -37,6 +43,7 @@ artifacts_router = APIRouter(prefix="/v1/artifacts", tags=["modality:artifacts"]
     "/{filename}",
     summary="按内容寻址获取模态产物(图/音/视)",
     response_class=FileResponse,
+    dependencies=[Depends(require_auth_enabled())],
 )
 async def get_artifact(filename: str) -> FileResponse:
     """按 ``<sha>.<ext>`` 取产物;Range 自动支持。"""
@@ -54,6 +61,7 @@ async def get_artifact(filename: str) -> FileResponse:
     "/{filename}",
     summary="预探测:返 200 + Content-Length 即可",
     include_in_schema=False,
+    dependencies=[Depends(require_auth_enabled())],
 )
 async def head_artifact(filename: str) -> Response:
     path = find_by_filename(filename)

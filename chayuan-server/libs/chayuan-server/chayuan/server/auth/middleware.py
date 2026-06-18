@@ -49,6 +49,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         "/knowledge_base/download_doc",
         "/knowledge_base/preview_doc",
         "/media/",
+        # 模态产物 <img>/<audio>/<video> src 带不了 Authorization 头,放行 ?token=
+        "/v1/artifacts/",
     )
 
     # 优先级:Authorization > HttpOnly cookie > 白名单 query 参数
