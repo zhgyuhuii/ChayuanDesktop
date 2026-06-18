@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getPlatform } from '@chayuan/platform-shared';
+import { getPlatform, copyText } from '@chayuan/platform-shared';
 import { digitalHuman, type PublishedAvatar } from '@chayuan/api';
 import { Link2, ExternalLink, Trash2, MessageSquare, MessageSquareOff, Scissors } from 'lucide-react';
 import { reportError, notifySuccess } from '../../store/errorDialog';
@@ -23,7 +23,7 @@ export const OnlineAvatarList: React.FC = () => {
 
   const copy = async (url: string) => {
     try {
-      await navigator.clipboard?.writeText(url);
+      await copyText(url);
       notifySuccess('已复制链接', url);
     } catch {
       notifySuccess('链接', url);

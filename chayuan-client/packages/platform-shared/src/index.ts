@@ -387,6 +387,47 @@ export function isWeb(): boolean {
   return _platform?.kind === 'web';
 }
 
+
+/**
+ * 跨端复制文本到剪贴板。三级兜底:
+ *   1. getPlatform().clipboard(Tauri 走 plugin-clipboard-manager,Web 走 navigator.clipboard)
+ *   2. 直接 navigator.clipboard(平台未注入等边界)
+ *   3. textarea + execCommand('copy')(secure-context 受限的 webview 兜底)
+ * 永不抛错;成功返 true,全失败返 false(调用方可据此提示"复制失败")。
+ * 单机 Tauri webview 的 tauri://localhost 非 secure context,navigator.clipboard
+ * 可能整个不可用,故必须走本工具而不是裸调 navigator.clipboard。
+ */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await getPlatform().clipboard.writeText(text);
+    return true;
+  } catch {
+    /* fall through */
+  }
+  try {
+    const nav = (globalThis as unknown as { navigator?: Navigator }).navigator;
+    if (nav?.clipboard?.writeText) {
+      await nav.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 // ──────────────────────────────────────────────────────────────
 // 共享小工具：所有平台都要用的纯函数放这里
 // ──────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@chayuan/ui';
+import { copyText } from '@chayuan/platform-shared';
 import { Copy } from 'lucide-react';
 import * as React from 'react';
 
@@ -34,7 +35,7 @@ export const OcrTextDialog: React.FC<OcrTextDialogProps> = ({ open, onOpenChange
 
   const onCopy = () => {
     if (!text) return;
-    void navigator.clipboard?.writeText(text);
+    void copyText(text);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };

@@ -14,6 +14,7 @@
  */
 
 import { licenseFingerprint, shareUrl as fetchShareUrl } from '@chayuan/api';
+import { copyText } from '@chayuan/platform-shared';
 import {
   Button,
   Dialog,
@@ -103,7 +104,7 @@ export function ShareDialog({
   const onCopyLink = async () => {
     if (!shareUrl) return;
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await copyText(shareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -114,7 +115,7 @@ export function ShareDialog({
   const onCopyFp = async () => {
     if (!fingerprint) return;
     try {
-      await navigator.clipboard.writeText(fingerprint);
+      await copyText(fingerprint);
       setFpCopied(true);
       setTimeout(() => setFpCopied(false), 2000);
     } catch {

@@ -12,6 +12,7 @@
  * 当前 key 范围:'asr' / 'ocr'(后端 modality_routes.py 只在 transcribe/ocr endpoint 调 record_call)。
  */
 import * as React from 'react';
+import { copyText } from '@chayuan/platform-shared';
 import { ClipboardCopy, RefreshCw } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import {
@@ -76,10 +77,10 @@ export const CallLogDialog: React.FC<CallLogDialogProps> = ({
 
   const copyAll = () => {
     const text = entries.map((e) => formatLine(e)).join('\n');
-    navigator.clipboard.writeText(text).then(
-      () => notifySuccess(`已复制 ${entries.length} 条日志到剪贴板`),
-      () => reportError(new Error('navigator.clipboard 不可用'), '复制失败'),
-    );
+    void copyText(text).then((ok) => {
+      if (ok) notifySuccess(`已复制 ${entries.length} 条日志到剪贴板`);
+      else reportError(new Error('剪贴板不可用'), '复制失败');
+    });
   };
 
   return (

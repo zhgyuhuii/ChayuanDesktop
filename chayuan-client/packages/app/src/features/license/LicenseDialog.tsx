@@ -8,6 +8,7 @@
  */
 
 import { type LicenseGrant, type PayChannels, licenseBuyUrl, licenseFingerprint } from "@chayuan/api";
+import { copyText } from '@chayuan/platform-shared';
 import {
   Button,
   Dialog,
@@ -92,7 +93,7 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
   const onCopyFp = async () => {
     if (!fingerprint) return;
     try {
-      await navigator.clipboard.writeText(fingerprint);
+      await copyText(fingerprint);
       setFpCopied(true);
       setTimeout(() => setFpCopied(false), 2000);
     } catch {

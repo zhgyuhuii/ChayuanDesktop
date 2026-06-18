@@ -8,6 +8,7 @@
  */
 
 import * as React from 'react';
+import { copyText } from '@chayuan/platform-shared';
 import {
   listMyFeedback,
   retryFeedbackDrafts,
@@ -52,7 +53,7 @@ const GrantCard: React.FC<GrantCardProps> = ({ item }) => {
 
   const onCopy = async () => {
     try {
-      await navigator.clipboard.writeText(grant.serial);
+      await copyText(grant.serial);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

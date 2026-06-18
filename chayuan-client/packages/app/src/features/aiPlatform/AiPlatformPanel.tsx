@@ -13,6 +13,7 @@
  * - 渲染 100+ 模型时仍丝滑（virtual list 由 ui 包提供，本组件做分类切片）。
  */
 import * as React from 'react';
+import { isDesktop } from '@chayuan/platform-shared';
 import {
   aiPlatform,
   runtimeServices,
@@ -603,7 +604,8 @@ export const AiPlatformPanel: React.FC = () => {
     <div className="space-y-3">
       {/* 顶部 tabs：marketplace 设计语言一致 */}
       <div className="flex items-center gap-1 rounded-md border border-zinc-200 p-0.5 dark:border-zinc-700">
-        {TAB_ITEMS.map((t) => {
+        {/* 本地模型 tab 依赖本地 sidecar,网络版(web)无此能力 → 隐藏 */}
+        {TAB_ITEMS.filter((t) => isDesktop() || t.value !== 'local').map((t) => {
           const active = tab === t.value;
           return (
             <button

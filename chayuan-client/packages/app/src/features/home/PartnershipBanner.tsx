@@ -16,6 +16,7 @@
  */
 
 import * as React from 'react';
+import { copyText } from '@chayuan/platform-shared';
 import { Sparkles, Mail, MessageSquare, Copy, Check } from 'lucide-react';
 import {
   Button,
@@ -214,7 +215,7 @@ const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }
   const [copied, setCopied] = React.useState(false);
   const onCopy = React.useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(value);
+      await copyText(value);
       setCopied(true);
       notifySuccess(`已复制 ${label}:${value}`);
       setTimeout(() => setCopied(false), 1600);

@@ -24,7 +24,7 @@ __copyright__ = "Copyright (c) 北京智灵鸟科技中心"
 
 #: 当无法从安装元数据读取版本时使用的兜底值。
 #: 保持与 ``libs/chayuan-server/pyproject.toml`` 保持一致，避免源码裸跑时拿到旧号。
-_FALLBACK_VERSION = "2.0.152"
+_FALLBACK_VERSION = "2.0.153"
 
 
 def _detect_version() -> str:

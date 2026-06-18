@@ -14,6 +14,7 @@
  */
 
 import * as React from 'react';
+import { copyText } from '@chayuan/platform-shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle, Check, Copy, Eye, EyeOff, Folder, HardDrive, Plug, RefreshCw, Server, Settings,
@@ -416,7 +417,7 @@ const CopyButton: React.FC<{ value: string }> = ({ value }) => {
       className="ml-1 h-6 w-6 p-0 align-middle"
       onClick={async () => {
         try {
-          await navigator.clipboard.writeText(value);
+          await copyText(value);
           setCopied(true);
           setTimeout(() => setCopied(false), 1200);
         } catch {

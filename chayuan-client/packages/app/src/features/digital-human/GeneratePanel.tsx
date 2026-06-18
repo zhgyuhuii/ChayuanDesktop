@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { copyText } from '@chayuan/platform-shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { ChevronDown, Play, Square } from 'lucide-react';
@@ -341,7 +342,7 @@ export const GeneratePanel: React.FC<{ presets: DigitalHumanPreset[]; initialPre
       }
       // new=true:每次发布新建一条 → 一个数字人可发布多个在线数字人(各自独立链接)。
       const rec = await digitalHuman.publish(curPreset.id, { new: true, name: pubName.trim() });
-      try { await navigator.clipboard?.writeText(rec.url); } catch { /* 复制失败不致命 */ }
+      try { await copyText(rec.url); } catch { /* 复制失败不致命 */ }
       notifySuccess('已发布在线数字人', `公开链接已复制:${rec.url}`);
       onPublished?.();
     } catch (e) {

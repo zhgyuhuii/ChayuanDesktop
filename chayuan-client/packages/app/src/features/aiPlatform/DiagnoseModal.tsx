@@ -10,6 +10,7 @@
  */
 
 import * as React from 'react';
+import { copyText } from '@chayuan/platform-shared';
 import { Copy } from 'lucide-react';
 import {
   Button,
@@ -73,7 +74,7 @@ export const DiagnoseModal: React.FC<DiagnoseModalProps> = ({ open, onOpenChange
 
   const onCopy = () => {
     if (!md) return;
-    void navigator.clipboard?.writeText(md);
+    void copyText(md);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };

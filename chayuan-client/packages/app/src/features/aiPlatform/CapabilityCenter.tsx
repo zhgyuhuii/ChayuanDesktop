@@ -22,6 +22,7 @@
  * 二者公用同一份 ``aiPlatform`` API、共享 react-query 缓存键。
  */
 import * as React from 'react';
+import { copyText } from '@chayuan/platform-shared';
 import { Cpu } from 'lucide-react';
 import {
   aiPlatform,
@@ -549,7 +550,7 @@ const InstalledModelRow: React.FC<{
   const copyPath = async () => {
     if (!path) return;
     try {
-      await navigator.clipboard.writeText(path);
+      await copyText(path);
       notifyInfo('已复制', path, 1800);
     } catch {
       notifyInfo('请手动复制', path, 4000);

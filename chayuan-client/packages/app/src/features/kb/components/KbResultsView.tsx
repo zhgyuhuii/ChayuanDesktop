@@ -40,7 +40,7 @@ import {
   type RetrievalSource,
   summarizeSources,
 } from '@chayuan/api';
-import { getPlatform } from '@chayuan/platform-shared';
+import { getPlatform, copyText } from '@chayuan/platform-shared';
 import { usePreviewStore } from '../../preview/previewStore';
 
 const KIND_META: Record<
@@ -448,7 +448,7 @@ const SnippetList: React.FC<{ snippets: RetrievalSnippet[]; kind: RetrievalKind 
 const SqlBlock: React.FC<{ sql: string }> = ({ sql }) => {
   const [copied, setCopied] = React.useState(false);
   const onCopy = React.useCallback(() => {
-    void navigator.clipboard.writeText(sql);
+    void copyText(sql);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }, [sql]);

@@ -50,7 +50,7 @@ import {
   type ScanAndMountResult,
   serverModelsScanAndMount,
 } from '@chayuan/api';
-import { getPlatform } from '@chayuan/platform-shared';
+import { getPlatform, copyText } from '@chayuan/platform-shared';
 import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
 import { useInstallJob } from '../modelGallery/useInstallJob';
 
@@ -540,7 +540,7 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
                 disabled={!bundledRoot}
                 onClick={() => {
                   if (bundledRoot) {
-                    void navigator.clipboard?.writeText(bundledRoot);
+                    void copyText(bundledRoot);
                     notifySuccess('已复制路径', bundledRoot);
                   }
                 }}

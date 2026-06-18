@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { copyText } from '@chayuan/platform-shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { Dialog, DialogContent, DialogTitle } from '@chayuan/ui';
@@ -40,7 +41,7 @@ export const DhProgressCard: React.FC<{ taskId: string; onDelete?: () => void }>
   const scriptText = (st?.script || '').trim()
     || (st?.segments ?? []).map((s) => (s.text || '').trim()).filter(Boolean).join('\n');
   const copyScript = async () => {
-    try { await navigator.clipboard?.writeText(scriptText); notifySuccess('脚本已复制'); }
+    try { await copyText(scriptText); notifySuccess('脚本已复制'); }
     catch { /* 复制失败忽略 */ }
   };
 

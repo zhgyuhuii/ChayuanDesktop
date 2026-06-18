@@ -19,6 +19,7 @@
  */
 
 import * as React from 'react';
+import { isDesktop, copyText } from '@chayuan/platform-shared';
 import { ClipboardList, Copy, X } from 'lucide-react';
 import { Button } from '@chayuan/ui';
 import type { LocalRuntimeCapability } from '@chayuan/api';
@@ -68,6 +69,9 @@ export const LocalRuntimePanel: React.FC = () => {
     void refreshConfig();
     void refreshInstallInfo();
   }, [refreshConfig, refreshInstallInfo]);
+
+  // 本地运行时面板依赖本地 sidecar/模型,仅单机版(desktop)可用;网络版隐藏。
+  if (!isDesktop()) return null;
 
   if (!reachable) {
     return (
@@ -180,7 +184,7 @@ const PathRow: React.FC<{ label: string; value: string; suffix?: string }> = ({
       variant="ghost"
       className="h-6 w-6"
       onClick={() => {
-        void navigator.clipboard?.writeText(value);
+        void copyText(value);
       }}
       title="复制路径"
       aria-label="复制路径"

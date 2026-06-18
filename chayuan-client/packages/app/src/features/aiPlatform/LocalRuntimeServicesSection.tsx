@@ -16,6 +16,7 @@
  * 此分组只暴露"启停 + 选模型 + 诊断"三个高频动作。
  */
 import * as React from 'react';
+import { isDesktop, copyText } from '@chayuan/platform-shared';
 import {
   ChevronDown,
   ChevronRight,
@@ -240,6 +241,9 @@ export const LocalRuntimeServicesSection: React.FC = () => {
     void useLocalRuntimeStore.getState().refreshRegistry();
     void reloadModels();
   };
+
+  // 本地模型服务管理依赖本地 sidecar,仅单机版(desktop)可用;网络版隐藏整节。
+  if (!isDesktop()) return null;
 
   if (!reachable) {
     const lastError = useLocalRuntimeStore.getState().lastError;
@@ -1053,7 +1057,7 @@ const PytorchRow: React.FC = () => {
               variant="outline"
               onClick={() => {
                 if (!targetDir) return;
-                void navigator.clipboard?.writeText(targetDir);
+                void copyText(targetDir);
                 notifySuccess('已复制路径', targetDir);
               }}
               title="复制安装位置路径"
