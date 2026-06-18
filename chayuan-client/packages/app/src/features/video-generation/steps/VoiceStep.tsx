@@ -24,7 +24,7 @@ import { blobToAudioDataUrl } from '../blobToDataUrl';
 
 const PROVIDERS: Array<{ id: VgVoiceProvider; label: string; hint: string; offline: boolean }> = [
   { id: 'piper',  label: 'piper(本地快速)', hint: 'CPU ~1× 实时,无网可用,音色机器味较重',  offline: true },
-  { id: 'edge',   label: 'edge(微软在线)',  hint: '联网免 Key,声音自然,300+ 多语种音色', offline: false },
+  { id: 'edge',   label: 'edge(联网)',  hint: '联网免 Key,声音自然,300+ 多语种音色', offline: false },
   { id: 'sherpa', label: 'sherpa(本地高质)', hint: '高质量中文 VITS,模型 ~125 MB,需先 seed-bundled-assets.py sherpa-voice', offline: true },
 ];
 

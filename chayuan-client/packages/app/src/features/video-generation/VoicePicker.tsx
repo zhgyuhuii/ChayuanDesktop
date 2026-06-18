@@ -29,10 +29,10 @@ export interface VoicePickerValue {
 }
 
 const PROVIDERS: Array<{ id: VgVoiceProvider; offline: boolean; label: string }> = [
-  { id: 'piper',  offline: true,  label: 'piper'  },
-  { id: 'edge',   offline: false, label: 'edge'   },
-  { id: 'sherpa', offline: true,  label: 'sherpa' },
-  { id: 'clone',  offline: true,  label: '克隆'   },
+  { id: 'piper',  offline: true,  label: 'Piper(本地)'  },
+  { id: 'edge',   offline: false, label: 'Edge(联网)'   },
+  { id: 'sherpa', offline: true,  label: 'Sherpa(本地)' },
+  { id: 'clone',  offline: true,  label: '克隆(本地)'   },
 ];
 
 const chipCls = (active: boolean) =>

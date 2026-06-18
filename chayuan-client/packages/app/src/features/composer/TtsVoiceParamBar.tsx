@@ -51,13 +51,13 @@ const DASHSCOPE_VOICES: VoiceOption[] = [
 const FORMAT_OPTIONS = ['mp3', 'wav', 'opus'] as const;
 const LOCAL_PREFIX = 'local-tts:';
 const LOCAL_ENGINES: Array<{ id: VgVoiceProvider; label: string }> = [
-  { id: 'piper', label: 'Piper' },
-  { id: 'edge', label: 'Edge' },
-  { id: 'sherpa', label: 'Sherpa' },
-  { id: 'clone', label: '克隆' },
+  { id: 'piper', label: 'Piper(本地)' },
+  { id: 'edge', label: 'Edge(联网)' },
+  { id: 'sherpa', label: 'Sherpa(本地)' },
+  { id: 'clone', label: '克隆(本地)' },
 ];
 const LANG_OPTIONS = [
-  { v: '', l: '不限' }, { v: 'zh', l: '中文' }, { v: 'en', l: 'English' },
+  { v: '', l: '自动' }, { v: 'zh', l: '中文' }, { v: 'en', l: 'English' },
   { v: 'ja', l: '日本語' }, { v: 'ko', l: '한국어' },
 ];
 

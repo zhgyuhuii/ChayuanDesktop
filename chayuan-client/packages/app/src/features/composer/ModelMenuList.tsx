@@ -49,11 +49,11 @@ function isLocalPlatform(name: string): boolean {
  *  例:'models/bundled/chat/Qwen3-4B-Instruct-2507-GGUF' → 'Qwen3-4B-Instruct-2507'
  *      'deepseek-v4-flash' → 'deepseek-v4-flash' */
 export function displayLabel(m: { id: string; platform_name?: string | null }): string {
-  // 本地引擎伪模型(语音合成):local-tts:<engine> → 友好名「本地引擎 · X」
+  // 本地引擎伪模型(语音合成):local-tts:<engine> → 友好名「语音 · X(本地/联网)」
   if (m.id.startsWith('local-tts:')) {
     const eng = m.id.slice('local-tts:'.length);
-    const map: Record<string, string> = { piper: 'Piper', edge: 'Edge', sherpa: 'Sherpa', clone: '克隆' };
-    return `本地引擎 · ${map[eng] ?? eng}`;
+    const map: Record<string, string> = { piper: 'Piper(本地)', edge: 'Edge(联网)', sherpa: 'Sherpa(本地)', clone: '克隆(本地)' };
+    return `语音 · ${map[eng] ?? eng}`;
   }
   if (!m.platform_name || !isLocalPlatform(m.platform_name)) return m.id;
   const last = m.id.split('/').filter(Boolean).pop() ?? m.id;
