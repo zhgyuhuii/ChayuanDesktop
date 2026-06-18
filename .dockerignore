@@ -20,8 +20,15 @@
 *.swp
 .DS_Store
 
-# Desktop / Tauri (Docker 只装 server,不需要客户端)
-chayuan-client/
+# Docker 镜像要 build web 前端 SPA(web-builder 阶段 pnpm -F desktop build:vite),
+# 所以 chayuan-client 源码必须进构建上下文,**不能整目录排除**(否则
+# COPY chayuan-client/apps|packages|pnpm-workspace.yaml 全报 not found)。
+# node_modules/dist/target 已由上面全局规则排除;e2e-desktop 是 pnpm workspace
+# 成员(见 pnpm-workspace.yaml),保留。这里只排 build 不需要的重物/非代码:
+chayuan-client/client.zip
+chayuan-client/apps/desktop/src-tauri/
+chayuan-client/docs/
+chayuan-client/bug/
 
 # Server bundle artifacts (image 里源码现 build,不用 Windows/Mac frozen)
 chayuan-server/dist/

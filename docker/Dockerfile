@@ -38,6 +38,9 @@ COPY chayuan-client/pnpm-workspace.yaml chayuan-client/package.json chayuan-clie
 # 拷所有 package.json 让 pnpm install 利用 layer cache
 COPY chayuan-client/packages ./packages
 COPY chayuan-client/apps    ./apps
+# e2e-desktop 是 pnpm-workspace.yaml 列的 workspace 成员,缺它 --frozen-lockfile
+# 会因 importer 缺失而失败;只在 builder 层,最终镜像只取 apps/desktop/dist,无体积代价。
+COPY chayuan-client/e2e-desktop ./e2e-desktop
 
 # 装依赖(--frozen-lockfile = CI 严格模式)
 # Tauri Rust 在 docker 构建里不需要,跳过 native bindings
