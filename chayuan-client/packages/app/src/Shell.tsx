@@ -13,6 +13,7 @@ import { TooltipProvider } from '@chayuan/ui';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import * as React from 'react';
+import { AdminSetupGate } from './features/auth/AdminSetupGate';
 import { LoginModal } from './features/auth/LoginModal';
 import { ServerLoginModal } from './features/auth/ServerLoginModal';
 import { prefetchCatalog } from './features/catalog/useCatalog';
@@ -69,6 +70,7 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
   const hydrated = useAuthStore((s) => s.hydrated);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const authRequired = useLoginModalStore((s) => s.authRequired);
+  const adminSetupRequired = useLoginModalStore((s) => s.adminSetupRequired);
   const locale = useSettingsStore((s) => s.locale);
   const thinClientEnabled = !!env.thinClient;
   const setThinClientEnabled = useThinClientStore((s) => s.setEnabled);
@@ -164,10 +166,11 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
     // 单机模式:后端 ``apply_single_machine`` 已经把 AUTH_REQUIRED 关掉,
     // 这里跳过 ``/auth/config`` 探测,直接置零防止任何 lock 触发。
     if (isSingleMachineMode()) {
-      const { setLocked, setAllowRegistration, setAuthRequired } = useLoginModalStore.getState();
+      const { setLocked, setAllowRegistration, setAuthRequired, setAdminSetupRequired } = useLoginModalStore.getState();
       setAuthRequired(false);
       setLocked(false);
       setAllowRegistration(false);
+      setAdminSetupRequired(false);
       return;
     }
     let cancelled = false;
@@ -175,10 +178,12 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
       try {
         const cfg = await authApi.config();
         if (cancelled) return;
-        const { lock, setLocked, setAllowRegistration, setAuthRequired } =
+        const { lock, setLocked, setAllowRegistration, setAuthRequired, setAdminSetupRequired } =
           useLoginModalStore.getState();
         setAllowRegistration(cfg.auth_allow_registration);
         setAuthRequired(Boolean(cfg.auth_required));
+        // 网络版无 admin → 全屏首启向导(优先于登录框)
+        setAdminSetupRequired(Boolean(cfg.admin_setup_required));
         if (cfg.auth_required && !useAuthStore.getState().isLoggedIn) {
           lock();
         } else {
@@ -322,6 +327,7 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
           </>
         )}
         {thinClientEnabled && <ServerLoginModal />}
+        {!singleMachine && adminSetupRequired && <AdminSetupGate />}
         {!singleMachine && <LoginModal />}
       </TooltipProvider>
     </QueryClientProvider>

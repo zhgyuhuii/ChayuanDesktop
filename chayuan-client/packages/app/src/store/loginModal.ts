@@ -19,11 +19,14 @@ interface LoginModalState {
   authRequired: boolean | null;
   /** 后端 auth_allow_registration 镜像;为 false 时 LoginModal 隐藏注册入口 */
   allowRegistration: boolean;
+  /** 后端 admin_setup_required 镜像:为 true 时(仅网络版)Shell 渲染 AdminSetupGate */
+  adminSetupRequired: boolean;
   show(): void;
   hide(): void;
   setLocked(locked: boolean): void;
   setAuthRequired(required: boolean | null): void;
   setAllowRegistration(allow: boolean): void;
+  setAdminSetupRequired(v: boolean): void;
   /** 同时开 + 锁;Shell 在检测到 auth_required && !isLoggedIn 时调 */
   lock(): void;
 }
@@ -33,10 +36,12 @@ export const useLoginModalStore = create<LoginModalState>((set) => ({
   locked: false,
   authRequired: null,
   allowRegistration: true,
+  adminSetupRequired: false,
   show: () => set({ open: true }),
   hide: () => set({ open: false }),
   setLocked: (locked) => set({ locked }),
   setAuthRequired: (authRequired) => set({ authRequired }),
   setAllowRegistration: (allow) => set({ allowRegistration: allow }),
+  setAdminSetupRequired: (adminSetupRequired) => set({ adminSetupRequired }),
   lock: () => set({ open: true, locked: true }),
 }));

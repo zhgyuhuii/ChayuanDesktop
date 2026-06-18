@@ -33,6 +33,8 @@ export interface TokenPair {
 export interface AuthConfig {
   auth_required: boolean;
   auth_allow_registration: boolean;
+  admin_setup_required: boolean;
+  instance_name?: string;
 }
 
 export const auth = {
@@ -40,9 +42,9 @@ export const auth = {
     // 公开端点,不需要 token;失败软降级:当作非强制登录,游客模式可用
     try {
       const r = await request<AuthConfig>('/auth/config', { raw: true });
-      return r.data ?? { auth_required: false, auth_allow_registration: true };
+      return r.data ?? { auth_required: false, auth_allow_registration: true, admin_setup_required: false };
     } catch {
-      return { auth_required: false, auth_allow_registration: true };
+      return { auth_required: false, auth_allow_registration: true, admin_setup_required: false };
     }
   },
 
@@ -75,6 +77,17 @@ export const auth = {
 
   async register(body: { username: string; password: string; email?: string }): Promise<UserInfo> {
     return (await request<UserInfo>('/auth/register', { method: 'POST', body, raw: true })).data;
+  },
+
+  async setupAdmin(body: { username: string; password: string; instanceName?: string }): Promise<TokenPair> {
+    // 首启:无 admin 时创建首个管理员并直接登录(写 token)
+    const data = await request<TokenPair>('/auth/setup', {
+      method: 'POST',
+      body: { username: body.username, password: body.password, instance_name: body.instanceName },
+      raw: true,
+    });
+    await setTokens(data.data.access_token, data.data.refresh_token);
+    return data.data;
   },
 
   async changePassword(userId: number, body: { new_password: string; old_password?: string }): Promise<void> {
