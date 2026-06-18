@@ -107,17 +107,30 @@ def _set(tid: str, **kw) -> None:
         _persist_locked()
 
 
-def get_status(tid: str) -> DhTaskStatus:
+def get_status(tid: str, owner_id: Optional[int] = None) -> DhTaskStatus:
     with _LOCK:
         _ensure_loaded_locked()
-        return _STATUS.get(tid) or DhTaskStatus(task_id=tid, state="failed", error="未知任务")
+        st = _STATUS.get(tid)
+    if st is None:
+        return DhTaskStatus(task_id=tid, state="failed", error="未知任务")
+    # owner_id 传入(网络版)时做归属校验;None(单机 GUEST)不限制 → 看全局
+    if owner_id is not None and getattr(st, "owner_id", None) != owner_id:
+        return DhTaskStatus(task_id=tid, state="failed", error="未知任务")
+    return st
 
 
-def list_statuses() -> list[DhTaskStatus]:
-    """所有已登记任务的状态快照(已落盘,进程重启后仍在;运行中僵尸标失败)。"""
+def list_statuses(owner_id: Optional[int] = None) -> list[DhTaskStatus]:
+    """任务状态快照(已落盘,进程重启后仍在;运行中僵尸标失败)。
+
+    owner_id 传入(网络版)→ 只返回该用户的任务;None(单机 GUEST)→ 全部。
+    与 VG list_tasks 同语义,保证单机/网络两种部署一致。
+    """
     with _LOCK:
         _ensure_loaded_locked()
-        return list(_STATUS.values())
+        vals = list(_STATUS.values())
+    if owner_id is None:
+        return vals
+    return [st for st in vals if getattr(st, "owner_id", None) == owner_id]
 
 
 def _voice_string(provider: str, name: str):
@@ -240,9 +253,15 @@ def _synthesize_narration(text: str, preset, audio_path: str) -> str:
                          rate=rate, volume=volume)
 
 
-def delete_task(tid: str, *, drop_files: bool = True) -> bool:
-    """删任务记录(+可选删产物目录)。镜像 VG delete_task。"""
+def delete_task(tid: str, *, drop_files: bool = True, owner_id: Optional[int] = None) -> bool:
+    """删任务记录(+可选删产物目录)。镜像 VG delete_task。
+
+    owner_id 传入(网络版)时先做归属校验,非本人任务直接返回 False 不删。
+    """
     with _LOCK:
+        peek = _STATUS.get(tid)
+        if owner_id is not None and peek is not None and getattr(peek, "owner_id", None) != owner_id:
+            return False
         st = _STATUS.pop(tid, None)
         if st is not None:
             _persist_locked()
@@ -971,7 +990,8 @@ def submit(*, preset_id: str, text: str, width: int, height: int,
            role_scripts=None, role_segments=None, script=None,
            script_model: str = "", fps: Optional[float] = None,
            bgm_type: str = "none", bgm_file: str = "", bgm_volume: float = 0.2,
-           name: str = "", matte_sim: Optional[float] = None) -> str:
+           name: str = "", matte_sim: Optional[float] = None,
+           owner_id: Optional[int] = None) -> str:
     tid = uuid.uuid4().hex[:12]
     _PENDING[tid] = {"preset_id": preset_id, "text": text, "width": width, "height": height,
                      "product_ref": product_ref, "template": template, "matte": matte,
@@ -980,7 +1000,8 @@ def submit(*, preset_id: str, text: str, width: int, height: int,
                      "bgm_type": bgm_type, "bgm_file": bgm_file, "bgm_volume": bgm_volume,
                      "matte_sim": matte_sim}
     _set(tid, state="pending", progress=0, created_at=time.time(),
-         script_model=script_model, engine=engine, preset_id=preset_id, name=(name or "").strip())
+         script_model=script_model, engine=engine, preset_id=preset_id, name=(name or "").strip(),
+         owner_id=owner_id)
     _POOL.submit(_run_pipeline_tracked, tid)
     return tid
 

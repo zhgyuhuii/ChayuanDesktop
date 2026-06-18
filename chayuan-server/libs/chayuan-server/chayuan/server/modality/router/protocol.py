@@ -242,7 +242,7 @@ class GenerateReq:
     prompt: str = ""
     attachments: List[Attachment] = field(default_factory=list)
     params: Dict[str, Any] = field(default_factory=dict)
-    user_id: Optional[str] = None
+    user_id: Optional[int] = None
     conversation_id: Optional[str] = None
     message_id: Optional[str] = None
     # 取消信号:router 持有,Connector 在轮询/长循环里 check

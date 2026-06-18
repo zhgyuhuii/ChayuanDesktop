@@ -9,8 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, Iterable, List, Optional, Tuple
 
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import FileResponse
+
+from chayuan.server.auth.deps import owner_id_of, require_auth_enabled
 from openai import AsyncClient
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 
@@ -470,6 +472,7 @@ async def create_chat_completions(
 async def create_modality_completion(
     request: Request,
     body: OpenAIChatInput,
+    user: Dict[str, Any] = Depends(require_auth_enabled()),
 ):
     # 延迟 import:模态包不在主路径,启动时不强依赖
     from chayuan.server.modality.router import (
@@ -598,6 +601,9 @@ async def create_modality_completion(
         attachments=attachments,
         params=params,
         cancelled=Cancelled(),
+        # 用户隔离:GUEST(-1)→None=单机全局共享;真实用户→其 id。owner 解析
+        # 走 auth.deps.owner_id_of(全系统单一真源),保持各模块语义一致。
+        user_id=owner_id_of(user),
     )
     task_id, stream = await dispatch_via_manager(req)
     logger.info(f"[modality.route] task_id={task_id} model={actual_model} cap={cap.value}")

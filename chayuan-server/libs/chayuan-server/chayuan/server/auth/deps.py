@@ -39,6 +39,20 @@ GUEST_USER: Dict[str, Any] = {
 }
 
 
+def owner_id_of(user: Optional[Dict[str, Any]]) -> Optional[int]:
+    """统一的归属 id 解析(全系统用户隔离单一真源,VG/DH/modality 共用)。
+
+    - GUEST(-1)/未登录 → ``None``:单机模式全局共享语义。
+    - 真实用户(id>0)     → 其正整数 id:网络模式按用户隔离。
+    """
+    if not user:
+        return None
+    uid = user.get("id")
+    if uid is None or uid < 0:
+        return None
+    return int(uid)
+
+
 def get_current_user(request: Request) -> Dict[str, Any]:
     """获取当前用户。
 

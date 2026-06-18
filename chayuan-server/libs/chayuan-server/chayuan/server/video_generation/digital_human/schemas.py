@@ -129,6 +129,7 @@ class DhGenerateRequest(BaseModel):
 class DhTaskStatus(BaseModel):
     task_id: str
     state: DhState
+    owner_id: Optional[int] = None  # 归属用户;None=单机全局共享(GUEST/legacy)
     progress: int = 0
     error: str = ""
     result_path: str = ""

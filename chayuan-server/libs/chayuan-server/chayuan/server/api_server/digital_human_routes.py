@@ -12,7 +12,7 @@ from fastapi import Path as FPath
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from chayuan.server.auth.deps import require_auth_enabled
+from chayuan.server.auth.deps import owner_id_of, require_auth_enabled
 from chayuan.server.video_generation._helpers import dh_avatars_dir, dh_products_dir
 from chayuan.server.video_generation.digital_human import engine as dh_engine
 from chayuan.server.video_generation.digital_human import jobs as dh_jobs
@@ -571,13 +571,14 @@ def generate(body: DhGenerateRequest,
                          role_segments=body.role_segments, script_model=body.script_model,
                          fps=body.fps,
                          bgm_type=body.bgm_type, bgm_file=body.bgm_file, bgm_volume=body.bgm_volume,
-                         name=body.name, matte_sim=body.matte_sim)
+                         name=body.name, matte_sim=body.matte_sim,
+                         owner_id=owner_id_of(user))
     return {"task_id": tid}
 
 
 @digital_human_router.get("/tasks")
 def list_tasks(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
-    items = [s.model_dump() for s in dh_jobs.list_statuses()]
+    items = [s.model_dump() for s in dh_jobs.list_statuses(owner_id=owner_id_of(user))]
     active = sum(1 for s in items if s.get("state") in ("pending", "running"))
     return {"count": len(items), "active": active, "items": items}
 
@@ -585,13 +586,13 @@ def list_tasks(user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[s
 @digital_human_router.get("/tasks/{tid}")
 def task_status(tid: str,
                 user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
-    return dh_jobs.get_status(tid).model_dump()
+    return dh_jobs.get_status(tid, owner_id=owner_id_of(user)).model_dump()
 
 
 @digital_human_router.get("/tasks/{tid}/file")
 def task_file(tid: str,
               user: Dict[str, Any] = Depends(require_auth_enabled())) -> FileResponse:
-    st = dh_jobs.get_status(tid)
+    st = dh_jobs.get_status(tid, owner_id=owner_id_of(user))
     if st.state != "complete" or not os.path.isfile(st.result_path):
         raise HTTPException(404, "产物未就绪")
     return FileResponse(st.result_path, media_type="video/mp4", filename="digital_human.mp4")
@@ -600,7 +601,7 @@ def task_file(tid: str,
 @digital_human_router.delete("/tasks/{tid}")
 def delete_task(tid: str, drop_file: bool = Query(True),
                 user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
-    return {"ok": dh_jobs.delete_task(tid, drop_files=drop_file)}
+    return {"ok": dh_jobs.delete_task(tid, drop_files=drop_file, owner_id=owner_id_of(user))}
 
 
 def _persist_material_file(src_path: str, stem: str) -> str:
@@ -632,15 +633,11 @@ def task_to_timeline(tid: str = FPath(..., max_length=64),
                      user: Dict[str, Any] = Depends(require_auth_enabled())) -> Dict[str, Any]:
     """把已完成任务的产物 mp4 注册进视频生成素材库(本地文件,不下载),
     用户即可在「视频生成 → 时间轴」里拿它做高级编排(同框/分段/字幕等)。"""
-    st = dh_jobs.get_status(tid)
+    owner = owner_id_of(user)
+    st = dh_jobs.get_status(tid, owner_id=owner)
     if st.state != "complete" or not st.result_path or not os.path.isfile(st.result_path):
         raise HTTPException(409, "任务未完成或产物缺失")
     from chayuan.server.video_generation.store import materials as materials_store
-    try:
-        from chayuan.server.api_server.video_generation_routes import _owner_id_of
-        owner = _owner_id_of(user)
-    except Exception:  # noqa: BLE001
-        owner = None
     persisted_main = _persist_material_file(st.result_path, f"dh-{tid}")
     row = materials_store.create_material(
         source="digital_human",

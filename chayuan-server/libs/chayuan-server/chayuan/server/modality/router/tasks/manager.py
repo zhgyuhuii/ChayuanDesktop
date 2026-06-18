@@ -97,7 +97,7 @@ async def create_task(req: GenerateReq) -> str:
         prompt=req.prompt or None,
         params=dict(req.params or {}),
         attachments=attachments_meta,
-        user_id=None,  # TODO 接入鉴权后填
+        user_id=req.user_id,  # 由路由层从当前用户填入(GUEST→None=单机全局)
         conversation_id=req.conversation_id,
         message_id=req.message_id,
     )
@@ -448,6 +448,7 @@ async def resume_unfinished_tasks() -> Dict[str, int]:
             conversation_id=row.get("conversation_id"),
             message_id=row.get("message_id"),
             resume_upstream_task_id=upstream,
+            user_id=row.get("user_id"),  # 续传保留归属,重启后任务不丢主
         )
         # 启动后台 Task — 不会 await 它
         ensure_running(task_id, req)

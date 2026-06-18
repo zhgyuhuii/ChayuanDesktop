@@ -52,14 +52,13 @@ video_generation_router = APIRouter(
 
 
 def _owner_id_of(user: Dict[str, Any]) -> Optional[int]:
-    """从 auth 返回的 user dict 抽 owner_id;GUEST(-1)映射成 None(全局共享)。"""
+    """从 auth 返回的 user dict 抽 owner_id;GUEST(-1)映射成 None(全局共享)。
 
-    if not user:
-        return None
-    uid = user.get("id")
-    if uid is None or uid < 0:
-        return None
-    return int(uid)
+    实现已收敛到 auth.deps.owner_id_of(全系统单一真源);此处保留同名薄封装,
+    既有调用方(含 digital_human_routes 的 import)无需改动。
+    """
+    from chayuan.server.auth.deps import owner_id_of
+    return owner_id_of(user)
 
 
 def _diagnose_tts_failure(*, provider: str, voice_name: str) -> Dict[str, Any]:
