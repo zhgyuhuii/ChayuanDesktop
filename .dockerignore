@@ -26,9 +26,11 @@
 # node_modules/dist/target 已由上面全局规则排除;e2e-desktop 是 pnpm workspace
 # 成员(见 pnpm-workspace.yaml),保留。这里只排 build 不需要的重物/非代码:
 chayuan-client/client.zip
-chayuan-client/apps/desktop/src-tauri/
 chayuan-client/docs/
 chayuan-client/bug/
+# 注意:不排除 apps/desktop/src-tauri —— vite.config.ts 要读其中的
+# tauri.conf.json 取版本号(读不到会回退占位 0.1.0);Rust build 产物
+# (src-tauri/target)已由上面的全局 **/target/ 排除,src-tauri 源码仅 ~2.8M。
 
 # Server bundle artifacts (image 里源码现 build,不用 Windows/Mac frozen)
 chayuan-server/dist/

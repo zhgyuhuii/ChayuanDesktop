@@ -34,6 +34,9 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 WORKDIR /chayuan-client
 COPY chayuan-client/pnpm-workspace.yaml chayuan-client/package.json chayuan-client/pnpm-lock.yaml ./
+# tsconfig.base.json 被 apps/desktop 及各 package 的 tsconfig extends,vite 给
+# esbuild 读 tsconfig 时要解析它;缺它 build 直接失败,必须拷进工作区根。
+COPY chayuan-client/tsconfig.base.json ./
 
 # 拷所有 package.json 让 pnpm install 利用 layer cache
 COPY chayuan-client/packages ./packages
