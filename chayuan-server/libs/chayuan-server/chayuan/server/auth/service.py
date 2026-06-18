@@ -49,6 +49,15 @@ def list_users(limit: int = 100, offset: int = 0) -> List[UserModel]:
         return users
 
 
+def admin_exists() -> bool:
+    """是否已存在任意 admin 账户(首启向导触发判据:无 admin → 需设置)。"""
+    with session_scope() as s:
+        return (
+            s.query(UserModel.id).filter(UserModel.role == "admin").first()
+            is not None
+        )
+
+
 def create_user(
     username: str,
     password: str,
@@ -138,12 +147,13 @@ def issue_token_pair(u: UserModel) -> Tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 def bootstrap_default_admin() -> Optional[Tuple[str, str]]:
-    """如果表里一个用户都没有，按配置建一个 admin；返回 (username, 临时密码)。
+    """仅当显式配置了 ``AUTH_DEFAULT_ADMIN_PASSWORD`` 时预建 admin;否则不建,
+    交给前端首启向导(``POST /auth/setup``)设置首个管理员。
 
-    - 密码来自 ``AUTH_DEFAULT_ADMIN_PASSWORD``；留空则随机生成并返回。
-    - 返回值只会有一次，调用方负责打印到日志。
+    机制1(2026-06-18):去掉"留空则随机生成 + 打日志"——那会让用户表在任何
+    web 访问之前就非空,导致首启向导永不触发。无显式密码时返回 None。
+    返回 (username, password) 仅用于日志(运维显式预置场景)。
     """
-    import secrets as _secrets
     from chayuan.settings import Settings
 
     with session_scope() as s:
@@ -154,7 +164,10 @@ def bootstrap_default_admin() -> Optional[Tuple[str, str]]:
     username = (getattr(bs, "AUTH_DEFAULT_ADMIN_USERNAME", "admin") or "admin").strip() or "admin"
     password = (getattr(bs, "AUTH_DEFAULT_ADMIN_PASSWORD", "") or "").strip()
     if not password:
-        password = _secrets.token_urlsafe(12)
+        logger.info(
+            "未配置 AUTH_DEFAULT_ADMIN_PASSWORD,跳过预建 admin,等待首启向导设置"
+        )
+        return None
 
     try:
         create_user(username, password, role="admin")

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -61,6 +62,9 @@ logger = logging.getLogger("chayuan.auth.routes")
 
 auth_router = APIRouter(prefix="/auth", tags=["Auth 多用户鉴权"])
 
+# 首启 setup 竞态锁:进程内串行化"无 admin 才建"的检查+创建
+_SETUP_LOCK = threading.Lock()
+
 
 # ---------------------------------------------------------------------------
 # Request / Response schemas
@@ -75,6 +79,12 @@ class _RegisterBody(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=6, max_length=256)
     email: Optional[str] = None
+
+
+class _SetupBody(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=6, max_length=256)
+    instance_name: Optional[str] = None
 
 
 class _RefreshBody(BaseModel):
@@ -108,7 +118,7 @@ class _ChangePasswordBody(BaseModel):
     "/config",
     summary="公开:鉴权策略",
 )
-def auth_config() -> Dict[str, bool]:
+def auth_config() -> Dict[str, Any]:
     """前端在启动时拉一次,根据 `auth_required` 决定:
     - true  → 主页就弹登录框,不允许游客 / 不允许关闭弹框
     - false → 走游客态;登录是可选
@@ -122,6 +132,8 @@ def auth_config() -> Dict[str, bool]:
         "auth_allow_registration": bool(
             getattr(Settings.basic_settings, "AUTH_ALLOW_REGISTRATION", True)
         ),
+        "admin_setup_required": not svc.admin_exists(),
+        "instance_name": getattr(Settings.basic_settings, "CHAYUAN_INSTANCE_NAME", "") or "",
     }
 
 
@@ -141,6 +153,41 @@ def register(body: _RegisterBody):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return UserPublicSchema.model_validate(u)
+
+
+@auth_router.post("/setup", response_model=_TokenPair, summary="首启:设置首个管理员")
+def setup(body: _SetupBody, response: Response):
+    """仅当系统尚无任何 admin 时可用:创建首个 admin 并直接登录。
+
+    竞态安全:进程内锁 + 锁内重查 ``admin_exists()``;已存在 admin 返 409
+    (防两个首访者各建一个 admin)。"""
+    with _SETUP_LOCK:
+        if svc.admin_exists():
+            raise HTTPException(status_code=409, detail="admin already exists")
+        try:
+            u = svc.create_user(body.username, body.password, role="admin")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    if body.instance_name:
+        name = body.instance_name.strip()
+        try:
+            from chayuan.settings import Settings
+            # 先更新内存(running 进程的 /auth/config 立即反映),再持久化到 yaml
+            try:
+                setattr(Settings.basic_settings, "CHAYUAN_INSTANCE_NAME", name)
+            except Exception:  # noqa: BLE001
+                pass
+            from chayuan.server.config_panel import yaml_store
+            yaml_store.save_updates("basic_settings.yaml", {"CHAYUAN_INSTANCE_NAME": name})
+        except Exception as e:  # noqa: BLE001
+            logger.warning("写实例标识失败(忽略): %r", e)
+    access, refresh = svc.issue_token_pair(u)
+    _set_token_cookies(response, access, refresh)
+    return _TokenPair(
+        access_token=access,
+        refresh_token=refresh,
+        user=UserPublicSchema.model_validate(u),
+    )
 
 
 @auth_router.post("/login", response_model=_TokenPair, summary="登录")

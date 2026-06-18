@@ -504,11 +504,16 @@ class BasicSettings(BaseFileSettings):
     """首次启动若没有任何用户，按这个用户名自动建一个 admin。"""
 
     AUTH_DEFAULT_ADMIN_PASSWORD: str = ""
-    """默认管理员密码。留空则启动时**随机生成并打印一次**（务必保存）。
-    生产请显式设置并立即改密。"""
+    """默认管理员密码。**显式设置**则启动时按它预建 admin（运维预置）；
+    留空则不预建，由网络版首启向导（POST /auth/setup）设置首个管理员。"""
 
     AUTH_ALLOW_REGISTRATION: bool = True
     """是否开放自助注册。企业内网场景建议 False，仅由管理员在「用户管理」页新增。"""
+
+    CHAYUAN_INSTANCE_NAME: str = ""
+    """实例标识/显示名。网络版首启向导可设置；环境变量 CHAYUAN_INSTANCE_NAME 可覆盖
+    （本类无 env_prefix,故字段名直接带 CHAYUAN_ 前缀,与 CHAYUAN_LANGFUSE_DISABLE 同例）。
+    仅作展示/区分多实例,不影响访问路径。"""
 
     # ------------------------------------------------------------------
     # 异步入库队列（P3 / Arq）
