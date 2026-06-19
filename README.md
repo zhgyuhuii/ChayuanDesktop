@@ -37,7 +37,7 @@
 原生适配 **Windows / macOS / Linux / 麒麟 / 统信 UOS / openKylin** 等系统;
 所有数据落到用户自选目录,**密钥与文档永不出域**,真正的"自有 AI"。
 
-> **一套引擎,多种形态。** 本仓库的同一份 `chayuan-server` 引擎,既能打成**单机安装包**(本文主角:一人一机、装完即用、断网可跑),也能用 **Docker 跑成网络版**(多人共用、浏览器即开,即官网所称「服务版 / 至臻版」,见 [§三](#三与-chayuan-wps-wps-加载项的关系) 与 [`docker/README.md`](docker/README.md));再配合 **WPS 加载项 [chayuan-wps](https://github.com/zhgyuhuii/chayuan)**,就构成了察元 AI「**一套引擎,四档 SKU**」的完整产品线 —— 文档助手写进你的文档,桌面版装进你的电脑,服务版 / 至臻版上到团队 / 企业的服务器。
+> **一套引擎,多种形态。** 本仓库的同一份 `chayuan-server` 引擎,既能打成**单机安装包**(本文主角:一人一机、装完即用、断网可跑),也能用 **Docker 跑成网络版**(多人共用、浏览器即开,即官网所称「服务版 / 至臻版」,见 [§三](#三与-chayuan-wps-wps-加载项的关系) 与 [`docker/README.md`](docker/README.md));再配合 **WPS 加载项 [chayuan-wps](https://github.com/zhgyuhuii/chayuan-wps-releases)**,就构成了察元 AI「**一套引擎,四档 SKU**」的完整产品线 —— 文档助手写进你的文档,桌面版装进你的电脑,服务版 / 至臻版上到团队 / 企业的服务器。
 
 ---
 
@@ -144,16 +144,18 @@
 
 察元 AI 是一个**端到端办公 AI 平台**,官网把它概括为「**一套引擎,四档 SKU**」 ——
 **同一套查询引擎(五类知识源)+ 模型网关(170+ 模型)+ 本地能力(对话/嵌入/重排/语音识别/图像嵌入/OCR 六类)**,
-按你的场景换一种用法。本仓库(chayuan-desktop)正是其中**桌面版与网络版**两档的源头:
+按你的场景换一种用法。本仓库 [**chayuan-desktop**](https://github.com/zhgyuhuii/chayuan-desktop-releases) 正是其中**桌面版与网络版**两档的源头:
+
+> **开源地址:** 桌面版 / 网络版 → <https://github.com/zhgyuhuii/chayuan-desktop-releases> · WPS 文档助手 → <https://github.com/zhgyuhuii/chayuan-wps-releases>
 
 | # | 形态(SKU) | 仓库 / 入口 | 谁在用 · 解决的心结 |
 |---|---|---|---|
-| 1 | **察元 AI 文档助手** | **[chayuan-wps](https://github.com/zhgyuhuii/chayuan.git)**(WPS 加载项) | 重度用 WPS 写公文 / 合同 / 标书的人 —— "AI 别让我在浏览器和文档之间来回切,就在我正在写的这页里帮我改、帮我查、帮我写回。" |
-| 2 | **察元 AI 桌面版** | **chayuan-desktop**(本仓库,**单机安装包**) | 不愿把密钥 / 文档交给云的个人与政企单机用户 —— "装我自己电脑里,断网也能跑,数据一个字节都别出我这台机器。" |
-| 3 | **察元 AI 服务版** | **chayuan-desktop**(本仓库,**Docker 网络版**,见 [3.3](#33-第二种形态网络版docker-服务版--至臻版)) | 团队 / 部门(≤50 人)—— "一次部署全科室共用,知识库集中沉淀,可别再按人头 / 按调用量收我钱。" |
-| 4 | **察元 AI 至臻版** | **chayuan-desktop**(本仓库,**Docker 网络版** + 在线办公模块) | 企业(数百人至万人)—— "打开浏览器每人一个工作空间,AI 直接动文件,管得住、审得清、扩容不被许可证卡死。" |
+| 1 | **察元 AI 文档助手** | **[chayuan-wps](https://github.com/zhgyuhuii/chayuan-wps-releases)**(WPS 加载项) | 重度用 WPS 写公文 / 合同 / 标书的人 —— "AI 别让我在浏览器和文档之间来回切,就在我正在写的这页里帮我改、帮我查、帮我写回。" |
+| 2 | **察元 AI 桌面版** | **[chayuan-desktop](https://github.com/zhgyuhuii/chayuan-desktop-releases)**(本仓库,**单机安装包**) | 不愿把密钥 / 文档交给云的个人与政企单机用户 —— "装我自己电脑里,断网也能跑,数据一个字节都别出我这台机器。" |
+| 3 | **察元 AI 服务版** | **[chayuan-desktop](https://github.com/zhgyuhuii/chayuan-desktop-releases)**(本仓库,**Docker 网络版**,见 [3.3](#33-第二种形态网络版docker-服务版--至臻版)) | 团队 / 部门(≤50 人)—— "一次部署全科室共用,知识库集中沉淀,可别再按人头 / 按调用量收我钱。" |
+| 4 | **察元 AI 至臻版** | **[chayuan-desktop](https://github.com/zhgyuhuii/chayuan-desktop-releases)**(本仓库,**Docker 网络版** + 在线办公模块) | 企业(数百人至万人)—— "打开浏览器每人一个工作空间,AI 直接动文件,管得住、审得清、扩容不被许可证卡死。" |
 
-> **怎么理解"四档其实是两个仓库":** 文档助手(WPS 加载项)是 [chayuan-wps](https://github.com/zhgyuhuii/chayuan.git) 一个独立项目;
+> **怎么理解"四档其实是两个仓库":** 文档助手(WPS 加载项)是 [chayuan-wps](https://github.com/zhgyuhuii/chayuan-wps-releases.git) 一个独立项目;
 > 桌面版 / 服务版 / 至臻版**都来自本仓库的同一份 `chayuan-server`** —— 区别只在**打包形态与开启的模块**:
 > 单机安装包 = 桌面版;`docker compose up` 起的多人实例 = 服务版 / 至臻版。所以你在本文里读到的每一项能力,
 > 网络版同样具备(终端能力差异见下表)。
@@ -213,7 +215,7 @@
 - WPS 加载项**既能连单机版**(填 `http://127.0.0.1:62581`),**也能连网络版**(填团队部署的网址 + 登录态),
   这样"科室里谁都能在 WPS 里调用同一套企业知识库"。
 
-详见 chayuan-wps 仓库的 [README](https://github.com/zhgyuhuii/chayuan/blob/main/README.md) 与 RELEASE_NOTES_v3.0。
+详见 chayuan-wps 仓库的 [README](https://github.com/zhgyuhuii/chayuan-wps-releases/blob/main/README.md) 与 RELEASE_NOTES_v3.0。
 
 ### 3.3 第二种形态:网络版(Docker 服务版 / 至臻版)
 
@@ -994,7 +996,7 @@ X-Timestamp:  <unix_ms>
 X-Sign:       <HMAC-SHA256(secret, "{app_id}\n{timestamp}\n{path}\n{body_md5}")>
 ```
 
-详见 [`chayuan-wps/src/services/kb/authClient.js`](https://github.com/zhgyuhuii/chayuan/blob/main/src/services/kb/authClient.js) 的实现。
+详见 [`chayuan-wps/src/services/kb/authClient.js`](https://github.com/zhgyuhuii/chayuan-wps-releases/blob/main/src/services/kb/authClient.js) 的实现。
 
 ---
 
@@ -1477,7 +1479,7 @@ chayuan-server.exe 启动
 | **应用内 反馈** | 设置 → 反馈 → 内嵌支付/关注二维码 + GitHub Issue 链接 |
 | **官网** | <https://aidooo.com> |
 | **微信公众号** | 智灵鸟科技 |
-| **WPS 加载项教程** | <https://github.com/zhgyuhuii/chayuan/blob/main/README.md> |
+| **WPS 加载项教程** | <https://github.com/zhgyuhuii/chayuan-wps-releases/blob/main/README.md> |
 | **打包技术文档** | [PACKAGING.md](PACKAGING.md) |
 | **CLAUDE.md** | 给 AI 助手 / 二开开发者看的总架构与任务清单 |
 
@@ -1553,8 +1555,11 @@ chayuan-server.exe 启动
 |---|---|---|
 | 官网 | 产品介绍 / 商务联系 | <https://aidooo.com> |
 | 微信公众号 | 版本动态 / 技术深读 | 智灵鸟科技 |
-| GitHub Issue | 公开技术问题(本仓库) | (内部) |
-| GitHub Issue (WPS) | WPS 加载项问题 | <https://github.com/zhgyuhuii/chayuan/issues> |
+| **开源仓库(桌面版 / 网络版)** | 本项目源码 / 发布 / Issue | **<https://github.com/zhgyuhuii/chayuan-desktop-releases>** |
+| **开源仓库(WPS 加载项)** | 文档助手源码 / 发布 / Issue | **<https://github.com/zhgyuhuii/chayuan-wps-releases>** |
+| **百度网盘** | 安装包下载(国内直连) | **<https://pan.baidu.com/s/5kGNUqSLs7-6g8RNh5FsBcA>** |
+| GitHub Issue | 公开技术问题(本仓库) | <https://github.com/zhgyuhuii/chayuan-desktop-releases/issues> |
+| GitHub Issue (WPS) | WPS 加载项问题 | <https://github.com/zhgyuhuii/chayuan-wps-releases/issues> |
 | 商务邮件 | 企业授权 / OEM / 定制 | 详见官网 |
 
 **贡献指南(简要)**:

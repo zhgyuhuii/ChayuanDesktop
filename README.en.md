@@ -38,7 +38,7 @@ It runs natively on **Windows / macOS / Linux** and the **Chinese domestic OS fa
 It also covers **speech synthesis, text-to-video / image-to-video, and digital humans**.
 All data stays in a user-chosen directory — **API keys and documents never leave your machine**.
 
-> **One engine, many forms.** The same `chayuan-server` engine in this repo ships both as a **single-machine installer** (the focus of this README: one person, one machine, works offline) and as a **Docker network edition** (multi-user, browser-first — the "Team / Enterprise" SKUs on the official site; see [§3](#3-relationship-with-chayuan-wps-wps-add-in) and [`docker/README.md`](docker/README.md)). Together with the **WPS add-in [chayuan-wps](https://github.com/zhgyuhuii/chayuan)**, this forms Chayuan AI's **"one engine, four SKUs"** product line — the Document Assistant goes into your documents, the Desktop edition onto your computer, and the Team / Enterprise editions onto your team's / organization's server.
+> **One engine, many forms.** The same `chayuan-server` engine in this repo ships both as a **single-machine installer** (the focus of this README: one person, one machine, works offline) and as a **Docker network edition** (multi-user, browser-first — the "Team / Enterprise" SKUs on the official site; see [§3](#3-relationship-with-chayuan-wps-wps-add-in) and [`docker/README.md`](docker/README.md)). Together with the **WPS add-in [chayuan-wps](https://github.com/zhgyuhuii/chayuan-wps-releases)**, this forms Chayuan AI's **"one engine, four SKUs"** product line — the Document Assistant goes into your documents, the Desktop edition onto your computer, and the Team / Enterprise editions onto your team's / organization's server.
 
 ---
 
@@ -116,16 +116,18 @@ For **white-labeling / full localization** that touches brand strings, obtain a 
 ## 3. Relationship with chayuan-wps (WPS Add-in)
 
 Chayuan AI is an **end-to-end office AI platform** — the official site sums it up as **"one engine, four SKUs"**:
-the *same* query engine (five knowledge sources) + model gateway (170+ models) + local capabilities (chat / embedding / rerank / ASR / image-embedding / OCR), repackaged per scenario. This repo (chayuan-desktop) is the source of **two** of those SKUs — the Desktop and the Network editions:
+the *same* query engine (five knowledge sources) + model gateway (170+ models) + local capabilities (chat / embedding / rerank / ASR / image-embedding / OCR), repackaged per scenario. This repo ([chayuan-desktop](https://github.com/zhgyuhuii/chayuan-desktop-releases)) is the source of **two** of those SKUs — the Desktop and the Network editions:
+
+> **Open source:** Desktop / Network → <https://github.com/zhgyuhuii/chayuan-desktop-releases> · WPS Document Assistant → <https://github.com/zhgyuhuii/chayuan-wps-releases>
 
 | # | SKU (Form) | Repository / Entry | Who uses it · the worry it answers |
 |---|---|---|---|
-| 1 | **Document Assistant** | **[chayuan-wps](https://github.com/zhgyuhuii/chayuan.git)** (WPS add-in) | Heavy WPS writers of official docs / contracts / bids — "don't make me switch between a browser and my document; help me right here on the page I'm writing." |
-| 2 | **Desktop Edition** | **chayuan-desktop** (this repo, **single-machine installer**) | Individuals & single-machine gov/enterprise users — "install on *my* computer, run offline, and let not one byte of data leave this machine." |
-| 3 | **Team Edition** | **chayuan-desktop** (this repo, **Docker network edition**, see [3.3](#33-the-second-form-network-edition-docker)) | Teams / departments (≤50) — "deploy once for the whole office, pool the knowledge base, and please stop charging me per seat or per call." |
-| 4 | **Enterprise Edition** | **chayuan-desktop** (this repo, **Docker network edition** + online-office modules) | Enterprises (hundreds to tens of thousands) — "a workspace per person in the browser, AI that acts on files directly, governable, auditable, scaling that isn't blocked by a license." |
+| 1 | **Document Assistant** | **[chayuan-wps](https://github.com/zhgyuhuii/chayuan-wps-releases)** (WPS add-in) | Heavy WPS writers of official docs / contracts / bids — "don't make me switch between a browser and my document; help me right here on the page I'm writing." |
+| 2 | **Desktop Edition** | **[chayuan-desktop](https://github.com/zhgyuhuii/chayuan-desktop-releases)** (this repo, **single-machine installer**) | Individuals & single-machine gov/enterprise users — "install on *my* computer, run offline, and let not one byte of data leave this machine." |
+| 3 | **Team Edition** | **[chayuan-desktop](https://github.com/zhgyuhuii/chayuan-desktop-releases)** (this repo, **Docker network edition**, see [3.3](#33-the-second-form-network-edition-docker)) | Teams / departments (≤50) — "deploy once for the whole office, pool the knowledge base, and please stop charging me per seat or per call." |
+| 4 | **Enterprise Edition** | **[chayuan-desktop](https://github.com/zhgyuhuii/chayuan-desktop-releases)** (this repo, **Docker network edition** + online-office modules) | Enterprises (hundreds to tens of thousands) — "a workspace per person in the browser, AI that acts on files directly, governable, auditable, scaling that isn't blocked by a license." |
 
-> **Why "four SKUs" is really two repos:** the Document Assistant (WPS add-in) is the standalone [chayuan-wps](https://github.com/zhgyuhuii/chayuan.git) project; the Desktop / Team / Enterprise editions **all come from the same `chayuan-server` in this repo** — they differ only in *packaging form and enabled modules*: a single-machine installer = Desktop edition; a multi-user instance from `docker compose up` = Team / Enterprise edition. So every capability described in this README is also present in the network edition.
+> **Why "four SKUs" is really two repos:** the Document Assistant (WPS add-in) is the standalone [chayuan-wps](https://github.com/zhgyuhuii/chayuan-wps-releases.git) project; the Desktop / Team / Enterprise editions **all come from the same `chayuan-server` in this repo** — they differ only in *packaging form and enabled modules*: a single-machine installer = Desktop edition; a multi-user instance from `docker compose up` = Team / Enterprise edition. So every capability described in this README is also present in the network edition.
 
 ### 3.1 Single-Machine vs Network: one engine, two trade-offs
 
@@ -171,7 +173,7 @@ A conversation started in WPS appears in the Desktop client's history.
 
 The WPS add-in (v3.0+) supports `authMode: 'none'` for keyless local connections in single-machine mode.
 The add-in can point at **either** the single-machine edition (`http://127.0.0.1:62581`) **or** a network deployment (a team URL + login), so everyone in a department can hit the same enterprise knowledge base from inside WPS.
-See [chayuan-wps README](https://github.com/zhgyuhuii/chayuan/blob/main/README.md) for details.
+See [chayuan-wps README](https://github.com/zhgyuhuii/chayuan-wps-releases/blob/main/README.md) for details.
 
 ### 3.3 The Second Form: Network Edition (Docker)
 
@@ -612,7 +614,7 @@ X-Timestamp: <unix_ms>
 X-Sign:      HMAC-SHA256(secret, "{app_id}\n{timestamp}\n{path}\n{body_md5}")
 ```
 
-See [chayuan-wps authClient.js](https://github.com/zhgyuhuii/chayuan/blob/main/src/services/kb/authClient.js).
+See [chayuan-wps authClient.js](https://github.com/zhgyuhuii/chayuan-wps-releases/blob/main/src/services/kb/authClient.js).
 
 ---
 
@@ -700,7 +702,7 @@ pnpm dev:desktop
 | **In-app About** | Settings → About → version / publisher / website / WeChat QR |
 | **In-app Feedback** | Settings → Feedback → embedded QR + GitHub Issue link |
 | **Official site** | <https://aidooo.com> |
-| **WPS add-in tutorial** | <https://github.com/zhgyuhuii/chayuan/blob/main/README.md> |
+| **WPS add-in tutorial** | <https://github.com/zhgyuhuii/chayuan-wps-releases/blob/main/README.md> |
 | **Packaging guide** | [PACKAGING.md](PACKAGING.md) |
 
 ---
@@ -754,8 +756,11 @@ Sensitive fields (API keys etc.) are encrypted at rest via **Tauri Stronghold**:
 |---|---|---|
 | Official site | Product info / business | <https://aidooo.com> |
 | WeChat OA | Release notes / deep dives | 智灵鸟科技 |
-| GitHub Issue (this) | Public technical issues | (internal) |
-| GitHub Issue (WPS) | WPS add-in issues | <https://github.com/zhgyuhuii/chayuan/issues> |
+| **Open-source repo (Desktop / Network)** | This project's source / releases / issues | **<https://github.com/zhgyuhuii/chayuan-desktop-releases>** |
+| **Open-source repo (WPS add-in)** | Document Assistant source / releases / issues | **<https://github.com/zhgyuhuii/chayuan-wps-releases>** |
+| **Baidu Netdisk** | Installer downloads (mainland China) | **<https://pan.baidu.com/s/5kGNUqSLs7-6g8RNh5FsBcA>** |
+| GitHub Issue (this) | Public technical issues | <https://github.com/zhgyuhuii/chayuan-desktop-releases/issues> |
+| GitHub Issue (WPS) | WPS add-in issues | <https://github.com/zhgyuhuii/chayuan-wps-releases/issues> |
 | Business email | Enterprise license / OEM / customization | see official site |
 
 **Contributing (brief)**:
