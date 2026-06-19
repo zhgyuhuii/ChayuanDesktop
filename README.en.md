@@ -35,7 +35,10 @@ Detailed packaging guide: [PACKAGING.md](PACKAGING.md)
 it ships with a **multi-vendor LLM gateway**, **five categories of knowledge sources** (documents / structured / vector / office / external),
 **30+ built-in tools**, **MCP protocol** support, and **multi-model arena**.
 It runs natively on **Windows / macOS / Linux** and the **Chinese domestic OS family** (Kylin, UnionTech UOS, openKylin, deepin).
+It also covers **speech synthesis, text-to-video / image-to-video, and digital humans**.
 All data stays in a user-chosen directory — **API keys and documents never leave your machine**.
+
+> **One engine, many forms.** The same `chayuan-server` engine in this repo ships both as a **single-machine installer** (the focus of this README: one person, one machine, works offline) and as a **Docker network edition** (multi-user, browser-first — the "Team / Enterprise" SKUs on the official site; see [§3](#3-relationship-with-chayuan-wps-wps-add-in) and [`docker/README.md`](docker/README.md)). Together with the **WPS add-in [chayuan-wps](https://github.com/zhgyuhuii/chayuan)**, this forms Chayuan AI's **"one engine, four SKUs"** product line — the Document Assistant goes into your documents, the Desktop edition onto your computer, and the Team / Enterprise editions onto your team's / organization's server.
 
 ---
 
@@ -43,7 +46,8 @@ All data stays in a user-chosen directory — **API keys and documents never lea
 
 - [1. License (AGPL-3.0)](#1-license-agpl-30)
 - [2. Brand Identity Preservation](#2-brand-identity-preservation)
-- [3. Relationship with chayuan-wps (WPS Add-in)](#3-relationship-with-chayuan-wps-wps-add-in)
+- [3. Product Ecosystem: One Engine, Four SKUs (WPS Add-in / Desktop / Team / Enterprise)](#3-relationship-with-chayuan-wps-wps-add-in)
+  - [3.1 Single-Machine vs Network](#31-single-machine-vs-network-one-engine-two-trade-offs) · [3.3 Network Edition (Docker)](#33-the-second-form-network-edition-docker) ⭐ network edition
 - [4. Product Overview & System Architecture](#4-product-overview--system-architecture)
 - [5. Core Features](#5-core-features)
 - [6. Supported Operating Systems](#6-supported-operating-systems)
@@ -111,14 +115,32 @@ For **white-labeling / full localization** that touches brand strings, obtain a 
 
 ## 3. Relationship with chayuan-wps (WPS Add-in)
 
-Chayuan AI is an **end-to-end office AI platform** currently delivered through two complementary open-source projects:
+Chayuan AI is an **end-to-end office AI platform** — the official site sums it up as **"one engine, four SKUs"**:
+the *same* query engine (five knowledge sources) + model gateway (170+ models) + local capabilities (chat / embedding / rerank / ASR / image-embedding / OCR), repackaged per scenario. This repo (chayuan-desktop) is the source of **two** of those SKUs — the Desktop and the Network editions:
 
-| Project | Repository | Form | Primary Users |
+| # | SKU (Form) | Repository / Entry | Who uses it · the worry it answers |
 |---|---|---|---|
-| **chayuan-desktop** (this repo) | (internal) | **Desktop single-machine app** — Tauri 2 shell + embedded Python backend | Individuals & enterprises wanting local-only AI |
-| **chayuan-wps** | <https://github.com/zhgyuhuii/chayuan.git> | **WPS Writer add-in** — Vue 3 add-in running inside WPS | Government / enterprise authors heavily using WPS for documents / contracts / bids |
+| 1 | **Document Assistant** | **[chayuan-wps](https://github.com/zhgyuhuii/chayuan.git)** (WPS add-in) | Heavy WPS writers of official docs / contracts / bids — "don't make me switch between a browser and my document; help me right here on the page I'm writing." |
+| 2 | **Desktop Edition** | **chayuan-desktop** (this repo, **single-machine installer**) | Individuals & single-machine gov/enterprise users — "install on *my* computer, run offline, and let not one byte of data leave this machine." |
+| 3 | **Team Edition** | **chayuan-desktop** (this repo, **Docker network edition**, see [3.3](#33-the-second-form-network-edition-docker)) | Teams / departments (≤50) — "deploy once for the whole office, pool the knowledge base, and please stop charging me per seat or per call." |
+| 4 | **Enterprise Edition** | **chayuan-desktop** (this repo, **Docker network edition** + online-office modules) | Enterprises (hundreds to tens of thousands) — "a workspace per person in the browser, AI that acts on files directly, governable, auditable, scaling that isn't blocked by a license." |
 
-### How They Cooperate
+> **Why "four SKUs" is really two repos:** the Document Assistant (WPS add-in) is the standalone [chayuan-wps](https://github.com/zhgyuhuii/chayuan.git) project; the Desktop / Team / Enterprise editions **all come from the same `chayuan-server` in this repo** — they differ only in *packaging form and enabled modules*: a single-machine installer = Desktop edition; a multi-user instance from `docker compose up` = Team / Enterprise edition. So every capability described in this README is also present in the network edition.
+
+### 3.1 Single-Machine vs Network: one engine, two trade-offs
+
+| Aspect | **Single-Machine** (this README's focus) | **Network** (Docker Team / Enterprise) |
+|---|---|---|
+| Deploy | Double-click installer, no Docker/Python | `docker compose up -d`, open a URL |
+| Users | One person, **auth off by default** (no "user" concept) | Multi-user, **per-user isolation + first-run admin setup + optional login** |
+| Entry | Native window (Tauri webview) | Browser (`:8080`) |
+| Model mgmt | In-app visual download / management | **Local model management hidden** (ops drop models into a `bundled_models/` volume) |
+| Data | User-chosen `CHAYUAN_ROOT` | Container `/chayuan/data` volume (bind-mounted) |
+| The worry it answers | "My stuff stays on my machine" | "We need to share — but never on the public internet, never per-seat pricing" |
+
+> **Why the two editions stay identical:** they run the **same backend source**, storing tasks / artifacts / KBs / modality results under one **per-user isolation** contract — the single-machine edition "passes through transparently" (the sole user is the owner), the network edition "isolates by logged-in user." Build a feature once and both editions get it.
+
+### 3.2 How the Desktop & the WPS Add-in Cooperate
 
 ```
               ┌─────────────────────────────────────────────┐
@@ -148,7 +170,32 @@ Both share the **same knowledge bases, model configurations, and conversation hi
 A conversation started in WPS appears in the Desktop client's history.
 
 The WPS add-in (v3.0+) supports `authMode: 'none'` for keyless local connections in single-machine mode.
+The add-in can point at **either** the single-machine edition (`http://127.0.0.1:62581`) **or** a network deployment (a team URL + login), so everyone in a department can hit the same enterprise knowledge base from inside WPS.
 See [chayuan-wps README](https://github.com/zhgyuhuii/chayuan/blob/main/README.md) for details.
+
+### 3.3 The Second Form: Network Edition (Docker)
+
+> The single-machine edition answers "**my** AI"; the network edition answers "**our** AI — still off the public internet, still no per-seat pricing." They share one source, so every capability in this README is present here too.
+
+**One command brings up an "AI hub shared by the whole organization":**
+
+```bash
+cd docker
+docker compose up -d --build
+# Frontend SPA  http://localhost:8080   ← browser entry
+# Backend API   http://localhost:62581  ← Tauri / WPS / 3rd-party can connect
+# Config panel  http://localhost:8502   ← models / yaml (NiceGUI)
+```
+
+Key differences from single-machine (built around the gov/enterprise "want to share but fear losing control" mindset):
+
+- **First-run "Set up Admin" wizard**: on first browser visit to `:8080` with no admin yet, a one-time full-screen wizard (username + password + instance ID) makes the first visitor the admin — **no more random password buried in logs**.
+- **Anonymous / multi-user, switchable**: anonymous by default (shared GUEST, no login); flip `CHAYUAN_AUTH_REQUIRED=true` in `.env` for multi-user + login (JWT on `/chat`, `/knowledge_base`, `/api`).
+- **Per-user isolation**: tasks, modality artifacts (image / video / speech), digital-human jobs, and artifact downloads are **isolated by logged-in user and blocked for anonymous** in the network edition; **transparent in single-machine** (same contract — see [3.1](#31-single-machine-vs-network-one-engine-two-trade-offs)).
+- **Capability gating by terminal**: the network edition **hides local model management** (ops place models into the `bundled_models/` volume) so users can't delete each other's models.
+- **Data stays on your intranet**: the image ships **no models and no Tauri shell** — models mount via volume, the browser replaces the desktop webview; documents stay on your own server, billed **neither per user nor per call**.
+
+Full deploy / security checklist / multi-user switch / upgrade: see [`docker/README.md`](docker/README.md).
 
 ---
 
@@ -443,11 +490,14 @@ Chayuan AI Desktop packs an **enterprise-grade AI backend** into your local mach
 
 | Modality | Endpoint | Default | Optional |
 |---|---|---|---|
-| T2I | `/api/image/text2image` | DALL-E / Doubao Wenshengtu | ComfyUI / SD WebUI |
+| T2I / I2I | `/api/image/text2image` | DALL-E / Doubao Wenshengtu | ComfyUI / SD WebUI; conversational prompt rewrite, reuse last image |
 | Vision | `/api/chat` (vision LLM) | Qwen-VL / GPT-4V / Claude 3 Vision | |
-| TTS | `/api/voice/tts` | **Piper** (CPU, ~30 MB) | CosyVoice |
-| ASR | `/api/voice/asr` | FunASR (Alibaba) | Whisper |
-| T2V | `/api/video/text2video` | Qwen Wan / Doubao PixelDance | cloud vendors |
+| TTS (multi-engine) | `/api/voice/tts` · `/v1/audio/speech` | **Piper** (CPU, ~30 MB) | **sherpa-onnx** (multilingual), local `local-tts:<engine>` pseudo-models, **voice cloning** (graceful fallback to upload when mic unavailable); cloud CosyVoice |
+| ASR | `/api/voice/asr` | FunASR (Alibaba) + CAM++ speaker diarization | whisper.cpp / faster-whisper |
+| T2V / I2V | `/api/video/text2video` | Qwen Wanx / Doubao PixelDance | Kling / Hailuo / Vidu / Zhipu / Seedance (phased); local stub |
+| Digital Human | `/api/dh/*` | Wav2Lip (CPU, weights bundled in full edition) | SadTalker; multi-avatar, same-frame, segmented scripts |
+
+> Beyond the APIs, the home page offers visual workspaces: **Speech Synthesis**, **AI Video Generation** (conversational + advanced mode), and a **Video Center**. Subtitles, aspect ratio, voice, background color, intro/outro settings are fully reused; in the network edition, generated artifacts are per-user isolated and downloads are auth-gated (see [3.3](#33-the-second-form-network-edition-docker)).
 
 ### 8.8 Built-in Tools (30+)
 
@@ -738,8 +788,11 @@ A: Depends on your model config. All-local Ollama / LM Studio / vLLM: **fully us
 **Q3: Why does the desktop icon say "察元AI" (Chinese) instead of "Chayuan"?**
 A: NSIS post-install hook renames the default ASCII shortcut to Chinese after the Finish page. See `chayuan-client/apps/desktop/src-tauri/installer.nsh`.
 
-**Q4: Can I deploy backend on a server and connect from a thin client?**
-A: The current Single-Machine Edition is designed for "frontend + backend on same machine". For multi-user / server deployment, see `chayuan-server/packaging/README.md` (separate product line).
+**Q4: Can I deploy the backend on a server and have many people connect?**
+A: Yes — that's the **Network Edition** (the Team / Enterprise SKUs). The **single-machine** edition is designed for "frontend + backend on the same machine, one person." But the *same backend*, run via Docker, becomes the multi-user network edition: `cd docker && docker compose up -d --build`, open `:8080`, set up an admin on first visit, optionally require login, isolate per user. See [§3.3](#33-the-second-form-network-edition-docker) and [`docker/README.md`](docker/README.md).
+
+**Q4.1: The network edition prompts me to "Set up Admin" on first open — what is that?**
+A: It's the intentional **first-run wizard**: with no admin yet in the backend, the first visitor sets username + password + instance ID to become the admin (one-time). Far safer than the old "random password printed to the log." **During initialization, restrict network reachability** (intranet only / bind 127.0.0.1 / firewall) so a stranger can't grab admin first; ops can also pre-seed `CHAYUAN_AUTH_DEFAULT_ADMIN_PASSWORD` in `.env` to skip the wizard. To reset: config panel `:8502` → User Management, or wipe the `./data` volume.
 
 **Q5: Must I use chayuan-wps and Desktop together?**
 A: No. Both work independently. **When using the same backend, they share KB / models / history.**
