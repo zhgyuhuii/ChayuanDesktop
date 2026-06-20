@@ -25,6 +25,7 @@ from chayuan.server.api_server.kb_remote_sync_routes import remote_sync_router
 from chayuan.server.api_server.knowledge_source_routes import ks_router
 from chayuan.server.api_server.knowledge_universe_routes import ku_router
 from chayuan.server.api_server.mcp_routes import mcp_router
+from chayuan.server.api_server.external_agent_routes import external_agent_router
 from chayuan.server.api_server.modality_routes import modality_router
 from chayuan.server.api_server.artifacts_routes import artifacts_router
 from chayuan.server.api_server.provider_routes import provider_router
@@ -143,6 +144,7 @@ def create_app(run_mode: str = None):
     app.include_router(openai_router)
     app.include_router(server_router)
     app.include_router(mcp_router)
+    app.include_router(external_agent_router)
     app.include_router(modality_router)
     # /v1/artifacts/<sha>.<ext> — 模态路由产物(图/音/视)内容寻址下载,Range 支持
     # 详见 chayuan/server/modality/router/artifacts.py 模块 docstring
