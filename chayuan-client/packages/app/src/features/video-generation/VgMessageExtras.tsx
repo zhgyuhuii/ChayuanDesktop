@@ -22,7 +22,7 @@ import { MaterialsBgmOutputDialog } from './MaterialsBgmOutputDialog';
 import { useVgComposer } from './store/vgComposer';
 import { reportError } from '../../store/errorDialog';
 import type { ChatMessage } from '../chat/useChayuanChat';
-import { blobToAudioDataUrl } from './blobToDataUrl';
+import { playAudioBlob } from './blobToDataUrl';
 
 const RATE_OPTIONS = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0] as const;
 const VOLUME_OPTIONS = [0.8, 1.0, 1.2] as const;
@@ -91,9 +91,9 @@ export const VgMessageExtras: React.FC<VgMessageExtrasProps> = ({
       });
       const a = audioRef.current ?? new Audio();
       audioRef.current = a;
-      // WKWebView 不支持 blob: 作 <audio> 源(NotSupportedError)→ data: URL
-      a.src = await blobToAudioDataUrl(r.blob);
-      await a.play();
+      if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null; }
+      // blob: URL 优先;Windows WebView2 下 data: URL 作媒体源整段失效,失败回退 data:。
+      urlRef.current = await playAudioBlob(a, r.blob);
     } catch (e) {
       reportError(e as Error, '试听失败');
     } finally {

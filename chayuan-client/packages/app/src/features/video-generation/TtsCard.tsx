@@ -11,6 +11,7 @@ import { Loader2, Play, Wifi, WifiOff } from 'lucide-react';
 import { videoGeneration, type VgVoiceItem, type VgVoiceProvider } from '@chayuan/api';
 import type { VgMessageMeta } from '@chayuan/transport';
 import { reportError } from '../../store/errorDialog';
+import { playAudioBlob } from './blobToDataUrl';
 
 export interface TtsCardProps {
   tts: NonNullable<VgMessageMeta['tts']>;
@@ -47,20 +48,11 @@ export const TtsCard: React.FC<TtsCardProps> = ({ tts, onChange, previewText }) 
         voice_provider: tts.provider, voice_name: tts.voice || undefined,
         voice_rate: tts.rate, voice_volume: tts.volume,
       });
-      // ⚠ Tauri WKWebView(macOS)不支持 blob: URL 作 <audio> 媒体源 → play() 报
-      // NotSupportedError（打包后才暴露，dev 浏览器支持 blob）。改用 data: URL 内联，
-      // 跟 VoicePicker 试听同款修法。
-      const wavBlob = r.blob.type ? r.blob : new Blob([r.blob], { type: 'audio/wav' });
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onload = () => resolve(fr.result as string);
-        fr.onerror = () => reject(fr.error);
-        fr.readAsDataURL(wavBlob);
-      });
       const a = audioRef.current ?? new Audio();
       audioRef.current = a;
-      a.src = dataUrl;
-      await a.play();
+      if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null; }
+      // blob: URL 优先;Windows WebView2 下 data: URL 作媒体源整段失效,失败回退 data:。
+      urlRef.current = await playAudioBlob(a, r.blob);
     } catch (e) { reportError(e as Error, '试听失败'); }
     finally { setPreviewing(false); }
   };

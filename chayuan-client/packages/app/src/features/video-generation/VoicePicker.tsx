@@ -19,6 +19,7 @@ import { Wifi, WifiOff, Play, Loader2, Mic, Square, Upload, Trash2, Pencil } fro
 import { cn } from '@chayuan/ui';
 import { videoGeneration, type VgVoiceProvider } from '@chayuan/api';
 import { VOICE_PREVIEW_TEXT } from './voicePreviewText';
+import { playAudioBlob } from './blobToDataUrl';
 import { reportError } from '../../store/errorDialog';
 import { confirmDialog } from '../../store/confirmDialog';
 import { promptDialog } from '../../store/promptDialog';
@@ -135,19 +136,11 @@ export const VoicePicker: React.FC<{
         voice_rate: previewRate,
         voice_volume: previewVolume,
       });
-      // ⚠ Tauri WKWebView(macOS)不支持 blob: URL 作 <audio> 媒体源 → play() 报
-      // NotSupportedError。改用 data: URL(base64,内联),WKWebView 支持正常。
-      const wavBlob = r.blob.type ? r.blob : new Blob([r.blob], { type: 'audio/wav' });
-      const dataUrl: string = await new Promise((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onload = () => resolve(fr.result as string);
-        fr.onerror = () => reject(fr.error ?? new Error('读取音频失败'));
-        fr.readAsDataURL(wavBlob);
-      });
       const a = audioRef.current ?? new Audio();
       audioRef.current = a;
-      a.src = dataUrl;
-      await a.play();
+      if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null; }
+      // blob: URL 优先;Windows WebView2 下 data: URL 作媒体源整段失效,失败回退 data:。
+      urlRef.current = await playAudioBlob(a, r.blob);
     } catch (e) {
       reportError(e as Error, '试听失败');
     } finally {

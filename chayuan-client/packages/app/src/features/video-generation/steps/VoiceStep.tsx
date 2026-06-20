@@ -20,7 +20,7 @@ import {
 import { useVgComposer } from '../store/vgComposer';
 import { VOICE_PREVIEW_TEXT } from '../voicePreviewText';
 import { reportError } from '../../../store/errorDialog';
-import { blobToAudioDataUrl } from '../blobToDataUrl';
+import { playAudioBlob } from '../blobToDataUrl';
 
 const PROVIDERS: Array<{ id: VgVoiceProvider; label: string; hint: string; offline: boolean }> = [
   { id: 'piper',  label: 'piper(本地快速)', hint: 'CPU ~1× 实时,无网可用,音色机器味较重',  offline: true },
@@ -87,15 +87,12 @@ export const VoiceStep: React.FC = () => {
         voice_rate: params.voice_rate,
         voice_volume: params.voice_volume,
       });
-      // WKWebView 不支持 blob: 作 <audio> 源(NotSupportedError)→ data: URL
-      const url = await blobToAudioDataUrl(r.blob);
-      setPreviewUrl(url);
       const el = audioRef.current ?? new Audio();
       audioRef.current = el;
-      el.src = url;
       el.onended = () => setPlaying(false);
       el.onerror = () => setPlaying(false);
-      await el.play();
+      // blob: URL 优先;Windows WebView2 下 data: URL 作媒体源整段失效,失败回退 data:。
+      setPreviewUrl(await playAudioBlob(el, r.blob));
       setPlaying(true);
     } catch (e) {
       reportError(e as Error, '试听失败 — 检查 TTS 服务是否就绪');

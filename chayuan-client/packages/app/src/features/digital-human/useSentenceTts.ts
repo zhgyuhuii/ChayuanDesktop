@@ -2,7 +2,7 @@ import * as React from 'react';
 import { videoGeneration } from '@chayuan/api';
 import type { VgVoiceProvider } from '@chayuan/api';
 import { takeCompleteSentences } from './liveSentences';
-import { blobToAudioDataUrl } from '../video-generation/blobToDataUrl';
+import { playAudioBlob } from '../video-generation/blobToDataUrl';
 
 interface VoiceCfg {
   voice_provider?: VgVoiceProvider;
@@ -36,13 +36,16 @@ export function useSentenceTts(voice: VoiceCfg, enabled: boolean) {
       });
       const a = audioRef.current ?? new Audio();
       audioRef.current = a;
-      // WKWebView 不支持 blob: 作 <audio> 源(NotSupportedError)→ data: URL
-      a.src = await blobToAudioDataUrl(blob);
+      // blob: URL 优先;Windows WebView2 下 data: URL 作媒体源整段失效,失败回退 data:。
+      let objUrl: string | null = null;
       await new Promise<void>((resolve) => {
         a.onended = () => resolve();
         a.onerror = () => resolve();
-        void a.play().catch(() => resolve());
+        void playAudioBlob(a, blob).then((u) => { objUrl = u; }).catch(() => resolve());
       });
+      if (objUrl) {
+        try { URL.revokeObjectURL(objUrl); } catch { /* ignore */ }
+      }
     } catch {
       /* 单句失败:跳过,继续下一句 */
     } finally {
