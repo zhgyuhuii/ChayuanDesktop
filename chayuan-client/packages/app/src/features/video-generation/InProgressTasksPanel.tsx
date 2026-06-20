@@ -124,9 +124,9 @@ export const InProgressTasksPanel: React.FC = () => {
 
   return (
     <section className="rounded-2xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-4">
-      <header className="mb-3 flex items-center gap-2">
-        <Activity className="h-4 w-4 text-[var(--cy-brand-500)]" />
-        <h2 className="text-sm font-semibold text-[var(--cy-text-primary)]">
+      <header className="mb-1 flex items-center gap-2">
+        <Activity className="h-4 w-4 shrink-0 text-[var(--cy-brand-500)]" />
+        <h2 className="whitespace-nowrap text-sm font-semibold text-[var(--cy-text-primary)]">
           进行中 <span className="ml-1 text-xs font-normal text-[var(--cy-text-tertiary)]">
             ({tasks.length})
           </span>
@@ -137,16 +137,17 @@ export const InProgressTasksPanel: React.FC = () => {
             onClick={() => void onCancelAll()}
             disabled={cancelingAll}
             title="取消全部进行中/排队任务"
-            className="ml-auto inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[11px] text-[var(--cy-text-secondary)] hover:border-rose-300 hover:text-rose-600 disabled:opacity-50"
+            className="ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[11px] text-[var(--cy-text-secondary)] hover:border-rose-300 hover:text-rose-600 disabled:opacity-50"
           >
             {cancelingAll ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
             全部取消 ({activeTasks.length})
           </button>
         )}
-        <span className={'text-[10px] text-[var(--cy-text-tertiary)] ' + (activeTasks.length > 0 ? 'ml-2' : 'ml-auto')}>
-          后端 worker 池 4 并发,其余在队列排队
-        </span>
       </header>
+      {/* worker 提示单独一行,避免和「全部取消」按钮挤在同一行被换行挤乱。 */}
+      <p className="mb-3 text-[10px] text-[var(--cy-text-tertiary)]">
+        后端 worker 池 4 并发,其余在队列排队
+      </p>
       <ul className="space-y-2">
         {tasks.map((t) => (
           <TaskProgressRow
