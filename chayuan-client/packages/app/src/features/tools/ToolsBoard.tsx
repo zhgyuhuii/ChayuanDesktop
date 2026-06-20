@@ -30,7 +30,7 @@ interface CombinedCard extends ToolCardData {
   _customSpec?: CustomToolSpec;
 }
 
-export const ToolsBoard: React.FC = () => {
+export const ToolsBoard: React.FC<{ selectable?: boolean }> = ({ selectable = true }) => {
   const [tab, setTab] = React.useState<StatusTab>('all');
   const [keyword, setKeyword] = React.useState('');
   // 配置弹窗:builtin → ToolConfigDialog;custom → CustomToolFormDialog 编辑模式
@@ -76,8 +76,10 @@ export const ToolsBoard: React.FC = () => {
     });
   }, [data, keyword]);
 
-  const toggle = (key: string) =>
+  const toggle = (key: string) => {
+    if (!selectable) return;
     setTools(selected.includes(key) ? selected.filter((x) => x !== key) : [...selected, key]);
+  };
 
   const openConfig = (card: CombinedCard) => {
     if (card.builtin) {
@@ -191,7 +193,7 @@ export const ToolsBoard: React.FC = () => {
                 key={c.key}
                 tool={c}
                 index={i}
-                selected={selected.includes(c.key)}
+                selected={selectable && selected.includes(c.key)}
                 onToggle={() => toggle(c.key)}
                 onOpenConfig={() => openConfig(c)}
               />
@@ -200,7 +202,7 @@ export const ToolsBoard: React.FC = () => {
         )}
       </div>
 
-      {selected.length > 0 && (
+      {selectable && selected.length > 0 && (
         <footer className="flex flex-shrink-0 items-center justify-between border-t border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-4 py-2 text-xs">
           <span className="text-[var(--cy-text-secondary)]">
             已选 <b className="text-[var(--cy-text-primary)]">{selected.length}</b> 个工具,
