@@ -34,6 +34,7 @@ services:
   chayuan:
     # ⚠ 推荐用 `../build.sh` 构建(自动管基础环境镜像 + 按 VERSION 打 tag,依赖零重拉):
     #     cd .. && docker/build.sh        # 然后 docker compose up -d(不带 --build)
+    #     Windows:  powershell -ExecutionPolicy Bypass -File docker\\build.ps1
     # 下面的 build: 仅作 `docker compose build` 兜底 —— 它**不会**构建基础环境镜像,
     # 需先有 chayuan-base:latest(由 build.sh 产出),否则 FROM 基础镜像会失败。
     build:
