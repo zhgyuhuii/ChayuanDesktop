@@ -834,7 +834,8 @@ class AudioPipeline:
                 return vox_bytes
             # 失败 fallback piper —— ⚠ 必须把 voice 清空,否则 "voxcpm:<abs路径>"
             # 会被当成 piper voice id 去拼下载 URL(实测 desktop 上 404 刷屏)。
-            logger.warning("[tts] voxcpm 不可用(可能缺 torchaudio),回退 piper 默认音色")
+            logger.warning("[tts] voxcpm 未产出(超时/缺依赖/崩溃,真因见上方 "
+                           "[tts:worker]/[tts:voxcpm] 日志),回退 piper 默认音色")
             voice = None
         # -1) sherpa-onnx(高质量本地 VITS,显式 voice="sherpa:<model_id>")
         if isinstance(voice, str) and voice.startswith("sherpa:"):
@@ -1273,6 +1274,31 @@ class AudioPipeline:
         "retry_badcase": True,      # 坏例自动重试,提升稳定
     }
 
+    # CPU(无 CUDA)上克隆的扩散步数上限。voxcpm 自带默认即 10;克隆质量默认 15
+    # 在 CPU 上会让单次合成超 worker 超时→回退 piper(变音),故 CPU 压回 10。
+    _VOXCPM_CPU_MAX_TIMESTEPS = 10
+
+    @staticmethod
+    def _cuda_available() -> bool:
+        try:
+            import torch  # type: ignore
+            return bool(torch.cuda.is_available())
+        except Exception:  # noqa: BLE001
+            return False
+
+    @staticmethod
+    def _cap_clone_params_for_cpu(params: dict, cuda_available: bool) -> dict:
+        """无 CUDA 时把 inference_timesteps 压回 CPU 上限,避免 CPU 推理超 worker
+        超时→回退 piper。GPU 保留高步数高质量。只压步数,不动 cfg 等其它参数。"""
+        if cuda_available:
+            return params
+        out = dict(params)
+        ts = out.get("inference_timesteps")
+        if isinstance(ts, (int, float)) and not isinstance(ts, bool) \
+                and ts > AudioPipeline._VOXCPM_CPU_MAX_TIMESTEPS:
+            out["inference_timesteps"] = AudioPipeline._VOXCPM_CPU_MAX_TIMESTEPS
+        return out
+
     def _voxcpm_clone_params(self, wav_path: str) -> dict:
         """读 <cid>.json 里用户配置的克隆参数,与最佳默认合并。任何缺失/异常回退默认。"""
         params = dict(self._VOXCPM_CLONE_DEFAULTS)
@@ -1289,6 +1315,8 @@ class AudioPipeline:
                         params[k] = v
         except Exception as e:  # noqa: BLE001
             logger.warning("[tts:voxcpm] 读克隆参数失败,用默认: %r", e)
+        # CPU 无 CUDA 时压回步数上限,避免克隆推理超时回退 piper(变音)。
+        params = self._cap_clone_params_for_cpu(params, self._cuda_available())
         return params
 
     def _synthesize_via_cosyvoice_clone(self, text: str, *, prompt_wav: str) -> bytes:
