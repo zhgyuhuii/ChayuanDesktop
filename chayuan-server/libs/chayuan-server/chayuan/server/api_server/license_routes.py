@@ -227,3 +227,37 @@ def post_reset(payload: dict = Body(default={})):
 def _safe_get(url: str) -> str:
     import urllib.request
     return urllib.request.urlopen(url, timeout=8).read().decode("utf-8")
+
+
+from chayuan.server.license import seat as _seat
+
+
+@license_router.get("/deployment/status")
+def get_deployment_status():
+    root = _root()
+    max_users = _seat.effective_max_users(root)
+    used = 0
+    if max_users is not None:
+        from sqlalchemy import func, select
+        from chayuan.server.db.models.user_model import UserModel
+        from chayuan.server.db.session import session_scope
+        with session_scope() as s:
+            used = int(s.execute(select(func.count()).select_from(UserModel)).scalar() or 0)
+    lic = _seat.read_deployment_license(root) or {}
+    return {
+        "edition": "desktop" if max_users is None and _seat.is_single_machine() else "web",
+        "maxUsers": max_users,
+        "usedUsers": used,
+        "available": None if max_users is None else max(0, max_users - used),
+        "expireAt": lic.get("expireAt"),
+        "fingerprint": _seat.deployment_fingerprint(root),
+    }
+
+
+@license_router.post("/deployment/activate")
+def post_deployment_activate(token: str = Body(..., embed=True)):
+    if _seat.is_single_machine():
+        return {"ok": False, "reason": "not-applicable-single-machine"}
+    cfg = load_license_config()
+    with _mutate_lock:
+        return _seat.activate_deployment_token(_root(), token, cfg["public_key"])
