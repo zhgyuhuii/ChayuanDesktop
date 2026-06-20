@@ -289,6 +289,17 @@ async def update_custom_tool(
     return {"data": spec.to_dict()}
 
 
+@tool_router.post("/custom/{name}/test", response_model=BaseResponse)
+async def test_custom_tool(name: str = PathParam(..., min_length=1), payload: Dict[str, Any] = Body(default={})):
+    from chayuan.server.config_panel.custom_tools_store import get_tool
+    from chayuan.server.tools.custom_tool_test import build_and_run
+    spec = get_tool(name)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"自定义工具不存在: {name}")
+    result = build_and_run(spec, payload.get("param_values") if isinstance(payload, dict) else None)
+    return {"data": result}
+
+
 @tool_router.delete("/custom/{name}", response_model=BaseResponse)
 async def delete_custom_tool(name: str = PathParam(..., min_length=1)):
     from chayuan.server.config_panel.custom_tools_store import delete_tool as _del
