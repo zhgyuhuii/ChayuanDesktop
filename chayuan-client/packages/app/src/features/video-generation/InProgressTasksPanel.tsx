@@ -16,7 +16,7 @@
 import * as React from 'react';
 import { vgTaskName } from './vgTaskName';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, Square, Loader2, AlertTriangle, CircleCheck, RefreshCw } from 'lucide-react';
+import { Activity, Square, Loader2, AlertTriangle, CircleCheck, RefreshCw, Trash2 } from 'lucide-react';
 import {
   videoGeneration,
   type VgTask,
@@ -120,6 +120,26 @@ export const InProgressTasksPanel: React.FC = () => {
     }
   }, [activeTasks, cancelingAll, qc]);
 
+  // 一键清理「失败 / 已取消」的终态任务(从列表删除 + 清磁盘残留)。进行中的不动。
+  const terminalTasks = React.useMemo(
+    () => tasks.filter((t) => t.state === 'failed' || t.state === 'canceled'),
+    [tasks],
+  );
+  const [clearing, setClearing] = React.useState(false);
+  const onClearFinished = React.useCallback(async () => {
+    if (terminalTasks.length === 0 || clearing) return;
+    if (!(await confirmDialog(`清理 ${terminalTasks.length} 个失败/已取消的任务?会删除它们的磁盘残留(不影响进行中和已生成的视频)。`, { danger: true }))) return;
+    setClearing(true);
+    try {
+      await Promise.allSettled(terminalTasks.map((t) => videoGeneration.deleteTask(t.task_id, { drop_file: true })));
+      void qc.invalidateQueries({ queryKey: ['vg.tasks'] });
+    } catch (e) {
+      reportError(e as Error, '清理失败');
+    } finally {
+      setClearing(false);
+    }
+  }, [terminalTasks, clearing, qc]);
+
   if (tasks.length === 0) return null;
 
   return (
@@ -131,18 +151,32 @@ export const InProgressTasksPanel: React.FC = () => {
             ({tasks.length})
           </span>
         </h2>
-        {activeTasks.length > 0 && (
-          <button
-            type="button"
-            onClick={() => void onCancelAll()}
-            disabled={cancelingAll}
-            title="取消全部进行中/排队任务"
-            className="ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[11px] text-[var(--cy-text-secondary)] hover:border-rose-300 hover:text-rose-600 disabled:opacity-50"
-          >
-            {cancelingAll ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
-            全部取消 ({activeTasks.length})
-          </button>
-        )}
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {activeTasks.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void onCancelAll()}
+              disabled={cancelingAll}
+              title="取消全部进行中/排队任务"
+              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[11px] text-[var(--cy-text-secondary)] hover:border-rose-300 hover:text-rose-600 disabled:opacity-50"
+            >
+              {cancelingAll ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+              全部取消 ({activeTasks.length})
+            </button>
+          )}
+          {terminalTasks.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void onClearFinished()}
+              disabled={clearing}
+              title="清理失败/已取消的任务(删除磁盘残留)"
+              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[11px] text-[var(--cy-text-secondary)] hover:border-rose-300 hover:text-rose-600 disabled:opacity-50"
+            >
+              {clearing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+              清理 ({terminalTasks.length})
+            </button>
+          )}
+        </div>
       </header>
       {/* worker 提示单独一行,避免和「全部取消」按钮挤在同一行被换行挤乱。 */}
       <p className="mb-3 text-[10px] text-[var(--cy-text-tertiary)]">
