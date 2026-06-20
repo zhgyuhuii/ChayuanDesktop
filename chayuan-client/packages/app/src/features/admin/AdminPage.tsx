@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -10,8 +10,9 @@ import { ScoreTrend } from './ScoreTrend';
 import { PlatformAdmin } from './PlatformAdmin';
 import { SystemServicesPage } from './SystemServicesPage';
 import { DeploymentStatusPanel } from '../license/DeploymentStatusPanel';
+import { UsersPage } from './users/UsersPage';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users';
 
 export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClose, tab: tabProp }) => {
   const user = useAuthStore((s) => s.user);
@@ -47,6 +48,7 @@ export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClo
         <TabButton icon={Database} label="Outbox" active={tab === 'outbox'} onClick={() => setTab('outbox')} />
         <TabButton icon={Shield} label="Prompt" active={tab === 'prompts'} onClick={() => setTab('prompts')} />
         <TabButton icon={Boxes} label="模型平台" active={tab === 'platforms'} onClick={() => setTab('platforms')} />
+        <TabButton icon={Users} label="用户" active={tab === 'users'} onClick={() => setTab('users')} />
         <TabButton icon={Server} label="系统服务" active={tab === 'services'} onClick={() => setTab('services')} />
         {isWeb() && <TabButton icon={Cloud} label="部署授权" active={tab === 'deployment'} onClick={() => setTab('deployment')} />}
       </div>
@@ -58,6 +60,7 @@ export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClo
         {tab === 'prompts' && <PromptList />}
         {tab === 'platforms' && <PlatformAdmin />}
         {tab === 'services' && <SystemServicesPage />}
+        {tab === 'users' && <UsersPage />}
         {tab === 'deployment' && <DeploymentStatusPanel />}
       </div>
     </div>
