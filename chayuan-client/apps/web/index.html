@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>察元 AI</title>
+    <!-- 浏览器标签图标:用品牌 logo(public/images/logo.png → 构建拷到 dist,nginx 同源服务)。
+         原先没声明任何 icon,浏览器只能退回默认图标 / 404 /favicon.ico,表现为「图标不正确」。 -->
+    <link rel="icon" type="image/png" href="/images/logo.png" />
+    <link rel="apple-touch-icon" href="/images/logo.png" />
     <!--
       CSP 总览:
       - 默认收紧到 'self',让大部分资源走同源。
