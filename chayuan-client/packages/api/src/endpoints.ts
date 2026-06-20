@@ -314,6 +314,10 @@ export const tools = {
   updateConfig: (key: string, update: ToolConfigUpdate) =>
     http.put<ToolCard>(`/tools/${encodeURIComponent(key)}/config`, update),
 
+  /** 移除工具(从 yaml 删整个 key) */
+  deleteConfig: (key: string) =>
+    http.del<{ deleted: string }>(`/tools/${encodeURIComponent(key)}/config`),
+
   // ── P3:自定义工具 CRUD ───────────────────────────────────────
   listCustom: () => http.get<CustomToolSpec[]>('/tools/custom'),
   createCustom: (spec: CustomToolSpec) =>
