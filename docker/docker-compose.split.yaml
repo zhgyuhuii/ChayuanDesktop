@@ -1,0 +1,54 @@
+# 察元 AI — 两镜像拆分部署(server 后端 / client 前端 解耦)
+# 启动:cd docker && docker compose -f docker-compose.split.yaml up -d --build
+# 浏览器:http://<host>:8080/
+# ⚠ container_name=chayuan-server 必须与 nginx.split.conf 的反代目标一致(容器名 DNS)。
+# ⚠ 与单镜像 docker-compose.yaml 的 container_name 同名,两套不要同时起。
+name: chayuan-split
+
+services:
+  chayuan-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+    image: chayuan-server:split
+    container_name: chayuan-server
+    restart: unless-stopped
+    # 默认仅 docker 网络内可达(client nginx 反代);需要 WPS/Tauri/三方 OpenAI SDK
+    # 直连后端时,放开下面端口映射。
+    # ports:
+    #   - "62581:62581"
+    volumes:
+      - ./data:/chayuan/data
+      - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
+      - ./config:/chayuan/config
+      - ./logs:/chayuan/logs
+    environment:
+      CHAYUAN_ROOT: /chayuan/data
+      CHAYUAN_PROFILE: single-machine
+      CHAYUAN_REDIS: disabled
+      CHAYUAN_QUEUE: inproc
+      CHAYUAN_VECTOR_STORE: sqlite-vec
+      CHAYUAN_AUTO_INSTALL_DEPS: "false"
+      CHAYUAN_ROOT_IGNORE_STATE: "1"
+      CHAYUAN_VENDOR_PLATFORM: linux-x64
+      CHAYUAN_PRELOAD_ON_START: "false"
+      CHAYUAN_AUTH_REQUIRED: "false"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:62581/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 5
+
+  chayuan-client:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.client
+    image: chayuan-client:split
+    container_name: chayuan-client
+    restart: unless-stopped
+    ports:
+      - "8080:80"      # 浏览器主入口
+    depends_on:
+      chayuan-server:
+        condition: service_started
