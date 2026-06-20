@@ -783,3 +783,27 @@ export const apps = {
   remove: (appId: string) =>
     request(`/api/v1/admin/apps/${encodeURIComponent(appId)}`, { method: 'DELETE', raw: true }).then(() => undefined),
 };
+
+
+// ── 知识库 ACL(admin) ───────────────────────────────────────────
+export interface KbAclItem { id: number; kb_name: string; owner_id: number | null; visibility: string }
+export interface KbAclUser { id: number; label: string }
+export interface KbGrant { user_id: number; user: string; role: string; granted_by: number | null }
+export const kbAcl = {
+  async list(): Promise<{ kbs: KbAclItem[]; users: KbAclUser[] }> {
+    const r = await request<{ kbs: KbAclItem[]; users: KbAclUser[] }>('/api/v1/admin/kb-acl', { raw: true });
+    return r.data ?? { kbs: [], users: [] };
+  },
+  async grants(kbId: number): Promise<KbGrant[]> {
+    const r = await request<{ grants: KbGrant[] }>(`/api/v1/admin/kb-acl/${kbId}/grants`, { raw: true });
+    return r.data?.grants ?? [];
+  },
+  setVisibility: (kbId: number, visibility: string) =>
+    request(`/api/v1/admin/kb-acl/${kbId}/visibility`, { method: 'PATCH', body: { visibility }, raw: true }).then(() => undefined),
+  setOwner: (kbId: number, ownerId: number | null) =>
+    request(`/api/v1/admin/kb-acl/${kbId}/owner`, { method: 'PATCH', body: { owner_id: ownerId }, raw: true }).then(() => undefined),
+  addGrant: (kbId: number, userId: number, role: string) =>
+    request(`/api/v1/admin/kb-acl/${kbId}/grants`, { method: 'POST', body: { user_id: userId, role }, raw: true }).then(() => undefined),
+  revokeGrant: (kbId: number, userId: number) =>
+    request(`/api/v1/admin/kb-acl/${kbId}/grants/${userId}`, { method: 'DELETE', raw: true }).then(() => undefined),
+};
