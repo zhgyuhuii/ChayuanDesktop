@@ -17,7 +17,7 @@ class RunResult:
 
 class AgentCliRunner:
     """对外部 agent CLI 的最小封装：argv list、绝不 shell=True、子命令白名单。
-    约定：args[0] 是子命令名（仅用于白名单校验），实际执行 argv = [bin_path] + args[1:]。"""
+    约定：argv = [bin_path] + args；args[0] 同时用于白名单校验（须在 allowed 内）。"""
 
     def __init__(self, *, bin_path: str, allowed_subcommands: Set[str], timeout: float = 120.0):
         self.bin_path = bin_path
@@ -27,7 +27,7 @@ class AgentCliRunner:
     def _argv(self, args: Sequence[str]) -> list[str]:
         if not args or args[0] not in self.allowed:
             raise DisallowedCommand(f"disallowed subcommand: {args[:1]}")
-        return [self.bin_path, *list(args)[1:]]
+        return [self.bin_path, *list(args)]
 
     def run(self, args: Sequence[str], *, timeout: float | None = None) -> RunResult:
         proc = subprocess.run(self._argv(args), capture_output=True, text=True,
