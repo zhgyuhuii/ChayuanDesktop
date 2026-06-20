@@ -9,9 +9,11 @@ import {
   type DeploymentStatus,
 } from '@chayuan/api';
 import { CreateUserDialog } from './CreateUserDialog';
+import { UserPersonaDialog } from './UserPersonaDialog';
 
 export const UsersTable: React.FC = () => {
   const [kw, setKw] = React.useState('');
+  const [personaUser, setPersonaUser] = React.useState<AdminUserRow | null>(null);
   const snap = useQuery({ queryKey: ['admin', 'users', 'snapshot'], queryFn: adminUsersSnapshot, staleTime: 30_000 });
   const seat = useQuery<DeploymentStatus>({ queryKey: ['admin', 'deployment', 'status'], queryFn: deploymentStatus, staleTime: 30_000 });
 
@@ -79,7 +81,8 @@ export const UsersTable: React.FC = () => {
               <td className="p-2">{u.msg_count}</td>
               <td className="p-2">{u.est_tokens}</td>
               <td className="p-2">{u.last_active ? new Date(u.last_active).toLocaleString() : '—'}</td>
-              <td className="p-2">
+              <td className="p-2 flex gap-1">
+                <Button variant="ghost" onClick={() => setPersonaUser(u)}>画像</Button>
                 <Button variant="ghost" onClick={() => void toggle(u)}>
                   {u.is_active ? '停用' : '启用'}
                 </Button>
@@ -89,6 +92,7 @@ export const UsersTable: React.FC = () => {
         </tbody>
       </table>
       {snap.isLoading ? <p className="text-sm text-muted-foreground">加载中…</p> : null}
+      {personaUser ? <UserPersonaDialog user={personaUser} onClose={() => setPersonaUser(null)} /> : null}
     </div>
   );
 };

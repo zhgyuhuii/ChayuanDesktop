@@ -82,3 +82,15 @@ export function adminSetUserActive(userId: number, isActive: boolean): Promise<{
 export function adminSetUserPassword(userId: number, newPassword: string): Promise<{ code: number }> {
   return http.patch<{ code: number }>(`/auth/users/${userId}/password`, { new_password: newPassword });
 }
+
+
+/** 用户画像 AI 分析结果。 */
+export interface PersonaResult {
+  model: string;
+  analysis: string;
+  generated_at: number;
+}
+
+export function adminUserPersona(userId: number): Promise<PersonaResult> {
+  return http.post<PersonaResult>(`/api/v1/admin/users/${userId}/persona-analysis`);
+}
