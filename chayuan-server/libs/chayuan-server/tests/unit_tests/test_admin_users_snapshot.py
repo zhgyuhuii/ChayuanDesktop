@@ -50,3 +50,34 @@ def test_empty_db_ok():
     snap = build_users_snapshot()
     assert snap["total_users"] == 0 and snap["users"] == []
     assert snap["total_messages"] == 0 and snap["active_7d"] == 0
+
+
+def test_snapshot_rich_aggregation():
+    """P2 全聚合:top_model / heatmap / daily / feedback_hist / matrix。"""
+    from datetime import datetime, timedelta
+    now = datetime(2026, 6, 20, 12, 0, 0)
+    u1 = svc.create_user("carol", "secret123", role="user")
+    # 同模型 2 条 + 反馈
+    with session_scope() as s:
+        s.add(MessageModel(id=uuid.uuid4().hex, user_id=u1.id, chat_type="llm_chat",
+                           query="aaa", response="bbb", meta_data={"model": "qwen"},
+                           feedback_score=90, create_time=now - timedelta(days=1)))
+        s.add(MessageModel(id=uuid.uuid4().hex, user_id=u1.id, chat_type="kb_chat",
+                           query="ccc", response="ddd", meta_data={"model": "qwen", "kb_name": "FAQ"},
+                           create_time=now - timedelta(days=2)))
+    snap = build_users_snapshot(now=now)
+    # top_model
+    assert snap["top_model"][0] == {"name": "qwen", "count": 2}
+    assert any(d["name"] == "FAQ" for d in snap["top_kb"])
+    assert {"name": "llm_chat", "count": 1} in snap["top_chat_type"]
+    # heatmap 结构 7x24 + 有计数
+    assert len(snap["global_heatmap"]) == 7 and len(snap["global_heatmap"][0]) == 24
+    assert snap["global_heatmap_max"] >= 1
+    # daily 序列 30 天
+    assert len(snap["daily_msg"]) == 30 and len(snap["daily_active"]) == 30
+    # feedback
+    assert snap["total_feedback"] == 1 and snap["feedback_hist"][4] == 1  # 90 落在 80-100 桶
+    # per-user 富字段
+    carol = next(u for u in snap["users"] if u["username"] == "carol")
+    assert carol["model_usage"]["qwen"] == 2
+    assert len(carol["recent_queries"]) == 2
