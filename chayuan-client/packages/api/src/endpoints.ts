@@ -361,6 +361,18 @@ export interface McpConnectionInput {
   config?: Record<string, unknown>;
 }
 
+export interface McpProfile {
+  timeout: number;
+  working_dir: string;
+  env_vars: Record<string, string>;
+  update_time?: string | null;
+}
+export interface McpProfileInput {
+  timeout: number;
+  working_dir: string;
+  env_vars: Record<string, string>;
+}
+
 export const mcp = {
   async list(opts?: { enabled?: boolean; transport?: string; limit?: number }): Promise<McpConnection[]> {
     const r = await request<{ connections: McpConnection[]; total: number }>('/api/v1/mcp_connections/', {
@@ -397,6 +409,19 @@ export const mcp = {
   },
   async disable(id: string): Promise<void> {
     await request(`/api/v1/mcp_connections/${encodeURIComponent(id)}/disable`, { method: 'POST', raw: true });
+  },
+  profile: {
+    async get(): Promise<McpProfile> {
+      const r = await request<McpProfile>('/api/v1/mcp_connections/profile', { raw: true });
+      return r.data;
+    },
+    async save(body: McpProfileInput): Promise<McpProfile> {
+      const r = await request<McpProfile>('/api/v1/mcp_connections/profile', { method: 'POST', body, raw: true });
+      return r.data;
+    },
+    async reset(): Promise<void> {
+      await request('/api/v1/mcp_connections/profile/reset', { method: 'POST', raw: true });
+    },
   },
 };
 
