@@ -235,3 +235,12 @@ def update_config(key: str, update: ToolUpdate) -> ToolCardDoc:
     if card is None:  # pragma: no cover —— 上面已校验
         raise KeyError(f"工具不存在:{key}")
     return card
+
+
+def delete_config(key: str) -> str:
+    """移除工具(从 tool_settings.yaml 删整个 <key>)。key 不在 catalog 抛 KeyError。"""
+    specs, _ = load_catalog()
+    if not any(s.key == key for s in specs):
+        raise KeyError(f"工具 key 不存在: {key!r}")
+    yaml_store.delete_key(_TOOL_SETTINGS_YAML, key)
+    return key

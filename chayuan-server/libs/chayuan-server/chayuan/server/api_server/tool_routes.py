@@ -181,6 +181,16 @@ async def update_tool_config_doc(
     return {"data": card.model_dump()}
 
 
+@tool_router.delete("/{key}/config", response_model=BaseResponse)
+async def delete_tool_config_doc(key: str = PathParam(..., min_length=1)):
+    from chayuan.server.tools.config_service import delete_config
+    try:
+        delete_config(key)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"工具不存在: {key}")
+    return {"data": {"deleted": key}}
+
+
 # ---------------------------------------------------------------------------
 # 自定义 HTTP 工具:CRUD
 # ---------------------------------------------------------------------------

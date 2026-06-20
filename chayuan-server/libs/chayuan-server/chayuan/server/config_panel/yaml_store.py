@@ -318,3 +318,17 @@ def coerce_for_widget(widget: str, raw: Any) -> Any:
             return ""
         return str(raw)
     return raw
+
+
+def delete_key(name: str, key: str) -> bool:
+    """从 yaml 顶层删除整个 ``<key>`` 节点。成功 True,key 不存在 False。"""
+    result = load_yaml(name)
+    doc = result.doc if result.exists else {}
+    if not isinstance(doc, dict) or key not in doc:
+        return False
+    del doc[key]
+    _backup(result.path)
+    y = import_yaml()
+    _atomic_write(result.path, lambda fobj: y.dump(doc, fobj))
+    _mirror_to_config_center(name, doc, [key])
+    return True
