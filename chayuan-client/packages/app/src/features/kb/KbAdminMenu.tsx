@@ -55,6 +55,8 @@ import {
 import { AssistantBrandLogo } from '../../components/AssistantBrandLogo';
 import { getPlatform } from '@chayuan/platform-shared';
 
+import { RebuildVsDialog } from './RebuildVsDialog';
+
 export interface KbAdminMenuProps {
   detail: KuDetail;
   /** 删除成功 / 改名成功后的回调 — 通常用来关 detail tab / 跳回 /kb */
@@ -68,6 +70,7 @@ export const KbAdminMenu: React.FC<KbAdminMenuProps> = ({ detail, onDeleted }) =
   const qc = useQueryClient();
 
   const isDoc = detail.kind === 'document';
+  const [rebuildOpen, setRebuildOpen] = React.useState(false);
   const isStructured = detail.kind === 'structured';
   const sourceId = isStructured ? sourceIdFromKuId(detail.ku_id) : null;
   const scopeKind = scopeKindFor((detail as { sub_kind?: string }).sub_kind);
@@ -125,6 +128,11 @@ export const KbAdminMenu: React.FC<KbAdminMenuProps> = ({ detail, onDeleted }) =
               <Settings2 className="mr-2 h-3.5 w-3.5" /> 编辑可见范围
             </DropdownMenuItem>
           )}
+          {isDoc && (
+            <DropdownMenuItem onClick={() => setRebuildOpen(true)}>
+              <Settings2 className="mr-2 h-3.5 w-3.5" /> 重建向量库
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onDelete} disabled={deletePending} className="text-destructive">
             {deletePending ? (
@@ -138,6 +146,7 @@ export const KbAdminMenu: React.FC<KbAdminMenuProps> = ({ detail, onDeleted }) =
       </DropdownMenu>
 
       <EditKbInfoDialog detail={detail} open={editOpen} onOpenChange={setEditOpen} />
+      {isDoc ? <RebuildVsDialog kbName={detail.meta.name} open={rebuildOpen} onOpenChange={setRebuildOpen} /> : null}
 
       {isStructured && sourceId != null && (
         <SchemaScopePicker

@@ -521,6 +521,16 @@ export interface KbFileChunksResponse {
   chunks: KbFileChunk[];
 }
 
+export interface EmbeddingModelInfo {
+  id: string;
+  model_name: string;
+  platform_name: string;
+  platform_type: string;
+  model_type: string;
+  available?: boolean;
+  reason?: string;
+}
+
 export const kb = {
   list: () => http.get<KnowledgeBase[]>('/knowledge_base/list_knowledge_bases'),
 
@@ -548,6 +558,19 @@ export const kb = {
   /** 删除知识库 */
   delete: (knowledge_base_name: string) =>
     http.post<{ code?: number; msg?: string }>('/knowledge_base/delete_knowledge_base', { knowledge_base_name }),
+
+  /** [admin] 可用于重建的嵌入模型 */
+  embeddingModels: (checkAccess = false) =>
+    http.get<EmbeddingModelInfo[]>('/knowledge_base/admin/embedding_models', { query: { check_access: checkAccess } }),
+
+  /** [admin] 重建知识库向量库 */
+  recreateVectorStore: (body: {
+    knowledge_base_name: string;
+    embed_model: string;
+    reset_strategy?: 'atomic_swap' | 'clear_then_rebuild';
+    allow_empty_kb?: boolean;
+    vs_type?: string;
+  }) => http.post<{ code?: number; msg?: string }>('/knowledge_base/admin/recreate_vector_store', body),
 
   /** 列文件 */
   listFiles: (knowledge_base_name: string) =>
