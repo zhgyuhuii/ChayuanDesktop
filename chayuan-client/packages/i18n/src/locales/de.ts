@@ -30,6 +30,7 @@ export default {
     modelMarket: 'Modellanbieter',
     modelGallery: 'Modellgalerie',
     aiVideo: 'AI Video',
+    externalAgent: 'External Agent',
     history: 'Gesprächsverlauf',
     settings: 'Einstellungen',
     home: 'Startseite',

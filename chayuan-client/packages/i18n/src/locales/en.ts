@@ -33,6 +33,7 @@ export default {
     modelGallery: 'Model Gallery',
     mcp: 'MCP',
     tools: 'Tool Hub',
+    externalAgent: 'External Agent',
     history: 'Chat History',
     settings: 'Settings',
     home: 'Home',

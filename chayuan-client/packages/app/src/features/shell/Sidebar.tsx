@@ -25,6 +25,7 @@ import {
   Clock,
   Shield,
   Plug,
+  Bot,
   Wrench,
   Briefcase,
   Grid3x3,
@@ -91,6 +92,7 @@ const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { to: '/marketplace', labelKey: 'nav.modelMarket', icon: Server },
   { to: '/model-gallery', labelKey: 'nav.modelGallery', icon: Store },
   { to: '/mcp', labelKey: 'nav.mcp', icon: Plug },
+  { to: '/agent-hub', labelKey: 'nav.externalAgent', icon: Bot },
   { to: '/tools', labelKey: 'nav.tools', icon: Wrench },
   // 单机版移除训练数据中心(/annotation)
   { to: '/history', labelKey: 'nav.history', icon: Clock },
@@ -419,6 +421,7 @@ function iconKeyFor(path: string): string {
   if (path === '/marketplace') return 'server';
   if (path === '/model-gallery') return 'store';
   if (path === '/mcp') return 'plug';
+  if (path === '/agent-hub') return 'bot';
   if (path === '/tools') return 'wrench';
   if (path === '/video-generation/materials') return 'folder';
   if (path === '/video-generation/videos') return 'video';

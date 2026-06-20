@@ -33,6 +33,7 @@ export default {
     modelGallery: '模型广场',
     mcp: 'MCP服务',
     tools: '工具中心',
+    externalAgent: '外部 Agent',
     history: '历史对话',
     settings: '系统设置',
     home: '工作主页',

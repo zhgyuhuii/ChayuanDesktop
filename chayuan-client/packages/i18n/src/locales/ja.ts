@@ -30,6 +30,7 @@ export default {
     modelMarket: 'モデルベンダー',
     modelGallery: 'モデルギャラリー',
     aiVideo: 'AI Video',
+    externalAgent: 'External Agent',
     history: '会話履歴',
     settings: '設定',
     home: 'ホーム',

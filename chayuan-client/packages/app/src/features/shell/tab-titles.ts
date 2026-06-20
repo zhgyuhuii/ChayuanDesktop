@@ -13,6 +13,7 @@ const STATIC: Record<string, string> = {
   '/history': 'nav.history',
   '/settings': 'nav.settings',
   '/mcp': 'mcp.title',
+  '/agent-hub': 'nav.externalAgent',
   '/tools': 'tools.title',
 };
 

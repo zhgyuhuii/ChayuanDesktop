@@ -30,6 +30,7 @@ export default {
     modelMarket: 'Fournisseurs de modèles',
     modelGallery: 'Galerie de modèles',
     aiVideo: 'AI Video',
+    externalAgent: 'External Agent',
     history: 'Historique',
     settings: 'Paramètres',
     home: 'Accueil',

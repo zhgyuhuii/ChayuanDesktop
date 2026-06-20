@@ -61,6 +61,9 @@ const SettingsAsPage = React.lazy(() =>
   import('../placeholders/SettingsAsPage').then((m) => ({ default: m.SettingsAsPage })),
 );
 const McpPage = React.lazy(() => import('../mcp/McpBoard').then((m) => ({ default: m.McpBoard })));
+const AgentHubPage = React.lazy(() =>
+  import('../agent/AgentHubPage').then((m) => ({ default: m.AgentHubPage })),
+);
 const ToolsPage = React.lazy(() =>
   import('../tools/ToolsBoard').then((m) => ({ default: m.ToolsBoard })),
 );
@@ -253,6 +256,12 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     render: () => <McpPage />,
     defaultTitle: 'mcp.title',
     defaultIcon: 'plug',
+  },
+  {
+    pattern: /^\/agent-hub$/,
+    render: () => <AgentHubPage />,
+    defaultTitle: 'nav.externalAgent',
+    defaultIcon: 'bot',
   },
   {
     pattern: /^\/tools$/,
