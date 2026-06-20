@@ -56,3 +56,30 @@ def test_logs_stream(monkeypatch):
     assert r.status_code == 200
     assert "text/event-stream" in r.headers["content-type"]
     assert "gateway up" in r.text
+
+
+def test_skills_list(monkeypatch):
+    c = _client(monkeypatch)
+    r = c.get("/api/v1/external-agents/openclaw/skills")
+    assert r.status_code == 200
+    assert r.json()[0]["name"] == "Web Search"
+    assert r.json()[0]["permissions"] == ["net"]
+
+
+def test_skills_search(monkeypatch):
+    c = _client(monkeypatch)
+    r = c.get("/api/v1/external-agents/openclaw/skills/search?q=todo")
+    assert r.status_code == 200 and r.json()[0]["name"] == "Todo"
+
+
+def test_skills_uninstall(monkeypatch):
+    c = _client(monkeypatch)
+    r = c.post("/api/v1/external-agents/openclaw/skills/web-search/uninstall")
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+
+def test_skills_translate_permissions_rejected(monkeypatch):
+    c = _client(monkeypatch)
+    r = c.get("/api/v1/external-agents/openclaw/skills/web-search/translate",
+              params={"field": "permissions", "version": "1", "text": "net"})
+    assert r.status_code == 400

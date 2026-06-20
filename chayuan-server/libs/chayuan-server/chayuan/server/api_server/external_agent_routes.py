@@ -115,3 +115,48 @@ def logs_stream(system_id: str, user=Depends(require_auth_enabled())):
             yield f"event: agent.log\ndata: {json.dumps({'line': line})}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@external_agent_router.get("/{system_id}/skills")
+def skills_list(system_id: str, user=Depends(require_auth_enabled())):
+    _guard()
+    return [asdict(s) for s in _resolve(system_id, user).list_skills()]
+
+
+@external_agent_router.get("/{system_id}/skills/search")
+def skills_search(system_id: str, q: str = "", user=Depends(require_auth_enabled())):
+    _guard()
+    return [asdict(s) for s in _resolve(system_id, user).search_skills(q)]
+
+
+@external_agent_router.post("/{system_id}/skills/{skill_id}/install")
+def skills_install(system_id: str, skill_id: str, user=Depends(require_auth_enabled())):
+    _guard()
+    conn = _resolve(system_id, user)
+
+    def gen():
+        import json
+        for ev in conn.install_skill(skill_id):
+            yield f"event: agent.install.{ev.level}\ndata: {json.dumps(asdict(ev))}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@external_agent_router.post("/{system_id}/skills/{skill_id}/uninstall")
+def skills_uninstall(system_id: str, skill_id: str, user=Depends(require_auth_enabled())):
+    _guard()
+    _resolve(system_id, user).uninstall_skill(skill_id)
+    return {"ok": True}
+
+
+@external_agent_router.get("/{system_id}/skills/{skill_id}/translate")
+async def skills_translate(system_id: str, skill_id: str, field: str, version: str,
+                           text: str, lang: str = "zh", user=Depends(require_auth_enabled())):
+    _guard()
+    from chayuan.server.agent_connector.translation import translate_field
+    try:
+        out = await translate_field(system=system_id, skill_id=skill_id, version=version,
+                                    field=field, text=text, target_lang=lang)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"translated": out}
