@@ -66,3 +66,26 @@ class OpenClawAdapter(ExternalAgentConnector):
 
     def stream_logs(self) -> Iterator[str]:
         yield from self.runner.stream(self._args("logs", "--follow"))
+
+    def _skill_from(self, d: dict, installed: bool):
+        from chayuan.server.agent_connector.base import Skill
+        return Skill(id=d.get("slug", ""), name=d.get("name", ""), version=str(d.get("version", "")),
+                     description=d.get("description", ""), permissions=list(d.get("requires", [])),
+                     installed=installed, verified=bool(d.get("verified", False)))
+
+    def list_skills(self) -> list:
+        res = self.runner.run(self._args("skills", "list", "--json"))
+        return [self._skill_from(d, installed=True) for d in json.loads(res.stdout or "[]")]
+
+    def search_skills(self, query: str) -> list:
+        res = self.runner.run(self._args("skills", "search", query, "--json"))
+        return [self._skill_from(d, installed=False) for d in json.loads(res.stdout or "[]")]
+
+    def install_skill(self, skill_id: str):
+        from chayuan.server.agent_connector.base import InstallEvent
+        for line in self.runner.stream(self._args("skills", "install", skill_id)):
+            yield InstallEvent(level="info", message=line)
+        yield InstallEvent(level="done", message="skill installed")
+
+    def uninstall_skill(self, skill_id: str) -> None:
+        self.runner.run(self._args("skills", "uninstall", skill_id))

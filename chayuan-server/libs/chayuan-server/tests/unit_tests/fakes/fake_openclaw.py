@@ -32,6 +32,18 @@ def main() -> int:
         for line in ("[info] gateway up", "[info] channel ready"):
             print(line)
         return 0
+    if argv[:2] == ["skills", "list"]:
+        print(json.dumps([{"slug": "web-search", "name": "Web Search", "version": "1.2",
+                           "description": "search web", "requires": ["net"], "verified": True}]))
+        return 0
+    if argv[:2] == ["skills", "search"]:
+        print(json.dumps([{"slug": "todo", "name": "Todo", "version": "0.3",
+                           "description": "todo", "requires": [], "verified": False}]))
+        return 0
+    if argv[:2] in (["skills", "install"], ["skills", "uninstall"]):
+        if argv[1] == "install":
+            print("downloading"); print("installed")
+        return 0
     if argv[:1] == ["uninstall"]:
         return 0
     print(f"unknown args: {argv}", file=sys.stderr)

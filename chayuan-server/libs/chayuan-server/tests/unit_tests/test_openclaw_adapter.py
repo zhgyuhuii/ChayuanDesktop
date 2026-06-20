@@ -38,3 +38,14 @@ def test_install_streams_events_ending_done():
 def test_get_config_returns_text():
     bundle = _adapter().get_config()
     assert "agents" in bundle.raw and bundle.format == "json5"
+
+
+def test_list_skills():
+    skills = _adapter().list_skills()
+    assert skills[0].name == "Web Search" and skills[0].installed is True
+    assert skills[0].permissions == ["net"]
+
+
+def test_search_skills():
+    res = _adapter().search_skills("todo")
+    assert res[0].name == "Todo" and res[0].installed is False

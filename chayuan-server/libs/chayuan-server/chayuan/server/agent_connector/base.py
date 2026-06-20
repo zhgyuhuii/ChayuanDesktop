@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterator, Optional
 
 
@@ -27,6 +27,19 @@ class InstallEvent:
     level: str                        # info | warn | error | done
     message: str
     ts: int = 0
+
+
+@dataclass
+class Skill:
+    id: str
+    name: str
+    version: str
+    description: str
+    permissions: list = field(default_factory=list)
+    installed: bool = False
+    publisher: str = ""
+    verified: bool = False
+    readme: str = ""
 
 
 class ExternalAgentConnector(ABC):
@@ -62,3 +75,10 @@ class ExternalAgentConnector(ABC):
 
     @abstractmethod
     def stream_logs(self) -> Iterator[str]: ...
+
+    def list_skills(self) -> list: raise NotImplementedError
+    def search_skills(self, query: str) -> list: raise NotImplementedError
+    def install_skill(self, skill_id: str) -> "Iterator[InstallEvent]": raise NotImplementedError
+    def uninstall_skill(self, skill_id: str) -> None: raise NotImplementedError
+    def skill_detail(self, skill_id: str) -> "Skill": raise NotImplementedError
+

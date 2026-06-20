@@ -19,3 +19,8 @@ def test_status_running():
 def test_status_stopped():
     s = _ad(running=False).status()
     assert s.running is False
+
+
+def test_hermes_list_skills():
+    s = _ad().list_skills()
+    assert s[0].name == "Weather" and s[0].permissions == ["net"]
