@@ -487,6 +487,12 @@ class BasicSettings(BaseFileSettings):
     永远放行。
     单机调试建议关；多用户 / 生产必须开。"""
 
+    EXTERNAL_AGENTS_ENABLED: bool = False
+    """是否开启外部 agent 集成（OpenClaw 等）。单机版默认关，需用户显式开。"""
+
+    EXTERNAL_AGENTS_HOST_POLICY: str = "auto"
+    """主机策略：auto（按 AUTH_REQUIRED 派生）/ trusted-local / shared-multitenant。"""
+
     JWT_SECRET: str = ""
     """JWT 签名密钥（HS256）。必须足够长且保密；留空时进程会自动生成一次性随机密钥
     并打 warning，**所有已签发的 token 在重启后全部作废**，仅开发方便。"""
