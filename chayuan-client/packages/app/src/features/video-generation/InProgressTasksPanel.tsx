@@ -23,6 +23,7 @@ import {
   type VgTaskState,
 } from '@chayuan/api';
 import { reportError } from '../../store/errorDialog';
+import { confirmDialog } from '../../store/confirmDialog';
 
 const STEP_LABELS: Record<number, string> = {
   5: '准备',
@@ -98,6 +99,27 @@ export const InProgressTasksPanel: React.FC = () => {
     void qc.invalidateQueries({ queryKey: ['vg.tasks'] });
   }, [qc]);
 
+  // 一键取消所有「还在跑/排队」的任务(pending+processing)。failed/complete 不动。
+  const activeTasks = React.useMemo(
+    () => tasks.filter((t) => ACTIVE_STATES.includes(t.state)),
+    [tasks],
+  );
+  const [cancelingAll, setCancelingAll] = React.useState(false);
+  const onCancelAll = React.useCallback(async () => {
+    if (activeTasks.length === 0 || cancelingAll) return;
+    if (!(await confirmDialog(`取消全部 ${activeTasks.length} 个进行中/排队任务?已完成的不受影响。`, { danger: true }))) return;
+    setCancelingAll(true);
+    try {
+      // 逐个取消(后端无批量端点);失败不弹堆,best-effort。
+      await Promise.allSettled(activeTasks.map((t) => videoGeneration.cancelTask(t.task_id)));
+      void qc.invalidateQueries({ queryKey: ['vg.tasks'] });
+    } catch (e) {
+      reportError(e as Error, '批量取消失败');
+    } finally {
+      setCancelingAll(false);
+    }
+  }, [activeTasks, cancelingAll, qc]);
+
   if (tasks.length === 0) return null;
 
   return (
@@ -109,7 +131,19 @@ export const InProgressTasksPanel: React.FC = () => {
             ({tasks.length})
           </span>
         </h2>
-        <span className="ml-auto text-[10px] text-[var(--cy-text-tertiary)]">
+        {activeTasks.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void onCancelAll()}
+            disabled={cancelingAll}
+            title="取消全部进行中/排队任务"
+            className="ml-auto inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-[11px] text-[var(--cy-text-secondary)] hover:border-rose-300 hover:text-rose-600 disabled:opacity-50"
+          >
+            {cancelingAll ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+            全部取消 ({activeTasks.length})
+          </button>
+        )}
+        <span className={'text-[10px] text-[var(--cy-text-tertiary)] ' + (activeTasks.length > 0 ? 'ml-2' : 'ml-auto')}>
           后端 worker 池 4 并发,其余在队列排队
         </span>
       </header>
