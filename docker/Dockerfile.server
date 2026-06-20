@@ -1,0 +1,71 @@
+# syntax=docker/dockerfile:1.6
+# ====================================================================
+# chayuan-server 后端单镜像(split 部署用,无 nginx / 无前端)
+#   docker build -f docker/Dockerfile.server -t chayuan-server:split .   (context=repo 根)
+# ====================================================================
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_CREATE=false \
+    POETRY_CACHE_DIR=/tmp/poetry-cache \
+    DEBIAN_FRONTEND=noninteractive \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        libgomp1 libstdc++6 libgcc-s1 \
+        ffmpeg libsndfile1 \
+        libmagic1 \
+        curl git ca-certificates tini \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir poetry==2.4.1
+
+WORKDIR /chayuan/app
+COPY chayuan-server/libs/chayuan-server/pyproject.toml ./chayuan-server/libs/chayuan-server/
+COPY chayuan-server/libs/chayuan-server/poetry.lock* ./chayuan-server/libs/chayuan-server/
+WORKDIR /chayuan/app/chayuan-server/libs/chayuan-server
+RUN --mount=type=cache,target=/tmp/poetry-cache \
+    poetry install --only main --no-root \
+    || (echo "[build] poetry.lock 失配,镜像内重锁..." && poetry lock && poetry install --only main --no-root)
+
+WORKDIR /chayuan/app
+COPY chayuan-server/libs/chayuan-server/chayuan ./chayuan-server/libs/chayuan-server/chayuan
+COPY chayuan-server/libs/chayuan-server/langchain_chayuan ./chayuan-server/libs/chayuan-server/langchain_chayuan
+COPY chayuan-server/vendor/services ./chayuan-server/vendor/services
+RUN chmod +x \
+        /chayuan/app/chayuan-server/vendor/services/llama-server/linux-x64/llama-server \
+        /chayuan/app/chayuan-server/vendor/services/whisper-server/linux-x64/whisper-server \
+        /chayuan/app/chayuan-server/vendor/services/imagemagick/linux-x64/magick \
+    2>/dev/null || true
+COPY chayuan-server/vendor/bundled_fonts ./chayuan-server/vendor/bundled_fonts
+COPY chayuan-server/vendor/bundled_bgm ./chayuan-server/vendor/bundled_bgm
+COPY chayuan-server/vendor/bundled_video_clips ./chayuan-server/vendor/bundled_video_clips
+
+COPY docker/entrypoint.server.sh /usr/local/bin/entrypoint.server.sh
+RUN chmod +x /usr/local/bin/entrypoint.server.sh
+
+RUN mkdir -p /chayuan/app/chayuan-server/vendor/bundled_models /chayuan/data /chayuan/logs
+
+ENV CHAYUAN_ROOT=/chayuan/data \
+    CHAYUAN_PROFILE=single-machine \
+    CHAYUAN_AUTH=anonymous \
+    CHAYUAN_REDIS=disabled \
+    CHAYUAN_QUEUE=inproc \
+    CHAYUAN_VECTOR_STORE=sqlite-vec \
+    CHAYUAN_AUTO_INSTALL_DEPS=false \
+    CHAYUAN_ROOT_IGNORE_STATE=1 \
+    CHAYUAN_VENDOR_PLATFORM=linux-x64 \
+    PYTHONPATH=/chayuan/app/chayuan-server/libs/chayuan-server
+
+EXPOSE 62581
+
+# 直打后端 liveness(health_routes.py 的 /healthz);深度探活是 /readyz
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=5 \
+    CMD curl -fsS http://127.0.0.1:62581/healthz >/dev/null || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.server.sh"]
+CMD ["start", "-a", "--single-machine"]
