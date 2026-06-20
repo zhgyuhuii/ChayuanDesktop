@@ -17,6 +17,7 @@ export * from './dataMounts';
 export * from './annotation';
 export * from './remoteSync';
 export * from './runtime';
+export * from './externalAgents';
 export * from './aiPlatform';
 export * from './home';
 export * from './videoGeneration';
