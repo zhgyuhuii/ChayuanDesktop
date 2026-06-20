@@ -1,6 +1,9 @@
 // packages/api/src/admin.ts —— 后台 REST 客户端。
 import { http } from './client';
 
+export interface NameCount { name: string; count: number }
+export interface RecentQuery { time: string; chat_type: string; query: string; model: string }
+
 export interface AdminUserRow {
   id: number;
   username: string;
@@ -12,6 +15,17 @@ export interface AdminUserRow {
   msg_count: number;
   est_tokens: number;
   last_active: string | null;
+  // —— P2/P3 富字段 ——
+  total_chars?: number;
+  avg_feedback?: number | null;
+  feedback_count?: number;
+  first_active?: string | null;
+  model_usage?: Record<string, number>;
+  chat_type_usage?: Record<string, number>;
+  tool_usage?: Record<string, number>;
+  kb_usage?: Record<string, number>;
+  heatmap?: number[][];
+  recent_queries?: RecentQuery[];
 }
 
 export interface UsersSnapshot {
@@ -20,6 +34,18 @@ export interface UsersSnapshot {
   active_7d: number;
   total_messages: number;
   total_tokens: number;
+  total_feedback: number;
+  avg_feedback: number;
+  daily_msg: Array<{ date: string; count: number }>;
+  daily_active: Array<{ date: string; active_users: number }>;
+  top_model: NameCount[];
+  top_tool: NameCount[];
+  top_kb: NameCount[];
+  top_chat_type: NameCount[];
+  user_model_matrix: Array<{ user: string; model: string; count: number }>;
+  global_heatmap: number[][];
+  global_heatmap_max: number;
+  feedback_hist: number[];
   generated_at: number;
 }
 
