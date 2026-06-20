@@ -10,7 +10,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { getPlatform } from '@chayuan/platform-shared';
 import {
-  Video, Download, Trash2, RefreshCw, LayoutGrid, List as ListIcon, Play,
+  Download, Trash2, RefreshCw, LayoutGrid, List as ListIcon, Play,
   Clapperboard, UserRound, Loader2, AlertTriangle, CheckSquare, Square,
 } from 'lucide-react';
 import {
@@ -118,28 +118,7 @@ export const VideoCenterPage: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 overflow-y-auto cy-hide-scrollbar px-6 py-8">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="inline-flex items-center gap-2 text-xl font-semibold text-[var(--cy-text-primary)]">
-            <Video className="h-5 w-5" /> 视频中心
-          </h1>
-          <p className="mt-1 text-sm text-[var(--cy-text-tertiary)]">
-            图文成片统一管理 · 在线播放 / 下载 / 删除
-          </p>
-        </div>
-        <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-[var(--cy-border-subtle)]">
-          <button type="button" onClick={() => setView('card')} title="卡片视图"
-            className={'inline-flex h-8 w-8 items-center justify-center ' + (view === 'card' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
-            <LayoutGrid className="h-4 w-4" />
-          </button>
-          <button type="button" onClick={() => setView('list')} title="列表视图"
-            className={'inline-flex h-8 w-8 items-center justify-center border-l border-[var(--cy-border-subtle)] ' + (view === 'list' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
-            <ListIcon className="h-4 w-4" />
-          </button>
-        </div>
-      </header>
-
+    <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-3 overflow-y-auto cy-hide-scrollbar px-6 py-4">
       {/* 来源筛选 */}
       <div className="flex flex-wrap items-center gap-1.5">
         {(['all', 'vg'] as Filter[]).map((f) => (
@@ -152,6 +131,16 @@ export const VideoCenterPage: React.FC = () => {
           </button>
         ))}
         <div className="ml-auto flex items-center gap-1.5">
+          <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-[var(--cy-border-subtle)]">
+          <button type="button" onClick={() => setView('card')} title="卡片视图"
+            className={'inline-flex h-8 w-8 items-center justify-center ' + (view === 'card' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+          <button type="button" onClick={() => setView('list')} title="列表视图"
+            className={'inline-flex h-8 w-8 items-center justify-center border-l border-[var(--cy-border-subtle)] ' + (view === 'list' ? 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)]')}>
+            <ListIcon className="h-4 w-4" />
+          </button>
+        </div>
           {!multiSel ? (
             <button type="button" onClick={() => setMultiSel(true)} disabled={shown.length === 0}
               className="inline-flex items-center gap-1 rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-1 text-xs text-[var(--cy-text-secondary)] hover:border-[var(--cy-border-strong)] disabled:opacity-50">
