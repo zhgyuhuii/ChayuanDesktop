@@ -81,6 +81,29 @@ video_codec = "libx264"
 fps = 30
 _BGM_EXTENSIONS = (".mp3",)
 
+# CompositeAudioClip 里「比合成总时长短」的音频层会被 moviepy 2.x 读到超出自身末尾
+# (write 时按 chunk 读 → 对每层 get_frame 整段 tt 再按 is_playing 掩码,掩码外的
+#  帧仍被读),AudioFileClip 读越界直接抛 IOError(Accessing time t=.. clip duration=..),
+# 整个合成失败。给每个文件型音频层尾部削掉一点(默认 120ms),让它在内容真正结束前
+# 就被判 not-playing,避免越界读。削掉的是听感无关的尾音。env 可调。
+try:
+    _AUDIO_TAIL_TRIM_S = max(0.0, float(os.environ.get("CHAYUAN_VG_AUDIO_TAIL_TRIM_S", "0.12") or 0.12))
+except (TypeError, ValueError):
+    _AUDIO_TAIL_TRIM_S = 0.12
+
+
+def _trim_audio_tail(ac, eps: float = _AUDIO_TAIL_TRIM_S):  # noqa: ANN001
+    """文件型音频层尾部削 eps 秒,规避 moviepy 2.x 越界读 IOError。短到没法削就原样返回。"""
+    if eps <= 0:
+        return ac
+    try:
+        d = float(getattr(ac, "duration", 0) or 0)
+        if d > eps * 2:
+            return ac.subclipped(0, d - eps)
+    except Exception:  # noqa: BLE001
+        pass
+    return ac
+
 
 def get_ffmpeg_binary():
     # 优先复用用户在 config.toml / 环境变量里显式指定的 ffmpeg，可避免
@@ -1462,7 +1485,7 @@ def generate_video(
     audio_layers: list = []
     if audio_path and os.path.exists(audio_path):
         audio_layers.append(
-            AudioFileClip(audio_path).with_effects([afx.MultiplyVolume(params.voice_volume)])
+            _trim_audio_tail(AudioFileClip(audio_path)).with_effects([afx.MultiplyVolume(params.voice_volume)])
         )
 
     def make_textclip(text):
@@ -1514,6 +1537,8 @@ def generate_video(
                     _ac = _ac.subclipped(float(_in or 0.0), float(_out) if _out else None)
                 except Exception:  # noqa: BLE001
                     pass
+            # 尾部削一点,规避 moviepy 2.x 在合成里越界读该层音频抛 IOError(任务报错主因)
+            _ac = _trim_audio_tail(_ac)
             ea_clip = _ac.with_effects(
                 [afx.MultiplyVolume(float(ea.get("volume", 1.0)))]
             ).with_start(float(ea.get("start_s", 0.0)))
