@@ -642,6 +642,18 @@ def _render_main_segment(clip, item, W, H, bg=(0, 0, 0)):
     return CompositeVideoClip([base, inner])
 
 
+def _file_has_audio_stream(path: str) -> bool:
+    """探测文件是否含音轨。很多 Pexels 网络视频无音轨,提前过滤可:
+      1) 省掉一次注定失败的 AudioFileClip;
+      2) 避免 moviepy 2.x 在无音轨文件上抛 KeyError('audio_bitrate') + __del__ 噪声日志。
+    探测失败时保守返回 True(交给下游 try/except 兜底,不误伤有音轨的)。"""
+    try:
+        from moviepy.video.io.ffmpeg_reader import ffmpeg_parse_infos
+        return bool(ffmpeg_parse_infos(path).get("audio_found"))
+    except Exception:  # noqa: BLE001
+        return True
+
+
 def _build_extra_audios(timeline, *, source_resolver) -> list:
     """抽 timeline 各轨音频 → [{path, start_s, volume, in_s?, out_s?}],解析为空的跳过。
 
@@ -666,6 +678,10 @@ def _build_extra_audios(timeline, *, source_resolver) -> list:
                     continue
                 path = (source_resolver(c.source) or "").strip()
                 if not path:
+                    continue
+                # 无音轨素材(常见于 Pexels 网络视频)不混音 —— 免 KeyError + __del__ 噪声
+                if not _file_has_audio_stream(path):
+                    logger.debug("[edl] video clip %s 无音轨,跳过混音: %s", c.id, path)
                     continue
                 _out = (c.out_ms / 1000.0) if (c.out_ms and c.out_ms > 0) else None
                 out.append({"path": path, "start_s": max(0.0, c.track_start_ms / 1000.0),
