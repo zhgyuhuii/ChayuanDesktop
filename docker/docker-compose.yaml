@@ -57,6 +57,15 @@ services:
       - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
       - ./config:/chayuan/config
       - ./logs:/chayuan/logs
+      # ── 本地热替换:主机编译产物盖掉镜像里 COPY 的那份,免重新打镜像 ──
+      # 前端:本地 `pnpm -F web build:vite` 后刷浏览器即生效(nginx 静态 serve,零重启)。
+      # 服务端:本地改 .py 后 `docker compose restart chayuan`(无 --reload,需重启进程)。
+      # 只读挂载(:ro):容器不反写源码;PYTHONDONTWRITEBYTECODE=1 已设,无 .pyc 写入。
+      # ⚠ 首次 up 前主机 apps/web/dist 必须已编出来,否则 nginx serve 空目录白屏。
+      # ⚠ 只挂源码子目录,别整包挂 chayuan-server(会盖掉 vendor/services 二进制 + pyproject)。
+      - ../chayuan-client/apps/web/dist:/chayuan/web:ro
+      - ../chayuan-server/libs/chayuan-server/chayuan:/chayuan/app/chayuan-server/libs/chayuan-server/chayuan:ro
+      - ../chayuan-server/libs/chayuan-server/langchain_chayuan:/chayuan/app/chayuan-server/libs/chayuan-server/langchain_chayuan:ro
 
     # .env 同目录,可选,会覆盖下面 environment(详见 .env.example)
     env_file:

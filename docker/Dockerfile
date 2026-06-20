@@ -21,7 +21,12 @@
 
 
 # ─────────────────────────────────────────────────────────────────
-# Stage 1: build 前端 (Vite -> apps/desktop/dist)
+# Stage 1: build 前端 (Vite -> apps/web/dist)
+# ⚠ 必须 build apps/web(浏览器 SPA,平台层 = @chayuan/platform-web),不是
+# apps/desktop(Tauri 壳,平台层 = @chayuan/platform-tauri)。desktop 入口在
+# main.tsx 顶层 setPlatform(createTauriPlatform()),开机即调 Tauri ``invoke``;
+# 在普通浏览器(nginx serve)里 window.__TAURI_INTERNALS__ 不存在,首屏直接抛
+# "Cannot read properties of undefined (reading 'invoke')" 整页白屏。
 # 前端 build 时设 VITE_API_BASE=""  让 fetch 走相对路径,
 # 浏览器同源 (nginx 反代) -> 后端,无 CORS。
 # ─────────────────────────────────────────────────────────────────
@@ -53,7 +58,7 @@ RUN pnpm install --frozen-lockfile --prefer-offline || pnpm install
 # 前端 build:VITE_API_BASE 空 + VITE_THIN_CLIENT 0,产物用相对路径请求 API
 ENV VITE_API_BASE="" \
     VITE_THIN_CLIENT="0"
-RUN pnpm -F desktop build:vite
+RUN pnpm -F web build:vite
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -130,7 +135,7 @@ COPY chayuan-server/vendor/bundled_bgm ./chayuan-server/vendor/bundled_bgm
 COPY chayuan-server/vendor/bundled_video_clips ./chayuan-server/vendor/bundled_video_clips
 
 # ── 4. 拷前端 dist (来自 stage 1) ──────────────────────────────────
-COPY --from=web-builder /chayuan-client/apps/desktop/dist /chayuan/web
+COPY --from=web-builder /chayuan-client/apps/web/dist /chayuan/web
 
 # ── 5. nginx 配置 + entrypoint ────────────────────────────────────
 COPY docker/nginx.conf      /etc/nginx/nginx.conf
