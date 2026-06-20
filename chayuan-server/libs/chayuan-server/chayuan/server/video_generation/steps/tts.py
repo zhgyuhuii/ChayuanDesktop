@@ -47,6 +47,75 @@ logger = logging.getLogger("chayuan.video_generation.tts")
 # 句末标点 — 等分切句用,跟 subtitle._split_string_by_punctuations 同口径
 _PUNCT_PATTERN = re.compile(r"[?,.、;:!…？，。；：！]+|\.\.\.")
 
+# 切块用的句/子句边界(含逗号、换行)。在这些标点之后断开,保留标点。
+_CHUNK_SPLIT_PATTERN = re.compile(r"(?<=[。!?！?…,，;；\n])")
+
+
+def _chunk_text_for_tts(text: str, max_chars: int = 120) -> List[str]:
+    """把长文本按句/子句边界切成 <= max_chars 的小块。
+
+    动机:sherpa 等本地 TTS 一次合成整段长脚本会很慢,父进程 _TtsWorker 等
+    180s 还没出 → 判超时杀 worker → 回退 piper(每个任务白等 180s)。改成逐块
+    合成,每块文本短、单次合成几秒出,不会触发超时;块间 PCM 直接拼接,旁白连续。
+    """
+    if not text:
+        return []
+    parts = [p for p in _CHUNK_SPLIT_PATTERN.split(text) if p and p.strip()]
+    chunks: List[str] = []
+    cur = ""
+    for p in parts:
+        # 单个子句本身就超长(无标点的长串)→ 先冲掉累积,再按字符硬切
+        if len(p) > max_chars:
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            for i in range(0, len(p), max_chars):
+                chunks.append(p[i:i + max_chars])
+            continue
+        if len(cur) + len(p) > max_chars and cur:
+            chunks.append(cur)
+            cur = p
+        else:
+            cur += p
+    if cur.strip():
+        chunks.append(cur)
+    return [c for c in chunks if c.strip()]
+
+
+def _synthesize_sherpa_chunked(am, text: str, voice_arg: str) -> Optional[bytes]:  # noqa: ANN001
+    """逐块调 sherpa(wav)再拼接成一个 wav 字节串。任一块失败返 None 由 caller 回退。
+
+    各块都取 wav(runner 的音频文件本就是 audio.wav),拼 PCM 帧后重写 wav 头,
+    无需二次转码。每块短文本单次合成快,绕开整段长合成的 180s worker 超时。
+    """
+    chunks = _chunk_text_for_tts(text)
+    if not chunks:
+        return None
+    params = None
+    frames: List[bytes] = []
+    for idx, ch in enumerate(chunks):
+        b = am.synthesize(ch, voice=voice_arg, fmt="wav")
+        if not b:
+            logger.warning("[tts:sherpa] 第 %d/%d 块合成失败,放弃 sherpa", idx + 1, len(chunks))
+            return None
+        try:
+            with wave.open(io.BytesIO(b), "rb") as wf:
+                if params is None:
+                    params = wf.getparams()
+                frames.append(wf.readframes(wf.getnframes()))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[tts:sherpa] 第 %d 块 wav 解析失败: %r", idx + 1, e)
+            return None
+    if params is None or not frames:
+        return None
+    out = io.BytesIO()
+    with wave.open(out, "wb") as wf:
+        wf.setnchannels(params.nchannels)
+        wf.setsampwidth(params.sampwidth)
+        wf.setframerate(params.framerate)
+        wf.writeframes(b"".join(frames))
+    return out.getvalue()
+
 
 # ─────────────────────────────────────────────────────────────────────
 # 对外接口
@@ -171,12 +240,14 @@ def _synthesize_via_sherpa(
         logger.warning("[tts:sherpa] sherpa_onnx 不可用,放弃 sherpa(将如实回退 piper): %r", e)
         return None
     am = AudioPipeline()
-    fmt = _ext(voice_file) or "wav"
+    # 逐块合成固定取 wav(runner 的音频文件本就是 audio.wav),无需按 voice_file 扩展名转码。
     voice_id = voice_name or ""
     # 拼 "sherpa:" 前缀让 modality 走 sherpa 分支(否则会走 piper)
     voice_arg = voice_id if voice_id.startswith("sherpa:") else f"sherpa:{voice_id}"
     try:
-        data = am.synthesize(text, voice=voice_arg, fmt=fmt)
+        # 逐块合成:整段长脚本一次合成会拖到 180s worker 超时(实测每个任务白等
+        # 180s 再回退 piper)。短块逐合再拼 PCM,绕开超时。fmt 固定 wav(audio.wav)。
+        data = _synthesize_sherpa_chunked(am, text, voice_arg)
     except Exception as e:  # noqa: BLE001
         logger.warning("[tts:sherpa] synthesize 异常: %r", e)
         return None

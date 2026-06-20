@@ -216,6 +216,12 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
             audio_duration_ms = 0
             tts_cues: list = []
         else:
+            # 进 TTS 前先打 stage_hint —— 否则进度条停在 20% 且标签仍是「生成关键词」
+            # (关键词其实已完成),长脚本本地合成时用户会以为卡在关键词。
+            tasks_store.update_progress(
+                task_id, progress=20,
+                result_patch={"stage": "audio", "stage_hint": "正在合成语音(本地 TTS,长脚本可能稍久)"},
+            )
             audio_file = _resolve_audio_path(task_id)
             tts_result = _tts_step.synthesize(
                 video_script, audio_file,
@@ -234,6 +240,7 @@ def _run_pipeline(task_id: str, params: VideoParams, stop_at: str) -> None:
                     "audio_file": tts_result.audio_file,
                     "audio_duration_ms": tts_result.duration_ms,
                     "tts_provider": tts_result.provider,
+                    "stage_hint": "",  # 清掉「正在合成语音」,进字幕步
                 },
             )
         if stop_at == "audio":
