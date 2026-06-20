@@ -100,3 +100,30 @@ def assert_seat_available(root: Optional[Path] = None) -> None:
         used = int(s.execute(select(func.count()).select_from(UserModel)).scalar() or 0)
     if used >= limit:
         raise SeatLimitReached(used, limit)
+
+
+def activate_deployment_token(root: Path, token: str, public_key: bytes,
+                              now: Optional[float] = None) -> dict:
+    """离线验签部署令牌并落盘。失败返回 {ok:False, reason}。"""
+    from chayuan.server.license.token import verify_token
+    r = verify_token(token, public_key)
+    if not r.get("valid"):
+        return {"ok": False, "reason": "bad-signature"}
+    p = r.get("payload") or {}
+    if p.get("kind") != "seat":
+        return {"ok": False, "reason": "not-seat"}
+    if str(p.get("fp") or "") != deployment_fingerprint(root):
+        return {"ok": False, "reason": "fp-mismatch"}
+    now = time.time() if now is None else now
+    exp = p.get("exp")
+    if not exp or float(exp) <= now:
+        return {"ok": False, "reason": "expired"}
+    try:
+        max_users = int(p["maxUsers"])
+    except (KeyError, ValueError, TypeError):
+        return {"ok": False, "reason": "bad-payload"}
+    write_deployment_license(root, {
+        "maxUsers": max_users, "expireAt": float(exp),
+        "fp": p["fp"], "token": token, "activatedAt": now,
+    })
+    return {"ok": True, "maxUsers": max_users, "expireAt": float(exp)}
