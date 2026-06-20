@@ -807,3 +807,19 @@ export const kbAcl = {
   revokeGrant: (kbId: number, userId: number) =>
     request(`/api/v1/admin/kb-acl/${kbId}/grants/${userId}`, { method: 'DELETE', raw: true }).then(() => undefined),
 };
+
+
+// ── 性能指标(admin) ─────────────────────────────────────────────
+export interface DiskUsage { mount: string; total: number; used: number; free: number; percent: number }
+export interface GpuInfo { name: string; util: number; mem_total: number; mem_used: number; temp: number }
+export interface HardwareSnapshot {
+  cpu_percent: number; cpu_per_core: number[]; cpu_count_logical: number; cpu_count_physical: number;
+  load_1: number; load_5: number; load_15: number;
+  mem_total: number; mem_used: number; mem_available: number; mem_percent: number;
+  swap_total: number; swap_used: number;
+  disks: DiskUsage[]; gpus: GpuInfo[];
+  net_bytes_sent: number; net_bytes_recv: number;
+}
+export const metrics = {
+  hardware: () => request<HardwareSnapshot>('/api/v1/admin/metrics/hardware', { raw: true }).then((r) => r.data),
+};

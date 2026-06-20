@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -16,8 +16,9 @@ import { ToolsBoard } from '../tools/ToolsBoard';
 import { WsEndpointsPage } from './wsendpoints/WsEndpointsPage';
 import { AppsPage } from './apps/AppsPage';
 import { KbAclPage } from './kbacl/KbAclPage';
+import { PerformancePage } from './performance/PerformancePage';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf';
 
 export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClose, tab: tabProp }) => {
   const user = useAuthStore((s) => s.user);
@@ -59,6 +60,7 @@ export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClo
         <TabButton icon={Radio} label="WS端点" active={tab === 'ws'} onClick={() => setTab('ws')} />
         <TabButton icon={AppWindow} label="应用" active={tab === 'apps'} onClick={() => setTab('apps')} />
         <TabButton icon={Lock} label="KB授权" active={tab === 'kbacl'} onClick={() => setTab('kbacl')} />
+        <TabButton icon={Gauge} label="性能" active={tab === 'perf'} onClick={() => setTab('perf')} />
         <TabButton icon={Server} label="系统服务" active={tab === 'services'} onClick={() => setTab('services')} />
         {isWeb() && <TabButton icon={Cloud} label="部署授权" active={tab === 'deployment'} onClick={() => setTab('deployment')} />}
       </div>
@@ -76,6 +78,7 @@ export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClo
         {tab === 'ws' && <WsEndpointsPage />}
         {tab === 'apps' && <AppsPage />}
         {tab === 'kbacl' && <KbAclPage />}
+        {tab === 'perf' && <PerformancePage />}
         {tab === 'deployment' && <DeploymentStatusPanel />}
       </div>
     </div>
