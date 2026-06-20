@@ -28,6 +28,10 @@ def main() -> int:
         return 0
     if argv[:2] in (["gateway", "start"], ["gateway", "stop"], ["gateway", "restart"]):
         return 0
+    if argv[:1] == ["logs"] and "--follow" in argv:
+        for line in ("[info] gateway up", "[info] channel ready"):
+            print(line)
+        return 0
     if argv[:1] == ["uninstall"]:
         return 0
     print(f"unknown args: {argv}", file=sys.stderr)

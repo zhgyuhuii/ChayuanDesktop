@@ -3,6 +3,7 @@ from dataclasses import asdict
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from chayuan.server.auth.deps import require_auth_enabled
 from chayuan.server.agent_connector.manager import AgentInstanceManager
 from chayuan.server.agent_connector.policy import derive_host_policy
@@ -83,5 +84,34 @@ def install(system_id: str, user=Depends(require_auth_enabled())):
         import json
         for ev in conn.install():
             yield f"event: agent.install.{ev.level}\ndata: {json.dumps(asdict(ev))}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+class ConfigIn(BaseModel):
+    raw: str
+    soul: str = ""
+    format: str = "json5"
+
+
+@external_agent_router.put("/{system_id}/config")
+def put_config(system_id: str, body: ConfigIn, user=Depends(require_auth_enabled())):
+    _guard()
+    from chayuan.server.agent_connector.base import AgentConfigBundle
+    _resolve(system_id, user).set_config(
+        AgentConfigBundle(raw=body.raw, soul=body.soul, format=body.format)
+    )
+    return {"ok": True}
+
+
+@external_agent_router.get("/{system_id}/logs/stream")
+def logs_stream(system_id: str, user=Depends(require_auth_enabled())):
+    _guard()
+    conn = _resolve(system_id, user)
+
+    def gen():
+        import json
+        for line in conn.stream_logs():
+            yield f"event: agent.log\ndata: {json.dumps({'line': line})}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")

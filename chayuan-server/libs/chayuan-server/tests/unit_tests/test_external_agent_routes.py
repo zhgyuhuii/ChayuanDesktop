@@ -41,3 +41,18 @@ def test_start_endpoint(monkeypatch):
     c = _client(monkeypatch)
     r = c.post("/api/v1/external-agents/openclaw/start")
     assert r.status_code == 200 and r.json()["ok"] is True
+
+
+def test_put_config(monkeypatch):
+    c = _client(monkeypatch)
+    r = c.put("/api/v1/external-agents/openclaw/config",
+              json={"raw": "{}", "soul": "be nice", "format": "json5"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+
+def test_logs_stream(monkeypatch):
+    c = _client(monkeypatch)
+    r = c.get("/api/v1/external-agents/openclaw/logs/stream")
+    assert r.status_code == 200
+    assert "text/event-stream" in r.headers["content-type"]
+    assert "gateway up" in r.text
