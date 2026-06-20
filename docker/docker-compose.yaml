@@ -61,11 +61,19 @@ services:
       # 前端:本地 `pnpm -F web build:vite` 后刷浏览器即生效(nginx 静态 serve,零重启)。
       # 服务端:本地改 .py 后 `docker compose restart chayuan`(无 --reload,需重启进程)。
       # 只读挂载(:ro):容器不反写源码;PYTHONDONTWRITEBYTECODE=1 已设,无 .pyc 写入。
-      # ⚠ 首次 up 前主机 apps/web/dist 必须已编出来,否则 nginx serve 空目录白屏。
-      # ⚠ 只挂源码子目录,别整包挂 chayuan-server(会盖掉 vendor/services 二进制 + pyproject)。
-      - ../chayuan-client/apps/web/dist:/chayuan/web:ro
-      - ../chayuan-server/libs/chayuan-server/chayuan:/chayuan/app/chayuan-server/libs/chayuan-server/chayuan:ro
-      - ../chayuan-server/libs/chayuan-server/langchain_chayuan:/chayuan/app/chayuan-server/libs/chayuan-server/langchain_chayuan:ro
+      #
+      # ⚠⚠ 默认**不要**挂下面这三个「源码热替换」挂载 ⚠⚠
+      # 它们会用**主机**目录盖掉镜像里 build 好的产物。nginx root=/chayuan/web,
+      # 镜像已在 web-builder 阶段把 apps/web(平台层 platform-web)build 进 /chayuan/web、
+      # 自包含;一旦挂上主机 apps/web/dist,nginx 改 serve 主机那份 —— 主机若是旧的 /
+      # 误 build 了 apps/desktop(Tauri 壳,开机调 invoke),浏览器首屏就抛
+      # "Cannot read properties of undefined (reading 'invoke')" 整页白屏,
+      # **镜像里修对了也没用**(2026-06-20 实测:fix(docker) 已让镜像 build web,
+      # 但这个挂载把镜像产物盖回主机脏 dist,invoke 复现)。
+      #
+      # 需要本地热替换开发时,用 opt-in override(不污染默认 deploy 路径):
+      #   docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d
+      # 见同目录 docker-compose.dev.yaml。
 
     # .env 同目录,可选,会覆盖下面 environment(详见 .env.example)
     env_file:

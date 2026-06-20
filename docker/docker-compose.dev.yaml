@@ -1,0 +1,24 @@
+# 察元 AI 单机版 — 本地开发热替换 override(opt-in,不进默认 deploy)
+# ====================================================================
+# 默认 docker-compose.yaml 是**自包含部署**:nginx serve 镜像里 build 好的
+# /chayuan/web(平台层 platform-web),后端跑镜像里 COPY 的源码。
+#
+# 本 override 用主机目录盖掉镜像产物,改完免重打镜像:
+#   - 前端:主机 `pnpm -F web build:vite` 后刷浏览器即生效(nginx 静态 serve)。
+#   - 服务端:主机改 .py 后 `docker compose ... restart chayuan`(无 --reload,需重启进程)。
+#
+# 用法(必须显式叠加,默认不挂):
+#   docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d
+#
+# ⚠ 用本 override 前,主机 apps/web/dist 必须是 **apps/web(platform-web)** 的
+#   产物,不能是 apps/desktop(Tauri 壳)的——否则浏览器首屏抛
+#   "Cannot read properties of undefined (reading 'invoke')" 整页白屏。
+#   验证:`grep -rl __TAURI_INTERNALS__ apps/web/dist/assets/*.js` 应为空。
+# ⚠ 只挂源码子目录,别整包挂 chayuan-server(会盖掉 vendor/services 二进制 + pyproject)。
+# ====================================================================
+services:
+  chayuan:
+    volumes:
+      - ../chayuan-client/apps/web/dist:/chayuan/web:ro
+      - ../chayuan-server/libs/chayuan-server/chayuan:/chayuan/app/chayuan-server/libs/chayuan-server/chayuan:ro
+      - ../chayuan-server/libs/chayuan-server/langchain_chayuan:/chayuan/app/chayuan-server/libs/chayuan-server/langchain_chayuan:ro

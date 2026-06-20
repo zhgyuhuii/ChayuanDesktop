@@ -199,6 +199,28 @@ def parse_srt(
     }
 
 
+def _audio_mime_from_bytes(data: bytes) -> str:
+    """按文件头嗅探音频 MIME。
+
+    试听临时文件一律 ``.wav`` 后缀,但实际字节随引擎而变:
+      - piper / sherpa / voxcpm(克隆) → 真 WAV(``RIFF....WAVE``)
+      - edge-tts → **MP3**(微软流是 ``audio-24khz-48kbitrate-mono-mp3``,
+        直接落盘进 .wav 文件,字节并非 WAV)
+    route 旧版硬编码 ``audio/wav``,webview 拿 ``Content-Type: audio/wav`` 却是
+    MP3 字节,用 WAV 解码器解 → ``NotSupportedError: Failed to load because no
+    supported source was found``。按真实字节给对 MIME,前端(尊重 blob.type)即可正常播。
+    """
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        return "audio/wav"
+    if data[:3] == b"ID3" or (len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0):
+        return "audio/mpeg"
+    if data[:4] == b"OggS":
+        return "audio/ogg"
+    if data[:4] == b"fLaC":
+        return "audio/flac"
+    return "audio/wav"
+
+
 @video_generation_router.post(
     "/preview-audio",
     summary="TTS 试听一段(不创建任务;给语音步骤选择器试听用)",
@@ -260,12 +282,15 @@ def preview_audio(
         except OSError:
             pass
 
+    mime = _audio_mime_from_bytes(data)
+    # media_type 已设 Content-Type;headers 里不再重复塞 Content-Type(避免 Starlette
+    # 重复头),只带诊断用的自定义头。
     headers = {
-        "Content-Type": "audio/wav",
         "X-Audio-Duration-Ms": str(result.duration_ms),
         "X-Tts-Provider": result.provider,
+        "X-Audio-Mime": mime,
     }
-    return StreamingResponse(iter([data]), media_type="audio/wav", headers=headers)
+    return StreamingResponse(iter([data]), media_type=mime, headers=headers)
 
 
 # ─────────────────────────────────────────────────────────────────────
