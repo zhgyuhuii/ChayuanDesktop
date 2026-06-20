@@ -75,6 +75,10 @@ def create_user(
     if role not in ("admin", "user"):
         role = "user"
 
+    # 网络版席位上限（单机/未约束 no-op；只拦新增，绝不拦登录）
+    from chayuan.server.license.seat import assert_seat_available
+    assert_seat_available()
+
     pw = hash_password(password)
     try:
         with session_scope() as s:

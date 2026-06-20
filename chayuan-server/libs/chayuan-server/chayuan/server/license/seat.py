@@ -83,3 +83,20 @@ def effective_max_users(root: Path, now: Optional[float] = None) -> Optional[int
         except (KeyError, ValueError, TypeError):
             return DEFAULT_WEB_MAX_USERS
     return DEFAULT_WEB_MAX_USERS
+
+
+def assert_seat_available(root: Optional[Path] = None) -> None:
+    """create_user 写库前调用。网络版达上限抛 SeatLimitReached；单机/未约束 no-op。"""
+    if root is None:
+        env = os.environ.get("CHAYUAN_ROOT")
+        root = Path(env) if env else Path.cwd()
+    limit = effective_max_users(root)
+    if limit is None:
+        return
+    from sqlalchemy import func, select
+    from chayuan.server.db.models.user_model import UserModel
+    from chayuan.server.db.session import session_scope
+    with session_scope() as s:
+        used = int(s.execute(select(func.count()).select_from(UserModel)).scalar() or 0)
+    if used >= limit:
+        raise SeatLimitReached(used, limit)
