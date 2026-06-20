@@ -81,6 +81,12 @@ video_codec = "libx264"
 fps = 30
 _BGM_EXTENSIONS = (".mp3",)
 
+# x264 编码 preset:moviepy/ffmpeg 默认 medium,对长视频很慢。EDL 路径要把整片
+# 重编码 3-4 次(分段→concat→PIP→最终),medium 下 5 分钟 1080x1920 会跑十几到
+# 几十分钟。改 veryfast 通常快 4-5 倍,体积略大、画质几乎无感。env 可调
+# (ultrafast 最快/最大,medium/slow 更小更慢)。
+_X264_PRESET = (os.environ.get("CHAYUAN_VG_X264_PRESET", "veryfast") or "veryfast").strip()
+
 # CompositeAudioClip 里「比合成总时长短」的音频层会被 moviepy 2.x 读到超出自身末尾
 # (write 时按 chunk 读 → 对每层 get_frame 整段 tt 再按 is_playing 掩码,掩码外的
 #  帧仍被读),AudioFileClip 读越界直接抛 IOError(Accessing time t=.. clip duration=..),
@@ -214,6 +220,10 @@ def concat_video_clips_with_ffmpeg(
         concat_list_file,
         "-c:v",
         video_codec,
+        "-preset",
+        _X264_PRESET,
+        "-crf",
+        "23",
         "-threads",
         str(threads or 2),
         "-pix_fmt",
@@ -753,7 +763,7 @@ def render_from_edl(
                 img = _render_main_segment(ImageClip(p["path"]).with_duration(dur), p, video_width, video_height, _bg_rgb(params))
                 if i > 0:
                     img = _apply_transition(img, p.get("transition", "none"))
-                img.write_videofile(seg_path, logger=None, fps=fps, codec=video_codec)
+                img.write_videofile(seg_path, logger=None, fps=fps, codec=video_codec, preset=_X264_PRESET)
                 close_clip(img)
                 clip_files.append(seg_path)
                 total += dur
@@ -772,7 +782,7 @@ def render_from_edl(
             if i > 0:
                 seg = _apply_transition(seg, p.get("transition", "none"))
             seg_path = os.path.join(output_dir, f"edl-seg-{i}.mp4")
-            seg.write_videofile(seg_path, logger=None, fps=fps, codec=video_codec)
+            seg.write_videofile(seg_path, logger=None, fps=fps, codec=video_codec, preset=_X264_PRESET)
             clip_files.append(seg_path)
             total += (end_s - start_s) / max(0.1, float(p.get("speed", 1.0) or 1.0))
         finally:
@@ -789,7 +799,7 @@ def render_from_edl(
             gap = target_dur - total
             black = ColorClip(size=(video_width, video_height), color=_bg_rgb(params)).with_duration(gap)
             black_path = os.path.join(output_dir, "edl-black.mp4")
-            black.write_videofile(black_path, logger=None, fps=fps, codec=video_codec)
+            black.write_videofile(black_path, logger=None, fps=fps, codec=video_codec, preset=_X264_PRESET)
             close_clip(black)
             clip_files.append(black_path)
         except Exception as exc:
@@ -833,7 +843,7 @@ def render_from_edl(
                 overlays.append(oc)
             comp = CompositeVideoClip([base_clip, *overlays])
             pip_path = os.path.join(output_dir, "edl-pip.mp4")
-            comp.write_videofile(pip_path, logger=None, fps=fps, codec=video_codec)
+            comp.write_videofile(pip_path, logger=None, fps=fps, codec=video_codec, preset=_X264_PRESET)
             for oc in overlays:
                 close_clip(oc)
             close_clip(base_clip)
@@ -893,7 +903,7 @@ def render_proxy_from_timeline(
             img_dur = p["end_s"] if p["end_s"] and p["end_s"] > 0 else 3.0
             seg = ImageClip(p["path"]).with_duration(img_dur).resized(new_size=(pw, ph))
             try:
-                seg.write_videofile(seg_path, logger=None, fps=15, codec=video_codec)
+                seg.write_videofile(seg_path, logger=None, fps=15, codec=video_codec, preset=_X264_PRESET)
                 clip_files.append(seg_path)
             finally:
                 close_clip(seg)
@@ -907,7 +917,7 @@ def render_proxy_from_timeline(
             if end_s <= start_s:
                 end_s = min(start_s + 1.0, src_dur)
             seg = clip.subclipped(start_s, end_s).resized(new_size=(pw, ph))
-            seg.write_videofile(seg_path, logger=None, fps=15, codec=video_codec)
+            seg.write_videofile(seg_path, logger=None, fps=15, codec=video_codec, preset=_X264_PRESET)
             clip_files.append(seg_path)
         finally:
             close_clip(clip)
@@ -946,7 +956,7 @@ def render_proxy_from_timeline(
                         pass
                 overlays.append(oc)
             comp = CompositeVideoClip([base_clip, *overlays])
-            comp.write_videofile(visual_path, logger=None, fps=15, codec=video_codec)
+            comp.write_videofile(visual_path, logger=None, fps=15, codec=video_codec, preset=_X264_PRESET)
             for oc in overlays:
                 close_clip(oc)
             close_clip(base_clip)
@@ -1098,7 +1108,7 @@ def combine_videos(
                 
             # wirte clip to temp file
             clip_file = f"{output_dir}/temp-clip-{i+1}.mp4"
-            clip.write_videofile(clip_file, logger=None, fps=fps, codec=video_codec)
+            clip.write_videofile(clip_file, logger=None, fps=fps, codec=video_codec, preset=_X264_PRESET)
 
             # Store clip duration before closing
             clip_duration_saved = clip.duration
@@ -1625,6 +1635,7 @@ def generate_video(
             threads=params.n_threads or 2,
             logger=None,
             fps=fps,
+            preset=_X264_PRESET,
         )
     else:
         # 完全无音频(无旁白 + 无音乐 + 无可混的视频原声)→ 写纯画面,避免 moviepy 对空音频报错
@@ -1634,6 +1645,7 @@ def generate_video(
             threads=params.n_threads or 2,
             logger=None,
             fps=fps,
+            preset=_X264_PRESET,
         )
     video_clip.close()
     del video_clip
@@ -1724,7 +1736,7 @@ def preprocess_video(materials: List[MaterialInfo], clip_duration=4):
 
                 # Output the video to a file.
                 video_file = f"{material_source_path}.mp4"
-                final_clip.write_videofile(video_file, fps=30, logger=None)
+                final_clip.write_videofile(video_file, fps=30, logger=None, preset=_X264_PRESET)
                 close_clip(clip)
                 close_clip(final_clip)
                 material.url = video_file
