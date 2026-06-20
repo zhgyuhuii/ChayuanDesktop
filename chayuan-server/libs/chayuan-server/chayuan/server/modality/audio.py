@@ -1178,6 +1178,25 @@ class AudioPipeline:
                         )
                         return None
                     gen_kwargs["prompt_text"] = ptext
+            # 克隆质量参数:按 generate/_generate 真实签名过滤后注入(版本不一致时静默
+            # 跳过,避免 unexpected-kwarg TypeError 让克隆回退 piper)。值取 <cid>.json,
+            # 缺省用 _VOXCPM_CLONE_DEFAULTS。
+            if prompt_arg:
+                sig_names = set()
+                try:
+                    import inspect as _inspect
+                    for _m in (getattr(handle, "generate", None),
+                               getattr(handle, "_generate", None)):
+                        if _m is not None:
+                            try:
+                                sig_names |= set(_inspect.signature(_m).parameters)
+                            except (ValueError, TypeError):
+                                pass
+                except Exception:  # noqa: BLE001
+                    sig_names = set()
+                for _k, _v in self._voxcpm_clone_params(prompt_arg).items():
+                    if _k in sig_names:
+                        gen_kwargs[_k] = _v
             if pname or not prompt_arg:
                 arr = handle.generate(**gen_kwargs)
             else:
@@ -1213,6 +1232,19 @@ class AudioPipeline:
         同时给)。优先读同名缓存 <wav>.prompt.txt;没有则用本地 ASR(_transcribe_via_sidecar)
         转一次并写缓存,避免每次合成都重转。任何失败返 ""(caller 据此放弃克隆回退)。"""
         try:
+            # 最高优先:用户在 <cid>.json 里填的参考文本(零样本克隆保真最关键;
+            # ASR 转写参考音频容易听错 → prompt_text 与音频对不上 → 音色漂移=变音)。
+            try:
+                jp = os.path.splitext(wav_path)[0] + ".json"
+                if os.path.isfile(jp):
+                    import json as _json
+                    with open(jp, "r", encoding="utf-8") as jf:
+                        _meta = _json.load(jf)
+                    _rt = (_meta.get("ref_text") or "").strip()
+                    if _rt:
+                        return _rt
+            except Exception:  # noqa: BLE001
+                pass
             cache = wav_path + ".prompt.txt"
             if os.path.isfile(cache):
                 with open(cache, "r", encoding="utf-8") as f:
@@ -1230,6 +1262,34 @@ class AudioPipeline:
         except Exception as e:  # noqa: BLE001
             logger.warning("[tts:voxcpm] 取参考音频转写失败: %r", e, exc_info=True)
             return ""
+
+    # 克隆质量参数最佳默认(per-克隆音色,存 <cid>.json;缺省用这套)。
+    # 实际注入时按当前 voxcpm 的 generate 真实签名过滤,版本对不上就静默跳过。
+    _VOXCPM_CLONE_DEFAULTS = {
+        "cfg_value": 2.0,            # CFG 引导强度:高→更贴参考风格但易出怪音,低→平淡
+        "inference_timesteps": 15,  # 扩散步数=精细度:高→更稳更像、越慢(CPU 敏感)
+        "normalize": True,          # 文本规整(中文建议开)
+        "denoise": False,           # 参考音频去噪(需 load_denoiser,当前关;开了可能引 ABI 崩)
+        "retry_badcase": True,      # 坏例自动重试,提升稳定
+    }
+
+    def _voxcpm_clone_params(self, wav_path: str) -> dict:
+        """读 <cid>.json 里用户配置的克隆参数,与最佳默认合并。任何缺失/异常回退默认。"""
+        params = dict(self._VOXCPM_CLONE_DEFAULTS)
+        try:
+            jp = os.path.splitext(wav_path)[0] + ".json"
+            if os.path.isfile(jp):
+                import json as _json
+                with open(jp, "r", encoding="utf-8") as jf:
+                    meta = _json.load(jf)
+                for k in self._VOXCPM_CLONE_DEFAULTS:
+                    v = meta.get(k)
+                    # bool 是 int 子类,(int,float,bool) 一并覆盖;None/字符串等忽略走默认
+                    if isinstance(v, (int, float, bool)):
+                        params[k] = v
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[tts:voxcpm] 读克隆参数失败,用默认: %r", e)
+        return params
 
     def _synthesize_via_cosyvoice_clone(self, text: str, *, prompt_wav: str) -> bytes:
         """转发 cosyvoice sidecar /v1/audio/clone(零样本 clone)。失败返 b''(调用方回退 voxcpm)。

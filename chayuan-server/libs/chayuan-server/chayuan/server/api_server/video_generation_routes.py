@@ -1276,12 +1276,19 @@ def _list_clone_voices() -> List[Dict[str, Any]]:
             continue
         cid = f[:-4]
         label = cid
+        meta: Dict[str, Any] = {}
         try:
             with open(os.path.join(d, f"{cid}.json"), "r", encoding="utf-8") as jf:
-                label = (_json.load(jf) or {}).get("name") or cid
+                meta = _json.load(jf) or {}
+                label = meta.get("name") or cid
         except Exception:  # noqa: BLE001
             pass
-        out.append({"id": f"clone:{cid}", "label": label, "language": ""})
+        # 带上 ref_text + 质量参数,供前端「配置克隆音色」编辑器回填(参数缺省由后端补默认)
+        out.append({
+            "id": f"clone:{cid}", "label": label, "language": "",
+            "ref_text": meta.get("ref_text", ""),
+            "params": _clamp_clone_params(meta),
+        })
     out.sort(key=lambda x: (x.get("label") or x["id"]).lower())
     return out
 
@@ -1294,6 +1301,11 @@ async def create_clone_voice(
     name: str = Form(..., min_length=1, max_length=40),
     ref_text: str = Form("", description="可选:样本对应文本(部分模型提升零样本质量)"),
     engine: str = Form("voxcpm", description="克隆引擎:voxcpm(本地) / cosyvoice(CosyVoice2 sidecar)"),
+    cfg_value: float = Form(2.0, description="CFG 引导强度(0.5-5.0;高=更贴风格易出怪音)"),
+    inference_timesteps: int = Form(15, description="扩散步数=精细度(4-50;高=更稳更像更慢)"),
+    normalize: bool = Form(True, description="文本规整(中文建议开)"),
+    denoise: bool = Form(False, description="参考音频去噪(需 denoiser,当前关)"),
+    retry_badcase: bool = Form(True, description="坏例自动重试,提升稳定"),
     user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     import json as _json
@@ -1327,12 +1339,17 @@ async def create_clone_voice(
                 try: os.remove(raw_path)
                 except OSError: pass
         with open(os.path.join(d, f"{cid}.json"), "w", encoding="utf-8") as jf:
-            _json.dump({
+            _meta = {
                 "name": name.strip(),
                 "ref_text": (ref_text or "").strip(),
                 "created": _time.time(),
                 "engine": engine if engine in ("voxcpm", "cosyvoice") else "voxcpm",
-            }, jf, ensure_ascii=False)
+            }
+            _meta.update(_clamp_clone_params({
+                "cfg_value": cfg_value, "inference_timesteps": inference_timesteps,
+                "normalize": normalize, "denoise": denoise, "retry_badcase": retry_badcase,
+            }))
+            _json.dump(_meta, jf, ensure_ascii=False)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"保存克隆样本失败: {e}") from e
     dur = _probe_wav_duration(wav_path)
@@ -1359,21 +1376,38 @@ def delete_clone_voice(
     return {"deleted": removed, "id": base}
 
 
+_CLONE_PARAM_RANGES = {
+    "cfg_value": (0.5, 5.0),
+    "inference_timesteps": (4, 50),
+}
+
+
+def _clamp_clone_params(d: Dict[str, Any]) -> Dict[str, Any]:
+    """校验/夹取克隆质量参数,丢弃非法值(让 voxcpm 用默认)。"""
+    out: Dict[str, Any] = {}
+    for k in ("cfg_value", "inference_timesteps"):
+        v = d.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            lo, hi = _CLONE_PARAM_RANGES[k]
+            v = max(lo, min(hi, v))
+            out[k] = int(v) if k == "inference_timesteps" else float(v)
+    for k in ("normalize", "denoise", "retry_badcase"):
+        if isinstance(d.get(k), bool):
+            out[k] = d[k]
+    return out
+
+
 @video_generation_router.patch(
-    "/voices/clone/{cid}", summary="重命名克隆音色",
+    "/voices/clone/{cid}", summary="更新克隆音色(改名 / 参考文本 / 质量参数)",
 )
-def rename_clone_voice(
+def update_clone_voice(
     cid: str = FPath(..., max_length=64),
     body: Dict[str, Any] = Body(...),
     user: Dict[str, Any] = Depends(require_auth_enabled()),
 ) -> Dict[str, Any]:
     import json as _json
     from chayuan.server.video_generation._helpers import voice_clones_dir
-    name = str((body or {}).get("name", "")).strip()
-    if not name:
-        raise HTTPException(422, "name 不能为空")
-    if len(name) > 40:
-        raise HTTPException(422, "name 过长(<=40)")
+    body = body or {}
     d = voice_clones_dir(create=False)
     base = os.path.basename(cid)
     jp = os.path.join(d, f"{base}.json")
@@ -1386,10 +1420,30 @@ def rename_clone_voice(
                 meta = _json.load(f) or {}
         except Exception:  # noqa: BLE001
             meta = {}
-    meta["name"] = name
+    # name(可选,给则校验)
+    if "name" in body:
+        name = str(body.get("name", "")).strip()
+        if not name:
+            raise HTTPException(422, "name 不能为空")
+        if len(name) > 40:
+            raise HTTPException(422, "name 过长(<=40)")
+        meta["name"] = name
+    # ref_text(可选;改了要清掉旧的 ASR prompt 缓存,否则仍用旧转写)
+    if "ref_text" in body:
+        meta["ref_text"] = str(body.get("ref_text", "")).strip()
+        cache = os.path.join(d, f"{base}.wav.prompt.txt")
+        if os.path.isfile(cache):
+            try: os.remove(cache)
+            except OSError: pass
+    # 质量参数(夹取后合并)
+    meta.update(_clamp_clone_params(body))
     with open(jp, "w", encoding="utf-8") as f:
         _json.dump(meta, f, ensure_ascii=False)
-    return {"id": base, "name": f"clone:{base}", "label": name}
+    return {
+        "id": base, "name": f"clone:{base}", "label": meta.get("name", ""),
+        "ref_text": meta.get("ref_text", ""),
+        "params": _clamp_clone_params(meta),
+    }
 
 
 @video_generation_router.post(
