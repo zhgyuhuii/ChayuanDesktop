@@ -724,3 +724,33 @@ export interface FeedbackBody {
 export const feedback = {
   submit: (body: FeedbackBody) => http.post<void>('/chat/feedback/v2', body),
 };
+
+
+// ── WebSocket 端点(Agent 工具) ──────────────────────────────────
+export interface WsParam { name: string; type: string; description?: string; required?: boolean; default?: unknown }
+export interface WsAuth { type: string; key?: string; value?: string }
+export interface WsEndpoint {
+  name: string;
+  title?: string;
+  description?: string;
+  url: string;
+  auth: WsAuth;
+  on_connect: string[];
+  request_template: string;
+  message_format: string;
+  response_path: string;
+  max_messages: number;
+  receive_timeout: number;
+  close_after_first: boolean;
+  params: WsParam[];
+  enabled: boolean;
+}
+export const wsEndpoints = {
+  async list(): Promise<WsEndpoint[]> {
+    const r = await request<{ endpoints: WsEndpoint[] }>('/api/v1/ws-endpoints', { raw: true });
+    return r.data?.endpoints ?? [];
+  },
+  create: (body: WsEndpoint) => request<WsEndpoint>('/api/v1/ws-endpoints', { method: 'POST', body, raw: true }).then((r) => r.data),
+  update: (name: string, body: WsEndpoint) => request<WsEndpoint>(`/api/v1/ws-endpoints/${encodeURIComponent(name)}`, { method: 'PUT', body, raw: true }).then((r) => r.data),
+  remove: (name: string) => request(`/api/v1/ws-endpoints/${encodeURIComponent(name)}`, { method: 'DELETE', raw: true }).then(() => undefined),
+};
