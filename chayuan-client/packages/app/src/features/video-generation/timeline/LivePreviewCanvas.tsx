@@ -42,8 +42,8 @@ function clipAt(clips: VgTimelineClip[] | undefined, playheadMs: number): VgTime
 
 /** 视频元素:暂停时按 playhead seek 静帧;播放时真 play(),仅在漂移大时校正。
  *  原声:播放时按 clip.muted/volume 出声(暂停/拖动时静音,避免 seek 噪音);成片混音由后端 _build_extra_audios 负责。 */
-const FrameVideo: React.FC<{ url: string; clip: VgTimelineClip; playheadMs: number; playing: boolean; className?: string; onMediaError?: () => void }>
-  = ({ url, clip, playheadMs, playing, className, onMediaError }) => {
+const FrameVideo: React.FC<{ url: string; clip: VgTimelineClip; playheadMs: number; playing: boolean; className?: string; onMediaError?: () => void; onAspect?: (ar: number) => void }>
+  = ({ url, clip, playheadMs, playing, className, onMediaError, onAspect }) => {
   const ref = React.useRef<HTMLVideoElement | null>(null);
   React.useEffect(() => {
     const v = ref.current; if (!v) return;
@@ -60,18 +60,20 @@ const FrameVideo: React.FC<{ url: string; clip: VgTimelineClip; playheadMs: numb
       if (v.readyState >= 1) apply(); else v.addEventListener('loadedmetadata', apply, { once: true });
     }
   }, [url, playheadMs, playing, clip.track_start_ms, clip.in_ms, clip.muted, clip.volume]);
-  return <video ref={ref} src={url} preload="metadata" playsInline className={className} onError={() => onMediaError?.()} />;
+  return <video ref={ref} src={url} preload="metadata" playsInline className={className} onError={() => onMediaError?.()}
+    onLoadedMetadata={(e) => { const v = e.currentTarget; if (v.videoWidth && v.videoHeight) onAspect?.(v.videoWidth / v.videoHeight); }} />;
 };
 
 /** 图/视频自适应:按 isImage 初始渲染;加载出错(老草稿无 kind、类型判错)自愈切换。 */
-const ClipMedia: React.FC<{ url: string; clip: VgTimelineClip; playheadMs: number; playing: boolean; className?: string; isImage: boolean }>
-  = ({ url, clip, playheadMs, playing, className, isImage }) => {
+const ClipMedia: React.FC<{ url: string; clip: VgTimelineClip; playheadMs: number; playing: boolean; className?: string; isImage: boolean; onAspect?: (ar: number) => void }>
+  = ({ url, clip, playheadMs, playing, className, isImage, onAspect }) => {
   const [mode, setMode] = React.useState<'image' | 'video'>(isImage ? 'image' : 'video');
   React.useEffect(() => { setMode(isImage ? 'image' : 'video'); }, [isImage, url]);
   if (mode === 'image') {
-    return <img src={url} alt="" draggable={false} className={className} onError={() => setMode('video')} />;
+    return <img src={url} alt="" draggable={false} className={className} onError={() => setMode('video')}
+      onLoad={(e) => { const im = e.currentTarget; if (im.naturalWidth && im.naturalHeight) onAspect?.(im.naturalWidth / im.naturalHeight); }} />;
   }
-  return <FrameVideo url={url} clip={clip} playheadMs={playheadMs} playing={playing} className={className} onMediaError={() => setMode('image')} />;
+  return <FrameVideo url={url} clip={clip} playheadMs={playheadMs} playing={playing} className={className} onMediaError={() => setMode('image')} onAspect={onAspect} />;
 };
 
 /**
@@ -108,6 +110,22 @@ export const LivePreviewCanvas: React.FC<{
   cues?: SrtCue[];
 }> = ({ timeline, playheadMs, playing = false, onTransform, cropEditingClipId = null, onCrop, selectedClipId = null, onSelectClip, backgroundColor = '#000000', overlays, selectedOverlayIds = [], onSelectOverlay, onOverlayTransform, cues }) => {
   const boxRef = React.useRef<HTMLDivElement | null>(null);
+  // 媒体自然宽高比(w/h)按 clipId 缓存:full(满画幅)态据此把图层框收到「视频实际显示区」,
+  // 否则外框=整画布=全屏、与视频比例不符(就是「拖一下才契合」的根因)。
+  const [mediaAR, setMediaAR] = React.useState<Record<string, number>>({});
+  const reportAR = React.useCallback((id: string, ar: number) => {
+    if (!ar || !isFinite(ar) || ar <= 0) return;
+    setMediaAR((m) => (Math.abs((m[id] ?? 0) - ar) < 1e-3 ? m : { ...m, [id]: ar }));
+  }, []);
+  // 画布自身宽高比(把视频 contain 进画布算实际显示区要用),随容器尺寸变化更新。
+  const [canvasAR, setCanvasAR] = React.useState(16 / 9);
+  React.useEffect(() => {
+    const el = boxRef.current; if (!el) return;
+    const measure = () => { const r = el.getBoundingClientRect(); if (r.width > 0 && r.height > 0) setCanvasAR(r.width / r.height); };
+    measure();
+    const ro = new ResizeObserver(measure); ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // 叠加文字编辑态:**双击**才进编辑(contentEditable),单击只选中/可拖。
   const [editingOvId, setEditingOvId] = React.useState<string | null>(null);
   const videoTracks = (timeline.tracks || []).filter((t) => t.kind === 'video');
@@ -220,12 +238,23 @@ export const LivePreviewCanvas: React.FC<{
         const editing = cropEditingClipId === c.id;       // 裁剪编辑态:显示完整源 + 裁剪框
         const sel = selectedClipId === c.id;
         const cr = c.crop ?? { x: 0, y: 0, w: 1, h: 1 };
+        // full(满画幅)态:把图层框收到「视频按 contain 进画布后的居中显示区」,使选择外框/手柄
+        // 一加进来就贴合视频比例(不再默认全屏、不用拖一下)。比例未知(媒体未加载)先满画幅兜底。
+        const ar = mediaAR[c.id];
+        let posStyle: React.CSSProperties;
+        if (full && ar && ar > 0) {
+          if (ar >= canvasAR) { const fh = canvasAR / ar; posStyle = { left: 0, top: `${(1 - fh) * 50}%`, width: '100%', height: `${fh * 100}%` }; }
+          else { const fw = ar / canvasAR; posStyle = { top: 0, left: `${(1 - fw) * 50}%`, height: '100%', width: `${fw * 100}%` }; }
+        } else if (full) {
+          posStyle = { inset: 0 };
+        } else {
+          posStyle = { left: `${x * 100}%`, top: `${y * 100}%`, width: `${scale * 100}%` };
+        }
+        posStyle.zIndex = 10 + (videoTracks.length - i);
         return (
           <div key={c.id} data-cy-layer className={'group absolute ' + (editing ? '' : 'cursor-move')}
             style={{
-              ...(full
-                ? { inset: 0, zIndex: 10 + (videoTracks.length - i) }
-                : { left: `${x * 100}%`, top: `${y * 100}%`, width: `${scale * 100}%`, zIndex: 10 + (videoTracks.length - i) }),
+              ...posStyle,
               opacity: c.opacity ?? 1, // 预览反映片段不透明度(主轨 clip 不会被设 opacity → 1)
               filter: c.color ? `brightness(${c.color.brightness ?? 1}) contrast(${c.color.contrast ?? 1}) saturate(${c.color.saturation ?? 1})` : undefined, // 调色预览(CSS 近似成片 numpy)
               // 几何(P2):非裁剪态套 rotate/flip + crop 的 clip-path;裁剪态显示完整源便于拖框
@@ -239,6 +268,7 @@ export const LivePreviewCanvas: React.FC<{
             }}
             onPointerDown={editing ? undefined : (e) => { onSelectClip?.(c.id); drag(e, c.id, 'move', { x, y, scale }); }}>
             <ClipMedia url={url} clip={c} playheadMs={playheadMs} playing={playing} isImage={clipIsImage(c, url)}
+              onAspect={(a) => reportAR(c.id, a)}
               className={full ? 'pointer-events-none h-full w-full object-contain' : 'pointer-events-none w-full'} />
             {!editing && (
               <>
