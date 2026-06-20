@@ -8,7 +8,7 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { getPlatform } from '@chayuan/platform-shared';
-import { Video, Download, RefreshCw, Trash2, LayoutGrid, List as ListIcon, Play, FileText, Captions, X, CheckSquare, Square } from 'lucide-react';
+import { Download, RefreshCw, Trash2, LayoutGrid, List as ListIcon, Play, FileText, Captions, X, CheckSquare, Square } from 'lucide-react';
 import {
   videoGeneration,
   vgTaskFileUrl,
@@ -114,16 +114,8 @@ export const VideoLibraryPage: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 overflow-y-auto cy-hide-scrollbar px-6 py-8">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="inline-flex items-center gap-2 text-xl font-semibold text-[var(--cy-text-primary)]">
-            <Video className="h-5 w-5" /> 我的视频
-          </h1>
-          <p className="mt-1 text-sm text-[var(--cy-text-tertiary)]">
-            已合成的成品按时间分组,可在线播放 / 下载 / 复制参数重做
-          </p>
-        </div>
+    <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-3 overflow-y-auto cy-hide-scrollbar px-6 py-4">
+      <header className="flex items-center justify-end gap-3 empty:hidden">
         {/* 视图切换 + 多选(仅「我的视频」tab) */}
         {tab === 'videos' && (
           <div className="flex shrink-0 items-center gap-2">
