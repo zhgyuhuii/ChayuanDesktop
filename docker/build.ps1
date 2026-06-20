@@ -18,6 +18,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# PowerShell 7.4+ defaults $PSNativeCommandUseErrorActionPreference=$true, which turns a
+# native command's non-zero exit (e.g. 'docker image inspect' on a missing image, or docker
+# build writing progress to stderr) into a TERMINATING error under -Stop, aborting the script.
+# Disable it and check $LASTEXITCODE explicitly instead. (PS 5.1 has no such var; assign is harmless.)
+$PSNativeCommandUseErrorActionPreference = $false
 chcp 65001 > $null
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 $OutputEncoding = [System.Text.UTF8Encoding]::new()
@@ -41,8 +46,10 @@ $BaseTag = "chayuan-base:$LockHash"
 Write-Host "[build] VERSION=$Version  BASE=$BaseTag"
 
 # 3) base: build if missing or -RebuildBase (deps downloaded only here)
-& $Docker image inspect $BaseTag 2>$null | Out-Null
-$BaseExists = ($LASTEXITCODE -eq 0)
+# 'docker images -q <ref>' prints the image id if present, empty if not, and exits 0 either way
+# (unlike 'image inspect' which errors on a missing image). Avoids aborting on first run.
+$BaseId = (& $Docker images -q $BaseTag 2>$null | Select-Object -First 1)
+$BaseExists = -not [string]::IsNullOrWhiteSpace($BaseId)
 if ($RebuildBase -or (-not $BaseExists)) {
     Write-Host "[build] building base env image $BaseTag (download all deps)..."
     $BaseArgs = @("build")
