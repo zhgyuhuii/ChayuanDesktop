@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -12,8 +12,9 @@ import { SystemServicesPage } from './SystemServicesPage';
 import { DeploymentStatusPanel } from '../license/DeploymentStatusPanel';
 import { UsersPage } from './users/UsersPage';
 import { McpPage } from './mcp/McpPage';
+import { ToolsPage } from './tools/ToolsPage';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools';
 
 export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClose, tab: tabProp }) => {
   const user = useAuthStore((s) => s.user);
@@ -51,6 +52,7 @@ export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClo
         <TabButton icon={Boxes} label="模型平台" active={tab === 'platforms'} onClick={() => setTab('platforms')} />
         <TabButton icon={Users} label="用户" active={tab === 'users'} onClick={() => setTab('users')} />
         <TabButton icon={Plug} label="MCP" active={tab === 'mcp'} onClick={() => setTab('mcp')} />
+        <TabButton icon={Wrench} label="工具" active={tab === 'tools'} onClick={() => setTab('tools')} />
         <TabButton icon={Server} label="系统服务" active={tab === 'services'} onClick={() => setTab('services')} />
         {isWeb() && <TabButton icon={Cloud} label="部署授权" active={tab === 'deployment'} onClick={() => setTab('deployment')} />}
       </div>
@@ -64,6 +66,7 @@ export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClo
         {tab === 'services' && <SystemServicesPage />}
         {tab === 'users' && <UsersPage />}
         {tab === 'mcp' && <McpPage />}
+        {tab === 'tools' && <ToolsPage />}
         {tab === 'deployment' && <DeploymentStatusPanel />}
       </div>
     </div>
