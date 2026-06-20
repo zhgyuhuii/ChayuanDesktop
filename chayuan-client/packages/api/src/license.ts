@@ -162,3 +162,38 @@ export interface ShareUrl {
 export function shareUrl(app: string): Promise<ShareUrl> {
   return http.get<ShareUrl>(`${BASE}/share-url`, { query: { app } });
 }
+
+
+/** 网络版部署席位状态（GET /api/v1/license/deployment/status）。 */
+export interface DeploymentStatus {
+  /** 'web' = 网络版（可能受席位约束）；'desktop' = 单机版（无限制）。 */
+  edition: 'web' | 'desktop';
+  /** 席位上限；null = 无限制（单机/未约束）。 */
+  maxUsers: number | null;
+  /** 当前注册账号数。 */
+  usedUsers: number;
+  /** 剩余可建；null = 无限制。 */
+  available: number | null;
+  /** 到期时间（ISO，无 license 则缺省）。 */
+  expireAt?: string | null;
+  /** 部署指纹（供购买时上报）。 */
+  fingerprint: string;
+}
+
+/** 部署令牌激活返回。 */
+export interface DeploymentActivateResult {
+  ok: boolean;
+  reason?: string;
+  maxUsers?: number;
+  expireAt?: number;
+}
+
+/** 查询部署席位状态。 */
+export function deploymentStatus(): Promise<DeploymentStatus> {
+  return http.get<DeploymentStatus>(`${BASE}/deployment/status`);
+}
+
+/** 激活部署令牌（粘贴 Ed25519 令牌串）。 */
+export function deploymentActivate(token: string): Promise<DeploymentActivateResult> {
+  return http.post<DeploymentActivateResult>(`${BASE}/deployment/activate`, { token });
+}
