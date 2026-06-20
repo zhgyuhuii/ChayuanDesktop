@@ -15,9 +15,9 @@
  */
 import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Wifi, WifiOff, Play, Loader2, Mic, Square, Upload, Trash2, Pencil } from 'lucide-react';
+import { Wifi, WifiOff, Play, Loader2, Mic, Square, Upload, Trash2, Pencil, Settings2 } from 'lucide-react';
 import { cn } from '@chayuan/ui';
-import { videoGeneration, type VgVoiceProvider } from '@chayuan/api';
+import { videoGeneration, type VgVoiceProvider, type VgVoiceItem } from '@chayuan/api';
 import { VOICE_PREVIEW_TEXT } from './voicePreviewText';
 import { playAudioBlob } from './blobToDataUrl';
 import { reportError } from '../../store/errorDialog';
@@ -151,6 +151,52 @@ export const VoicePicker: React.FC<{
   // ── 克隆音色:上传 / 录音 / 删除 ────────────────────────────────────
   const [cloneBusy, setCloneBusy] = React.useState(false);
   const [cloneEngine, setCloneEngine] = React.useState<'voxcpm' | 'cosyvoice'>('voxcpm');
+
+  // ── 克隆质量参数(per-克隆音色,存后端 cid.json;复用 TtsCard 滑块 + chip 视觉) ──
+  const [cfgOpen, setCfgOpen] = React.useState(false);
+  const [draftRefText, setDraftRefText] = React.useState('');
+  const [draftCfg, setDraftCfg] = React.useState(2.0);
+  const [draftSteps, setDraftSteps] = React.useState(15);
+  const [draftNorm, setDraftNorm] = React.useState(true);
+  const [draftDenoise, setDraftDenoise] = React.useState(false);
+  const [draftRetry, setDraftRetry] = React.useState(true);
+  // 用 ref 持有最新音色列表,避免把 allVoices 放进 effect 依赖(它每渲染可能换引用,
+  // 会导致每次按键都重置草稿、输入被冲掉)。
+  const allVoicesRef = React.useRef(allVoices);
+  allVoicesRef.current = allVoices;
+  // 仅在「打开配置面板」或「切换克隆音色」时,用其已存值回填草稿(后端列表带 ref_text+params)。
+  React.useEffect(() => {
+    if (!cfgOpen || !isClone || !value.voice_name.startsWith('clone:')) return;
+    const it = allVoicesRef.current.find((v) => v.id === value.voice_name) as VgVoiceItem | undefined;
+    const pp = it?.params ?? {};
+    setDraftRefText(it?.ref_text ?? '');
+    setDraftCfg(typeof pp.cfg_value === 'number' ? pp.cfg_value : 2.0);
+    setDraftSteps(typeof pp.inference_timesteps === 'number' ? pp.inference_timesteps : 15);
+    setDraftNorm(pp.normalize ?? true);
+    setDraftDenoise(pp.denoise ?? false);
+    setDraftRetry(pp.retry_badcase ?? true);
+  }, [cfgOpen, value.voice_name, isClone]);
+  const onSaveCloneCfg = async () => {
+    const cur = value.voice_name;
+    if (!cur || !cur.startsWith('clone:')) return;
+    setCloneBusy(true);
+    try {
+      await videoGeneration.updateCloneVoice(cur.slice('clone:'.length), {
+        ref_text: draftRefText,
+        cfg_value: draftCfg,
+        inference_timesteps: draftSteps,
+        normalize: draftNorm,
+        denoise: draftDenoise,
+        retry_badcase: draftRetry,
+      });
+      await qc.invalidateQueries({ queryKey: ['vg.voices', 'clone'] });
+      setCfgOpen(false);
+    } catch (e) {
+      reportError(e as Error, '保存克隆参数失败');
+    } finally {
+      setCloneBusy(false);
+    }
+  };
   const [recording, setRecording] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const recRef = React.useRef<MediaRecorder | null>(null);
@@ -375,7 +421,76 @@ export const VoicePicker: React.FC<{
               >
                 <Trash2 className="h-3 w-3" />
               </button>
+              <button
+                type="button"
+                onClick={() => setCfgOpen((o) => !o)}
+                disabled={cloneBusy}
+                title="配置克隆音色参数(参考文本 / 贴合度 / 精细度…)"
+                className={cn(
+                  'inline-flex h-6 items-center rounded-md px-1 text-[10px] hover:bg-[var(--cy-surface-2)] disabled:opacity-50',
+                  cfgOpen ? 'text-[var(--cy-brand-600)]' : 'text-[var(--cy-text-secondary)]',
+                )}
+              >
+                <Settings2 className="h-3 w-3" />
+              </button>
             </>
+          )}
+          {isClone && cfgOpen && value.voice_name.startsWith('clone:') && (
+            <div className="mt-1 basis-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-[10px]">
+              <div className="mb-1.5 flex items-center gap-1 text-[var(--cy-text-secondary)]">
+                <Settings2 className="h-3 w-3" /> 克隆参数(仅当前音色)
+              </div>
+              <label className="mb-1.5 flex items-start gap-1.5">
+                <span className="w-12 shrink-0 pt-0.5 text-[var(--cy-text-tertiary)]">参考文本</span>
+                <textarea
+                  value={draftRefText}
+                  onChange={(e) => setDraftRefText(e.target.value)}
+                  rows={2}
+                  placeholder="参考音频里实际说的那句话(留空=用 ASR 自动转写,可能听错致变音)"
+                  className="flex-1 resize-none rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-2)] p-1 text-[10px]"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex items-center gap-1.5">
+                  <span className="w-12 shrink-0 text-[var(--cy-text-tertiary)]">贴合度</span>
+                  <input type="range" min={0.5} max={5} step={0.1} value={draftCfg}
+                    onChange={(e) => setDraftCfg(parseFloat(e.target.value))}
+                    className="flex-1 accent-[var(--cy-brand-500)]" />
+                  <span className="w-8 text-right tabular-nums">{draftCfg.toFixed(1)}</span>
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <span className="w-12 shrink-0 text-[var(--cy-text-tertiary)]">精细度</span>
+                  <input type="range" min={4} max={50} step={1} value={draftSteps}
+                    onChange={(e) => setDraftSteps(parseInt(e.target.value, 10))}
+                    className="flex-1 accent-[var(--cy-brand-500)]" />
+                  <span className="w-8 text-right tabular-nums">{draftSteps}</span>
+                </label>
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <button type="button" onClick={() => setDraftNorm((v) => !v)}
+                  className={cn('rounded-md border px-1.5 py-0.5',
+                    draftNorm ? 'border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-tertiary)]')}>
+                  文本规整 {draftNorm ? '开' : '关'}
+                </button>
+                <button type="button" onClick={() => setDraftDenoise((v) => !v)}
+                  className={cn('rounded-md border px-1.5 py-0.5',
+                    draftDenoise ? 'border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-tertiary)]')}>
+                  参考去噪 {draftDenoise ? '开' : '关'}
+                </button>
+                <button type="button" onClick={() => setDraftRetry((v) => !v)}
+                  className={cn('rounded-md border px-1.5 py-0.5',
+                    draftRetry ? 'border-[var(--cy-brand-400)] bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]' : 'border-[var(--cy-border-subtle)] text-[var(--cy-text-tertiary)]')}>
+                  坏例重试 {draftRetry ? '开' : '关'}
+                </button>
+                <button type="button" onClick={() => void onSaveCloneCfg()} disabled={cloneBusy}
+                  className="ml-auto rounded-md bg-[var(--cy-brand-500)] px-2 py-0.5 text-white disabled:opacity-50">
+                  保存
+                </button>
+              </div>
+              <p className="mt-1 text-[9px] text-[var(--cy-text-tertiary)]">
+                默认 贴合度2.0 · 精细度15 · 规整/重试开。变音多因「参考文本」不准 — 优先把它填成参考音频里真实说的话。
+              </p>
+            </div>
           )}
           {cloneBusy && <Loader2 className="h-3 w-3 animate-spin text-[var(--cy-brand-600)]" />}
         </>

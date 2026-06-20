@@ -255,12 +255,30 @@ export interface VgFontItem {
   source: 'bundled' | 'user' | 'system';
 }
 
+/** 克隆音色质量参数(per-克隆音色,存后端 cid.json;全量可配,后端按 voxcpm 签名防错注入)。 */
+export interface VgCloneParams {
+  /** CFG 引导强度 0.5-5.0:高=更贴参考风格但易出怪音,低=平淡。默认 2.0 */
+  cfg_value?: number;
+  /** 扩散步数=精细度 4-50:高=更稳更像更慢(CPU 敏感)。默认 15 */
+  inference_timesteps?: number;
+  /** 文本规整(中文建议开)。默认 true */
+  normalize?: boolean;
+  /** 参考音频去噪(需 denoiser,当前后端关)。默认 false */
+  denoise?: boolean;
+  /** 坏例自动重试,提升稳定。默认 true */
+  retry_badcase?: boolean;
+}
+
 export interface VgVoiceItem {
   id: string;
   label: string;
   language: string;
   /** piper 专用:该音色是否已下载本地;false 时前端选中触发下载。 */
   downloaded?: boolean;
+  /** clone 专用:参考音频的文字转写(零样本克隆保真关键;后端优先用它,否则 ASR)。 */
+  ref_text?: string;
+  /** clone 专用:质量参数(后端已补默认)。 */
+  params?: VgCloneParams;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -832,12 +850,20 @@ export async function vgUploadCloneVoice(args: {
   );
 }
 
-/** 重命名克隆音色。cid = voice_name 去掉 'clone:' 前缀。 */
-export async function vgRenameCloneVoice(cid: string, name: string): Promise<{ id: string; name: string; label: string }> {
-  return rd<{ id: string; name: string; label: string }>(
+/** 更新克隆音色:改名 / 参考文本 / 质量参数(任意子集)。cid = voice_name 去掉 'clone:' 前缀。 */
+export async function vgUpdateCloneVoice(
+  cid: string,
+  patch: { name?: string; ref_text?: string } & VgCloneParams,
+): Promise<{ id: string; name: string; label: string; ref_text?: string; params?: VgCloneParams }> {
+  return rd<{ id: string; name: string; label: string; ref_text?: string; params?: VgCloneParams }>(
     `/api/v1/video-generation/voices/clone/${encodeURIComponent(cid)}`,
-    { method: 'PATCH', body: JSON.stringify({ name }), headers: { 'Content-Type': 'application/json' } },
+    { method: 'PATCH', body: JSON.stringify(patch), headers: { 'Content-Type': 'application/json' } },
   );
+}
+
+/** 重命名克隆音色(vgUpdateCloneVoice 的薄封装,保留旧调用点)。 */
+export async function vgRenameCloneVoice(cid: string, name: string): Promise<{ id: string; name: string; label: string }> {
+  return vgUpdateCloneVoice(cid, { name });
 }
 
 /** 删除一个克隆音色(cid = voice_name 去掉 'clone:' 前缀)。 */
@@ -1022,6 +1048,7 @@ export const videoGeneration = {
   uploadCloneVoice: vgUploadCloneVoice,
   deleteCloneVoice: vgDeleteCloneVoice,
   renameCloneVoice: vgRenameCloneVoice,
+  updateCloneVoice: vgUpdateCloneVoice,
   taskFileUrl: vgTaskFileUrl,
   downloadTaskFile: vgDownloadTaskFile,
   materialFileUrl: vgMaterialFileUrl,
