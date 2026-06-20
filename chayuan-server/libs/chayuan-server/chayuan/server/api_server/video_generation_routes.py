@@ -223,9 +223,18 @@ def preview_audio(
     from chayuan.server.modality.audio import tts_call_timeout
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
+    # 克隆(VoxCPM)冷启动要「加载 0.5B 模型 + warmup + 合成」,CPU 上 60s 不够 →
+    # 一直超时杀 worker、下次又重载,陷死循环。给克隆更长预算让首次跑完(模型随后
+    # 常驻,后续秒出);其余引擎(piper/edge/sherpa)维持 60s 快速失败回退。
+    _prov = (body.voice_provider or "").lower()
     try:
-        # 交互试听压短 worker 等待:慢/卡时 60s 内失败回 piper,不把请求线程占住 180s。
-        with tts_call_timeout(60):
+        _clone_to = int(os.environ.get("CHAYUAN_VG_CLONE_PREVIEW_TIMEOUT_S", "180") or 180)
+    except (TypeError, ValueError):
+        _clone_to = 180
+    _preview_timeout = _clone_to if _prov == "clone" else 60
+    try:
+        # 交互试听压短 worker 等待:慢/卡时及时失败回 piper,不把请求线程长期占住。
+        with tts_call_timeout(_preview_timeout):
             result = tts_step.synthesize(
                 text, tmp.name,
                 voice_provider=body.voice_provider,
