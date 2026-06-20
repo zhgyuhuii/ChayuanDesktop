@@ -75,16 +75,24 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
       // 故意不订阅 onLog —— sidecar stdout 含随机生成的配置面板凭据
       // (密码 / login-route-token),不应让前端任何 UI 持有。诊断走 status.error
       // 一行就够。
-      unlisten = await sidecar.subscribe({
-        onState: async (state) => {
-          // 状态变化:重新拉一次 status 拿最新 baseUrl / error
-          const cur = await sidecar.status().catch(() => null);
-          if (cur) setStatus(cur);
-          if (state === 'ready' || state === 'disabled') {
-            onReadyRef.current(cur?.baseUrl ?? '');
-          }
-        },
-      });
+      // ⚠ subscribe 失败(如 Tauri 运行时未注入 __TAURI_INTERNALS__,会抛
+      // "Cannot read properties of undefined (reading 'transformCallback')")绝不能
+      // 阻断后续 startOnce —— 否则首启卡死。事件订阅只是「实时推状态」的优化,
+      // startOnce 内的 status()/start() 轮询本身就能驱动到 ready,缺它仍可工作。
+      try {
+        unlisten = await sidecar.subscribe({
+          onState: async (state) => {
+            // 状态变化:重新拉一次 status 拿最新 baseUrl / error
+            const cur = await sidecar.status().catch(() => null);
+            if (cur) setStatus(cur);
+            if (state === 'ready' || state === 'disabled') {
+              onReadyRef.current(cur?.baseUrl ?? '');
+            }
+          },
+        });
+      } catch (e) {
+        console.warn('[sidecar] 事件订阅失败,降级为轮询(不影响启动):', e);
+      }
       await startOnce();
     })();
     return () => {
