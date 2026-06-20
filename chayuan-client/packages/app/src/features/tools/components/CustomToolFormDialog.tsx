@@ -21,6 +21,7 @@ import {
 } from '@chayuan/ui';
 import type { CustomToolParam, CustomToolSpec } from '@chayuan/api';
 import { notifyInfo, notifySuccess, reportError } from '../../../store/errorDialog';
+import { CustomToolTestDialog } from './CustomToolTestDialog';
 import { getPlatform } from '@chayuan/platform-shared';
 import {
   useCreateCustomTool, useDeleteCustomTool, useUpdateCustomTool,
@@ -66,6 +67,7 @@ export const CustomToolFormDialog: React.FC<CustomToolFormDialogProps> = ({
   const del = useDeleteCustomTool();
 
   const [draft, setDraft] = React.useState<CustomToolSpec>(() => initial ?? blank());
+  const [testOpen, setTestOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (open) setDraft(initial ?? blank());
@@ -139,6 +141,7 @@ export const CustomToolFormDialog: React.FC<CustomToolFormDialogProps> = ({
   const saving = create.isPending || upd.isPending;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[88vh] w-[min(820px,94vw)] flex-col overflow-hidden p-0">
         <header className="border-b border-[var(--cy-border-subtle)] px-5 py-4">
@@ -273,6 +276,9 @@ export const CustomToolFormDialog: React.FC<CustomToolFormDialogProps> = ({
             <span />
           )}
           <div className="flex items-center gap-2">
+            {mode === 'edit' && initial ? (
+              <Button size="sm" variant="outline" onClick={() => setTestOpen(true)}>测试</Button>
+            ) : null}
             <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
               取消
             </Button>
@@ -284,6 +290,8 @@ export const CustomToolFormDialog: React.FC<CustomToolFormDialogProps> = ({
         </footer>
       </DialogContent>
     </Dialog>
+    {mode === 'edit' && initial ? <CustomToolTestDialog spec={draft} open={testOpen} onOpenChange={setTestOpen} /> : null}
+    </>
   );
 };
 

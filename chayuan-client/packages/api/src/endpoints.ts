@@ -291,6 +291,18 @@ export interface OpenApiCommitResult {
   total_skipped: number;
 }
 
+export interface CustomToolProbeResult {
+  ok: boolean;
+  status_code: number | null;
+  latency_ms: number;
+  content_type: string;
+  body_kind: string;
+  body: unknown;
+  truncated: boolean;
+  url?: string;
+  error?: string;
+}
+
 export const tools = {
   async listEnabled(): Promise<ToolInfo[]> {
     const data = await http.get<Record<string, ToolInfo>>('/tools', { query: { enabled: true } });
@@ -326,6 +338,10 @@ export const tools = {
     http.put<CustomToolSpec>(`/tools/custom/${encodeURIComponent(name)}`, spec),
   deleteCustom: (name: string) =>
     http.del<{ deleted: string }>(`/tools/custom/${encodeURIComponent(name)}`),
+
+  /** 测试自定义工具(后端代入参数+发起 HTTP) */
+  testCustom: (name: string, paramValues: Record<string, unknown>) =>
+    http.post<CustomToolProbeResult>(`/tools/custom/${encodeURIComponent(name)}/test`, { param_values: paramValues }),
 
   // ── P4:OpenAPI 批量导入 ──────────────────────────────────────
   importOpenApiPreview: (req: { spec_url?: string; spec_text?: string }) =>
