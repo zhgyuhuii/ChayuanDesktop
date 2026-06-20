@@ -115,8 +115,18 @@ export const VideoLibraryPage: React.FC = () => {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-3 overflow-y-auto cy-hide-scrollbar px-6 py-4">
-      <header className="flex items-center justify-end gap-3 empty:hidden">
-        {/* 视图切换 + 多选(仅「我的视频」tab) */}
+      {/* Tab 切换 + 视图控件同排:控件随 tab 出现/消失,但整行始终在(tab py-1.5 与控件 h-8 同为 32px)
+          切换不改变行高,避免忽高忽低 */}
+      <div className="flex items-end justify-between gap-3 border-b border-[var(--cy-border-subtle)]">
+        <div className="flex gap-1">
+        {(['videos', 'tasks'] as const).map((tb) => (
+          <button key={tb} type="button" onClick={() => setTab(tb)}
+            className={'-mb-px border-b-2 px-3 py-1.5 text-sm font-medium transition-colors ' +
+              (tab === tb ? 'border-[var(--cy-brand-500)] text-[var(--cy-brand-700)]' : 'border-transparent text-[var(--cy-text-tertiary)] hover:text-[var(--cy-text-secondary)]')}>
+            {tb === 'videos' ? '我的视频' : '视频任务'}
+          </button>
+        ))}
+        </div>
         {tab === 'videos' && (
           <div className="flex shrink-0 items-center gap-2">
             {multiSelect ? (
@@ -153,17 +163,6 @@ export const VideoLibraryPage: React.FC = () => {
             </div>
           </div>
         )}
-      </header>
-
-      {/* Tab 切换:我的视频 / 视频任务 */}
-      <div className="flex gap-1 border-b border-[var(--cy-border-subtle)]">
-        {(['videos', 'tasks'] as const).map((tb) => (
-          <button key={tb} type="button" onClick={() => setTab(tb)}
-            className={'-mb-px border-b-2 px-3 py-1.5 text-sm font-medium transition-colors ' +
-              (tab === tb ? 'border-[var(--cy-brand-500)] text-[var(--cy-brand-700)]' : 'border-transparent text-[var(--cy-text-tertiary)] hover:text-[var(--cy-text-secondary)]')}>
-            {tb === 'videos' ? '我的视频' : '视频任务'}
-          </button>
-        ))}
       </div>
 
       {tab === 'tasks' ? (
