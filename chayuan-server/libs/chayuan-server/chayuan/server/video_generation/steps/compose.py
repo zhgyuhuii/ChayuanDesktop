@@ -93,7 +93,12 @@ except (TypeError, ValueError):
 
 
 def _trim_audio_tail(ac, eps: float = _AUDIO_TAIL_TRIM_S):  # noqa: ANN001
-    """文件型音频层尾部削 eps 秒,规避 moviepy 2.x 越界读 IOError。短到没法削就原样返回。"""
+    """文件型音频层尾部削 eps 秒,规避 moviepy 2.x 越界读 IOError。短到没法削就原样返回。
+
+    注:这只是第一道防线。moviepy 2.x 在 CompositeAudioClip 里会对**整段 chunk**
+    调 get_frame 再按 is_playing 掩码,掩码外的帧仍被读 → 削 clip 时长挡不住对
+    底层文件的越界读。真正兜底靠 _patch_moviepy_audio_reader_overread()。
+    """
     if eps <= 0:
         return ac
     try:
@@ -103,6 +108,62 @@ def _trim_audio_tail(ac, eps: float = _AUDIO_TAIL_TRIM_S):  # noqa: ANN001
     except Exception:  # noqa: BLE001
         pass
     return ac
+
+
+_MOVIEPY_AUDIO_READER_PATCHED = False
+
+
+def _patch_moviepy_audio_reader_overread() -> None:
+    """给 moviepy FFMPEG_AudioReader.get_frame 打补丁:读越界(浮点/chunk 边界
+    over-read,如 t=27.80 > 文件 27.78)不再抛 IOError 崩掉整片合成,而是把越界
+    时间钳回有效范围;仍失败则返回静音。幂等 + 只 patch 一次。
+
+    根因:CompositeAudioClip 里短于合成总长的音频层(EDL 片段内嵌音频),write
+    时 moviepy 对每层整段 tt 调 get_frame 再按 is_playing 掩码 —— 掩码外的越界帧
+    仍被读 → AudioFileClip 读越界直接 raise。用户实测任务 75% compose 必崩主因。
+    """
+    global _MOVIEPY_AUDIO_READER_PATCHED
+    if _MOVIEPY_AUDIO_READER_PATCHED:
+        return
+    try:
+        import numpy as _np
+        from moviepy.audio.io.readers import FFMPEG_AudioReader  # type: ignore
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[compose] moviepy 音频读补丁未生效(import 失败): %r", e)
+        _MOVIEPY_AUDIO_READER_PATCHED = True  # 不重复尝试
+        return
+    if getattr(FFMPEG_AudioReader, "_chayuan_overread_patched", False):
+        _MOVIEPY_AUDIO_READER_PATCHED = True
+        return
+    _orig_get_frame = FFMPEG_AudioReader.get_frame
+
+    def _safe_get_frame(self, tt):  # noqa: ANN001
+        try:
+            return _orig_get_frame(self, tt)
+        except (IOError, OSError):
+            try:
+                dur = float(getattr(self, "duration", 0) or 0)
+                fps = float(getattr(self, "fps", 0) or 44100) or 44100
+                if dur > 0:
+                    ttc = _np.minimum(_np.asarray(tt, dtype="float64"), dur - 1.5 / fps)
+                    ttc = _np.maximum(ttc, 0.0)
+                    return _orig_get_frame(self, ttc)
+            except Exception:  # noqa: BLE001
+                pass
+            # 兜底返回静音,绝不让单层越界读崩掉整片
+            arr = _np.asarray(tt)
+            n = arr.shape[0] if getattr(arr, "ndim", 0) else 1
+            nch = int(getattr(self, "nchannels", 2) or 2)
+            return _np.zeros((n, nch), dtype="float64")
+
+    FFMPEG_AudioReader.get_frame = _safe_get_frame
+    FFMPEG_AudioReader._chayuan_overread_patched = True
+    _MOVIEPY_AUDIO_READER_PATCHED = True
+    logger.info("[compose] 已给 moviepy FFMPEG_AudioReader.get_frame 打越界读补丁")
+
+
+# 模块加载即打补丁 —— 覆盖 EDL 分段 / PIP / 最终合成所有 write_videofile(都可能越界读)
+_patch_moviepy_audio_reader_overread()
 
 
 def get_ffmpeg_binary():
@@ -1356,6 +1417,9 @@ def generate_video(
     extra_audios: list | None = None,
     overlays: list | None = None,
 ):
+    # 合成前确保 moviepy 音频读越界补丁已生效(防 CompositeAudioClip 越界读崩片)
+    _patch_moviepy_audio_reader_overread()
+
     video_width, video_height = resolve_resolution(
         params.video_aspect, getattr(params, "video_width", None), getattr(params, "video_height", None)
     )
