@@ -12,7 +12,7 @@ import { SystemServicesPage } from './SystemServicesPage';
 import { DeploymentStatusPanel } from '../license/DeploymentStatusPanel';
 import { UsersPage } from './users/UsersPage';
 import { McpPage } from './mcp/McpPage';
-import { ToolsPage } from './tools/ToolsPage';
+import { ToolsBoard } from '../tools/ToolsBoard';
 
 export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools';
 
@@ -66,7 +66,7 @@ export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClo
         {tab === 'services' && <SystemServicesPage />}
         {tab === 'users' && <UsersPage />}
         {tab === 'mcp' && <McpPage />}
-        {tab === 'tools' && <ToolsPage />}
+        {tab === 'tools' && <ToolsBoard selectable={false} />}
         {tab === 'deployment' && <DeploymentStatusPanel />}
       </div>
     </div>
