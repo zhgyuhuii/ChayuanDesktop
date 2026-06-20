@@ -774,8 +774,7 @@ async def start_main_server(args):
             )
             if not _wait_child_started("API", p, api_started, _WAIT_TIMEOUT):
                 logger.warning(
-                    "API 启动事件 %.0fs 内未收到信号，继续启动下一个进程（端口可能尚未就绪）。",
-                    _WAIT_TIMEOUT,
+                    f"API 启动事件 {_WAIT_TIMEOUT:.0f}s 内未收到信号，继续启动下一个进程（端口可能尚未就绪）。"
                 )
 
         if p := processes.get("config"):
@@ -786,8 +785,7 @@ async def start_main_server(args):
             )
             if not _wait_child_started("配置面板", p, config_started, _CONFIG_WAIT_TIMEOUT):
                 logger.warning(
-                    "配置面板启动事件 %.0fs 内未收到信号，请用 `chayuan status config` 核对。",
-                    _CONFIG_WAIT_TIMEOUT,
+                    f"配置面板启动事件 {_CONFIG_WAIT_TIMEOUT:.0f}s 内未收到信号，请用 `chayuan status config` 核对。"
                 )
 
         dump_server_info(after_start=True, args=args)

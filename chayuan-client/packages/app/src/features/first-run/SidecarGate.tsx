@@ -55,10 +55,22 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
         onReadyRef.current(next.baseUrl);
       }
     } catch (e) {
+      const msg = (e as Error)?.message ?? String(e);
+      // ⚠ 关键:首个 status() 就抛时 s 仍是 null。若这里回 null,组件会停在初始
+      // 'idle' → 永久渲染「正在启动」屏(连失败+重试都进不去)。必须合成一个
+      // failed 态,让用户看到错误并能重试。
       setStatus((s) =>
         s
-          ? { ...s, state: 'failed', error: (e as Error)?.message ?? String(e) }
-          : null,
+          ? { ...s, state: 'failed', error: msg }
+          : {
+              state: 'failed',
+              port: 0,
+              baseUrl: '',
+              restarts: 0,
+              error: msg,
+              lastLogLine: null,
+              dataDir,
+            },
       );
     }
   }, [dataDir]);
@@ -77,8 +89,9 @@ export const SidecarGate: React.FC<SidecarGateProps> = ({ dataDir, onReady }) =>
       // 一行就够。
       // ⚠ subscribe 失败(如 Tauri 运行时未注入 __TAURI_INTERNALS__,会抛
       // "Cannot read properties of undefined (reading 'transformCallback')")绝不能
-      // 阻断后续 startOnce —— 否则首启卡死。事件订阅只是「实时推状态」的优化,
-      // startOnce 内的 status()/start() 轮询本身就能驱动到 ready,缺它仍可工作。
+      // 阻断后续 startOnce —— 否则首启卡死。注意:这里没有轮询兜底,事件订阅是
+      // 「start() 返回 starting 后学到 ready」的唯一途径;订阅失败时 startOnce 的
+      // 首个 status() 通常也会抛,catch 会落到 failed 屏(带重试),不再静默卡死。
       try {
         unlisten = await sidecar.subscribe({
           onState: async (state) => {
