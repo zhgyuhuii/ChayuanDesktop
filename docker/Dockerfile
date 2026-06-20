@@ -30,6 +30,10 @@
 # 前端 build 时设 VITE_API_BASE=""  让 fetch 走相对路径,
 # 浏览器同源 (nginx 反代) -> 后端,无 CORS。
 # ─────────────────────────────────────────────────────────────────
+# FROM 指令里要用的 build-arg 必须在【第一个 FROM 之前】声明为全局 ARG,
+# 否则在 multi-stage 里它只属于某个 stage,后面 `FROM ${BASE_IMAGE}` 取不到 → 空。
+ARG BASE_IMAGE=chayuan-base:latest
+
 FROM node:20-bookworm-slim AS web-builder
 
 ENV PNPM_HOME=/pnpm \
@@ -64,7 +68,6 @@ RUN pnpm -F web build:vite
 # ─────────────────────────────────────────────────────────────────
 # Stage 2: 后端 + nginx 运行时
 # ─────────────────────────────────────────────────────────────────
-ARG BASE_IMAGE=chayuan-base:latest
 # 系统依赖 + Python 依赖全部来自基础环境镜像(docker/Dockerfile.base,由 docker/build.sh
 # 按 poetry.lock 哈希自动构建/复用)。这里**不再** apt / poetry install:改业务代码 /
 # version bump 重建主镜像时,只跑下面的 COPY 层 → 零依赖拉取。依赖变了(poetry.lock 改)
