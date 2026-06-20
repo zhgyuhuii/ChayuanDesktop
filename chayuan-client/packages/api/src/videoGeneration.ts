@@ -63,7 +63,7 @@ export interface VgMaterialInfo {
 
 export interface VgTimelineClip {
   id: string;
-  source: { material_id?: string; path?: string; url?: string };
+  source: { material_id?: string; path?: string; url?: string; thumb_url?: string };
   track_start_ms: number;
   in_ms?: number;
   out_ms?: number;            // 0 = 到素材末尾

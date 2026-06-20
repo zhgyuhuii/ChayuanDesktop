@@ -111,11 +111,16 @@ export const VgTimelineEditorPage: React.FC = () => {
     const src = videoClips[i]?.source;
     return src?.material_id ? videoGeneration.materialThumbUrl(src.material_id) : null;
   };
-  // 按 clip 自身 source 取缩略图(主轨/PIP 轨通用):material_id→素材缩略图;http url(图片)直接用
-  const clipThumb = (c: { source?: { material_id?: string; url?: string } }) => {
+  // 按 clip 自身 source 取缩略图(主轨/PIP 轨通用):
+  //   1) source.thumb_url —— 在线源拖入时存的服务端缩略图(Pexels item.image);
+  //   2) material_id → 素材缩略图接口;
+  //   3) http url 仅当是图片(有图片扩展名)才直接用作背景 —— 视频 url 当背景渲染不出来(空白),
+  //      所以不再无脑回退视频 url。
+  const clipThumb = (c: { source?: { material_id?: string; url?: string; thumb_url?: string }; kind?: string }) => {
     const src = c?.source;
+    if (src?.thumb_url) return src.thumb_url;
     if (src?.material_id) return videoGeneration.materialThumbUrl(src.material_id);
-    if (src?.url && /^https?:/.test(src.url)) return src.url;
+    if (src?.url && /^https?:/.test(src.url) && /\.(jpg|jpeg|png|webp|bmp|gif)(\?|$)/i.test(src.url)) return src.url;
     return null;
   };
   const onDropMaterial = (m: DraggedMaterial, trackId?: string, atIndex?: number) => {

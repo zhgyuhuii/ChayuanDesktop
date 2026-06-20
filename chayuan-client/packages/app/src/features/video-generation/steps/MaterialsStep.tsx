@@ -423,6 +423,9 @@ const OnlineTab: React.FC<{
                   url: item.url,
                   kind: /\.(jpg|jpeg|png|webp|bmp|gif)(\?|$)/i.test(item.url) ? 'image' : 'video',
                   durationMs: item.duration ? item.duration * 1000 : undefined,
+                  // 在线视频本身不是图,带上服务端缩略图(Pexels item.image)→ 时间轴才有预览;
+                  // 缺缩略图(Pixabay 常缺)留空,onDropMaterial 的 probe 会补时长,预览回退视频首帧。
+                  thumbnailUrl: item.image || undefined,
                 })}
                 className="group relative cursor-grab overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] transition-colors hover:border-[var(--cy-border-strong)] active:cursor-grabbing"
                 title="拖到时间轴视频轨">

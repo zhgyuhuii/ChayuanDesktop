@@ -216,6 +216,9 @@ export interface DraggedMaterial {
   url?: string;
   kind: 'video' | 'image' | 'audio';
   durationMs?: number;
+  /** 预览缩略图 URL —— 在线源(Pexels/Pixabay)视频本身不是图,拖入后时间轴
+   *  需要单独的缩略图才能显示预览;本地 material_id 有专门缩略图接口可不传。 */
+  thumbnailUrl?: string;
 }
 
 /** 从拖入素材生成一个视频轨 clip,插入到 atIndex(默认末尾),重算 starts。
@@ -239,9 +242,14 @@ export function appendClipFromMaterial(
     } else {
       dur = m.durationMs && m.durationMs > 0 ? Math.round(m.durationMs) : 0;
     }
+    // 在线源(url)带缩略图时存进 source.thumb_url —— 后端 source 是 Dict[str,str],
+    // 只读 material_id/url/path,额外的 thumb_url 会被忽略,不影响渲染(纯前端预览用)。
+    const source = m.materialId
+      ? { material_id: m.materialId }
+      : { url: m.url ?? '', ...(m.thumbnailUrl ? { thumb_url: m.thumbnailUrl } : {}) };
     return {
       id: `c${Date.now()}${Math.floor(Math.random() * 1000)}`,
-      source: m.materialId ? { material_id: m.materialId } : { url: m.url ?? '' },
+      source,
       track_start_ms: start,
       in_ms: 0,
       out_ms: dur,

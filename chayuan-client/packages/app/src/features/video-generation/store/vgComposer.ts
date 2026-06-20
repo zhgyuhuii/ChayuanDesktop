@@ -47,11 +47,17 @@ const EMPTY_DRAFT: VgTimelineDraft = {
   audioFileName: null, subtitleFileName: null, audioDurationMs: 0, materials: [],
 };
 
-/** 草稿失效指纹:仅脚本/语音/BGM/语言/段落 —— 画幅/timeline/素材排列不计入。 */
+/** 草稿失效指纹:仅脚本相关(主题/脚本/语言/段落)。
+ *
+ * 不含音色(voice_*)/BGM(bgm_*)/画幅/timeline/素材排列:
+ *   - BGM 只在最终 compose 用,完全不影响草稿(旁白+字幕);
+ *   - 音色变化由「合成语音」按钮显式重生成,最终合成也会按当前音色重渲染。
+ * 若把音色/BGM 计入,编辑页会因「一动音色就 hash 变」而自动重发草稿任务,
+ * 造成 worker 池任务堆积、卡顿(用户实测:每改一次音色/保存就多一个任务)。
+ */
 export function scriptHashOf(p: VgVideoParams): string {
   return JSON.stringify([
-    p.video_subject, p.video_script, p.voice_provider, p.voice_name, p.voice_rate, p.voice_volume,
-    p.bgm_type, p.bgm_file, p.video_language, p.paragraph_number,
+    p.video_subject, p.video_script, p.video_language, p.paragraph_number,
   ]);
 }
 
