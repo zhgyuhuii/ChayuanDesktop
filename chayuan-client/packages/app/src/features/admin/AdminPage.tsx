@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -14,8 +14,9 @@ import { UsersPage } from './users/UsersPage';
 import { McpPage } from './mcp/McpPage';
 import { ToolsBoard } from '../tools/ToolsBoard';
 import { WsEndpointsPage } from './wsendpoints/WsEndpointsPage';
+import { AppsPage } from './apps/AppsPage';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps';
 
 export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClose, tab: tabProp }) => {
   const user = useAuthStore((s) => s.user);
@@ -55,6 +56,7 @@ export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClo
         <TabButton icon={Plug} label="MCP" active={tab === 'mcp'} onClick={() => setTab('mcp')} />
         <TabButton icon={Wrench} label="工具" active={tab === 'tools'} onClick={() => setTab('tools')} />
         <TabButton icon={Radio} label="WS端点" active={tab === 'ws'} onClick={() => setTab('ws')} />
+        <TabButton icon={AppWindow} label="应用" active={tab === 'apps'} onClick={() => setTab('apps')} />
         <TabButton icon={Server} label="系统服务" active={tab === 'services'} onClick={() => setTab('services')} />
         {isWeb() && <TabButton icon={Cloud} label="部署授权" active={tab === 'deployment'} onClick={() => setTab('deployment')} />}
       </div>
@@ -70,6 +72,7 @@ export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClo
         {tab === 'mcp' && <McpPage />}
         {tab === 'tools' && <ToolsBoard selectable={false} />}
         {tab === 'ws' && <WsEndpointsPage />}
+        {tab === 'apps' && <AppsPage />}
         {tab === 'deployment' && <DeploymentStatusPanel />}
       </div>
     </div>

@@ -754,3 +754,32 @@ export const wsEndpoints = {
   update: (name: string, body: WsEndpoint) => request<WsEndpoint>(`/api/v1/ws-endpoints/${encodeURIComponent(name)}`, { method: 'PUT', body, raw: true }).then((r) => r.data),
   remove: (name: string) => request(`/api/v1/ws-endpoints/${encodeURIComponent(name)}`, { method: 'DELETE', raw: true }).then(() => undefined),
 };
+
+
+// ── 开放平台 Apps ───────────────────────────────────────────────
+export interface AppSpec {
+  app_id: string;
+  app_secret: string;
+  name: string;
+  enabled: boolean;
+  created_at: string;
+  callback_url: string;
+  callback_events: string[];
+  scopes: string[];
+  ku_ids: string[];
+  tool_ids: string[];
+}
+export const apps = {
+  async list(): Promise<AppSpec[]> {
+    const r = await request<{ apps: AppSpec[] }>('/api/v1/admin/apps', { raw: true });
+    return r.data?.apps ?? [];
+  },
+  create: (body: { name: string; callback_url?: string; callback_events?: string[]; scopes?: string[] }) =>
+    request<AppSpec>('/api/v1/admin/apps', { method: 'POST', body, raw: true }).then((r) => r.data),
+  update: (appId: string, body: Partial<AppSpec>) =>
+    request<AppSpec>(`/api/v1/admin/apps/${encodeURIComponent(appId)}`, { method: 'PUT', body, raw: true }).then((r) => r.data),
+  rotate: (appId: string) =>
+    request<AppSpec>(`/api/v1/admin/apps/${encodeURIComponent(appId)}/rotate`, { method: 'POST', raw: true }).then((r) => r.data),
+  remove: (appId: string) =>
+    request(`/api/v1/admin/apps/${encodeURIComponent(appId)}`, { method: 'DELETE', raw: true }).then(() => undefined),
+};
