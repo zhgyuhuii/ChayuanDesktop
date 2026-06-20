@@ -97,15 +97,19 @@ COPY chayuan-server/libs/chayuan-server/pyproject.toml ./chayuan-server/libs/cha
 COPY chayuan-server/libs/chayuan-server/poetry.lock* ./chayuan-server/libs/chayuan-server/
 
 WORKDIR /chayuan/app/chayuan-server/libs/chayuan-server
-RUN poetry install --only main --no-root --no-cache && rm -rf /tmp/poetry-cache
+# BuildKit 持久缓存挂载:已下载的 wheel 跨 build 复用(放在镜像层外,不进镜像、不增体积)。
+# 这样即便每次提交 bump 了 pyproject 版本号、导致上面 COPY 层缓存失效、本层重跑,
+# 也只是从本地缓存「复制上一个版本的基础环境」再 link 进 site-packages —— 不再联网重下,
+# 资源/时间省一大截。故意不再 --no-cache、不再 rm 缓存(那正是要保留的东西)。
+# --no-root:运行时用 `python -m chayuan`(见 entrypoint)+ PYTHONPATH 跑源码,
+#           无需把 root 包装进 site-packages;原先源码 COPY 之后那次不带 --no-root 的
+#           install 会随每次改代码重跑、纯浪费,已删。
+RUN --mount=type=cache,target=/tmp/poetry-cache poetry install --only main --no-root
 
 # ── 2. 后端源码 ───────────────────────────────────────────────────
 WORKDIR /chayuan/app
 COPY chayuan-server/libs/chayuan-server/chayuan ./chayuan-server/libs/chayuan-server/chayuan
 COPY chayuan-server/libs/chayuan-server/langchain_chayuan ./chayuan-server/libs/chayuan-server/langchain_chayuan
-
-WORKDIR /chayuan/app/chayuan-server/libs/chayuan-server
-RUN poetry install --only main --no-cache && rm -rf /tmp/poetry-cache
 
 # ── 3. Sidecar 二进制 (.dockerignore 已排除非 linux 平台) ──────────
 WORKDIR /chayuan/app
