@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star, Layers } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star, Layers, HardDrive } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -19,12 +19,13 @@ import { PerformancePage } from './performance/PerformancePage';
 import { DefaultModelsPage } from './defaults/DefaultModelsPage';
 import { ModelPlatformsPage } from './platforms/ModelPlatformsPage';
 import { RedisConfigPage } from './infra/RedisConfigPage';
+import { StorageConfigPage } from './infra/StorageConfigPage';
 import { useNavigate } from '@tanstack/react-router';
 import { ConfirmRoot } from '../../store/confirmDialog';
 import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage';
 
 type AdminGroup = { title: string; items: { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean }[] };
 
@@ -52,6 +53,7 @@ const ADMIN_GROUPS: AdminGroup[] = [
   ] },
   { title: '基础设施', items: [
     { key: 'redis', label: 'Redis', icon: Layers },
+    { key: 'storage', label: '对象存储', icon: HardDrive },
   ] },
   { title: '部署', items: [
     { key: 'deployment', label: '部署授权', icon: Cloud, webOnly: true },
@@ -168,6 +170,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'kbacl' && <KbAclPage />}
           {tab === 'perf' && <PerformancePage />}
           {tab === 'redis' && <RedisConfigPage />}
+          {tab === 'storage' && <StorageConfigPage />}
           {tab === 'deployment' && <DeploymentStatusPanel />}
         </div>
       </div>

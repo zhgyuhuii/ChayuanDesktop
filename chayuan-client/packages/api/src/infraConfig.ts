@@ -27,3 +27,37 @@ export const redisConfig = {
     http.post<{ masked: string; restart_required: boolean }>('/api/v1/admin/redis/save', body),
   clear: () => http.post<{ restart_required: boolean }>('/api/v1/admin/redis/clear'),
 };
+
+
+// ── 对象存储 / MinIO(P4)—— 复用既有 /storage/* ──────────────
+export interface StorageInfo {
+  backend?: string;
+  healthy?: boolean;
+  endpoint?: string;
+  local_root?: string;
+  namespaces?: Record<string, { objects: number; size_mb: number }>;
+  [k: string]: unknown;
+}
+export interface MinioFields {
+  endpoint: string;
+  access_key: string;
+  secret_key: string;
+  secure: boolean;
+  region: string;
+  bucket_prefix: string;
+}
+export const storageConfig = {
+  status: () => http.get<StorageInfo>('/storage/status'),
+  testMinio: (m: MinioFields) =>
+    http.post<{ ok: boolean; info?: unknown; error?: string }>('/storage/test_connection', m),
+  switch: (backend: 'local' | 'minio', minio?: MinioFields) =>
+    http.post<{ backend: string; info: StorageInfo }>('/storage/switch_backend', { backend, minio }),
+  migrate: (body: {
+    namespace: string;
+    direction: 'local_to_minio' | 'minio_to_local';
+    dry_run?: boolean;
+    limit?: number;
+  }) => http.post<{ moved?: number; scanned?: number; dry_run?: boolean; [k: string]: unknown }>(
+    '/storage/migrate', body,
+  ),
+};
