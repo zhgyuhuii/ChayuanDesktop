@@ -147,7 +147,7 @@ export const DatabaseConfigPage: React.FC = () => {
         </label>
       ) : (
         <div className="grid grid-cols-2 gap-3">
-          <label className="text-xs"><span className="opacity-60">主机 host</span>
+          <label className="text-xs"><span className="opacity-60">主机 host <button type="button" className="ml-1 text-[var(--cy-brand-600)] hover:underline" onClick={() => set('host', form.db_type === 'mysql' ? 'mysql' : 'postgres')}>容器服务名</button></span>
             <input className={FIELD} value={form.host} onChange={(e) => set('host', e.target.value)} /></label>
           <label className="text-xs"><span className="opacity-60">端口 port</span>
             <input className={FIELD} value={form.port} onChange={(e) => set('port', e.target.value)} /></label>

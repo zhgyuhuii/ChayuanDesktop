@@ -48,6 +48,17 @@ export const VectorStorePage: React.FC = () => {
   };
 
   const current: VsTypeMeta | undefined = schema?.types.find((t) => t.key === active);
+
+  const fillContainer = () => {
+    if (!current) return;
+    const hostMap: Record<string, string> = { milvus: 'milvus', zilliz: 'milvus', es: 'elasticsearch' };
+    if (current.fields.some((f) => f.name === 'host')) {
+      setVals((v) => ({ ...v, host: hostMap[active] ?? active }));
+    } else if (current.fields.some((f) => f.name === 'connection_uri')) {
+      const svc = active === 'relyt' ? 'relyt' : 'postgres';
+      setVals((v) => ({ ...v, connection_uri: String(v.connection_uri || '').replace('127.0.0.1', svc).replace('localhost', svc) }));
+    }
+  };
   const isDefault = schema?.default_type === active;
 
   const doTest = async () => {
@@ -108,6 +119,9 @@ export const VectorStorePage: React.FC = () => {
         <div className="flex items-center gap-1.5 text-xs text-emerald-600">
           <Star className="h-3.5 w-3.5 fill-current" /> 这是当前系统默认向量库
         </div>
+      )}
+      {current && current.fields.length > 0 && (
+        <p className="text-[11px] text-amber-600">Docker 跨容器部署:host 填 compose 服务名(非 127.0.0.1)。<button type="button" className="ml-1 text-[var(--cy-brand-600)] hover:underline" onClick={fillContainer}>一键填入容器服务名</button></p>
       )}
       {current?.help && <p className="text-xs opacity-50">{current.help}</p>}
       {current?.install_hint && (

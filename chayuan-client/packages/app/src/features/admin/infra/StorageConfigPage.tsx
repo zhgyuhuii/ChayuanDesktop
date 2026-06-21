@@ -126,6 +126,7 @@ export const StorageConfigPage: React.FC = () => {
           <label className="col-span-2 text-xs">
             <span className="opacity-60">Endpoint</span>
             <input className={FIELD} placeholder="127.0.0.1:9000 或 https://s3.amazonaws.com" value={minio.endpoint} onChange={(e) => setM('endpoint', e.target.value)} />
+            <button type="button" className="mt-1 text-[11px] text-[var(--cy-brand-600)] hover:underline" onClick={() => setM('endpoint', 'minio:9000')}>容器服务名(minio:9000)</button>
           </label>
           <label className="text-xs">
             <span className="opacity-60">Access Key</span>

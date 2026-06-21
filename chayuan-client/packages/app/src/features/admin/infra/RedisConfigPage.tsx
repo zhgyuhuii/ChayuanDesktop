@@ -99,6 +99,7 @@ export const RedisConfigPage: React.FC = () => {
         </div>
       )}
 
+      <p className="text-[11px] text-amber-600">Docker 跨容器部署:host 请填 compose 服务名(如 redis),而非 127.0.0.1。</p>
       <div className="grid grid-cols-2 gap-3">
         <label className="text-xs">
           <span className="opacity-60">协议</span>
@@ -112,7 +113,7 @@ export const RedisConfigPage: React.FC = () => {
           <input className={FIELD} value={form.db} onChange={(e) => set('db', e.target.value)} />
         </label>
         <label className="text-xs">
-          <span className="opacity-60">主机 host</span>
+          <span className="opacity-60">主机 host <button type="button" className="ml-1 text-[var(--cy-brand-600)] hover:underline" onClick={() => set('host', 'redis')}>容器服务名</button></span>
           <input className={FIELD} value={form.host} onChange={(e) => set('host', e.target.value)} />
         </label>
         <label className="text-xs">
