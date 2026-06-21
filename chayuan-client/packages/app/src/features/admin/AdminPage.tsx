@@ -7,7 +7,6 @@ import { useAuthStore } from '../../store/auth';
 import { useLocalTraces, useOutboxStat } from './useLocalTraces';
 import { useLfHealth, useLfPrompts, useLfTraces } from './useLfApi';
 import { ScoreTrend } from './ScoreTrend';
-import { PlatformAdmin } from './PlatformAdmin';
 import { SystemServicesPage } from './SystemServicesPage';
 import { DeploymentStatusPanel } from '../license/DeploymentStatusPanel';
 import { UsersPage } from './users/UsersPage';
@@ -18,6 +17,7 @@ import { AppsPage } from './apps/AppsPage';
 import { KbAclPage } from './kbacl/KbAclPage';
 import { PerformancePage } from './performance/PerformancePage';
 import { DefaultModelsPage } from './defaults/DefaultModelsPage';
+import { ModelPlatformsPage } from './platforms/ModelPlatformsPage';
 import { useNavigate } from '@tanstack/react-router';
 import { ConfirmRoot } from '../../store/confirmDialog';
 import { PromptRoot } from '../../store/promptDialog';
@@ -154,7 +154,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'scores' && <ScoreTrend />}
           {tab === 'prompts' && <PromptList />}
           {tab === 'defaults' && <DefaultModelsPage />}
-          {tab === 'platforms' && <PlatformAdmin />}
+          {tab === 'platforms' && <ModelPlatformsPage />}
           {tab === 'services' && <SystemServicesPage />}
           {tab === 'users' && <UsersPage />}
           {tab === 'mcp' && <McpPage />}
