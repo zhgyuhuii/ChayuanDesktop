@@ -248,6 +248,15 @@ def me(user: Dict[str, Any] = Depends(get_current_user)):
     return UserPublicSchema.model_validate(full)
 
 
+@auth_router.get("/me/modules", summary="当前用户可见的后台模块(RBAC #2)")
+def my_modules(user: Dict[str, Any] = Depends(get_current_user)):
+    """前端据此门控后台菜单。admin → 全部模块;其它按角色 modules;未知 → []。"""
+    from chayuan.server.db.repository import role_repository as repo
+    role = str(user.get("role") or "")
+    modules = repo.effective_modules(role)
+    return {"code": 0, "msg": "ok", "data": {"role": role, "is_admin": role == "admin", "modules": modules}}
+
+
 @auth_router.get("/me/summary", summary="当前用户资料 + 汇总计数")
 def me_summary(user: Dict[str, Any] = Depends(get_current_user)):
     """给前端用的轻量接口，一次拿全：资料 / 拥有 KB 数 / 会话数。"""

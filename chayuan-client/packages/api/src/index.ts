@@ -3,6 +3,7 @@ export * from './admin';
 export * from './infraConfig';
 export * from './configSchema';
 export * from './vectorStore';
+export * from './roles';
 export * from './errors';
 export * from './auth-store';
 export * from './endpoints';

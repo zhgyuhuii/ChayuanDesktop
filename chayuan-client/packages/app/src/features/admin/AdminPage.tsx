@@ -28,12 +28,15 @@ import { SchemaForm } from './config/SchemaForm';
 import { VectorStorePage } from './config/VectorStorePage';
 import { KbManagePage } from './kbmanage/KbManagePage';
 import { ServiceTopologyPage } from './services/ServiceTopologyPage';
+import { RoleManagementPage } from './roles/RoleManagementPage';
 import { useNavigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
+import { roles as rolesApi } from '@chayuan/api';
 import { ConfirmRoot } from '../../store/confirmDialog';
 import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'svcstatus' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'vstore' | 'kbmanage' | 'topology';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'svcstatus' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'vstore' | 'kbmanage' | 'topology' | 'roles';
 
 type AdminItem = { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean; hidden?: boolean };
 type AdminGroup = { title: string; items: AdminItem[] };
@@ -42,6 +45,7 @@ type AdminGroup = { title: string; items: AdminItem[] };
 const ADMIN_GROUPS: AdminGroup[] = [
   { title: '用户与权限', items: [
     { key: 'users', label: '用户', icon: Users },
+    { key: 'roles', label: '角色', icon: Shield },
     { key: 'kbacl', label: 'KB 授权', icon: Lock },
     { key: 'apps', label: '应用', icon: AppWindow },
   ] },
@@ -118,6 +122,15 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
   const [tab, setTab] = React.useState<AdminTab>(normTab(tabProp));
   const [collapsed, setCollapsed] = React.useState<boolean>(() => readBool(LS_COLLAPSED));
   const [closedGroups, setClosedGroups] = React.useState<Set<string>>(() => readSet(LS_GROUPS));
+  // RBAC #2:按当前用户角色的模块门控菜单。admin → is_admin=true → 不过滤(allowed=null)。
+  const myModules = useQuery({
+    queryKey: ['admin', 'my-modules'],
+    queryFn: () => rolesApi.myModules(),
+    staleTime: 60_000,
+    retry: 0,
+  });
+  const allowedModules: Set<string> | null =
+    myModules.data && myModules.data.is_admin === false ? new Set(myModules.data.modules) : null;
 
   React.useEffect(() => {
     setTab(normTab(tabProp));
@@ -192,7 +205,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
         </div>
         <nav className="min-h-0 flex-1 overflow-auto px-2 pb-4">
           {ADMIN_GROUPS.map((g) => {
-            const items = g.items.filter((it) => !it.hidden && (!it.webOnly || isWeb()));
+            const items = g.items.filter((it) => !it.hidden && (!it.webOnly || isWeb()) && (allowedModules === null || allowedModules.has(it.key)));
             if (!items.length) return null;
             const groupClosed = !collapsed && closedGroups.has(g.title);
             return (
@@ -263,6 +276,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'topology' && <ServiceTopologyPage />}
           {tab === 'svcstatus' && <ServicesConfigPage />}
           {tab === 'users' && <UsersPage />}
+          {tab === 'roles' && <RoleManagementPage />}
           {tab === 'mcp' && <McpPage />}
           {tab === 'tools' && <ToolsBoard selectable={false} />}
           {tab === 'ws' && <WsEndpointsPage />}

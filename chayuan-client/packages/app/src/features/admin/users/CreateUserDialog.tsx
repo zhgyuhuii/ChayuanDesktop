@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Button } from '@chayuan/ui';
-import { adminCreateUser } from '@chayuan/api';
+import { adminCreateUser, roles as rolesApi } from '@chayuan/api';
+import { useQuery } from '@tanstack/react-query';
 
 export const CreateUserDialog: React.FC<{ onCreated(): void }> = ({ onCreated }) => {
   const [open, setOpen] = React.useState(false);
@@ -10,6 +11,18 @@ export const CreateUserDialog: React.FC<{ onCreated(): void }> = ({ onCreated })
   const [role, setR] = React.useState('user');
   const [err, setErr] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+
+  // 角色下拉用真实角色表(含自定义角色,RBAC #2);未加载时回退内置 user/admin。
+  const rolesQ = useQuery({
+    queryKey: ['admin', 'roles', 'for-create'],
+    queryFn: () => rolesApi.list(),
+    staleTime: 60_000,
+    enabled: open,
+  });
+  const roleList = rolesQ.data?.roles ?? [
+    { name: 'user', description: '普通用户' },
+    { name: 'admin', description: '管理员' },
+  ];
 
   const submit = async () => {
     setBusy(true);
@@ -35,9 +48,13 @@ export const CreateUserDialog: React.FC<{ onCreated(): void }> = ({ onCreated })
       <input className="w-full rounded border p-2 text-sm" placeholder="用户名*" value={username} onChange={(e) => setU(e.target.value)} />
       <input className="w-full rounded border p-2 text-sm" placeholder="邮箱(可选)" value={email} onChange={(e) => setE(e.target.value)} />
       <input className="w-full rounded border p-2 text-sm" type="password" placeholder="初始密码*(≥6)" value={password} onChange={(e) => setP(e.target.value)} />
+      <label className="block text-xs opacity-60">角色</label>
       <select className="w-full rounded border p-2 text-sm" value={role} onChange={(e) => setR(e.target.value)}>
-        <option value="user">普通用户</option>
-        <option value="admin">管理员</option>
+        {roleList.map((r) => (
+          <option key={r.name} value={r.name}>
+            {r.name}{r.description ? ` —— ${r.description}` : ''}
+          </option>
+        ))}
       </select>
       {err ? <p className="text-sm text-destructive">{err}</p> : null}
       <div className="flex justify-end gap-2">

@@ -72,8 +72,15 @@ def create_user(
         raise ValueError("username too long")
     if len(password) < 6:
         raise ValueError("password too short (>= 6)")
+    # 角色:接受任何已存在的角色名(含自定义角色,RBAC #2);未知回退 user。
+    role = (role or "user").strip() or "user"
     if role not in ("admin", "user"):
-        role = "user"
+        try:
+            from chayuan.server.db.repository import role_repository as _roles
+            if _roles.get_role(role) is None:
+                role = "user"
+        except Exception:  # noqa: BLE001 - 角色表不可用时保守回退
+            role = "user"
 
     # 网络版席位上限（单机/未约束 no-op；只拦新增，绝不拦登录）
     from chayuan.server.license.seat import assert_seat_available
