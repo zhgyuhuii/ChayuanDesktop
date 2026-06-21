@@ -104,3 +104,23 @@ export const dbConfig = {
       '/api/v1/admin/db/save', form,
     ),
 };
+
+
+// ── 数据目录(P7)—— /api/v1/admin/datadir/{info,write-rc} ──────────
+export interface DataDirInfo {
+  current_root: string;
+  source: string;
+  reason: string;
+  env_value: string;
+  derived: Record<string, string>;
+  user_state: Record<string, unknown>;
+  in_container: boolean;
+  default_rc: Record<string, string>;
+}
+export const dataDirConfig = {
+  info: () => http.get<DataDirInfo>('/api/v1/admin/datadir/info'),
+  writeRc: (body: { new_root: string; shell: string; rc_path?: string }) =>
+    http.post<{ changed: boolean; action: string; rc_path: string; note: string }>(
+      '/api/v1/admin/datadir/write-rc', body,
+    ),
+};
