@@ -2,6 +2,7 @@ export * from './client';
 export * from './admin';
 export * from './infraConfig';
 export * from './configSchema';
+export * from './vectorStore';
 export * from './errors';
 export * from './auth-store';
 export * from './endpoints';

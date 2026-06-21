@@ -25,12 +25,14 @@ import { DataDirPage } from './infra/DataDirPage';
 import { ServicesConfigPage } from './infra/ServicesConfigPage';
 import { BasicSettingsPage } from './config/BasicSettingsPage';
 import { SchemaForm } from './config/SchemaForm';
+import { VectorStorePage } from './config/VectorStorePage';
+import { KbManagePage } from './kbmanage/KbManagePage';
 import { useNavigate } from '@tanstack/react-router';
 import { ConfirmRoot } from '../../store/confirmDialog';
 import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'svcstatus' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'svcstatus' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'vstore' | 'kbmanage';
 
 type AdminItem = { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean; hidden?: boolean };
 type AdminGroup = { title: string; items: AdminItem[] };
@@ -56,6 +58,8 @@ const ADMIN_GROUPS: AdminGroup[] = [
   ] },
   { title: '知识库', items: [
     { key: 'kbcfg', label: '知识库配置', icon: BookOpen },
+    { key: 'vstore', label: '向量库', icon: Database },
+    { key: 'kbmanage', label: '知识库管理', icon: BookOpen },
   ] },
   { title: '监控', items: [
     { key: 'traces', label: '最近 Trace', icon: Activity },
@@ -247,6 +251,8 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'prompts' && <PromptList />}
           {tab === 'basic' && <BasicSettingsPage />}
           {tab === 'kbcfg' && <SchemaForm file="kb_settings" />}
+          {tab === 'vstore' && <VectorStorePage />}
+          {tab === 'kbmanage' && <KbManagePage />}
           {tab === 'modelcfg' && <SchemaForm file="model_settings" />}
           {tab === 'prompttpl' && <SchemaForm file="prompt_settings" />}
           {tab === 'defaults' && <DefaultModelsPage />}
