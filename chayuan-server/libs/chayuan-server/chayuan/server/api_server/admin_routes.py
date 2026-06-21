@@ -994,9 +994,13 @@ async def get_capability_defaults(
     # ``_load_capability_defaults`` 也命中,无需用户多走一步。
     auto_assigned: List[str] = []
     for cap in capabilities:
-        if defaults.get(cap):
-            continue
         if not candidates[cap]:
+            continue
+        cur = defaults.get(cap)
+        cand_ids = {c.get("id") for c in candidates[cap]}
+        # 已有「有效」默认(在候选内)→ 跳过;无默认 或 默认已失效(模型被删/改,不在
+        # 当前候选里)→ 自动选第一个同类候选并持久化。满足「拉到同类模型就自动默认上」。
+        if cur and cur in cand_ids:
             continue
         first_id = candidates[cap][0]["id"]
         try:
