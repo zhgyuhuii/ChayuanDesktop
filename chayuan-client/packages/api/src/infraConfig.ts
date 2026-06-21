@@ -124,3 +124,24 @@ export const dataDirConfig = {
       '/api/v1/admin/datadir/write-rc', body,
     ),
 };
+
+
+// ── 服务状态/框架/外部端点(P6)—— /api/v1/admin/services/* ──────────
+export interface ServiceStatusRow {
+  service: string; label: string; level: string; ok: boolean;
+  configured: boolean; endpoint: string; detail: string; latency_ms: number | null;
+}
+export interface FrameworkHealth {
+  name: string; label: string; state: string; url: string; models_served: number; capabilities: string[];
+}
+export interface ExternalRuntime { name: string; url: string; health_path: string; enabled: boolean }
+export const servicesConfig = {
+  readiness: () =>
+    http.get<{ statuses: ServiceStatusRow[]; system_ready: boolean }>('/api/v1/admin/services/readiness'),
+  frameworks: () => http.get<{ frameworks: FrameworkHealth[] }>('/api/v1/admin/services/frameworks'),
+  externalList: () => http.get<{ runtimes: ExternalRuntime[] }>('/api/v1/admin/services/external'),
+  externalSet: (body: { name: string; url: string; health_path?: string; enabled?: boolean }) =>
+    http.post<{ ok: boolean; message: string }>('/api/v1/admin/services/external', body),
+  externalProbe: (url: string) =>
+    http.post<{ ok: boolean; message: string }>('/api/v1/admin/services/external/probe', { url }),
+};

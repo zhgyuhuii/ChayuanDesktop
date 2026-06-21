@@ -22,12 +22,13 @@ import { RedisConfigPage } from './infra/RedisConfigPage';
 import { StorageConfigPage } from './infra/StorageConfigPage';
 import { DatabaseConfigPage } from './infra/DatabaseConfigPage';
 import { DataDirPage } from './infra/DataDirPage';
+import { ServicesConfigPage } from './infra/ServicesConfigPage';
 import { useNavigate } from '@tanstack/react-router';
 import { ConfirmRoot } from '../../store/confirmDialog';
 import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'svcstatus';
 
 type AdminGroup = { title: string; items: { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean }[] };
 
@@ -45,6 +46,7 @@ const ADMIN_GROUPS: AdminGroup[] = [
     { key: 'tools', label: '工具', icon: Wrench },
     { key: 'ws', label: 'WS 端点', icon: Radio },
     { key: 'services', label: '系统服务', icon: Server },
+    { key: 'svcstatus', label: '服务状态', icon: Gauge },
   ] },
   { title: '监控', items: [
     { key: 'traces', label: '最近 Trace', icon: Activity },
@@ -166,6 +168,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'defaults' && <DefaultModelsPage />}
           {tab === 'platforms' && <ModelPlatformsPage />}
           {tab === 'services' && <SystemServicesPage />}
+          {tab === 'svcstatus' && <ServicesConfigPage />}
           {tab === 'users' && <UsersPage />}
           {tab === 'mcp' && <McpPage />}
           {tab === 'tools' && <ToolsBoard selectable={false} />}
