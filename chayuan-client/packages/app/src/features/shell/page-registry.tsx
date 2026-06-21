@@ -67,9 +67,6 @@ const AgentHubPage = React.lazy(() =>
 const ToolsPage = React.lazy(() =>
   import('../tools/ToolsBoard').then((m) => ({ default: m.ToolsBoard })),
 );
-const AdminPage = React.lazy(() =>
-  import('../admin/AdminPage').then((m) => ({ default: m.AdminPage })),
-);
 const SkillTemplate = React.lazy(() =>
   import('../skill/SkillTemplate').then((m) => ({ default: m.SkillTemplate })),
 );
@@ -402,16 +399,6 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
     pattern: /^\/online\/(?<feature>[^/]+)$/,
     render: (params) => <OnlineFeaturePage featureKey={params.feature ?? ''} />,
     defaultIcon: 'lock',
-  },
-  {
-    pattern: /^\/admin\/(?<tab>traces|outbox|prompts|platforms)$/,
-    render: (params) => (
-      <AdminPage
-        tab={(params.tab ?? 'traces') as 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms'}
-        onClose={() => history.back()}
-      />
-    ),
-    defaultIcon: 'shield',
   },
 ];
 

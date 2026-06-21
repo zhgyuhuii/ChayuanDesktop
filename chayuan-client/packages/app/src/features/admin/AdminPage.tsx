@@ -17,70 +17,157 @@ import { WsEndpointsPage } from './wsendpoints/WsEndpointsPage';
 import { AppsPage } from './apps/AppsPage';
 import { KbAclPage } from './kbacl/KbAclPage';
 import { PerformancePage } from './performance/PerformancePage';
+import { useNavigate } from '@tanstack/react-router';
+import { ConfirmRoot } from '../../store/confirmDialog';
+import { PromptRoot } from '../../store/promptDialog';
+import { ErrorDialogRoot } from '../shell/ErrorDialog';
 
 export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf';
 
-export const AdminPage: React.FC<{ onClose(): void; tab?: AdminTab }> = ({ onClose, tab: tabProp }) => {
+type AdminGroup = { title: string; items: { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean }[] };
+
+// 管理员专属菜单(分组)。默认落「用户与权限 · 用户」。
+const ADMIN_GROUPS: AdminGroup[] = [
+  { title: '用户与权限', items: [
+    { key: 'users', label: '用户', icon: Users },
+    { key: 'kbacl', label: 'KB 授权', icon: Lock },
+    { key: 'apps', label: '应用', icon: AppWindow },
+  ] },
+  { title: '模型与服务', items: [
+    { key: 'platforms', label: '模型平台', icon: Boxes },
+    { key: 'mcp', label: 'MCP', icon: Plug },
+    { key: 'tools', label: '工具', icon: Wrench },
+    { key: 'ws', label: 'WS 端点', icon: Radio },
+    { key: 'services', label: '系统服务', icon: Server },
+  ] },
+  { title: '监控', items: [
+    { key: 'traces', label: '最近 Trace', icon: Activity },
+    { key: 'scores', label: 'Scores', icon: TrendingUp },
+    { key: 'perf', label: '性能', icon: Gauge },
+    { key: 'outbox', label: 'Outbox', icon: Database },
+    { key: 'prompts', label: 'Prompt', icon: Shield },
+  ] },
+  { title: '部署', items: [
+    { key: 'deployment', label: '部署授权', icon: Cloud, webOnly: true },
+  ] },
+];
+
+const ADMIN_LABELS: Record<string, string> = Object.fromEntries(
+  ADMIN_GROUPS.flatMap((g) => g.items.map((it) => [it.key, it.label])),
+);
+const KNOWN_TABS = new Set<AdminTab>(ADMIN_GROUPS.flatMap((g) => g.items.map((it) => it.key)));
+const normTab = (t?: string): AdminTab => (t && KNOWN_TABS.has(t as AdminTab) ? (t as AdminTab) : 'users');
+
+/**
+ * AdminPage —— 管理员独立控制台(整屏,脱离消费端 Chrome)。
+ * 左侧管理员专属分组菜单 + 顶栏(返回前台 / 退出登录) + 当前域内容。
+ * 由顶层路由 /admin/$tab 渲染;域组件全部复用。
+ */
+export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
+  const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const [tab, setTab] = React.useState<AdminTab>(tabProp ?? 'traces');
+  const logout = useAuthStore((s) => s.logout);
+  const [tab, setTab] = React.useState<AdminTab>(normTab(tabProp));
   React.useEffect(() => {
-    if (tabProp) setTab(tabProp);
+    setTab(normTab(tabProp));
   }, [tabProp]);
 
   if (!user || user.role !== 'admin') {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+      <div className="flex h-screen w-screen flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
         <Shield className="h-8 w-8" />
         <p>需要管理员权限才能访问</p>
-        <Button variant="outline" size="sm" onClick={onClose}>
-          返回
+        <Button variant="outline" size="sm" onClick={() => void navigate({ to: '/home' })}>
+          返回首页
         </Button>
       </div>
     );
   }
 
+  const select = (k: AdminTab) => {
+    setTab(k);
+    void navigate({ to: '/admin/$tab', params: { tab: k } });
+  };
+  const doLogout = async () => {
+    await logout();
+    void navigate({ to: '/login' });
+  };
+
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b px-6 py-3">
-        <h2 className="text-lg font-semibold">Admin · 可观测性</h2>
-        <Button variant="ghost" size="sm" onClick={onClose}>
-          关闭
-        </Button>
-      </header>
+    <div className="grid h-screen w-screen grid-cols-[240px_1fr] overflow-hidden bg-[var(--cy-surface-2)] text-[var(--cy-text-primary)]">
+      {/* 左:管理员专属菜单 */}
+      <aside className="flex h-full min-h-0 flex-col border-r border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
+        <div className="flex items-center gap-2 px-4 py-4">
+          <Shield className="h-5 w-5 text-[var(--cy-brand-500)]" />
+          <span className="text-sm font-semibold">管理控制台</span>
+        </div>
+        <nav className="min-h-0 flex-1 overflow-auto px-2 pb-4">
+          {ADMIN_GROUPS.map((g) => {
+            const items = g.items.filter((it) => !it.webOnly || isWeb());
+            if (!items.length) return null;
+            return (
+              <div key={g.title} className="mb-3">
+                <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide opacity-50">
+                  {g.title}
+                </div>
+                {items.map((it) => (
+                  <button
+                    key={it.key}
+                    type="button"
+                    onClick={() => select(it.key)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors',
+                      tab === it.key
+                        ? 'bg-[var(--cy-brand-500)]/12 font-medium text-[var(--cy-brand-600)]'
+                        : 'hover:bg-[var(--cy-surface-2)]',
+                    )}
+                  >
+                    <it.icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{it.label}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </nav>
+      </aside>
 
-      <div className="flex items-center gap-1 border-b px-2">
-        <TabButton icon={Activity} label="最近 Trace" active={tab === 'traces'} onClick={() => setTab('traces')} />
-        <TabButton icon={TrendingUp} label="Scores" active={tab === 'scores'} onClick={() => setTab('scores')} />
-        <TabButton icon={Database} label="Outbox" active={tab === 'outbox'} onClick={() => setTab('outbox')} />
-        <TabButton icon={Shield} label="Prompt" active={tab === 'prompts'} onClick={() => setTab('prompts')} />
-        <TabButton icon={Boxes} label="模型平台" active={tab === 'platforms'} onClick={() => setTab('platforms')} />
-        <TabButton icon={Users} label="用户" active={tab === 'users'} onClick={() => setTab('users')} />
-        <TabButton icon={Plug} label="MCP" active={tab === 'mcp'} onClick={() => setTab('mcp')} />
-        <TabButton icon={Wrench} label="工具" active={tab === 'tools'} onClick={() => setTab('tools')} />
-        <TabButton icon={Radio} label="WS端点" active={tab === 'ws'} onClick={() => setTab('ws')} />
-        <TabButton icon={AppWindow} label="应用" active={tab === 'apps'} onClick={() => setTab('apps')} />
-        <TabButton icon={Lock} label="KB授权" active={tab === 'kbacl'} onClick={() => setTab('kbacl')} />
-        <TabButton icon={Gauge} label="性能" active={tab === 'perf'} onClick={() => setTab('perf')} />
-        <TabButton icon={Server} label="系统服务" active={tab === 'services'} onClick={() => setTab('services')} />
-        {isWeb() && <TabButton icon={Cloud} label="部署授权" active={tab === 'deployment'} onClick={() => setTab('deployment')} />}
+      {/* 右:顶栏 + 内容 */}
+      <div className="grid min-h-0 min-w-0 grid-rows-[48px_1fr] overflow-hidden">
+        <header className="flex items-center justify-between border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-5">
+          <div className="text-sm font-semibold">{ADMIN_LABELS[tab] ?? '管理'}</div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs opacity-60">{user.username}</span>
+            <Button variant="ghost" size="sm" onClick={() => void navigate({ to: '/home' })}>
+              返回前台
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void doLogout()}>
+              退出登录
+            </Button>
+          </div>
+        </header>
+        <div className="min-h-0 overflow-auto bg-[var(--cy-surface-base)]">
+          {tab === 'traces' && <TraceList />}
+          {tab === 'outbox' && <OutboxView />}
+          {tab === 'scores' && <ScoreTrend />}
+          {tab === 'prompts' && <PromptList />}
+          {tab === 'platforms' && <PlatformAdmin />}
+          {tab === 'services' && <SystemServicesPage />}
+          {tab === 'users' && <UsersPage />}
+          {tab === 'mcp' && <McpPage />}
+          {tab === 'tools' && <ToolsBoard selectable={false} />}
+          {tab === 'ws' && <WsEndpointsPage />}
+          {tab === 'apps' && <AppsPage />}
+          {tab === 'kbacl' && <KbAclPage />}
+          {tab === 'perf' && <PerformancePage />}
+          {tab === 'deployment' && <DeploymentStatusPanel />}
+        </div>
       </div>
 
-      <div className="flex-1 overflow-auto">
-        {tab === 'traces' && <TraceList />}
-        {tab === 'outbox' && <OutboxView />}
-        {tab === 'scores' && <ScoreTrend />}
-        {tab === 'prompts' && <PromptList />}
-        {tab === 'platforms' && <PlatformAdmin />}
-        {tab === 'services' && <SystemServicesPage />}
-        {tab === 'users' && <UsersPage />}
-        {tab === 'mcp' && <McpPage />}
-        {tab === 'tools' && <ToolsBoard selectable={false} />}
-        {tab === 'ws' && <WsEndpointsPage />}
-        {tab === 'apps' && <AppsPage />}
-        {tab === 'kbacl' && <KbAclPage />}
-        {tab === 'perf' && <PerformancePage />}
-        {tab === 'deployment' && <DeploymentStatusPanel />}
-      </div>
+      {/* 控制台脱离 Chrome,需自挂确认/输入/错误弹窗根,否则域内确认框无处渲染 */}
+      <ConfirmRoot />
+      <PromptRoot />
+      <ErrorDialogRoot />
     </div>
   );
 };

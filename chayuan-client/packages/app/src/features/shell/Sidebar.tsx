@@ -358,7 +358,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
           <Button
             variant="ghost"
             className={cn('w-full justify-start gap-2', collapsed && 'justify-center px-0')}
-            onClick={() => onNavItem('/admin/traces', 'admin.traces', 'shield')}
+            onClick={() => void navigate({ to: '/admin' as never })}
           >
             <Shield className="h-4 w-4" />
             {!collapsed && <span>Admin</span>}

@@ -22,11 +22,13 @@ import {
   createRouter,
   redirect,
   useNavigate,
+  useParams,
 } from '@tanstack/react-router';
 import * as React from 'react';
 import { useAuthStore } from '../store/auth';
 import { useLoginModalStore } from '../store/loginModal';
 import { isSingleMachineMode } from '../features/first-run/useSingleMachineMode';
+import type { AdminTab } from '../features/admin/AdminPage';
 
 const Chrome = React.lazy(() => import('./Chrome').then((m) => ({ default: m.Chrome })));
 
@@ -48,6 +50,11 @@ const DetachedLaneRoute = React.lazy(() =>
 /** 网络版统一登录/首启独立页(全页,非 modal)。 */
 const AdminLoginPage = React.lazy(() =>
   import('../features/auth/AdminLoginPage').then((m) => ({ default: m.AdminLoginPage })),
+);
+
+/** 管理员独立控制台(整屏,脱离 Chrome)。 */
+const AdminConsole = React.lazy(() =>
+  import('../features/admin/AdminPage').then((m) => ({ default: m.AdminPage })),
 );
 
 export interface RouterContext {
@@ -197,53 +204,53 @@ const tabRoutes = workspaceRoutes.map((r) =>
   }),
 );
 
-/* Admin 路由 —— 未登录唤起 LoginModal 而非跳走;非 admin 角色回 /home */
-const adminLayoutRoute = createRoute({
-  getParentRoute: () => workspaceLayoutRoute,
-  id: '_admin-guard',
-  beforeLoad: async () => {
-    const auth = useAuthStore.getState();
-    if (!auth.hydrated) await auth.hydrate();
-    if (!auth.isLoggedIn) {
-      // 单机版沿用原弹框;网络版去独立登录页 /login。
-      if (isSingleMachineMode()) {
-        queueMicrotask(() => useLoginModalStore.getState().show());
-        throw redirect({ to: '/home' });
-      }
-      throw redirect({ to: '/login' });
+/* Admin 控制台 —— 顶层路由(脱离 workspaceLayoutRoute/Chrome),整屏独立渲染。 */
+const adminGuard = async () => {
+  const auth = useAuthStore.getState();
+  if (!auth.hydrated) await auth.hydrate();
+  if (!auth.isLoggedIn) {
+    // 单机版沿用原弹框;网络版去独立登录页 /login。
+    if (isSingleMachineMode()) {
+      queueMicrotask(() => useLoginModalStore.getState().show());
+      throw redirect({ to: '/home' });
     }
-    if (auth.user?.role !== 'admin') throw redirect({ to: '/home' });
-  },
-  component: () => null,
-});
-
-const adminTabRoutes = (['traces', 'outbox', 'prompts', 'platforms'] as const).map((tab) =>
-  createRoute({
-    getParentRoute: () => adminLayoutRoute,
-    path: `/admin/${tab}`,
-    component: () => null,
-  }),
-);
+    throw redirect({ to: '/login' });
+  }
+  if (auth.user?.role !== 'admin') throw redirect({ to: '/home' });
+};
 
 const adminRedirectRoute = createRoute({
-  getParentRoute: () => adminLayoutRoute,
+  getParentRoute: () => rootRoute,
   path: '/admin',
-  beforeLoad: () => {
-    throw redirect({ to: '/admin/traces' });
+  beforeLoad: async () => {
+    await adminGuard();
+    throw redirect({ to: '/admin/$tab', params: { tab: 'users' } });
+  },
+});
+
+const adminConsoleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/$tab',
+  beforeLoad: adminGuard,
+  component: function AdminConsoleRoute() {
+    const params = useParams({ strict: false }) as { tab?: string };
+    return (
+      <React.Suspense fallback={<RouteFallback />}>
+        <AdminConsole tab={params.tab as AdminTab | undefined} />
+      </React.Suspense>
+    );
   },
 });
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  adminRedirectRoute,
+  adminConsoleRoute,
   indexRoute,
   previewWindowRoute,
   arenaDetachedRoute,
   workspaceLayoutRoute.addChildren([
     ...(tabRoutes as unknown as AnyRoute[]),
-    adminLayoutRoute.addChildren([
-      adminRedirectRoute,
-      ...(adminTabRoutes as unknown as AnyRoute[]),
-    ] as unknown as AnyRoute[]),
   ] as unknown as AnyRoute[]),
 ]);
 
