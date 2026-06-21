@@ -107,6 +107,27 @@ def get_schema(file: str, _=Depends(_ADMIN)) -> Dict[str, Any]:
     return {"code": 0, "msg": "ok", "data": _schema_to_dict(fs)}
 
 
+def _effective_default(file_stem: str, path: str):
+    """yaml 缺该键时,回退到 pydantic Settings 的实际生效默认值。
+
+    file_stem 形如 model_settings/kb_settings/basic_settings/tool_settings/prompt_settings,
+    恰为 Settings 容器上的属性名。path 点号分隔,逐级走属性或 dict。任何异常返回 None,
+    不影响取值主流程。让「模型参数 HISTORY_LEN/TEMPERATURE、RAG 模板」等即便没写进 yaml
+    也能在表单里显示真实默认。"""
+    try:
+        from chayuan.settings import Settings
+        node = getattr(Settings, file_stem, None)
+        if node is None:
+            return None
+        for key in path.split("."):
+            if node is None:
+                return None
+            node = node.get(key) if isinstance(node, dict) else getattr(node, key, None)
+        return node
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @config_router.get("/{file}/values", summary="[admin] 返回某 yaml 域当前值(password 脱敏)")
 def get_values(file: str, _=Depends(_ADMIN)) -> Dict[str, Any]:
     from chayuan.server.config_panel import yaml_store
@@ -114,6 +135,7 @@ def get_values(file: str, _=Depends(_ADMIN)) -> Dict[str, Any]:
     name, fs = _resolve(file)
     res = yaml_store.load_yaml(name)
     doc = res.doc if res.exists else {}
+    file_stem = name[:-5] if name.endswith(".yaml") else name
 
     values: Dict[str, Any] = {}
     masked: Dict[str, bool] = {}
@@ -121,6 +143,11 @@ def get_values(file: str, _=Depends(_ADMIN)) -> Dict[str, Any]:
         raw = yaml_store.get_by_path(doc, f.path, default=None)
         # ruamel scalar → 原生
         raw = yaml_store._normalize(raw)
+        # yaml 没写该键 → 回退到 Settings 实际生效默认值(让表单显示真实默认而非空)
+        if raw is None:
+            eff = _effective_default(file_stem, f.path)
+            if eff is not None:
+                raw = yaml_store._normalize(eff)
         if f.widget == "password" and isinstance(raw, str) and raw:
             values[f.path] = _MASK
             masked[f.path] = True
