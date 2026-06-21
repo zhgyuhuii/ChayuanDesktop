@@ -15,7 +15,9 @@ from openai.types.chat import (
 from chayuan.settings import Settings
 from langchain_chayuan.callbacks.agent_callback_handler import AgentStatus  # noaq
 from chayuan.server.pydantic_v2 import AnyUrl, BaseModel, Field
-from chayuan.server.utils import MsgType, get_default_llm
+# BaseResponse 由 utils 统一定义；此处 re-export，供 apps_routes / kb_acl_routes /
+# metrics_routes / ws_endpoints_routes 等从 api_schemas 引用（保持单一来源）。
+from chayuan.server.utils import BaseResponse, MsgType, get_default_llm
 
 
 class OpenAIBaseInput(BaseModel):
