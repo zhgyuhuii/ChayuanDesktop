@@ -11,6 +11,7 @@
 import * as React from 'react';
 import {
   modelPlatform,
+  getClientConfig,
   type ProviderCatalogEntry,
   type PlatformPatch,
   type PlatformTestResult,
@@ -60,7 +61,26 @@ function entryToDraft(e: ProviderCatalogEntry): Draft {
   };
 }
 
+/** catalog 给文件名(如 deepseek.png),拼后端静态目录 /img/model_logos/(与模型广场对齐)。 */
+function logoUrl(file?: string): string | undefined {
+  if (!file) return undefined;
+  const base = (getClientConfig().baseURL || '').replace(/\/api\/?$/, '').replace(/\/$/, '');
+  return `${base}/img/model_logos/${file}`;
+}
+
 function Avatar({ e }: { e: ProviderCatalogEntry }) {
+  const [err, setErr] = React.useState(false);
+  const url = logoUrl(e.logo);
+  if (url && !err) {
+    return (
+      <img
+        src={url}
+        alt={e.display_name}
+        onError={() => setErr(true)}
+        className="h-8 w-8 shrink-0 rounded-lg bg-white object-contain p-0.5"
+      />
+    );
+  }
   return (
     <div
       className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
