@@ -94,3 +94,32 @@ export interface PersonaResult {
 export function adminUserPersona(userId: number): Promise<PersonaResult> {
   return http.post<PersonaResult>(`/api/v1/admin/users/${userId}/persona-analysis`);
 }
+
+
+// ── 默认模型(9 类 capability)—— /admin/capability_defaults ──────────────
+export interface CapabilityCandidate {
+  id: string;
+  runtime: string | null;
+  platform_name: string | null;
+  format: string | null;
+  size_bytes: number;
+  is_default: boolean;
+}
+export interface CapabilityDefaults {
+  capabilities: string[];
+  defaults: Record<string, string | null>;
+  candidates: Record<string, CapabilityCandidate[]>;
+  auto_assigned: string[];
+}
+
+/** 读 9 类默认模型 + 候选(按 platform_name 分云/本地)。GET 公开,后端已自动补默认。 */
+export function adminCapabilityDefaults(): Promise<CapabilityDefaults> {
+  return http.get<CapabilityDefaults>('/admin/capability_defaults');
+}
+
+/** 批量设置默认模型(admin)。payload = {cap: model_id, ...}。 */
+export function adminSetCapabilityDefaults(
+  payload: Record<string, string>,
+): Promise<{ results?: Record<string, { ok: boolean; model?: string; error?: string }> }> {
+  return http.post('/admin/capability_defaults', payload);
+}

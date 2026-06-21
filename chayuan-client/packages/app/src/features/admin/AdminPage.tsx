@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -17,12 +17,13 @@ import { WsEndpointsPage } from './wsendpoints/WsEndpointsPage';
 import { AppsPage } from './apps/AppsPage';
 import { KbAclPage } from './kbacl/KbAclPage';
 import { PerformancePage } from './performance/PerformancePage';
+import { DefaultModelsPage } from './defaults/DefaultModelsPage';
 import { useNavigate } from '@tanstack/react-router';
 import { ConfirmRoot } from '../../store/confirmDialog';
 import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults';
 
 type AdminGroup = { title: string; items: { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean }[] };
 
@@ -34,6 +35,7 @@ const ADMIN_GROUPS: AdminGroup[] = [
     { key: 'apps', label: '应用', icon: AppWindow },
   ] },
   { title: '模型与服务', items: [
+    { key: 'defaults', label: '默认模型', icon: Star },
     { key: 'platforms', label: '模型平台', icon: Boxes },
     { key: 'mcp', label: 'MCP', icon: Plug },
     { key: 'tools', label: '工具', icon: Wrench },
@@ -151,6 +153,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'outbox' && <OutboxView />}
           {tab === 'scores' && <ScoreTrend />}
           {tab === 'prompts' && <PromptList />}
+          {tab === 'defaults' && <DefaultModelsPage />}
           {tab === 'platforms' && <PlatformAdmin />}
           {tab === 'services' && <SystemServicesPage />}
           {tab === 'users' && <UsersPage />}
