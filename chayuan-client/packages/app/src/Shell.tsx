@@ -264,7 +264,7 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
   const singleMachine = useSingleMachineMode();
 
   // 网络版:任何「需要登录」信号(强制登录 / 首启无管理员 / 业务触发 .show())
-  // 统一把用户导向独立登录页 /admin/login,取代原 LoginModal / AdminSetupGate 浮层。
+  // 统一把用户导向独立登录页 /login,取代原 LoginModal / AdminSetupGate 浮层。
   // 本组件在 RouterProvider 之外,用 routerRef 直接 navigate(不能用 useNavigate)。
   React.useEffect(() => {
     if (singleMachine || isLoggedIn) return;
@@ -272,8 +272,8 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
     if (!shouldGate) return;
     const router = routerRef.current;
     if (!router) return;
-    if (router.state.location.pathname !== '/admin/login') {
-      void router.navigate({ to: '/admin/login' });
+    if (router.state.location.pathname !== '/login') {
+      void router.navigate({ to: '/login' });
     }
     if (loginOpen) useLoginModalStore.getState().hide();
   }, [singleMachine, isLoggedIn, loginOpen, adminSetupRequired, authRequired]);

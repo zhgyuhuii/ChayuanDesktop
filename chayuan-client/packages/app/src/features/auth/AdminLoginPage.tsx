@@ -1,7 +1,7 @@
 /**
  * AdminLoginPage —— 网络版统一独立登录 / 首启页(全页,非 modal)。
  *
- * 路径 `/admin/login`。同页双模式(以 `/auth/config` 为准):
+ * 路径 `/login`(统一登录入口)。同页双模式(以 `/auth/config` 为准):
  *   - 后端无管理员(admin_setup_required) → 「设置首个管理员」表单(复用原 AdminSetupGate 逻辑)
  *   - 已有管理员 → 「登录」表单(allow_registration 时附「注册」)
  *
@@ -56,7 +56,7 @@ export const AdminLoginPage: React.FC = () => {
     [navigate],
   );
 
-  // 已登录直接按角色离开登录页(防止登录态下停在 /admin/login)。
+  // 已登录直接按角色离开登录页(防止登录态下停在 /login)。
   React.useEffect(() => {
     if (isLoggedIn) {
       const u = useAuthStore.getState().user;
