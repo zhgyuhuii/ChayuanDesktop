@@ -26,6 +26,7 @@ import {
 import * as React from 'react';
 import { useAuthStore } from '../store/auth';
 import { useLoginModalStore } from '../store/loginModal';
+import { isSingleMachineMode } from '../features/first-run/useSingleMachineMode';
 
 const Chrome = React.lazy(() => import('./Chrome').then((m) => ({ default: m.Chrome })));
 
@@ -42,6 +43,11 @@ const DetachedLaneRoute = React.lazy(() =>
   import('../features/model-arena/DetachedLaneRoute').then((m) => ({
     default: m.DetachedLaneRoute,
   })),
+);
+
+/** 网络版统一登录/首启独立页(全页,非 modal)。 */
+const AdminLoginPage = React.lazy(() =>
+  import('../features/auth/AdminLoginPage').then((m) => ({ default: m.AdminLoginPage })),
 );
 
 export interface RouterContext {
@@ -104,6 +110,20 @@ const arenaDetachedRoute = createRoute({
 });
 
 /**
+ * /admin/login —— 网络版统一登录/首启独立页。公开路由(不在 admin 守卫下),
+ * 否则未登录进不来。单机版不经过此路由。
+ */
+const adminLoginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/login',
+  component: () => (
+    <React.Suspense fallback={<RouteFallback />}>
+      <AdminLoginPage />
+    </React.Suspense>
+  ),
+});
+
+/**
  * 工作区根:仅 hydrate auth,不强制登录(游客可见首页)。
  * 受限子路由(如 admin)在自己的守卫里唤起 LoginModal。
  */
@@ -113,6 +133,14 @@ const workspaceLayoutRoute = createRoute({
   beforeLoad: async () => {
     const auth = useAuthStore.getState();
     if (!auth.hydrated) await auth.hydrate();
+    // 网络版:未登录且(后端要求登录 或 尚无管理员需首启)→ 去独立登录页 /admin/login,
+    // 避免业务页在登录前挂载并打 401。单机版不受影响。
+    if (!isSingleMachineMode() && !auth.isLoggedIn) {
+      const lm = useLoginModalStore.getState();
+      if (lm.authRequired === true || lm.adminSetupRequired) {
+        throw redirect({ to: '/admin/login' });
+      }
+    }
   },
   component: () => (
     <React.Suspense fallback={<RouteFallback />}>
@@ -178,8 +206,12 @@ const adminLayoutRoute = createRoute({
     const auth = useAuthStore.getState();
     if (!auth.hydrated) await auth.hydrate();
     if (!auth.isLoggedIn) {
-      queueMicrotask(() => useLoginModalStore.getState().show());
-      throw redirect({ to: '/home' });
+      // 单机版沿用原弹框;网络版去独立登录页 /admin/login。
+      if (isSingleMachineMode()) {
+        queueMicrotask(() => useLoginModalStore.getState().show());
+        throw redirect({ to: '/home' });
+      }
+      throw redirect({ to: '/admin/login' });
     }
     if (auth.user?.role !== 'admin') throw redirect({ to: '/home' });
   },
@@ -204,6 +236,7 @@ const adminRedirectRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  adminLoginRoute,
   indexRoute,
   previewWindowRoute,
   arenaDetachedRoute,

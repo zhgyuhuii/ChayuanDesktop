@@ -13,8 +13,6 @@ import { TooltipProvider } from '@chayuan/ui';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import * as React from 'react';
-import { AdminSetupGate } from './features/auth/AdminSetupGate';
-import { LoginModal } from './features/auth/LoginModal';
 import { ServerLoginModal } from './features/auth/ServerLoginModal';
 import { prefetchCatalog } from './features/catalog/useCatalog';
 import { FirstRunSetup } from './features/first-run/FirstRunSetup';
@@ -71,6 +69,7 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const authRequired = useLoginModalStore((s) => s.authRequired);
   const adminSetupRequired = useLoginModalStore((s) => s.adminSetupRequired);
+  const loginOpen = useLoginModalStore((s) => s.open);
   const locale = useSettingsStore((s) => s.locale);
   const thinClientEnabled = !!env.thinClient;
   const setThinClientEnabled = useThinClientStore((s) => s.setEnabled);
@@ -264,6 +263,21 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
   // hook),也算 hook。 — 单机版 v0 排查白屏踩到的坑。
   const singleMachine = useSingleMachineMode();
 
+  // 网络版:任何「需要登录」信号(强制登录 / 首启无管理员 / 业务触发 .show())
+  // 统一把用户导向独立登录页 /admin/login,取代原 LoginModal / AdminSetupGate 浮层。
+  // 本组件在 RouterProvider 之外,用 routerRef 直接 navigate(不能用 useNavigate)。
+  React.useEffect(() => {
+    if (singleMachine || isLoggedIn) return;
+    const shouldGate = loginOpen || adminSetupRequired || authRequired === true;
+    if (!shouldGate) return;
+    const router = routerRef.current;
+    if (!router) return;
+    if (router.state.location.pathname !== '/admin/login') {
+      void router.navigate({ to: '/admin/login' });
+    }
+    if (loginOpen) useLoginModalStore.getState().hide();
+  }, [singleMachine, isLoggedIn, loginOpen, adminSetupRequired, authRequired]);
+
   // Tauri 子窗(永道拖出 / 文件预览)运行在主窗同一个 Tauri 进程内,sidecar 已由
   // 主窗启起并保持 ready;再让子窗自己走 FirstRunSetup → SidecarGate 没意义,
   // 反而会闪「正在启动后端服务」。这里直接放行进 RouterProvider,baseURL 走
@@ -318,8 +332,6 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
         <LocaleBridge />
         {thinClientGateActive ? (
           <ThinClientGateBackdrop />
-        ) : authGateActive ? (
-          <AuthRequiredMask />
         ) : (
           <>
             <RouterProvider router={routerRef.current} />
@@ -327,8 +339,6 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
           </>
         )}
         {thinClientEnabled && <ServerLoginModal />}
-        {!singleMachine && adminSetupRequired && <AdminSetupGate />}
-        {!singleMachine && <LoginModal />}
       </TooltipProvider>
     </QueryClientProvider>
   );
@@ -340,21 +350,3 @@ const ThinClientGateBackdrop: React.FC = () => (
   </div>
 );
 
-const AuthRequiredMask: React.FC = () => (
-  <div className="relative h-screen w-screen overflow-hidden bg-[var(--cy-surface-2,#f8fafc)]">
-    <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(99,102,241,0.08),transparent_32%),radial-gradient(circle_at_80%_70%,rgba(14,165,233,0.08),transparent_30%)]" />
-    <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
-      <div className="max-w-md rounded-3xl border border-[var(--cy-border-subtle,#e2e8f0)] bg-[var(--cy-surface-base,#fff)]/80 p-8 shadow-[var(--cy-shadow-lg,0_24px_80px_rgba(15,23,42,0.12))] backdrop-blur-xl">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--cy-brand-500,#6366f1)] text-lg font-bold text-white">
-          察
-        </div>
-        <h1 className="text-xl font-semibold text-[var(--cy-text-primary,#0f172a)]">
-          需要登录后使用
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-[var(--cy-text-secondary,#475569)]">
-          当前系统已开启登录验证。登录前不会加载或展示任何业务数据。
-        </p>
-      </div>
-    </div>
-  </div>
-);
