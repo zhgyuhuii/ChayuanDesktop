@@ -769,13 +769,11 @@ export interface WsEndpoint {
   enabled: boolean;
 }
 export const wsEndpoints = {
-  async list(): Promise<WsEndpoint[]> {
-    const r = await request<{ endpoints: WsEndpoint[] }>('/api/v1/ws-endpoints', { raw: true });
-    return r.data?.endpoints ?? [];
-  },
-  create: (body: WsEndpoint) => request<WsEndpoint>('/api/v1/ws-endpoints', { method: 'POST', body, raw: true }).then((r) => r.data),
-  update: (name: string, body: WsEndpoint) => request<WsEndpoint>(`/api/v1/ws-endpoints/${encodeURIComponent(name)}`, { method: 'PUT', body, raw: true }).then((r) => r.data),
-  remove: (name: string) => request(`/api/v1/ws-endpoints/${encodeURIComponent(name)}`, { method: 'DELETE', raw: true }).then(() => undefined),
+  // 后端 BaseResponse 信封,用 http.* 剥壳;旧 raw:true 返整信封致列表恒空(同 kbAcl bug)。
+  list: () => http.get<{ endpoints: WsEndpoint[] }>('/api/v1/ws-endpoints').then((r) => r.endpoints ?? []),
+  create: (body: WsEndpoint) => http.post<WsEndpoint>('/api/v1/ws-endpoints', body),
+  update: (name: string, body: WsEndpoint) => http.put<WsEndpoint>(`/api/v1/ws-endpoints/${encodeURIComponent(name)}`, body),
+  remove: (name: string) => http.del<unknown>(`/api/v1/ws-endpoints/${encodeURIComponent(name)}`).then(() => undefined),
 };
 
 
@@ -793,18 +791,16 @@ export interface AppSpec {
   tool_ids: string[];
 }
 export const apps = {
-  async list(): Promise<AppSpec[]> {
-    const r = await request<{ apps: AppSpec[] }>('/api/v1/admin/apps', { raw: true });
-    return r.data?.apps ?? [];
-  },
+  // 后端 BaseResponse 信封,用 http.* 剥壳(同 kbAcl bug:旧 raw:true 致列表/密钥恒空)。
+  list: () => http.get<{ apps: AppSpec[] }>('/api/v1/admin/apps').then((r) => r.apps ?? []),
   create: (body: { name: string; callback_url?: string; callback_events?: string[]; scopes?: string[] }) =>
-    request<AppSpec>('/api/v1/admin/apps', { method: 'POST', body, raw: true }).then((r) => r.data),
+    http.post<AppSpec>('/api/v1/admin/apps', body),
   update: (appId: string, body: Partial<AppSpec>) =>
-    request<AppSpec>(`/api/v1/admin/apps/${encodeURIComponent(appId)}`, { method: 'PUT', body, raw: true }).then((r) => r.data),
+    http.put<AppSpec>(`/api/v1/admin/apps/${encodeURIComponent(appId)}`, body),
   rotate: (appId: string) =>
-    request<AppSpec>(`/api/v1/admin/apps/${encodeURIComponent(appId)}/rotate`, { method: 'POST', raw: true }).then((r) => r.data),
+    http.post<AppSpec>(`/api/v1/admin/apps/${encodeURIComponent(appId)}/rotate`),
   remove: (appId: string) =>
-    request(`/api/v1/admin/apps/${encodeURIComponent(appId)}`, { method: 'DELETE', raw: true }).then(() => undefined),
+    http.del<unknown>(`/api/v1/admin/apps/${encodeURIComponent(appId)}`).then(() => undefined),
 };
 
 
@@ -813,22 +809,19 @@ export interface KbAclItem { id: number; kb_name: string; owner_id: number | nul
 export interface KbAclUser { id: number; label: string }
 export interface KbGrant { user_id: number; user: string; role: string; granted_by: number | null }
 export const kbAcl = {
-  async list(): Promise<{ kbs: KbAclItem[]; users: KbAclUser[] }> {
-    const r = await request<{ kbs: KbAclItem[]; users: KbAclUser[] }>('/api/v1/admin/kb-acl', { raw: true });
-    return r.data ?? { kbs: [], users: [] };
-  },
-  async grants(kbId: number): Promise<KbGrant[]> {
-    const r = await request<{ grants: KbGrant[] }>(`/api/v1/admin/kb-acl/${kbId}/grants`, { raw: true });
-    return r.data?.grants ?? [];
-  },
+  // http.get 会剥 {code,msg,data} 信封直接返回 data;旧实现用 raw:true 不剥壳,
+  // 返回整信封 → 前端 q.data.kbs 为 undefined → KB 列表恒空(看着像"没实现")。
+  list: () => http.get<{ kbs: KbAclItem[]; users: KbAclUser[] }>('/api/v1/admin/kb-acl'),
+  grants: (kbId: number) =>
+    http.get<{ grants: KbGrant[] }>(`/api/v1/admin/kb-acl/${kbId}/grants`).then((r) => r.grants ?? []),
   setVisibility: (kbId: number, visibility: string) =>
-    request(`/api/v1/admin/kb-acl/${kbId}/visibility`, { method: 'PATCH', body: { visibility }, raw: true }).then(() => undefined),
+    http.patch<unknown>(`/api/v1/admin/kb-acl/${kbId}/visibility`, { visibility }).then(() => undefined),
   setOwner: (kbId: number, ownerId: number | null) =>
-    request(`/api/v1/admin/kb-acl/${kbId}/owner`, { method: 'PATCH', body: { owner_id: ownerId }, raw: true }).then(() => undefined),
+    http.patch<unknown>(`/api/v1/admin/kb-acl/${kbId}/owner`, { owner_id: ownerId }).then(() => undefined),
   addGrant: (kbId: number, userId: number, role: string) =>
-    request(`/api/v1/admin/kb-acl/${kbId}/grants`, { method: 'POST', body: { user_id: userId, role }, raw: true }).then(() => undefined),
+    http.post<unknown>(`/api/v1/admin/kb-acl/${kbId}/grants`, { user_id: userId, role }).then(() => undefined),
   revokeGrant: (kbId: number, userId: number) =>
-    request(`/api/v1/admin/kb-acl/${kbId}/grants/${userId}`, { method: 'DELETE', raw: true }).then(() => undefined),
+    http.del<unknown>(`/api/v1/admin/kb-acl/${kbId}/grants/${userId}`).then(() => undefined),
 };
 
 
