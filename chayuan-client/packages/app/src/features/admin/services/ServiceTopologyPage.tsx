@@ -9,8 +9,13 @@
 import * as React from 'react';
 import { servicesConfig, type TopologySnapshot, type TopologyNode, type TopologyStatus } from '@chayuan/api';
 import { Button } from '@chayuan/ui';
-import { useNavigate } from '@tanstack/react-router';
-import { RefreshCw, Plus, X, Wifi, Settings2, CheckCircle2 } from 'lucide-react';
+import { RedisConfigPage } from '../infra/RedisConfigPage';
+import { DatabaseConfigPage } from '../infra/DatabaseConfigPage';
+import { StorageConfigPage } from '../infra/StorageConfigPage';
+import { ServicesConfigPage } from '../infra/ServicesConfigPage';
+import { VectorStorePage } from '../config/VectorStorePage';
+import { BasicSettingsPage } from '../config/BasicSettingsPage';
+import { RefreshCw, Plus, X, Wifi, Settings2 } from 'lucide-react';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 
 // 画布尺寸(与后端 service_page 坐标系一致:x≤~1040,y≤~520)
@@ -27,17 +32,18 @@ const STATUS_STYLE: Record<TopologyStatus, { border: string; bg: string; dot: st
 };
 const STATUS_LABEL: Record<TopologyStatus, string> = { ok: '正常', down: '异常', disabled: '未启用', unknown: '未知' };
 
-// config_kind → admin tab(点击节点跳配置)。无映射的弹详情。
-const CONFIG_TAB: Record<string, string> = {
-  redis: 'redis',
-  db: 'database',
-  milvus: 'vstore',
-  minio: 'storage',
-  langfuse: 'basic',
-  api: 'basic',
-  panel: 'basic',
-  runtime: 'services',
+// config_kind → 复用的配置页组件(点击节点弹窗内渲染);无映射回退「服务配置」页。
+const CONFIG_COMPONENT: Record<string, { title: string; Comp: React.FC }> = {
+  redis: { title: 'Redis 配置', Comp: RedisConfigPage },
+  db: { title: '数据库配置', Comp: DatabaseConfigPage },
+  milvus: { title: '向量库配置', Comp: VectorStorePage },
+  minio: { title: '对象存储配置', Comp: StorageConfigPage },
+  langfuse: { title: '基础配置(Langfuse)', Comp: BasicSettingsPage },
 };
+const DEFAULT_CONFIG = { title: '服务配置', Comp: ServicesConfigPage };
+function configFor(kind: string): { title: string; Comp: React.FC } {
+  return CONFIG_COMPONENT[kind] ?? DEFAULT_CONFIG;
+}
 
 function edgeStatus(a?: TopologyNode, b?: TopologyNode): TopologyStatus {
   if (!a || !b) return 'unknown';
@@ -56,8 +62,8 @@ const TOPO_CSS = `
   0%,100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
-.topo-node { cursor: pointer; transition: transform .12s; }
-.topo-node:hover { transform: scale(1.03); transform-origin: center; }
+.topo-node { cursor: pointer; }
+.topo-node:hover rect { stroke-width: 3.5; }
 `;
 
 const AddCheckDialog: React.FC<{ onClose: () => void; onAdded: () => void }> = ({ onClose, onAdded }) => {
@@ -143,12 +149,11 @@ const AddCheckDialog: React.FC<{ onClose: () => void; onAdded: () => void }> = (
 };
 
 export const ServiceTopologyPage: React.FC = () => {
-  const navigate = useNavigate();
   const [snap, setSnap] = React.useState<TopologySnapshot | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [auto, setAuto] = React.useState(true);
   const [showAdd, setShowAdd] = React.useState(false);
-  const [sel, setSel] = React.useState<TopologyNode | null>(null);
+  const [cfgNode, setCfgNode] = React.useState<TopologyNode | null>(null);
 
   const load = React.useCallback(async (probe = true) => {
     setLoading(true);
@@ -174,11 +179,7 @@ export const ServiceTopologyPage: React.FC = () => {
   const nodes = snap?.nodes ?? [];
   const byId = React.useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
-  const clickNode = (n: TopologyNode) => {
-    setSel(n);
-    const tab = CONFIG_TAB[n.config_kind];
-    if (tab) void navigate({ to: '/admin/$tab', params: { tab } });
-  };
+  const clickNode = (n: TopologyNode) => setCfgNode(n);
 
   return (
     <div className="space-y-5 p-6">
@@ -187,7 +188,7 @@ export const ServiceTopologyPage: React.FC = () => {
         <div>
           <h2 className="text-lg font-semibold">服务状态 · 拓扑</h2>
           <p className="mt-1 text-xs opacity-60">
-            实时探活,连线流光表示数据通路;节点点击可跳到对应配置。每 5s 自动刷新。
+            实时探活,连线流光表示数据通路;点击节点/「配置」弹窗复用对应配置页。每 5s 自动刷新。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -276,7 +277,6 @@ export const ServiceTopologyPage: React.FC = () => {
           .filter((n) => n.group !== 'edge')
           .map((n) => {
             const st = STATUS_STYLE[n.status];
-            const tab = CONFIG_TAB[n.config_kind];
             return (
               <div
                 key={n.id}
@@ -299,27 +299,32 @@ export const ServiceTopologyPage: React.FC = () => {
                   >
                     {STATUS_LABEL[n.status]}
                   </span>
-                  {tab && (
-                    <button
-                      className="ml-auto inline-flex items-center gap-1 text-[11px] text-[var(--cy-brand-600)] hover:underline"
-                      onClick={() => void navigate({ to: '/admin/$tab', params: { tab } })}
-                    >
-                      <Settings2 className="h-3 w-3" /> 配置
-                    </button>
-                  )}
+                  <button
+                    className="ml-auto inline-flex items-center gap-1 text-[11px] text-[var(--cy-brand-600)] hover:underline"
+                    onClick={() => setCfgNode(n)}
+                  >
+                    <Settings2 className="h-3 w-3" /> 配置
+                  </button>
                 </div>
               </div>
             );
           })}
       </div>
 
-      {sel && !CONFIG_TAB[sel.config_kind] && (
-        <div className="rounded-md bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800">
-          <span className="inline-flex items-center gap-1.5">
-            <CheckCircle2 className="h-3.5 w-3.5" /> {sel.label}：{sel.detail || sel.summary || STATUS_LABEL[sel.status]}（该节点暂无独立配置页）
-          </span>
-        </div>
-      )}
+      {cfgNode ? (() => {
+        const { title, Comp } = configFor(cfgNode.config_kind);
+        return (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4" onClick={() => setCfgNode(null)}>
+            <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-[var(--cy-border-subtle)] px-5 py-3">
+                <h3 className="text-sm font-semibold">{cfgNode.label} · {title}</h3>
+                <button onClick={() => setCfgNode(null)} className="opacity-50 hover:opacity-100"><X className="h-4 w-4" /></button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto"><Comp /></div>
+            </div>
+          </div>
+        );
+      })() : null}
 
       {showAdd && <AddCheckDialog onClose={() => setShowAdd(false)} onAdded={() => void load(true)} />}
     </div>

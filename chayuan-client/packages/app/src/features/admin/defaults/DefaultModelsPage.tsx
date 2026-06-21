@@ -17,6 +17,7 @@ import {
   ImagePlus, Video, Volume2, Mic, ScanText, CheckCircle2, AlertCircle,
 } from 'lucide-react';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
+import { useNavigate } from '@tanstack/react-router';
 
 type CapMeta = { label: string; hint: string; icon: React.ComponentType<{ className?: string }>; accent: string; chip: string };
 const CAP_META: Record<string, CapMeta> = {
@@ -54,6 +55,7 @@ export const DefaultModelsPage: React.FC = () => {
   const [data, setData] = React.useState<CapabilityDefaults | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [savingCap, setSavingCap] = React.useState<string | null>(null);
+  const navigate = useNavigate();
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -136,7 +138,10 @@ export const DefaultModelsPage: React.FC = () => {
                     {saving && <span className="ml-auto opacity-40">保存中…</span>}
                   </div>
                   {empty ? (
-                    <p className="text-[11px] leading-snug opacity-50">请先在「模型平台」配置并启用对应能力的模型。</p>
+                    <div className="space-y-1">
+                      <p className="text-[11px] leading-snug opacity-50">该能力暂无候选,请先在「模型平台」配置并<b>启用</b>对应模型。</p>
+                      <button className="text-[11px] text-[var(--cy-brand-600)] hover:underline" onClick={() => void navigate({ to: '/admin/$tab', params: { tab: 'platforms' } })}>去模型平台配置 →</button>
+                    </div>
                   ) : (
                     <select
                       className="w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-2 py-2 text-xs outline-none focus:ring-2 focus:ring-[var(--cy-brand-400)] disabled:opacity-50 dark:bg-zinc-800"

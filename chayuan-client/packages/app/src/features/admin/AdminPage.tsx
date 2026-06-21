@@ -17,7 +17,7 @@ import { AppsPage } from './apps/AppsPage';
 import { KbAclPage } from './kbacl/KbAclPage';
 import { PerformancePage } from './performance/PerformancePage';
 import { DefaultModelsPage } from './defaults/DefaultModelsPage';
-import { ModelPlatformsPage } from './platforms/ModelPlatformsPage';
+import { MarketplacePage } from '../marketplace/MarketplacePage';
 import { RedisConfigPage } from './infra/RedisConfigPage';
 import { StorageConfigPage } from './infra/StorageConfigPage';
 import { DatabaseConfigPage } from './infra/DatabaseConfigPage';
@@ -271,7 +271,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'modelcfg' && <SchemaForm file="model_settings" />}
           {tab === 'prompttpl' && <SchemaForm file="prompt_settings" />}
           {tab === 'defaults' && <DefaultModelsPage />}
-          {tab === 'platforms' && <ModelPlatformsPage />}
+          {tab === 'platforms' && <MarketplacePage embedded />}
           {tab === 'services' && <SystemServicesPage />}
           {tab === 'topology' && <ServiceTopologyPage />}
           {tab === 'svcstatus' && <ServicesConfigPage />}
