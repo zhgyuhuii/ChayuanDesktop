@@ -1,7 +1,7 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Chayuan",
-  "version": "2.0.209",
+  "version": "2.0.210",
   "identifier": "ai.chayuan.client",
   "build": {
     "beforeDevCommand": "pnpm dev:vite",

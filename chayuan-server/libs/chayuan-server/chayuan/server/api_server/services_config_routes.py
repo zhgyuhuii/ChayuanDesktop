@@ -132,3 +132,39 @@ async def framework_stop(name: str, _=Depends(_ADMIN)) -> Dict[str, Any]:
         }}
     except Exception as e:  # noqa: BLE001
         return {"code": 0, "msg": "ok", "data": {"ok": False, "error": f"{type(e).__name__}: {e}"}}
+
+
+@services_config_router.get("/topology", summary="[admin] 服务拓扑快照(节点+连线+状态)")
+def services_topology(probe: bool = True, _=Depends(_ADMIN)) -> Dict[str, Any]:
+    """复用 config_panel/service_page.build_snapshot:固定节点(client/nginx/api/panel/
+    redis/db/milvus/minio/langfuse)+动态 runtime 节点 + 连线 + 并发探活状态。
+    probe=false 时返回 unknown 占位骨架(<10ms),前端可先渲染再异步刷新。"""
+    from chayuan.server.config_panel.service_page import build_snapshot
+    try:
+        topo = build_snapshot(probe=bool(probe))
+    except Exception as e:  # noqa: BLE001
+        return {"code": 1, "msg": f"拓扑构建失败：{e}", "data": {"nodes": [], "edges": [], "generated_at": 0}}
+    nodes: List[Dict[str, Any]] = []
+    for svc in topo.services.values():
+        nodes.append({
+            "id": svc.sid,
+            "label": svc.label,
+            "group": svc.group,
+            "icon": svc.icon,
+            "status": svc.status,
+            "summary": svc.summary,
+            "detail": svc.detail,
+            "restartable": bool(svc.restartable),
+            "config_kind": svc.config_kind,
+            "x": svc.x,
+            "y": svc.y,
+        })
+    return {
+        "code": 0,
+        "msg": "ok",
+        "data": {
+            "nodes": nodes,
+            "edges": [list(e) for e in topo.edges],
+            "generated_at": int(topo.generated_at * 1000),
+        },
+    }

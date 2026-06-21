@@ -135,9 +135,31 @@ export interface FrameworkHealth {
   name: string; label: string; state: string; url: string; models_served: number; capabilities: string[];
 }
 export interface ExternalRuntime { name: string; url: string; health_path: string; enabled: boolean }
+
+export type TopologyStatus = 'ok' | 'down' | 'disabled' | 'unknown';
+export interface TopologyNode {
+  id: string;
+  label: string;
+  group: string;        // edge / proxy / app / infra / runtime
+  icon: string;
+  status: TopologyStatus;
+  summary: string;
+  detail: string;
+  restartable: boolean;
+  config_kind: string;  // api/panel/nginx/redis/db/milvus/minio/langfuse/kkfileview/runtime
+  x: number;
+  y: number;
+}
+export interface TopologySnapshot {
+  nodes: TopologyNode[];
+  edges: [string, string][];
+  generated_at: number;
+}
 export const servicesConfig = {
   readiness: () =>
     http.get<{ statuses: ServiceStatusRow[]; system_ready: boolean }>('/api/v1/admin/services/readiness'),
+  topology: (probe = true) =>
+    http.get<TopologySnapshot>('/api/v1/admin/services/topology', { query: { probe }, timeoutMs: 30_000 }),
   frameworks: () => http.get<{ frameworks: FrameworkHealth[] }>('/api/v1/admin/services/frameworks'),
   externalList: () => http.get<{ runtimes: ExternalRuntime[] }>('/api/v1/admin/services/external'),
   externalSet: (body: { name: string; url: string; health_path?: string; enabled?: boolean }) =>
