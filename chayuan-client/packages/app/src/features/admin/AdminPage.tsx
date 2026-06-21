@@ -20,12 +20,13 @@ import { DefaultModelsPage } from './defaults/DefaultModelsPage';
 import { ModelPlatformsPage } from './platforms/ModelPlatformsPage';
 import { RedisConfigPage } from './infra/RedisConfigPage';
 import { StorageConfigPage } from './infra/StorageConfigPage';
+import { DatabaseConfigPage } from './infra/DatabaseConfigPage';
 import { useNavigate } from '@tanstack/react-router';
 import { ConfirmRoot } from '../../store/confirmDialog';
 import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database';
 
 type AdminGroup = { title: string; items: { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean }[] };
 
@@ -52,6 +53,7 @@ const ADMIN_GROUPS: AdminGroup[] = [
     { key: 'prompts', label: 'Prompt', icon: Shield },
   ] },
   { title: '基础设施', items: [
+    { key: 'database', label: '数据库', icon: Database },
     { key: 'redis', label: 'Redis', icon: Layers },
     { key: 'storage', label: '对象存储', icon: HardDrive },
   ] },
@@ -171,6 +173,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'perf' && <PerformancePage />}
           {tab === 'redis' && <RedisConfigPage />}
           {tab === 'storage' && <StorageConfigPage />}
+          {tab === 'database' && <DatabaseConfigPage />}
           {tab === 'deployment' && <DeploymentStatusPanel />}
         </div>
       </div>

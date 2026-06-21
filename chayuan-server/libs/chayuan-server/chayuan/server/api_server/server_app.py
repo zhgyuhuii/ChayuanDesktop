@@ -57,6 +57,7 @@ from chayuan.server.api_server.apps_routes import apps_router
 from chayuan.server.api_server.kb_acl_routes import kb_acl_router
 from chayuan.server.api_server.metrics_routes import metrics_router
 from chayuan.server.api_server.redis_config_routes import redis_config_router
+from chayuan.server.api_server.db_config_routes import db_config_router
 from chayuan.server.auth.middleware import AuthMiddleware
 from chayuan.server.chat.completion import completion
 from chayuan.server.observability import (
@@ -146,6 +147,7 @@ def create_app(run_mode: str = None):
     app.include_router(kb_acl_router)
     app.include_router(metrics_router)
     app.include_router(redis_config_router)
+    app.include_router(db_config_router)
     # 72 题诊断:/api/debug/dump_platforms — 排查 deepseek 等厂商在哪一层卡住
     app.include_router(debug_router)
     # 图像向量化能力已下线(image_routes 已注销 import,这里同步注销挂载):

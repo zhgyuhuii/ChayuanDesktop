@@ -61,3 +61,46 @@ export const storageConfig = {
     '/storage/migrate', body,
   ),
 };
+
+
+// ── 数据库(P5)—— /api/v1/admin/db/{status,validate,create,save} ──────────
+export interface DbForm {
+  db_type: string;
+  sqlite_path: string;
+  host: string;
+  port: string;
+  database: string;
+  schema: string;
+  username: string;
+  password: string;
+  charset: string;
+}
+export interface DbType {
+  key: string;
+  label: string;
+  has_host: boolean;
+  has_schema: boolean;
+  has_charset: boolean;
+  default_port: number | null;
+  default_db: string;
+  default_schema: string | null;
+  default_charset: string | null;
+  driver_hint: string;
+  install_hint: string;
+}
+export interface DbStatus { configured: boolean; form: DbForm; summary: string; db_types: DbType[] }
+export interface DbValidateResult {
+  ok: boolean; message: string; detail: string; db_missing?: boolean; uri_masked?: string;
+}
+export const dbConfig = {
+  status: () => http.get<DbStatus>('/api/v1/admin/db/status'),
+  validate: (form: DbForm) => http.post<DbValidateResult>('/api/v1/admin/db/validate', form),
+  create: (form: DbForm) =>
+    http.post<{ ok: boolean; created?: boolean; message: string; detail: string }>(
+      '/api/v1/admin/db/create', form,
+    ),
+  save: (form: DbForm) =>
+    http.post<{ restart_required: boolean; masked: string; validated: DbValidateResult }>(
+      '/api/v1/admin/db/save', form,
+    ),
+};
