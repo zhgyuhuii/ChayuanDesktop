@@ -113,6 +113,22 @@ async def recheck_services() -> Dict[str, Any]:
 # /runtime/vendor
 # ---------------------------------------------------------------------------
 
+def _running_local_runtimes() -> Dict[str, Any]:
+    """汇聚本地 sidecar(llama/whisper/infinity 等多 capability)的实时运行状态。
+
+    权威源是 local_runtime_registry.all_statuses()(state: ready/starting/stopped/
+    failed/restarting + endpoint/pid/model_id/started_at/last_error),而**不是**
+    vendor 目录里的 default_port —— 真实运行端口由 RuntimeStatus.endpoint 给出。
+    registry 未就绪时返回 {} 不让 /vendor 整体失败。
+    """
+    try:
+        from chayuan.server.model_registry.local_runtime_registry import get_registry
+        return {cap: st.to_dict() for cap, st in get_registry().all_statuses().items()}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[runtime/vendor] 收集本地 sidecar 运行状态失败: %r", e)
+        return {}
+
+
 @runtime_router.get("/vendor", summary="扫描 <CHAYUAN_ROOT>/vendor 与仓库 vendor/ 目录")
 async def list_vendor() -> Dict[str, Any]:
     layout = discover_vendor()
@@ -122,6 +138,8 @@ async def list_vendor() -> Dict[str, Any]:
             **layout.to_dict(),
             "known_services": known_services(),
             "known_runtimes": known_runtimes(),
+            # 已拉起的本地 sidecar 实时状态(让"系统服务"看到已启动 #10)
+            "running": _running_local_runtimes(),
         },
     }
 

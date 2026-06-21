@@ -62,6 +62,16 @@ export interface VendorEntry {
   issues: string[];
 }
 
+export interface RuntimeRunStatus {
+  state: 'stopped' | 'starting' | 'ready' | 'failed' | 'restarting';
+  endpoint?: string | null;
+  pid?: number | null;
+  model_id?: string | null;
+  model_path?: string | null;
+  started_at?: string | null;
+  last_health_at?: string | null;
+  last_error?: string | null;
+}
 export interface VendorPayload {
   root: string;
   services: VendorEntry[];
@@ -69,6 +79,8 @@ export interface VendorPayload {
   unknown: VendorEntry[];
   known_services: Record<string, Record<string, string>>;
   known_runtimes: Record<string, Record<string, string>>;
+  // 已拉起的本地 sidecar 实时状态(capability → 状态);用于"系统服务看到已启动"(#10)
+  running?: Record<string, RuntimeRunStatus>;
 }
 
 export interface LocalModelEntry {
