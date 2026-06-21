@@ -15,7 +15,7 @@ import {
   type ConfigField,
 } from '@chayuan/api';
 import { Button } from '@chayuan/ui';
-import { RefreshCw, Save, Eye, EyeOff, AlertTriangle, Code2 } from 'lucide-react';
+import { RefreshCw, Save, Eye, EyeOff, AlertTriangle, Code2, HelpCircle } from 'lucide-react';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 
 const FIELD =
@@ -268,15 +268,18 @@ export const SchemaForm: React.FC<{ file: ConfigFile; title?: string; intro?: Re
                     className="grid grid-cols-1 gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] sm:items-start sm:gap-4"
                   >
                     <div className="pt-1">
-                      <div className="text-xs font-medium">
-                        {f.label}
-                        {dirty.has(f.path) && <span className="ml-1 text-[var(--cy-brand-500)]">●</span>}
+                      <div className="flex items-center gap-1 text-xs font-medium">
+                        <span>{f.label}</span>
+                        {f.help && (
+                          <span className="group relative inline-flex cursor-help">
+                            <HelpCircle className="h-3.5 w-3.5 opacity-40 transition-opacity hover:opacity-80" />
+                            <span className="pointer-events-none absolute left-5 top-0 z-50 hidden w-72 whitespace-pre-line rounded-md bg-zinc-900 px-3 py-2 text-[11px] font-normal leading-snug text-zinc-100 shadow-lg group-hover:block">
+                              {f.help}
+                            </span>
+                          </span>
+                        )}
+                        {dirty.has(f.path) && <span className="text-[var(--cy-brand-500)]">●</span>}
                       </div>
-                      {f.help && (
-                        <div className="mt-0.5 whitespace-pre-line text-[11px] leading-snug opacity-45">
-                          {f.help}
-                        </div>
-                      )}
                     </div>
                     <FieldControl f={f} value={vals[f.path]} onChange={(v) => setVal(f.path, v)} />
                   </div>
