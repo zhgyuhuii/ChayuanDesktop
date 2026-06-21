@@ -1,5 +1,6 @@
 export * from './client';
 export * from './admin';
+export * from './infraConfig';
 export * from './errors';
 export * from './auth-store';
 export * from './endpoints';

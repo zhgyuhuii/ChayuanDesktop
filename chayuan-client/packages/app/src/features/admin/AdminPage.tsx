@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star, Layers } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -18,12 +18,13 @@ import { KbAclPage } from './kbacl/KbAclPage';
 import { PerformancePage } from './performance/PerformancePage';
 import { DefaultModelsPage } from './defaults/DefaultModelsPage';
 import { ModelPlatformsPage } from './platforms/ModelPlatformsPage';
+import { RedisConfigPage } from './infra/RedisConfigPage';
 import { useNavigate } from '@tanstack/react-router';
 import { ConfirmRoot } from '../../store/confirmDialog';
 import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis';
 
 type AdminGroup = { title: string; items: { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean }[] };
 
@@ -48,6 +49,9 @@ const ADMIN_GROUPS: AdminGroup[] = [
     { key: 'perf', label: '性能', icon: Gauge },
     { key: 'outbox', label: 'Outbox', icon: Database },
     { key: 'prompts', label: 'Prompt', icon: Shield },
+  ] },
+  { title: '基础设施', items: [
+    { key: 'redis', label: 'Redis', icon: Layers },
   ] },
   { title: '部署', items: [
     { key: 'deployment', label: '部署授权', icon: Cloud, webOnly: true },
@@ -163,6 +167,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'apps' && <AppsPage />}
           {tab === 'kbacl' && <KbAclPage />}
           {tab === 'perf' && <PerformancePage />}
+          {tab === 'redis' && <RedisConfigPage />}
           {tab === 'deployment' && <DeploymentStatusPanel />}
         </div>
       </div>
