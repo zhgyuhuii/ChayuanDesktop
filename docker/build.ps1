@@ -11,10 +11,18 @@
     powershell -ExecutionPolicy Bypass -File docker\build.ps1
     docker\build.ps1 -RebuildBase    # force rebuild base (refresh apt / poetry)
     docker\build.ps1 -NoCache        # app image without cache (deps still from base)
+    docker\build.ps1 -NoClean        # skip pre-build cleanup of historical images
+
+  By default this cleans historical images before building: removes old
+  chayuan-server version tags, stale-hash chayuan-base images, and dangling
+  (<none>) layers, while keeping the chayuan-server:latest / current VERSION /
+  current BASE_TAG that this build needs (frees disk without breaking base
+  reuse or deleting the in-use latest).
 #>
 param(
     [switch]$RebuildBase,
-    [switch]$NoCache
+    [switch]$NoCache,
+    [switch]$NoClean
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,6 +52,25 @@ $LockHash = (Get-FileHash -Algorithm SHA256 -Path $Lock).Hash.Substring(0, 12).T
 $BaseTag = "chayuan-base:$LockHash"
 
 Write-Host "[build] VERSION=$Version  BASE=$BaseTag"
+
+# 2.5) clean historical images (default on; -NoClean to skip). Runs after VERSION
+#      and BaseTag are known and before any build, keeping latest / VERSION / BaseTag.
+function Remove-OldImages {
+    Write-Host "[build] cleaning historical images (keep :latest / :$Version / $BaseTag)..."
+    $verEsc  = [regex]::Escape($Version)
+    $hashEsc = [regex]::Escape($LockHash)
+    # old chayuan-server version tags (not latest, not current VERSION)
+    (& $Docker images chayuan-server --format "{{.Repository}}:{{.Tag}}" 2>$null) |
+        Where-Object { $_ -and ($_ -notmatch ":(latest|$verEsc)$") -and ($_ -notmatch "<none>") } |
+        ForEach-Object { Write-Host "  - rmi $_"; & $Docker rmi $_ 2>$null | Out-Null }
+    # stale-hash chayuan-base (not current lock hash, not latest)
+    (& $Docker images chayuan-base --format "{{.Repository}}:{{.Tag}}" 2>$null) |
+        Where-Object { $_ -and ($_ -notmatch ":($hashEsc|latest)$") -and ($_ -notmatch "<none>") } |
+        ForEach-Object { Write-Host "  - rmi $_"; & $Docker rmi $_ 2>$null | Out-Null }
+    # dangling (<none>) layers left after tag replacement -- the biggest disk eater
+    & $Docker image prune -f 2>$null | Out-Null
+}
+if (-not $NoClean) { Remove-OldImages } else { Write-Host "[build] skip historical image cleanup (-NoClean)" }
 
 # 3) base: build if missing or -RebuildBase (deps downloaded only here)
 # 'docker images -q <ref>' prints the image id if present, empty if not, and exits 0 either way

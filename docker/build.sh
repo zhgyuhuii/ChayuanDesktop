@@ -10,7 +10,12 @@
 #   ./build.sh                  # 自动:base 按 poetry.lock 复用/构建,主镜像 tag=VERSION
 #   ./build.sh --rebuild-base   # 强制重建 base(刷 apt 系统包 / poetry 版本时用)
 #   ./build.sh --no-cache       # 主镜像层不用缓存(依赖仍来自 base,不重拉)
+#   ./build.sh --no-clean       # 跳过构建前的历史镜像清理(默认会清)
 #   DOCKER="sudo docker" ./build.sh   # 该机 docker 需要 sudo 时
+#
+# 默认在构建前清理历史镜像:删旧版本 chayuan-server tag、旧 hash 的 chayuan-base、
+# 悬空(<none>)层;保留本次要用的 chayuan-server:latest、本次 VERSION、当前 BASE_TAG,
+# 既腾空间又不破坏 base 复用、不误删在用的 latest。
 # ====================================================================
 set -euo pipefail
 
@@ -20,12 +25,14 @@ DOCKER="${DOCKER:-docker}"
 
 REBUILD_BASE=0
 NOCACHE=""
+CLEAN=1
 for a in "$@"; do
     case "$a" in
         --rebuild-base) REBUILD_BASE=1 ;;
         --no-cache)     NOCACHE="--no-cache" ;;
-        -h|--help)      sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
-        *) echo "[build] 未知参数:$a(支持 --rebuild-base / --no-cache)" >&2; exit 2 ;;
+        --no-clean)     CLEAN=0 ;;
+        -h|--help)      sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        *) echo "[build] 未知参数:$a(支持 --rebuild-base / --no-cache / --no-clean)" >&2; exit 2 ;;
     esac
 done
 
@@ -40,6 +47,27 @@ LOCK_HASH="$(sha256sum "$LOCK" | cut -c1-12)"
 BASE_TAG="chayuan-base:${LOCK_HASH}"
 
 echo "[build] VERSION=${VERSION}  BASE=${BASE_TAG}"
+
+# 2.5) 清理历史镜像(默认开;--no-clean 跳过)。在算出 VERSION/BASE_TAG 之后、
+#      构建之前跑,保留本次要用的 latest / VERSION / 当前 BASE_TAG。
+clean_history() {
+    echo "[build] 清理历史镜像(保留 :latest / :${VERSION} / ${BASE_TAG})..."
+    # 旧版本的 chayuan-server tag(非 latest、非本次 VERSION)
+    $DOCKER images chayuan-server --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+        | grep -Ev ":(latest|${VERSION})$|<none>" \
+        | while read -r img; do
+            echo "  - rmi $img"; $DOCKER rmi "$img" >/dev/null 2>&1 || true
+          done
+    # 旧 hash 的 chayuan-base(非当前 lock hash、非 latest)
+    $DOCKER images chayuan-base --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+        | grep -Ev ":(${LOCK_HASH}|latest)$|<none>" \
+        | while read -r img; do
+            echo "  - rmi $img"; $DOCKER rmi "$img" >/dev/null 2>&1 || true
+          done
+    # 悬空(<none>)层 —— rebuild 替换 tag 后遗留的旧层,最占盘
+    $DOCKER image prune -f >/dev/null 2>&1 || true
+}
+[ "$CLEAN" = "1" ] && clean_history || echo "[build] 跳过历史镜像清理(--no-clean)"
 
 # 3) base:不存在 或 --rebuild-base -> 构建(依赖只在这里下载一次)
 if [ "$REBUILD_BASE" = "1" ] || ! $DOCKER image inspect "$BASE_TAG" >/dev/null 2>&1; then
