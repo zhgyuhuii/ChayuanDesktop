@@ -3,6 +3,8 @@
 # 察元 集成镜像构建脚本
 #   - 基础环境镜像(系统依赖 + Python 依赖):按 poetry.lock 哈希自动构建/复用,
 #     依赖不变就零拉取;依赖变了(poetry.lock 改)自动重建一次。
+#   - 前端依赖镜像(chayuan-web-base):按 pnpm-lock.yaml 哈希自动构建/复用,pnpm fetch
+#     把 node 依赖固化在此,应用镜像离线 install,改业务代码重建零联网拉前端依赖。
 #   - 应用镜像:FROM 基础镜像,只跑 COPY 层(改代码/version bump 重建零依赖拉取)。
 #   - 镜像 tag 与系统版本(VERSION 文件)一致。
 #
@@ -46,7 +48,13 @@ LOCK="chayuan-server/libs/chayuan-server/poetry.lock"
 LOCK_HASH="$(sha256sum "$LOCK" | cut -c1-12)"
 BASE_TAG="chayuan-base:${LOCK_HASH}"
 
-echo "[build] VERSION=${VERSION}  BASE=${BASE_TAG}"
+# 2b) web base tag = pnpm-lock.yaml 内容哈希(前端依赖不变则复用,pnpm fetch 不重拉)
+PNPM_LOCK="chayuan-client/pnpm-lock.yaml"
+[ -f "$PNPM_LOCK" ] || { echo "[build] 找不到 $PNPM_LOCK" >&2; exit 1; }
+PNPM_LOCK_HASH="$(sha256sum "$PNPM_LOCK" | cut -c1-12)"
+WEB_BASE_TAG="chayuan-web-base:${PNPM_LOCK_HASH}"
+
+echo "[build] VERSION=${VERSION}  BASE=${BASE_TAG}  WEB_BASE=${WEB_BASE_TAG}"
 
 # 2.5) 清理历史镜像(默认开;--no-clean 跳过)。在算出 VERSION/BASE_TAG 之后、
 #      构建之前跑,保留本次要用的 latest / VERSION / 当前 BASE_TAG。
@@ -61,6 +69,12 @@ clean_history() {
     # 旧 hash 的 chayuan-base(非当前 lock hash、非 latest)
     $DOCKER images chayuan-base --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
         | grep -Ev ":(${LOCK_HASH}|latest)$|<none>" \
+        | while read -r img; do
+            echo "  - rmi $img"; $DOCKER rmi "$img" >/dev/null 2>&1 || true
+          done
+    # 旧 hash 的 chayuan-web-base(非当前 pnpm-lock hash、非 latest)
+    $DOCKER images chayuan-web-base --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+        | grep -Ev ":(${PNPM_LOCK_HASH}|latest)$|<none>" \
         | while read -r img; do
             echo "  - rmi $img"; $DOCKER rmi "$img" >/dev/null 2>&1 || true
           done
@@ -81,13 +95,26 @@ else
     echo "[build] 复用已存在的基础环境镜像 ${BASE_TAG}(依赖未变,零拉取)"
 fi
 
-# 4) 应用镜像:FROM base,tag = 系统 VERSION + latest
+# 3b) web base:不存在 或 --rebuild-base -> 构建(前端依赖只在这里 pnpm fetch 一次)
+if [ "$REBUILD_BASE" = "1" ] || ! $DOCKER image inspect "$WEB_BASE_TAG" >/dev/null 2>&1; then
+    echo "[build] 构建前端依赖基础镜像 ${WEB_BASE_TAG} (pnpm fetch 拉全部依赖)..."
+    $DOCKER build $NOCACHE \
+        -f docker/Dockerfile.webbase \
+        --build-arg PNPM_LOCK_HASH="$PNPM_LOCK_HASH" \
+        -t "$WEB_BASE_TAG" -t chayuan-web-base:latest \
+        .
+else
+    echo "[build] 复用已存在的前端依赖基础镜像 ${WEB_BASE_TAG}(依赖未变,零拉取)"
+fi
+
+# 4) 应用镜像:FROM base + web base,只跑 COPY + 离线 install + 前端 build
 echo "[build] 构建应用镜像 chayuan-server:${VERSION} ..."
 $DOCKER build $NOCACHE \
     -f docker/Dockerfile \
     --build-arg BASE_IMAGE="$BASE_TAG" \
+    --build-arg WEB_BASE_IMAGE="$WEB_BASE_TAG" \
     -t "chayuan-server:${VERSION}" -t chayuan-server:latest \
     .
 
-echo "[build] 完成:chayuan-server:${VERSION}  (= chayuan-server:latest),base=${BASE_TAG}"
+echo "[build] 完成:chayuan-server:${VERSION}  (= chayuan-server:latest),base=${BASE_TAG},web-base=${WEB_BASE_TAG}"
 echo "[build] 起服务:cd docker && ${DOCKER} compose up -d"

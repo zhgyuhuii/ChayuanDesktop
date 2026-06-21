@@ -4,6 +4,8 @@
   Mirrors docker/build.sh:
     - base env image (system + python deps): tagged by poetry.lock hash,
       reused when deps unchanged, auto-rebuilt when poetry.lock changes.
+    - web base image (chayuan-web-base): tagged by pnpm-lock.yaml hash; pnpm fetch
+      bakes node deps in, app image installs offline -> no network re-pull on code change.
     - app image: FROM base, only COPY layers, so no dependency re-pull.
     - image tag == local VERSION file (image version matches system version).
 
@@ -51,7 +53,13 @@ if (-not (Test-Path $Lock)) { throw "poetry.lock not found: $Lock" }
 $LockHash = (Get-FileHash -Algorithm SHA256 -Path $Lock).Hash.Substring(0, 12).ToLower()
 $BaseTag = "chayuan-base:$LockHash"
 
-Write-Host "[build] VERSION=$Version  BASE=$BaseTag"
+# 2b) web base tag = pnpm-lock.yaml content hash (frontend deps cached/reused; pnpm fetch not re-pulled)
+$PnpmLock = Join-Path $RepoRoot "chayuan-client\pnpm-lock.yaml"
+if (-not (Test-Path $PnpmLock)) { throw "pnpm-lock.yaml not found: $PnpmLock" }
+$PnpmLockHash = (Get-FileHash -Algorithm SHA256 -Path $PnpmLock).Hash.Substring(0, 12).ToLower()
+$WebBaseTag = "chayuan-web-base:$PnpmLockHash"
+
+Write-Host "[build] VERSION=$Version  BASE=$BaseTag  WEB_BASE=$WebBaseTag"
 
 # 2.5) clean historical images (default on; -NoClean to skip). Runs after VERSION
 #      and BaseTag are known and before any build, keeping latest / VERSION / BaseTag.
@@ -66,6 +74,11 @@ function Remove-OldImages {
     # stale-hash chayuan-base (not current lock hash, not latest)
     (& $Docker images chayuan-base --format "{{.Repository}}:{{.Tag}}" 2>$null) |
         Where-Object { $_ -and ($_ -notmatch ":($hashEsc|latest)$") -and ($_ -notmatch "<none>") } |
+        ForEach-Object { Write-Host "  - rmi $_"; & $Docker rmi $_ 2>$null | Out-Null }
+    # stale-hash chayuan-web-base (not current pnpm-lock hash, not latest)
+    $pnpmEsc = [regex]::Escape($PnpmLockHash)
+    (& $Docker images chayuan-web-base --format "{{.Repository}}:{{.Tag}}" 2>$null) |
+        Where-Object { $_ -and ($_ -notmatch ":($pnpmEsc|latest)$") -and ($_ -notmatch "<none>") } |
         ForEach-Object { Write-Host "  - rmi $_"; & $Docker rmi $_ 2>$null | Out-Null }
     # dangling (<none>) layers left after tag replacement -- the biggest disk eater
     & $Docker image prune -f 2>$null | Out-Null
@@ -89,13 +102,28 @@ else {
     Write-Host "[build] reusing existing base image $BaseTag (deps unchanged, no pull)"
 }
 
-# 4) app image: FROM base, tag == VERSION + latest
+# 3b) web base: build if missing or -RebuildBase (frontend deps pnpm-fetched only here)
+$WebBaseId = (& $Docker images -q $WebBaseTag 2>$null | Select-Object -First 1)
+$WebBaseExists = -not [string]::IsNullOrWhiteSpace($WebBaseId)
+if ($RebuildBase -or (-not $WebBaseExists)) {
+    Write-Host "[build] building web base image $WebBaseTag (pnpm fetch all deps)..."
+    $WebArgs = @("build")
+    if ($Nocache) { $WebArgs += $Nocache }
+    $WebArgs += @("-f", "docker/Dockerfile.webbase", "--build-arg", "PNPM_LOCK_HASH=$PnpmLockHash", "-t", $WebBaseTag, "-t", "chayuan-web-base:latest", ".")
+    & $Docker @WebArgs
+    if ($LASTEXITCODE -ne 0) { throw "web base build failed" }
+}
+else {
+    Write-Host "[build] reusing existing web base image $WebBaseTag (deps unchanged, no pull)"
+}
+
+# 4) app image: FROM base + web base, tag == VERSION + latest
 Write-Host "[build] building app image chayuan-server:$Version ..."
 $AppArgs = @("build")
 if ($Nocache) { $AppArgs += $Nocache }
-$AppArgs += @("-f", "docker/Dockerfile", "--build-arg", "BASE_IMAGE=$BaseTag", "-t", "chayuan-server:$Version", "-t", "chayuan-server:latest", ".")
+$AppArgs += @("-f", "docker/Dockerfile", "--build-arg", "BASE_IMAGE=$BaseTag", "--build-arg", "WEB_BASE_IMAGE=$WebBaseTag", "-t", "chayuan-server:$Version", "-t", "chayuan-server:latest", ".")
 & $Docker @AppArgs
 if ($LASTEXITCODE -ne 0) { throw "app build failed" }
 
-Write-Host "[build] done: chayuan-server:$Version (= latest), base=$BaseTag"
+Write-Host "[build] done: chayuan-server:$Version (= latest), base=$BaseTag, web-base=$WebBaseTag"
 Write-Host "[build] start: cd docker; docker compose up -d"

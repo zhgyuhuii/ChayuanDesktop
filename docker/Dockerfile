@@ -33,14 +33,14 @@
 # FROM 指令里要用的 build-arg 必须在【第一个 FROM 之前】声明为全局 ARG,
 # 否则在 multi-stage 里它只属于某个 stage,后面 `FROM ${BASE_IMAGE}` 取不到 → 空。
 ARG BASE_IMAGE=chayuan-base:latest
+ARG WEB_BASE_IMAGE=chayuan-web-base:latest
 
-FROM node:20-bookworm-slim AS web-builder
+# 前端依赖来自 web 基础镜像(docker/Dockerfile.webbase,build.sh 按 pnpm-lock 哈希
+# 构建/复用):pnpm fetch 已把所有依赖拉进 store。这里只 COPY 源码 + 离线 install,
+# 改业务代码重建时零联网。依赖变了(pnpm-lock 改)才重建 web base。
+FROM ${WEB_BASE_IMAGE} AS web-builder
 
-ENV PNPM_HOME=/pnpm \
-    PATH=/pnpm:$PATH \
-    CI=1
-RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
-
+ENV CI=1
 WORKDIR /chayuan-client
 COPY chayuan-client/pnpm-workspace.yaml chayuan-client/package.json chayuan-client/pnpm-lock.yaml ./
 # tsconfig.base.json 被 apps/desktop 及各 package 的 tsconfig extends,vite 给
@@ -54,10 +54,11 @@ COPY chayuan-client/apps    ./apps
 # 会因 importer 缺失而失败;只在 builder 层,最终镜像只取 apps/desktop/dist,无体积代价。
 COPY chayuan-client/e2e-desktop ./e2e-desktop
 
-# 装依赖(--frozen-lockfile = CI 严格模式)
+# 装依赖:web base 的 pnpm fetch 已预取整个 store,这里 --offline 离线链接,
+# 正常路径**零联网**;仅当 store 缺失(极少)才回退联网 install 兜底。
 # Tauri Rust 在 docker 构建里不需要,跳过 native bindings
 ENV TAURI_SKIP_DEVSERVER_CHECK=1
-RUN pnpm install --frozen-lockfile --prefer-offline || pnpm install
+RUN pnpm install --offline --frozen-lockfile || pnpm install
 
 # 前端 build:VITE_API_BASE 空 + VITE_THIN_CLIENT 0,产物用相对路径请求 API
 ENV VITE_API_BASE="" \

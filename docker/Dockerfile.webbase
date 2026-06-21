@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1.6
+# ====================================================================
+# 察元 前端依赖基础镜像 — 只随 pnpm-lock.yaml 变(依赖增删/升级)。
+# --------------------------------------------------------------------
+# pnpm fetch 只读 pnpm-lock.yaml(忽略各 package.json),把所有 node 依赖拉进
+# pnpm store —— 与业务源码完全无关。于是「联网拉前端依赖」这步固化在本镜像里,
+# 应用镜像(docker/Dockerfile 的 web-builder)只做 `pnpm install --offline` 离线链接,
+# 改业务代码 / version bump 重建时**零联网拉取**。依赖不变即复用本镜像。
+#
+# 由 docker/build.sh 按 pnpm-lock.yaml 哈希自动 tag + 复用(同 chayuan-base 的玩法)。
+# 单独构建(一般交给 build.sh):
+#   docker build -f docker/Dockerfile.webbase -t chayuan-web-base:latest .   (context=repo 根)
+# ====================================================================
+FROM node:20-bookworm-slim
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    CI=1
+
+# corepack 锁 pnpm 版本;store-dir 固定到 /pnpm/store,builder 阶段(FROM 本镜像)
+# 离线 install 时能命中同一个 store。
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate \
+    && pnpm config set store-dir /pnpm/store --global
+
+WORKDIR /chayuan-client
+# 只 COPY 锁文件 → 本层只随 pnpm-lock.yaml 变,与源码无关。
+COPY chayuan-client/pnpm-lock.yaml ./
+RUN pnpm fetch
+
+# build.sh 写入本 web base 对应的 pnpm-lock 哈希,便于排查复用命中。
+ARG PNPM_LOCK_HASH=unknown
+LABEL chayuan.webbase.pnpm_lock_hash=$PNPM_LOCK_HASH
