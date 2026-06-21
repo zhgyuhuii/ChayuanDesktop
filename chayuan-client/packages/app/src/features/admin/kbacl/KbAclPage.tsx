@@ -5,7 +5,7 @@ import { kbAcl, kb, type KbAclItem, type KbAclUser, type KbGrant } from '@chayua
 import { RefreshCw, Plus, X } from 'lucide-react';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 
-const CreateKbDialog: React.FC<{ users: KbAclUser[]; onClose(): void; onCreated(): void }> = ({ onClose, onCreated }) => {
+export const CreateKbDialog: React.FC<{ users: KbAclUser[]; onClose(): void; onCreated(): void }> = ({ onClose, onCreated }) => {
   const [name, setName] = React.useState('');
   const [visibility, setVisibility] = React.useState('private');
   const [info, setInfo] = React.useState('');
@@ -60,7 +60,7 @@ const CreateKbDialog: React.FC<{ users: KbAclUser[]; onClose(): void; onCreated(
   );
 };
 
-const GrantsDialog: React.FC<{ kb: KbAclItem; users: KbAclUser[]; onClose(): void }> = ({ kb, users, onClose }) => {
+export const GrantsDialog: React.FC<{ kb: KbAclItem; users: KbAclUser[]; onClose(): void }> = ({ kb, users, onClose }) => {
   const q = useQuery({ queryKey: ['admin', 'kb-acl', kb.id, 'grants'], queryFn: () => kbAcl.grants(kb.id) });
   const grants = q.data ?? [];
   const [uid, setUid] = React.useState<number | ''>('');

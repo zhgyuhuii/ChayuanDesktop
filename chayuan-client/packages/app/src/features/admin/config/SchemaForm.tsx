@@ -124,11 +124,12 @@ function FieldControl({
   );
 }
 
-export const SchemaForm: React.FC<{ file: ConfigFile; title?: string; intro?: React.ReactNode; hiddenSections?: string[] }> = ({
+export const SchemaForm: React.FC<{ file: ConfigFile; title?: string; intro?: React.ReactNode; hiddenSections?: string[]; onlyPaths?: string[] }> = ({
   file,
   title,
   intro,
   hiddenSections,
+  onlyPaths,
 }) => {
   const [schema, setSchema] = React.useState<ConfigSchema | null>(null);
   const [vals, setVals] = React.useState<Vals>({});
@@ -252,7 +253,11 @@ export const SchemaForm: React.FC<{ file: ConfigFile; title?: string; intro?: Re
         </div>
       ) : (
         <>
-          {schema.sections.filter((sec) => !(hiddenSections ?? []).includes(sec.title)).map((s) => (
+          {schema.sections
+            .filter((sec) => !(hiddenSections ?? []).includes(sec.title))
+            .map((sec) => ({ ...sec, fields: onlyPaths ? sec.fields.filter((f) => onlyPaths.includes(f.path)) : sec.fields }))
+            .filter((sec) => sec.fields.length > 0)
+            .map((s) => (
             <section
               key={s.title}
               className="rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-4"

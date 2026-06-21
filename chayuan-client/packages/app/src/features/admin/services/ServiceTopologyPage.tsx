@@ -15,6 +15,7 @@ import { StorageConfigPage } from '../infra/StorageConfigPage';
 import { ServicesConfigPage } from '../infra/ServicesConfigPage';
 import { VectorStorePage } from '../config/VectorStorePage';
 import { BasicSettingsPage } from '../config/BasicSettingsPage';
+import { LangfuseConfig } from '../config/LangfuseConfigPage';
 import { RefreshCw, Plus, X, Wifi, Settings2 } from 'lucide-react';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 
@@ -38,7 +39,7 @@ const CONFIG_COMPONENT: Record<string, { title: string; Comp: React.FC }> = {
   db: { title: '数据库配置', Comp: DatabaseConfigPage },
   milvus: { title: '向量库配置', Comp: VectorStorePage },
   minio: { title: '对象存储配置', Comp: StorageConfigPage },
-  langfuse: { title: '基础配置(Langfuse)', Comp: BasicSettingsPage },
+  langfuse: { title: 'Langfuse 链路追踪', Comp: LangfuseConfig },
 };
 const DEFAULT_CONFIG = { title: '服务配置', Comp: ServicesConfigPage };
 function configFor(kind: string): { title: string; Comp: React.FC } {
