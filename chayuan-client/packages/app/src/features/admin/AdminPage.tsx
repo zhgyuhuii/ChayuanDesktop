@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star, Layers, HardDrive, FolderTree } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star, Layers, HardDrive, FolderTree, SlidersHorizontal, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -23,14 +23,16 @@ import { StorageConfigPage } from './infra/StorageConfigPage';
 import { DatabaseConfigPage } from './infra/DatabaseConfigPage';
 import { DataDirPage } from './infra/DataDirPage';
 import { ServicesConfigPage } from './infra/ServicesConfigPage';
+import { BasicSettingsPage } from './config/BasicSettingsPage';
 import { useNavigate } from '@tanstack/react-router';
 import { ConfirmRoot } from '../../store/confirmDialog';
 import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'svcstatus';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'svcstatus' | 'basic';
 
-type AdminGroup = { title: string; items: { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean }[] };
+type AdminItem = { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean; hidden?: boolean };
+type AdminGroup = { title: string; items: AdminItem[] };
 
 // 管理员专属菜单(分组)。默认落「用户与权限 · 用户」。
 const ADMIN_GROUPS: AdminGroup[] = [
@@ -44,7 +46,8 @@ const ADMIN_GROUPS: AdminGroup[] = [
     { key: 'platforms', label: '模型平台', icon: Boxes },
     { key: 'mcp', label: 'MCP', icon: Plug },
     { key: 'tools', label: '工具', icon: Wrench },
-    { key: 'ws', label: 'WS 端点', icon: Radio },
+    // WS 端点:从主菜单隐藏(#8),仍可经 URL /admin/ws 访问。
+    { key: 'ws', label: 'WS 端点', icon: Radio, hidden: true },
     { key: 'services', label: '系统服务', icon: Server },
     { key: 'svcstatus', label: '服务状态', icon: Gauge },
   ] },
@@ -56,6 +59,7 @@ const ADMIN_GROUPS: AdminGroup[] = [
     { key: 'prompts', label: 'Prompt', icon: Shield },
   ] },
   { title: '基础设施', items: [
+    { key: 'basic', label: '基础配置', icon: SlidersHorizontal },
     { key: 'database', label: '数据库', icon: Database },
     { key: 'redis', label: 'Redis', icon: Layers },
     { key: 'storage', label: '对象存储', icon: HardDrive },
@@ -72,9 +76,27 @@ const ADMIN_LABELS: Record<string, string> = Object.fromEntries(
 const KNOWN_TABS = new Set<AdminTab>(ADMIN_GROUPS.flatMap((g) => g.items.map((it) => it.key)));
 const normTab = (t?: string): AdminTab => (t && KNOWN_TABS.has(t as AdminTab) ? (t as AdminTab) : 'users');
 
+const LS_COLLAPSED = 'cy-admin-sidebar-collapsed';
+const LS_GROUPS = 'cy-admin-collapsed-groups';
+
+function readBool(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+function readSet(key: string): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(key) || '[]') as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
 /**
  * AdminPage —— 管理员独立控制台(整屏,脱离消费端 Chrome)。
- * 左侧管理员专属分组菜单 + 顶栏(返回前台 / 退出登录) + 当前域内容。
+ * 左侧管理员专属分组菜单(可整栏折叠为 icon / 分组可展开收起) + 顶栏 + 当前域内容。
  * 由顶层路由 /admin/$tab 渲染;域组件全部复用。
  */
 export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
@@ -82,9 +104,33 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const [tab, setTab] = React.useState<AdminTab>(normTab(tabProp));
+  const [collapsed, setCollapsed] = React.useState<boolean>(() => readBool(LS_COLLAPSED));
+  const [closedGroups, setClosedGroups] = React.useState<Set<string>>(() => readSet(LS_GROUPS));
+
   React.useEffect(() => {
     setTab(normTab(tabProp));
   }, [tabProp]);
+
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      const n = !c;
+      try {
+        localStorage.setItem(LS_COLLAPSED, n ? '1' : '0');
+      } catch { /* ignore */ }
+      return n;
+    });
+  };
+  const toggleGroup = (title: string) => {
+    setClosedGroups((prev) => {
+      const n = new Set(prev);
+      if (n.has(title)) n.delete(title);
+      else n.add(title);
+      try {
+        localStorage.setItem(LS_GROUPS, JSON.stringify(Array.from(n)));
+      } catch { /* ignore */ }
+      return n;
+    });
+  };
 
   if (!user || user.role !== 'admin') {
     return (
@@ -108,38 +154,66 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
   };
 
   return (
-    <div className="grid h-screen w-screen grid-cols-[240px_1fr] overflow-hidden bg-[var(--cy-surface-2)] text-[var(--cy-text-primary)]">
+    <div
+      className={cn(
+        'grid h-screen w-screen overflow-hidden bg-[var(--cy-surface-2)] text-[var(--cy-text-primary)]',
+        collapsed ? 'grid-cols-[60px_1fr]' : 'grid-cols-[240px_1fr]',
+      )}
+    >
       {/* 左:管理员专属菜单 */}
       <aside className="flex h-full min-h-0 flex-col border-r border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)]">
-        <div className="flex items-center gap-2 px-4 py-4">
-          <Shield className="h-5 w-5 text-[var(--cy-brand-500)]" />
-          <span className="text-sm font-semibold">管理控制台</span>
+        <div className={cn('flex items-center px-3 py-4', collapsed ? 'justify-center' : 'justify-between px-4')}>
+          {!collapsed && (
+            <div className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-[var(--cy-brand-500)]" />
+              <span className="text-sm font-semibold">管理控制台</span>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            title={collapsed ? '展开菜单' : '折叠菜单'}
+            className="rounded-md p-1.5 opacity-60 transition-colors hover:bg-[var(--cy-surface-2)] hover:opacity-100"
+          >
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </button>
         </div>
         <nav className="min-h-0 flex-1 overflow-auto px-2 pb-4">
           {ADMIN_GROUPS.map((g) => {
-            const items = g.items.filter((it) => !it.webOnly || isWeb());
+            const items = g.items.filter((it) => !it.hidden && (!it.webOnly || isWeb()));
             if (!items.length) return null;
+            const groupClosed = !collapsed && closedGroups.has(g.title);
             return (
               <div key={g.title} className="mb-3">
-                <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide opacity-50">
-                  {g.title}
-                </div>
-                {items.map((it) => (
+                {!collapsed && (
                   <button
-                    key={it.key}
                     type="button"
-                    onClick={() => select(it.key)}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors',
-                      tab === it.key
-                        ? 'bg-[var(--cy-brand-500)]/12 font-medium text-[var(--cy-brand-600)]'
-                        : 'hover:bg-[var(--cy-surface-2)]',
-                    )}
+                    onClick={() => toggleGroup(g.title)}
+                    className="flex w-full items-center justify-between px-2 py-1 text-[11px] font-medium uppercase tracking-wide opacity-50 transition-opacity hover:opacity-80"
                   >
-                    <it.icon className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{it.label}</span>
+                    <span>{g.title}</span>
+                    {groupClosed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                   </button>
-                ))}
+                )}
+                {!groupClosed &&
+                  items.map((it) => (
+                    <button
+                      key={it.key}
+                      type="button"
+                      onClick={() => select(it.key)}
+                      title={collapsed ? it.label : undefined}
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors',
+                        collapsed && 'justify-center',
+                        tab === it.key
+                          ? 'bg-[var(--cy-brand-500)]/12 font-medium text-[var(--cy-brand-600)]'
+                          : 'hover:bg-[var(--cy-surface-2)]',
+                      )}
+                    >
+                      <it.icon className="h-4 w-4 shrink-0" />
+                      {!collapsed && <span className="truncate">{it.label}</span>}
+                    </button>
+                  ))}
               </div>
             );
           })}
@@ -165,6 +239,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'outbox' && <OutboxView />}
           {tab === 'scores' && <ScoreTrend />}
           {tab === 'prompts' && <PromptList />}
+          {tab === 'basic' && <BasicSettingsPage />}
           {tab === 'defaults' && <DefaultModelsPage />}
           {tab === 'platforms' && <ModelPlatformsPage />}
           {tab === 'services' && <SystemServicesPage />}
