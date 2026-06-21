@@ -4,11 +4,13 @@ import { useQuery } from '@tanstack/react-query';
 import { mcp, type McpConnection } from '@chayuan/api';
 import { McpConnectionCard } from './McpConnectionCard';
 import { McpEditDialog } from './McpEditDialog';
+import { McpProfileDialog } from './McpProfileDialog';
 
 export const McpConnectionList: React.FC = () => {
   const [kw, setKw] = React.useState('');
   const [filter, setFilter] = React.useState<'all' | 'on' | 'off'>('all');
   const [dialog, setDialog] = React.useState<{ open: boolean; conn: McpConnection | null }>({ open: false, conn: null });
+  const [profileOpen, setProfileOpen] = React.useState(false);
   const q = useQuery({ queryKey: ['admin', 'mcp', 'list'], queryFn: () => mcp.list(), staleTime: 30_000 });
   const all = q.data ?? [];
 
@@ -34,6 +36,7 @@ export const McpConnectionList: React.FC = () => {
         <span className="text-xs text-muted-foreground">共 {stat.total} · 启用 {stat.on} · stdio {stat.stdio} · sse {stat.sse}</span>
         <div className="ml-auto flex gap-1">
           <Button variant="ghost" onClick={() => void q.refetch()}>刷新</Button>
+          <Button variant="outline" onClick={() => setProfileOpen(true)}>通用配置</Button>
           <Button onClick={() => setDialog({ open: true, conn: null })}>新建连接</Button>
         </div>
       </div>
@@ -43,6 +46,7 @@ export const McpConnectionList: React.FC = () => {
         ))}
       </div>
       {q.isLoading ? <p className="text-sm text-muted-foreground">加载中…</p> : null}
+      {profileOpen ? <McpProfileDialog onClose={() => setProfileOpen(false)} /> : null}
       {dialog.open ? (
         <McpEditDialog initial={dialog.conn} onClose={() => setDialog({ open: false, conn: null })} onSaved={() => { setDialog({ open: false, conn: null }); void q.refetch(); }} />
       ) : null}

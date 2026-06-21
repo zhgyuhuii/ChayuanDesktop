@@ -48,7 +48,8 @@ export const BasicSettingsPage: React.FC = () => {
   return (
     <div>
       <LangfuseProbe />
-      <SchemaForm file="basic_settings" />
+      {/* #9:服务器绑定/端口由服务端固定分配(52581/52582 等),隐藏避免误改。 */}
+      <SchemaForm file="basic_settings" hiddenSections={['服务器绑定地址']} />
     </div>
   );
 };
