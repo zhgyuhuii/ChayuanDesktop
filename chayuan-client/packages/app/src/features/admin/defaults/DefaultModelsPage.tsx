@@ -87,8 +87,17 @@ export const DefaultModelsPage: React.FC = () => {
     const prev = data.defaults[cap] ?? null;
     setData({ ...data, defaults: { ...data.defaults, [cap]: modelId || null } });
     try {
-      await adminSetCapabilityDefaults({ [cap]: modelId });
+      // 后端按 cap 逐条写盘并在 results[cap] 里回报成败;旧实现只要 HTTP 200 就当成功,
+      // 一旦写盘失败(unknown cap / yaml 写盘异常)会"假装已设置",刷新后默认却是空的
+      // —— 正是「设置之后没有默认」。这里必须检查 results[cap].ok。
+      const res = await adminSetCapabilityDefaults({ [cap]: modelId });
+      const r = res?.results?.[cap];
+      if (r && r.ok === false) {
+        throw new Error(r.error || '服务端未能保存默认模型');
+      }
       notifySuccess(`已设置「${CAP_LABELS[cap] ?? cap}」默认模型`);
+      // 写后回读服务端真值,确认确实落盘(杜绝"看似成功实际没默认")。
+      await load();
     } catch (e) {
       // 回滚
       setData((d) => (d ? { ...d, defaults: { ...d.defaults, [cap]: prev } } : d));
