@@ -127,3 +127,59 @@ def activate_deployment_token(root: Path, token: str, public_key: bytes,
         "fp": p["fp"], "token": token, "activatedAt": now,
     })
     return {"ok": True, "maxUsers": max_users, "expireAt": float(exp)}
+
+
+def activate_deployment_shortcode(root: Path, serial: str, hmac_keys: dict,
+                                  now: Optional[float] = None) -> dict:
+    """离线验 seat 短码(#16,与客户端短码同机制,HMAC 绑部署指纹)并落盘。
+
+    seat 短码 = 27 字符(8 字节头 kind=2 + 8 字节 HMAC tag)。与 Ed25519 令牌并存,
+    互为兼容:用户既可粘 Ed25519 令牌也可粘短码。"""
+    from chayuan.server.license.shortcode import verify_shortcode
+
+    fp_hex = deployment_fingerprint(root)
+    try:
+        fp_bytes = bytes.fromhex(fp_hex)
+    except ValueError:
+        return {"ok": False, "reason": "bad-fp"}
+    r = verify_shortcode(serial, fp_bytes, hmac_keys or {})
+    if not r.get("valid"):
+        return {"ok": False, "reason": r.get("reason") or "invalid"}
+    fields = r.get("fields") or {}
+    if fields.get("kind") != 2:  # codec.SEAT_KIND
+        return {"ok": False, "reason": "not-seat"}
+    import datetime as _dt
+    try:
+        exp = _dt.datetime.fromisoformat(
+            str(r.get("expireAt")).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return {"ok": False, "reason": "bad-expire"}
+    now = time.time() if now is None else now
+    if exp <= now:
+        return {"ok": False, "reason": "expired"}
+    try:
+        max_users = int(r.get("maxUsers") or fields["maxUsers"])
+    except (KeyError, ValueError, TypeError):
+        return {"ok": False, "reason": "bad-payload"}
+    write_deployment_license(root, {
+        "maxUsers": max_users, "expireAt": float(exp),
+        "fp": fp_hex, "serial": serial, "source": "shortcode", "activatedAt": now,
+    })
+    return {"ok": True, "maxUsers": max_users, "expireAt": float(exp)}
+
+
+def _looks_like_shortcode(code: str) -> bool:
+    """seat 短码规范化后 27 字符(Base32);Ed25519 令牌含 '.' 且很长。"""
+    norm = (code or "").replace("-", "").strip()
+    return "." not in code and len(norm) == 27
+
+
+def activate_deployment(root: Path, code: str, hmac_keys: dict, public_key: bytes,
+                        now: Optional[float] = None) -> dict:
+    """统一入口:seat 短码 → HMAC 验;否则按 Ed25519 令牌验。两者都支持(#16)。"""
+    code = (code or "").strip()
+    if not code:
+        return {"ok": False, "reason": "empty"}
+    if _looks_like_shortcode(code):
+        return activate_deployment_shortcode(root, code, hmac_keys, now=now)
+    return activate_deployment_token(root, code, public_key, now=now)

@@ -256,8 +256,10 @@ def get_deployment_status():
 
 @license_router.post("/deployment/activate")
 def post_deployment_activate(token: str = Body(..., embed=True)):
+    """token 兼容字段名:既收 Ed25519 部署令牌,也收 seat 短码(#16),统一分发。"""
     if _seat.is_single_machine():
         return {"ok": False, "reason": "not-applicable-single-machine"}
     cfg = load_license_config()
     with _mutate_lock:
-        return _seat.activate_deployment_token(_root(), token, cfg["public_key"])
+        return _seat.activate_deployment(
+            _root(), token, cfg.get("hmac_keys") or {}, cfg["public_key"])

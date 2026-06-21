@@ -11,7 +11,8 @@ from .codec import unpack, issue_to_date, to_iso, COUNT_VALID_DAYS
 def verify_shortcode(serial: str, machine_fp: bytes, hmac_keys: dict) -> dict:
     norm = serial.replace("-", "").upper()
     # v1: 24 字符(6字节头+8字节tag); v2: 25 字符(7字节头+8字节tag)
-    header_len = 6 if len(norm) == 24 else 7 if len(norm) == 25 else 0
+    # 24→v1(6字节头) 25→v2(7字节头) 27→seat(8字节头,#16)
+    header_len = 6 if len(norm) == 24 else 7 if len(norm) == 25 else 8 if len(norm) == 27 else 0
     if not header_len:
         return {"valid": False, "reason": "length"}
     body_len = header_len + 8
@@ -36,6 +37,11 @@ def verify_shortcode(serial: str, machine_fp: bytes, hmac_keys: dict) -> dict:
     if not hmac.compare_digest(tag, given_tag):
         return {"valid": False, "reason": "signature"}
 
+    # seat 短码(8字节头,kind=2):自签发日 + durDays 到期,额外回 maxUsers
+    if header_len == 8:
+        expire = issue_to_date(fields["issueDate"]) + timedelta(days=fields["durDays"])
+        return {"valid": True, "fields": fields, "expireAt": to_iso(expire),
+                "maxUsers": fields["maxUsers"]}
     if fields["kind"] == 0:
         expire = issue_to_date(fields["issueDate"]) + timedelta(days=fields["value"])
         return {"valid": True, "fields": fields, "expireAt": to_iso(expire)}
