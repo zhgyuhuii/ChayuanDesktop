@@ -843,6 +843,28 @@ export interface HardwareSnapshot {
   disks: DiskUsage[]; gpus: GpuInfo[];
   net_bytes_sent: number; net_bytes_recv: number;
 }
+export type ScalabilitySeverity = 'critical' | 'warning' | 'info' | 'ok';
+export interface ScalabilityCheck {
+  key: string;
+  title: string;
+  severity: ScalabilitySeverity;
+  summary: string;
+  impact: string;
+  fix_hint: string;
+  snippet: string;
+  snippet_lang: string;
+}
+export interface ScalabilityReport {
+  checks: ScalabilityCheck[];
+  mode: string;
+  score: number;
+  est_concurrent_users: string;
+  counts: Record<ScalabilitySeverity, number>;
+}
+
 export const metrics = {
-  hardware: () => request<HardwareSnapshot>('/api/v1/admin/metrics/hardware', { raw: true }).then((r) => r.data),
+  // http.get 会剥 {code,msg,data} 信封直接返回 snapshot;旧实现用 raw:true 不剥壳,
+  // 返回的是整信封,前端 s.cpu_per_core 为 undefined → .map 抛错致性能页渲染失败(#13)。
+  hardware: () => http.get<HardwareSnapshot>('/api/v1/admin/metrics/hardware'),
+  scalability: () => http.get<ScalabilityReport>('/api/v1/admin/metrics/scalability'),
 };
