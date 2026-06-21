@@ -315,12 +315,22 @@ def create_app(run_mode: str = None):
 
         def _run() -> None:
             with phase("framework-wiring"):
+                import logging as _logging
+                _log = _logging.getLogger("chayuan.startup")
                 try:
                     from chayuan_runtime.framework_wiring import install_into_lifecycle
+                except ImportError:
+                    # chayuan_runtime 属可选的 ai_platform 层(与 chayuan_gateway 同层),
+                    # docker 单机镜像故意不打包 → 优雅降级跳过,不当错误刷全栈。
+                    # 见 ai_platform/__init__.py 的「未安装，跳过」约定。
+                    _log.info(
+                        "[ai-platform] chayuan_runtime 未安装，跳过 framework_wiring 注入"
+                    )
+                    return
+                try:
                     install_into_lifecycle()
                 except Exception:  # noqa: BLE001
-                    import logging as _logging
-                    _logging.getLogger("chayuan.startup").exception(
+                    _log.exception(
                         "install framework_wiring into lifecycle failed"
                     )
 
