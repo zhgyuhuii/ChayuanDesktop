@@ -82,3 +82,53 @@ def services_external_probe(body: Dict[str, Any] = Body(default={}), _=Depends(_
     ok, message = probe_external(url)
     # 探测结果统一 code:0,ok 在 data,避免前端拆壳抛异常。
     return {"code": 0, "msg": "ok", "data": {"ok": ok, "message": message}}
+
+
+# docker compose 管理的框架(install_kind=docker)才支持此处启停;其余(pip/subprocess)
+# 由桌面端 / NiceGUI 管。与 compose_manager.COMPOSE_MANAGED_FRAMEWORKS 保持一致。
+_DOCKER_FRAMEWORKS = {"vllm", "infinity", "comfyui", "llamacpp"}
+
+
+@services_config_router.post("/frameworks/{name}/start", summary="[admin] 启动 docker 框架(compose up -d)")
+async def framework_start(name: str, _=Depends(_ADMIN)) -> Dict[str, Any]:
+    if name not in _DOCKER_FRAMEWORKS:
+        return {"code": 0, "msg": "ok", "data": {"ok": False, "error": f"{name} 非 docker 管理框架,不支持此处启停"}}
+    from chayuan.server.config_panel.container_lifecycle import (
+        get_container_lifecycle,
+        LifecycleError,
+    )
+    try:
+        # wait_healthy=False:up -d 即返回,不阻塞 60-180s 等 healthcheck;用户刷新看状态。
+        await get_container_lifecycle().up(name, wait_healthy=False, timeout=60.0)
+        return {"code": 0, "msg": "ok", "data": {"ok": True}}
+    except LifecycleError as e:
+        return {"code": 0, "msg": "ok", "data": {
+            "ok": False,
+            "error": str(e.args[0] if e.args else e),
+            "error_code": e.code.value,
+            "hint": e.hint,
+        }}
+    except Exception as e:  # noqa: BLE001
+        return {"code": 0, "msg": "ok", "data": {"ok": False, "error": f"{type(e).__name__}: {e}"}}
+
+
+@services_config_router.post("/frameworks/{name}/stop", summary="[admin] 停止 docker 框架(compose stop)")
+async def framework_stop(name: str, _=Depends(_ADMIN)) -> Dict[str, Any]:
+    if name not in _DOCKER_FRAMEWORKS:
+        return {"code": 0, "msg": "ok", "data": {"ok": False, "error": f"{name} 非 docker 管理框架,不支持此处启停"}}
+    from chayuan.server.config_panel.container_lifecycle import (
+        get_container_lifecycle,
+        LifecycleError,
+    )
+    try:
+        ok = await get_container_lifecycle().stop(name)
+        return {"code": 0, "msg": "ok", "data": {"ok": bool(ok), "error": "" if ok else "compose stop 返回非 0"}}
+    except LifecycleError as e:
+        return {"code": 0, "msg": "ok", "data": {
+            "ok": False,
+            "error": str(e.args[0] if e.args else e),
+            "error_code": e.code.value,
+            "hint": e.hint,
+        }}
+    except Exception as e:  # noqa: BLE001
+        return {"code": 0, "msg": "ok", "data": {"ok": False, "error": f"{type(e).__name__}: {e}"}}

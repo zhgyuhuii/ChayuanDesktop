@@ -144,4 +144,12 @@ export const servicesConfig = {
     http.post<{ ok: boolean; message: string }>('/api/v1/admin/services/external', body),
   externalProbe: (url: string) =>
     http.post<{ ok: boolean; message: string }>('/api/v1/admin/services/external/probe', { url }),
+  frameworkStart: (name: string) =>
+    http.post<{ ok: boolean; error?: string; hint?: string }>(
+      `/api/v1/admin/services/frameworks/${encodeURIComponent(name)}/start`,
+    ),
+  frameworkStop: (name: string) =>
+    http.post<{ ok: boolean; error?: string; hint?: string }>(
+      `/api/v1/admin/services/frameworks/${encodeURIComponent(name)}/stop`,
+    ),
 };

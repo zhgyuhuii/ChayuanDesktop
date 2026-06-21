@@ -19,6 +19,7 @@ const LEVEL_ZH: Record<string, string> = { critical: '必填', recommended: '推
 const STATE_TONE: Record<string, string> = {
   running: 'text-emerald-600', installed: 'text-sky-600', configured: 'text-amber-600', missing: 'opacity-40',
 };
+const DOCKER_FW = new Set(['vllm', 'infinity', 'comfyui', 'llamacpp']);
 
 export const ServicesConfigPage: React.FC = () => {
   const [statuses, setStatuses] = React.useState<ServiceStatusRow[]>([]);
@@ -99,6 +100,26 @@ export const ServicesConfigPage: React.FC = () => {
     }
   };
 
+  const fwAction = async (f: FrameworkHealth, action: 'start' | 'stop') => {
+    setBusy(true);
+    try {
+      const r =
+        action === 'start'
+          ? await servicesConfig.frameworkStart(f.name)
+          : await servicesConfig.frameworkStop(f.name);
+      if (r.ok) {
+        notifySuccess(action === 'start' ? '已启动（稍候刷新看状态）' : '已停止');
+        await load();
+      } else {
+        reportError(new Error(`${r.error || '失败'}${r.hint ? ` — ${r.hint}` : ''}`), action === 'start' ? '启动失败' : '停止失败');
+      }
+    } catch (e) {
+      reportError(e, '操作失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
       <div className="flex items-center justify-between">
@@ -147,6 +168,15 @@ export const ServicesConfigPage: React.FC = () => {
                 <div className="mt-1 text-[11px] opacity-50">{f.capabilities.join(' · ')}</div>
               )}
               {f.url && <div className="mt-1 truncate text-[11px] opacity-40">{f.url}</div>}
+              {DOCKER_FW.has(f.name) && (
+                <button
+                  disabled={busy}
+                  onClick={() => void fwAction(f, f.state === 'running' ? 'stop' : 'start')}
+                  className="mt-2 w-full rounded-md border border-[var(--cy-border-subtle)] py-1 text-[11px] hover:bg-[var(--cy-surface-2)] disabled:opacity-40"
+                >
+                  {f.state === 'running' ? '停止容器' : '启动容器'}
+                </button>
+              )}
             </div>
           ))}
           {frameworks.length === 0 && <div className="text-xs opacity-40">无</div>}
