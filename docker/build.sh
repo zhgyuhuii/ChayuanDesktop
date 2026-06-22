@@ -15,7 +15,7 @@
 #   ./build.sh --no-clean       # 跳过构建前的历史镜像清理(默认会清)
 #   DOCKER="sudo docker" ./build.sh   # 该机 docker 需要 sudo 时
 #
-# 默认在构建前清理历史镜像:删旧版本 chayuan-server tag、旧 hash 的 chayuan-base、
+# 默认在构建前清理历史镜像:删旧版本 chayuan tag、旧 hash 的 chayuan-base、
 # 悬空(<none>)层;保留本次要用的 chayuan-server:latest、本次 VERSION、当前 BASE_TAG,
 # 既腾空间又不破坏 base 复用、不误删在用的 latest。
 # ====================================================================
@@ -60,8 +60,8 @@ echo "[build] VERSION=${VERSION}  BASE=${BASE_TAG}  WEB_BASE=${WEB_BASE_TAG}"
 #      构建之前跑,保留本次要用的 latest / VERSION / 当前 BASE_TAG。
 clean_history() {
     echo "[build] 清理历史镜像(保留 :latest / :${VERSION} / ${BASE_TAG})..."
-    # 旧版本的 chayuan-server tag(非 latest、非本次 VERSION)
-    $DOCKER images chayuan-server --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+    # 旧版本的 chayuan tag(非 latest、非本次 VERSION)
+    $DOCKER images chayuan --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
         | grep -Ev ":(latest|${VERSION})$|<none>" \
         | while read -r img; do
             echo "  - rmi $img"; $DOCKER rmi "$img" >/dev/null 2>&1 || true
@@ -108,13 +108,13 @@ else
 fi
 
 # 4) 应用镜像:FROM base + web base,只跑 COPY + 离线 install + 前端 build
-echo "[build] 构建应用镜像 chayuan-server:${VERSION} ..."
+echo "[build] 构建应用镜像 chayuan:${VERSION} ..."
 $DOCKER build $NOCACHE \
     -f docker/Dockerfile \
     --build-arg BASE_IMAGE="$BASE_TAG" \
     --build-arg WEB_BASE_IMAGE="$WEB_BASE_TAG" \
-    -t "chayuan-server:${VERSION}" -t chayuan-server:latest \
+    -t "chayuan:${VERSION}" -t chayuan:latest \
     .
 
-echo "[build] 完成:chayuan-server:${VERSION}  (= chayuan-server:latest),base=${BASE_TAG},web-base=${WEB_BASE_TAG}"
+echo "[build] 完成:chayuan:${VERSION}  (= chayuan:latest),base=${BASE_TAG},web-base=${WEB_BASE_TAG}"
 echo "[build] 起服务:cd docker && ${DOCKER} compose up -d"

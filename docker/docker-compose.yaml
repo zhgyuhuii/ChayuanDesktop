@@ -44,7 +44,7 @@ services:
       dockerfile: docker/Dockerfile
       args:
         BASE_IMAGE: chayuan-base:latest
-    image: chayuan-server:latest
+    image: chayuan:latest
     container_name: chayuan-server
     restart: unless-stopped
 
