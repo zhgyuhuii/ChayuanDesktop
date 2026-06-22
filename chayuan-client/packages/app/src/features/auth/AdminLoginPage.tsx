@@ -40,7 +40,6 @@ export const AdminLoginPage: React.FC = () => {
   const [password, setPassword] = React.useState('');
   const [confirm, setConfirm] = React.useState('');
   const [email, setEmail] = React.useState('');
-  const [setupInstance, setSetupInstance] = React.useState('');
   const [remember, setRemember] = React.useState<boolean>(() => isAuthPersistent());
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -87,7 +86,7 @@ export const AdminLoginPage: React.FC = () => {
   // 任意字段 / 模式变化清掉上一次错误。
   React.useEffect(() => {
     setErr(null);
-  }, [username, password, confirm, email, setupInstance, mode]);
+  }, [username, password, confirm, email, mode]);
 
   const onSetup = async () => {
     if (!username.trim()) return setErr('请输入用户名');
@@ -98,7 +97,6 @@ export const AdminLoginPage: React.FC = () => {
       const res = await authApi.setupAdmin({
         username: username.trim(),
         password,
-        instanceName: setupInstance.trim() || undefined,
       });
       setUser(res.user);
       goByRole(res.user);
@@ -221,14 +219,6 @@ export const AdminLoginPage: React.FC = () => {
                 placeholder="邮箱(可选)"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-              />
-            )}
-            {mode === 'setup' && (
-              <input
-                className={FIELD}
-                placeholder="实例标识 / 名称(可选)"
-                value={setupInstance}
-                onChange={(e) => setSetupInstance(e.target.value)}
               />
             )}
 
