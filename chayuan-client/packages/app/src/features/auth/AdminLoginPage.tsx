@@ -35,7 +35,6 @@ export const AdminLoginPage: React.FC = () => {
   const [mode, setMode] = React.useState<Mode>('login');
   const [allowRegistration, setAllowRegistration] = React.useState(false);
   const [authRequired, setAuthRequired] = React.useState(true);
-  const [instanceName, setInstanceName] = React.useState('');
 
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -73,7 +72,6 @@ export const AdminLoginPage: React.FC = () => {
       if (cancelled) return;
       setAllowRegistration(cfg.auth_allow_registration);
       setAuthRequired(Boolean(cfg.auth_required));
-      setInstanceName(cfg.instance_name || '');
       const s = useLoginModalStore.getState();
       s.setAllowRegistration(cfg.auth_allow_registration);
       s.setAuthRequired(Boolean(cfg.auth_required));
@@ -183,7 +181,6 @@ export const AdminLoginPage: React.FC = () => {
           <span className="mt-2 text-sm font-semibold tracking-[0.18em] text-[var(--cy-brand-500)]">
             察元AI
           </span>
-          {instanceName && <span className="mt-1 text-xs opacity-60">{instanceName}</span>}
         </div>
         <div className="text-center">
           <div className="text-xl font-semibold text-[var(--cy-text-primary)]">{title}</div>
