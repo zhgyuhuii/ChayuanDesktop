@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 import { useNavigate } from '@tanstack/react-router';
+import { groupCandidatesByPlatform } from '../../aiPlatform/modelGrouping';
 
 type CapMeta = { label: string; hint: string; icon: React.ComponentType<{ className?: string }>; accent: string; chip: string };
 const CAP_META: Record<string, CapMeta> = {
@@ -34,22 +35,6 @@ const CAP_META: Record<string, CapMeta> = {
 const CAP_LABELS: Record<string, string> = Object.fromEntries(
   Object.entries(CAP_META).map(([k, v]) => [k, v.label]),
 );
-
-function groupByPlatform(list: CapabilityCandidate[]): { platform: string; items: CapabilityCandidate[] }[] {
-  const map = new Map<string, CapabilityCandidate[]>();
-  for (const c of list) {
-    const key = c.platform_name || c.runtime || '其它';
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(c);
-  }
-  const groups = Array.from(map.entries()).map(([platform, items]) => ({ platform, items }));
-  groups.sort((a, b) => {
-    const al = a.platform.startsWith('local') ? 1 : 0;
-    const bl = b.platform.startsWith('local') ? 1 : 0;
-    return al - bl || a.platform.localeCompare(b.platform);
-  });
-  return groups;
-}
 
 export const DefaultModelsPage: React.FC = () => {
   const [data, setData] = React.useState<CapabilityDefaults | null>(null);
@@ -111,7 +96,7 @@ export const DefaultModelsPage: React.FC = () => {
             const meta = CAP_META[cap] ?? { label: cap, hint: '', icon: MessageSquare, accent: 'from-zinc-500/10', chip: 'text-zinc-600' };
             const Icon = meta.icon;
             const list = data?.candidates[cap] ?? [];
-            const groups = groupByPlatform(list);
+            const groups = groupCandidatesByPlatform(list);
             const value = data?.defaults[cap] ?? '';
             const empty = list.length === 0;
             const saving = savingCap === cap;
@@ -151,7 +136,7 @@ export const DefaultModelsPage: React.FC = () => {
                     >
                       <option value="">（未设置）</option>
                       {groups.map((g) => (
-                        <optgroup key={g.platform} label={g.platform}>
+                        <optgroup key={g.label} label={g.label}>
                           {g.items.map((c) => (
                             <option key={c.id} value={c.id}>{c.id}</option>
                           ))}

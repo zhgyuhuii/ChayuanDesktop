@@ -32,6 +32,7 @@ import {
   type RuntimesResponse,
 } from '@chayuan/api';
 import { notifyInfo, notifySuccess, reportError } from '../../store/errorDialog';
+import { groupCandidatesByPlatform } from './modelGrouping';
 
 const CAPABILITY_ZH: Record<string, string> = {
   chat: '对话',
@@ -76,40 +77,6 @@ function shortLabel(id: string): string {
   if (!id.includes('/')) return id;
   const tail = id.split('/').filter(Boolean).pop() ?? id;
   return tail.replace(/-(gguf|GGUF)$/, '');
-}
-
-/** 平台显示名 + 排序:本地 sidecar(local-chat / local-embedding / ...)归一到「本地模型」
- *  排首位;云厂商按名称字母序。platform_name 缺失或异常 → 「其它」分组。 */
-function platformGroupKey(p: string | null | undefined): { key: string; label: string } {
-  if (!p) return { key: '__other__', label: '其它' };
-  if (p === 'local' || p.startsWith('local-')) {
-    return { key: '__local__', label: '本地模型' };
-  }
-  return { key: p, label: p };
-}
-
-function groupCandidates(
-  candidates: DefaultsCandidate[],
-): Array<{ label: string; items: DefaultsCandidate[] }> {
-  const map = new Map<string, { label: string; items: DefaultsCandidate[] }>();
-  for (const c of candidates) {
-    const { key, label } = platformGroupKey(c.platform_name);
-    const entry = map.get(key) ?? { label, items: [] };
-    entry.items.push(c);
-    map.set(key, entry);
-  }
-  return Array.from(map.entries())
-    .sort(([a], [b]) => {
-      if (a === '__local__') return -1;
-      if (b === '__local__') return 1;
-      if (a === '__other__') return 1;
-      if (b === '__other__') return -1;
-      return a.localeCompare(b);
-    })
-    .map(([, v]) => ({
-      label: v.label,
-      items: v.items.slice().sort((x, y) => x.id.localeCompare(y.id)),
-    }));
 }
 
 // ===========================================================================
@@ -541,7 +508,7 @@ const DefaultCapabilityCard: React.FC<{
             <option value="" disabled>
               请选择
             </option>
-            {groupCandidates(candidates).map((g) => (
+            {groupCandidatesByPlatform(candidates).map((g) => (
               <optgroup key={g.label} label={g.label}>
                 {g.items.map((c) => (
                   <option key={c.id} value={c.id}>
