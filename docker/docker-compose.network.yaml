@@ -1,103 +1,58 @@
-# 察元 AI — 网络/服务器部署(多服务,容器名互联)
+# 察元 AI — 网络/服务器部署(基础设施容器全起,连接由管理员后台配置)
 # ====================================================================
-# 与单机版的区别:
-#   单机版 docker-compose.yaml = 一个容器跑全部(sqlite-vec / inproc / 无登录)。
-#   本文件   = 真·网络部署:
-#       postgres + redis + milvus(+etcd+minio) 各自独立容器,
-#       chayuan-server / worker / client 用【容器(服务)名】连过去,
-#       开启多用户登录(强制验证)。
+# 设计原则(按用户要求):
+#   ★ compose 只【把各服务作为容器跑起来】,放在同一个网络里,数据映射到宿主机。
+#   ★ compose 【不预配置】任何连接 —— chayuan-server 启动时是「未配置」状态
+#     (默认 sqlite,可直接进系统)。
+#   ★ 进【管理员后台 /admin → 基础设施】里,把数据库 / Redis / 向量库 / 对象存储
+#     的 host 填成【容器服务名】(postgres / redis / milvus / minio:9000)或直接填 IP,
+#     点「测试连通」验证 → 保存。
+#   ★ ⚠ 连接类配置【保存后需重启 chayuan-server 生效】(连接在启动时建立并缓存):
+#        docker compose -f docker-compose.network.yaml restart chayuan-server
 #
-# 所有可变数据都【映射到宿主机】本目录(docker/)下:
-#   ./data              ← 业务数据 / 上传文件 / 运行时 yaml(init 写)/ 日志
-#   ./bundled_models    ← chat/embedding/rerank/asr 模型(用户自备 GGUF)
-#   ./config            ← 可选:覆盖 *.yaml 配置
-#   ./logs              ← chayuan-server 日志
-#   ./volumes/postgres  ← PostgreSQL 数据
-#   ./volumes/redis     ← Redis AOF 持久化
-#   ./volumes/etcd      ← Milvus 元数据(etcd)
-#   ./volumes/minio     ← Milvus 对象存储(minio)
-#   ./volumes/milvus    ← Milvus 向量数据
+# 用到的镜像(全部用你已有的,不额外拉取):
+#   chayuan-server:latest                       一体化(前端 nginx + API + 配置面板)
+#   postgres:15                                 关系库(管理员后台里连)
+#   redis:latest                                缓存 / 限流 / 异步入库队列
+#   milvusdb/milvus:v2.6.15                      向量库(standalone)
+#   quay.io/coreos/etcd:v3.5.5                    Milvus 依赖(元数据)
+#   minio/minio:RELEASE.2023-03-20T20-16-18Z     Milvus 依赖 + 可兼作察元对象存储
 #
-# 一键启动:
+# 数据全部映射到宿主机 docker/ 下:
+#   ./data ./logs ./config ./bundled_models
+#   ./volumes/{postgres,redis,etcd,minio,milvus}
+#
+# 启动:
 #   cd docker
-#   cp .env.network.example .env          # 填 JWT_SECRET / 密码
 #   docker compose -f docker-compose.network.yaml up -d
-#
-# 浏览器:http://<host>:8080/   首次进去要登录(初始 admin 见下)。
-#
-# 启动顺序(compose 自动按 depends_on 编排):
-#   postgres/redis/milvus 起 → chayuan-init 跑一次 `init --profile prod`
-#   (把 postgres/milvus/redis 连接写进 ./data 的 yaml + 建表)→
-#   chayuan-server(start)+ chayuan-worker(异步入库)→ chayuan-client(nginx)。
+#   浏览器 http://<host>:8080/ → 首次进去先「设置首个管理员」→ 进 /admin 配基础设施。
 # ====================================================================
 name: chayuan-network
 
-# ── 三个 chayuan 进程(init / server / worker)共用同一套 env 与挂载 ──
-# 用容器(服务)名连基础设施:postgres / redis / milvus 都是下面的 service 名,
-# 同一个 compose 默认网络里 DNS 直接可解析,无需 IP。
-x-chayuan-env: &chayuan-env
-  CHAYUAN_ROOT: /chayuan/data
-  # ⚠ 必须置空覆盖镜像内置的 CHAYUAN_PROFILE=single-machine,
-  #   空值 = 走 SaaS/网络形态(用 postgres/redis/milvus,而非 sqlite/inproc)。
-  CHAYUAN_PROFILE: ""
-  # init 时套 prod profile:postgres + milvus + redis + 多 worker + 启用鉴权。
-  CHAYUAN_INIT_PROFILE: "prod"
-  CHAYUAN_AUTO_INSTALL_DEPS: "false"
-  CHAYUAN_VENDOR_PLATFORM: linux-x64
-  # ── PostgreSQL(主业务库)── 连接 = 服务名 postgres ──
-  CHAYUAN_PG_HOST: postgres
-  CHAYUAN_PG_PORT: "5432"
-  CHAYUAN_PG_USER: chayuan
-  CHAYUAN_PG_PASSWORD: ${POSTGRES_PASSWORD:-chayuan}
-  CHAYUAN_PG_DB: chayuan
-  # ── Redis(限流 / 语义缓存 / arq 异步队列)── 连接 = 服务名 redis ──
-  CHAYUAN_REDIS_URL: redis://redis:6379/0
-  # ── Milvus(向量库)── 连接 = 服务名 milvus,自动拼成 http://milvus:19530 ──
-  CHAYUAN_MILVUS_HOST: milvus
-  CHAYUAN_MILVUS_PORT: "19530"
-  CHAYUAN_MILVUS_SECURE: "false"
-  # ── 鉴权(多用户登录,强制验证)──
-  # JWT_SECRET 可留空:留空时 init 会随机生成并写进 ./data 的 basic_settings.yaml,
-  # server / worker 都读同一份(共享 ./data 卷)所以密钥一致,无需手动设。
-  # 想固定密钥 / 多机一致时,再在 docker/.env 里设 JWT_SECRET(openssl rand -hex 64)。
-  CHAYUAN_JWT_SECRET: ${JWT_SECRET:-}
-  # 首次启动若库里没用户,按此用户名 + 密码建管理员。
-  # 密码留空 = 随机生成并打到启动日志(docker compose logs chayuan-server 截一次)。
-  AUTH_DEFAULT_ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-  AUTH_DEFAULT_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-
-x-chayuan-volumes: &chayuan-volumes
-  - ./data:/chayuan/data
-  - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
-  - ./config:/chayuan/config
-  - ./logs:/chayuan/logs
-
 services:
   # ──────────────────────────────────────────────────────────────
-  # 基础设施:PostgreSQL / Redis / Milvus(etcd + minio + milvus)
+  # 基础设施容器(只是把服务跑起来,等管理员后台来连;不往 chayuan 注入连接)
   # ──────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
-    container_name: chayuan-postgres
+    image: postgres:15
+    container_name: postgres                  # ← 管理员后台「数据库」host 就填这个名字
     restart: unless-stopped
     environment:
-      POSTGRES_USER: chayuan
+      POSTGRES_USER: ${POSTGRES_USER:-chayuan}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chayuan}
-      POSTGRES_DB: chayuan
-      # 数据落在子目录,避免 alpine 镜像对挂载根目录权限的挑剔
+      POSTGRES_DB: ${POSTGRES_DB:-chayuan}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - ./volumes/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chayuan -d chayuan"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chayuan} -d ${POSTGRES_DB:-chayuan}"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 30s
 
   redis:
-    image: redis:7-alpine
-    container_name: chayuan-redis
+    image: redis:latest
+    container_name: redis                      # ← 管理员后台「Redis」host 填 redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -107,13 +62,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 10s
 
-  # Milvus standalone 的两个依赖:etcd(元数据)+ minio(对象存储)。
-  # 注意:这个 minio 是 Milvus 内部用的,跟「察元文件存储」无关(后者默认 local)。
+  # Milvus standalone 的两个依赖(etcd 元数据 + minio 对象存储)
   etcd:
     image: quay.io/coreos/etcd:v3.5.5
-    container_name: chayuan-milvus-etcd
+    container_name: etcd
     restart: unless-stopped
     environment:
       ETCD_AUTO_COMPACTION_MODE: revision
@@ -135,11 +88,11 @@ services:
 
   minio:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
-    container_name: chayuan-milvus-minio
+    container_name: minio                      # ← 若做察元对象存储,后台 endpoint 填 minio:9000
     restart: unless-stopped
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
     command: ["minio", "server", "/minio_data", "--console-address", ":9001"]
     volumes:
       - ./volumes/minio:/minio_data
@@ -150,8 +103,8 @@ services:
       retries: 5
 
   milvus:
-    image: milvusdb/milvus:v2.4.5
-    container_name: chayuan-milvus
+    image: milvusdb/milvus:v2.6.15
+    container_name: milvus                      # ← 管理员后台「向量库 milvus」host 填 milvus
     restart: unless-stopped
     command: ["milvus", "run", "standalone"]
     environment:
@@ -164,89 +117,89 @@ services:
       interval: 30s
       timeout: 20s
       retries: 5
-      start_period: 90s
+      start_period: 120s
     depends_on:
       etcd:
         condition: service_healthy
       minio:
         condition: service_healthy
-    # 如需外部工具(Attu 等)直连,放开端口:
+    # 外部工具(Attu 等)直连时放开:
     # ports:
     #   - "19530:19530"
-    #   - "9091:9091"
 
   # ──────────────────────────────────────────────────────────────
-  # 察元:init(一次性)/ server / worker / client
-  # ⚠ 下面 image 用的是 split 两镜像约定名,请替换成你已有的实际 tag:
-  #     chayuan-server:split  ← 后端(entrypoint.server.sh,跑 python -m chayuan)
-  #     chayuan-client:split  ← 前端 nginx(反代 chayuan-server:62581)
-  #   (build.sh / docker-compose.split.yaml 产出的就是这两个名字)
+  # 察元(一体化镜像:前端 + API + 配置面板)。启动即「未配置」状态,
+  # 进 /admin 再配 postgres/redis/milvus。CHAYUAN_PROFILE 置空很关键:
+  # 不能用 single-machine(它会每次启动强制覆盖回 sqlite,把后台配的连接冲掉)。
   # ──────────────────────────────────────────────────────────────
 
-  # 一次性初始化:把 postgres/milvus/redis 连接写进 ./data 下的 yaml 并建表。
-  # 跑完即退出(restart: "no");server/worker 等它成功后再起。
+  # 一次性:生成默认(本地 sqlite)配置模板,让 server 能干净启动。
+  # 注意:这是「默认/未配置」基线,不写任何 postgres/redis/milvus 连接。
   chayuan-init:
-    image: chayuan-server:split
+    image: chayuan-server:latest
     container_name: chayuan-init
     restart: "no"
-    command: ["init", "-q", "--profile", "prod"]
-    environment: *chayuan-env
-    volumes: *chayuan-volumes
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    command: ["init", "-q"]                    # 走镜像默认 entrypoint(含建目录),只跑一次 init
+    environment:
+      CHAYUAN_ROOT: /chayuan/data
+      CHAYUAN_PROFILE: ""
+      CHAYUAN_AUTO_INSTALL_DEPS: "false"
+    volumes:
+      - ./data:/chayuan/data
+      - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
+      - ./config:/chayuan/config
+      - ./logs:/chayuan/logs
 
   chayuan-server:
-    image: chayuan-server:split
-    container_name: chayuan-server          # ⚠ 必须叫这个:nginx.split.conf 反代目标 = chayuan-server:62581
+    image: chayuan-server:latest
+    container_name: chayuan-server
     restart: unless-stopped
-    command: ["start", "-a"]                 # 注意:不带 --single-machine,走网络形态
-    environment: *chayuan-env
-    volumes: *chayuan-volumes
+    # 一体化镜像默认 entrypoint 跑 nginx + python；这里走默认 ENTRYPOINT,
+    # 只把命令从「single-machine」换成普通 start(网络形态,后台配置可持久)。
+    command: ["start", "-a"]
+    environment:
+      CHAYUAN_ROOT: /chayuan/data
+      CHAYUAN_PROFILE: ""                      # ⚠ 必须置空,覆盖镜像内置 single-machine
+      CHAYUAN_AUTO_INSTALL_DEPS: "false"
+    volumes:
+      - ./data:/chayuan/data                   # ★ 管理员后台配置写在这里,持久化+重启不丢
+      - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
+      - ./config:/chayuan/config
+      - ./logs:/chayuan/logs
+    ports:
+      - "${CHAYUAN_WEB_PORT:-8080}:80"          # 浏览器主入口(前端 + API 反代)
+      # - "62581:62581"                         # 后端 API 直连(WPS/Tauri/三方)
+      # - "8502:8502"                           # 旧 NiceGUI 配置面板(React /admin 已取代)
     depends_on:
       chayuan-init:
         condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      milvus:
-        condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:62581/healthz"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1/healthz"]
       interval: 30s
       timeout: 10s
       start_period: 180s
       retries: 5
-    # 需要 WPS / Tauri / 三方 OpenAI SDK 直连后端时放开:
-    # ports:
-    #   - "62581:62581"
 
-  # 异步入库 worker:prod 默认 INGEST_ASYNC_ENABLED=true,上传/解析/向量化走
-  # arq 队列,必须有 worker 消费,否则上传任务会一直挂起。
-  chayuan-worker:
-    image: chayuan-server:split
-    container_name: chayuan-worker
-    restart: unless-stopped
-    command: ["worker"]
-    environment: *chayuan-env
-    volumes: *chayuan-volumes
-    depends_on:
-      chayuan-init:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-      milvus:
-        condition: service_started
+  # 异步入库 worker:仅当你在后台开启了 Redis + 异步入库后才需要。
+  # 默认注释掉(符合「默认不配置」)。配好 Redis 后取消注释并 up -d。
+  # chayuan-worker:
+  #   image: chayuan-server:latest
+  #   container_name: chayuan-worker
+  #   restart: unless-stopped
+  #   command: ["worker"]
+  #   environment:
+  #     CHAYUAN_ROOT: /chayuan/data
+  #     CHAYUAN_PROFILE: ""
+  #   volumes:
+  #     - ./data:/chayuan/data
+  #     - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
+  #     - ./config:/chayuan/config
+  #     - ./logs:/chayuan/logs
+  #   depends_on:
+  #     chayuan-server:
+  #       condition: service_started
 
-  chayuan-client:
-    image: chayuan-client:split
-    container_name: chayuan-client
-    restart: unless-stopped
-    ports:
-      - "${CHAYUAN_WEB_PORT:-8080}:80"       # 浏览器主入口
-    depends_on:
-      chayuan-server:
-        condition: service_started
+  # PaddleOCR(paddlecloud/paddleocr:2.6-cpu-latest):你已有这个镜像,但
+  # 「察元如何对接外部 OCR 容器」需确认(一体化镜像很可能已内置 in-process OCR,
+  # 不需要单独 OCR 容器)。确认对接方式前先不接,避免接错。需要的话告诉我,
+  # 我查清 capability_router 的 OCR 端点再补这个 service。
