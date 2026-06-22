@@ -57,8 +57,10 @@ x-chayuan-env: &chayuan-env
   CHAYUAN_MILVUS_PORT: "19530"
   CHAYUAN_MILVUS_SECURE: "false"
   # ── 鉴权(多用户登录,强制验证)──
-  # JWT_SECRET 必填:多副本/worker 共享同一密钥,否则 token 互不认。
-  CHAYUAN_JWT_SECRET: ${JWT_SECRET:?请在 docker/.env 设置 JWT_SECRET(生成:openssl rand -hex 64)}
+  # JWT_SECRET 可留空:留空时 init 会随机生成并写进 ./data 的 basic_settings.yaml,
+  # server / worker 都读同一份(共享 ./data 卷)所以密钥一致,无需手动设。
+  # 想固定密钥 / 多机一致时,再在 docker/.env 里设 JWT_SECRET(openssl rand -hex 64)。
+  CHAYUAN_JWT_SECRET: ${JWT_SECRET:-}
   # 首次启动若库里没用户,按此用户名 + 密码建管理员。
   # 密码留空 = 随机生成并打到启动日志(docker compose logs chayuan-server 截一次)。
   AUTH_DEFAULT_ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
