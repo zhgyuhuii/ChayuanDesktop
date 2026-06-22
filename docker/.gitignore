@@ -1,0 +1,5 @@
+# 网络部署运行时数据(bind mount 到宿主机)— 体积大 / 含密钥,绝不入库
+volumes/
+
+# .env 本身在仓库根 .gitignore 已忽略;这里把网络部署的模板重新放行(要入库)
+!.env.network.example
