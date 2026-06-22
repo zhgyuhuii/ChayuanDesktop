@@ -136,3 +136,12 @@ services:
       timeout: 10s
       start_period: 180s
       retries: 5
+
+# ── 共享网络:两个 compose(docker-compose.yaml / docker-compose.network.yaml)统一用它 ──
+# 把默认网络指到同一个外部网络 chayuan-net,确保【跨文件也能用容器名互相访问】。
+# ⚠ 第一次起之前先建一次(幂等,已存在会报已存在,忽略即可):
+#     docker network create chayuan-net
+networks:
+  default:
+    name: chayuan-net
+    external: true
