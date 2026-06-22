@@ -211,9 +211,16 @@ export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
   // 兜底未捕获错误,统一弹 ErrorDialog;避免裸 alert / 浏览器空白
   React.useEffect(() => {
     const onUnhandled = (e: PromiseRejectionEvent) => {
-      // BizError.kind === 'auth' 不弹:LoginModal 已经在路由守卫里接管
       const reason = e.reason as { kind?: string } | undefined;
-      if (reason?.kind === 'auth') return;
+      // BizError.kind === 'auth':会话已死(401 且 refresh 也失败)。不弹错误框;
+      // 网络版把本地登录态清掉 → 下方门禁 effect 据此把用户带回 /login
+      // (开启强制登录时这是「必须重新登录」的兜底)。单机版无鉴权,忽略即可。
+      if (reason?.kind === 'auth') {
+        if (!isSingleMachineMode() && useAuthStore.getState().isLoggedIn) {
+          useAuthStore.getState().setUser(null);
+        }
+        return;
+      }
       reportError(e.reason, '未处理的异常');
     };
     const onError = (e: ErrorEvent) => reportError(e.error ?? e.message, '运行时错误');

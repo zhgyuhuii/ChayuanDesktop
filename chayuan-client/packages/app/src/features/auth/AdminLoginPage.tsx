@@ -163,13 +163,13 @@ export const AdminLoginPage: React.FC = () => {
   // 强制态(需要登录 或 首启设置)下不给「返回首页」逃生。
   const forced = authRequired || mode === 'setup';
   const title =
-    mode === 'setup' ? '首次使用 · 设置管理员' : mode === 'register' ? '注册账户' : '管理员登录';
+    mode === 'setup' ? '首次使用 · 设置管理员' : mode === 'register' ? '注册账户' : '登录';
   const subtitle =
     mode === 'setup'
       ? '检测到系统尚无管理员,请创建首个管理员账户。'
       : mode === 'register'
         ? '创建一个新账户并登录。'
-        : '请输入账户与密码登录后台。';
+        : '请输入账户与密码登录。';
 
   return (
     <div className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[var(--cy-surface-2,#f6f8fc)] px-4">
@@ -259,7 +259,7 @@ export const AdminLoginPage: React.FC = () => {
               {busy
                 ? '处理中…'
                 : mode === 'setup'
-                  ? '创建并进入后台'
+                  ? '创建并登录'
                   : mode === 'register'
                     ? '注册并登录'
                     : '登录'}

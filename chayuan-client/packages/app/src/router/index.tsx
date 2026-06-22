@@ -28,6 +28,7 @@ import * as React from 'react';
 import { useAuthStore } from '../store/auth';
 import { useLoginModalStore } from '../store/loginModal';
 import { isSingleMachineMode } from '../features/first-run/useSingleMachineMode';
+import { ensureAuthPolicy } from '../features/auth/authPolicy';
 import type { AdminTab } from '../features/admin/AdminPage';
 
 const Chrome = React.lazy(() => import('./Chrome').then((m) => ({ default: m.Chrome })));
@@ -141,7 +142,11 @@ const workspaceLayoutRoute = createRoute({
     if (!auth.hydrated) await auth.hydrate();
     // 网络版:未登录且(后端要求登录 或 尚无管理员需首启)→ 去独立登录页 /login,
     // 避免业务页在登录前挂载并打 401。单机版不受影响。
+    // 守卫早于 Shell 探测 /auth/config,这里先 await ensureAuthPolicy() 把
+    // authRequired 探出来再判断,做成硬门禁(否则 authRequired 仍是 null 会误放行,
+    // 导致开启强制登录后仍闪一下首页 + 打 401)。
     if (!isSingleMachineMode() && !auth.isLoggedIn) {
+      await ensureAuthPolicy();
       const lm = useLoginModalStore.getState();
       if (lm.authRequired === true || lm.adminSetupRequired) {
         throw redirect({ to: '/login' });
