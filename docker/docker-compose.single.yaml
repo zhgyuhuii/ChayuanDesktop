@@ -1,0 +1,147 @@
+# 察元 AI 单机版 Docker Compose
+# ====================================================================
+# 一个 service 同时跑 chayuan-server (Python + sidecar) + nginx
+# (前端 SPA + API 反代),浏览器开 http://<host>:8080 即用。
+#
+# 所有可变数据通过 volume 映射到本目录 (docker/) 下子目录:
+#   ./data            ← KB metadata / sqlite / 上传文件 / 日志
+#   ./bundled_models  ← chat/embedding/rerank/asr 模型 (用户自备 GGUF)
+#   ./config          ← 可选: 覆盖 *.yaml 配置 (basic_settings.yaml 等)
+#   ./logs            ← chayuan-server / nginx 日志
+#
+# 一键启动:
+#   cd docker
+#   docker compose up -d --build
+#
+# 升级:
+#   git pull
+#   docker compose up -d --build       # 重新 build image,数据保留
+#
+# 看 log:
+#   docker compose logs -f chayuan
+#
+# 进容器调试:
+#   docker compose exec chayuan bash
+#
+# 停 + 清:
+#   docker compose down                # 停容器, 数据保留
+#   docker compose down -v             # 顺带删 named volume (本配置没用,只用 bind mount)
+#
+# 注意:第一次启动需要等 sidecar 初始化 + 加载模型,约 60-180s。
+# ====================================================================
+
+services:
+  chayuan:
+    # ⚠ 推荐用 `../build.sh` 构建(自动管基础环境镜像 + 按 VERSION 打 tag,依赖零重拉):
+    #     cd .. && docker/build.sh        # 然后 docker compose up -d(不带 --build)
+    #     Windows:  powershell -ExecutionPolicy Bypass -File docker\\build.ps1
+    # 下面的 build: 仅作 `docker compose build` 兜底 —— 它**不会**构建基础环境镜像,
+    # 需先有 chayuan-base:latest(由 build.sh 产出),否则 FROM 基础镜像会失败。
+    build:
+      # context = repo 根,这样 .dockerignore + chayuan-server/ + chayuan-client/
+      # 都可见。Dockerfile 路径相对 context。
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        BASE_IMAGE: chayuan-base:latest
+    image: chayuan:latest
+    container_name: chayuan-server
+    restart: unless-stopped
+
+    # 三个浏览器入口,全部暴露:
+    #   :8080  → 前端 SPA (主入口,nginx 反代后端 API,无 CORS)
+    #   :62581 → 后端 API 直连 (Tauri / WPS / 三方系统集成用)
+    #   :8502  → 后台配置面板 (NiceGUI,改 yaml/模型/账号)
+    # 端口冲突时只改宿主侧(冒号左边),容器内端口写死不可改。
+    ports:
+      - "8080:80"        # 前端 + API 反代  ← 浏览器主入口
+      - "62581:62581"    # 后端 API 直连
+      - "8502:8502"      # 后台配置面板 (NiceGUI)
+
+    # 挂载点 = compose 同目录子目录,git ignore 已配
+    volumes:
+      - ./data:/chayuan/data
+      - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
+      - ./config:/chayuan/config
+      - ./logs:/chayuan/logs
+      # ── 本地热替换:主机编译产物盖掉镜像里 COPY 的那份,免重新打镜像 ──
+      # 前端:本地 `pnpm -F web build:vite` 后刷浏览器即生效(nginx 静态 serve,零重启)。
+      # 服务端:本地改 .py 后 `docker compose restart chayuan`(无 --reload,需重启进程)。
+      # 只读挂载(:ro):容器不反写源码;PYTHONDONTWRITEBYTECODE=1 已设,无 .pyc 写入。
+      #
+      # ⚠⚠ 默认**不要**挂下面这三个「源码热替换」挂载 ⚠⚠
+      # 它们会用**主机**目录盖掉镜像里 build 好的产物。nginx root=/chayuan/web,
+      # 镜像已在 web-builder 阶段把 apps/web(平台层 platform-web)build 进 /chayuan/web、
+      # 自包含;一旦挂上主机 apps/web/dist,nginx 改 serve 主机那份 —— 主机若是旧的 /
+      # 误 build 了 apps/desktop(Tauri 壳,开机调 invoke),浏览器首屏就抛
+      # "Cannot read properties of undefined (reading 'invoke')" 整页白屏,
+      # **镜像里修对了也没用**(2026-06-20 实测:fix(docker) 已让镜像 build web,
+      # 但这个挂载把镜像产物盖回主机脏 dist,invoke 复现)。
+      #
+      # 需要本地热替换开发时,用 opt-in override(不污染默认 deploy 路径):
+      #   docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d
+      # 见同目录 docker-compose.dev.yaml。
+
+    # .env 同目录,可选,会覆盖下面 environment(详见 .env.example)
+    env_file:
+      - path: .env
+        required: false
+
+    # 环境变量(也可改 .env 文件,同目录)
+    # 默认 == 单机匿名模式:所有请求按 GUEST 放行,无需登录。
+    # 切多用户(下面取消注释):
+    #   CHAYUAN_AUTH_REQUIRED=true     → 全接口要 JWT
+    #   CHAYUAN_ALLOW_REGISTRATION=false → 关自助注册(只 admin 后台开账号)
+    #   AUTH_DEFAULT_ADMIN_PASSWORD=…  → 初始 admin 密码,留空首次启动随机生成(看日志)
+    #   JWT_SECRET=…                   → 必填长字符串,否则随机+重启就作废
+    environment:
+      # ── 部署/profile ──────────────────────────────────────────
+      CHAYUAN_ROOT: /chayuan/data
+      CHAYUAN_PROFILE: single-machine        # 单机内核(sqlite-vec/inproc/asyncio)
+      CHAYUAN_REDIS: disabled
+      CHAYUAN_QUEUE: inproc
+      CHAYUAN_VECTOR_STORE: sqlite-vec
+      CHAYUAN_AUTO_INSTALL_DEPS: "false"
+      CHAYUAN_ROOT_IGNORE_STATE: "1"
+      CHAYUAN_VENDOR_PLATFORM: linux-x64
+      CHAYUAN_PRELOAD_ON_START: "false"
+
+      # ── 鉴权 / 多用户(默认匿名,Docker 用户按需开启) ────────────
+      # CHAYUAN_AUTH_REQUIRED 控制是否要登录:
+      #   "false" (默认): 无登录,任何请求按 GUEST(单机/局域网体验)
+      #   "true"        : 启用 JWT,/chat/* /knowledge_base/* 等必须带 Token
+      CHAYUAN_AUTH_REQUIRED: "false"
+      # 是否开放自助注册:true=登录页有"注册"按钮,false=只管理员后台开账号
+      CHAYUAN_ALLOW_REGISTRATION: "true"
+      # 多用户模式必填:JWT 签名密钥(留空进程会随机生成,重启所有 Token 作废)
+      # 生成:openssl rand -hex 64
+      JWT_SECRET: ""
+      # 多用户模式建议显式设:首次启动若没用户,按此用户名+密码建管理员
+      # 密码留空 = 首次启动随机生成并打到日志(docker logs 截一次)
+      AUTH_DEFAULT_ADMIN_USERNAME: "admin"
+      AUTH_DEFAULT_ADMIN_PASSWORD: ""
+
+    # 资源建议(单机:留给宿主机 OS / 其它进程一半 CPU + RAM)
+    # 不强制,docker 会按宿主机能力分。
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '4.0'
+    #       memory: 12g
+
+    # 健康探活(Dockerfile 也定义了,这里 compose 层覆盖一份)
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 5
+
+# ── 共享网络:两个 compose(docker-compose.yaml / docker-compose.network.yaml)统一用它 ──
+# 默认网络都指到同名网络 chayuan-net,确保【跨文件也能用容器名互相访问】。
+# 不存在时 compose 会【自动创建】,无需手动 docker network create。
+# ⚠ 只有一种情况要先删:你之前【手动】建过 chayuan-net(报 incorrect label 时),
+#   执行一次 `docker network rm chayuan-net` 让 compose 接管即可。
+networks:
+  default:
+    name: chayuan-net

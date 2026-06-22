@@ -1,0 +1,7 @@
+# 该文件由 chayuan 自动生成,可在 UI 里编辑;保存后立即重启 daemon 生效
+engine: onnxruntime
+lang: ch
+use_det: true
+use_cls: true
+use_rec: true
+min_box_size: 20

@@ -1,135 +1,208 @@
-# 察元 AI 单机版 Docker Compose
+# 察元 AI — 默认部署 = 网络/服务器部署(察元单容器 + 基础设施容器)
+# (这就是 `docker compose up -d` 起的那套;单机版见 docker-compose.single.yaml)
 # ====================================================================
-# 一个 service 同时跑 chayuan-server (Python + sidecar) + nginx
-# (前端 SPA + API 反代),浏览器开 http://<host>:8080 即用。
+# 察元只有【一个容器 chayuan-server】(就是你打的那一个镜像 chayuan:<版本>(默认 chayuan:latest)),
+# 起来后【前端(:8080) + 后端 API(:62581) + 配置面板(:8502)】全都能访问。
+# 它一个容器内同时跑 nginx(前端) + Python(API/面板),并在启动时自动初始化
+# (写好 postgres/redis/milvus/对象存储连接 + 建表),无需单独的 init / worker 容器。
 #
-# 所有可变数据通过 volume 映射到本目录 (docker/) 下子目录:
-#   ./data            ← KB metadata / sqlite / 上传文件 / 日志
-#   ./bundled_models  ← chat/embedding/rerank/asr 模型 (用户自备 GGUF)
-#   ./config          ← 可选: 覆盖 *.yaml 配置 (basic_settings.yaml 等)
-#   ./logs            ← chayuan-server / nginx 日志
+# 另外几个是【基础设施】容器(不同软件,必须各自独立):
+#   postgres:15(业务库) / redis:latest(缓存) /
+#   minio(对象存储,兼 Milvus 后端) / milvusdb/milvus:v2.6.15(向量库) + etcd(Milvus 依赖)
+# 察元用【容器服务名】连它们;数据全部映射到宿主机 docker/ 下。
 #
-# 一键启动:
+# 启动:
 #   cd docker
-#   docker compose up -d --build
+#   docker compose up -d                       # 默认就是这套网络部署
+#   浏览器 http://<host>:8080/   后端 API http://<host>:62581/  面板 :8502
+#   (端口遵循原有约定:8080 网页 / 62581 后端 API(WPS 等固定连它,别改) / 8502 面板)
 #
-# 升级:
-#   git pull
-#   docker compose up -d --build       # 重新 build image,数据保留
+# ⚠ 报「8080 already allocated」= 有别的容器(多半是单机版或旧残留)占着端口。
+#    先 `docker compose -f docker-compose.single.yaml down` + 清掉同名容器,别和单机版同起
+#    (两者 container_name 都叫 chayuan-server)。真要换网页口在 .env 设 CHAYUAN_WEB_PORT(62581 别改)。
 #
-# 看 log:
-#   docker compose logs -f chayuan
-#
-# 进容器调试:
-#   docker compose exec chayuan bash
-#
-# 停 + 清:
-#   docker compose down                # 停容器, 数据保留
-#   docker compose down -v             # 顺带删 named volume (本配置没用,只用 bind mount)
-#
-# 注意:第一次启动需要等 sidecar 初始化 + 加载模型,约 60-180s。
+# 换件:业务库换 MySQL → 放开下方 mysql 服务 + chayuan 环境里的 CHAYUAN_DB_URI(注释 postgres);
+#       向量库换别的 → Milvus 默认,起容器后进 /admin「向量库」切。
 # ====================================================================
+name: chayuan-network
 
 services:
-  chayuan:
-    # ⚠ 推荐用 `../build.sh` 构建(自动管基础环境镜像 + 按 VERSION 打 tag,依赖零重拉):
-    #     cd .. && docker/build.sh        # 然后 docker compose up -d(不带 --build)
-    #     Windows:  powershell -ExecutionPolicy Bypass -File docker\\build.ps1
-    # 下面的 build: 仅作 `docker compose build` 兜底 —— 它**不会**构建基础环境镜像,
-    # 需先有 chayuan-base:latest(由 build.sh 产出),否则 FROM 基础镜像会失败。
-    build:
-      # context = repo 根,这样 .dockerignore + chayuan-server/ + chayuan-client/
-      # 都可见。Dockerfile 路径相对 context。
-      context: ..
-      dockerfile: docker/Dockerfile
-      args:
-        BASE_IMAGE: chayuan-base:latest
-    image: chayuan:latest
+  # ───────────────── 业务库:PostgreSQL ─────────────────
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chayuan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chayuan}
+      POSTGRES_DB: ${POSTGRES_DB:-chayuan}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./volumes/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chayuan} -d ${POSTGRES_DB:-chayuan}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ───────────────── 业务库(可选):MySQL ─────────────────
+  # 换 MySQL:放开本服务 + chayuan-server 环境里的 CHAYUAN_DB_URI,并注释 postgres。需 mysql:8 镜像。
+  # mysql:
+  #   image: mysql:8
+  #   container_name: mysql
+  #   restart: unless-stopped
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+  #     MYSQL_DATABASE: ${MYSQL_DB:-chayuan}
+  #     MYSQL_USER: ${MYSQL_USER:-chayuan}
+  #     MYSQL_PASSWORD: ${MYSQL_PASSWORD:-chayuan}
+  #   command: ["--default-authentication-plugin=mysql_native_password"]
+  #   volumes:
+  #     - ./volumes/mysql:/var/lib/mysql
+  #   healthcheck:
+  #     test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+
+  # ───────────────── 缓存:Redis ─────────────────
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./volumes/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ───────────────── 对象存储:MinIO(兼 Milvus 后端存储) ─────────────────
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: minio
+    restart: unless-stopped
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+    command: ["minio", "server", "/minio_data", "--console-address", ":9001"]
+    volumes:
+      - ./volumes/minio:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  # ───────────────── 向量库:Milvus(默认) + etcd 依赖 ─────────────────
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command:
+      - etcd
+      - -advertise-client-urls=http://127.0.0.1:2379
+      - -listen-client-urls=http://0.0.0.0:2379
+      - --data-dir=/etcd
+    volumes:
+      - ./volumes/etcd:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+
+  milvus:
+    image: milvusdb/milvus:v2.6.15
+    container_name: milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - ./volumes/milvus:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 120s
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # ───────────────── 察元:就这一个容器(前端 + 后端 + 面板) ─────────────────
+  # 同一个镜像 chayuan:<版本>(默认 chayuan:latest)。启动时先自动初始化(写 postgres/redis/milvus 连接
+  # + 建表,幂等),再用镜像自带 entrypoint 跑 nginx(前端) + Python(API/面板)。
+  chayuan-server:
+    image: ${CHAYUAN_IMAGE:-chayuan}:${CHAYUAN_TAG:-latest}
     container_name: chayuan-server
     restart: unless-stopped
-
-    # 三个浏览器入口,全部暴露:
-    #   :8080  → 前端 SPA (主入口,nginx 反代后端 API,无 CORS)
-    #   :62581 → 后端 API 直连 (Tauri / WPS / 三方系统集成用)
-    #   :8502  → 后台配置面板 (NiceGUI,改 yaml/模型/账号)
-    # 端口冲突时只改宿主侧(冒号左边),容器内端口写死不可改。
-    ports:
-      - "8080:80"        # 前端 + API 反代  ← 浏览器主入口
-      - "62581:62581"    # 后端 API 直连
-      - "8502:8502"      # 后台配置面板 (NiceGUI)
-
-    # 挂载点 = compose 同目录子目录,git ignore 已配
+    # uvicorn 多 worker(prod=4)在 `up -d`(无 stdin)下会 os.fdopen(stdin) 报
+    # 「Bad file descriptor」。保持 stdin 打开,给子进程一个有效 fd 0,即可修复。
+    stdin_open: true
+    # 一个容器内:先 init(写好连接+建表,幂等可重复),再 exec 原 entrypoint 起 nginx+API。
+    entrypoint: ["/usr/bin/tini", "--", "/bin/bash", "-c"]
+    command:
+      - >-
+        cd /chayuan/app/chayuan-server/libs/chayuan-server &&
+        (python -m chayuan init -q --profile prod || echo '[init] 非致命,start 会再建表') &&
+        exec /usr/local/bin/entrypoint.sh start -a
+    environment:
+      CHAYUAN_ROOT: /chayuan/data
+      CHAYUAN_PROFILE: ""                 # 空=网络形态(别用 single-machine,否则覆盖回 sqlite)
+      CHAYUAN_AUTO_INSTALL_DEPS: "false"
+      # 业务库 = PostgreSQL(容器名 postgres)
+      CHAYUAN_PG_HOST: postgres
+      CHAYUAN_PG_PORT: "5432"
+      CHAYUAN_PG_USER: ${POSTGRES_USER:-chayuan}
+      CHAYUAN_PG_PASSWORD: ${POSTGRES_PASSWORD:-chayuan}
+      CHAYUAN_PG_DB: ${POSTGRES_DB:-chayuan}
+      # 换 MySQL:注释上面 PG_*,放开下面(并放开 mysql 服务 + 注释 postgres 服务)
+      # CHAYUAN_DB_URI: "mysql+pymysql://${MYSQL_USER:-chayuan}:${MYSQL_PASSWORD:-chayuan}@mysql:3306/${MYSQL_DB:-chayuan}"
+      # 缓存 = Redis(容器名 redis)
+      CHAYUAN_REDIS_URL: redis://redis:6379/0
+      # 向量库 = Milvus(容器名 milvus → http://milvus:19530)
+      CHAYUAN_MILVUS_HOST: milvus
+      CHAYUAN_MILVUS_PORT: "19530"
+      # 对象存储 = MinIO(容器名 minio:9000);env 覆盖 yaml 默认的 local
+      FILE_STORAGE_BACKEND: minio
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_SECURE: "false"
+      # 单容器:入库走同步(不依赖独立 worker)。要高并发后台入库再拆 worker。
+      INGEST_ASYNC_ENABLED: "false"
+      # JWT 留空则首次随机生成并持久化;想固定填 .env 的 JWT_SECRET
+      CHAYUAN_JWT_SECRET: ${JWT_SECRET:-}
     volumes:
       - ./data:/chayuan/data
       - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
       - ./config:/chayuan/config
       - ./logs:/chayuan/logs
-      # ── 本地热替换:主机编译产物盖掉镜像里 COPY 的那份,免重新打镜像 ──
-      # 前端:本地 `pnpm -F web build:vite` 后刷浏览器即生效(nginx 静态 serve,零重启)。
-      # 服务端:本地改 .py 后 `docker compose restart chayuan`(无 --reload,需重启进程)。
-      # 只读挂载(:ro):容器不反写源码;PYTHONDONTWRITEBYTECODE=1 已设,无 .pyc 写入。
-      #
-      # ⚠⚠ 默认**不要**挂下面这三个「源码热替换」挂载 ⚠⚠
-      # 它们会用**主机**目录盖掉镜像里 build 好的产物。nginx root=/chayuan/web,
-      # 镜像已在 web-builder 阶段把 apps/web(平台层 platform-web)build 进 /chayuan/web、
-      # 自包含;一旦挂上主机 apps/web/dist,nginx 改 serve 主机那份 —— 主机若是旧的 /
-      # 误 build 了 apps/desktop(Tauri 壳,开机调 invoke),浏览器首屏就抛
-      # "Cannot read properties of undefined (reading 'invoke')" 整页白屏,
-      # **镜像里修对了也没用**(2026-06-20 实测:fix(docker) 已让镜像 build web,
-      # 但这个挂载把镜像产物盖回主机脏 dist,invoke 复现)。
-      #
-      # 需要本地热替换开发时,用 opt-in override(不污染默认 deploy 路径):
-      #   docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d
-      # 见同目录 docker-compose.dev.yaml。
-
-    # .env 同目录,可选,会覆盖下面 environment(详见 .env.example)
-    env_file:
-      - path: .env
-        required: false
-
-    # 环境变量(也可改 .env 文件,同目录)
-    # 默认 == 单机匿名模式:所有请求按 GUEST 放行,无需登录。
-    # 切多用户(下面取消注释):
-    #   CHAYUAN_AUTH_REQUIRED=true     → 全接口要 JWT
-    #   CHAYUAN_ALLOW_REGISTRATION=false → 关自助注册(只 admin 后台开账号)
-    #   AUTH_DEFAULT_ADMIN_PASSWORD=…  → 初始 admin 密码,留空首次启动随机生成(看日志)
-    #   JWT_SECRET=…                   → 必填长字符串,否则随机+重启就作废
-    environment:
-      # ── 部署/profile ──────────────────────────────────────────
-      CHAYUAN_ROOT: /chayuan/data
-      CHAYUAN_PROFILE: single-machine        # 单机内核(sqlite-vec/inproc/asyncio)
-      CHAYUAN_REDIS: disabled
-      CHAYUAN_QUEUE: inproc
-      CHAYUAN_VECTOR_STORE: sqlite-vec
-      CHAYUAN_AUTO_INSTALL_DEPS: "false"
-      CHAYUAN_ROOT_IGNORE_STATE: "1"
-      CHAYUAN_VENDOR_PLATFORM: linux-x64
-      CHAYUAN_PRELOAD_ON_START: "false"
-
-      # ── 鉴权 / 多用户(默认匿名,Docker 用户按需开启) ────────────
-      # CHAYUAN_AUTH_REQUIRED 控制是否要登录:
-      #   "false" (默认): 无登录,任何请求按 GUEST(单机/局域网体验)
-      #   "true"        : 启用 JWT,/chat/* /knowledge_base/* 等必须带 Token
-      CHAYUAN_AUTH_REQUIRED: "false"
-      # 是否开放自助注册:true=登录页有"注册"按钮,false=只管理员后台开账号
-      CHAYUAN_ALLOW_REGISTRATION: "true"
-      # 多用户模式必填:JWT 签名密钥(留空进程会随机生成,重启所有 Token 作废)
-      # 生成:openssl rand -hex 64
-      JWT_SECRET: ""
-      # 多用户模式建议显式设:首次启动若没用户,按此用户名+密码建管理员
-      # 密码留空 = 首次启动随机生成并打到日志(docker logs 截一次)
-      AUTH_DEFAULT_ADMIN_USERNAME: "admin"
-      AUTH_DEFAULT_ADMIN_PASSWORD: ""
-
-    # 资源建议(单机:留给宿主机 OS / 其它进程一半 CPU + RAM)
-    # 不强制,docker 会按宿主机能力分。
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: '4.0'
-    #       memory: 12g
-
-    # 健康探活(Dockerfile 也定义了,这里 compose 层覆盖一份)
+    ports:
+      - "${CHAYUAN_WEB_PORT:-8080}:80"      # 前端 + API 反代 ← 浏览器主入口
+      - "62581:62581"                       # ★ 后端 API 直连:WPS / Tauri / 三方都连这个,固定不可改
+      - "8502:8502"                         # 后台配置面板(NiceGUI)
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      milvus:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1/healthz"]
       interval: 30s
@@ -137,7 +210,7 @@ services:
       start_period: 180s
       retries: 5
 
-# ── 共享网络:两个 compose(docker-compose.yaml / docker-compose.network.yaml)统一用它 ──
+# ── 共享网络:两个 compose(docker-compose.yaml / docker-compose.single.yaml)统一用它 ──
 # 默认网络都指到同名网络 chayuan-net,确保【跨文件也能用容器名互相访问】。
 # 不存在时 compose 会【自动创建】,无需手动 docker network create。
 # ⚠ 只有一种情况要先删:你之前【手动】建过 chayuan-net(报 incorrect label 时),
