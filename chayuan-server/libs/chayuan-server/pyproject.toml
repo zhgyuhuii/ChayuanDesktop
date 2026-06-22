@@ -4,7 +4,7 @@ name = "chayuan-server"
 # 改版本要么 ① 跑 scripts/bump-version.py 自动 +1 + 同步 tauri/pyproject,
 # 要么 ② 跑 scripts/bump-version.py --set X.Y.Z 改成显式值。
 # 不要手动改这一行——build-desktop.{sh,ps1} 启动时会自动跑 bump,会被覆盖。
-version = "2.0.228"
+version = "2.0.229"
 description = "察元AI助手服务（chayuan-server）：基于 LangChain 的本地知识库与 Agent 对话服务。"
 authors = ["北京智灵鸟科技中心"]
 packages = [
@@ -214,8 +214,8 @@ colpali-engine = { version = ">=0.3,<1.0", optional = true }
 pdf2image = { version = ">=1.17,<2.0", optional = true }
 ragas = { version = ">=0.2,<1.0", optional = true }
 datasets = { version = ">=2.17,<4.0", optional = true }
-# ---- 统一文件存储：MinIO（extra storage-minio）----
-minio = { version = ">=7.2,<8.0", optional = true }
+# ---- 统一文件存储：MinIO 客户端(非可选,默认装:对象存储/「测试连通」需要它,纯 Python 极小)----
+minio = ">=7.2,<8.0"
 # ---- 图像知识源（extra image）----
 Pillow = { version = ">=10.0,<12.0", optional = true }
 # 图像向量化(image-embedding / CLIP)已下线,torch / transformers 全家桶
@@ -295,10 +295,7 @@ eval = ["ragas", "datasets"]
 # mcp 已经作为主依赖（用于客户端）
 # 新增：nothing extra needed
 
-# ---- 统一文件存储：MinIO 后端 ----
-# 装了 minio-py 才能启用 FILE_STORAGE_BACKEND=minio；否则回退 local，零影响
-# pip install "chayuan-server[minio]"
-storage-minio = ["minio"]
+# ---- 统一文件存储：MinIO ---- (minio 已改为非可选默认依赖,无需 extra)
 
 # ---- 图像知识源(已下线)----
 # 图像向量化能力已下线 —— extras 注销;若日后恢复,取消下行注释并把
