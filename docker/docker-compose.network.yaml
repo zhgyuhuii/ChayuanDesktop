@@ -147,6 +147,9 @@ services:
     image: ${CHAYUAN_IMAGE:-chayuan}:${CHAYUAN_TAG:-latest}
     container_name: chayuan-server
     restart: unless-stopped
+    # uvicorn 多 worker(prod=4)在 `up -d`(无 stdin)下会 os.fdopen(stdin) 报
+    # 「Bad file descriptor」。保持 stdin 打开,给子进程一个有效 fd 0,即可修复。
+    stdin_open: true
     # 一个容器内:先 init(写好连接+建表,幂等可重复),再 exec 原 entrypoint 起 nginx+API。
     entrypoint: ["/usr/bin/tini", "--", "/bin/bash", "-c"]
     command:
