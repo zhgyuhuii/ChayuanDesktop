@@ -194,6 +194,9 @@ services:
       - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
       - ./config:/chayuan/config
       - ./logs:/chayuan/logs
+      # 把修好的 nginx.conf 盖进容器(免重建镜像即可让反代白名单生效:
+      # /storage /modality 等接口不再 405)。
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
       - "${CHAYUAN_WEB_PORT:-8080}:80"      # 前端 + API 反代 ← 浏览器主入口
       - "62581:62581"                       # ★ 后端 API 直连:WPS / Tauri / 三方都连这个,固定不可改
