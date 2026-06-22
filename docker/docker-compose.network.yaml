@@ -12,7 +12,6 @@
 #
 # 启动:
 #   cd docker
-#   docker network create chayuan-net 2>/dev/null || true   # 一次性:两个 compose 共享的网络
 #   docker compose -f docker-compose.network.yaml up -d
 #   浏览器 http://<host>:8080/   后端 API http://<host>:62581/  面板 :8502
 #   (端口遵循原有约定:8080 网页 / 62581 后端 API(WPS 等固定连它,别改) / 8502 面板)
@@ -208,10 +207,10 @@ services:
       retries: 5
 
 # ── 共享网络:两个 compose(docker-compose.yaml / docker-compose.network.yaml)统一用它 ──
-# 把默认网络指到同一个外部网络 chayuan-net,确保【跨文件也能用容器名互相访问】。
-# ⚠ 第一次起之前先建一次(幂等,已存在会报已存在,忽略即可):
-#     docker network create chayuan-net
+# 默认网络都指到同名网络 chayuan-net,确保【跨文件也能用容器名互相访问】。
+# 不存在时 compose 会【自动创建】,无需手动 docker network create。
+# ⚠ 只有一种情况要先删:你之前【手动】建过 chayuan-net(报 incorrect label 时),
+#   执行一次 `docker network rm chayuan-net` 让 compose 接管即可。
 networks:
   default:
     name: chayuan-net
-    external: true
