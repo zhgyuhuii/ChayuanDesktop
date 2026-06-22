@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star, Layers, HardDrive, FolderTree, SlidersHorizontal, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, BookOpen, FileText, Cpu, CheckCircle2 } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star, Layers, HardDrive, FolderTree, SlidersHorizontal, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, BookOpen, FileText, Cpu } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -22,7 +22,6 @@ import { RedisConfigPage } from './infra/RedisConfigPage';
 import { StorageConfigPage } from './infra/StorageConfigPage';
 import { DatabaseConfigPage } from './infra/DatabaseConfigPage';
 import { DataDirPage } from './infra/DataDirPage';
-import { ServicesConfigPage } from './infra/ServicesConfigPage';
 import { BasicSettingsPage } from './config/BasicSettingsPage';
 import { SchemaForm } from './config/SchemaForm';
 import { VectorStorePage } from './config/VectorStorePage';
@@ -36,7 +35,7 @@ import { ConfirmRoot } from '../../store/confirmDialog';
 import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'svcstatus' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'vstore' | 'kbmanage' | 'topology' | 'roles';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'vstore' | 'kbmanage' | 'topology' | 'roles';
 
 type AdminItem = { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean; hidden?: boolean };
 type AdminGroup = { title: string; items: AdminItem[] };
@@ -60,7 +59,6 @@ const ADMIN_GROUPS: AdminGroup[] = [
     { key: 'ws', label: 'WS 端点', icon: Radio, hidden: true },
     { key: 'services', label: '系统服务', icon: Server },
     { key: 'topology', label: '服务状态', icon: Gauge },
-    { key: 'svcstatus', label: '服务就绪', icon: CheckCircle2 },
   ] },
   { title: '知识库', items: [
     { key: 'kbcfg', label: '知识库配置', icon: BookOpen },
@@ -274,7 +272,6 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'platforms' && <MarketplacePage embedded />}
           {tab === 'services' && <SystemServicesPage />}
           {tab === 'topology' && <ServiceTopologyPage />}
-          {tab === 'svcstatus' && <ServicesConfigPage />}
           {tab === 'users' && <UsersPage />}
           {tab === 'roles' && <RoleManagementPage />}
           {tab === 'mcp' && <McpPage />}
