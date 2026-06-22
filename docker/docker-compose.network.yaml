@@ -12,9 +12,11 @@
 # 启动:
 #   cd docker
 #   docker compose -f docker-compose.network.yaml up -d
-#   浏览器 http://<host>:8888/  (端口见下,默认 8888;首次进去先「设置首个管理员」)
+#   浏览器 http://<host>:8080/  (端口遵循原有约定:8080 网页 / 62581 API / 8502 面板;首次进去先「设置首个管理员」)
 #
-# ⚠ 端口 8080 被占用过 → 默认改 8888;改端口在 .env 里设 CHAYUAN_WEB_PORT。
+# 端口沿用原有约定:8080(网页) / 62581(后端 API,WPS 等固定连这个) / 8502(配置面板)。
+# ⚠ 报「8080 already allocated」≠ 要改端口:是有别的容器(多半是单机版或旧残留)占着 8080。
+#    先按下面清理,别和单机版同起;真要换网页口再在 .env 设 CHAYUAN_WEB_PORT(62581 不要改)。
 # ⚠ 不要和单机版 docker-compose.yaml 同时起:两者 container_name 都叫 chayuan-server,
 #    会冲突。先 `docker compose -f docker-compose.yaml down`。
 #
@@ -209,8 +211,9 @@ services:
     environment: *runtime-env
     volumes: *chayuan-volumes
     ports:
-      - "${CHAYUAN_WEB_PORT:-8888}:80"     # 浏览器主入口(默认 8888,避开 8080 占用)
-      # - "62581:62581"                    # 后端 API 直连(WPS/Tauri/三方)
+      - "${CHAYUAN_WEB_PORT:-8080}:80"     # 前端 + API 反代 ← 浏览器主入口(原有约定 8080)
+      - "62581:62581"                      # ★ 后端 API 直连:WPS / Tauri / 三方都连这个,固定不可改
+      - "8502:8502"                        # 后台配置面板(NiceGUI,原有约定)
     depends_on:
       chayuan-init:
         condition: service_completed_successfully
