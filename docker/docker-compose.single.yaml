@@ -64,6 +64,8 @@ services:
       - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
       - ./config:/chayuan/config
       - ./logs:/chayuan/logs
+      # 免重建镜像让 nginx 反代白名单(含 /storage 等)生效
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
       # ── 本地热替换:主机编译产物盖掉镜像里 COPY 的那份,免重新打镜像 ──
       # 前端:本地 `pnpm -F web build:vite` 后刷浏览器即生效(nginx 静态 serve,零重启)。
       # 服务端:本地改 .py 后 `docker compose restart chayuan`(无 --reload,需重启进程)。
