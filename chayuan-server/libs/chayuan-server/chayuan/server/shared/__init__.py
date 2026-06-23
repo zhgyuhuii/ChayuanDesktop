@@ -68,6 +68,20 @@ def get_redis() -> Optional[Any]:
     return _CLIENT
 
 
+def clear_settings_lru() -> None:
+    """清 pydantic_settings_file 的全局 ``_cached_settings`` LRU,使所有 Settings 按最新
+    yaml 重读。
+
+    settings 按 yaml mtime(整秒粒度)做 LRU 缓存,保存后同一秒内再访问可能仍读旧值;
+    保存配置后显式清掉此缓存,下次 ``Settings.*`` 即强制重读对应 yaml。
+    """
+    try:
+        from chayuan.pydantic_settings_file import _cached_settings
+        _cached_settings.cache_clear()  # type: ignore[attr-defined]
+    except Exception as e:  # noqa: BLE001 —— 清缓存失败不阻断保存(最坏退化到原「需重启」)
+        logger.warning("clear_settings_lru failed: %r", e)
+
+
 def reset_redis() -> None:
     """清空进程内 redis 单例,使下次 get_redis() 重读 REDIS_URL 并重建连接。
 

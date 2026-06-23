@@ -124,6 +124,8 @@ def storage_switch_backend(
             if isinstance(minio.get("buckets"), dict):
                 bs.MINIO_BUCKETS = minio["buckets"]
         bs.create_template_file(write_file=True)
+        # 无需清 settings LRU:上面直接就地改了 Settings.basic_settings 对象的属性,
+        # 而 get_storage() 的 _build() 直接读这些属性,新值已可见;故只重置 storage 缓存即可。
         reset_storage()
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"切换失败：{e}")

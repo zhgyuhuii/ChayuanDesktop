@@ -4,11 +4,14 @@
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict
 
 from fastapi import APIRouter, Body, Depends
 
 from chayuan.server.auth.deps import require_role
+
+logger = logging.getLogger("chayuan.api.redis_config")
 
 redis_config_router = APIRouter(prefix="/api/v1/admin/redis", tags=["admin-redis"])
 _ADMIN = require_role("admin")
@@ -80,16 +83,12 @@ def _hot_apply_redis() -> None:
        (settings 按 yaml mtime 整秒粒度缓存,同秒内可能仍读旧值);
     2. 重置进程内 redis 单例,下次 ``get_redis()`` 按新 URL 重建连接。
     """
+    from chayuan.server import shared
+    shared.clear_settings_lru()
     try:
-        from chayuan.pydantic_settings_file import _cached_settings
-        _cached_settings.cache_clear()  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001 —— 清缓存失败不阻断保存
-        pass
-    try:
-        from chayuan.server import shared
         shared.reset_redis()
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001 —— 重置失败不阻断保存(最坏退化到原「需重启」)
+        logger.warning("_hot_apply_redis: reset_redis failed, REDIS_URL may need restart: %r", e)
 
 
 @redis_config_router.post("/save", summary="[admin] 保存 REDIS_URL 到 basic_settings.yaml(热生效)")

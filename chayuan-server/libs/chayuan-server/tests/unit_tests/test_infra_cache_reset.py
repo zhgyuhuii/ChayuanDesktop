@@ -16,6 +16,12 @@ def test_reset_redis_clears_singleton():
     assert shared._DISABLED_REASON in (None, "")
 
 
+def test_clear_settings_lru_callable():
+    # 共享 helper:redis save 与 vs save 都靠它清 _cached_settings LRU,必须存在且不抛。
+    assert callable(shared.clear_settings_lru)
+    shared.clear_settings_lru()
+
+
 def test_reset_storage_callable():
     from chayuan.server.file_storage import factory
 

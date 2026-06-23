@@ -33,11 +33,8 @@ def reset_vector_store() -> None:
     (整秒粒度)做 LRU 缓存,保存后同一秒内再访问可能拿到旧值。这里显式清掉该缓存,
     下次 ``Settings.kb_settings`` 即强制重读 kb_settings.yaml。
     """
-    try:
-        from chayuan.pydantic_settings_file import _cached_settings
-        _cached_settings.cache_clear()  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001 —— 清缓存失败不应阻断保存(最坏退化到原「需重启」)
-        pass
+    from chayuan.server import shared
+    shared.clear_settings_lru()
 
 
 def _field_to_dict(f: Any) -> Dict[str, Any]:
