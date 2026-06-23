@@ -16,6 +16,7 @@ import * as React from 'react';
 import { cn } from '@chayuan/ui';
 import { classifyModalityCapability, type ModalityCapability } from '@chayuan/transport';
 import type { RawModelItem } from '@chayuan/api';
+import { useTranslation } from '../../i18n';
 
 export interface CapabilityChipMeta {
   cap: ModalityCapability;
@@ -232,6 +233,7 @@ export interface CapabilityChipProps {
 export const CapabilityChip: React.FC<CapabilityChipProps> = ({
   cap, compact = false, active = false, onClick, title, className,
 }) => {
+  const { t } = useTranslation();
   const meta = getCapabilityMeta(cap);
   const base =
     'inline-flex items-center rounded-full font-medium select-none whitespace-nowrap';
@@ -255,10 +257,10 @@ export const CapabilityChip: React.FC<CapabilityChipProps> = ({
             }
           : undefined
       }
-      title={title ?? meta.longLabel}
+      title={title ?? t(`cap.${cap}.long`)}
       className={cn(base, size, color, interactive, className)}
     >
-      {compact ? meta.label : meta.label}
+      {t(`cap.${cap}.label`)}
     </span>
   );
 };

@@ -1,5 +1,18 @@
 // Imported from chayuan-server-frontend/src/i18n/locales/zh-CN.ts (2026-04-25, see ADR-0002)
 export default {
+  cap: {
+    chat: { label: '对话', long: '对话模型' },
+    vl: { label: '视觉', long: '视觉对话(图文)' },
+    t2i: { label: '文生图', long: '文生图模型' },
+    image_edit: { label: '图像编辑', long: '图像编辑模型' },
+    t2v: { label: '文生视频', long: '文生视频模型' },
+    i2v: { label: '图生视频', long: '图生视频模型' },
+    tts: { label: '语音合成', long: '语音合成模型' },
+    asr: { label: '语音识别', long: '语音识别模型' },
+    ocr: { label: 'OCR', long: '图像识字(OCR)' },
+    embedding: { label: '嵌入', long: '文本向量(嵌入)' },
+    rerank: { label: '重排', long: '重排模型' },
+  },
   common: {
     confirm: '确认',
     cancel: '取消',

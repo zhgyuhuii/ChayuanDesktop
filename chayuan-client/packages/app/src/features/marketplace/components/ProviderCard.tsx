@@ -363,6 +363,7 @@ const TypeTagDropdown: React.FC<{
   onSelectModel(m: string): void;
   metadata?: Record<string, ModelMetadata>;
 }> = ({ group, activeModel, onSelectModel, metadata }) => {
+  const { t } = useTranslation();
   const meta = group.meta;
   const hasActive = activeModel ? group.models.includes(activeModel) : false;
   return (
@@ -370,14 +371,14 @@ const TypeTagDropdown: React.FC<{
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          title={meta.longLabel}
+          title={t(`cap.${meta.cap}.long`)}
           className={cn(
             'inline-flex h-5 min-w-0 flex-1 basis-16 items-center justify-center gap-0.5 rounded-full px-1.5 text-[9px] font-medium leading-none transition-all hover:brightness-95',
             meta.classes,
             hasActive && 'ring-1 ring-[var(--cy-brand-400)]',
           )}
         >
-          <span className="truncate">{meta.label}</span>
+          <span className="truncate">{t(`cap.${meta.cap}.label`)}</span>
           <span className="opacity-70">{group.models.length}</span>
           <ChevronDown className="h-2.5 w-2.5 shrink-0 opacity-60" />
         </button>

@@ -1,5 +1,18 @@
 // Imported from chayuan-server-frontend/src/i18n/locales/en.ts (2026-04-25, see ADR-0002)
 export default {
+  cap: {
+    chat: { label: 'Chat', long: 'Chat model' },
+    vl: { label: 'Vision', long: 'Vision (image + text)' },
+    t2i: { label: 'T2I', long: 'Text-to-Image' },
+    image_edit: { label: 'Edit', long: 'Image editing' },
+    t2v: { label: 'T2V', long: 'Text-to-Video' },
+    i2v: { label: 'I2V', long: 'Image-to-Video' },
+    tts: { label: 'TTS', long: 'Text-to-Speech' },
+    asr: { label: 'ASR', long: 'Speech-to-Text' },
+    ocr: { label: 'OCR', long: 'OCR (image text)' },
+    embedding: { label: 'Embed', long: 'Text embedding' },
+    rerank: { label: 'Rerank', long: 'Rerank model' },
+  },
   common: {
     confirm: 'Confirm',
     cancel: 'Cancel',
