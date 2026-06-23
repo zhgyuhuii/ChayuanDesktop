@@ -5,11 +5,19 @@ external_runtimes。框架容器启停(docker compose up/down)风险高且无现
 from __future__ import annotations
 
 import dataclasses
+import logging
+import os
+import signal
+import threading
+import time
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Body, Depends
 
 from chayuan.server.auth.deps import require_role
+from chayuan.server.profiles.bootstrap import is_single_machine
+
+logger = logging.getLogger(__name__)
 
 services_config_router = APIRouter(prefix="/api/v1/admin/services", tags=["admin-services"])
 _ADMIN = require_role("admin")
@@ -169,3 +177,41 @@ def services_topology(probe: bool = True, _=Depends(_ADMIN)) -> Dict[str, Any]:
             "generated_at": int(topo.generated_at * 1000),
         },
     }
+
+
+# ── 一键重启(C3)────────────────────────────────────────────────────────
+# 改 DB 配置后引擎在 import 期已建好、无法热应用,需重启进程。网络部署下
+# 容器以 `restart: always` 运行,优雅自退出即触发编排器自动拉起。单机桌面端
+# 自管 sidecar 生命周期,不暴露远程重启。
+
+def _schedule_graceful_exit(delay: float = 1.0) -> None:
+    """延迟 delay 秒后退出当前进程,让 HTTP 响应先 flush 出去。
+
+    优先发 SIGTERM 给自己,触发已注册的优雅关闭处理(uvicorn lifespan /
+    shutdown handlers);若该路径不可用(如平台无 SIGTERM),回退 os._exit(0)。
+    在守护线程里跑,不阻塞响应返回。
+    """
+    def _worker() -> None:
+        time.sleep(max(0.0, delay))
+        logger.info("[restart] 管理员触发一键重启,正在退出进程以便编排器自动拉起 ...")
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[restart] SIGTERM 不可用(%s),回退 os._exit(0)", e)
+            os._exit(0)
+
+    threading.Thread(target=_worker, name="chayuan-restart", daemon=True).start()
+
+
+def _restart_impl() -> Dict[str, Any]:
+    """重启逻辑核心(可单测的 seam)。单机版拒绝;网络版调度优雅退出。"""
+    if is_single_machine():
+        return {"code": 1, "msg": "单机版不支持远程重启", "data": {}}
+    # 显式传 delay,留出响应 flush 时间,也让该值成为可观测/可测的 seam 参数。
+    _schedule_graceful_exit(1.0)
+    return {"code": 0, "msg": "重启已触发，服务将在数秒后恢复", "data": {}}
+
+
+@services_config_router.post("/restart", summary="[admin] 一键重启服务(进程自退出,编排器拉起)")
+def services_restart(_=Depends(_ADMIN)) -> Dict[str, Any]:
+    return _restart_impl()

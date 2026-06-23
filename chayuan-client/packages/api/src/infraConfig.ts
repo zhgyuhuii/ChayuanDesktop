@@ -185,4 +185,6 @@ export const servicesConfig = {
     http.post<{ ok: boolean; error?: string; hint?: string }>(
       `/api/v1/admin/services/frameworks/${encodeURIComponent(name)}/stop`,
     ),
+  // 一键重启:进程优雅自退出,容器(restart: always)自动拉起;单机版后端会拒绝。
+  restart: () => http.post<{ msg?: string }>('/api/v1/admin/services/restart'),
 };
