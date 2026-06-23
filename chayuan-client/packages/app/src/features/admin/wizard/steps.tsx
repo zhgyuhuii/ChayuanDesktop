@@ -9,7 +9,7 @@ import { MarketplacePage } from '../../marketplace/MarketplacePage';
 // 模型厂商接入 step 复用 AdminPage 中「模型平台」(tab=platforms)所渲染的同一个组件:
 // AdminPage 渲染 <MarketplacePage embedded />,这里用同样的 embedded 形态挂载真实组件,
 // 不写阉割版。MarketplacePage 的 props 全为可选(有默认值),可独立渲染。
-const PlatformsStep: React.FC = () => React.createElement(MarketplacePage, { embedded: true });
+const PlatformsStep: React.FC = () => <MarketplacePage embedded />;
 
 export interface WizardStep {
   key: string;

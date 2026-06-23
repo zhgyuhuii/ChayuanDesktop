@@ -71,6 +71,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onClose, onFinish }) =
   const StepComp = step.Comp;
 
   return (
+    /* 首启向导:点击遮罩不关闭,避免误触丢进度;仅顶部 X / 完成 / 跳过全部可退出 */
     <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
       <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] text-[var(--cy-text-primary)] shadow-xl">
         {/* 头部:标题 + 进度指示 + 关闭 */}
@@ -87,6 +88,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onClose, onFinish }) =
               type="button"
               onClick={onClose}
               title="关闭"
+              aria-label="关闭"
               className="rounded-md p-1.5 opacity-50 transition-colors hover:bg-[var(--cy-surface-2)] hover:opacity-100"
             >
               <X className="h-4 w-4" />
@@ -123,6 +125,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onClose, onFinish }) =
 
         {/* 主体:直接渲染被复用的配置页组件,可滚动(配置页较高) */}
         <div className="min-h-0 flex-1 overflow-auto bg-[var(--cy-surface-base)]">
+          {/* 注:切步会重挂载复用页,重型页每次重新拉取,首启场景可接受 */}
           <StepComp />
         </div>
 
