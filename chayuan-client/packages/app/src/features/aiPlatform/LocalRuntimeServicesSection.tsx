@@ -50,6 +50,7 @@ import {
 import { Button, Switch } from '@chayuan/ui';
 import { notifySuccess, reportError } from '../../store/errorDialog';
 import { useLocalRuntimeStore } from '../../store/localRuntime';
+import { useIsAdmin } from '../auth/useIsAdmin';
 import { CallLogDialog } from './CallLogDialog';
 import { DiagnoseModal } from './DiagnoseModal';
 import { InstallModelDialog } from './InstallModelDialog';
@@ -114,6 +115,7 @@ export const LocalRuntimeServicesSection: React.FC = () => {
   const { statuses, pendingFor, reachable, startCapability, stopCapability, restartCapability } =
     useLocalRuntimeStore();
   const installInfo = useLocalRuntimeStore((s) => s.installInfo);
+  const isAdmin = useIsAdmin();
 
   // 当前安装包随包嵌入的 cap 集合(后端 install_info.bundled_caps)。
   // 老服务端没返此字段 → null,所有 cap 都视为已随包(向后兼容)。
@@ -242,8 +244,10 @@ export const LocalRuntimeServicesSection: React.FC = () => {
     void reloadModels();
   };
 
-  // 本地模型服务管理依赖本地 sidecar,仅单机版(desktop)可用;网络版隐藏整节。
-  if (!isDesktop()) return null;
+  // 本地模型服务管理依赖本地 sidecar:单机桌面版机主始终可用;网络版(docker)
+  // 仅管理员可见可操作(重启影响全局共享服务、下载走 /admin/*)。普通用户/游客隐藏。
+  // 组件自带 reachable 探测,沙箱无 runtime 时显示友好错误而非崩。
+  if (!isDesktop() && !isAdmin) return null;
 
   if (!reachable) {
     const lastError = useLocalRuntimeStore.getState().lastError;

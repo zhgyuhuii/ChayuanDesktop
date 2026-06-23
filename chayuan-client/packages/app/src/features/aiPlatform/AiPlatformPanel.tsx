@@ -35,6 +35,7 @@ import { RuntimeCenter } from './RuntimeCenter';
 import { DoctorGuidanceList, type DoctorCheckLike } from './DoctorGuidance';
 import { MarketplacePage } from '../marketplace/MarketplacePage';
 import { useAuthStore } from '../../store/auth';
+import { useIsAdmin } from '../auth/useIsAdmin';
 import { useLoginModalStore } from '../../store/loginModal';
 
 const CAPABILITY_LABELS: Record<Capability, string> = {
@@ -599,13 +600,15 @@ export const AiPlatformPanel: React.FC = () => {
   const [tab, setTab] = React.useState<AiPlatformTab>('models');
   const isLoggedIn = useAuthStore((a) => a.isLoggedIn);
   const authRequired = useLoginModalStore((a) => a.authRequired);
+  // 本地模型服务:单机桌面版照旧;网络版仅管理员可见(共享服务器基础设施)。
+  const isAdmin = useIsAdmin();
 
   return (
     <div className="space-y-3">
       {/* 顶部 tabs：marketplace 设计语言一致 */}
       <div className="flex items-center gap-1 rounded-md border border-zinc-200 p-0.5 dark:border-zinc-700">
-        {/* 本地模型 tab 依赖本地 sidecar,网络版(web)无此能力 → 隐藏 */}
-        {TAB_ITEMS.filter((t) => isDesktop() || t.value !== 'local').map((t) => {
+        {/* 本地模型 tab:单机桌面版始终显示;网络版仅管理员可见(普通用户/游客隐藏) */}
+        {TAB_ITEMS.filter((t) => t.value !== 'local' || isDesktop() || isAdmin).map((t) => {
           const active = tab === t.value;
           return (
             <button
