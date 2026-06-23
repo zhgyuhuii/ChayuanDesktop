@@ -14,6 +14,9 @@
  *   描述:一行
  *   底部:ModelTagsRow 或 CTA
  *   右下:⚙️ 设置(admin 可见)
+ *
+ * 能力分类:底部「全能力」模式按 capability(对话/视觉/文生图/图像编辑/文生视频/
+ * 图生视频/语音合成/语音识别…)分组,与对话窗口同一套真源(见 capabilityGrouping)。
  */
 
 import { type ModelMetadata, type PlatformConfig, resolveLogoUrl } from '@chayuan/api';
@@ -30,11 +33,10 @@ import * as React from 'react';
 import { useTranslation } from '../../../i18n';
 import {
   CAPABILITY_ANY,
-  type CapabilityKey,
-  type GroupedModels,
-  groupModelsByType,
-  modelTypeColors,
-} from '../lib/modelTypes';
+  type CapabilityFilter,
+  type CapabilityGroup,
+  groupModelsByCapability,
+} from '../lib/capabilityGrouping';
 import { ModelTagsRow } from './ModelTagsRow';
 import { getInstallGuide } from '../installGuides/data';
 import { InstallGuideDialog } from './InstallGuideDialog';
@@ -60,10 +62,10 @@ export interface ProviderCardProps {
   installGuideUrl?: string;
   /**
    * 当前页面级 capability filter；卡片内部 chip 行据此决定展示哪类模型：
-   *   - CAPABILITY_ANY：按类型分组紧凑展示（每类一行带图标）
-   *   - 'llm' / 'embed' / ... ：只展示该类型的 chip
+   *   - CAPABILITY_ANY：按能力分组紧凑展示（每类一个标签,点开下拉）
+   *   - 'chat' / 'vl' / 't2i' / ... ：只展示该能力的 chip
    */
-  activeCapability?: CapabilityKey;
+  activeCapability?: CapabilityFilter;
   /** 模型 id → 元信息 索引;chip hover 时显示 description / release_date / 上下文 / 性能 */
   modelMetadata?: Record<string, ModelMetadata>;
 }
@@ -80,9 +82,9 @@ function statusOf(p: PlatformConfig): Status {
   return 'active';
 }
 
-/** 全部 8 类模型按类型分组（已扣除 disabled_models 黑名单） */
-function buildGroups(p: PlatformConfig): GroupedModels[] {
-  return groupModelsByType(p, { excludeDisabled: true, onlyNonEmpty: true });
+/** 按 capability 分组（已扣除 disabled_models 黑名单、空桶不返回） */
+function buildGroups(p: PlatformConfig): CapabilityGroup[] {
+  return groupModelsByCapability(p, { excludeDisabled: true });
 }
 
 const STATUS_BAR: Record<Status, string> = {
@@ -125,9 +127,9 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
     );
     const showName = displayName ?? platform.platform_name;
     // 当前 capability 过滤后该卡的可见模型集合（用于决定底部展示什么）
-    const filtered: GroupedModels[] = React.useMemo(() => {
+    const filtered: CapabilityGroup[] = React.useMemo(() => {
       if (activeCapability === CAPABILITY_ANY) return groups;
-      return groups.filter((g) => g.type === activeCapability);
+      return groups.filter((g) => g.cap === activeCapability);
     }, [groups, activeCapability]);
 
     // 本地厂商「安装指南」按钮:有内置 InstallGuide 数据的厂商弹离线 dialog,
@@ -237,11 +239,11 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
         <div className="min-h-0 flex-1 pr-16 pt-2">
           {interactive && filtered.length > 0 ? (
             activeCapability === CAPABILITY_ANY ? (
-              // 全能力：列出全部类型标签(对话/文本嵌入/图像/重排/语音…),点标签下拉该类型模型
+              // 全能力：列出全部能力标签(对话/视觉/文生图/图像编辑/视频/语音…),点标签下拉该类模型
               <div className="flex max-h-[78px] flex-wrap content-start items-center gap-1.5 overflow-y-auto">
                 {filtered.map((g) => (
                   <TypeTagDropdown
-                    key={g.type}
+                    key={g.cap}
                     group={g}
                     activeModel={activeModel}
                     onSelectModel={onSelectModel}
@@ -250,7 +252,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
                 ))}
               </div>
             ) : (
-              // 单一类型：直接 ModelTagsRow
+              // 单一能力：直接 ModelTagsRow
               <ModelTagsRow
                 models={filtered[0]!.models}
                 activeModel={activeModel}
@@ -365,43 +367,40 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
 );
 ProviderCard.displayName = 'ProviderCard';
 
-/** "全能力"模式下的一个「类型标签」：点开下拉,列出该类型全部模型(点选即设为当前模型)。 */
+/** "全能力"模式下的一个「能力标签」:点开下拉,列出该能力全部模型(点选即设为当前模型)。 */
 const TypeTagDropdown: React.FC<{
-  group: GroupedModels;
+  group: CapabilityGroup;
   activeModel?: string;
   onSelectModel(m: string): void;
   metadata?: Record<string, ModelMetadata>;
 }> = ({ group, activeModel, onSelectModel, metadata }) => {
-  const { t } = useTranslation();
-  const colors = modelTypeColors(group.meta.hue);
-  const Icon = group.meta.icon;
+  const meta = group.meta;
   const hasActive = activeModel ? group.models.includes(activeModel) : false;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          title={t(`${group.meta.i18nKey}.long`)}
+          title={meta.longLabel}
           className={cn(
             'inline-flex h-6 items-center gap-1 rounded-full px-2 text-[10px] font-medium transition-all hover:brightness-95',
+            meta.classes,
             hasActive && 'ring-1 ring-[var(--cy-brand-400)]',
           )}
-          style={{ backgroundColor: colors.bg, color: colors.fg }}
         >
-          <Icon className="h-2.5 w-2.5" />
-          <span>{t(`${group.meta.i18nKey}.label`)}</span>
+          <span>{meta.label}</span>
           <span className="opacity-70">{group.models.length}</span>
           <ChevronDown className="h-2.5 w-2.5 opacity-60" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-y-auto">
         {group.models.map((m) => {
-          const meta = metadata?.[m];
+          const md = metadata?.[m];
           return (
             <DropdownMenuItem
               key={m}
               onClick={() => onSelectModel(m)}
-              title={meta?.description || m}
+              title={md?.description || m}
               className={cn(
                 m === activeModel && 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]',
               )}
