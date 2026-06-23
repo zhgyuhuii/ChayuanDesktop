@@ -4,7 +4,7 @@ name = "chayuan-server"
 # 改版本要么 ① 跑 scripts/bump-version.py 自动 +1 + 同步 tauri/pyproject,
 # 要么 ② 跑 scripts/bump-version.py --set X.Y.Z 改成显式值。
 # 不要手动改这一行——build-desktop.{sh,ps1} 启动时会自动跑 bump,会被覆盖。
-version = "2.0.247"
+version = "2.0.248"
 description = "察元AI助手服务（chayuan-server）：基于 LangChain 的本地知识库与 Agent 对话服务。"
 authors = ["北京智灵鸟科技中心"]
 packages = [

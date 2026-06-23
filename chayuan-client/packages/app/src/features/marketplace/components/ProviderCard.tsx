@@ -232,15 +232,14 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
           </div>
         </div>
 
-        {/* 底部：按 capability 显示模型；不可用状态给 CTA 文案
-            pr-16 为右下浮层按钮(申请 Key / 下载 / ⚙️)预留 ~64px 安全区,
-            避免 chip 行的"更多 ▼"被绝对定位的按钮压住,导致点击事件命中浮层。
-            两个按钮 (28+28) + gap (2) + right-1.5 (6) ≈ 64px,留富裕空间避免边缘碰边缘 */}
-        <div className="min-h-0 flex-1 pr-16 pt-2">
+        {/* 底部：按 capability 显示能力标签(flex-1 横向铺满);不可用状态给 CTA 文案。
+            pt-0.5 紧贴上方信息区;pr-2 让标签行尽量占满卡片宽度。右下浮层按钮(申请 Key /
+            ⚙️ 设置)为 hover-only,仅悬停时可能轻微压住最后一行右端,属可接受取舍。 */}
+        <div className="min-h-0 flex-1 pr-2 pt-0.5">
           {interactive && filtered.length > 0 ? (
             activeCapability === CAPABILITY_ANY ? (
               // 全能力：列出全部能力标签(对话/视觉/文生图/图像编辑/视频/语音…),点标签下拉该类模型
-              <div className="flex max-h-[78px] flex-wrap content-start items-center gap-1.5 overflow-y-auto">
+              <div className="flex max-h-[80px] flex-wrap content-start items-stretch gap-1 overflow-y-auto">
                 {filtered.map((g) => (
                   <TypeTagDropdown
                     key={g.cap}
@@ -383,14 +382,14 @@ const TypeTagDropdown: React.FC<{
           type="button"
           title={meta.longLabel}
           className={cn(
-            'inline-flex h-6 items-center gap-1 rounded-full px-2 text-[10px] font-medium transition-all hover:brightness-95',
+            'inline-flex h-5 min-w-0 flex-1 basis-16 items-center justify-center gap-0.5 rounded-full px-1.5 text-[9px] font-medium leading-none transition-all hover:brightness-95',
             meta.classes,
             hasActive && 'ring-1 ring-[var(--cy-brand-400)]',
           )}
         >
-          <span>{meta.label}</span>
+          <span className="truncate">{meta.label}</span>
           <span className="opacity-70">{group.models.length}</span>
-          <ChevronDown className="h-2.5 w-2.5 opacity-60" />
+          <ChevronDown className="h-2.5 w-2.5 shrink-0 opacity-60" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-y-auto">
