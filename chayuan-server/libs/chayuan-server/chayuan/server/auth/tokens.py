@@ -148,6 +148,22 @@ def _get_secret() -> Tuple[str, str]:
             alg = "HS256"
         return _FALLBACK_SECRET, alg
 
+    # 优先级 3.5:JWT_SECRET 没配 + Redis 不可用(单机 / 无 redis 部署)→ 生成随机密钥
+    # 并【持久化到 basic_settings.yaml】(随数据目录 bind mount 落宿主机),下次启动走
+    # 优先级 1,跨重启稳定 —— token 不再因重启失效(修「重启要重新登录」)。
+    try:
+        generated = secrets.token_urlsafe(48)
+        from chayuan.server.config_panel.yaml_store import save_updates
+        save_updates("basic_settings.yaml", {"JWT_SECRET": generated})
+        _FALLBACK_SECRET = generated
+        _FALLBACK_SOURCE = "yaml"
+        logger.info("JWT_SECRET 未配置 + 无 Redis → 已生成并持久化到 basic_settings.yaml(跨重启稳定)")
+        if alg not in _ALG_TO_HASH:
+            alg = "HS256"
+        return _FALLBACK_SECRET, alg
+    except Exception as _persist_err:  # noqa: BLE001
+        logger.warning("JWT_SECRET 持久化到 yaml 失败:%s;退回进程内随机", _persist_err)
+
     # 优先级 4:进程内一次性随机(纯内存,重启失效)— 最后兜底,只在
     # JWT_SECRET 没配 + Redis 不可用时触发。
     _FALLBACK_SECRET = secrets.token_urlsafe(48)
