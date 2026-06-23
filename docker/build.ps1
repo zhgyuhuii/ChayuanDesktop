@@ -17,7 +17,7 @@
 
   By default this cleans historical images before building: removes old
   chayuan-server version tags, stale-hash chayuan-base images, and dangling
-  (<none>) layers, while keeping the chayuan-server:latest / current VERSION /
+  (<none>) layers, while keeping the chayuan:latest / current VERSION /
   current BASE_TAG that this build needs (frees disk without breaking base
   reuse or deleting the in-use latest).
 #>
@@ -67,8 +67,8 @@ function Remove-OldImages {
     Write-Host "[build] cleaning historical images (keep :latest / :$Version / $BaseTag)..."
     $verEsc  = [regex]::Escape($Version)
     $hashEsc = [regex]::Escape($LockHash)
-    # old chayuan-server version tags (not latest, not current VERSION)
-    (& $Docker images chayuan-server --format "{{.Repository}}:{{.Tag}}" 2>$null) |
+    # old chayuan version tags (not latest, not current VERSION)
+    (& $Docker images chayuan --format "{{.Repository}}:{{.Tag}}" 2>$null) |
         Where-Object { $_ -and ($_ -notmatch ":(latest|$verEsc)$") -and ($_ -notmatch "<none>") } |
         ForEach-Object { Write-Host "  - rmi $_"; & $Docker rmi $_ 2>$null | Out-Null }
     # stale-hash chayuan-base (not current lock hash, not latest)
@@ -118,12 +118,12 @@ else {
 }
 
 # 4) app image: FROM base + web base, tag == VERSION + latest
-Write-Host "[build] building app image chayuan-server:$Version ..."
+Write-Host "[build] building app image chayuan:$Version (前端+后端 all-in-one 单镜像) ..."
 $AppArgs = @("build")
 if ($Nocache) { $AppArgs += $Nocache }
-$AppArgs += @("-f", "docker/Dockerfile", "--build-arg", "BASE_IMAGE=$BaseTag", "--build-arg", "WEB_BASE_IMAGE=$WebBaseTag", "-t", "chayuan-server:$Version", "-t", "chayuan-server:latest", ".")
+$AppArgs += @("-f", "docker/Dockerfile", "--build-arg", "BASE_IMAGE=$BaseTag", "--build-arg", "WEB_BASE_IMAGE=$WebBaseTag", "-t", "chayuan:$Version", "-t", "chayuan:latest", ".")
 & $Docker @AppArgs
 if ($LASTEXITCODE -ne 0) { throw "app build failed" }
 
-Write-Host "[build] done: chayuan-server:$Version (= latest), base=$BaseTag, web-base=$WebBaseTag"
+Write-Host "[build] done: chayuan:$Version (= chayuan:latest), base=$BaseTag, web-base=$WebBaseTag"
 Write-Host "[build] start: cd docker; docker compose up -d"
