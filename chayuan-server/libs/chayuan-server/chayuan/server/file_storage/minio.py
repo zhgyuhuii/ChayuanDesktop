@@ -47,10 +47,17 @@ class MinioStorage(FileStorage):
     ):
         try:
             from minio import Minio  # type: ignore
-        except ImportError as e:
-            raise StorageError(
-                "未安装 minio 客户端：`pip install minio>=7.2`"
-            ) from e
+        except ImportError:
+            # 用到时按需自动安装(复用 redis/arq 那套 ensure_pkg);docker 镜像已预装,
+            # 源码 / 旧镜像首次用对象存储时自动补,免手动 pip install。
+            try:
+                from chayuan.server.shared.deps import ensure_pkg
+                ensure_pkg("minio", "minio>=7.2,<8.0", auto_install=True)
+                from minio import Minio  # type: ignore
+            except Exception as e:
+                raise StorageError(
+                    "未安装 minio 客户端且自动安装失败：请在服务端环境执行 `pip install minio>=7.2`"
+                ) from e
 
         # MinIO 客户端要求 endpoint 不带 scheme
         ep = endpoint.strip()
