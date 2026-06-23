@@ -6,7 +6,7 @@
  *   2. + 新建对话(Ctrl K)
  *   3. 一级入口 4 项:知识库 / 模型厂商 / AI Space / 历史对话
  *   4. 二级:最近对话(展开后显示;折叠态隐藏)
- *   5. 底部:Admin(角色为 admin 时显示)
+ *   5. 底部:版权 / 反馈(Admin 入口已移至右上角用户菜单「系统设置」下方)
  *
  * 选中态:浅蓝 pill (Pill tone="soft" active);hover 文字加深 + 浅灰背景。
  */
@@ -23,7 +23,6 @@ import {
   Library,
   Server,
   Clock,
-  Shield,
   Plug,
   Bot,
   Wrench,
@@ -355,20 +354,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
             })}
           </nav>
           )}
-        </div>
-      )}
-
-      {/* 底部:Admin */}
-      {user?.role === 'admin' && (
-        <div className="border-t border-[var(--cy-border-subtle)] p-2">
-          <Button
-            variant="ghost"
-            className={cn('w-full justify-start gap-2', collapsed && 'justify-center px-0')}
-            onClick={() => void navigate({ to: '/admin' as never })}
-          >
-            <Shield className="h-4 w-4" />
-            {!collapsed && <span>Admin</span>}
-          </Button>
         </div>
       )}
 

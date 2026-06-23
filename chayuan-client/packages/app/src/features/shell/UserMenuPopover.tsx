@@ -36,6 +36,7 @@ import {
   Monitor,
   Moon,
   Settings,
+  Shield,
   Sun,
 } from 'lucide-react';
 import * as React from 'react';
@@ -75,6 +76,12 @@ export const UserMenuPopover: React.FC = () => {
   const openSettings = () => {
     open('/settings', { title: 'nav.settings', icon: 'settings' });
     void navigate({ to: '/settings' as never });
+    setPopOpen(false);
+  };
+  // 管理后台入口:仅 admin 角色可见(原在左侧栏底部,移来「系统设置」下方)。
+  const openAdmin = () => {
+    open('/admin', { title: 'Admin', icon: 'shield' });
+    void navigate({ to: '/admin' as never });
     setPopOpen(false);
   };
   const openHelp = () => {
@@ -188,6 +195,10 @@ export const UserMenuPopover: React.FC = () => {
         {/* 菜单项 */}
         <div className="mt-2 border-t border-[var(--cy-border-subtle)] pt-2">
           <MenuItem icon={Settings} label={t('nav.settings')} onClick={openSettings} />
+          {/* 管理后台:仅网络版 admin 角色可见;单机客户端无 admin 概念,隐藏 */}
+          {!singleMachine && auth.user?.role === 'admin' && (
+            <MenuItem icon={Shield} label="Admin 后台" onClick={openAdmin} />
+          )}
           <MenuItem icon={HelpCircle} label={t('settings.helpCenter')} onClick={openHelp} />
           <MenuItem icon={MessageCircle} label={t('settings.feedback')} onClick={openFeedback} />
           <MenuItem icon={Info} label={t('settings.about')} onClick={openAbout} />
