@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star, Layers, HardDrive, FolderTree, SlidersHorizontal, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, BookOpen, FileText, Cpu } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star, Layers, HardDrive, FolderTree, SlidersHorizontal, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, BookOpen, FileText, Cpu, Wand2 } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -30,10 +30,11 @@ import { ServiceTopologyPage } from './services/ServiceTopologyPage';
 import { RoleManagementPage } from './roles/RoleManagementPage';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { roles as rolesApi } from '@chayuan/api';
+import { roles as rolesApi, wizard } from '@chayuan/api';
 import { ConfirmRoot } from '../../store/confirmDialog';
 import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
+import { SetupWizard } from './wizard/SetupWizard';
 
 export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'vstore' | 'kbmanage' | 'topology' | 'roles';
 
@@ -72,12 +73,14 @@ const ADMIN_GROUPS: AdminGroup[] = [
     { key: 'outbox', label: 'Outbox', icon: Database },
     { key: 'prompts', label: 'Prompt', icon: Shield },
   ] },
+  // 基础设施:整组从主菜单隐藏(D4)。配置改由首启「配置向导」+ 服务状态拓扑节点点击承担;
+  // 各 tab 仍可经 URL /admin/<key>、拓扑节点点击、向导内部跳转访问,组件不删。
   { title: '基础设施', items: [
-    { key: 'basic', label: '基础配置', icon: SlidersHorizontal },
-    { key: 'database', label: '数据库', icon: Database },
-    { key: 'redis', label: 'Redis', icon: Layers },
-    { key: 'storage', label: '对象存储', icon: HardDrive },
-    { key: 'datadir', label: '数据目录', icon: FolderTree },
+    { key: 'basic', label: '基础配置', icon: SlidersHorizontal, hidden: true },
+    { key: 'database', label: '数据库', icon: Database, hidden: true },
+    { key: 'redis', label: 'Redis', icon: Layers, hidden: true },
+    { key: 'storage', label: '对象存储', icon: HardDrive, hidden: true },
+    { key: 'datadir', label: '数据目录', icon: FolderTree, hidden: true },
   ] },
   { title: '部署', items: [
     { key: 'deployment', label: '部署授权', icon: Cloud, webOnly: true },
@@ -120,6 +123,23 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
   const [tab, setTab] = React.useState<AdminTab>(normTab(tabProp));
   const [collapsed, setCollapsed] = React.useState<boolean>(() => readBool(LS_COLLAPSED));
   const [closedGroups, setClosedGroups] = React.useState<Set<string>>(() => readSet(LS_GROUPS));
+  // D4:首启自动弹「配置向导」。后端在单机模式短路 wizard.state() → {completed:true},
+  // 故单机永不自动打开;网络版未完成时弹一次。出错则不弹(fail-safe,绝不卡住管理员)。
+  const [showWizard, setShowWizard] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const st = await wizard.state();
+        if (alive && !st.completed) setShowWizard(true);
+      } catch {
+        /* 取状态失败:不打开向导,不阻塞后台 */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
   // RBAC #2:按当前用户角色的模块门控菜单。admin → is_admin=true → 不过滤(allowed=null)。
   const myModules = useQuery({
     queryKey: ['admin', 'my-modules'],
@@ -241,6 +261,21 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
             );
           })}
         </nav>
+        {/* D4:重新配置向导(动作,非路由 tab)。各步会从当前配置自动回填。 */}
+        <div className="border-t border-[var(--cy-border-subtle)] px-2 py-3">
+          <button
+            type="button"
+            onClick={() => setShowWizard(true)}
+            title={collapsed ? '重新配置向导' : undefined}
+            className={cn(
+              'flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-[var(--cy-surface-2)]',
+              collapsed && 'justify-center',
+            )}
+          >
+            <Wand2 className="h-4 w-4 shrink-0" />
+            {!collapsed && <span className="truncate">重新配置向导</span>}
+          </button>
+        </div>
       </aside>
 
       {/* 右:顶栏 + 内容 */}
@@ -287,6 +322,18 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'deployment' && <DeploymentStatusPanel />}
         </div>
       </div>
+
+      {/* D4:首启/重开 配置向导(整屏 z-[500] 模态)。X 仅关闭(未完成下次仍弹);
+          完成/全跳过由向导自身写 completed,onFinish 落到「服务状态」拓扑页。 */}
+      {showWizard && (
+        <SetupWizard
+          onClose={() => setShowWizard(false)}
+          onFinish={() => {
+            setShowWizard(false);
+            select('topology');
+          }}
+        />
+      )}
 
       {/* 控制台脱离 Chrome,需自挂确认/输入/错误弹窗根,否则域内确认框无处渲染 */}
       <ConfirmRoot />
