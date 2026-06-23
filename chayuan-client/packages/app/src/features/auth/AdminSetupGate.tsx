@@ -12,13 +12,12 @@ export const AdminSetupGate: React.FC = () => {
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [confirm, setConfirm] = React.useState('');
-  const [instanceName, setInstanceName] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const setUser = useAuthStore((s) => s.setUser);
 
   // 任意字段变化即清除上一次错误提示,避免改完仍显示旧报错
-  React.useEffect(() => { setErr(null); }, [username, password, confirm, instanceName]);
+  React.useEffect(() => { setErr(null); }, [username, password, confirm]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +30,6 @@ export const AdminSetupGate: React.FC = () => {
       const res = await authApi.setupAdmin({
         username: username.trim(),
         password,
-        instanceName: instanceName.trim() || undefined,
       });
       setUser(res.user);
       // 以服务端为准重拉 /auth/config 确认 admin 已建(状态一致性保证)。
@@ -89,12 +87,6 @@ export const AdminSetupGate: React.FC = () => {
           placeholder="确认密码"
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
-        />
-        <input
-          className="w-full rounded border px-3 py-2 text-sm dark:bg-zinc-800"
-          placeholder="实例标识 / 名称(可选)"
-          value={instanceName}
-          onChange={(e) => setInstanceName(e.target.value)}
         />
         {err && <div className="text-xs text-rose-600">{err}</div>}
         <button
