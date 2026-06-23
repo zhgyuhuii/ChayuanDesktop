@@ -102,6 +102,13 @@ export interface DbStatus { configured: boolean; form: DbForm; summary: string; 
 export interface DbValidateResult {
   ok: boolean; message: string; detail: string; db_missing?: boolean; uri_masked?: string;
 }
+export interface DbSaveResult {
+  restart_required: boolean;
+  /** 当部署 profile(CHAYUAN_PROFILE)会在重启后把 DB 覆盖回 sqlite 时为 true */
+  profile_warning: boolean;
+  masked: string;
+  validated: DbValidateResult;
+}
 export const dbConfig = {
   status: () => http.get<DbStatus>('/api/v1/admin/db/status'),
   validate: (form: DbForm) => http.post<DbValidateResult>('/api/v1/admin/db/validate', form),
@@ -110,7 +117,7 @@ export const dbConfig = {
       '/api/v1/admin/db/create', form,
     ),
   save: (form: DbForm) =>
-    http.post<{ restart_required: boolean; masked: string; validated: DbValidateResult }>(
+    http.post<DbSaveResult>(
       '/api/v1/admin/db/save', form,
     ),
 };

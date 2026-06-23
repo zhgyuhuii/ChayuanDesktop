@@ -4,9 +4,9 @@
  * 复用后端 /api/v1/admin/db/{status,validate,create,save}。
  */
 import * as React from 'react';
-import { dbConfig, type DbForm, type DbType, type DbValidateResult } from '@chayuan/api';
+import { dbConfig, servicesConfig, type DbForm, type DbType, type DbValidateResult } from '@chayuan/api';
 import { Button } from '@chayuan/ui';
-import { RefreshCw, Wifi, Save, DatabaseZap } from 'lucide-react';
+import { RefreshCw, Wifi, Save, DatabaseZap, RotateCcw, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 import { confirmDialog } from '../../../store/confirmDialog';
 
@@ -17,6 +17,8 @@ const EMPTY: DbForm = {
   db_type: 'sqlite', sqlite_path: '', host: '', port: '', database: '', schema: '', username: '', password: '', charset: '',
 };
 
+type RestartPhase = 'idle' | 'banner' | 'restarting' | 'success' | 'timeout';
+
 export const DatabaseConfigPage: React.FC = () => {
   const [form, setForm] = React.useState<DbForm>(EMPTY);
   const [types, setTypes] = React.useState<DbType[]>([]);
@@ -24,6 +26,18 @@ export const DatabaseConfigPage: React.FC = () => {
   const [val, setVal] = React.useState<DbValidateResult | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
+
+  // Restart banner state
+  const [restartPhase, setRestartPhase] = React.useState<RestartPhase>('idle');
+  const [profileWarning, setProfileWarning] = React.useState(false);
+  // Ref to cancel the polling loop on unmount
+  const pollingAbortRef = React.useRef<{ cancelled: boolean }>({ cancelled: false });
+
+  // Cancel any in-flight poll on unmount
+  React.useEffect(() => {
+    const guard = pollingAbortRef.current;
+    return () => { guard.cancelled = true; };
+  }, []);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -105,9 +119,16 @@ export const DatabaseConfigPage: React.FC = () => {
       return;
     setBusy(true);
     try {
-      await dbConfig.save(form);
-      notifySuccess('已保存 — 重启服务后生效');
-      await load();
+      const result = await dbConfig.save(form);
+      if (result.restart_required) {
+        // Show persistent banner — do NOT dismiss with a toast
+        setProfileWarning(result.profile_warning ?? false);
+        setRestartPhase('banner');
+        await load();
+      } else {
+        notifySuccess('已保存 — 重启服务后生效');
+        await load();
+      }
     } catch (e) {
       reportError(e, '保存失败');
     } finally {
@@ -115,7 +136,62 @@ export const DatabaseConfigPage: React.FC = () => {
     }
   };
 
+  /**
+   * Poll dbConfig.status() every 2s until:
+   * - configured === true (healthy) → success
+   * - elapsed >= 60s → timeout
+   * Thrown errors during the window are swallowed (server is still restarting).
+   */
+  const pollUntilHealthy = React.useCallback(async (guard: { cancelled: boolean }) => {
+    const DEADLINE = Date.now() + 60_000;
+    const INTERVAL = 2_000;
+
+    while (Date.now() < DEADLINE) {
+      if (guard.cancelled) return;
+      await new Promise<void>((r) => setTimeout(r, INTERVAL));
+      if (guard.cancelled) return;
+      try {
+        const s = await dbConfig.status();
+        if (s.configured) {
+          if (!guard.cancelled) {
+            setRestartPhase('success');
+            setSummary(s.summary || '');
+          }
+          return;
+        }
+      } catch {
+        // Server is still down — keep polling
+      }
+    }
+    // Deadline expired
+    if (!guard.cancelled) {
+      setRestartPhase('timeout');
+    }
+  }, []);
+
+  const doRestart = async () => {
+    setRestartPhase('restarting');
+    // Create a fresh guard for this poll session; cancel any previous one
+    pollingAbortRef.current.cancelled = true;
+    const guard = { cancelled: false };
+    pollingAbortRef.current = guard;
+
+    try {
+      await servicesConfig.restart();
+    } catch {
+      // The restart call itself may fail (server shuts down before responding) — that's fine
+    }
+    void pollUntilHealthy(guard);
+  };
+
+  const dismissBanner = () => {
+    pollingAbortRef.current.cancelled = true;
+    setRestartPhase('idle');
+    setProfileWarning(false);
+  };
+
   const isSqlite = curType ? !curType.has_host : form.db_type === 'sqlite';
+  const isRestarting = restartPhase === 'restarting';
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-6">
@@ -130,6 +206,76 @@ export const DatabaseConfigPage: React.FC = () => {
       </div>
 
       {summary && <div className="rounded-md bg-[var(--cy-surface-2)] px-3 py-2 text-xs">当前：{summary}</div>}
+
+      {/* ── Restart Banner ── */}
+      {restartPhase !== 'idle' && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-700 dark:bg-amber-950">
+          {restartPhase === 'banner' && (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span className="font-medium text-amber-800 dark:text-amber-200">
+                  数据库配置已保存，需重启服务后生效
+                </span>
+              </div>
+              {profileWarning && (
+                <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-300">
+                  当前部署 profile（CHAYUAN_PROFILE）会在重启后把数据库覆盖回 sqlite，请检查 profile 配置后再重启。
+                </div>
+              )}
+              <div className="flex items-center gap-2 pt-1">
+                <Button size="sm" onClick={() => void doRestart()}>
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> 立即重启
+                </Button>
+                <button
+                  type="button"
+                  className="text-xs text-amber-700 underline hover:no-underline dark:text-amber-400"
+                  onClick={dismissBanner}
+                >
+                  稍后手动重启
+                </button>
+              </div>
+            </div>
+          )}
+
+          {restartPhase === 'restarting' && (
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              <span>正在重启，等待服务恢复…</span>
+            </div>
+          )}
+
+          {restartPhase === 'success' && (
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span className="text-emerald-800 dark:text-emerald-200">服务已恢复，新数据库配置已生效</span>
+              <button
+                type="button"
+                className="ml-auto text-xs opacity-60 hover:opacity-100"
+                onClick={dismissBanner}
+              >
+                关闭
+              </button>
+            </div>
+          )}
+
+          {restartPhase === 'timeout' && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+                <span>自动重启未完成，请手动重启 chayuan-server 容器后刷新页面。</span>
+              </div>
+              <button
+                type="button"
+                className="text-xs text-amber-700 underline hover:no-underline dark:text-amber-400"
+                onClick={dismissBanner}
+              >
+                关闭
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <label className="block text-xs">
         <span className="opacity-60">数据库类型</span>
@@ -178,14 +324,14 @@ export const DatabaseConfigPage: React.FC = () => {
       )}
 
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        <Button onClick={() => void doSave()} disabled={busy}>
+        <Button onClick={() => void doSave()} disabled={busy || isRestarting}>
           <Save className="mr-1.5 h-4 w-4" /> 保存
         </Button>
-        <Button variant="outline" onClick={() => void doValidate()} disabled={busy}>
+        <Button variant="outline" onClick={() => void doValidate()} disabled={busy || isRestarting}>
           <Wifi className="mr-1.5 h-4 w-4" /> 测试连接
         </Button>
         {val?.db_missing && (
-          <Button variant="outline" onClick={() => void doCreate()} disabled={busy}>
+          <Button variant="outline" onClick={() => void doCreate()} disabled={busy || isRestarting}>
             <DatabaseZap className="mr-1.5 h-4 w-4 text-amber-500" /> 立即创建数据库
           </Button>
         )}
