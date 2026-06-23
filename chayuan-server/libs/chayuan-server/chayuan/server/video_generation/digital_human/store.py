@@ -10,6 +10,56 @@ from chayuan.server.video_generation.digital_human.schemas import DigitalHumanPr
 _VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv"}
 _IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
+import logging as _logging
+_logger = _logging.getLogger("chayuan.dh.store")
+
+# 对象存储:数字人用户形象(头像)key 前缀。后端=minio 时上传镜像 + 本地缺失回填,
+# 与 modality artifacts 同思路;local 后端跳过(本地副本即权威)。
+_DH_AVATAR_NS_PREFIX = "dh_avatars"
+
+
+def _obj_storage_if_remote():
+    """生效后端是 minio(非 local)时返回 storage 实例,否则 None。"""
+    try:
+        from chayuan.server.file_storage import get_storage
+        st = get_storage()
+        return st if getattr(st, "name", "local") != "local" else None
+    except Exception as e:  # noqa: BLE001
+        _logger.debug("get_storage 失败,跳过对象存储:%r", e)
+        return None
+
+
+def mirror_avatar(fid: str, local_path: str) -> None:
+    """后端=minio 时把用户形象文件镜像进对象存储(fail-open)。"""
+    st = _obj_storage_if_remote()
+    if st is None:
+        return
+    try:
+        from chayuan.server.file_storage import NS
+        st.put_file(NS.MISC, f"{_DH_AVATAR_NS_PREFIX}/{fid}", local_path)
+        _logger.info("[dh] 形象镜像到对象存储:%s", fid)
+    except Exception as e:  # noqa: BLE001
+        _logger.warning("[dh] 形象对象存储镜像失败(已留本地副本):%r", e)
+
+
+def _fetch_avatar_local(fid: str) -> Optional[str]:
+    """本地缺失时从对象存储回填用户形象,返回本地路径;无则 None。"""
+    st = _obj_storage_if_remote()
+    if st is None:
+        return None
+    try:
+        from chayuan.server.file_storage import NS
+        key = f"{_DH_AVATAR_NS_PREFIX}/{fid}"
+        if not st.exists(NS.MISC, key):
+            return None
+        dest = os.path.join(dh_avatars_dir(create=True), fid)
+        st.copy_to_local(NS.MISC, key, dest)
+        return dest if os.path.isfile(dest) else None
+    except Exception as e:  # noqa: BLE001
+        _logger.warning("[dh] 形象从对象存储回填失败 %s:%r", fid, e)
+        return None
+
+
 
 def _load_raw() -> List[Dict[str, Any]]:
     p = dh_presets_path()
@@ -143,8 +193,12 @@ def list_avatars() -> List[Dict[str, Any]]:
 def resolve_avatar_path(avatar_ref: str) -> Optional[str]:
     """"bundled:<f>" / "user:<f>" → 绝对路径。"""
     if avatar_ref.startswith("user:"):
-        p = os.path.join(dh_avatars_dir(), avatar_ref[len("user:"):])
-        return p if os.path.isfile(p) else None
+        fid = avatar_ref[len("user:"):]
+        p = os.path.join(dh_avatars_dir(), fid)
+        if os.path.isfile(p):
+            return p
+        # 后端=minio 且本机无本地副本(多副本/已迁对象存储)→ 回填本地缓存
+        return _fetch_avatar_local(fid)
     if avatar_ref.startswith("bundled:"):
         broot = _bundled_avatars_root()
         if not broot:

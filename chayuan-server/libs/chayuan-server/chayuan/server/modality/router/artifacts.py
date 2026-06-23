@@ -96,6 +96,10 @@ def save_bytes(content: bytes, mime: str, ext: Optional[str] = None) -> dict:
         tmp.write_bytes(content)
         tmp.replace(path)
         logger.info("[artifacts] saved %s (%d bytes, mime=%s)", filename, len(content), mime)
+    # 对象存储镜像:生效后端是 minio(非 local)时,把产物同步推到对象存储,
+    # key 用扁平的 "{sha}.{ext}"。local 后端跳过(本地副本已是权威,避免双写本地)。
+    # fail-open:上传失败只告警,不影响生成链路(本地副本仍可下载)。
+    _mirror_to_storage(filename, content, mime)
     return {
         "sha256": sha,
         "ext": final_ext,
@@ -104,6 +108,46 @@ def save_bytes(content: bytes, mime: str, ext: Optional[str] = None) -> dict:
         "size": len(content),
         "filename": filename,
     }
+
+
+def _mirror_to_storage(filename: str, content: bytes, mime: str) -> None:
+    """后端=minio 时把产物镜像进对象存储;local 跳过;任何异常只告警。"""
+    try:
+        from chayuan.server.file_storage import NS, get_storage
+        storage = get_storage()
+        if getattr(storage, "name", "local") == "local":
+            return
+        storage.put(NS.ARTIFACTS, filename, content, content_type=mime)
+        logger.info("[artifacts] mirrored %s -> %s", filename, getattr(storage, "name", "?"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[artifacts] 对象存储镜像失败(已留本地副本): %r", e)
+
+
+def fetch_from_storage(filename: str) -> Optional[Path]:
+    """本地缺失时,从对象存储拉回并缓存到本地 YYYY-MM 目录,返回本地路径。
+
+    用于多副本部署 / 已迁 minio 的场景:产物在对象存储但本机没有本地副本时,
+    回填一份本地缓存,后续 ``find_by_filename`` 即可命中、且 FileResponse 支持 Range。
+    后端=local 或对象存储无此对象 → 返回 None。
+    """
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return None
+    try:
+        from chayuan.server.file_storage import NS, get_storage
+        storage = get_storage()
+        if getattr(storage, "name", "local") == "local":
+            return None
+        if not storage.exists(NS.ARTIFACTS, filename):
+            return None
+        dest = _yyyymm_dir() / filename
+        tmp = dest.with_suffix(dest.suffix + ".tmp")
+        storage.copy_to_local(NS.ARTIFACTS, filename, str(tmp))
+        tmp.replace(dest)
+        logger.info("[artifacts] fetched %s from %s", filename, getattr(storage, "name", "?"))
+        return dest
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[artifacts] 从对象存储回填失败 %s: %r", filename, e)
+        return None
 
 
 # ──────────────────────────────────────────────────────────────

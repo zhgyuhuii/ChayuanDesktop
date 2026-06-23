@@ -24,11 +24,15 @@ class NS:
     KB_CONTENT = "kb_content"
     CHAT_TEMP = "chat_temp"
     IMAGE_FILES = "image_files"
+    # 模态产物(文生图 / 图生图 / VG 合成视频 / 数字人视频等内容寻址产物)。
+    # 与本地 modality/router/artifacts.py 的 YYYY-MM 分目录解耦:对象存储里用扁平
+    # key = "{sha256}.{ext}"(sha 全局唯一,无需再分目录)。
+    ARTIFACTS = "artifacts"
     MISC = "misc"
 
     @classmethod
     def all(cls) -> List[str]:
-        return [cls.KB_CONTENT, cls.CHAT_TEMP, cls.IMAGE_FILES, cls.MISC]
+        return [cls.KB_CONTENT, cls.CHAT_TEMP, cls.IMAGE_FILES, cls.ARTIFACTS, cls.MISC]
 
 
 class StorageError(Exception):

@@ -128,6 +128,7 @@ async def upload_avatar(file: UploadFile = File(...),
     dest = os.path.join(dh_avatars_dir(create=True), fid)
     with open(dest, "wb") as f:
         f.write(await file.read())
+    store.mirror_avatar(fid, dest)  # 后端=minio 时镜像进对象存储
     kind = "image" if ext in {".jpg", ".jpeg", ".png", ".webp", ".bmp"} else "video"
     return {"ref": f"user:{fid}", "kind": kind, "source": "user", "name": fid}
 
@@ -152,6 +153,7 @@ async def compose_reference(files: List[UploadFile] = File(...),
         fid = f"{int(time.time())}-{uuid.uuid4().hex[:6]}{ext}"
         dest = os.path.join(dh_avatars_dir(create=True), fid)
         shutil.copyfile(chosen, dest)
+        store.mirror_avatar(fid, dest)  # 后端=minio 时镜像进对象存储
         return {"ref": f"user:{fid}", "kind": "image", "source": "user", "name": fid}
     finally:
         for t in tmps:

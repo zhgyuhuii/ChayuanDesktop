@@ -30,6 +30,7 @@ from fastapi.responses import FileResponse, Response
 
 from chayuan.server.auth.deps import require_auth_enabled
 from chayuan.server.modality.router.artifacts import (
+    fetch_from_storage,
     find_by_filename,
     guess_mime_from_filename,
 )
@@ -49,6 +50,9 @@ async def get_artifact(filename: str) -> FileResponse:
     """按 ``<sha>.<ext>`` 取产物;Range 自动支持。"""
     path = find_by_filename(filename)
     if path is None:
+        # 后端=minio 且本机无本地副本(多副本/已迁对象存储)→ 回填本地缓存再 serve
+        path = fetch_from_storage(filename)
+    if path is None:
         # 不区分"非法格式"和"已过期",一律 404 — 避免泄漏存在性
         raise HTTPException(status_code=404, detail="artifact not found")
     mime = guess_mime_from_filename(filename)
@@ -65,6 +69,8 @@ async def get_artifact(filename: str) -> FileResponse:
 )
 async def head_artifact(filename: str) -> Response:
     path = find_by_filename(filename)
+    if path is None:
+        path = fetch_from_storage(filename)
     if path is None:
         raise HTTPException(status_code=404, detail="artifact not found")
     mime = guess_mime_from_filename(filename)
