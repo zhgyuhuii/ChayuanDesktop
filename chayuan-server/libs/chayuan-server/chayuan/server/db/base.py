@@ -11,6 +11,7 @@ SQLite 特殊处理：
 from __future__ import annotations
 
 import json
+import logging
 import os
 import stat
 import sys
@@ -102,6 +103,16 @@ def _create_pooled_engine(uri: str, bs):
     )
 
 
+def _sanitize_uri(uri: str) -> str:
+    """把 URI 里的密码遮成 ``***``,避免凭证明文进日志/异常。
+
+    形如 ``scheme://user:password@host/db`` -> ``scheme://user:***@host/db``。
+    无凭证段则原样返回。
+    """
+    import re
+    return re.sub(r"(://[^:/@\s]+:)[^@/\s]*(@)", r"\1***\2", uri or "")
+
+
 def _build_engine():
     """构造全局 engine。
 
@@ -113,8 +124,12 @@ def _build_engine():
     单机产品默认应该 sqlite,这里加一道 fallback:
       - 用户选了 sqlite → 正常
       - 用户填了 PG/MySQL URI 但驱动可用 → 正常
-      - 用户填了 PG/MySQL URI 但驱动缺失 → stderr 大声告警 + 回退到默认 sqlite,
-        让单机用户至少能起服务,自己再去配置面板修 URI
+      - 用户填了 PG/MySQL URI 但驱动缺失:
+        * **单机版**(``is_single_machine()`` True)→ stderr 大声告警 + 回退到默认
+          sqlite,让单机用户至少能起服务,自己再去配置面板修 URI;
+        * **网络版**(False)→ **不静默回退**。管理员在面板里明明配了 PG/MySQL,
+          若驱动缺失就偷偷写 sqlite,数据会落到错误的库里而管理员毫不知情。这里
+          直接抛 ``RuntimeError`` 大声失败,提示装驱动后重启,而不是降级吞掉。
 
     生产部署有真 PG 的场景下 psycopg2 必然装好,不会触发 fallback。
     """
@@ -127,11 +142,34 @@ def _build_engine():
     try:
         return _create_pooled_engine(uri, bs)
     except ModuleNotFoundError as e:
-        # 桌面 sidecar 没打包 PG/MySQL 驱动;回退到默认 sqlite。
+        # 延迟导入,避免 base.py 早期导入时产生循环依赖。
+        try:
+            from chayuan.server.profiles.bootstrap import is_single_machine
+            single_machine = bool(is_single_machine())
+        except Exception:  # noqa: BLE001
+            # 探测失败时按更安全的「非单机」处理:宁可大声失败,也不静默降级 sqlite。
+            single_machine = False
+
+        masked = _sanitize_uri(uri)
+
+        if not single_machine:
+            # 网络版:绝不静默回退 sqlite。大声失败,逼运维装驱动。
+            msg = (
+                f"[chayuan][db] SQLALCHEMY_DATABASE_URI={masked!r} 所需驱动未安装:{e};"
+                f"网络版部署禁止静默回退 sqlite(否则数据会落到错误的库)。"
+                f"请安装对应驱动(psycopg2 / pymysql 等)后重启服务。"
+            )
+            _log = logging.getLogger("chayuan.server.db")
+            _log.error(msg)
+            sys.stderr.write(msg + "\n")
+            sys.stderr.flush()
+            raise RuntimeError(msg) from e
+
+        # 单机版:回退到默认 sqlite,保证起得来。
         from chayuan.settings import _default_sqlalchemy_uri
         fallback_uri = _default_sqlalchemy_uri()
         sys.stderr.write(
-            f"[chayuan][db] ⚠️  SQLALCHEMY_DATABASE_URI={uri!r} 加载失败:{e};"
+            f"[chayuan][db] ⚠️  SQLALCHEMY_DATABASE_URI={masked!r} 加载失败:{e};"
             f"该驱动未安装(单机版默认仅 bundle sqlite3),回退到 {fallback_uri!r}。"
             f"如需 PG/MySQL,请安装对应驱动包(psycopg2 / pymysql 等)后重启。\n"
         )
