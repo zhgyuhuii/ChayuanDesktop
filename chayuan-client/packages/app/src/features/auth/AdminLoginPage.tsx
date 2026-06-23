@@ -201,6 +201,8 @@ export const AdminLoginPage: React.FC = () => {
           <>
             <input
               className={FIELD}
+              name="username"
+              autoComplete="username"
               placeholder="用户名"
               value={username}
               autoFocus
@@ -209,6 +211,8 @@ export const AdminLoginPage: React.FC = () => {
             <input
               type="password"
               className={FIELD}
+              name="password"
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               placeholder={mode === 'login' ? '密码' : '密码(≥6 位)'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -217,6 +221,7 @@ export const AdminLoginPage: React.FC = () => {
               <input
                 type="password"
                 className={FIELD}
+                autoComplete="new-password"
                 placeholder="确认密码"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
@@ -226,6 +231,8 @@ export const AdminLoginPage: React.FC = () => {
               <input
                 type="email"
                 className={FIELD}
+                name="email"
+                autoComplete="email"
                 placeholder="邮箱(可选)"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
