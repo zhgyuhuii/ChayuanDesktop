@@ -17,9 +17,15 @@
  */
 
 import { type ModelMetadata, type PlatformConfig, resolveLogoUrl } from '@chayuan/api';
-import { cn } from '@chayuan/ui';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  cn,
+} from '@chayuan/ui';
 import { getPlatform } from '@chayuan/platform-shared';
-import { Download as DownloadIcon, KeyRound, Settings as SettingsIcon } from 'lucide-react';
+import { ChevronDown, Download as DownloadIcon, KeyRound, Settings as SettingsIcon } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from '../../../i18n';
 import {
@@ -231,10 +237,10 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
         <div className="min-h-0 flex-1 pr-16 pt-2">
           {interactive && filtered.length > 0 ? (
             activeCapability === CAPABILITY_ANY ? (
-              // 全能力：每类一行，前置类型徽，行内 ModelTagsRow
-              <div className="flex max-h-[78px] flex-col gap-1.5 overflow-hidden">
-                {filtered.slice(0, 3).map((g) => (
-                  <TypeRow
+              // 全能力：列出全部类型标签(对话/文本嵌入/图像/重排/语音…),点标签下拉该类型模型
+              <div className="flex max-h-[78px] flex-wrap content-start items-center gap-1.5 overflow-y-auto">
+                {filtered.map((g) => (
+                  <TypeTagDropdown
                     key={g.type}
                     group={g}
                     activeModel={activeModel}
@@ -242,11 +248,6 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
                     metadata={modelMetadata}
                   />
                 ))}
-                {filtered.length > 3 && (
-                  <p className="text-[10px] text-[var(--cy-text-tertiary)]">
-                    {t('modelMarket.card.moreTypes', { n: filtered.length - 3 })}
-                  </p>
-                )}
               </div>
             ) : (
               // 单一类型：直接 ModelTagsRow
@@ -364,8 +365,8 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
 );
 ProviderCard.displayName = 'ProviderCard';
 
-/** "全能力"模式下的一行：左侧类型徽 + 右侧 ModelTagsRow（chip 数限制 2 行内紧凑） */
-const TypeRow: React.FC<{
+/** "全能力"模式下的一个「类型标签」：点开下拉,列出该类型全部模型(点选即设为当前模型)。 */
+const TypeTagDropdown: React.FC<{
   group: GroupedModels;
   activeModel?: string;
   onSelectModel(m: string): void;
@@ -374,26 +375,43 @@ const TypeRow: React.FC<{
   const { t } = useTranslation();
   const colors = modelTypeColors(group.meta.hue);
   const Icon = group.meta.icon;
+  const hasActive = activeModel ? group.models.includes(activeModel) : false;
   return (
-    <div className="flex items-center gap-1.5">
-      <span
-        className="inline-flex h-5 flex-shrink-0 items-center gap-0.5 rounded-full px-1.5 text-[10px] font-medium"
-        style={{ backgroundColor: colors.bg, color: colors.fg }}
-        title={t(`${group.meta.i18nKey}.long`)}
-      >
-        <Icon className="h-2.5 w-2.5" />
-        {t(`${group.meta.i18nKey}.label`)}
-      </span>
-      <div className="min-w-0 flex-1">
-        <ModelTagsRow
-          models={group.models}
-          activeModel={activeModel}
-          onSelect={onSelectModel}
-          maxVisible={2}
-          metadata={metadata}
-        />
-      </div>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          title={t(`${group.meta.i18nKey}.long`)}
+          className={cn(
+            'inline-flex h-6 items-center gap-1 rounded-full px-2 text-[10px] font-medium transition-all hover:brightness-95',
+            hasActive && 'ring-1 ring-[var(--cy-brand-400)]',
+          )}
+          style={{ backgroundColor: colors.bg, color: colors.fg }}
+        >
+          <Icon className="h-2.5 w-2.5" />
+          <span>{t(`${group.meta.i18nKey}.label`)}</span>
+          <span className="opacity-70">{group.models.length}</span>
+          <ChevronDown className="h-2.5 w-2.5 opacity-60" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-y-auto">
+        {group.models.map((m) => {
+          const meta = metadata?.[m];
+          return (
+            <DropdownMenuItem
+              key={m}
+              onClick={() => onSelectModel(m)}
+              title={meta?.description || m}
+              className={cn(
+                m === activeModel && 'bg-[var(--cy-brand-50)] text-[var(--cy-brand-700)]',
+              )}
+            >
+              <span className="truncate">{m}</span>
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 };
 
