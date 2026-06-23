@@ -19,7 +19,9 @@ services:
     #   - "62581:62581"
     volumes:
       - ./data:/chayuan/data
-      - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
+      # 模型直接共享仓库 vendor/bundled_models(DH/TTS 已在,更多模型 seed 到这同一份即可):
+      # 与 desktop 构建共用一份、容器不另复制,省空间。读写挂载以支持运行时装/换模型。
+      - ../chayuan-server/vendor/bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
       - ./config:/chayuan/config
       - ./logs:/chayuan/logs
     environment:
