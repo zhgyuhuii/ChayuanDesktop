@@ -135,6 +135,12 @@ const CAP_INDEX: Map<ModalityCapability, CapabilityChipMeta> = new Map(
   CAP_META.map((m) => [m.cap, m]),
 );
 
+/**
+ * capability 的固定排列顺序(= CAP_META 顺序)。给需要「按此顺序排序」又不想依赖
+ * 私有 CAP_META 的消费方复用(如模型厂商页的能力分类条)。纯导出,无行为变化。
+ */
+export const CAP_ORDER: ReadonlyArray<ModalityCapability> = CAP_META.map((m) => m.cap);
+
 export function getCapabilityMeta(cap: ModalityCapability): CapabilityChipMeta {
   return CAP_INDEX.get(cap) ?? CAP_INDEX.get('chat')!;
 }
