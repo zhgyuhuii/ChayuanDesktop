@@ -116,3 +116,32 @@ def require_auth_enabled():
         return get_current_user_optional(request)
 
     return _dep
+
+
+def require_admin_when_auth_enabled():
+    """写接口守卫:单机版放行机主、网络版要求 admin。
+
+    单机版 ``AUTH_REQUIRED=false`` 时 :func:`get_current_user` 返回
+    :data:`GUEST_USER`(role=user),直接用 ``require_role("admin")`` 会 403
+    误锁机主。故先看 AUTH_REQUIRED:
+
+    - ``false``(单机/调试) → 放行(等价 optional,机主自用)
+    - ``true``(网络多租户) → 必须已登录且 ``role == "admin"``,否则 401/403
+    """
+    def _dep(request: Request) -> Optional[Dict[str, Any]]:
+        try:
+            from chayuan.settings import Settings
+            required = bool(getattr(Settings.basic_settings, "AUTH_REQUIRED", False))
+        except Exception:  # noqa: BLE001
+            required = False
+        if not required:
+            return get_current_user_optional(request)
+        user = get_current_user(request)  # 未登录 → 401
+        if user.get("role") != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="admin role required",
+            )
+        return user
+
+    return _dep

@@ -10,7 +10,7 @@
 * ``GET  /runtime/models``          返回当前 local_index 的所有条目
 * ``GET  /runtime/models/events``   SSE：本地模型增/改/删事件流（前端模型广场实时刷新）
 
-所有写接口需要管理员权限（沿用 ``require_admin`` 依赖）；只读接口默认放行
+所有写接口需要管理员权限（``require_admin_when_auth_enabled``:单机放行机主、网络要求 admin）；只读接口默认放行
 （鉴权由全局 ``AuthMiddleware`` 控制；后端开发时 ``AUTH_REQUIRED=false``
 不需要 token，生产开启后由 middleware 兜底）。
 """
@@ -22,9 +22,10 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
+from chayuan.server.auth.deps import require_admin_when_auth_enabled
 from chayuan.server.model_registry.local_index import (
     LocalModelEntry,
     ScanDelta,  # noqa: F401  保留类型，供 _on_change 签名使用
@@ -469,20 +470,20 @@ def llama_status() -> Dict[str, Any]:
     return _ok(_llama_manager().status.to_dict())
 
 
-@runtime_router.post("/llama/start")
+@runtime_router.post("/llama/start", dependencies=[Depends(require_admin_when_auth_enabled())])
 async def llama_start(body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
     model_id = body.get("model_id") if isinstance(body, dict) else None
     status = await _llama_manager().start(model_id=model_id)
     return _ok(status.to_dict())
 
 
-@runtime_router.post("/llama/stop")
+@runtime_router.post("/llama/stop", dependencies=[Depends(require_admin_when_auth_enabled())])
 async def llama_stop() -> Dict[str, Any]:
     await _llama_manager().stop()
     return _ok(_llama_manager().status.to_dict())
 
 
-@runtime_router.post("/llama/restart")
+@runtime_router.post("/llama/restart", dependencies=[Depends(require_admin_when_auth_enabled())])
 async def llama_restart(body: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
     model_id = body.get("model_id") if isinstance(body, dict) else None
     status = await _llama_manager().restart(model_id=model_id)
@@ -636,7 +637,7 @@ def llama_capability_status(capability: str) -> Dict[str, Any]:
     return _ok(_llama_registry().get(capability).status.to_dict())
 
 
-@runtime_router.post("/llama/{capability}/start")
+@runtime_router.post("/llama/{capability}/start", dependencies=[Depends(require_admin_when_auth_enabled())])
 async def llama_capability_start(
     capability: str, body: Dict[str, Any] = Body(default={})
 ) -> Dict[str, Any]:
@@ -646,7 +647,7 @@ async def llama_capability_start(
     return _ok(status.to_dict())
 
 
-@runtime_router.post("/llama/{capability}/stop")
+@runtime_router.post("/llama/{capability}/stop", dependencies=[Depends(require_admin_when_auth_enabled())])
 async def llama_capability_stop(capability: str) -> Dict[str, Any]:
     _validate_capability(capability)
     mgr = _llama_registry().get(capability)
@@ -654,7 +655,7 @@ async def llama_capability_stop(capability: str) -> Dict[str, Any]:
     return _ok(mgr.status.to_dict())
 
 
-@runtime_router.post("/llama/{capability}/restart")
+@runtime_router.post("/llama/{capability}/restart", dependencies=[Depends(require_admin_when_auth_enabled())])
 async def llama_capability_restart(
     capability: str, body: Dict[str, Any] = Body(default={})
 ) -> Dict[str, Any]:
