@@ -10,6 +10,7 @@ import {
 } from '@chayuan/api';
 import { CreateUserDialog } from './CreateUserDialog';
 import { UserPersonaDialog } from './UserPersonaDialog';
+import { confirmDialog } from '../../../store/confirmDialog';
 
 export const UsersTable: React.FC = () => {
   const [kw, setKw] = React.useState('');
@@ -33,6 +34,15 @@ export const UsersTable: React.FC = () => {
   const seatFull = seat.data?.maxUsers != null && (seat.data.available ?? 0) <= 0;
 
   const toggle = async (u: AdminUserRow) => {
+    // 停用是破坏性操作,二次确认;启用直接执行。
+    if (
+      u.is_active &&
+      !(await confirmDialog(`确定停用用户「${u.username}」?停用后该用户将无法登录。`, {
+        title: '停用用户?',
+        danger: true,
+      }))
+    )
+      return;
     await adminSetUserActive(u.id, !u.is_active);
     void snap.refetch();
   };

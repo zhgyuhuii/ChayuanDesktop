@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Button } from '@chayuan/ui';
+import { Button, Dialog, DialogContent } from '@chayuan/ui';
 import { adminUserPersona, type AdminUserRow, type PersonaResult } from '@chayuan/api';
 import { AdminChart } from './AdminChart';
 
@@ -59,11 +59,10 @@ export const UserPersonaDialog: React.FC<{ user: AdminUserRow; onClose(): void }
   };
 
   return (
-    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-[var(--cy-surface-base,#fff)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[90vh] w-full max-w-3xl overflow-auto sm:max-w-3xl">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{user.username} · 用户画像</h2>
-          <Button variant="ghost" onClick={onClose}>关闭</Button>
         </div>
         <div className="text-xs text-muted-foreground">#{user.id} · {user.role} · {user.is_active ? '启用' : '停用'} · {user.email}</div>
 
@@ -118,7 +117,7 @@ export const UserPersonaDialog: React.FC<{ user: AdminUserRow; onClose(): void }
             !err && <p className="text-sm text-slate-400">点「生成画像」让大模型分析该用户。</p>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
