@@ -24,21 +24,20 @@ __copyright__ = "Copyright (c) 北京智灵鸟科技中心"
 
 #: 当无法从安装元数据读取版本时使用的兜底值。
 #: 保持与 ``libs/chayuan-server/pyproject.toml`` 保持一致，避免源码裸跑时拿到旧号。
-_FALLBACK_VERSION = "2.0.237"
+_FALLBACK_VERSION = "2.0.238"
 
 
 def _detect_version() -> str:
-    """优先从已安装包的元数据读取，失败回退到常量。不抛异常。"""
-    try:
-        from importlib.metadata import PackageNotFoundError, version as _pkg_version
+    """返回当前代码版本。
 
-        try:
-            return _pkg_version("chayuan-server")
-        except PackageNotFoundError:
-            # 未 pip install 的源码运行场景；常见于开发机 `python cli.py`。
-            return _FALLBACK_VERSION
-    except Exception:
-        return _FALLBACK_VERSION
+    ⚠ docker 镜像 / 裸跑都是「源码直接运行」(不 pip install chayuan-server),而且
+    base 镜像里可能残留旧的 ``chayuan_server-*.dist-info`` 元数据 →
+    ``importlib.metadata("chayuan-server")`` 不可靠(要么 PackageNotFound、要么读到
+    构建 base 时的旧版本,导致重建 app 镜像、改 pyproject 都没用,版本永远卡旧号)。
+    因此【直接用本文件常量 _FALLBACK_VERSION】—— 它由 ``scripts/bump-version.py``
+    随每次发版同步,反映镜像里真实的代码版本,唯一可信。
+    """
+    return _FALLBACK_VERSION
 
 
 __version__: str = _detect_version()
