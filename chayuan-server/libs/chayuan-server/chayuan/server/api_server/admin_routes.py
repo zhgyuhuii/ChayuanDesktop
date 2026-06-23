@@ -620,7 +620,10 @@ async def test_model_platform(
             )
             resp = client.models.list()
             ids = [m.id for m in (resp.data or [])]
-            detected = {"llm_models": ids}
+            # 按名字把模型分到 llm/embed/rerank/... 桶(OpenAI 兼容 /models 不给
+            # 可靠类型字段;此前全塞 llm_models 导致千帆等厂商的嵌入/重排被误判为对话)。
+            from chayuan.server.model_name_classify import classify_model_ids_by_name
+            detected = classify_model_ids_by_name(ids)
     except Exception as e:  # noqa: BLE001
         error = f"{type(e).__name__}: {e}"
 

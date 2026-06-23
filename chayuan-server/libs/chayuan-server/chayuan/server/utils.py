@@ -351,25 +351,11 @@ def detect_ollama_models(base_url: str) -> Dict[str, List[str]]:
         logger.warning(f"detect_ollama_models({url}) 失败:{type(e).__name__}: {e}")
         return out
 
-    rerank_kws = ("rerank", "reranker", "re-rank", "cross-encoder")
-    embed_kws = (
-        "bge", "embed", "embedding", "m3e", "nomic-embed", "mxbai-embed",
-        "gte-", "e5-", "jina-embed",
-    )
-
-    for item in data.get("models", []) or []:
-        name = (item.get("name") or "").strip()
-        if not name:
-            continue
-        low = name.lower()
-        # 顺序敏感:rerank 关键词必须先匹配,避免被 bge 误吞
-        if any(kw in low for kw in rerank_kws):
-            out["rerank_models"].append(name)
-        elif any(kw in low for kw in embed_kws):
-            out["embed_models"].append(name)
-        else:
-            out["llm_models"].append(name)
-    return out
+    # 名字启发式分类(Ollama /api/tags 无类型字段),复用统一分类器(DRY,与 OpenAI
+    # 兼容探测共用同一套规则)。失败/空走上面预置的空 out。
+    from chayuan.server.model_name_classify import classify_model_ids_by_name
+    names = [(item.get("name") or "") for item in (data.get("models", []) or [])]
+    return classify_model_ids_by_name(names)
 
 
 @cached(max_size=10, ttl=60, algorithm=CachingAlgorithmFlag.LRU)
