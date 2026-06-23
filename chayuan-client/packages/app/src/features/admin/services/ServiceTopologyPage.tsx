@@ -182,6 +182,59 @@ export const ServiceTopologyPage: React.FC = () => {
   const [showAdd, setShowAdd] = React.useState(false);
   const [cfgNode, setCfgNode] = React.useState<TopologyNode | null>(null);
 
+  // 节点位置:用户拖动的覆盖位置(持久化 localStorage,叠加在后端坐标上;5s 刷新不丢)。
+  const LS_KEY = 'cy.topology.pos.v1';
+  const svgRef = React.useRef<SVGSVGElement | null>(null);
+  const [posOverride, setPosOverride] = React.useState<Record<string, { x: number; y: number }>>(() => {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch { return {}; }
+  });
+  const [drag, setDrag] = React.useState<{ id: string; offX: number; offY: number } | null>(null);
+  const didDragRef = React.useRef(false);
+  React.useEffect(() => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(posOverride)); } catch { /* ignore quota */ }
+  }, [posOverride]);
+  const posOf = React.useCallback(
+    (n: { id: string; x: number; y: number }) => posOverride[n.id] ?? { x: n.x, y: n.y },
+    [posOverride],
+  );
+  const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  const toSvg = (e: React.PointerEvent) => {
+    const svg = svgRef.current;
+    const m = svg?.getScreenCTM();
+    if (!svg || !m) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const p = pt.matrixTransform(m.inverse());
+    return { x: p.x, y: p.y };
+  };
+  const onNodePointerDown = (e: React.PointerEvent, n: TopologyNode) => {
+    e.stopPropagation();
+    const p = toSvg(e);
+    if (!p) return;
+    const cur = posOf(n);
+    didDragRef.current = false;
+    setDrag({ id: n.id, offX: p.x - cur.x, offY: p.y - cur.y });
+    try { svgRef.current?.setPointerCapture(e.pointerId); } catch { /* noop */ }
+  };
+  const onSvgPointerMove = (e: React.PointerEvent) => {
+    if (!drag) return;
+    const p = toSvg(e);
+    if (!p) return;
+    didDragRef.current = true;
+    const x = clampN(Math.round(p.x - drag.offX), NODE_W / 2, VB_W - NODE_W / 2);
+    const y = clampN(Math.round(p.y - drag.offY), NODE_H / 2, VB_H - NODE_H / 2);
+    setPosOverride((prev) => ({ ...prev, [drag.id]: { x, y } }));
+  };
+  const onSvgPointerUp = (e: React.PointerEvent) => {
+    if (!drag) return;
+    try { svgRef.current?.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    setDrag(null);
+  };
+  const resetLayout = () => {
+    setPosOverride({});
+    try { localStorage.removeItem(LS_KEY); } catch { /* noop */ }
+  };
+
   const load = React.useCallback(async (probe = true) => {
     setLoading(true);
     try {
@@ -206,7 +259,10 @@ export const ServiceTopologyPage: React.FC = () => {
   const nodes = snap?.nodes ?? [];
   const byId = React.useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
-  const clickNode = (n: TopologyNode) => setCfgNode(n);
+  const clickNode = (n: TopologyNode) => {
+    if (didDragRef.current) { didDragRef.current = false; return; }  // 拖动结束的 click 不当点击
+    setCfgNode(n);
+  };
 
   return (
     <div className="space-y-5 p-6">
@@ -215,13 +271,16 @@ export const ServiceTopologyPage: React.FC = () => {
         <div>
           <h2 className="text-lg font-semibold">服务状态 · 拓扑</h2>
           <p className="mt-1 text-xs opacity-60">
-            实时探活,连线流光表示数据通路;点击节点/「配置」弹窗复用对应配置页。每 5s 自动刷新。
+            实时探活,连线流光表示数据通路;点击节点/「配置」弹窗复用对应配置页;可拖动节点调整布局(自动记住)。每 5s 自动刷新。
           </p>
         </div>
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-1.5 text-xs opacity-70">
             <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> 自动刷新
           </label>
+          {Object.keys(posOverride).length > 0 && (
+            <Button variant="outline" size="sm" onClick={resetLayout}>重置布局</Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => void load(true)} disabled={loading}>
             <RefreshCw className={`mr-1.5 h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> 刷新
           </Button>
@@ -243,13 +302,22 @@ export const ServiceTopologyPage: React.FC = () => {
 
       {/* 拓扑 SVG */}
       <div className="overflow-x-auto rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2">
-        <svg viewBox={`0 0 ${VB_W} ${VB_H}`} className="h-auto w-full min-w-[760px]" style={{ maxHeight: 540 }}>
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${VB_W} ${VB_H}`}
+          className="h-auto w-full min-w-[760px]"
+          style={{ maxHeight: 540, touchAction: 'none' }}
+          onPointerMove={onSvgPointerMove}
+          onPointerUp={onSvgPointerUp}
+        >
           {/* edges */}
           {(snap?.edges ?? []).map(([a, b], i) => {
             const na = byId.get(a);
             const nb = byId.get(b);
             if (!na || !nb) return null;
-            const mx = (na.x + nb.x) / 2;
+            const pa = posOf(na);
+            const pb = posOf(nb);
+            const mx = (pa.x + pb.x) / 2;
             const es = edgeStatus(na, nb);
             const st = STATUS_STYLE[es];
             return (
@@ -257,7 +325,7 @@ export const ServiceTopologyPage: React.FC = () => {
                 key={`${a}-${b}-${i}`}
                 className={`topo-edge ${st.flow ? 'flow' : ''}`}
                 stroke={st.edge}
-                d={`M ${na.x} ${na.y} C ${mx} ${na.y}, ${mx} ${nb.y}, ${nb.x} ${nb.y}`}
+                d={`M ${pa.x} ${pa.y} C ${mx} ${pa.y}, ${mx} ${pb.y}, ${pb.x} ${pb.y}`}
               />
             );
           })}
@@ -268,7 +336,9 @@ export const ServiceTopologyPage: React.FC = () => {
               <g
                 key={n.id}
                 className="topo-node"
-                transform={`translate(${n.x - NODE_W / 2}, ${n.y - NODE_H / 2})`}
+                transform={`translate(${posOf(n).x - NODE_W / 2}, ${posOf(n).y - NODE_H / 2})`}
+                style={{ cursor: drag?.id === n.id ? 'grabbing' : 'grab' }}
+                onPointerDown={(e) => onNodePointerDown(e, n)}
                 onClick={() => clickNode(n)}
               >
                 <rect

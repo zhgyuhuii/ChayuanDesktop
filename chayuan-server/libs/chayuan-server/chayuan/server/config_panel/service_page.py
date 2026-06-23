@@ -583,7 +583,7 @@ def build_snapshot(*, probe: bool = True) -> Topology:
         status=api_status,
         summary=_summary(api_host, api_port), detail=api_detail,
         restartable=True, config_kind="api",
-        x=470, y=120,
+        x=470, y=250,  # 与 client/nginx 同 y,横向对齐(原 120 偏上,panel 节点移除后居中)
     )
 
     # --- 基础设施层：Redis / DB / Milvus / MinIO / Langfuse ---
