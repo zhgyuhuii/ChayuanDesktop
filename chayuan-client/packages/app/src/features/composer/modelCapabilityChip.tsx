@@ -195,7 +195,7 @@ export function inferCapability(m: RawModelItem): ModalityCapability {
   if (t === 'embed' || t === 'embedding') return 'embedding';
   if (t === 'rerank' || t === 'reranker') return 'rerank';
   if (t === 'text2image' || t === 'image_gen') return 't2i';
-  if (t === 'image_edit') return 'image_edit';
+  if (t === 'image_edit' || t === 'image2image') return 'image_edit';
   if (t === 'image2video' || t === 'i2v' || t === 'img2video') return 'i2v';
   if (t === 'text2video' || t === 'video_gen' || t === 't2v') return 't2v';
   if (t === 'tts' || t === 'text2audio' || t === 'text2speech') return 'tts';

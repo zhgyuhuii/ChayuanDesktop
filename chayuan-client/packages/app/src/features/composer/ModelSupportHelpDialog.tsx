@@ -90,10 +90,13 @@ export const ModelSupportHelpDialog: React.FC<ModelSupportHelpDialogProps> = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        // z 必须高于打开它的模型菜单容器(ScriptGenDialog/GeneratePanel/PresetEditor/
-        // BatchModePage 的 ModelMenuList z-[260]),且 ? 按钮 stopPropagation 不关菜单。
-        // 提到 z-[500] 高于全仓最高浮层(CanvasStage z-[400]),彻底压住右上角关闭按钮被遮挡。
-        className="z-[500] w-[min(900px,92vw)] max-w-[900px] max-h-[80vh] overflow-hidden p-0"
+        // 基础 Dialog 的遮罩与内容同为 z-[700];这里只覆写 content 的 z 会让 content
+        // 落到遮罩之下(tailwind-merge 让 className 里的 z 覆盖基础值)→ 整个面板被
+        // 遮罩盖住、无法操作(历史误当 z 不够而堆 z)。正解:遮罩抬到 z-[800]、内容
+        // 抬到 z-[810],既高于模型菜单容器 z-[260]/CanvasStage z-[400]/其它 z-[700]
+        // 弹窗,内容又稳压在自己的遮罩之上。
+        overlayClassName="z-[800]"
+        className="z-[810] w-[min(900px,92vw)] max-w-[900px] max-h-[80vh] overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
       >
         <DialogHeader className="border-b border-[var(--cy-border-subtle)] px-5 py-4 pr-12">

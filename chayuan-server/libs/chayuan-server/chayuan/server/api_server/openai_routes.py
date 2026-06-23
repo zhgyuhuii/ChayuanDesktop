@@ -234,6 +234,7 @@ async def list_models(type: Optional[str] = None, check_access: bool = False) ->
         ("embed", "embed_models"),
         ("rerank", "rerank_models"),
         ("text2image", "text2image_models"),
+        ("image2image", "image2image_models"),
         ("text2video", "text2video_models"),
         ("image2text", "image2text_models"),
         ("speech2text", "speech2text_models"),

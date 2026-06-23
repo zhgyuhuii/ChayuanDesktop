@@ -290,6 +290,7 @@ def get_all_platforms_with_state() -> List[Dict]:
             "llm_models": list(d.get("llm_models") or []),
             "embed_models": list(d.get("embed_models") or []),
             "text2image_models": list(d.get("text2image_models") or []),
+            "image2image_models": list(d.get("image2image_models") or []),
             "text2video_models": list(d.get("text2video_models") or []),
             "image2text_models": list(d.get("image2text_models") or []),
             "rerank_models": list(d.get("rerank_models") or []),

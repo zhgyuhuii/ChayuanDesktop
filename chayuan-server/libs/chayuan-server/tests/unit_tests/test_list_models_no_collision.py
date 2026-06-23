@@ -106,6 +106,50 @@ async def test_list_models_filters_by_type():
 
 
 @pytest.mark.asyncio
+async def test_list_models_includes_image2image():
+    """厂商配置的 image2image_models(图像编辑)应出现在 /v1/models 中。
+
+    回归 bug:_TYPE_FIELDS 漏了 image2image 字段(跟此前 text2video 同病),
+    导致首页「图像编辑」能力卡永远灰着、点击只弹「模型支持说明」。
+    """
+    from chayuan.server.api_server import openai_routes
+
+    fake_platforms = {
+        "bailian": {
+            "platform_name": "bailian",
+            "platform_type": "openai",
+            "enabled": True,
+            "auto_detect_model": False,
+            "llm_models": ["qwen-max"],
+            "embed_models": [],
+            "rerank_models": [],
+            "text2image_models": [],
+            "image2text_models": [],
+            "image2image_models": ["qwen-image-edit"],
+            "speech2text_models": [],
+            "text2speech_models": [],
+            "text2video_models": [],
+            "disabled_models": [],
+        },
+    }
+
+    with patch.object(openai_routes, "get_config_platforms",
+                      return_value=fake_platforms):
+        result_all = await openai_routes.list_models(check_access=False)
+        result_typed = await openai_routes.list_models(
+            type="image2image", check_access=False,
+        )
+
+    all_edit = [m for m in result_all["data"] if m["id"] == "qwen-image-edit"]
+    assert all_edit, "全量 /v1/models 应包含配置的 image2image 模型 qwen-image-edit"
+    assert all_edit[0]["model_type"] == "image2image"
+
+    typed_ids = [m["id"] for m in result_typed["data"]]
+    assert typed_ids == ["qwen-image-edit"]
+    assert all(m["model_type"] == "image2image" for m in result_typed["data"])
+
+
+@pytest.mark.asyncio
 async def test_list_models_skips_disabled_models():
     """disabled_models 中的模型不应出现。"""
     from chayuan.server.api_server import openai_routes
