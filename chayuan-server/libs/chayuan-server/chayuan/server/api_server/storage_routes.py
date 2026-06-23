@@ -69,7 +69,12 @@ def storage_test_connection(
         info = m.backend_info()
     except Exception as e:  # noqa: BLE001
         return {"code": 0, "data": {"ok": False, "error": f"{type(e).__name__}: {e}"}}
-    return {"code": 0, "data": {"ok": bool(info.get("healthy")), "info": info}}
+    ok = bool(info.get("healthy"))
+    data = {"ok": ok, "info": info}
+    if not ok:
+        # backend_info 把探活错误埋在 info["error"];提到顶层,否则前端「失败：${error}」显示 undefined。
+        data["error"] = info.get("error") or "MinIO 连接成功但探活失败(无法列出 bucket)"
+    return {"code": 0, "data": data}
 
 
 # ---------------------------------------------------------------------------
