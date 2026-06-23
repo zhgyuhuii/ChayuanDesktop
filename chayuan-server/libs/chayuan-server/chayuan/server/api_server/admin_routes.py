@@ -361,7 +361,7 @@ async def list_model_platform_catalog(
 
     _MODEL_FIELDS = (
         "llm_models", "embed_models", "text2image_models", "text2video_models",
-        "image2text_models",
+        "image2text_models", "image2image_models",
         "rerank_models", "speech2text_models", "text2speech_models",
     )
 
@@ -433,10 +433,10 @@ async def list_model_platform_catalog(
         def _models_for(field: str) -> List[str]:
             vals = list(row.get(field) or [])
             # 视频模型永远无法自动检测(不在 OpenAI 兼容 /v1/models 里),所以
-            # text2video_models 的 DB 行为空时,回退到 catalog 默认清单展示 —— 否则
-            # 配过 key 的厂商(如百炼)文生视频栏永远是空的。其它字段维持 65 题
-            # "只返 DB 实际数据"不变。
-            if not vals and field == "text2video_models":
+            # text2video_models / image2image_models 的 DB 行为空时,回退到 catalog 默认
+            # 清单展示 —— 否则配过 key 的厂商(如百炼)文生视频/图像编辑栏永远是空的。
+            # 其它字段维持 65 题"只返 DB 实际数据"不变。
+            if not vals and field in ("text2video_models", "image2image_models"):
                 vals = list(defaults.get(field) or [])
             return vals
 

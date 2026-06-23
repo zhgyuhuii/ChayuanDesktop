@@ -87,7 +87,7 @@ function catalogEntryToPlatformConfig(e: ProviderCatalogEntry): PlatformConfig {
     text2image_models: e.text2image_models,
     text2video_models: e.text2video_models,
     image2text_models: e.image2text_models,
-    image2image_models: [],
+    image2image_models: e.image2image_models ?? [],
     rerank_models: e.rerank_models,
     speech2text_models: e.speech2text_models,
     text2speech_models: e.text2speech_models,
@@ -134,6 +134,13 @@ function filterBySearch(
       e.description,
       ...(e.llm_models ?? []),
       ...(e.embed_models ?? []),
+      ...(e.text2image_models ?? []),
+      ...(e.text2video_models ?? []),
+      ...(e.image2text_models ?? []),
+      ...(e.image2image_models ?? []),
+      ...(e.rerank_models ?? []),
+      ...(e.speech2text_models ?? []),
+      ...(e.text2speech_models ?? []),
     ]
       .filter(Boolean)
       .join(' ')

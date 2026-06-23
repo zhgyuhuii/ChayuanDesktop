@@ -988,6 +988,9 @@ class PlatformConfig(MyBaseModel):
     image2text_models: t.Union[t.Literal["auto"], t.List[str]] = []
     """该平台支持的多模态模型列表，auto_detect_model 设为 True 时自动检测"""
 
+    image2image_models: t.Union[t.Literal["auto"], t.List[str]] = []
+    """该平台支持的图像编辑/图生图模型列表，auto_detect_model 设为 True 时自动检测"""
+
     rerank_models: t.Union[t.Literal["auto"], t.List[str]] = []
     """该平台支持的重排模型列表，auto_detect_model 设为 True 时自动检测"""
 

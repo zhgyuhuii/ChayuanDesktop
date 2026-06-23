@@ -101,6 +101,7 @@ export interface ProviderCatalogEntry {
   text2image_models: string[];
   text2video_models: string[];
   image2text_models: string[];
+  image2image_models: string[];
   rerank_models: string[];
   speech2text_models: string[];
   text2speech_models: string[];

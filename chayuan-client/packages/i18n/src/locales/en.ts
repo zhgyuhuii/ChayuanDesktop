@@ -171,7 +171,7 @@ export default {
       text2image: { label: 'T2I', long: 'Text-to-Image', hint: 'Image generation from prompts (SDXL / DALL·E ...)' },
       text2video: { label: 'Video', long: 'Text/Image to Video', hint: 'Generate video from text or a first-frame image (e.g. Bailian Wanx)' },
       image2text: { label: 'Vision', long: 'Vision Models', hint: 'Image understanding, OCR, multimodal (GPT-4o / Qwen-VL ...)' },
-      image2image: { label: 'I2I', long: 'Image-to-Image', hint: 'Reference-image editing (IP-Adapter / SDEdit ...)' },
+      image2image: { label: 'Image Edit', long: 'Image Edit / Image-to-Image', hint: 'Instruction edit (Qwen-Image-Edit / SeedEdit) or reference-image editing (IP-Adapter / SDEdit)' },
       tts: { label: 'TTS', long: 'Text-to-Speech', hint: 'Audio synthesis (CosyVoice / OpenAI TTS ...)' },
       asr: { label: 'ASR', long: 'Speech-to-Text', hint: 'Audio recognition (Whisper / SenseVoice ...)' },
     },

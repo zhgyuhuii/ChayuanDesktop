@@ -188,7 +188,7 @@ export default {
       text2image: { label: '文生图', long: '文生图模型', hint: '从提示词生成图片（SDXL / DALL·E 等）' },
       text2video: { label: '视频生成', long: '文生 / 图生视频', hint: '用文本或首帧图生成视频(如百炼 Wanx)' },
       image2text: { label: '视觉', long: '视觉理解模型', hint: '看图说话、OCR、多模态推理（GPT-4o / Qwen-VL 等）' },
-      image2image: { label: '图生图', long: '图生图模型', hint: '基于参考图改图（IP-Adapter / SDEdit 等）' },
+      image2image: { label: '图像编辑', long: '图像编辑 / 图生图', hint: '按指令改图（Qwen-Image-Edit / SeedEdit）或参考图改图（IP-Adapter / SDEdit）' },
       tts: { label: '语音合成', long: '语音合成（TTS）', hint: '文字转音频（CosyVoice / OpenAI TTS 等）' },
       asr: { label: '语音识别', long: '语音识别（ASR）', hint: '音频转文字（Whisper / SenseVoice 等）' },
     },

@@ -49,6 +49,7 @@ MODEL_GROUPS: List[Tuple[str, str, str]] = [
     ("text2image_models", "文生图", "image"),
     ("text2video_models", "文生视频", "videocam"),
     ("image2text_models", "图生文 / 视觉", "image_search"),
+    ("image2image_models", "图像编辑", "brush"),
     ("speech2text_models", "语音识别", "mic"),
     ("text2speech_models", "语音合成", "volume_up"),
 ]
@@ -437,6 +438,9 @@ _PROVIDER_DEFAULT_MODELS: Dict[str, Dict[str, List[str]]] = {
         "embed_models": ["text-embedding-v3", "text-embedding-v2"],
         "rerank_models": ["gte-rerank"],
         "text2image_models": ["wanx-v1", "flux-schnell", "flux-dev"],
+        # 图像编辑(instruction-based)。id 沿用 composer PREFIX 表已有的 qwen-image-edit;
+        # 上线前请用真实 bailian key 复核该 id(参考下方 text2video 的实测注释)。
+        "image2image_models": ["qwen-image-edit"],
         # 文生/图生视频(一类,连接器按是否带首帧图分流)。以下 id 全部用真实
         # API key 实测确认存在(2026-06-07);2.1 系列是 wanx2.1-,2.2+ 是 wan2.x-。
         "text2video_models": [
