@@ -46,6 +46,22 @@ def storage_status(user=Depends(require_auth_enabled())):
     info.setdefault("namespaces", {})
     for ns in NS.all():
         info["namespaces"].setdefault(ns, {"objects": 0, "size_mb": 0})
+    # 回显:已保存的存储配置(读 basic_settings,不依赖当前生效实例)——切了 minio 即使
+    # 没重启,面板也能回显 backend=minio + 各字段;secret_key 不回传,只给「已设置」标记。
+    try:
+        from chayuan.settings import Settings
+        bs = Settings.basic_settings
+        info["saved"] = {
+            "backend": (getattr(bs, "FILE_STORAGE_BACKEND", "local") or "local"),
+            "endpoint": (getattr(bs, "MINIO_ENDPOINT", "") or ""),
+            "access_key": (getattr(bs, "MINIO_ACCESS_KEY", "") or ""),
+            "secret_key_set": bool((getattr(bs, "MINIO_SECRET_KEY", "") or "").strip()),
+            "secure": bool(getattr(bs, "MINIO_SECURE", False)),
+            "region": (getattr(bs, "MINIO_REGION", "us-east-1") or "us-east-1"),
+            "bucket_prefix": (getattr(bs, "MINIO_BUCKET_PREFIX", "chayuan") or "chayuan"),
+        }
+    except Exception:  # noqa: BLE001
+        pass
     return {"code": 0, "data": info}
 
 
@@ -99,7 +115,9 @@ def storage_switch_backend(
         if backend == "minio" and isinstance(minio, dict):
             bs.MINIO_ENDPOINT = str(minio.get("endpoint") or "")
             bs.MINIO_ACCESS_KEY = str(minio.get("access_key") or "")
-            bs.MINIO_SECRET_KEY = str(minio.get("secret_key") or "")
+            _new_secret = str(minio.get("secret_key") or "")
+            if _new_secret:  # secret 留空=保持原值(回显时不回传 secret,避免误清空)
+                bs.MINIO_SECRET_KEY = _new_secret
             bs.MINIO_SECURE = bool(minio.get("secure", False))
             bs.MINIO_REGION = str(minio.get("region") or "us-east-1")
             bs.MINIO_BUCKET_PREFIX = str(minio.get("bucket_prefix") or "chayuan")

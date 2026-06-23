@@ -36,6 +36,16 @@ export interface StorageInfo {
   endpoint?: string;
   local_root?: string;
   namespaces?: Record<string, { objects: number; size_mb: number }>;
+  /** 已保存的存储配置(读 basic_settings,用于面板回显;secret_key 不回传) */
+  saved?: {
+    backend: string;
+    endpoint: string;
+    access_key: string;
+    secret_key_set: boolean;
+    secure: boolean;
+    region: string;
+    bucket_prefix: string;
+  };
   [k: string]: unknown;
 }
 export interface MinioFields {

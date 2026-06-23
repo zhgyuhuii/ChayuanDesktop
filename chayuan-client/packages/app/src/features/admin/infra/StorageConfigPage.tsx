@@ -32,10 +32,23 @@ export const StorageConfigPage: React.FC = () => {
     try {
       const s = await storageConfig.status();
       setInfo(s);
-      if (s.backend === 'minio') {
-        setBackend('minio');
+      const sv = s.saved;
+      // 回显:优先用「已保存配置」(切了没重启也能回显);secret_key 不回传,留空表示不改。
+      const b: 'local' | 'minio' =
+        sv?.backend === 'minio' || (!sv && s.backend === 'minio') ? 'minio' : 'local';
+      setBackend(b);
+      if (sv) {
+        setMinio({
+          endpoint: sv.endpoint || '',
+          access_key: sv.access_key || '',
+          secret_key: '',
+          secure: !!sv.secure,
+          region: sv.region || 'us-east-1',
+          bucket_prefix: sv.bucket_prefix || 'chayuan',
+        });
+      } else if (s.backend === 'minio') {
         setMinio((m) => ({ ...m, endpoint: s.endpoint || m.endpoint }));
-      } else setBackend('local');
+      }
     } catch (e) {
       reportError(e, '读取存储状态失败');
     } finally {
@@ -134,7 +147,7 @@ export const StorageConfigPage: React.FC = () => {
           </label>
           <label className="text-xs">
             <span className="opacity-60">Secret Key</span>
-            <input type="password" className={FIELD} value={minio.secret_key} onChange={(e) => setM('secret_key', e.target.value)} />
+            <input type="password" className={FIELD} placeholder={info?.saved?.secret_key_set ? '已保存(留空则不修改)' : ''} value={minio.secret_key} onChange={(e) => setM('secret_key', e.target.value)} />
           </label>
           <label className="text-xs">
             <span className="opacity-60">Region</span>
