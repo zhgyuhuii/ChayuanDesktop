@@ -8,11 +8,12 @@ from chayuan.server.api_server import services_config_routes as scr
 
 def test_restart_blocked_in_single_machine(monkeypatch):
     monkeypatch.setattr(scr, "is_single_machine", lambda: True)
-    # 单机版即便误调度也算 bug,故确保不会触发 exit:pat一个会爆的假实现。
-    monkeypatch.setattr(
-        scr, "_schedule_graceful_exit",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("单机不应调度退出")),
-    )
+
+    # 单机版即便误调度也算 bug,故塞一个会爆的假实现确保不会触发 exit。
+    def _no_exit(*a, **k):
+        raise AssertionError("单机不应调度退出")
+
+    monkeypatch.setattr(scr, "_schedule_graceful_exit", _no_exit)
     resp = scr._restart_impl()
     assert resp["code"] != 0
 

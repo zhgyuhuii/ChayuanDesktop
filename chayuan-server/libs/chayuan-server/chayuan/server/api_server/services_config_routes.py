@@ -188,17 +188,23 @@ def _schedule_graceful_exit(delay: float = 1.0) -> None:
     """延迟 delay 秒后退出当前进程,让 HTTP 响应先 flush 出去。
 
     优先发 SIGTERM 给自己,触发已注册的优雅关闭处理(uvicorn lifespan /
-    shutdown handlers);若该路径不可用(如平台无 SIGTERM),回退 os._exit(0)。
+    shutdown handlers);若该路径不可用(如平台无 SIGTERM),直接 os._exit(0)。
+    SIGTERM 送达后还设一个 10s 宽限期,超时则无条件强制退出,避免优雅退出卡住
+    (长连接/慢 teardown)导致进程永不退出、编排器不拉起、重启静默失败。
     在守护线程里跑,不阻塞响应返回。
     """
     def _worker() -> None:
         time.sleep(max(0.0, delay))
-        logger.info("[restart] 管理员触发一键重启,正在退出进程以便编排器自动拉起 ...")
+        logger.info("[restart] 管理员触发一键重启,发送 SIGTERM 优雅退出 ...")
         try:
             os.kill(os.getpid(), signal.SIGTERM)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("[restart] SIGTERM 不可用(%s),回退 os._exit(0)", e)
+        except Exception as e:  # noqa: BLE001 — SIGTERM 不可用(如 Windows),直接硬退
+            logger.warning("[restart] SIGTERM 失败,直接 os._exit(0): %r", e)
             os._exit(0)
+        # SIGTERM 已送达但优雅退出可能卡住(长连接/慢 teardown):给一个宽限期后强制退出。
+        time.sleep(10)
+        logger.warning("[restart] 优雅退出超时,强制 os._exit(0)")
+        os._exit(0)
 
     threading.Thread(target=_worker, name="chayuan-restart", daemon=True).start()
 
@@ -206,6 +212,7 @@ def _schedule_graceful_exit(delay: float = 1.0) -> None:
 def _restart_impl() -> Dict[str, Any]:
     """重启逻辑核心(可单测的 seam)。单机版拒绝;网络版调度优雅退出。"""
     if is_single_machine():
+        logger.warning("[restart] 单机版拒绝远程重启请求")
         return {"code": 1, "msg": "单机版不支持远程重启", "data": {}}
     # 显式传 delay,留出响应 flush 时间,也让该值成为可观测/可测的 seam 参数。
     _schedule_graceful_exit(1.0)
