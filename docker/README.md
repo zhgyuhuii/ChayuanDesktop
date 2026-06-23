@@ -30,7 +30,8 @@ docker/
 ├── README.md
 │
 ├── data/                   ← KB / sqlite / 上传文件 (volume → /chayuan/data)
-├── bundled_models/         ← 模型 (volume → vendor/bundled_models)
+├── bundled_models/         ← !! 此目录未被挂载,放这里没用 !!
+│                             真实挂载源是 ../chayuan-server/vendor/bundled_models/
 │   ├── chat/
 │   │   └── Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
 │   ├── embedding/
@@ -45,29 +46,32 @@ docker/
 
 ## 提供模型
 
-容器 image 里**不打模型**(节省体积 + 升级独立)。第一次启动前，请把 GGUF 模型按结构放进 `docker/bundled_models/`：
+容器 image 里**不打模型**(节省体积 + 升级独立)。第一次启动前，请把 GGUF 模型按结构放进
+**`chayuan-server/vendor/bundled_models/`**(= 所有 compose 文件实际挂载进容器的目录,
+相对 docker/ 是 `../chayuan-server/vendor/bundled_models`)。
+> ⚠️ 注意:`docker/bundled_models/` 这个旧目录**不再被任何 compose 挂载**,放进去不生效(老文档可能让你放这里)。
 
 ```bash
-mkdir -p docker/bundled_models/{chat,embedding,rerank,asr}
+mkdir -p chayuan-server/vendor/bundled_models/{chat,embedding,rerank,asr}
 
 # 例: 从 ModelScope 下载 (国内可达)
 # Chat
-curl -L -o docker/bundled_models/chat/Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
+curl -L -o chayuan-server/vendor/bundled_models/chat/Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
   "https://www.modelscope.cn/api/v1/models/Qwen/Qwen3-4B-Instruct-2507-GGUF/repo?Revision=master&FilePath=Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
 
 # Embedding
-mkdir -p docker/bundled_models/embedding/bge-m3
-curl -L -o docker/bundled_models/embedding/bge-m3/bge-m3-Q8_0.gguf \
+mkdir -p chayuan-server/vendor/bundled_models/embedding/bge-m3
+curl -L -o chayuan-server/vendor/bundled_models/embedding/bge-m3/bge-m3-Q8_0.gguf \
   "https://www.modelscope.cn/api/v1/models/gpustack/bge-m3-GGUF/repo?Revision=master&FilePath=bge-m3-Q8_0.gguf"
 
 # Rerank
-mkdir -p docker/bundled_models/rerank/gpustack--bge-reranker-v2-m3-GGUF
-curl -L -o docker/bundled_models/rerank/gpustack--bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q8_0.gguf \
+mkdir -p chayuan-server/vendor/bundled_models/rerank/gpustack--bge-reranker-v2-m3-GGUF
+curl -L -o chayuan-server/vendor/bundled_models/rerank/gpustack--bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q8_0.gguf \
   "https://www.modelscope.cn/api/v1/models/gpustack/bge-reranker-v2-m3-GGUF/repo?Revision=master&FilePath=bge-reranker-v2-m3-Q8_0.gguf"
 
 # ASR (可选, 不要语音功能可跳过)
-mkdir -p docker/bundled_models/asr/whisper.cpp
-curl -L -o docker/bundled_models/asr/whisper.cpp/ggml-medium.bin \
+mkdir -p chayuan-server/vendor/bundled_models/asr/whisper.cpp
+curl -L -o chayuan-server/vendor/bundled_models/asr/whisper.cpp/ggml-medium.bin \
   "https://www.modelscope.cn/api/v1/models/AI-ModelScope/whisper.cpp/repo?Revision=master&FilePath=ggml-medium.bin"
 ```
 
