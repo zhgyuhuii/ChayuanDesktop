@@ -177,9 +177,11 @@ def test_apply_single_machine_sets_envs(
 
     assert os.environ["CHAYUAN_PROFILE"] == "single-machine"
     assert os.environ["CHAYUAN_AUTH"] == "anonymous"
-    assert os.environ["CHAYUAN_REDIS"] == "disabled"
     assert os.environ["CHAYUAN_QUEUE"] == "inproc"
-    assert os.environ["CHAYUAN_VECTOR_STORE"] == "sqlite-vec"
+    # Redis / 向量库不再用 env 钉死(真源统一到 yaml:REDIS_URL / DEFAULT_VS_TYPE),
+    # apply 不应再 setdefault 这两个 env(clean_env 已 delenv,apply 后仍不存在)。
+    assert "CHAYUAN_REDIS" not in os.environ
+    assert "CHAYUAN_VECTOR_STORE" not in os.environ
 
 
 def test_apply_single_machine_respects_existing_envs(
@@ -294,3 +296,38 @@ def test_factory_normalizes_dash_to_underscore(
     )
     assert svc1.vs_type() == "sqlite-vec"
     assert svc2.vs_type() == "sqlite-vec"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# is_external_vs_type + 单机内核尊重向导配置的外部向量库
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_is_external_vs_type() -> None:
+    from chayuan.server.profiles.single_machine import is_external_vs_type
+
+    # 本地兜底类型(空 / sqlite-vec / faiss / none)→ 非外部
+    for local in ("", None, "sqlite-vec", "SQLite-Vec", " faiss ", "none", "sqlite_vec"):
+        assert is_external_vs_type(local) is False, local
+    # 外部向量库 → 外部(apply_single_machine 应尊重、不回退 sqlite-vec)
+    for ext in ("milvus", "Milvus", "zilliz", "pg", "relyt", "es", "chromadb"):
+        assert is_external_vs_type(ext) is True, ext
+
+
+def test_apply_single_machine_respects_external_vs_type(
+    clean_env: None, restore_settings: None
+) -> None:
+    """单机内核 + 向导配了外部向量库(milvus)→ apply 尊重,不强制回退 sqlite-vec。"""
+    from chayuan.server.profiles import apply_single_machine
+    from chayuan.settings import Settings
+
+    if not hasattr(Settings.kb_settings, "DEFAULT_VS_TYPE"):
+        pytest.skip("kb_settings.DEFAULT_VS_TYPE 字段不存在")
+    try:
+        setattr(Settings.kb_settings, "DEFAULT_VS_TYPE", "milvus")
+    except Exception:
+        pytest.skip("kb_settings.DEFAULT_VS_TYPE 不可写")
+
+    apply_single_machine()
+
+    assert getattr(Settings.kb_settings, "DEFAULT_VS_TYPE") == "milvus"

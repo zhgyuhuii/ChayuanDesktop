@@ -102,9 +102,10 @@ services:
       # ── 部署/profile ──────────────────────────────────────────
       CHAYUAN_ROOT: /chayuan/data
       CHAYUAN_PROFILE: single-machine        # 单机内核(sqlite-vec/inproc/asyncio)
-      CHAYUAN_REDIS: disabled
       CHAYUAN_QUEUE: inproc
-      CHAYUAN_VECTOR_STORE: sqlite-vec
+      # 注:Redis / 向量库不再用 env 钉死 —— 基础设施(Redis/Milvus/Postgres/MinIO)真源
+      #     统一在后台「配置向导」写的 yaml:配了就毕业到外部、重启不被覆盖;没配走单机兜底
+      #     (inproc 缓存 / sqlite-vec / sqlite / 本地文件)。管理员首登 /admin 自动进向导。
       CHAYUAN_AUTO_INSTALL_DEPS: "false"
       CHAYUAN_ROOT_IGNORE_STATE: "1"
       CHAYUAN_VENDOR_PLATFORM: linux-x64

@@ -44,6 +44,20 @@ def local_user() -> Dict[str, Any]:
     return dict(LOCAL_USER)
 
 
+#: 单机模式兜底的本地向量库类型;其余(milvus/zilliz/pg/relyt/es/chromadb 等)视为
+#: 用户经向导/yaml 显式配置的外部向量库,apply_single_machine() 不强制回退 sqlite-vec。
+_LOCAL_VS_TYPES = frozenset({"", "sqlite-vec", "sqlitevec", "sqlite_vec", "faiss", "none"})
+
+
+def is_external_vs_type(vs_type: Any) -> bool:
+    """``DEFAULT_VS_TYPE`` 是否为用户显式配置的外部向量库(非单机本地兜底类型)。
+
+    单机内核部署在向导里把 DEFAULT_VS_TYPE 配成 milvus/zilliz/pg 等 → True → 毕业到
+    外部向量库;空 / sqlite-vec / faiss 等本地类型 → False → 走单机 sqlite-vec 兜底。
+    """
+    return str(vs_type or "").strip().lower() not in _LOCAL_VS_TYPES
+
+
 def apply_single_machine() -> None:
     """重写 ``Settings`` 全局变量,把单机模式所有开关一次性切到位。
 
@@ -122,17 +136,26 @@ def apply_single_machine() -> None:
             except Exception as e:  # noqa: BLE001
                 logger.warning("[single-machine] 写 AUTH_ALLOW_REGISTRATION 失败:%s", e)
 
-    # ── 2. KB 默认向量库:走 sqlite-vec
+    # ── 2. KB 默认向量库:仅在「向导未配外部向量库」时兜底 sqlite-vec。
+    #   真源已统一到 kb_settings.DEFAULT_VS_TYPE(yaml):若已显式配 milvus/zilliz/pg
+    #   等外部向量库(is_external_vs_type),尊重之、不回退,让单机内核部署也能毕业到
+    #   外部向量库;否则(空 / sqlite-vec / faiss 等本地类型)兜底 sqlite-vec。
     if hasattr(kbs, "DEFAULT_VS_TYPE"):
         cur = getattr(kbs, "DEFAULT_VS_TYPE", None)
-        if cur and str(cur).lower() != "sqlite-vec":
+        if is_external_vs_type(cur):
             logger.info(
-                "[single-machine] DEFAULT_VS_TYPE %s → sqlite-vec", cur
+                "[single-machine] 尊重向导配置的外部向量库 DEFAULT_VS_TYPE=%s(不回退 sqlite-vec)",
+                cur,
             )
-        try:
-            setattr(kbs, "DEFAULT_VS_TYPE", "sqlite-vec")
-        except Exception as e:  # noqa: BLE001
-            logger.warning("[single-machine] 写 DEFAULT_VS_TYPE 失败:%s", e)
+        else:
+            if cur and str(cur).lower() != "sqlite-vec":
+                logger.info(
+                    "[single-machine] DEFAULT_VS_TYPE %s → sqlite-vec(本地兜底)", cur
+                )
+            try:
+                setattr(kbs, "DEFAULT_VS_TYPE", "sqlite-vec")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[single-machine] 写 DEFAULT_VS_TYPE 失败:%s", e)
     else:
         logger.warning(
             "[single-machine] kb_settings 不含 DEFAULT_VS_TYPE 字段;跳过"
@@ -152,9 +175,10 @@ def apply_single_machine() -> None:
     import os
     os.environ.setdefault("CHAYUAN_PROFILE", "single-machine")
     os.environ.setdefault("CHAYUAN_AUTH", "anonymous")
-    os.environ.setdefault("CHAYUAN_REDIS", "disabled")
     os.environ.setdefault("CHAYUAN_QUEUE", "inproc")
-    os.environ.setdefault("CHAYUAN_VECTOR_STORE", "sqlite-vec")
+    # 注：不再 setdefault CHAYUAN_REDIS / CHAYUAN_VECTOR_STORE —— 真源已统一到 yaml
+    # （basic_settings.REDIS_URL / kb_settings.DEFAULT_VS_TYPE）：配了外部就毕业、没配走
+    # inproc/sqlite-vec 兑底。get_redis() 只读 REDIS_URL、外部向量库只看 DEFAULT_VS_TYPE。
     # 单机版打包安装产物不应该触发 pip 自动装 redis / arq 等服务依赖 ——
     # ① 安装目录(C:\Program Files\... / /opt/...)对普通用户只读,pip 必失败;
     # ② 即使能装,单机模式 ``CHAYUAN_REDIS=disabled`` 已经走 inproc 降级,
