@@ -493,8 +493,6 @@ def build_snapshot(*, probe: bool = True) -> Topology:
     # === 收集探针入参(无论 probe=True/False 都需要,for 后续节点 summary 渲染)===
     api_host = api.get("host") or "127.0.0.1"
     api_port = api.get("port") or 62581
-    cfg_host = cfg.get("host") or "127.0.0.1"
-    cfg_port = cfg.get("port") or 8502
     mv_host = str(milvus_cfg.get("host") or "")
     mv_port = milvus_cfg.get("port") or "19530"
     backend = str(getattr(bs, "FILE_STORAGE_BACKEND", "local") or "local").strip().lower()
@@ -505,7 +503,6 @@ def build_snapshot(*, probe: bool = True) -> Topology:
         # 占位模式:全部 status=unknown,detail="探测中…",立即返回
         ng_status, ng_detail = STATUS_UNKNOWN, "探测中…"
         api_status, api_detail = STATUS_UNKNOWN, "探测中…"
-        cfg_alive = False
         rd_status, rd_detail = STATUS_UNKNOWN, "探测中…"
         db_status, db_detail = STATUS_UNKNOWN, "探测中…"
         mv_status, mv_detail = STATUS_UNKNOWN, "探测中…"
@@ -527,7 +524,6 @@ def build_snapshot(*, probe: bool = True) -> Topology:
         with ThreadPoolExecutor(max_workers=8, thread_name_prefix="topo-probe") as ex:
             f_nginx = ex.submit(_safe, _probe_nginx, nginx_url)
             f_api = ex.submit(_safe, _probe_api, api_host, api_port)
-            f_panel = ex.submit(_safe, _probe_tcp, cfg_host, cfg_port, 0.6)
             f_redis = ex.submit(_safe, _probe_redis, redis_url)
             f_db = ex.submit(_safe, _probe_db, db_uri)
             if milvus_enabled:
@@ -539,7 +535,6 @@ def build_snapshot(*, probe: bool = True) -> Topology:
 
             ng_status, ng_detail = f_nginx.result()
             api_status, api_detail = f_api.result()
-            cfg_alive = bool(f_panel.result())
             rd_status, rd_detail = f_redis.result()
             db_status, db_detail = f_db.result()
             if f_milvus is not None:
@@ -561,7 +556,7 @@ def build_snapshot(*, probe: bool = True) -> Topology:
         x=260, y=250,
     )
 
-    # --- 应用层：API / Panel ---
+    # --- 应用层：API ---
     services["api"] = ServiceSnapshot(
         sid="api", label="API 服务", group="app",
         icon="api",  # 原生 api 图标
@@ -569,22 +564,6 @@ def build_snapshot(*, probe: bool = True) -> Topology:
         summary=_summary(api_host, api_port), detail=api_detail,
         restartable=True, config_kind="api",
         x=470, y=120,
-    )
-
-    if not probe:
-        cfg_status, cfg_detail = STATUS_UNKNOWN, "探测中…"
-    else:
-        cfg_status = STATUS_OK if cfg_alive else STATUS_DOWN
-        cfg_detail = "本进程（必定可达）" if cfg_alive else "端口不可达"
-
-    services["panel"] = ServiceSnapshot(
-        sid="panel", label="配置面板", group="app",
-        icon="dashboard",  # 仪表盘 - 即本页
-        status=cfg_status,
-        summary=_summary(cfg_host, cfg_port),
-        detail=cfg_detail,
-        restartable=True, config_kind="panel",
-        x=470, y=380,
     )
 
     # --- 基础设施层：Redis / DB / Milvus / MinIO / Langfuse ---
@@ -657,13 +636,11 @@ def build_snapshot(*, probe: bool = True) -> Topology:
     edges: List[Tuple[str, str]] = [
         ("client", "nginx"),
         ("nginx", "api"),
-        ("nginx", "panel"),
         ("api", "redis"),
         ("api", "db"),
         ("api", "milvus"),
         ("api", "minio"),       # 对象存储走 API 落盘（kb / 图片 / 临时文件）
         ("api", "langfuse"),    # API 侧 LangChain callback → Langfuse（非必要观测）
-        ("panel", "db"),
     ]
 
     # 95-3:把已配置(running 或 installed)的 runtime 也加进拓扑图。
