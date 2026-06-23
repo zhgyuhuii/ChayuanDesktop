@@ -4,7 +4,7 @@
  * 复用后端 /api/v1/admin/db/{status,validate,create,save}。
  */
 import * as React from 'react';
-import { dbConfig, servicesConfig, type DbForm, type DbType, type DbValidateResult } from '@chayuan/api';
+import { dbConfig, servicesConfig, BizError, type DbForm, type DbType, type DbValidateResult } from '@chayuan/api';
 import { Button } from '@chayuan/ui';
 import { RefreshCw, Wifi, Save, DatabaseZap, RotateCcw, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
@@ -33,10 +33,11 @@ export const DatabaseConfigPage: React.FC = () => {
   // Ref to cancel the polling loop on unmount
   const pollingAbortRef = React.useRef<{ cancelled: boolean }>({ cancelled: false });
 
-  // Cancel any in-flight poll on unmount
+  // Cancel any in-flight poll on unmount.
+  // Mutate the LIVE ref in cleanup (not a captured object) so we always cancel the
+  // currently-active polling session even if the ref object was swapped by doRestart.
   React.useEffect(() => {
-    const guard = pollingAbortRef.current;
-    return () => { guard.cancelled = true; };
+    return () => { if (pollingAbortRef.current) pollingAbortRef.current.cancelled = true; };
   }, []);
 
   const load = React.useCallback(async () => {
@@ -126,7 +127,7 @@ export const DatabaseConfigPage: React.FC = () => {
         setRestartPhase('banner');
         await load();
       } else {
-        notifySuccess('已保存 — 重启服务后生效');
+        notifySuccess('已保存');
         await load();
       }
     } catch (e) {
@@ -188,8 +189,27 @@ export const DatabaseConfigPage: React.FC = () => {
 
     try {
       await servicesConfig.restart();
-    } catch {
-      // The restart call itself may fail (server shuts down before responding) — that's fine
+    } catch (e) {
+      // Two very different failure modes:
+      //  (a) DEFINITIVE HTTP REJECTION — the server answered and refused (e.g. single-machine
+      //      backend returns code:1, or a 4xx/5xx). The server is still UP; restarting won't
+      //      happen. Surface the error, revert to the banner, and DO NOT poll (else the spinner
+      //      would strand until the 60s timeout for no reason).
+      //  (b) CONNECTION DROP / timeout — no HTTP response because the server is going/already
+      //      down (the expected graceful-shutdown race). Fall through to polling: seenDown +
+      //      deadline correctly resolve "came back" vs "never came back".
+      const isDefinitiveRejection =
+        e instanceof BizError &&
+        (e.kind === 'biz' ||
+          e.kind === 'forbidden' ||
+          e.kind === 'auth' ||
+          (e.kind === 'http' && typeof e.status === 'number' && e.status >= 400));
+      if (isDefinitiveRejection) {
+        reportError(e, '重启失败');
+        setRestartPhase('banner');
+        return;
+      }
+      // else: connection drop / timeout → server is shutting down, proceed to poll.
     }
     void pollUntilHealthy(guard);
   };
