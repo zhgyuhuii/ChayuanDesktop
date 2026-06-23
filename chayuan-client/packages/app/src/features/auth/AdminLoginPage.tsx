@@ -12,12 +12,13 @@
  * 仅网络版使用;单机桌面版不经过此页(沿用原流程)。
  */
 import * as React from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useRouter, useSearch } from '@tanstack/react-router';
 import { auth as authApi, type UserInfo } from '@chayuan/api';
 import { isAuthPersistent, setAuthPersistent } from '@chayuan/platform-shared';
 import { useAuthStore } from '../../store/auth';
 import { useLoginModalStore } from '../../store/loginModal';
 import { CHAYUAN_LOGO_URL } from '../../lib/brandAssets';
+import { safeReturnTo } from './returnTo';
 
 type Mode = 'setup' | 'login' | 'register';
 
@@ -27,6 +28,9 @@ const FIELD =
 
 export const AdminLoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const router = useRouter();
+  // 守卫拦截未登录时塞的回跳目标(/login?returnTo=...)。
+  const search = useSearch({ strict: false }) as { returnTo?: string };
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const doLogin = useAuthStore((s) => s.login);
   const setUser = useAuthStore((s) => s.setUser);
@@ -48,10 +52,16 @@ export const AdminLoginPage: React.FC = () => {
   const goByRole = React.useCallback(
     (u: UserInfo) => {
       useLoginModalStore.getState().setAdminSetupRequired(false);
+      // 有合法 returnTo → 回到登录前想去的页;否则按角色默认。
+      const rt = safeReturnTo(search.returnTo);
+      if (rt) {
+        router.history.replace(rt);
+        return;
+      }
       if (u.role === 'admin') void navigate({ to: '/admin', replace: true });
       else void navigate({ to: '/home', replace: true });
     },
-    [navigate],
+    [navigate, router, search.returnTo],
   );
 
   // 已登录直接按角色离开登录页(防止登录态下停在 /login)。

@@ -29,6 +29,7 @@ import { useAuthStore } from '../store/auth';
 import { useLoginModalStore } from '../store/loginModal';
 import { isSingleMachineMode } from '../features/first-run/useSingleMachineMode';
 import { ensureAuthPolicy } from '../features/auth/authPolicy';
+import { safeReturnTo } from '../features/auth/returnTo';
 import type { AdminTab } from '../features/admin/AdminPage';
 
 const Chrome = React.lazy(() => import('./Chrome').then((m) => ({ default: m.Chrome })));
@@ -79,7 +80,11 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
-  beforeLoad: async () => {
+  // returnTo:守卫拦截未登录时塞当前路径,登录后回跳。
+  validateSearch: (search: Record<string, unknown>): { returnTo?: string } => ({
+    returnTo: typeof search.returnTo === 'string' ? search.returnTo : undefined,
+  }),
+  beforeLoad: async ({ search }) => {
     const auth = useAuthStore.getState();
     if (!auth.hydrated) await auth.hydrate();
     if (isSingleMachineMode()) {
@@ -88,8 +93,10 @@ const loginRoute = createRoute({
       }
       throw redirect({ to: '/home' });
     }
-    // 网络版已登录:不停在登录页,按角色直接进入。
+    // 网络版已登录:不停在登录页;有 returnTo 回原页,否则按角色进入。
     if (auth.isLoggedIn) {
+      const rt = safeReturnTo((search as { returnTo?: string }).returnTo);
+      if (rt) throw redirect({ to: rt });
       if (auth.user?.role === 'admin') throw redirect({ to: '/admin' });
       throw redirect({ to: '/home' });
     }
@@ -137,19 +144,16 @@ const arenaDetachedRoute = createRoute({
 const workspaceLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: '_workspace',
-  beforeLoad: async () => {
+  beforeLoad: async ({ location }) => {
     const auth = useAuthStore.getState();
     if (!auth.hydrated) await auth.hydrate();
     // 网络版:未登录且(后端要求登录 或 尚无管理员需首启)→ 去独立登录页 /login,
-    // 避免业务页在登录前挂载并打 401。单机版不受影响。
-    // 守卫早于 Shell 探测 /auth/config,这里先 await ensureAuthPolicy() 把
-    // authRequired 探出来再判断,做成硬门禁(否则 authRequired 仍是 null 会误放行,
-    // 导致开启强制登录后仍闪一下首页 + 打 401)。
+    // 带上 returnTo=当前路径,登录后回到这里。避免业务页在登录前挂载并打 401。
     if (!isSingleMachineMode() && !auth.isLoggedIn) {
       await ensureAuthPolicy();
       const lm = useLoginModalStore.getState();
       if (lm.authRequired === true || lm.adminSetupRequired) {
-        throw redirect({ to: '/login' });
+        throw redirect({ to: '/login', search: { returnTo: location.href } });
       }
     }
   },
@@ -210,16 +214,16 @@ const tabRoutes = workspaceRoutes.map((r) =>
 );
 
 /* Admin 控制台 —— 顶层路由(脱离 workspaceLayoutRoute/Chrome),整屏独立渲染。 */
-const adminGuard = async () => {
+const adminGuard = async (returnTo?: string) => {
   const auth = useAuthStore.getState();
   if (!auth.hydrated) await auth.hydrate();
   if (!auth.isLoggedIn) {
-    // 单机版沿用原弹框;网络版去独立登录页 /login。
+    // 单机版沿用原弹框;网络版去独立登录页 /login(带 returnTo 回跳)。
     if (isSingleMachineMode()) {
       queueMicrotask(() => useLoginModalStore.getState().show());
       throw redirect({ to: '/home' });
     }
-    throw redirect({ to: '/login' });
+    throw redirect({ to: '/login', search: returnTo ? { returnTo } : {} });
   }
   if (auth.user?.role !== 'admin') throw redirect({ to: '/home' });
 };
@@ -227,8 +231,8 @@ const adminGuard = async () => {
 const adminRedirectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/admin',
-  beforeLoad: async () => {
-    await adminGuard();
+  beforeLoad: async ({ location }) => {
+    await adminGuard(location.href);
     throw redirect({ to: '/admin/$tab', params: { tab: 'users' } });
   },
 });
@@ -236,7 +240,7 @@ const adminRedirectRoute = createRoute({
 const adminConsoleRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/admin/$tab',
-  beforeLoad: adminGuard,
+  beforeLoad: ({ location }) => adminGuard(location.href),
   component: function AdminConsoleRoute() {
     const params = useParams({ strict: false }) as { tab?: string };
     return (
@@ -277,6 +281,18 @@ const NotFoundRedirect: React.FC = () => {
   const navigate = useNavigate();
 
   React.useEffect(() => {
+    // 未登录(网络版强制登录)访问到不存在/受限路径:统一拦到登录页,
+    // 带 returnTo,登录后回原地;不再直接 404 回首页。
+    const auth = useAuthStore.getState();
+    if (
+      !isSingleMachineMode() &&
+      !auth.isLoggedIn &&
+      useLoginModalStore.getState().authRequired === true
+    ) {
+      const returnTo = window.location.pathname + window.location.search;
+      void navigate({ to: '/login', search: { returnTo }, replace: true });
+      return;
+    }
     void import('../store/errorDialog').then(({ useErrorDialog }) => {
       useErrorDialog
         .getState()
