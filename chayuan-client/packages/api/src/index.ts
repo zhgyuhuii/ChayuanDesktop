@@ -1,6 +1,7 @@
 export * from './client';
 export * from './admin';
 export * from './infraConfig';
+export * from './wizard';
 export * from './configSchema';
 export * from './vectorStore';
 export * from './roles';
