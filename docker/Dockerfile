@@ -80,7 +80,8 @@ FROM ${BASE_IMAGE} AS runtime
 # redis / arq 已在 main 依赖、base 已装,无需在此重复。
 # 国内默认源慢/不可达时:--build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG PIP_INDEX_URL=
-RUN python -m pip install --no-cache-dir ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} "minio>=7.2,<8.0"
+RUN python -m pip install --no-cache-dir ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} "minio>=7.2,<8.0" \
+    || echo "[build] minio 预装失败(多半是网络),不阻断构建;运行时首次用对象存储会自动补装(ensure_pkg)"
 
 # ── 2. 后端源码 ───────────────────────────────────────────────────
 WORKDIR /chayuan/app
