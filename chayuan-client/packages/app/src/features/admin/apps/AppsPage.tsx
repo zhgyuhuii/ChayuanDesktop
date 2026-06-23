@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { confirmDialog } from '../../../store/confirmDialog';
 import { Button } from '@chayuan/ui';
 import { useQuery } from '@tanstack/react-query';
 import { apps, type AppSpec } from '@chayuan/api';
@@ -60,8 +61,8 @@ export const AppsPage: React.FC = () => {
   const [secret, setSecret] = React.useState<AppSpec | null>(null);
   const q = useQuery({ queryKey: ['admin', 'apps'], queryFn: () => apps.list(), staleTime: 30_000 });
   const rows = q.data ?? [];
-  const del = async (a: AppSpec) => { if (window.confirm(`删除应用 ${a.name}?`)) { await apps.remove(a.app_id); void q.refetch(); } };
-  const rotate = async (a: AppSpec) => { if (window.confirm(`轮换 ${a.name} 的密钥?旧密钥立即失效。`)) { setSecret(await apps.rotate(a.app_id)); void q.refetch(); } };
+  const del = async (a: AppSpec) => { if (await confirmDialog(`删除应用 ${a.name}?`, { title: '删除应用?', danger: true })) { await apps.remove(a.app_id); void q.refetch(); } };
+  const rotate = async (a: AppSpec) => { if (await confirmDialog(`轮换 ${a.name} 的密钥?旧密钥立即失效。`, { title: '轮换密钥?', danger: true })) { setSecret(await apps.rotate(a.app_id)); void q.refetch(); } };
   return (
     <div className="space-y-3 p-4">
       <div className="flex items-center justify-between">

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { confirmDialog } from '../../../store/confirmDialog';
 import { Button } from '@chayuan/ui';
 import { useQuery } from '@tanstack/react-query';
 import { wsEndpoints, type WsEndpoint, type WsParam } from '@chayuan/api';
@@ -76,7 +77,7 @@ export const WsEndpointsPage: React.FC = () => {
   const [dialog, setDialog] = React.useState<{ open: boolean; item: WsEndpoint | null }>({ open: false, item: null });
   const q = useQuery({ queryKey: ['admin', 'ws-endpoints'], queryFn: () => wsEndpoints.list(), staleTime: 30_000 });
   const rows = q.data ?? [];
-  const del = async (e: WsEndpoint) => { if (window.confirm(`删除端点 ${e.name}?`)) { await wsEndpoints.remove(e.name); void q.refetch(); } };
+  const del = async (e: WsEndpoint) => { if (await confirmDialog(`删除端点 ${e.name}?`, { title: '删除端点?', danger: true })) { await wsEndpoints.remove(e.name); void q.refetch(); } };
   return (
     <div className="space-y-3 p-4">
       <div className="flex items-center justify-between">

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { confirmDialog } from '../../../store/confirmDialog';
 import { Button } from '@chayuan/ui';
 import { mcp, type McpConnection } from '@chayuan/api';
 
@@ -8,7 +9,7 @@ export const McpConnectionCard: React.FC<{ conn: McpConnection; onEdit(): void; 
     ? [String(cfg.command ?? ''), ...(conn.args ?? [])].join(' ')
     : String(cfg.url ?? '');
   const toggle = async () => { conn.enabled ? await mcp.disable(conn.id) : await mcp.enable(conn.id); onChanged(); };
-  const del = async () => { if (window.confirm(`删除连接 ${conn.server_name}?`)) { await mcp.delete(conn.id); onChanged(); } };
+  const del = async () => { if (await confirmDialog(`删除连接 ${conn.server_name}?`, { title: '删除连接?', danger: true })) { await mcp.delete(conn.id); onChanged(); } };
   return (
     <div className="rounded-xl border p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
