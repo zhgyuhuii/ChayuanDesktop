@@ -125,21 +125,29 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
   const [closedGroups, setClosedGroups] = React.useState<Set<string>>(() => readSet(LS_GROUPS));
   // D4:首启自动弹「配置向导」。后端在单机模式短路 wizard.state() → {completed:true},
   // 故单机永不自动打开;网络版未完成时弹一次。出错则不弹(fail-safe,绝不卡住管理员)。
+  // `user` 由 auth store 异步 hydrate(初始 null → me() 回填),故 effect 依赖 user 以便
+  // 角色确认后再跑;仅对 admin 发 /admin/wizard/state(非管理员不打这个请求)。ref 一次性
+  // 守卫保证状态检查只发一次,避免依赖变化导致重复请求。
   const [showWizard, setShowWizard] = React.useState(false);
+  const wizardCheckedRef = React.useRef(false);
   React.useEffect(() => {
+    if (wizardCheckedRef.current) return;
+    if (!user || user.role !== 'admin') return;
+    wizardCheckedRef.current = true;
     let alive = true;
     void (async () => {
       try {
         const st = await wizard.state();
         if (alive && !st.completed) setShowWizard(true);
-      } catch {
-        /* 取状态失败:不打开向导,不阻塞后台 */
+      } catch (e) {
+        // 取状态失败:不打开向导,不阻塞后台。留 breadcrumb 便于排查「向导从不弹」。
+        console.debug('[wizard] state fetch failed, skip auto-open', e);
       }
     })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [user]);
   // RBAC #2:按当前用户角色的模块门控菜单。admin → is_admin=true → 不过滤(allowed=null)。
   const myModules = useQuery({
     queryKey: ['admin', 'my-modules'],
