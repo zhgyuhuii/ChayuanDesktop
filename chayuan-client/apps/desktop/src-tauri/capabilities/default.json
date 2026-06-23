@@ -61,7 +61,7 @@
         {
           "name": "binaries/chayuan-server",
           "sidecar": true,
-          "args": ["start", "-a", "--single-machine"]
+          "args": ["start", "--api", "--single-machine"]
         }
       ]
     },

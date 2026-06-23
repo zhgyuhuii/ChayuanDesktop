@@ -9,7 +9,7 @@
 //! 2. spawn 时用 ``app.path().resolve("chayuan-server/chayuan-server.exe",
 //!    BaseDirectory::Resource)`` 拿可执行路径,``Command::new(path)`` 起子进程
 //!    (2026-05-19 切 PyInstaller --onedir 起换走 resources 而不是 externalBin);
-//!    参数:``start -a --single-machine``;
+//!    参数:``start --api --single-machine``;
 //!    env 注入:``CHAYUAN_ROOT`` + 单机 profile 系列(详见 ``chayuan/startup.py``)。
 //! 3. 后台线程监听 ``CommandEvent::{Stdout, Stderr, Terminated}`` ──
 //!    日志逐行追加到 last_log_line(诊断用);Terminated 时把 state 切到
@@ -21,7 +21,7 @@
 //!    内部用 ``kill_on_drop`` + 显式 kill)。
 //!
 //! 开发态(``cfg!(debug_assertions)``)默认**不 spawn**:开发者自己跑
-//! ``poetry run chayuan start -a``。前端探测到 dev 时直接走 62581。
+//! ``poetry run chayuan start --api``。前端探测到 dev 时直接走 62581。
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -310,7 +310,7 @@ pub fn chayuan_sidecar_start<R: Runtime>(
         }
     }
 
-    // 开发态:不 spawn(开发者自己跑 chayuan start -a),直接报 disabled。
+    // 开发态:不 spawn(开发者自己跑 chayuan start --api),直接报 disabled。
     // 通过环境变量 ``CHAYUAN_DESKTOP_SPAWN_SIDECAR=1`` 强制 dev 也 spawn(调试 Phase 3 用)。
     let force_spawn = std::env::var("CHAYUAN_DESKTOP_SPAWN_SIDECAR")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -357,7 +357,7 @@ pub fn chayuan_sidecar_start<R: Runtime>(
     let mut cmd = app
         .shell()
         .command(exe_path.to_string_lossy().to_string())
-        .args(["start", "-a", "--single-machine"])
+        .args(["start", "--api", "--single-machine"])
         // ⚠ CHAYUAN_ROOT_IGNORE_STATE=1 必须设。
         // chayuan/paths.py::resolve_chayuan_root 默认优先读 ~/.chayuan/state.json
         // 里 last_init_root —— 开发机上跑过 ``chayuan init`` 后写过的目录会凌驾
