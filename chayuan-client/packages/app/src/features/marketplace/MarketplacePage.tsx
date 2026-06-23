@@ -9,7 +9,8 @@
  *
  *     ┌─ 分类 chips: 推荐 / 全部 / 本地 / 国内 / 国外 / 聚合 / 自定义 ┐
  *     ├─ 工具栏: 搜索框 + 「添加自定义」按钮 ────────────────┤
- *     └─ ProviderCard 网格(按分类 + 搜索过滤后的厂商列表) ──┘
+ *     ├─ 能力过滤条: 全部 / 对话 / 视觉 / 文生图 / … (动态present) ─┤
+ *     └─ ProviderCard 网格(按分类 + 搜索 + 能力过滤后的厂商列表) ─┘
  *
  * 历史:本页曾在最上方放过一个 VendorHeroStrip(8 高频厂商 + 「更多」),
  * 用户反馈视觉冗余 + 跟下方网格信息重复 — 2026-05-09 已删除。
@@ -30,9 +31,16 @@ import { Plus, Search } from 'lucide-react';
 import * as React from 'react';
 import { useComposerStore } from '../../store/composer';
 import { usePlatformCatalogQuery } from '../../store/modelPlatform';
+import { CapabilityChip } from '../composer/modelCapabilityChip';
 import { PlatformCreateDialog } from './components/PlatformCreateDialog';
 import { PlatformSettingsDialog } from './components/PlatformSettingsDialog';
 import { ProviderCard } from './components/ProviderCard';
+import {
+  CAPABILITY_ANY,
+  type CapabilityFilter,
+  listPlatformsCapabilities,
+  platformHasCapability,
+} from './lib/capabilityGrouping';
 
 const CATEGORY_RECOMMENDED = '__recommended__';
 const CATEGORY_ALL = '__all__';
@@ -163,6 +171,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
   const currentModel = useComposerStore((s) => s.modelId);
   const [activeCategory, setActiveCategory] = React.useState<string>(CATEGORY_RECOMMENDED);
   const [search, setSearch] = React.useState('');
+  const [activeCapability, setActiveCapability] = React.useState<CapabilityFilter>(CAPABILITY_ANY);
   const [settingsTarget, setSettingsTarget] = React.useState<PlatformConfig | null>(null);
   const [settingsExistsInDb, setSettingsExistsInDb] = React.useState(true);
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -186,12 +195,34 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
     [excludeLocal],
   );
 
-  // 按分类 + 搜索过滤
-  const filtered = React.useMemo(() => {
+  // 按分类 + 搜索过滤(能力过滤前)
+  const filteredByCatSearch = React.useMemo(() => {
     let list = filterByCategory(catalog, activeCategory);
     list = filterBySearch(list, search);
     return list;
   }, [activeCategory, catalog, search]);
+
+  // 当前分类/搜索结果里「实际存在」的能力 —— 动态生成顶部过滤条 chip。
+  const presentCaps = React.useMemo(
+    () => listPlatformsCapabilities(filteredByCatSearch.map(catalogEntryToPlatformConfig)),
+    [filteredByCatSearch],
+  );
+
+  // 若选中的能力在当前结果里已不存在(切了分类/搜索),回落「全部」。
+  React.useEffect(() => {
+    if (activeCapability === CAPABILITY_ANY) return;
+    if (!presentCaps.some((m) => m.cap === activeCapability)) {
+      setActiveCapability(CAPABILITY_ANY);
+    }
+  }, [presentCaps, activeCapability]);
+
+  // 再叠加能力过滤:只留含该能力(未禁用)模型的厂商。
+  const filtered = React.useMemo(() => {
+    if (activeCapability === CAPABILITY_ANY) return filteredByCatSearch;
+    return filteredByCatSearch.filter((e) =>
+      platformHasCapability(catalogEntryToPlatformConfig(e), activeCapability),
+    );
+  }, [filteredByCatSearch, activeCapability]);
 
   const onOpenSettings = React.useCallback((e: ProviderCatalogEntry) => {
     setSettingsTarget(catalogEntryToPlatformConfig(e));
@@ -278,9 +309,39 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
             添加自定义
           </button>
         </div>
+
+        {/* 能力过滤条:按能力(对话/视觉/文生图/图像编辑/视频/语音…)收窄厂商。
+            动态 present —— 只列当前分类/搜索结果里实际有模型的能力;≥2 类才显示。 */}
+        {presentCaps.length >= 2 && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--cy-border-subtle)] pt-3">
+            <button
+              type="button"
+              onClick={() => setActiveCapability(CAPABILITY_ANY)}
+              aria-pressed={activeCapability === CAPABILITY_ANY}
+              className={cn(
+                'inline-flex h-6 items-center rounded-full border px-2 text-[11px] transition-colors',
+                activeCapability === CAPABILITY_ANY
+                  ? 'border-[var(--cy-text-primary)] bg-[var(--cy-text-primary)] text-[var(--cy-surface-base)]'
+                  : 'border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] text-[var(--cy-text-secondary)] hover:text-[var(--cy-text-primary)]',
+              )}
+            >
+              全部
+            </button>
+            {presentCaps.map((meta) => (
+              <CapabilityChip
+                key={meta.cap}
+                cap={meta.cap}
+                active={activeCapability === meta.cap}
+                onClick={() =>
+                  setActiveCapability((cur) => (cur === meta.cap ? CAPABILITY_ANY : meta.cap))
+                }
+              />
+            ))}
+          </div>
+        )}
       </section>
 
-      {/* 厂商网格 —— 按分类 + 搜索过滤后的 ProviderCard 列表。 */}
+      {/* 厂商网格 —— 按分类 + 搜索 + 能力过滤后的 ProviderCard 列表。 */}
       {catalogQ.isLoading ? (
         <p className="rounded-3xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] p-12 text-center text-sm text-[var(--cy-text-tertiary)]">
           加载厂商目录中...
@@ -301,6 +362,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({
               platform={catalogEntryToPlatformConfig(entry)}
               activeModel={currentModel}
               onSelectModel={setModel}
+              activeCapability={activeCapability}
               onOpenSettings={() => onOpenSettings(entry)}
               displayName={entry.display_name}
               tags={entry.tags}
