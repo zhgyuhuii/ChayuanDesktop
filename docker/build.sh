@@ -13,10 +13,6 @@
 #   ./build.sh --rebuild-base   # 强制重建 base(刷 apt 系统包 / poetry 版本时用)
 #   ./build.sh --no-cache       # 主镜像层不用缓存(依赖仍来自 base,不重拉)
 #   ./build.sh --no-clean       # 跳过构建前的历史镜像清理(默认会清)
-#   ./build.sh --no-models      # 不 seed 本地模型(镜像不含 chat/embedding/rerank/asr)
-#   ./build.sh --models-flavor=lite   # 只 seed 瘦身集(~1GB);默认 full(~2.8GB 全自包含)
-#   ./build.sh --models-source=hf     # 下载源 auto|hf|modelscope;默认 modelscope(墙内稳)
-#   ./build.sh --reseed         # vendor 已有模型也强制重下
 #   DOCKER="sudo docker" ./build.sh   # 该机 docker 需要 sudo 时
 #
 # 默认在构建前清理历史镜像:删旧版本 chayuan tag、旧 hash 的 chayuan-base、
@@ -32,21 +28,13 @@ DOCKER="${DOCKER:-docker}"
 REBUILD_BASE=0
 NOCACHE=""
 CLEAN=1
-SEED_MODELS=1
-RESEED=0
-MODELS_FLAVOR="full"
-MODELS_SOURCE="modelscope"
 for a in "$@"; do
     case "$a" in
         --rebuild-base) REBUILD_BASE=1 ;;
         --no-cache)     NOCACHE="--no-cache" ;;
         --no-clean)     CLEAN=0 ;;
-        --no-models)        SEED_MODELS=0 ;;
-        --reseed)           RESEED=1 ;;
-        --models-flavor=*)  MODELS_FLAVOR="${a#*=}" ;;
-        --models-source=*)  MODELS_SOURCE="${a#*=}" ;;
         -h|--help)      sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 0 ;;
-        *) echo "[build] 未知参数:$a(支持 --rebuild-base / --no-cache / --no-clean / --no-models / --reseed / --models-flavor= / --models-source=)" >&2; exit 2 ;;
+        *) echo "[build] 未知参数:$a(支持 --rebuild-base / --no-cache / --no-clean)" >&2; exit 2 ;;
     esac
 done
 
@@ -118,26 +106,6 @@ if [ "$REBUILD_BASE" = "1" ] || ! $DOCKER image inspect "$WEB_BASE_TAG" >/dev/nu
 else
     echo "[build] 复用已存在的前端依赖基础镜像 ${WEB_BASE_TAG}(依赖未变,零拉取)"
 fi
-
-# 3.5) seed 本地模型 + ImageMagick 进 vendor/(与 desktop install-vendor 同一套脚本),
-#      让 single-machine 镜像开箱自带 chat/embedding/rerank/asr 模型。默认开;--no-models 跳过;
-#      已 seed 过则幂等跳过(--reseed 强制)。失败 fail-loud,不会静默出无模型镜像。
-seed_vendor_models() {
-    if [ "$SEED_MODELS" = "0" ]; then
-        echo "[build] 跳过 vendor 模型 seed(--no-models):镜像不含本地模型,single-machine 会报 no local candidate"
-        return 0
-    fi
-    if [ "$RESEED" = "0" ] && ls chayuan-server/vendor/bundled_models/chat/*/*.gguf >/dev/null 2>&1; then
-        echo "[build] vendor/bundled_models 已有 chat 模型,跳过 seed(--reseed 强制重下)"
-    else
-        echo "[build] seed 本地模型 -> vendor/bundled_models/(flavor=${MODELS_FLAVOR} source=${MODELS_SOURCE},复用 desktop install-vendor)..."
-        bash scripts/install-vendor.sh --flavor "$MODELS_FLAVOR" --components models --source "$MODELS_SOURCE"
-    fi
-    echo "[build] seed ImageMagick -> vendor/services/imagemagick/<platform>/ ..."
-    python3 scripts/seed-bundled-assets.py imagemagick \
-        || echo "[build] [WARN] ImageMagick seed 失败:字幕 TextClip 渲染会缺(不阻断构建,可后补)"
-}
-seed_vendor_models
 
 # 4) 应用镜像:FROM base + web base,只跑 COPY + 离线 install + 前端 build
 echo "[build] 构建应用镜像 chayuan:${VERSION} ..."
