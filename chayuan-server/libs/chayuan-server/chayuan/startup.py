@@ -550,7 +550,6 @@ def dump_server_info(after_start=False, args=None):
     from chayuan.settings import Settings
     from chayuan.server.utils import (
         api_address,
-        config_panel_address,
         config_panel_login_url,
     )
 
@@ -572,9 +571,6 @@ def dump_server_info(after_start=False, args=None):
         print(f"服务端运行信息：")
         if args.api:
             print(f"    察元AI助手 API: {api_address()}")
-        if getattr(args, "config", False):
-            print(f"    察元AI助手配置面板: {config_panel_address()}")
-            print(f"    配置面板登录 URL  : {config_panel_login_url()}")
 
         # ===== DB 状态 + 不可达时的明确指引 =====
         # 41 题 P6:取 spawn 前已启动的 DB probe 结果 — 通常已并行完成,
@@ -659,7 +655,6 @@ async def start_main_server(args):
 
     if args.all:
         args.api = True
-        args.config = True
 
     # 41 题 P6:DB probe 提前在后台 thread 跑,几秒后才在 banner 末尾用结果。
     # 这样即便 DB 不可达,父进程的"打印 banner → spawn 子进程"流程不阻塞。
@@ -714,22 +709,8 @@ async def start_main_server(args):
         )
         processes["api"] = process
 
-    config_started = manager.Event()
-    if getattr(args, "config", False):
-        process = Process(
-            target=run_config_panel,
-            name="察元AI助手配置面板",
-            kwargs=dict(
-                started_event=config_started,
-                run_mode=run_mode,
-            ),
-            daemon=True,
-        )
-        processes["config"] = process
-
     # 启动等待超时（秒）；轮询子进程状态，提前失败就立刻抛出，避免卡住不可操作。
     _WAIT_TIMEOUT = 30.0
-    _CONFIG_WAIT_TIMEOUT = 10.0
 
     # 辅助：把刚 spawn 的子进程 pid + 端口写入 runtime meta 的 children 表，
     # 供 `chayuan stop --<role>` 精确定位进程。失败不影响启动。
@@ -775,17 +756,6 @@ async def start_main_server(args):
             if not _wait_child_started("API", p, api_started, _WAIT_TIMEOUT):
                 logger.warning(
                     f"API 启动事件 {_WAIT_TIMEOUT:.0f}s 内未收到信号，继续启动下一个进程（端口可能尚未就绪）。"
-                )
-
-        if p := processes.get("config"):
-            p.start()
-            p.name = f"{p.name} ({p.pid})"
-            _register_child_quiet(
-                "config", int(p.pid or 0), _port_of("CONFIG_SERVER", 8502), p.name,
-            )
-            if not _wait_child_started("配置面板", p, config_started, _CONFIG_WAIT_TIMEOUT):
-                logger.warning(
-                    f"配置面板启动事件 {_CONFIG_WAIT_TIMEOUT:.0f}s 内未收到信号，请用 `chayuan status config` 核对。"
                 )
 
         dump_server_info(after_start=True, args=args)
@@ -1014,8 +984,6 @@ def _preflight_port_check(args) -> None:
     plan: list[tuple[str, dict]] = []
     if getattr(args, "api", False):
         plan.append(("API", dict(getattr(bs, "API_SERVER", {}) or {})))
-    if getattr(args, "config", False):
-        plan.append(("配置面板", dict(getattr(bs, "CONFIG_SERVER", {}) or {})))
 
     problems = _probe_port_conflicts(plan)
     if not problems:
