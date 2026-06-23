@@ -75,6 +75,13 @@ RUN pnpm -F web build:vite
 # 才会重建 base(build.sh 自动判定,或 ./build.sh --rebuild-base)。
 FROM ${BASE_IMAGE} AS runtime
 
+# ── 对象存储 minio 客户端打进镜像(base 的 `poetry install --only main` 不含 optional extra)──
+# docker 部署开箱即用:FILE_STORAGE_BACKEND=minio / 后台「对象存储 测试连通」,不再靠运行时 pip。
+# redis / arq 已在 main 依赖、base 已装,无需在此重复。
+# 国内默认源慢/不可达时:--build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_INDEX_URL=
+RUN python -m pip install --no-cache-dir ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} "minio>=7.2,<8.0"
+
 # ── 2. 后端源码 ───────────────────────────────────────────────────
 WORKDIR /chayuan/app
 COPY chayuan-server/libs/chayuan-server/chayuan ./chayuan-server/libs/chayuan-server/chayuan
