@@ -53,6 +53,10 @@ COPY chayuan-client/apps    ./apps
 # e2e-desktop 是 pnpm-workspace.yaml 列的 workspace 成员,缺它 --frozen-lockfile
 # 会因 importer 缺失而失败;只在 builder 层,最终镜像只取 apps/desktop/dist,无体积代价。
 COPY chayuan-client/e2e-desktop ./e2e-desktop
+# images/ 在工作区根(packages/app/src/lib/brandAssets.ts 用 new URL('../../../../images/...',
+# import.meta.url) 引用 logo + 关注/收款二维码)。缺它 Vite 静默保留运行时 URL → 浏览器 404,
+# 二维码/logo 不显示。必须拷进构建上下文,Vite 才能打成 /assets/ 哈希资源。
+COPY chayuan-client/images ./images
 
 # 装依赖:web base 的 pnpm fetch 已预取整个 store,这里 --offline 离线链接,
 # 正常路径**零联网**;仅当 store 缺失(极少)才回退联网 install 兜底。

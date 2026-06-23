@@ -18,6 +18,9 @@ COPY chayuan-client/tsconfig.base.json ./
 COPY chayuan-client/packages ./packages
 COPY chayuan-client/apps    ./apps
 COPY chayuan-client/e2e-desktop ./e2e-desktop
+# images/ 在工作区根(brandAssets.ts 用 new URL('../../../../images/...', import.meta.url)
+# 引用 logo + 关注/收款二维码)。缺它 Vite 静默留运行时 URL → 浏览器 404。必须拷进上下文。
+COPY chayuan-client/images ./images
 RUN pnpm install --frozen-lockfile --prefer-offline || pnpm install
 
 # 相对路径请求(VITE_API_BASE 空)→ 浏览器同源打 client nginx → 反代 server。
