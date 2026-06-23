@@ -35,6 +35,9 @@ const CAP_META: Record<string, CapMeta> = {
 const CAP_LABELS: Record<string, string> = Object.fromEntries(
   Object.entries(CAP_META).map(([k, v]) => [k, v.label]),
 );
+// 展示顺序:对话→文本嵌入→重排 置顶,其余随后。显式定序,与服务端 capabilities 返回序/CAP_META 声明序无关。
+const CAP_DISPLAY_ORDER = ['chat', 'embedding', 'rerank', 'clip', 't2i', 't2v', 'tts', 'asr', 'ocr'];
+const capRank = (c: string): number => { const i = CAP_DISPLAY_ORDER.indexOf(c); return i < 0 ? CAP_DISPLAY_ORDER.length : i; };
 
 export const DefaultModelsPage: React.FC = () => {
   const [data, setData] = React.useState<CapabilityDefaults | null>(null);
@@ -74,7 +77,7 @@ export const DefaultModelsPage: React.FC = () => {
     }
   };
 
-  const caps = data?.capabilities ?? Object.keys(CAP_META);
+  const caps = [...(data?.capabilities ?? CAP_DISPLAY_ORDER)].sort((a, b) => capRank(a) - capRank(b));
 
   return (
     <div className="mx-auto max-w-5xl p-6">
