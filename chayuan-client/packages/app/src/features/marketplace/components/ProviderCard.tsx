@@ -153,158 +153,18 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
           className={cn('absolute left-0 top-0 h-full w-[3px]', STATUS_BAR[status])}
         />
 
-        <div className="flex h-[66px] shrink-0 items-start gap-3">
-          {/* logo 永远彩色,任何状态都不 dim */}
-          {logoUrl ? (
-            <img
-              src={logoUrl}
-              alt={showName}
-              className="h-9 w-9 flex-shrink-0 rounded-md object-contain"
-            />
-          ) : (
-            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-[var(--cy-surface-2)] text-sm font-semibold text-[var(--cy-text-secondary)]">
-              {showName.slice(0, 1).toUpperCase()}
-            </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <p className="min-w-0 truncate text-sm font-semibold text-[var(--cy-text-primary)]">
-                {showName}
-              </p>
-              {/* 状态徽 — 三态都显式标记,让用户一眼看出"已启用 / 未配置 / 已禁用" */}
-              {status === 'active' && (
-                <span
-                  className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 ring-1 ring-emerald-200/70"
-                  title={t('modelMarket.card.titleEnabled', { n: groups.reduce((s, g) => s + g.models.length, 0) })}
-                >
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  {t('modelMarket.card.enabled')}
-                </span>
-              )}
-              {status === 'unconfigured' && (
-                <span
-                  className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 ring-1 ring-amber-200/70"
-                  title={t('modelMarket.card.titleUnconfigured')}
-                >
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
-                  {t('modelMarket.card.unconfigured')}
-                </span>
-              )}
-              {status === 'disabled' && (
-                <span
-                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-600 ring-1 ring-slate-200"
-                  title={t('modelMarket.card.titleDisabled')}
-                >
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-400" />
-                  {t('modelMarket.card.disabled')}
-                </span>
-              )}
-              {/* tag 徽:推荐/国内/国外/本地/聚合 */}
-              {tags && tags.length > 0 && (
-                <span className="ml-auto flex shrink-0 flex-wrap items-center gap-1">
-                  {tags.slice(0, 2).map((tg) => (
-                    <span
-                      key={tg}
-                      className={cn(
-                        'rounded-full px-1.5 py-0.5 text-[9px]',
-                        tg === '推荐'
-                          ? 'bg-amber-100 text-amber-700'
-                          : tg === '国内'
-                            ? 'bg-rose-50 text-rose-700'
-                            : tg === '国外'
-                              ? 'bg-sky-50 text-sky-700'
-                              : tg === '本地'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : tg === '聚合'
-                                  ? 'bg-violet-50 text-violet-700'
-                                  : 'bg-[var(--cy-surface-2)] text-[var(--cy-text-tertiary)]',
-                      )}
-                    >
-                      {tg}
-                    </span>
-                  ))}
-                </span>
-              )}
-            </div>
-            <p className="line-clamp-2 mt-0.5 text-[11px] text-[var(--cy-text-tertiary)]">
-              {descriptionOverride || platform.description || platform.platform_type}
-            </p>
-          </div>
-        </div>
-
-        {/* 底部：按 capability 显示能力标签(flex-1 横向铺满);不可用状态给 CTA 文案。
-            pt-0.5 紧贴上方信息区;pr-2 让标签行尽量占满卡片宽度。右下浮层按钮(申请 Key /
-            ⚙️ 设置)为 hover-only,仅悬停时可能轻微压住最后一行右端,属可接受取舍。 */}
-        <div className="min-h-0 flex-1 pr-2 pt-0.5">
-          {interactive && filtered.length > 0 ? (
-            activeCapability === CAPABILITY_ANY ? (
-              // 全能力：列出全部能力标签(对话/视觉/文生图/图像编辑/视频/语音…),点标签下拉该类模型
-              <div className="flex max-h-[80px] flex-wrap content-start items-stretch gap-1 overflow-y-auto">
-                {filtered.map((g) => (
-                  <TypeTagDropdown
-                    key={g.cap}
-                    group={g}
-                    activeModel={activeModel}
-                    onSelectModel={onSelectModel}
-                    metadata={modelMetadata}
-                  />
-                ))}
-              </div>
-            ) : (
-              // 单一能力：直接 ModelTagsRow
-              <ModelTagsRow
-                models={filtered[0]!.models}
-                activeModel={activeModel}
-                onSelect={onSelectModel}
-                metadata={modelMetadata}
-              />
-            )
-          ) : status === 'unconfigured' ? (
-            <CtaLine
-              tone="amber"
-              text={
-                onOpenSettings
-                  ? t('modelMarket.card.ctaConfigure')
-                  : t('modelMarket.card.unconfigured')
-              }
-            />
-          ) : status === 'disabled' ? (
-            <CtaLine
-              tone="slate"
-              text={
-                onOpenSettings ? t('modelMarket.card.ctaReenable') : t('modelMarket.card.disabled')
-              }
-            />
-          ) : interactive && filtered.length === 0 && activeCapability !== CAPABILITY_ANY ? (
-            // 当前能力 filter 下该厂商无对应模型（理论上 page 已 filter 不该到这里，兜底）
-            <CtaLine tone="slate" text={t('modelMarket.card.noModelsForCapability')} />
-          ) : (
-            // active 但 0 模型（罕见，刚 create 未填）
-            <CtaLine
-              tone="slate"
-              text={
-                onOpenSettings
-                  ? t('modelMarket.card.ctaAddModel')
-                  : t('modelMarket.card.noModelsAvailable')
-              }
-            />
-          )}
-        </div>
-
-        {/* 右下行动条:本地厂商优先「安装指南」,否则「申请 Key」;再后面是 ⚙️ 设置(admin) */}
-        <div className="absolute right-1.5 bottom-1.5 flex items-center gap-0.5">
+        {/* 右上角固定操作簇:🔑 申请 Key / 安装指南 + ⚙️ 配置 —— 始终可见(Linear 风)。
+            active 默认低调(opacity-70),卡片 hover 提亮,按钮 hover 填底;未配置时琥珀常驻引导。 */}
+        <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1">
           {(installGuide || installGuideUrl || applyKeyUrl) && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                // 本地厂商有内置 InstallGuide 数据 → 弹离线 dialog,无需联网
                 if (installGuide) {
                   setGuideOpen(true);
                   return;
                 }
-                // 否则:云厂商「申请 Key」/ 没有内置指南的本地厂商「安装指南外链」
-                // 走 openExternal 唤起系统浏览器(Tauri webview 下 a target=_blank 不响应)
                 const url = installGuideUrl || applyKeyUrl;
                 if (!url) return;
                 void getPlatform().shell.openExternal(url);
@@ -316,12 +176,10 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
               }
               title={installGuide || installGuideUrl ? '安装指南' : '申请 API Key'}
               className={cn(
-                'inline-flex h-7 w-7 items-center justify-center rounded-full text-[var(--cy-text-tertiary)] transition-all',
-                'hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]',
-                // 未配置时一直露 + 边框,提示用户可以去申请 / 安装
+                'inline-flex h-7 w-7 items-center justify-center rounded-lg transition-all',
                 status === 'unconfigured'
-                  ? 'opacity-100 ring-1 ring-amber-200/70 text-amber-700 hover:bg-amber-50'
-                  : 'opacity-0 group-hover:opacity-100',
+                  ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/70 hover:bg-amber-100'
+                  : 'text-[var(--cy-text-tertiary)] opacity-70 hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)] group-hover:opacity-100',
               )}
             >
               {installGuide || installGuideUrl ? (
@@ -348,16 +206,148 @@ export const ProviderCard: React.FC<ProviderCardProps> = React.memo(
               aria-label={`配置 ${platform.platform_name}`}
               title="配置"
               className={cn(
-                'inline-flex h-7 w-7 items-center justify-center rounded-full text-[var(--cy-text-tertiary)] transition-all',
-                'hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]',
-                // active 时只在 hover 显;非 active 时一直显,提示「这里能配」
-                interactive
-                  ? 'opacity-0 group-hover:opacity-100'
-                  : 'opacity-70 group-hover:opacity-100',
+                'inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--cy-text-tertiary)] opacity-70 transition-all',
+                'hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)] group-hover:opacity-100',
+                status === 'unconfigured' && 'text-amber-700 opacity-100',
               )}
             >
               <SettingsIcon className="h-3.5 w-3.5" />
             </button>
+          )}
+        </div>
+
+        {/* 头部:logo + (名字+状态徽 / 标签);pr-16 给右上操作簇留安全区 */}
+        <div className="flex shrink-0 items-start gap-3 pr-16">
+          {/* logo 永远彩色,任何状态都不 dim */}
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt={showName}
+              className="h-9 w-9 flex-shrink-0 rounded-md object-contain"
+            />
+          ) : (
+            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-[var(--cy-surface-2)] text-sm font-semibold text-[var(--cy-text-secondary)]">
+              {showName.slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <p className="min-w-0 truncate text-sm font-semibold text-[var(--cy-text-primary)]">
+                {showName}
+              </p>
+              {/* 状态徽 — 三态都显式标记 */}
+              {status === 'active' && (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 ring-1 ring-emerald-200/70"
+                  title={t('modelMarket.card.titleEnabled', { n: groups.reduce((s, g) => s + g.models.length, 0) })}
+                >
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  {t('modelMarket.card.enabled')}
+                </span>
+              )}
+              {status === 'unconfigured' && (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 ring-1 ring-amber-200/70"
+                  title={t('modelMarket.card.titleUnconfigured')}
+                >
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  {t('modelMarket.card.unconfigured')}
+                </span>
+              )}
+              {status === 'disabled' && (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-600 ring-1 ring-slate-200"
+                  title={t('modelMarket.card.titleDisabled')}
+                >
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-400" />
+                  {t('modelMarket.card.disabled')}
+                </span>
+              )}
+            </div>
+            {/* tag 徽:推荐/国内/国外/本地/聚合 —— 移到品牌名下方一行 */}
+            {tags && tags.length > 0 && (
+              <div className="mt-1 flex flex-wrap items-center gap-1">
+                {tags.slice(0, 3).map((tg) => (
+                  <span
+                    key={tg}
+                    className={cn(
+                      'rounded-full px-1.5 py-0.5 text-[9px]',
+                      tg === '推荐'
+                        ? 'bg-amber-100 text-amber-700'
+                        : tg === '国内'
+                          ? 'bg-rose-50 text-rose-700'
+                          : tg === '国外'
+                            ? 'bg-sky-50 text-sky-700'
+                            : tg === '本地'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : tg === '聚合'
+                                ? 'bg-violet-50 text-violet-700'
+                                : 'bg-[var(--cy-surface-2)] text-[var(--cy-text-tertiary)]',
+                    )}
+                  >
+                    {tg}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 描述:整行 2 行 */}
+        <p className="line-clamp-2 shrink-0 text-[11px] text-[var(--cy-text-tertiary)]">
+          {descriptionOverride || platform.description || platform.platform_type}
+        </p>
+
+        {/* 底部:按 capability 显示能力标签(flex-1 横向铺满);不可用状态给 CTA 文案。 */}
+        <div className="min-h-0 flex-1 pr-2">
+          {interactive && filtered.length > 0 ? (
+            activeCapability === CAPABILITY_ANY ? (
+              <div className="flex max-h-[80px] flex-wrap content-start items-stretch gap-1 overflow-y-auto">
+                {filtered.map((g) => (
+                  <TypeTagDropdown
+                    key={g.cap}
+                    group={g}
+                    activeModel={activeModel}
+                    onSelectModel={onSelectModel}
+                    metadata={modelMetadata}
+                  />
+                ))}
+              </div>
+            ) : (
+              <ModelTagsRow
+                models={filtered[0]!.models}
+                activeModel={activeModel}
+                onSelect={onSelectModel}
+                metadata={modelMetadata}
+              />
+            )
+          ) : status === 'unconfigured' ? (
+            <CtaLine
+              tone="amber"
+              text={
+                onOpenSettings
+                  ? t('modelMarket.card.ctaConfigure')
+                  : t('modelMarket.card.unconfigured')
+              }
+            />
+          ) : status === 'disabled' ? (
+            <CtaLine
+              tone="slate"
+              text={
+                onOpenSettings ? t('modelMarket.card.ctaReenable') : t('modelMarket.card.disabled')
+              }
+            />
+          ) : interactive && filtered.length === 0 && activeCapability !== CAPABILITY_ANY ? (
+            <CtaLine tone="slate" text={t('modelMarket.card.noModelsForCapability')} />
+          ) : (
+            <CtaLine
+              tone="slate"
+              text={
+                onOpenSettings
+                  ? t('modelMarket.card.ctaAddModel')
+                  : t('modelMarket.card.noModelsAvailable')
+              }
+            />
           )}
         </div>
       </div>
