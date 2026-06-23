@@ -191,9 +191,7 @@ services:
       CHAYUAN_JWT_SECRET: ${JWT_SECRET:-}
     volumes:
       - ./data:/chayuan/data
-      # 镜像已自带 DH/TTS 内置模型(vendor/bundled_models 已打进镜像);
-      # 如需换/加自备 GGUF 模型,取消下一行注释用宿主目录覆盖:
-      # - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
+      - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
       - ./config:/chayuan/config
       - ./logs:/chayuan/logs
       # 把修好的 nginx.conf 盖进容器(免重建镜像即可让反代白名单生效:

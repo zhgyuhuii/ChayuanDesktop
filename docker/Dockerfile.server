@@ -44,18 +44,14 @@ WORKDIR /chayuan/app
 COPY chayuan-server/libs/chayuan-server/chayuan ./chayuan-server/libs/chayuan-server/chayuan
 COPY chayuan-server/libs/chayuan-server/langchain_chayuan ./chayuan-server/libs/chayuan-server/langchain_chayuan
 COPY chayuan-server/vendor/services ./chayuan-server/vendor/services
-# chmod 所有已打进来的 sidecar 二进制(linux-x64 / linux-arm64 都覆盖,运行时按 arch 选)
-RUN find /chayuan/app/chayuan-server/vendor/services -type f \
-        \( -name llama-server -o -name whisper-server -o -name magick \) \
-        -exec chmod +x {} + 2>/dev/null || true
+RUN chmod +x \
+        /chayuan/app/chayuan-server/vendor/services/llama-server/linux-x64/llama-server \
+        /chayuan/app/chayuan-server/vendor/services/whisper-server/linux-x64/whisper-server \
+        /chayuan/app/chayuan-server/vendor/services/imagemagick/linux-x64/magick \
+    2>/dev/null || true
 COPY chayuan-server/vendor/bundled_fonts ./chayuan-server/vendor/bundled_fonts
 COPY chayuan-server/vendor/bundled_bgm ./chayuan-server/vendor/bundled_bgm
 COPY chayuan-server/vendor/bundled_video_clips ./chayuan-server/vendor/bundled_video_clips
-# bundled_models(DH/TTS 内置模型)+ runtimes + torch_wheels 一并打进 image:自包含,
-# 不再依赖 compose 的 bundled_models 挂载(已默认注释)。镜像体积 +~560M。
-COPY chayuan-server/vendor/bundled_models ./chayuan-server/vendor/bundled_models
-COPY chayuan-server/vendor/runtimes ./chayuan-server/vendor/runtimes
-COPY chayuan-server/vendor/torch_wheels ./chayuan-server/vendor/torch_wheels
 
 COPY docker/entrypoint.server.sh /usr/local/bin/entrypoint.server.sh
 RUN chmod +x /usr/local/bin/entrypoint.server.sh

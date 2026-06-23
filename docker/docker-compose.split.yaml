@@ -19,9 +19,7 @@ services:
     #   - "62581:62581"
     volumes:
       - ./data:/chayuan/data
-      # 镜像已自带 DH/TTS 内置模型(vendor/bundled_models 已打进镜像);
-      # 如需换/加自备 GGUF 模型,取消下一行注释用宿主目录覆盖:
-      # - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
+      - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
       - ./config:/chayuan/config
       - ./logs:/chayuan/logs
     environment:
