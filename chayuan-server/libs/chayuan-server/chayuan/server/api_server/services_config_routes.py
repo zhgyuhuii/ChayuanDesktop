@@ -156,6 +156,7 @@ def services_topology(probe: bool = True, _=Depends(_ADMIN)) -> Dict[str, Any]:
             "detail": svc.detail,
             "restartable": bool(svc.restartable),
             "config_kind": svc.config_kind,
+            "configurable": bool(svc.configurable),
             "x": svc.x,
             "y": svc.y,
         })

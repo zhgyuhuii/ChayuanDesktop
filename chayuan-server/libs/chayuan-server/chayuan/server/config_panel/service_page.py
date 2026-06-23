@@ -62,7 +62,8 @@ class ServiceSnapshot:
     summary: str = ""                # host:port / URL 等一行描述
     detail: str = ""                 # 错误或成功的额外信息
     restartable: bool = False        # 是否支持通过 restart.trigger_restart 重启
-    config_kind: str = ""            # "api" / "panel" / "nginx" / "redis" / "db" / "milvus" / ""
+    config_kind: str = ""            # "api" / "nginx" / "redis" / "db" / "milvus" / ""
+    configurable: bool = False       # 是否有可修改的连接配置（false 时前端隐藏「配置」按钮）
     x: int = 0
     y: int = 0
 
@@ -339,14 +340,33 @@ def _probe_minio(timeout: float = 0.8) -> Tuple[str, str]:
 
 
 def _probe_nginx(nginx_url: str) -> Tuple[str, str]:
-    """Nginx 没有内置配置；用户在配置面板存一个 URL 就可以探活。"""
+    """Nginx 反代可达性探活。
+
+    「可达」定义：收到**任何** HTTP 响应（200 / 301 / 401 / 403 / 404 甚至 5xx）
+    都意味着 Nginx 进程在运行并在响应请求——标 ok。
+    只有真正的连接失败（refused / timeout / DNS 解析失败）才标 down。
+
+    Nginx 本身没有业务配置，因此 configurable=False；
+    URL 未配置时标 disabled（非故障）。
+    """
     url = (nginx_url or "").strip()
     if not url:
         return STATUS_DISABLED, "Nginx URL 未配置（可选）"
     if not url.startswith(("http://", "https://")):
         url = "http://" + url
-    ok, detail = _probe_http(url, timeout=1.5)
-    return (STATUS_OK if ok else STATUS_DOWN), detail
+    # 任何 HTTP 响应（包括 4xx/5xx）都证明反代在运行 → ok
+    # 只有底层连接异常（OSError / URLError 但非 HTTPError）才算 down
+    try:
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            code = int(getattr(resp, "status", 0) or 0)
+            return STATUS_OK, f"HTTP {code}"
+    except urllib.error.HTTPError as e:
+        # HTTPError = 有响应（4xx/5xx）→ Nginx 在运行 → ok
+        return STATUS_OK, f"HTTP {e.code}"
+    except Exception as e:  # noqa: BLE001
+        # URLError(connection refused/timeout/DNS) → 真正不可达 → down
+        return STATUS_DOWN, f"{type(e).__name__}: {e}"
 
 
 def _probe_langfuse(timeout: float = 1.5) -> Tuple[str, str]:
@@ -435,7 +455,7 @@ def build_snapshot(*, probe: bool = True) -> Topology:
     """抓取一份服务状态快照。任何子探活异常都会被吞掉成 unknown/down。
 
     参数 probe:
-      - True(默认):并行跑外部探针(nginx/api/panel/redis/db/milvus/
+      - True(默认):并行跑外部探针(nginx/api/redis/db/milvus/
         minio/langfuse),把"最坏 10s 串行"压到 max(单探针 timeout)≈3s。
       - False:**完全跳过探针**,所有外部服务节点 status=unknown 立即返回(<10ms);
         给"首次渲染骨架,后台异步真探针"路径用,避免页面冻结 3s。
@@ -572,7 +592,7 @@ def build_snapshot(*, probe: bool = True) -> Topology:
         icon="memory",  # 内存芯片 - in-memory cache 语义最贴切
         status=rd_status,
         summary=_redis_summary(redis_url), detail=rd_detail,
-        config_kind="redis",
+        config_kind="redis", configurable=True,
         x=700, y=60,
     )
 
@@ -581,7 +601,7 @@ def build_snapshot(*, probe: bool = True) -> Topology:
         icon="dns",  # 圆柱体 - 最接近传统"数据库"视觉
         status=db_status,
         summary=_db_summary(db_uri), detail=db_detail,
-        config_kind="db",
+        config_kind="db", configurable=True,
         x=700, y=155,
     )
 
@@ -591,7 +611,7 @@ def build_snapshot(*, probe: bool = True) -> Topology:
         status=mv_status,
         summary=_summary(mv_host, mv_port) if mv_host else "—",
         detail=mv_detail,
-        config_kind="milvus",
+        config_kind="milvus", configurable=True,
         x=700, y=250,
     )
 
@@ -601,7 +621,7 @@ def build_snapshot(*, probe: bool = True) -> Topology:
         status=mio_status,
         summary=(mio_endpoint or "—") if backend in ("minio", "s3") else "本地磁盘模式",
         detail=mio_detail,
-        config_kind="minio",
+        config_kind="minio", configurable=True,
         x=700, y=345,
     )
 
@@ -626,7 +646,7 @@ def build_snapshot(*, probe: bool = True) -> Topology:
         status=lf_status,
         summary=lf_cfg_summary,
         detail=lf_detail,
-        config_kind="langfuse",
+        config_kind="langfuse", configurable=True,
         # y=440:与 Redis/DB/Milvus/MinIO 同列等间距 95px(60/155/250/345/440)。
         # 老值 y=630 是历史 kkFileView 旁车节点占位的残留(2026-04 已迁走),
         # 没跟着收回来导致 Langfuse 卡片掉到画布外面。见 _CANVAS_H 的注释。
