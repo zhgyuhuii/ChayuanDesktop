@@ -11,6 +11,7 @@ import typing as t
 # import 时会自动 read 此 env 加入 ``nltk.data.path``)。延迟到模块末尾 set,
 # 那时 ``Settings`` 已实例化,能拿到 NLTK_DATA_PATH。
 from pydantic import field_validator
+from pydantic_settings import PydanticBaseSettingsSource
 
 from chayuan import __version__
 from chayuan.pydantic_settings_file import *
@@ -91,6 +92,43 @@ XF_MODELS_TYPES = {
 }
 
 
+class _DropMinioCredEnvSource(PydanticBaseSettingsSource):
+    """让 env / dotenv source 不再提供裸 MINIO_ACCESS_KEY / MINIO_SECRET_KEY。
+
+    这两个名字是 MinIO **服务端镜像自身 root 凭证**的环境变量名(docker compose 里
+    ``MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}`` 配的是 minio 容器),恰好
+    和察元「对象存储客户端」配置字段同名。pydantic 会把它当成存储客户端配置读进来,
+    且 env source 优先级高于后台面板写的 ``basic_settings.yaml`` —— 于是后台面板里
+    设的 Access/Secret Key 被运行时的 minioadmin 盖掉:回显成 minioadmin、保存也不生效、
+    连存储时实际也用了 minioadmin。
+
+    对象存储凭证以后台面板(yaml)为唯一真源。若确实要用环境变量配置,改用 ``CHAYUAN_``
+    前缀(``CHAYUAN_MINIO_ACCESS_KEY`` / ``CHAYUAN_MINIO_SECRET_KEY``)—— 与本类其它
+    env 字段约定一致,且不会和 minio 镜像变量名碰撞。
+    """
+
+    _DROP = ("MINIO_ACCESS_KEY", "MINIO_SECRET_KEY")
+
+    def __init__(self, inner: PydanticBaseSettingsSource) -> None:
+        self._inner = inner
+        super().__init__(inner.settings_cls)
+
+    def get_field_value(self, field, field_name):  # 抽象方法:委托内层
+        return self._inner.get_field_value(field, field_name)
+
+    def __call__(self) -> t.Dict[str, t.Any]:
+        data = dict(self._inner())
+        for k in list(data.keys()):
+            if k.upper() in self._DROP:
+                data.pop(k, None)
+        # 仅认 CHAYUAN_ 前缀的同义环境变量(可选的 env 配置路径,不和 minio 镜像碰撞)。
+        for bare in self._DROP:
+            v = os.environ.get("CHAYUAN_" + bare)
+            if v is not None:
+                data[bare] = v
+        return data
+
+
 class BasicSettings(BaseFileSettings):
     """
     服务器基本配置信息
@@ -99,6 +137,22 @@ class BasicSettings(BaseFileSettings):
     """
 
     model_config = SettingsConfigDict(yaml_file=CHAYUAN_ROOT / "basic_settings.yaml")
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        # 对象存储凭证不读裸 MINIO_* env(那是 minio 镜像 root 凭证),以后台面板 yaml 为准。
+        env_settings = _DropMinioCredEnvSource(env_settings)
+        dotenv_settings = _DropMinioCredEnvSource(dotenv_settings)
+        return super().settings_customise_sources(
+            settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings,
+        )
 
     version: str = __version__
     """生成该配置模板的项目代码版本，如这里的值与程序实际版本不一致，建议重建配置文件模板"""
