@@ -61,7 +61,9 @@ services:
     # 挂载点 = compose 同目录子目录,git ignore 已配
     volumes:
       - ./data:/chayuan/data
-      - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
+      # 镜像已自带 DH/TTS 内置模型(vendor/bundled_models 已打进镜像);
+      # 如需换/加自备 GGUF 模型,取消下一行注释用宿主目录覆盖:
+      # - ./bundled_models:/chayuan/app/chayuan-server/vendor/bundled_models
       - ./config:/chayuan/config
       - ./logs:/chayuan/logs
       # 免重建镜像让 nginx 反代白名单(含 /storage 等)生效

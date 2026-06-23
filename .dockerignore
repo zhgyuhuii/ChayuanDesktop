@@ -36,22 +36,19 @@ chayuan-client/bug/
 chayuan-server/dist/
 chayuan-server/build/
 
-# bundled_models 体积大,用 docker volume 挂入,不打进 image
-chayuan-server/vendor/bundled_models/
+# bundled_models(DH/TTS 等内置模型)现打进 image 实现自包含;
+# 想换/加自备模型用 compose 里默认注释掉的 bundled_models 挂载覆盖。
 
-# 非 Linux 平台的 sidecar 二进制(只保留 linux-x64,其它 .dockerignore 走子规则)
+# sidecar 二进制:保留 linux-x64 + linux-arm64(运行时按 arch 选),只排非 Linux(win/macos)
 chayuan-server/vendor/services/llama-server/win-*/
 chayuan-server/vendor/services/llama-server/macos-*/
 chayuan-server/vendor/services/whisper-server/win-*/
 chayuan-server/vendor/services/whisper-server/macos-*/
-# video_generation 模块的 ImageMagick — 同样只保留 linux-x64
+# video_generation 模块的 ImageMagick — 保留 linux-x64 + linux-arm64,只排非 Linux
 chayuan-server/vendor/services/imagemagick/win-*/
 chayuan-server/vendor/services/imagemagick/macos-*/
-chayuan-server/vendor/services/imagemagick/linux-arm64/
 
-# Torch wheels(chayuan_packaging 用,Docker 直接 pip install)
-chayuan-server/vendor/torch_wheels/
-chayuan-server/vendor/runtimes/
+# torch_wheels / runtimes 一并打进 image(vendor 全量自包含)
 
 # Docker 自己的输出目录(volume 挂载点)
 docker/data/

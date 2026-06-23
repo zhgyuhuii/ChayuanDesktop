@@ -10,7 +10,7 @@
 # 浏览器访问:http://<host>/  → 直接进前端
 # API 自身仍可访问 http://<host>:62581 (compose 选择是否暴露)
 #
-# bundled_models 不打进 image,通过 docker volume 挂入。
+# bundled_models(DH/TTS 内置模型)已打进 image,自包含;compose 的挂载默认注释。
 #
 # Build context **必须**是 repo 根 (chayuan-desktop/):
 #   docker build -f docker/Dockerfile -t chayuan-server:1.0.0 .
@@ -95,11 +95,10 @@ COPY chayuan-server/libs/chayuan-server/langchain_chayuan ./chayuan-server/libs/
 # ── 3. Sidecar 二进制 (.dockerignore 已排除非 linux 平台) ──────────
 WORKDIR /chayuan/app
 COPY chayuan-server/vendor/services ./chayuan-server/vendor/services
-RUN chmod +x \
-        /chayuan/app/chayuan-server/vendor/services/llama-server/linux-x64/llama-server \
-        /chayuan/app/chayuan-server/vendor/services/whisper-server/linux-x64/whisper-server \
-        /chayuan/app/chayuan-server/vendor/services/imagemagick/linux-x64/magick \
-    2>/dev/null || true
+# chmod 所有已打进来的 sidecar 二进制(linux-x64 / linux-arm64 都覆盖,运行时按 arch 选)
+RUN find /chayuan/app/chayuan-server/vendor/services -type f \
+        \( -name llama-server -o -name whisper-server -o -name magick \) \
+        -exec chmod +x {} + 2>/dev/null || true
 
 # ── 3b. video_generation 模块 bundled 资产 (M3) ────────────────────
 #   字体 / BGM / 内置素材 — 全部按需 COPY,不存在的目录由 Dockerfile 的
@@ -109,6 +108,11 @@ RUN chmod +x \
 COPY chayuan-server/vendor/bundled_fonts ./chayuan-server/vendor/bundled_fonts
 COPY chayuan-server/vendor/bundled_bgm ./chayuan-server/vendor/bundled_bgm
 COPY chayuan-server/vendor/bundled_video_clips ./chayuan-server/vendor/bundled_video_clips
+# bundled_models(DH/TTS 内置模型)+ runtimes + torch_wheels 一并打进 image:自包含,
+# 不再依赖 compose 的 bundled_models 挂载(已默认注释)。镜像体积 +~560M。
+COPY chayuan-server/vendor/bundled_models ./chayuan-server/vendor/bundled_models
+COPY chayuan-server/vendor/runtimes ./chayuan-server/vendor/runtimes
+COPY chayuan-server/vendor/torch_wheels ./chayuan-server/vendor/torch_wheels
 
 # ── 4. 拷前端 dist (来自 stage 1) ──────────────────────────────────
 COPY --from=web-builder /chayuan-client/apps/web/dist /chayuan/web
@@ -118,7 +122,7 @@ COPY docker/nginx.conf      /etc/nginx/nginx.conf
 COPY docker/entrypoint.sh   /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# ── 6. volume 占位 ────────────────────────────────────────────────
+# ── 6. data/logs 目录占位(bundled_models 已 COPY 进来)─────────────
 RUN mkdir -p /chayuan/app/chayuan-server/vendor/bundled_models \
              /chayuan/data \
              /chayuan/logs
