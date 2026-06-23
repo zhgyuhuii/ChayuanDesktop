@@ -11,9 +11,20 @@ def test_default_not_completed(tmp_path, monkeypatch):
 
 
 def test_write_then_read_completed(tmp_path, monkeypatch):
+    # _write_state 在单机版 no-op,这里显式置网络版以稳定测落盘路径。
+    monkeypatch.setattr(wizard_routes, "is_single_machine", lambda: False)
     monkeypatch.setattr(wizard_routes, "_state_path", lambda: tmp_path / "wizard_state.json")
     wizard_routes._write_state({"completed": True})
     assert wizard_routes._read_state()["completed"] is True
+
+
+def test_single_machine_write_is_noop(tmp_path, monkeypatch):
+    # 单机版 _write_state 必须 no-op,不在桌面端落生这个用不到的文件。
+    p = tmp_path / "wizard_state.json"
+    monkeypatch.setattr(wizard_routes, "is_single_machine", lambda: True)
+    monkeypatch.setattr(wizard_routes, "_state_path", lambda: p)
+    wizard_routes._write_state({"completed": True})
+    assert not p.exists()
 
 
 def test_parse_error_returns_default(tmp_path, monkeypatch):
