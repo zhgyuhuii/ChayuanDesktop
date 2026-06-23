@@ -73,21 +73,42 @@ def redis_test(body: Dict[str, Any] = Body(default={}), _=Depends(_ADMIN)) -> Di
     return {"code": 0, "msg": "ok", "data": res}
 
 
-@redis_config_router.post("/save", summary="[admin] 保存 REDIS_URL 到 basic_settings.yaml(需重启)")
+def _hot_apply_redis() -> None:
+    """REDIS_URL 写盘后调用,使其热生效(无需重启):
+
+    1. 清掉缓存的 basic_settings,下次 ``_detect_url()`` 读到刚写的 REDIS_URL
+       (settings 按 yaml mtime 整秒粒度缓存,同秒内可能仍读旧值);
+    2. 重置进程内 redis 单例,下次 ``get_redis()`` 按新 URL 重建连接。
+    """
+    try:
+        from chayuan.pydantic_settings_file import _cached_settings
+        _cached_settings.cache_clear()  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 —— 清缓存失败不阻断保存
+        pass
+    try:
+        from chayuan.server import shared
+        shared.reset_redis()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@redis_config_router.post("/save", summary="[admin] 保存 REDIS_URL 到 basic_settings.yaml(热生效)")
 def redis_save(body: Dict[str, Any] = Body(default={}), _=Depends(_ADMIN)) -> Dict[str, Any]:
     from chayuan.server.config_panel import yaml_store
     from chayuan.server.config_panel.redis_config import parse_url, masked_url
     url = _url_from(body)
     yaml_store.save_updates("basic_settings.yaml", {"REDIS_URL": url})
+    _hot_apply_redis()
     return {
         "code": 0,
         "msg": "ok",
-        "data": {"masked": masked_url(parse_url(url)), "restart_required": True},
+        "data": {"masked": masked_url(parse_url(url)), "restart_required": False},
     }
 
 
-@redis_config_router.post("/clear", summary="[admin] 清空 REDIS_URL(退化为单机内存模式,需重启)")
+@redis_config_router.post("/clear", summary="[admin] 清空 REDIS_URL(退化为单机内存模式,热生效)")
 def redis_clear(_=Depends(_ADMIN)) -> Dict[str, Any]:
     from chayuan.server.config_panel import yaml_store
     yaml_store.save_updates("basic_settings.yaml", {"REDIS_URL": ""})
-    return {"code": 0, "msg": "ok", "data": {"restart_required": True}}
+    _hot_apply_redis()
+    return {"code": 0, "msg": "ok", "data": {"restart_required": False}}

@@ -26,5 +26,5 @@ from chayuan.server.file_storage.base import (  # noqa: F401
     StorageObject,
 )
 from chayuan.server.file_storage.factory import (  # noqa: F401
-    get_storage, get_storage_for_kb, reset_cache,
+    get_storage, get_storage_for_kb, reset_cache, reset_storage,
 )

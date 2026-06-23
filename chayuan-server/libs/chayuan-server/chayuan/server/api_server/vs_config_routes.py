@@ -23,6 +23,23 @@ _ADMIN = require_role("admin")
 _MASK = "********"
 
 
+def reset_vector_store() -> None:
+    """丢弃进程内缓存的 kb_settings,使下次建/查向量库按最新 DEFAULT_VS_TYPE +
+    kbs_config.<type> 重建。
+
+    向量库本身没有「长连接客户端单例」缓存——``KBServiceFactory.get_service`` 每次
+    新建 KBService,所有连接参数从 ``Settings.kb_settings`` **实时读**。真正会让保存
+    不生效的缓存是 ``settings_property`` 包的 ``_cached_settings``:它按 yaml mtime
+    (整秒粒度)做 LRU 缓存,保存后同一秒内再访问可能拿到旧值。这里显式清掉该缓存,
+    下次 ``Settings.kb_settings`` 即强制重读 kb_settings.yaml。
+    """
+    try:
+        from chayuan.pydantic_settings_file import _cached_settings
+        _cached_settings.cache_clear()  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 —— 清缓存失败不应阻断保存(最坏退化到原「需重启」)
+        pass
+
+
 def _field_to_dict(f: Any) -> Dict[str, Any]:
     return {
         "name": f.name,
@@ -129,8 +146,10 @@ def vs_save(body: Dict[str, Any] = Body(...), _=Depends(_ADMIN)) -> Dict[str, An
     doc = res.doc if res.exists else {}
     values = _merge_masked(t, incoming, doc)
     changes = vs_config.save_values(t, values, set_as_default=set_default)
+    # 热生效:清掉缓存的 kb_settings,下次建/查向量库即按最新 DEFAULT_VS_TYPE + kbs_config 重读。
+    reset_vector_store()
     return {
         "code": 0,
         "msg": "ok",
-        "data": {"changed": list(changes.keys()), "needs_restart": True},
+        "data": {"changed": list(changes.keys()), "needs_restart": False},
     }

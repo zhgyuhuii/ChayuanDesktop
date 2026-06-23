@@ -20,7 +20,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from chayuan.server.auth.deps import require_auth_enabled
-from chayuan.server.file_storage import NS, get_storage, reset_cache
+from chayuan.server.file_storage import NS, get_storage, reset_storage
 
 logger = logging.getLogger("chayuan.api.storage")
 
@@ -124,12 +124,12 @@ def storage_switch_backend(
             if isinstance(minio.get("buckets"), dict):
                 bs.MINIO_BUCKETS = minio["buckets"]
         bs.create_template_file(write_file=True)
-        reset_cache()
+        reset_storage()
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"切换失败：{e}")
-    # 重置后新 factory 实例立即生效
+    # 重置后新 factory 实例立即生效(热生效,无需重启)
     new_info = get_storage().backend_info()
-    return {"code": 0, "data": {"backend": backend, "info": new_info}}
+    return {"code": 0, "data": {"backend": backend, "info": new_info, "restart_required": False}}
 
 
 # ---------------------------------------------------------------------------

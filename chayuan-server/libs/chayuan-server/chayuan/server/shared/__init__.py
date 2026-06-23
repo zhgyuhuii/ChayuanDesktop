@@ -68,6 +68,17 @@ def get_redis() -> Optional[Any]:
     return _CLIENT
 
 
+def reset_redis() -> None:
+    """清空进程内 redis 单例,使下次 get_redis() 重读 REDIS_URL 并重建连接。
+
+    后台「保存 Redis 配置」写完 basic_settings.yaml 后调用,即可热生效(无需重启)。
+    """
+    global _CLIENT, _PROBED, _DISABLED_REASON
+    _CLIENT = None
+    _PROBED = False
+    _DISABLED_REASON = ""
+
+
 def disabled_reason() -> str:
     """最近一次 get_redis() 失败 / 跳过的原因（用于 /readyz 与体检页）。"""
     if not _PROBED:

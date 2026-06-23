@@ -80,6 +80,14 @@ def reset_cache() -> None:
         _BY_BACKEND.clear()
 
 
+def reset_storage() -> None:
+    """丢弃缓存的 storage 实例,使下次 get_storage() 按最新
+    FILE_STORAGE_BACKEND / MINIO_* 重建。``reset_cache()`` 的语义别名,
+    供「保存对象存储配置」路由调用,与 reset_redis()/reset_vector_store() 命名保持一致。
+    """
+    reset_cache()
+
+
 def _build(force_backend: Optional[str] = None) -> FileStorage:
     try:
         from chayuan.settings import Settings
