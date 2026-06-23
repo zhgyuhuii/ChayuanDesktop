@@ -57,7 +57,8 @@ export const ErrorDialogRoot: React.FC = () => {
 
   return (
     <Dialog open onOpenChange={(o) => !o && dismiss()}>
-      <DialogContent className="max-w-md">
+      {/* z-[1000]/z-[999]:确保此弹窗浮于拓扑页 z-[500] 手写 modal 之上 */}
+      <DialogContent className="z-[1000] max-w-md" overlayClassName="z-[999]">
         <div className="flex items-start gap-3">
           <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${style.bg} ${style.fg}`}>
             <Icon className="h-5 w-5" />

@@ -12,9 +12,7 @@ import { Button } from '@chayuan/ui';
 import { RedisConfigPage } from '../infra/RedisConfigPage';
 import { DatabaseConfigPage } from '../infra/DatabaseConfigPage';
 import { StorageConfigPage } from '../infra/StorageConfigPage';
-import { ServicesConfigPage } from '../infra/ServicesConfigPage';
 import { VectorStorePage } from '../config/VectorStorePage';
-import { BasicSettingsPage } from '../config/BasicSettingsPage';
 import { LangfuseConfig } from '../config/LangfuseConfigPage';
 import { RefreshCw, Plus, X, Wifi, Settings2 } from 'lucide-react';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
@@ -33,7 +31,8 @@ const STATUS_STYLE: Record<TopologyStatus, { border: string; bg: string; dot: st
 };
 const STATUS_LABEL: Record<TopologyStatus, string> = { ok: '正常', down: '异常', disabled: '未启用', unknown: '未知' };
 
-// config_kind → 复用的配置页组件(点击节点弹窗内渲染);无映射回退「服务配置」页。
+// config_kind → 复用的配置页组件(点击节点弹窗内渲染)。
+// 仅 configurable=true 且 kind 在表中时才渲染配置表单;其余一律走只读面板。
 const CONFIG_COMPONENT: Record<string, { title: string; Comp: React.FC }> = {
   redis: { title: 'Redis 配置', Comp: RedisConfigPage },
   db: { title: '数据库配置', Comp: DatabaseConfigPage },
@@ -41,10 +40,37 @@ const CONFIG_COMPONENT: Record<string, { title: string; Comp: React.FC }> = {
   minio: { title: '对象存储配置', Comp: StorageConfigPage },
   langfuse: { title: 'Langfuse 链路追踪', Comp: LangfuseConfig },
 };
-const DEFAULT_CONFIG = { title: '服务配置', Comp: ServicesConfigPage };
-function configFor(kind: string): { title: string; Comp: React.FC } {
-  return CONFIG_COMPONENT[kind] ?? DEFAULT_CONFIG;
-}
+
+/** 只读状态面板:展示节点 label / 状态 / summary / detail,无表单。 */
+const ReadOnlyStatusPanel: React.FC<{ node: TopologyNode }> = ({ node }) => {
+  const st = STATUS_STYLE[node.status];
+  return (
+    <div className="space-y-4 p-5">
+      <div className="flex items-center gap-3">
+        <span
+          className="inline-block h-3 w-3 rounded-full flex-shrink-0"
+          style={{ background: st.dot }}
+        />
+        <span className="text-sm font-medium">{node.label}</span>
+        <span
+          className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+          style={{ background: st.bg, color: st.dot }}
+        >
+          {STATUS_LABEL[node.status]}
+        </span>
+      </div>
+      {node.summary && (
+        <div className="text-sm opacity-70">{node.summary}</div>
+      )}
+      {node.detail && (
+        <div className="rounded-md bg-[var(--cy-surface-1)] border border-[var(--cy-border-subtle)] px-3 py-2 text-xs opacity-60 font-mono break-all">
+          {node.detail}
+        </div>
+      )}
+      <div className="text-xs opacity-40">此节点不提供可配置项。</div>
+    </div>
+  );
+};
 
 function edgeStatus(a?: TopologyNode, b?: TopologyNode): TopologyStatus {
   if (!a || !b) return 'unknown';
@@ -300,20 +326,25 @@ export const ServiceTopologyPage: React.FC = () => {
                   >
                     {STATUS_LABEL[n.status]}
                   </span>
-                  <button
-                    className="ml-auto inline-flex items-center gap-1 text-[11px] text-[var(--cy-brand-600)] hover:underline"
-                    onClick={() => setCfgNode(n)}
-                  >
-                    <Settings2 className="h-3 w-3" /> 配置
-                  </button>
+                  {/* 仅 configurable=true 的节点显示「配置」按钮 */}
+                  {n.configurable && (
+                    <button
+                      className="ml-auto inline-flex items-center gap-1 text-[11px] text-[var(--cy-brand-600)] hover:underline"
+                      onClick={() => setCfgNode(n)}
+                    >
+                      <Settings2 className="h-3 w-3" /> 配置
+                    </button>
+                  )}
                 </div>
               </div>
             );
           })}
       </div>
 
+      {/* 节点弹窗:configurable=true 且 config_kind 在映射表中 → 配置表单;否则只读面板 */}
       {cfgNode ? (() => {
-        const { title, Comp } = configFor(cfgNode.config_kind);
+        const cfgEntry = cfgNode.configurable ? CONFIG_COMPONENT[cfgNode.config_kind] : undefined;
+        const title = cfgEntry ? cfgEntry.title : cfgNode.label;
         return (
           <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4" onClick={() => setCfgNode(null)}>
             <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -321,7 +352,12 @@ export const ServiceTopologyPage: React.FC = () => {
                 <h3 className="text-sm font-semibold">{cfgNode.label} · {title}</h3>
                 <button onClick={() => setCfgNode(null)} className="opacity-50 hover:opacity-100"><X className="h-4 w-4" /></button>
               </div>
-              <div className="min-h-0 flex-1 overflow-auto"><Comp /></div>
+              <div className="min-h-0 flex-1 overflow-auto">
+                {cfgEntry
+                  ? <cfgEntry.Comp />
+                  : <ReadOnlyStatusPanel node={cfgNode} />
+                }
+              </div>
             </div>
           </div>
         );

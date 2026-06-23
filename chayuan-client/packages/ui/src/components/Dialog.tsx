@@ -27,14 +27,16 @@ export interface DialogContentProps
   extends React.ComponentPropsWithoutRef<typeof RD.Content> {
   /** 强制模式:不渲染右上角关闭 X(Modal 业务侧应同时拦 onOpenChange,否则 Esc / 点遮罩仍可关) */
   hideClose?: boolean;
+  /** 覆盖内置遮罩层的 className(例如需要更高 z-index 时传 "z-[999]") */
+  overlayClassName?: string;
 }
 
 export const DialogContent = React.forwardRef<
   React.ComponentRef<typeof RD.Content>,
   DialogContentProps
->(({ className, children, hideClose, ...p }, ref) => (
+>(({ className, children, hideClose, overlayClassName, ...p }, ref) => (
   <DialogPortal>
-    <DialogOverlay />
+    <DialogOverlay className={overlayClassName} />
     <RD.Content
       ref={ref}
       className={cn(

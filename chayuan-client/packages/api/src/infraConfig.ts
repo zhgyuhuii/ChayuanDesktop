@@ -156,6 +156,7 @@ export interface TopologyNode {
   summary: string;
   detail: string;
   restartable: boolean;
+  configurable: boolean;  // 是否有可操作的配置面板(false 时仅显示只读状态,不渲染「配置」按钮)
   config_kind: string;  // api/panel/nginx/redis/db/milvus/minio/langfuse/kkfileview/runtime
   x: number;
   y: number;
