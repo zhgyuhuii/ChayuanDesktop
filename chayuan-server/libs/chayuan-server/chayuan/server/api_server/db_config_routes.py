@@ -40,7 +40,8 @@ def _is_single_machine() -> bool:
     try:
         from chayuan.server.profiles.bootstrap import is_single_machine
         return bool(is_single_machine())
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — 探测失败时按网络版处理(fail-open),但要可见
+        logger.warning("_is_single_machine probe failed, assuming network mode: %r", e)
         return False
 
 

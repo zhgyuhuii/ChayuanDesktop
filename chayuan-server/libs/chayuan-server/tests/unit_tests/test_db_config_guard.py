@@ -47,6 +47,7 @@ def test_save_rejects_when_validation_fails(monkeypatch):
 
     assert calls["saved"] is False
     assert resp["code"] != 0
+    assert resp["data"]["saved"] is False
 
 
 def test_save_persists_when_validation_ok(monkeypatch):

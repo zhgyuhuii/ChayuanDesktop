@@ -103,16 +103,6 @@ def _create_pooled_engine(uri: str, bs):
     )
 
 
-def _sanitize_uri(uri: str) -> str:
-    """把 URI 里的密码遮成 ``***``,避免凭证明文进日志/异常。
-
-    形如 ``scheme://user:password@host/db`` -> ``scheme://user:***@host/db``。
-    无凭证段则原样返回。
-    """
-    import re
-    return re.sub(r"(://[^:/@\s]+:)[^@/\s]*(@)", r"\1***\2", uri or "")
-
-
 def _build_engine():
     """构造全局 engine。
 
@@ -150,7 +140,10 @@ def _build_engine():
             # 探测失败时按更安全的「非单机」处理:宁可大声失败,也不静默降级 sqlite。
             single_machine = False
 
-        masked = _sanitize_uri(uri)
+        # 复用项目统一的 URL 密码遮蔽器(凭证不入日志/异常)。延迟导入,避免
+        # base.py 早期导入时引入 runtime 包的循环依赖。
+        from chayuan.server.runtime.credentials import mask_password_in_url
+        masked = mask_password_in_url(uri)
 
         if not single_machine:
             # 网络版:绝不静默回退 sqlite。大声失败,逼运维装驱动。
