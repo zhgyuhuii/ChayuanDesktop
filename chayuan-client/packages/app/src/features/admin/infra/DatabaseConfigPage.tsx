@@ -137,12 +137,19 @@ export const DatabaseConfigPage: React.FC = () => {
   };
 
   /**
-   * Poll dbConfig.status() every 2s until:
-   * - configured === true (healthy) → success
-   * - elapsed >= 60s → timeout
+   * Poll dbConfig.status() every 2s until the server has demonstrably restarted, then timeout.
+   *
+   * IMPORTANT: DbStatus.configured is already `true` immediately after save — it only means
+   * "a DB URI is configured", NOT "the server restarted". A naive `configured === true` check
+   * would declare success on the very first poll, before the server has actually gone down →
+   * false positive. So success requires `seenDown` first: we must observe the server go away
+   * (a thrown status() = network error during restart) BEFORE a later successful status() return.
+   * - seenDown && configured  → success (went away, came back)
+   * - elapsed >= 60s          → timeout (manual-restart message; covers "bad new config never came back")
    * Thrown errors during the window are swallowed (server is still restarting).
    */
   const pollUntilHealthy = React.useCallback(async (guard: { cancelled: boolean }) => {
+    let seenDown = false;
     const DEADLINE = Date.now() + 60_000;
     const INTERVAL = 2_000;
 
@@ -152,15 +159,18 @@ export const DatabaseConfigPage: React.FC = () => {
       if (guard.cancelled) return;
       try {
         const s = await dbConfig.status();
-        if (s.configured) {
+        if (seenDown && s.configured) {
+          // Only after the server demonstrably went down and came back.
           if (!guard.cancelled) {
             setRestartPhase('success');
             setSummary(s.summary || '');
           }
           return;
         }
+        // Not yet seen down → this is the pre-restart server still up; keep waiting.
       } catch {
-        // Server is still down — keep polling
+        // Server is down → restart in progress; keep polling.
+        seenDown = true;
       }
     }
     // Deadline expired
@@ -224,7 +234,7 @@ export const DatabaseConfigPage: React.FC = () => {
                 </div>
               )}
               <div className="flex items-center gap-2 pt-1">
-                <Button size="sm" onClick={() => void doRestart()}>
+                <Button size="sm" onClick={() => void doRestart()} disabled={isRestarting}>
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> 立即重启
                 </Button>
                 <button
