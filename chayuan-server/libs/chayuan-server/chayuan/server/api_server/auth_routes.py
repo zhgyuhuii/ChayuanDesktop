@@ -248,13 +248,35 @@ def me(user: Dict[str, Any] = Depends(get_current_user)):
     return UserPublicSchema.model_validate(full)
 
 
-@auth_router.get("/me/modules", summary="当前用户可见的后台模块(RBAC #2)")
+@auth_router.get("/me/modules", summary="当前用户可见的模块(后台 + 前端功能,RBAC #2)")
 def my_modules(user: Dict[str, Any] = Depends(get_current_user)):
-    """前端据此门控后台菜单。admin → 全部模块;其它按角色 modules;未知 → []。"""
+    """前端据此门控后台菜单 + 前端功能(app.* 键)。
+
+    - admin → 全部模块(is_admin=true)。
+    - 其它角色 → 该角色 modules;未知 → []。
+    - single_machine:单机部署(AUTH_REQUIRED=false 的桌面版)→ 前端不做任何功能限制(机主自用)。
+    - is_guest:网络游客(未登录 + 放行)→ 按其默认角色(user)的 app.* 授权管控,
+      admin 可通过配置「user」角色的前端功能勾选项来限制游客可见功能。
+    """
     from chayuan.server.db.repository import role_repository as repo
     role = str(user.get("role") or "")
     modules = repo.effective_modules(role)
-    return {"code": 0, "msg": "ok", "data": {"role": role, "is_admin": role == "admin", "modules": modules}}
+    try:
+        from chayuan.server.profiles import is_single_machine
+        single_machine = bool(is_single_machine())
+    except Exception:  # noqa: BLE001
+        single_machine = False
+    return {
+        "code": 0,
+        "msg": "ok",
+        "data": {
+            "role": role,
+            "is_admin": role == "admin",
+            "is_guest": bool(user.get("is_guest")),
+            "single_machine": single_machine,
+            "modules": modules,
+        },
+    }
 
 
 @auth_router.get("/me/summary", summary="当前用户资料 + 汇总计数")

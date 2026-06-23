@@ -37,6 +37,20 @@ MODULE_CATALOG: List[Dict[str, str]] = [
     {"group": "基础设施", "key": "storage", "label": "对象存储"},
     {"group": "基础设施", "key": "datadir", "label": "数据目录"},
     {"group": "部署", "key": "deployment", "label": "部署授权"},
+    # ── 前端功能(消费端)：角色可按功能授权;键以 app. 前缀,与后台模块区分。
+    # 语义(前端 useFeatureAccess):admin 或「角色未勾选任何 app.* 」→ 不限制(向后兼容,
+    # 老角色不受影响);一旦勾选了部分 app.*,则只放行勾选的功能,其余在主页/侧栏隐藏。
+    {"group": "前端功能", "key": "app.chat", "label": "对话"},
+    {"group": "前端功能", "key": "app.kb", "label": "知识中心"},
+    {"group": "前端功能", "key": "app.ocr", "label": "图转文 OCR"},
+    {"group": "前端功能", "key": "app.asr", "label": "音转文"},
+    {"group": "前端功能", "key": "app.notes", "label": "AI 笔记"},
+    {"group": "前端功能", "key": "app.t2v", "label": "AI 视频生成"},
+    {"group": "前端功能", "key": "app.article-video", "label": "图文成片"},
+    {"group": "前端功能", "key": "app.tts", "label": "语音合成"},
+    {"group": "前端功能", "key": "app.video-edit", "label": "视频编辑"},
+    {"group": "前端功能", "key": "app.digital-human", "label": "数字人"},
+    {"group": "前端功能", "key": "app.model-hub", "label": "模型厂商"},
 ]
 
 ALL_MODULE_KEYS: List[str] = [m["key"] for m in MODULE_CATALOG]

@@ -43,6 +43,7 @@ import { HomeFxLayer } from './homeFx/HomeFxLayer';
 import { CardAura } from './homeFx/CardAura';
 import { LicenseDialog } from '../license/LicenseDialog';
 import { ModelSupportHelpDialog } from '../composer/ModelSupportHelpDialog';
+import { useFeatureAccess } from '../auth/useFeatureAccess';
 
 // ── 5 张功能入口卡定义 ──────────────────────────────────────────────
 interface CapItem {
@@ -51,6 +52,8 @@ interface CapItem {
   title: string;
   subtitle: string;
   to: string;
+  /** 角色「前端功能」授权键(app.*),由 useFeatureAccess 决定是否显示 */
+  featureKey: string;
   /** 卡片渐变 — 视觉系列从冷到暖排序,不同卡有"专属色" */
   gradient: string;
   iconBg: string;
@@ -59,6 +62,7 @@ interface CapItem {
 const CAPS: ReadonlyArray<CapItem> = [
   {
     id: 'kb',
+    featureKey: 'app.kb',
     icon: Library,
     title: '知识库',
     subtitle: '文档 / 结构化 / 向量统一查询',
@@ -68,6 +72,7 @@ const CAPS: ReadonlyArray<CapItem> = [
   },
   {
     id: 'image-to-text',
+    featureKey: 'app.ocr',
     icon: ScanText,
     title: '图转文',
     subtitle: '上传图像 · OCR 自动提取文字 · 富文本编辑 · 导出 Word/MD/TXT',
@@ -77,6 +82,7 @@ const CAPS: ReadonlyArray<CapItem> = [
   },
   {
     id: 'audio-to-text',
+    featureKey: 'app.asr',
     icon: Mic,
     title: '音转文',
     subtitle: '上传音频 · 自动转写并分话人 · 富文本编辑 · 导出 Word/MD/TXT',
@@ -86,6 +92,7 @@ const CAPS: ReadonlyArray<CapItem> = [
   },
   {
     id: 'notes',
+    featureKey: 'app.notes',
     icon: Pen,
     title: 'AI 笔记',
     subtitle: '随手记录 · 实时语音转文字 · 自动入库可检索',
@@ -95,6 +102,7 @@ const CAPS: ReadonlyArray<CapItem> = [
   },
   {
     id: 'ai-video',
+    featureKey: 'app.t2v',
     icon: Wand2,
     title: 'AI视频生成',
     subtitle: '文生 / 图生视频 · AI 模型直接生成画面',
@@ -104,6 +112,7 @@ const CAPS: ReadonlyArray<CapItem> = [
   },
   {
     id: 'video-generation',
+    featureKey: 'app.article-video',
     icon: Clapperboard,
     title: '图文成片',
     subtitle: '主题 → LLM 文案 → TTS → 字幕 → 素材 → 自动合成 mp4',
@@ -113,6 +122,7 @@ const CAPS: ReadonlyArray<CapItem> = [
   },
   {
     id: 'tts',
+    featureKey: 'app.tts',
     icon: Volume2,
     title: '语音合成',
     subtitle: '文字转语音 · 多音色 / 本地引擎(piper / sherpa)· 朗读并导出音频',
@@ -122,6 +132,7 @@ const CAPS: ReadonlyArray<CapItem> = [
   },
   {
     id: 'video-editing',
+    featureKey: 'app.video-edit',
     icon: Film,
     title: '视频编辑',
     subtitle: '时间轴多轨剪辑 · 素材/字幕/音频/画中画 → 合成成片',
@@ -157,6 +168,8 @@ export const HomePage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const open = useTabsStore((s) => s.open);
   const navigate = useNavigate();
+  // RBAC #2:按角色「前端功能」授权过滤功能卡(admin/未限制→全显示)
+  const { canUse } = useFeatureAccess();
 
   const catalogQ = usePlatformCatalogQuery();
   const catalog = catalogQ.data ?? [];
@@ -333,7 +346,7 @@ export const HomePage: React.FC = () => {
           毛玻璃卡:半透明 + backdrop-blur + 顶部高光 + 彩色渐变图标,
           左对齐 图标/标题/副标题。2 行 × 4 列(窄屏 2 列),与首页背景光效叠加。 */}
       <div className="relative z-10 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {CAPS.map((c, i) => {
+        {CAPS.filter((c) => canUse(c.featureKey)).map((c, i) => {
           const Icon = c.icon;
           return (
             <button

@@ -20,6 +20,10 @@ export interface RolesPayload {
 export interface MyModules {
   role: string;
   is_admin: boolean;
+  /** 网络游客(未登录但放行):按 user 角色 app.* 授权管控 */
+  is_guest?: boolean;
+  /** 单机部署(桌面版 AUTH_REQUIRED=false):前端不做任何功能限制 */
+  single_machine?: boolean;
   modules: string[];
 }
 

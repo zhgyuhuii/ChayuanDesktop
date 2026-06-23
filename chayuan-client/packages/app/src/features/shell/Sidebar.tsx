@@ -58,6 +58,7 @@ import {
 } from '../conversations/useConversations';
 import { useComposerStore } from '../../store/composer';
 import { useAuthStore } from '../../store/auth';
+import { useFeatureAccess } from '../auth/useFeatureAccess';
 import { useTabsStore } from '../../store/tabs';
 import { useTranslation } from '../../i18n';
 import { CHAYUAN_LOGO_URL } from '../../lib/brandAssets';
@@ -78,19 +79,21 @@ interface NavItem {
   /** 可展开父菜单:点击只 toggle 不导航 */
   group?: boolean;
   children?: ReadonlyArray<NavItem>;
+  /** 角色「前端功能」授权键(app.*);缺省=不受功能授权限制 */
+  featureKey?: string;
 }
 
 const NAV_ITEMS: ReadonlyArray<NavItem> = [
   {
-    to: '/kb', labelKey: 'nav.knowledge', icon: Library, group: true,
+    to: '/kb', labelKey: 'nav.knowledge', icon: Library, group: true, featureKey: 'app.kb',
     children: [
       { to: '/kb', labelKey: 'nav.knowledgeBase', icon: Library },
       { to: '/video-generation/materials', labelKey: 'nav.materials', icon: FolderOpen },
       { to: '/video-generation/videos', labelKey: 'nav.videos', icon: Video },
     ],
   },
-  { to: '/marketplace', labelKey: 'nav.modelMarket', icon: Server },
-  { to: '/model-gallery', labelKey: 'nav.modelGallery', icon: Store },
+  { to: '/marketplace', labelKey: 'nav.modelMarket', icon: Server, featureKey: 'app.model-hub' },
+  { to: '/model-gallery', labelKey: 'nav.modelGallery', icon: Store, featureKey: 'app.model-hub' },
   { to: '/mcp', labelKey: 'nav.mcp', icon: Plug },
   { to: '/agent-hub', labelKey: 'nav.externalAgent', icon: Bot },
   { to: '/tools', labelKey: 'nav.tools', icon: Wrench },
@@ -127,6 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
   const activeConvId = useComposerStore((s) => s.activeConversationId);
   const open = useTabsStore((s) => s.open);
   const navigate = useNavigate();
+  const { canUse } = useFeatureAccess(); // RBAC #2:前端功能授权门控
   const location = useLocation();
   const [feedbackOpen, setFeedbackOpen] = React.useState(false);
   // 「知识中心」父菜单展开态(持久化;默认展开)
@@ -200,7 +204,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
         </Button>
       </div>
 
-      {/* 新建对话 */}
+      {/* 新建对话(app.chat 授权)*/}
+      {canUse('app.chat') && (
       <div className="px-2">
         <Button
           variant="outline"
@@ -219,11 +224,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse, .
           )}
         </Button>
       </div>
+      )}
 
       {/* 一级入口 */}
       {!collapsed && (
         <nav className="mt-3 flex flex-col gap-0.5 px-2 text-sm">
-          {NAV_ITEMS.map((it) => {
+          {NAV_ITEMS.filter((it) => !it.featureKey || canUse(it.featureKey)).map((it) => {
             const Icon = it.icon;
             // 可展开父菜单(知识中心):点击只 toggle,子项缩进渲染
             if (it.group && it.children) {

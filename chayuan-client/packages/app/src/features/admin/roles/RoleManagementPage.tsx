@@ -96,7 +96,7 @@ const RoleEditDialog: React.FC<{
             </div>
           ) : (
             <div>
-              <div className="mb-2 text-xs font-medium opacity-70">授权后台模块({modules.size})</div>
+              <div className="mb-2 text-xs font-medium opacity-70">授权模块 · 后台域 + 前端功能({modules.size})</div>
               <div className="space-y-3">
                 {groups.map(([group, items]) => {
                   const allOn = items.every((it) => modules.has(it.key));
