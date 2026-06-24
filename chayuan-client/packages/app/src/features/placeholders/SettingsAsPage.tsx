@@ -29,7 +29,7 @@ import {
   type CapabilityDefaultsResponse,
   serverCapabilityDefaults,
 } from '@chayuan/api';
-import { getPlatform } from '@chayuan/platform-shared';
+import { getPlatform, isDesktop } from '@chayuan/platform-shared';
 import { Button, Pill, Slider, Switch, cn } from '@chayuan/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
@@ -142,8 +142,10 @@ export const SettingsAsPage: React.FC = () => {
         />
       </Section>
 
-      {/* 本地模型服务(spec: 2026-05-16) */}
-      <LocalRuntimeServicesSection />
+      {/* 本地模型服务(spec: 2026-05-16)——仅单机版(框架起)对用户暴露。
+          docker / 浏览器网页版属网络版:本地 sidecar 由管理员在后台「系统服务」
+          统一部署管理,普通用户的「系统设置」里不显示这块,避免误操作共享服务。 */}
+      {isDesktop() && <LocalRuntimeServicesSection />}
 
       {/* 默认模型 — 模型厂商配好厂商后,这里挑哪一个用做默认 */}
       <DefaultModelsSection />

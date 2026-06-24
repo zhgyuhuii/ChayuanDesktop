@@ -17,17 +17,14 @@ import * as React from 'react';
 import { copyText, isWeb, isDesktop, getPlatform } from '@chayuan/platform-shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertCircle, Check, Copy, Eye, EyeOff, Folder, HardDrive, Plug, Power, RefreshCw, Server, Settings,
+  Check, Copy, Eye, EyeOff, HardDrive, Plug, Power, RefreshCw, Server, Settings,
 } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import {
   type LocalModelEntry,
   type RuntimeServiceEndpoint,
   type ScanDeltaPayload,
-  type VendorEntry,
-  type VendorPayload,
   runtimeServices,
-  runtimeVendor,
   runtimeModels,
   servicesConfig,
 } from '@chayuan/api';
@@ -37,7 +34,6 @@ import { confirmDialog } from '../../store/confirmDialog';
 import { ServiceSettingsDialog } from './ServiceSettingsDialog';
 
 const SERVICES_KEY = ['runtime', 'services'] as const;
-const VENDOR_KEY = ['runtime', 'vendor'] as const;
 const MODELS_KEY = ['runtime', 'models'] as const;
 
 export const SystemServicesPage: React.FC = () => {
@@ -110,7 +106,6 @@ export const SystemServicesPage: React.FC = () => {
         {/* 完整复用「模型服务」面板:每个 capability 一张卡,可启停/重启/重试/下载/自启;4 列 */}
         <LocalRuntimeServicesSection layout="grid" />
       </section>
-      <VendorSection />
       <LocalModelsSection />
       <ServiceSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
@@ -128,40 +123,20 @@ const ServicesSection: React.FC<{ reveal: boolean }> = ({ reveal }) => {
     queryFn: () => runtimeServices.list({ reveal }),
     staleTime: 5_000,
   });
-  const recheckMut = useMutation({
-    mutationFn: () => runtimeServices.recheck(),
-    onSuccess: () => {
-      notifySuccess('已重新分配端口与凭据');
-      void qc.invalidateQueries({ queryKey: SERVICES_KEY });
-    },
-    onError: (e) => reportError(e, 'service.recheck 失败'),
-  });
-
   return (
     <section className="rounded-lg border bg-card">
       <header className="flex items-center justify-between border-b px-4 py-2">
         <h3 className="text-sm font-medium flex items-center gap-2">
           <Plug className="h-4 w-4" /> 受管服务
         </h3>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => qc.invalidateQueries({ queryKey: SERVICES_KEY })}
-            title="刷新"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={recheckMut.isPending}
-            onClick={() => recheckMut.mutate()}
-          >
-            <Settings className="h-4 w-4 mr-1" />
-            重新分配端口
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => qc.invalidateQueries({ queryKey: SERVICES_KEY })}
+          title="刷新"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </Button>
       </header>
       {services.data?.warning ? (
         <p className="border-b bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
@@ -187,7 +162,7 @@ const ServicesSection: React.FC<{ reveal: boolean }> = ({ reveal }) => {
             {!services.isLoading && (services.data?.services?.length ?? 0) === 0 ? (
               <tr>
                 <td colSpan={6} className="py-6 text-center text-xs text-muted-foreground">
-                  还没有任何服务被记录。先执行一次"重新分配端口"或启动 chayuan。
+                  还没有任何服务被记录。启动 chayuan 后会自动登记。
                 </td>
               </tr>
             ) : null}
@@ -234,87 +209,6 @@ const ServiceRow: React.FC<{ ep: RuntimeServiceEndpoint }> = ({ ep }) => {
     </tr>
   );
 };
-
-// vendor
-// ---------------------------------------------------------------------------
-
-const VendorSection: React.FC = () => {
-  const qc = useQueryClient();
-  const vendor = useQuery<VendorPayload>({
-    queryKey: VENDOR_KEY,
-    queryFn: () => runtimeVendor.list(),
-    staleTime: 30_000,
-  });
-  const groups: Array<[string, VendorEntry[]]> = [
-    ['后端服务（services/）', vendor.data?.services ?? []],
-    ['推理运行时（runtimes/）', vendor.data?.runtimes ?? []],
-    ['未识别（unknown/）', vendor.data?.unknown ?? []],
-  ];
-
-  return (
-    <section className="rounded-lg border bg-card">
-      <header className="flex items-center justify-between border-b px-4 py-2">
-        <h3 className="text-sm font-medium flex items-center gap-2">
-          <Folder className="h-4 w-4" /> Vendor 离线包
-        </h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => qc.invalidateQueries({ queryKey: VENDOR_KEY })}
-          title="重新扫描"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </Button>
-      </header>
-      <p className="border-b bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
-        扫描根目录：<code className="text-[11px]">{vendor.data?.root ?? '(loading)'}</code>。
-        把第三方二进制 / docker-compose.yml 放进 <code>vendor/services/</code> 或 <code>vendor/runtimes/</code> 下相应子目录即可被自动识别（详见仓库 <code>vendor/README.md</code>）。
-      </p>
-      <div className="space-y-4 p-4">
-        {groups.map(([label, items]) => (
-          <div key={label}>
-            <h4 className="mb-2 text-xs font-semibold text-muted-foreground">{label}</h4>
-            {items.length === 0 ? (
-              <div className="text-xs text-muted-foreground">— 空 —</div>
-            ) : (
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {items.map((e) => (
-                  <VendorCard key={`${e.group}-${e.name}`} entry={e} />
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-};
-
-const VendorCard: React.FC<{ entry: VendorEntry }> = ({ entry }) => (
-  <div className={cn('rounded border p-3 text-xs', entry.available ? 'bg-emerald-50/60 dark:bg-emerald-950/20' : 'bg-muted/40')}>
-    <div className="flex items-center justify-between">
-      <div className="font-medium text-sm flex items-center gap-1">
-        {entry.available ? (
-          <Check className="h-4 w-4 text-emerald-600" />
-        ) : (
-          <AlertCircle className="h-4 w-4 text-amber-600" />
-        )}
-        {entry.label}
-      </div>
-      <span className="text-[10px] text-muted-foreground">
-        {entry.kind} · port {entry.default_port || '?'}
-      </span>
-    </div>
-    <div className="mt-1 text-muted-foreground break-all">{entry.path}</div>
-    {entry.binary ? <div className="mt-1">binary: <code>{entry.binary}</code></div> : null}
-    {entry.docker_compose ? <div className="mt-1">compose: <code>{entry.docker_compose}</code></div> : null}
-    {entry.issues.length > 0 ? (
-      <ul className="mt-2 space-y-1 text-amber-700 dark:text-amber-400">
-        {entry.issues.map((it) => (<li key={it}>! {it}</li>))}
-      </ul>
-    ) : null}
-  </div>
-);
 
 // ---------------------------------------------------------------------------
 // local models

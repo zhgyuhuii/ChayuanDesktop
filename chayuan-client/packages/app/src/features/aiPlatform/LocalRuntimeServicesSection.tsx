@@ -29,6 +29,7 @@ import {
   RefreshCw,
   RotateCw,
   Square,
+  X,
 } from 'lucide-react';
 import {
   type AutoStartDict,
@@ -535,41 +536,58 @@ const CapabilityRow: React.FC<CapabilityRowProps> = ({
           )}
         </select>
 
-        <div className="ml-auto flex items-center gap-1.5">
-          {/* 「下载模型」入口 — 任何状态下都可点;noModels 时是主要 CTA。
-             跟启动/停止按钮并列,放在最左侧让缺模型用户第一眼看到。 */}
+        <div className="ml-auto flex items-center gap-1">
+          {/* 图标按钮:hover 显气泡说明,保持卡片紧凑精致。
+             下载模型任何状态可点;noModels 时高亮为主 CTA。 */}
           <Button
-            size="sm"
-            variant={noModels && !isReady ? 'default' : 'outline'}
+            size="icon"
+            variant={noModels && !isReady ? 'default' : 'ghost'}
+            className="h-8 w-8"
             onClick={onOpenInstall}
-            title="去 ModelScope / Hugging Face 找一个模型下到本地"
+            title="下载模型 — 去 ModelScope / Hugging Face 下到本地"
+            aria-label="下载模型"
           >
-            <CloudDownload className="mr-1 h-3.5 w-3.5" />
-            下载模型
+            <CloudDownload className="h-4 w-4" />
           </Button>
           {!isReady && (
             <Button
-              size="sm"
+              size="icon"
+              className="h-8 w-8"
               onClick={onStart}
               disabled={isPending || noModels}
+              title={isFailed ? '重试启动' : '启动'}
+              aria-label={isFailed ? '重试启动' : '启动'}
             >
               <Play
-                className={'mr-1 h-3.5 w-3.5' + (pending === 'start' ? ' animate-pulse' : '')}
+                className={'h-4 w-4' + (pending === 'start' ? ' animate-pulse' : '')}
               />
-              {isFailed ? '重试' : '启动'}
             </Button>
           )}
           {isReady && (
             <>
-              <Button size="sm" variant="outline" onClick={onRestart} disabled={isPending}>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                onClick={onRestart}
+                disabled={isPending}
+                title="重启"
+                aria-label="重启"
+              >
                 <RotateCw
-                  className={'mr-1 h-3.5 w-3.5' + (pending === 'restart' ? ' animate-spin' : '')}
+                  className={'h-4 w-4' + (pending === 'restart' ? ' animate-spin' : '')}
                 />
-                重启
               </Button>
-              <Button size="sm" variant="outline" onClick={onStop} disabled={isPending}>
-                <Square className="mr-1 h-3.5 w-3.5" />
-                停止
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                onClick={onStop}
+                disabled={isPending}
+                title="停止"
+                aria-label="停止"
+              >
+                <Square className="h-4 w-4" />
               </Button>
             </>
           )}
@@ -724,20 +742,40 @@ const OcrSidecarRow: React.FC = () => {
 
         <div className="ml-auto flex items-center gap-1">
           {isReady ? (
-            <Button size="sm" variant="outline" onClick={onStop} disabled={isPending}>
-              <Square className="mr-1 h-3.5 w-3.5" />
-              {pending === 'stop' ? '停止中…' : '停止'}
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/40"
+              onClick={onStop}
+              disabled={isPending}
+              title={pending === 'stop' ? '停止中…' : '停止'}
+              aria-label="停止"
+            >
+              <Square className={'h-4 w-4' + (pending === 'stop' ? ' animate-pulse' : '')} />
             </Button>
           ) : (
-            <Button size="sm" onClick={onStart} disabled={isPending}>
-              <Play className="mr-1 h-3.5 w-3.5" />
-              {pending === 'start' ? '启动中…' : '启动'}
+            <Button
+              size="icon"
+              className="h-8 w-8"
+              onClick={onStart}
+              disabled={isPending}
+              title={pending === 'start' ? '启动中…' : '启动'}
+              aria-label="启动"
+            >
+              <Play className={'h-4 w-4' + (pending === 'start' ? ' animate-pulse' : '')} />
             </Button>
           )}
           {isReady && (
-            <Button size="sm" variant="outline" onClick={onStart} disabled={isPending}>
-              <RotateCw className="mr-1 h-3.5 w-3.5" />
-              重启
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              onClick={onStart}
+              disabled={isPending}
+              title="重启"
+              aria-label="重启"
+            >
+              <RotateCw className="h-4 w-4" />
             </Button>
           )}
         </div>
@@ -1416,20 +1454,28 @@ const RuntimeServicesRow: React.FC = () => {
                 </code>
               )}
 
-              <div className="ml-auto flex items-center gap-1.5">
+              <div className="ml-auto flex items-center gap-1">
                 {!eng.present && eng.downloadable && !isDownloading && (
-                  <Button size="sm" onClick={() => void onDownload(eng.engine)}>
-                    <CloudDownload className="mr-1 h-3.5 w-3.5" />
-                    下载
+                  <Button
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => void onDownload(eng.engine)}
+                    title="下载"
+                    aria-label="下载"
+                  >
+                    <CloudDownload className="h-4 w-4" />
                   </Button>
                 )}
                 {isDownloading && job && (
                   <Button
-                    size="sm"
-                    variant="outline"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/40"
                     onClick={() => void onCancel(eng.engine, job.id)}
+                    title="取消下载"
+                    aria-label="取消下载"
                   >
-                    取消
+                    <X className="h-4 w-4" />
                   </Button>
                 )}
               </div>

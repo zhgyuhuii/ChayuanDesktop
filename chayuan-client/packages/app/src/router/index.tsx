@@ -182,6 +182,9 @@ const workspaceRoutes: ReadonlyArray<{ path: string; id: string }> = [
   { path: '/settings', id: 'settings' },
   { path: '/tools', id: 'tools' },
   { path: '/mcp', id: 'mcp' },
+  // 外部 Agent 托管页(OpenClaw / Hermes)— 真正渲染走 page-registry,
+  // 但必须在此登记,否则 navigate('/agent-hub') 会被 TanStack Router 判 404「页面不存在」。
+  { path: '/agent-hub', id: 'agent-hub' },
   { path: '/help', id: 'help' },
   { path: '/notes/new', id: 'notes-new' },
   { path: '/image-to-text', id: 'image-to-text' },
