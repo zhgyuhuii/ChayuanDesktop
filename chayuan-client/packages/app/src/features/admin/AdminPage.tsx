@@ -64,12 +64,14 @@ const ADMIN_GROUPS: AdminGroup[] = [
     { key: 'kbcfg', label: '知识库配置', icon: BookOpen },
     { key: 'kbmanage', label: '知识库管理', icon: BookOpen },
   ] },
+  // 监控:整组从主菜单隐藏。各 tab 仍可经 URL /admin/<key> 访问,组件不删
+  // (与「基础设施」组同款:全部 hidden -> 渲染时该组无可见项,标题自动不出现)。
   { title: '监控', items: [
-    { key: 'traces', label: '最近 Trace', icon: Activity },
-    { key: 'scores', label: 'Scores', icon: TrendingUp },
-    { key: 'perf', label: '性能', icon: Gauge },
-    { key: 'outbox', label: 'Outbox', icon: Database },
-    { key: 'prompts', label: 'Prompt', icon: Shield },
+    { key: 'traces', label: '最近 Trace', icon: Activity, hidden: true },
+    { key: 'scores', label: 'Scores', icon: TrendingUp, hidden: true },
+    { key: 'perf', label: '性能', icon: Gauge, hidden: true },
+    { key: 'outbox', label: 'Outbox', icon: Database, hidden: true },
+    { key: 'prompts', label: 'Prompt', icon: Shield, hidden: true },
   ] },
   // 基础设施:整组从主菜单隐藏(D4)。配置改由首启「配置向导」+ 服务状态拓扑节点点击承担;
   // 各 tab 仍可经 URL /admin/<key>、拓扑节点点击、向导内部跳转访问,组件不删。
