@@ -72,12 +72,11 @@ import {
   appendMessage,
 } from '../conversations/persistence';
 import { CONVERSATION_KEYS } from '../conversations/useConversations';
-import { AddStructuredSourceDialog } from './AddStructuredSourceDialog';
 import { KbDetailDialog } from './KbDetailDialog';
 import { useKbImageSearch } from './shared/useKbImageSearch';
 import { KbDropZone } from './upload/KbDropZone';
 import { KbProgressBar } from './components/KbProgressBar';
-import { CreateKbDialog } from './create/CreateKbDialog';
+import { KbCreateFlow } from './create/KbCreateFlow';
 import { KbCard } from './KbCard';
 import { EditKbInfoDialog } from './KbAdminMenu';
 import { sourceIdFromKuId } from './SchemaScopePicker';
@@ -164,7 +163,6 @@ export const KbBoard: React.FC = () => {
   const [keyword, setKeyword] = React.useState('');
   // 类型筛选 chip:'' 表示全部 kind
   const [kindFilter, setKindFilter] = React.useState<KuKind | ''>('');
-  const [addStructuredOpen, setAddStructuredOpen] = React.useState(false);
   // 新建知识库对话框:open + 默认 kind(从 Header 哪个按钮触发决定)
   const [createOpen, setCreateOpen] = React.useState<{ kind?: KuKind } | null>(null);
   const [chatStarted, setChatStarted] = React.useState(false);
@@ -600,7 +598,7 @@ export const KbBoard: React.FC = () => {
               onView={setView}
               onCreate={() => setCreateOpen({})}
               onCreateDoc={() => setCreateOpen({ kind: 'document' })}
-              onCreateDb={() => setAddStructuredOpen(true)}
+              onCreateDb={() => setCreateOpen({ kind: 'structured' })}
               onCreateImage={() => setCreateOpen({ kind: 'image' })}
               onCreateVector={() => setCreateOpen({ kind: 'vector' })}
               onAiNote={goToAiNote}
@@ -715,16 +713,10 @@ export const KbBoard: React.FC = () => {
         />
       )}
 
-      <AddStructuredSourceDialog
-        open={addStructuredOpen}
-        onOpenChange={setAddStructuredOpen}
-      />
-
-      <CreateKbDialog
+      <KbCreateFlow
         open={createOpen != null}
         initialKind={createOpen?.kind}
         onOpenChange={(o) => { if (!o) setCreateOpen(null); }}
-        onPickStructured={() => setAddStructuredOpen(true)}
         onCreated={(kuId) => {
           // 刚建好就让用户能看到+操作:在 TabBar 上新开一个详情 Tab
           // refetch 先跑,onOpenKb 才能拿到正确的 display_name
