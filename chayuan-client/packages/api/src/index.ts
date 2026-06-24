@@ -8,6 +8,7 @@ export * from './roles';
 export * from './errors';
 export * from './auth-store';
 export * from './endpoints';
+export * from './kbSummarize';
 export * from './marketplace';
 export * from './imageModels';
 export * from './modelPlatform';

@@ -19,6 +19,7 @@ import {
   Layers,
   PanelLeftClose,
   RefreshCw,
+  ScrollText,
   Search,
   Trash2,
   Upload,
@@ -30,6 +31,7 @@ import { reportError, notifySuccess } from '../../../store/errorDialog';
 import { useAuthStore } from '../../../store/auth';
 import { usePreviewStore } from '../../preview';
 import { RemoteSyncDialog } from '../sync/RemoteSyncDialog';
+import { FileSummaryDialog } from './FileSummaryDialog';
 import { confirmDuplicateUpload } from '../upload/duplicateCheck';
 import type { DetailPanelProps } from './types';
 
@@ -60,6 +62,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
   const [busy, setBusy] = React.useState(false);
   const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
   const [chunkFile, setChunkFile] = React.useState<string | null>(null);
+  const [summaryFile, setSummaryFile] = React.useState<string | null>(null);
   const [reindexTask, setReindexTask] = React.useState<ReindexTaskState | null>(null);
 
   const filtered = React.useMemo<DocumentFile[]>(() => {
@@ -311,6 +314,12 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
         onClose={() => setChunkFile(null)}
         onSaved={() => onMutate()}
       />
+      <FileSummaryDialog
+        open={summaryFile != null}
+        kbName={detail.meta.name}
+        fileName={summaryFile ?? ''}
+        onOpenChange={(open) => { if (!open) setSummaryFile(null); }}
+      />
 
       {uploadRatio !== null && (
         <div className="border-b border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-4 py-2">
@@ -376,6 +385,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
                   onChunks={() => setChunkFile(f.file_name)}
                   onReindex={() => runReindex([f.file_name])}
                   onDelete={() => void onDeleteOne(f.file_name)}
+                  onSummarize={() => setSummaryFile(f.file_name)}
                 />
               ))}
             </tbody>
@@ -568,7 +578,8 @@ const FileRow: React.FC<{
   onChunks(): void;
   onReindex(): void;
   onDelete(): void;
-}> = ({ file, kbName, ingestTask, mine, checked, onToggle, onChunks, onReindex, onDelete }) => {
+  onSummarize(): void;
+}> = ({ file, kbName, ingestTask, mine, checked, onToggle, onChunks, onReindex, onDelete, onSummarize }) => {
   const openPreview = usePreviewStore((s) => s.open);
   const progress = fileIngestProgress(file.file_name, ingestTask);
   const onPreview = () => {
@@ -626,6 +637,15 @@ const FileRow: React.FC<{
           title="下载"
         >
           <Download className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onSummarize}
+          aria-label="总结全文"
+          className={cn('mx-0.5 rounded p-1 text-[var(--cy-text-tertiary)] hover:bg-[var(--cy-surface-2)] hover:text-[var(--cy-text-primary)]')}
+          title="总结全文(站在整篇归纳)"
+        >
+          <ScrollText className="h-3.5 w-3.5" />
         </button>
         <button
           type="button"
