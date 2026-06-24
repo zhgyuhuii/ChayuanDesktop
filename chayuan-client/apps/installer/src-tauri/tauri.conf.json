@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "察元下载构建器",
-  "version": "2.0.286",
+  "version": "2.0.287",
   "identifier": "com.chayuan.installer",
   "build": {
     "frontendDist": "../dist",

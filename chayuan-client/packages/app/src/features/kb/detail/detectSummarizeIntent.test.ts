@@ -32,6 +32,15 @@ describe('detectSummarizeIntent', () => {
     expect(detectSummarizeIntent('产品手册主要讲了啥', files)).toEqual({ fileName: '产品手册.docx' });
   });
 
+  it('部分指代:用户只说「答辩状」而文件名更长', () => {
+    const fs = ['民事答辩状最终版.docx', '起诉状.pdf'];
+    expect(detectSummarizeIntent('答辩状文件讲了什么', fs)).toEqual({ fileName: '民事答辩状最终版.docx' });
+  });
+  it('部分指代歧义:两个文件都含该词 → null', () => {
+    const fs = ['民事答辩状.docx', '答辩状补充.docx'];
+    expect(detectSummarizeIntent('答辩状讲了什么', fs)).toBeNull();
+  });
+
   it('空 query → null', () => {
     expect(detectSummarizeIntent('', files)).toBeNull();
   });
