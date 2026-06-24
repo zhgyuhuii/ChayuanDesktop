@@ -42,16 +42,19 @@ done
 VERSION="$(tr -d ' \t\r\n' < VERSION)"
 [ -n "$VERSION" ] || { echo "[build] VERSION 为空" >&2; exit 1; }
 
-# 2) base tag = poetry.lock 内容哈希(依赖不变则哈希不变 -> base 复用)
+# 2) base tag = (poetry.lock + Dockerfile.base) 内容哈希。
+#    关键:把 Dockerfile.base 一起算进哈希 —— 改了 Dockerfile.base(如新增 minio 预装)
+#    即便 poetry.lock 没变,BASE_TAG 也会变 -> 自动重建 base,不必再记得手动 --rebuild-base。
+#    (Docker 层缓存仍在:未变的 apt/poetry 层照样命中,只跑新增/改动的那层,不会重下全量依赖。)
 LOCK="chayuan-server/libs/chayuan-server/poetry.lock"
 [ -f "$LOCK" ] || { echo "[build] 找不到 $LOCK" >&2; exit 1; }
-LOCK_HASH="$(sha256sum "$LOCK" | cut -c1-12)"
+LOCK_HASH="$(cat "$LOCK" docker/Dockerfile.base | sha256sum | cut -c1-12)"
 BASE_TAG="chayuan-base:${LOCK_HASH}"
 
-# 2b) web base tag = pnpm-lock.yaml 内容哈希(前端依赖不变则复用,pnpm fetch 不重拉)
+# 2b) web base tag = (pnpm-lock.yaml + Dockerfile.webbase) 内容哈希(同理,改 webbase 自动重建)
 PNPM_LOCK="chayuan-client/pnpm-lock.yaml"
 [ -f "$PNPM_LOCK" ] || { echo "[build] 找不到 $PNPM_LOCK" >&2; exit 1; }
-PNPM_LOCK_HASH="$(sha256sum "$PNPM_LOCK" | cut -c1-12)"
+PNPM_LOCK_HASH="$(cat "$PNPM_LOCK" docker/Dockerfile.webbase | sha256sum | cut -c1-12)"
 WEB_BASE_TAG="chayuan-web-base:${PNPM_LOCK_HASH}"
 
 echo "[build] VERSION=${VERSION}  BASE=${BASE_TAG}  WEB_BASE=${WEB_BASE_TAG}"
