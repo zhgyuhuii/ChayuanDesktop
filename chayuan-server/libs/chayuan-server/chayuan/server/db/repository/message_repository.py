@@ -1,5 +1,5 @@
 import uuid
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from chayuan.server.db.models.message_model import MessageModel
 from chayuan.server.db.session import async_session_scope, with_session
@@ -130,19 +130,23 @@ async def update_message_async(
 
 
 async def filter_message_async(
-    conversation_id: str, limit: int = 10,
+    conversation_id: str, limit: int = 10, user_id: Optional[int] = None,
 ) -> List[Dict]:
-    """async 版 ``filter_message``。"""
+    """async 版 ``filter_message``。user_id 为可选 defense-in-depth 过滤。"""
     async with async_session_scope() as s:
         if s is None:
-            return filter_message(conversation_id=conversation_id, limit=limit)
+            return filter_message(
+                conversation_id=conversation_id, limit=limit, user_id=user_id,
+            )
         from sqlalchemy import select
         stmt = (
             select(MessageModel)
             .where(MessageModel.conversation_id == conversation_id)
             .where(MessageModel.response != "")
-            .order_by(MessageModel.create_time.desc())
         )
+        if user_id is not None:
+            stmt = stmt.where(MessageModel.user_id.in_((None, user_id)))
+        stmt = stmt.order_by(MessageModel.create_time.desc())
         if limit >= 0:
             stmt = stmt.limit(limit)
         rows = (await s.execute(stmt)).scalars().all()
@@ -153,7 +157,9 @@ async def filter_message_async(
 
 
 @with_session
-def filter_message(session, conversation_id: str, limit: int = 10):
+def filter_message(
+    session, conversation_id: str, limit: int = 10, user_id: Optional[int] = None,
+):
     # limit < 0 表示不限制条数（API 默认 history_len=-1）。SQLite 曾用 LIMIT -1 表示无上限；
     # PostgreSQL 禁止 LIMIT 为负，故仅在 limit >= 0 时加 limit。
     q = (
@@ -161,8 +167,10 @@ def filter_message(session, conversation_id: str, limit: int = 10):
         .filter_by(conversation_id=conversation_id)
         # 用户最新的 query 也会插入到 db，忽略这个 message record
         .filter(MessageModel.response != "")
-        .order_by(MessageModel.create_time.desc())
     )
+    if user_id is not None:
+        q = q.filter(MessageModel.user_id.in_((None, user_id)))
+    q = q.order_by(MessageModel.create_time.desc())
     if limit >= 0:
         q = q.limit(limit)
     messages = q.all()
