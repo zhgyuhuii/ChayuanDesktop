@@ -30,8 +30,8 @@ def _seat_disabled() -> bool:
     return os.environ.get("CHAYUAN_SEAT_DISABLED", "").strip().lower() in ("1", "true", "yes")
 
 
-def deployment_fingerprint(root: Path) -> str:
-    """稳定的部署指纹；首次生成并持久化到 deployment_id.json。"""
+def _file_deployment_fingerprint(root: Path) -> str:
+    """单机版:部署指纹存本地 deployment_id.json(原逻辑,保桌面零变化)。"""
     p = root / _DEPLOYMENT_ID_FILE
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -49,7 +49,7 @@ def deployment_fingerprint(root: Path) -> str:
     return fp
 
 
-def read_deployment_license(root: Path) -> Optional[dict]:
+def _file_read_license(root: Path) -> Optional[dict]:
     try:
         data = json.loads((root / _DEPLOYMENT_LICENSE_FILE).read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else None
@@ -57,9 +57,32 @@ def read_deployment_license(root: Path) -> Optional[dict]:
         return None
 
 
-def write_deployment_license(root: Path, data: dict) -> None:
+def _file_write_license(root: Path, data: dict) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / _DEPLOYMENT_LICENSE_FILE).write_text(json.dumps(data), encoding="utf-8")
+
+
+def deployment_fingerprint(root: Path) -> str:
+    """部署指纹。单机→本地文件;网络版→共享 DB(seat_store,多节点一致)。"""
+    if is_single_machine():
+        return _file_deployment_fingerprint(root)
+    from chayuan.server.license import seat_store
+    return seat_store.get_fingerprint(root)
+
+
+def read_deployment_license(root: Path) -> Optional[dict]:
+    if is_single_machine():
+        return _file_read_license(root)
+    from chayuan.server.license import seat_store
+    return seat_store.read_license(root)
+
+
+def write_deployment_license(root: Path, data: dict) -> None:
+    if is_single_machine():
+        _file_write_license(root, data)
+        return
+    from chayuan.server.license import seat_store
+    seat_store.write_license(root, data)
 
 
 def _expired(lic: dict, now: Optional[float] = None) -> bool:

@@ -62,3 +62,22 @@ def test_idempotent_does_not_overwrite(tmp_path):
     with session_scope() as s:
         assert s.query(DeploymentIdentityModel).count() == 1
         assert s.get(DeploymentIdentityModel, "deployment").fingerprint == fp1
+
+
+def test_single_machine_uses_file_not_db(tmp_path, monkeypatch):
+    from chayuan.server.license import seat
+    monkeypatch.setenv("CHAYUAN_PROFILE", "single-machine")
+    fp = seat.deployment_fingerprint(tmp_path)
+    assert fp and len(fp) == 32
+    assert (tmp_path / "deployment_id.json").exists()        # 单机写了文件
+    with session_scope() as s:                               # 单机没碰 DB 表
+        assert s.query(DeploymentIdentityModel).count() == 0
+
+def test_network_uses_db_not_file(tmp_path, monkeypatch):
+    from chayuan.server.license import seat
+    monkeypatch.delenv("CHAYUAN_PROFILE", raising=False)
+    fp = seat.deployment_fingerprint(tmp_path)
+    assert fp
+    assert not (tmp_path / "deployment_id.json").exists()    # 网络版不写文件
+    with session_scope() as s:
+        assert s.query(DeploymentIdentityModel).count() == 1
