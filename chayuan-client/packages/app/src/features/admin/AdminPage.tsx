@@ -140,19 +140,20 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
     if (wizardCheckedRef.current) return;
     if (!user || user.role !== 'admin') return;
     wizardCheckedRef.current = true;
-    let alive = true;
+    // ⚠ 不要用 effect-cleanup 的 `alive` 标志去 gate setShowWizard:auth store 在
+    // hydrate 期间常多次更新 user(注册后随即 me()/刷新 token → 新 user 引用),依赖
+    // [user] 变化会先跑 cleanup 再 re-run;此时 wizardCheckedRef 已 true 直接 return,
+    // 而首次 fetch 回来时 alive 已被 cleanup 置 false → setShowWizard 被吞,向导永不弹
+    // (StrictMode 双挂载同理)。AdminPage 在管理会话内不会卸载,setState 直接生效即可。
     void (async () => {
       try {
         const st = await wizard.state();
-        if (alive && !st.completed) setShowWizard(true);
+        if (!st.completed) setShowWizard(true);
       } catch (e) {
         // 取状态失败:不打开向导,不阻塞后台。留 breadcrumb 便于排查「向导从不弹」。
         console.debug('[wizard] state fetch failed, skip auto-open', e);
       }
     })();
-    return () => {
-      alive = false;
-    };
   }, [user]);
   // RBAC #2:按当前用户角色的模块门控菜单。admin → is_admin=true → 不过滤(allowed=null)。
   const myModules = useQuery({
