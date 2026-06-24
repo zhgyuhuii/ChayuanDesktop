@@ -5,6 +5,7 @@
  * 额外:顶部 Langfuse 连通检测横幅(#12),复用 /admin/health。
  */
 import * as React from 'react';
+import { isDesktop } from '@chayuan/platform-shared';
 import { SchemaForm } from './SchemaForm';
 import { useLfHealth } from '../useLfApi';
 import { RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
@@ -45,11 +46,13 @@ const LangfuseProbe: React.FC = () => {
 };
 
 export const BasicSettingsPage: React.FC = () => {
+  // 单机桌面版端口/绑定由服务端固定分配(52581 等),隐藏避免误改;
+  // 网络版(docker)admin 需要能改 0.0.0.0(对外)/127.0.0.1(仅本机)+端口,故放开该组。
+  const hiddenSections = isDesktop() ? ['服务器绑定地址'] : [];
   return (
     <div>
       <LangfuseProbe />
-      {/* #9:服务器绑定/端口由服务端固定分配(52581/52582 等),隐藏避免误改。 */}
-      <SchemaForm file="basic_settings" hiddenSections={['服务器绑定地址']} />
+      <SchemaForm file="basic_settings" hiddenSections={hiddenSections} />
     </div>
   );
 };
