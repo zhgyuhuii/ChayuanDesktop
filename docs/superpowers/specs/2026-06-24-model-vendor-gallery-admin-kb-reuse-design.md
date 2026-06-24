@@ -51,3 +51,33 @@
 ## 里程碑
 - M1:Part 1 + Part 2(低风险快赢)。
 - M2:Part 3 — KbBoard adminMode + KbDetailPage adminMode + 退役 KbManagePage。
+
+---
+
+## M2 执行计划(已确认:抽取共享详情体)
+
+> 背景修正:KbBoard / KbDetailPage 均为 chat-first(主面板是会话),不能整体嵌后台。
+> 改为抽取「文件列表 + 预览 + 上传」这条与对话无关的详情体,两端共用。
+
+### Step 1 — 抽取共享详情体(零行为变更,先保前端不回归)
+- 新建 `features/kb/detail/KbFilesBody.tsx`:把 KbDetailPage 里**与对话无关**的部分搬出:
+  文件列表(slot A)+ 拖拽上传(KbDropZone)+ `<PreviewPanel embedded />`(右列)+
+  文件选择/刷新逻辑。props:`{ detail, canWrite, onMutate, rightSlot?: ReactNode }`。
+- KbDetailPage 改为:Header + DetailLayoutSwitch + `<KbFilesBody ... rightSlot={<ConversationView/>}>`,
+  对话相关 state(convId/chatCollapsed/composer)仍留在 KbDetailPage。
+- 验收:前端 /kb 详情行为、布局、折叠完全不变(纯抽取)。
+
+### Step 2 — 后台详情用共享体 + 管理面板(无对话)
+- 新建 `features/admin/kbmanage/KbAdminDetail.tsx`:`<KbFilesBody detail ... rightSlot={<管理面板/>}>`,
+  管理面板 = 可见性/owner/授权(kbAcl + GrantsDialog)+ 分片查看/编辑/删除/重向量化
+  (从旧 KbManagePage 详情搬入)。无 ConversationView。
+- KbManagePage:网格(已复用 KbCard)保留;点卡片 → 渲染 `<KbAdminDetail kuId onBack/>`,
+  替掉原有的自实现内联详情。
+
+### Step 3 — 收尾
+- 删旧 KbManagePage 里被取代的内联文件/分片块;GrantsDialog 继续复用。
+- typecheck(需 node 环境)。
+
+### 风险与回归保护
+- Step 1 是纯抽取,必须先保证前端 /kb 详情零行为变更再进 Step 2。
+- KbFilesBody 不得引入 composer/tabs 依赖(对话相关留在 KbDetailPage),保证后台可干净复用。
