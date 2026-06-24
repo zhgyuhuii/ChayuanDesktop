@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, List, Literal, Optional
 from dateutil.parser import parse
 
 from chayuan.settings import Settings
-from chayuan.server.db.base import Base, engine
+from chayuan.server.db.base import Base, get_engine
 
 # 副作用 import:把全部 ORM model 类挂到 ``Base.metadata`` 上,
 # 否则 ``create_all`` 漏建 model_platform / model_metadata / annotation 等表,
@@ -67,11 +67,11 @@ def create_tables():
         # bootstrap 本身出异常不应掩盖真正的 DDL 错误，只记日志。
         logger.warning(f"[db-bootstrap] 跳过自动建库：{type(e).__name__}: {e}")
 
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=get_engine())
 
 
 def reset_tables():
-    Base.metadata.drop_all(bind=engine)
+    Base.metadata.drop_all(bind=get_engine())
     create_tables()
 
 

@@ -181,6 +181,13 @@ engine = _build_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def get_engine():
+    """返回当前主 engine。运行期 engine 可能被 ``rebuild_engine()`` 热切换,
+    别在模块顶层 ``from db.base import engine`` 捕获旧引用——要么用本访问器,
+    要么在函数内 import(函数内 import 每次会重新取到最新的全局 engine)。"""
+    return engine
+
+
 def probe_db_writable() -> bool:
     """启动期探一次主 DB 是否真能写:取一次写锁(``BEGIN IMMEDIATE``)再 ``ROLLBACK``,
     不改数据。只读 / 打不开时打一条醒目可操作的错误(带库路径 + chown 命令)并返回
@@ -317,3 +324,42 @@ def get_async_session_maker():
     if get_async_engine() is None:
         return None
     return _async_session_maker
+
+
+def rebuild_engine():
+    """运行期按当前 Settings 重建主 engine 并原地重绑 SessionLocal(DB 配置热更)。
+
+    用于「保存数据库配置后立即生效、无需重启」。调用前提:调用方已写好新的
+    ``SQLALCHEMY_DATABASE_URI`` 并调用 ``shared.clear_settings_lru()``,使
+    ``_build_engine()`` 读到新 URI(settings 是按 mtime 整秒 key 的 LRU,
+    同秒 save+read 会拿到旧值,必须显式清缓存)。
+
+    流程:
+      1. 先按新配置 ``_build_engine()``——失败直接抛(网络版缺驱动等),
+         **旧 engine 原样保留**,不会把服务打挂;
+      2. 成功后 reassign 全局 ``engine`` + ``SessionLocal.configure(bind=new)``。
+         SessionLocal 是同一个 sessionmaker 对象,所有已 ``import SessionLocal``
+         的模块下次 ``SessionLocal()`` 自动用新 engine,无需改调用点;
+      3. 重置 async engine(下次 ``get_async_engine()`` 按新 URI 懒建);
+      4. dispose 旧 engine(关闭池内空闲连接;已 checkout 的连接归还后关闭)。
+    """
+    global engine, _async_engine, _async_session_maker, _async_tried
+    old = engine
+    new = _build_engine()  # 失败直接抛,旧 engine 不动
+    engine = new
+    SessionLocal.configure(bind=new)
+    old_async = _async_engine
+    _async_engine = None
+    _async_session_maker = None
+    _async_tried = False
+    if old_async is not None:
+        try:
+            old_async.sync_engine.dispose()
+        except Exception:  # noqa: BLE001
+            pass
+    if old is not None and old is not new:
+        try:
+            old.dispose()
+        except Exception:  # noqa: BLE001
+            pass
+    return new

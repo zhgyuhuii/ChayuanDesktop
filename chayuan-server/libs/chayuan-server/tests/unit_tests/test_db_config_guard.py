@@ -157,3 +157,54 @@ def test_base_network_mode_no_silent_sqlite_fallback(monkeypatch):
     sqlite_built["hit"] = False
     db_base._build_engine()
     assert sqlite_built["hit"] is True
+
+
+def _patch_save_ok(monkeypatch):
+    """validate ok + 假落盘 + 非单机,公共桩。"""
+    monkeypatch.setattr(
+        db_config_routes,
+        "_validate_uri",
+        lambda uri, timeout=5: {"ok": True, "message": "", "detail": "", "db_missing": False},
+    )
+    monkeypatch.setattr(db_config_routes.yaml_store, "save_updates", lambda *a, **k: None)
+    monkeypatch.setattr(db_config_routes, "_is_single_machine", lambda: False)
+    import chayuan.server.shared as shared
+    monkeypatch.setattr(shared, "clear_settings_lru", lambda: None)
+
+
+def test_save_hot_applies_no_restart(monkeypatch):
+    """热更成功 -> restart_required=False, hot_applied=True。"""
+    pytest.importorskip("sqlalchemy")
+    _patch_save_ok(monkeypatch)
+    import chayuan.server.db.base as db_base
+    import chayuan.server.db.migrator as migrator
+    monkeypatch.setattr(db_base, "rebuild_engine", lambda: None)
+    monkeypatch.setattr(migrator, "bootstrap", lambda: None)
+
+    resp = db_config_routes._save_db_config(_minimal_pg_body())
+
+    assert resp["code"] == 0
+    assert resp["data"]["saved"] is True
+    assert resp["data"]["hot_applied"] is True
+    assert resp["data"]["restart_required"] is False
+    assert resp["data"]["hot_error"] is None
+
+
+def test_save_hot_apply_failure_falls_back_to_restart(monkeypatch):
+    """热更抛错(如缺驱动)-> 已落盘但 restart_required=True、hot_applied=False、带 hot_error;不把服务打挂。"""
+    pytest.importorskip("sqlalchemy")
+    _patch_save_ok(monkeypatch)
+    import chayuan.server.db.base as db_base
+
+    def _boom():
+        raise RuntimeError("psycopg2 missing")
+
+    monkeypatch.setattr(db_base, "rebuild_engine", _boom)
+
+    resp = db_config_routes._save_db_config(_minimal_pg_body())
+
+    assert resp["code"] == 0
+    assert resp["data"]["saved"] is True
+    assert resp["data"]["hot_applied"] is False
+    assert resp["data"]["restart_required"] is True
+    assert resp["data"]["hot_error"]

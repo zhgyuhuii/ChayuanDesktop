@@ -83,7 +83,7 @@ export const StorageConfigPage: React.FC = () => {
     setBusy(true);
     try {
       await storageConfig.switch(backend, backend === 'minio' ? minio : undefined);
-      notifySuccess('已保存 — 重启服务后生效');
+      notifySuccess('已保存,立即生效');
       await load();
     } catch (e) {
       reportError(e, '切换失败');

@@ -56,7 +56,7 @@ export const RedisConfigPage: React.FC = () => {
     setBusy(true);
     try {
       await redisConfig.save(form);
-      notifySuccess('已保存 — 重启服务后生效');
+      notifySuccess('已保存,立即生效');
       await load();
     } catch (e) {
       reportError(e, '保存失败');
@@ -71,7 +71,7 @@ export const RedisConfigPage: React.FC = () => {
     setBusy(true);
     try {
       await redisConfig.clear();
-      notifySuccess('已清空 — 重启后生效');
+      notifySuccess('已清空,立即生效');
       setForm(EMPTY);
       await load();
     } catch (e) {

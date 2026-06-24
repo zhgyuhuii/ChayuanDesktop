@@ -7,7 +7,7 @@ import * as React from 'react';
 import { dbConfig, servicesConfig, BizError, type DbForm, type DbType, type DbValidateResult } from '@chayuan/api';
 import { Button } from '@chayuan/ui';
 import { RefreshCw, Wifi, Save, DatabaseZap, RotateCcw, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { notifySuccess, reportError } from '../../../store/errorDialog';
+import { notifySuccess, notifyInfo, reportError } from '../../../store/errorDialog';
 import { confirmDialog } from '../../../store/confirmDialog';
 
 const FIELD =
@@ -112,7 +112,7 @@ export const DatabaseConfigPage: React.FC = () => {
 
   const doSave = async () => {
     if (
-      !(await confirmDialog('保存后 SQLALCHEMY_DATABASE_URI 改变,需重启服务才生效。建议先「测试连接」。', {
+      !(await confirmDialog('保存后将热切换数据库连接,立即生效、无需重启。建议先「测试连接」。', {
         title: '保存数据库配置？',
         danger: true,
       }))
@@ -127,7 +127,15 @@ export const DatabaseConfigPage: React.FC = () => {
         setRestartPhase('banner');
         await load();
       } else {
-        notifySuccess('已保存');
+        // 热切换成功:已立即生效,无需重启。
+        notifySuccess('已保存,数据库已热切换,立即生效');
+        if (result.profile_warning) {
+          // 单机版 + 非 sqlite:本次已生效,但下次重启 CHAYUAN_PROFILE 会把库改回 SQLite。
+          notifyInfo(
+            '注意:单机版下次重启会按 CHAYUAN_PROFILE 把数据库改回 SQLite',
+            '如需长期使用外部数据库,请在部署配置中固化连接。',
+          );
+        }
         await load();
       }
     } catch (e) {
@@ -228,7 +236,7 @@ export const DatabaseConfigPage: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">数据库配置</h2>
-          <p className="mt-1 text-xs opacity-60">主业务数据库。改动需重启服务。SQLite 仅适合单机/开发,生产建议 PostgreSQL。</p>
+          <p className="mt-1 text-xs opacity-60">主业务数据库。改动热切换、立即生效(无需重启)。SQLite 仅适合单机/开发,生产建议 PostgreSQL。</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
           <RefreshCw className={`mr-1.5 h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> 刷新

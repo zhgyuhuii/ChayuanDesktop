@@ -168,17 +168,40 @@ def _save_db_config(body: Dict[str, Any]) -> Dict[str, Any]:
     yaml_store.save_updates("basic_settings.yaml", updates)
 
     profile_warning = bool(_is_single_machine()) and not uri.startswith("sqlite")
+
+    # 热更:无需重启即生效。先清 settings LRU(同秒 save+read 会拿旧值),再按新
+    # URI 重建主 engine 并原地重绑 SessionLocal,最后跑一遍启动期同款 DB 初始化
+    # (alembic 或 create_all 回退;create_tables 内部还会 ensure_database_from_uri
+    # 建库),让指向空库/新库的情形也能立即可用。任一步失败 → 回退为 restart_required
+    # =True(旧 engine 原样保留,服务不受影响,提示用户重启生效)。
+    hot_applied = False
+    hot_error = None
+    try:
+        from chayuan.server.shared import clear_settings_lru
+        clear_settings_lru()
+        from chayuan.server.db.base import rebuild_engine
+        rebuild_engine()
+        from chayuan.server.db.migrator import bootstrap as _db_bootstrap
+        _db_bootstrap()
+        hot_applied = True
+    except Exception as e:  # noqa: BLE001
+        hot_error = str(e)
+        logger.exception("[db-config] DB 热更失败,回退为需重启:%s", e)
+
     logger.warning(
-        "[db-config] SQLALCHEMY_DATABASE_URI saved: %s (profile_warning=%s)",
+        "[db-config] SQLALCHEMY_DATABASE_URI saved: %s (profile_warning=%s, hot_applied=%s)",
         masked,
         profile_warning,
+        hot_applied,
     )
     return {
         "code": 0,
         "msg": "ok",
         "data": {
             "saved": True,
-            "restart_required": True,
+            "restart_required": not hot_applied,
+            "hot_applied": hot_applied,
+            "hot_error": hot_error,
             "masked": masked,
             "validated": validated,
             "profile_warning": profile_warning,
@@ -186,6 +209,6 @@ def _save_db_config(body: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@db_config_router.post("/save", summary="[admin] 保存 SQLALCHEMY_DATABASE_URI(需重启)")
+@db_config_router.post("/save", summary="[admin] 保存 SQLALCHEMY_DATABASE_URI(热更立即生效,失败回退需重启)")
 def db_save(body: Dict[str, Any] = Body(default={}), _=Depends(_ADMIN)) -> Dict[str, Any]:
     return _save_db_config(body)

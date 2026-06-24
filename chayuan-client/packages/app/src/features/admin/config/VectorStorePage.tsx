@@ -77,7 +77,7 @@ export const VectorStorePage: React.FC = () => {
     setBusy(true);
     try {
       await vectorStore.save(active, vals, true);
-      notifySuccess('已保存并设为默认向量库 — 重启服务后生效');
+      notifySuccess('已保存并设为默认向量库,立即生效');
       await load();
     } catch (e) {
       reportError(e, '保存失败');
