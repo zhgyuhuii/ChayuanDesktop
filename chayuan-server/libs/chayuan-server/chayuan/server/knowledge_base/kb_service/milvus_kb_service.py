@@ -583,16 +583,12 @@ class MilvusKBService(KBService):
             if v:
                 skip_fields.add(v)
 
-        for doc in docs:
-            for k, v in doc.metadata.items():
-                doc.metadata[k] = str(v)
-            for field in self.milvus.fields:
-                if field in skip_fields:
-                    continue
-                doc.metadata.setdefault(field, "")
-            # 兜底:就算 metadata 里历史残留了 pk / text / vector 也清掉
-            for sf in skip_fields:
-                doc.metadata.pop(sf, None)
+        # strict-schema collection 要求同一批每行带齐所有标量字段。把整批 metadata 键统一成
+        # (本批所有键 ∪ 既有 schema 字段) - skip,缺失补 "":既覆盖既有 collection
+        # (self.milvus.fields 已填),也修「新建 collection 时 fields 为空、首批键不一致致
+        # langchain_milvus 按首条建 schema 后别的行缺字段炸 DataNotMatchException」。
+        from chayuan.server.knowledge_base.kb_service._milvus_metadata import unify_metadata_keys
+        unify_metadata_keys(docs, getattr(self.milvus, "fields", []) or [], skip_fields)
 
         try:
             ids = self.milvus.add_documents(docs)
