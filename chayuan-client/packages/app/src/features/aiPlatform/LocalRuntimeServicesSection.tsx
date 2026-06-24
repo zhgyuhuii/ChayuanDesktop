@@ -111,7 +111,9 @@ function mapScannerCapability(
   }
 }
 
-export const LocalRuntimeServicesSection: React.FC = () => {
+export const LocalRuntimeServicesSection: React.FC<{ layout?: 'rows' | 'grid' }> = ({
+  layout = 'rows',
+}) => {
   const { statuses, pendingFor, reachable, startCapability, stopCapability, restartCapability } =
     useLocalRuntimeStore();
   const installInfo = useLocalRuntimeStore((s) => s.installInfo);
@@ -359,7 +361,13 @@ export const LocalRuntimeServicesSection: React.FC = () => {
         </div>
       )}
 
-      <div className="space-y-2">
+      <div
+        className={
+          layout === 'grid'
+            ? 'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'
+            : 'space-y-2'
+        }
+      >
         {CAPABILITIES.map((cap) => {
           const isMissing =
             bundledCaps != null && !bundledCaps.has(BACKEND_CAP_KEY[cap]);
