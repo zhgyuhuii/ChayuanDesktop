@@ -166,32 +166,6 @@ BASIC_SETTINGS = FileSchema(
             title="服务器绑定地址",
             fields=[
                 Field(
-                    path="DEFAULT_BIND_HOST",
-                    label="默认绑定 host (DEFAULT_BIND_HOST)",
-                    widget="text",
-                    help=(
-                        "各服务器默认绑定 host。如改为 \"0.0.0.0\" 需要修改下方所有 XX_SERVER 的 host。"
-                        "Windows 下助手界面自动弹出浏览器时，如果地址为 \"0.0.0.0\" 是无法访问的，"
-                        "需要手动修改地址栏。"
-                    ),
-                    placeholder="127.0.0.1 / 0.0.0.0",
-                ),
-                Field(
-                    path="API_SERVER.host",
-                    label="API host",
-                    widget="text",
-                    help="API 服务器 host。",
-                ),
-                Field(
-                    path="API_SERVER.port",
-                    label="API port",
-                    widget="number",
-                    help="API 服务器端口。",
-                    min=1,
-                    max=65535,
-                    step=1,
-                ),
-                Field(
                     path="API_SERVER.public_host",
                     label="API public_host",
                     widget="text",
@@ -205,81 +179,6 @@ BASIC_SETTINGS = FileSchema(
                     min=1,
                     max=65535,
                     step=1,
-                ),
-            ],
-        ),
-        Section(
-            title="性能 / 可扩展性",
-            description=(
-                "面向多用户 / 高并发场景。字段含义与推荐值详见「⑨ 性能与可扩展性」"
-                "页的实时体检，也可参考 docs/scalability.md。"
-            ),
-            fields=[
-                Field(
-                    path="DEPLOYMENT_MODE",
-                    label="部署模式 DEPLOYMENT_MODE",
-                    widget="select",
-                    choices=["dev", "prod"],
-                    help=(
-                        "dev：开发/单机。prod：生产；配置面板会把 SQLite / FAISS / 单 worker 等"
-                        "不达标项亮红色告警。切换本字段不会自动改其它配置，只影响校验严格程度。"
-                    ),
-                ),
-                Field(
-                    path="UVICORN_WORKERS",
-                    label="API 进程数 UVICORN_WORKERS",
-                    widget="number", min=1, max=128, step=1,
-                    help=(
-                        "API uvicorn worker 数。单机生产建议 2 × CPU 核心数 + 1。"
-                        "> 1 时程序走多进程启动路径（uvicorn --workers）。"
-                    ),
-                ),
-                Field(
-                    path="DB_POOL_SIZE",
-                    label="DB 连接池常驻 DB_POOL_SIZE",
-                    widget="number", min=1, max=500, step=1,
-                    help=(
-                        "SQLAlchemy 常驻连接数。生产 Postgres 建议 ≥ 20；"
-                        "数据库端真实连接 ≈ workers × (pool_size + max_overflow)。"
-                    ),
-                ),
-                Field(
-                    path="DB_MAX_OVERFLOW",
-                    label="DB 连接池溢出 DB_MAX_OVERFLOW",
-                    widget="number", min=0, max=500, step=1,
-                    help="SQLAlchemy 溢出连接数。峰值连接 = DB_POOL_SIZE + DB_MAX_OVERFLOW。",
-                ),
-                Field(
-                    path="DB_POOL_RECYCLE",
-                    label="DB 连接回收秒数 DB_POOL_RECYCLE",
-                    widget="number", min=-1, max=86400, step=60,
-                    help="连接回收时间（秒）。Postgres/MySQL 建议 3600；-1 表示不回收。",
-                ),
-                Field(
-                    path="DB_POOL_PRE_PING",
-                    label="DB 取连接前 ping（DB_POOL_PRE_PING）",
-                    widget="switch",
-                    help="每次从池取连接前先 SELECT 1 探活，避免拿到被网关关掉的死连接。生产强烈建议开启。",
-                ),
-                Field(
-                    path="DB_POOL_TIMEOUT",
-                    label="DB 获取连接超时 DB_POOL_TIMEOUT",
-                    widget="number", min=1, max=300, step=1,
-                    help="从连接池拿连接的最长等待秒数。",
-                ),
-                # REDIS_URL 不在这里渲染：已由基础配置页顶部 / 性能与可扩展性页
-                # 的「Redis 连接配置」卡片接管（结构化字段 + 在线验证 + 最佳实践）。
-                Field(
-                    path="RATE_LIMIT_ENABLED",
-                    label="开启限流 RATE_LIMIT_ENABLED",
-                    widget="switch",
-                    help="开启后 API 将按 IP / 用户做令牌桶限流；需要先配置 REDIS_URL 才能在多副本间共享计数。",
-                ),
-                Field(
-                    path="RATE_LIMIT_PER_MINUTE",
-                    label="限流阈值（次/分钟）RATE_LIMIT_PER_MINUTE",
-                    widget="number", min=1, max=100000, step=1,
-                    help="每 IP / 每用户每分钟请求数上限。",
                 ),
             ],
         ),
@@ -306,69 +205,6 @@ BASIC_SETTINGS = FileSchema(
                     help=(
                         "开启后 `/metrics` 暴露 QPS、延迟、in-flight、LLM 错误率等标准指标。"
                         "需要 `pip install prometheus-client`；未装时自动降级，不影响接口。"
-                    ),
-                ),
-                Field(
-                    path="OTEL_ENABLED",
-                    label="OpenTelemetry 链路追踪 OTEL_ENABLED",
-                    widget="switch",
-                    help=(
-                        "按标准 OTLP 协议上报 traces；需要安装 opentelemetry-sdk 与 "
-                        "opentelemetry-exporter-otlp-proto-http。Collector 地址通过标准"
-                        "环境变量 OTEL_EXPORTER_OTLP_ENDPOINT 配置。"
-                    ),
-                ),
-                Field(
-                    path="OTEL_SERVICE_NAME",
-                    label="OTEL 服务名 OTEL_SERVICE_NAME",
-                    widget="text",
-                    placeholder="chayuan-api",
-                    help="在 Jaeger / Tempo 中作为服务标识；同服务多副本共享同名。",
-                ),
-                # ------ Langfuse（LLM 链路观测，非必要服务）------
-                # 只要 host + public_key + secret_key 齐全即启用；若环境变量已设，
-                # 运行时优先读环境变量（方便 K8s Secret 注入）。
-                Field(
-                    path="LANGFUSE_HOST",
-                    label="Langfuse host LANGFUSE_HOST",
-                    widget="text",
-                    placeholder="http://127.0.0.1:3000 或 https://cloud.langfuse.com",
-                    help=(
-                        "Langfuse 服务端地址（自托管或 SaaS）。与 PUBLIC_KEY/SECRET_KEY "
-                        "同时填写方可启用。若环境变量 $LANGFUSE_HOST 已设，将优先使用 env。"
-                        "留空 = 禁用 Langfuse，对业务无影响。"
-                    ),
-                ),
-                Field(
-                    path="LANGFUSE_PUBLIC_KEY",
-                    label="Langfuse public key LANGFUSE_PUBLIC_KEY",
-                    widget="text",
-                    placeholder="pk-lf-xxxxxxxx",
-                    help=(
-                        "Langfuse 控制台为项目生成的 Public Key。生产推荐通过环境变量"
-                        "$LANGFUSE_PUBLIC_KEY 注入而不是写 yaml；本字段作为"
-                        "单机 / 开发环境的回退值。"
-                    ),
-                ),
-                Field(
-                    path="LANGFUSE_SECRET_KEY",
-                    label="Langfuse secret key LANGFUSE_SECRET_KEY",
-                    widget="password",
-                    placeholder="sk-lf-xxxxxxxx",
-                    password_toggle=True,
-                    help=(
-                        "对应 Secret Key。展示时会脱敏。生产应走 env / Secret Manager，"
-                        "避免把密钥提交到代码仓库。"
-                    ),
-                ),
-                Field(
-                    path="CHAYUAN_LANGFUSE_DISABLE",
-                    label="一键禁用 Langfuse CHAYUAN_LANGFUSE_DISABLE",
-                    widget="switch",
-                    help=(
-                        "应急开关：打开后即使上面 3 项都配好了，也会全流程跳过 Langfuse 调用。"
-                        "用于排查「Langfuse 侧故障是否在拖累业务」。等价 env "
-                        "$CHAYUAN_LANGFUSE_DISABLE=1（任一生效即禁用）。"
                     ),
                 ),
                 Field(
@@ -418,16 +254,6 @@ BASIC_SETTINGS = FileSchema(
                     help="是否允许自助注册；内部系统通常保持关闭。",
                 ),
                 Field(
-                    path="JWT_SECRET",
-                    label="JWT 签名密钥 JWT_SECRET",
-                    widget="text",
-                    placeholder="留空将运行时随机生成；服务重启后所有 token 失效",
-                    help=(
-                        "HMAC 签名密钥。多副本部署必须在所有副本间一致，否则 token 互不认。"
-                        "建议从 env 注入而非写 yaml。"
-                    ),
-                ),
-                Field(
                     path="JWT_ACCESS_TTL_SECONDS",
                     label="access token 有效期（秒）",
                     widget="number", min=60, max=86400, step=60,
@@ -438,20 +264,6 @@ BASIC_SETTINGS = FileSchema(
                     label="refresh token 有效期（秒）",
                     widget="number", min=3600, max=30 * 86400, step=3600,
                     help="通常 7 天~30 天；过期需重新登录。",
-                ),
-                Field(
-                    path="AUTH_DEFAULT_ADMIN_USERNAME",
-                    label="默认管理员用户名",
-                    widget="text",
-                    placeholder="admin",
-                    help="仅在数据库内没有任何用户时生效；后续改名请走「用户管理」页。",
-                ),
-                Field(
-                    path="AUTH_DEFAULT_ADMIN_PASSWORD",
-                    label="默认管理员初始密码",
-                    widget="text",
-                    placeholder="留空将随机生成并打印到启动日志",
-                    help="首次启动用；落库即时生效。请登录后第一时间在「用户管理」改密。",
                 ),
                 Field(
                     path="INGEST_ASYNC_ENABLED",
