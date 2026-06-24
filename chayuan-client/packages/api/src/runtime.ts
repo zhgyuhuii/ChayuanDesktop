@@ -106,7 +106,7 @@ export interface ScanDeltaPayload {
 
 export interface BootstrapResultPayload {
   api: RuntimeServiceEndpoint;
-  config_panel: RuntimeServiceEndpoint;
+  config_panel?: RuntimeServiceEndpoint;
   vendor: RuntimeServiceEndpoint[];
   warnings: string[];
 }

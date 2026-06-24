@@ -39,14 +39,14 @@ class BootstrapResult:
     """``allocate_core_ports`` 的返回。"""
 
     api: ServiceEndpoint
-    config_panel: ServiceEndpoint
+    # config_panel 已废弃(8502 NiceGUI 面板下线);保留字段防旧构造,不再序列化
+    config_panel: Optional[ServiceEndpoint] = None
     vendor: List[ServiceEndpoint] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, object]:
         return {
             "api": dict(self.api.masked()),
-            "config_panel": dict(self.config_panel.masked()),
             "vendor": [dict(e.masked()) for e in self.vendor],
             "warnings": list(self.warnings),
         }
@@ -121,47 +121,11 @@ def allocate_core_ports(*, runtime: Optional[RuntimeInfo] = None) -> BootstrapRe
         kind="api",
     )
 
-    # 配置面板 -----------------------------------------------------------
-    cp_pref = int((bs.CONFIG_SERVER or {}).get("port") or 8502)
-    cp_host = (bs.CONFIG_SERVER or {}).get("host") or bs.DEFAULT_BIND_HOST
-    try:
-        cp_port = alloc.allocate(
-            preferred=cp_pref if bs.PORT_PREFER_DEFAULT else None,
-            name="config_panel",
-        )
-    except PortInUseError as e:
-        warnings.append(f"配置面板端口分配失败：{e}")
-        cp_port = cp_pref
-    if cp_port != cp_pref:
-        from chayuan.server.runtime.port_allocator import (
-            DEFAULT_PORT_RANGE,
-            is_port_free,
-        )
-        rng = tuple(getattr(bs, "PORT_RANGE", DEFAULT_PORT_RANGE))
-        if is_port_free(cp_pref, host=cp_host or "127.0.0.1"):
-            if not (rng[0] <= cp_pref <= rng[1]):
-                warnings.append(
-                    f"配置面板偏好端口 {cp_pref} 不在配置的端口范围 "
-                    f"{rng[0]}-{rng[1]} 内，已改用 {cp_port}；"
-                    f"如需保留 {cp_pref}，请把 PORT_RANGE 调成包含它的区间。"
-                )
-            else:
-                warnings.append(
-                    f"配置面板端口复用历史值 {cp_port}（{cp_pref} 也空闲，未启用）"
-                )
-        else:
-            warnings.append(
-                f"配置面板偏好端口 {cp_pref} 被占，已自动改用 {cp_port}"
-            )
-    cp_ep = runtime.set_endpoint(
-        "config_panel",
-        host=cp_host, port=cp_port,
-        scheme="http",
-        url=f"http://{cp_host or '127.0.0.1'}:{cp_port}",
-        kind="config_panel",
-    )
+    # 配置面板(NiceGUI :8502)已下线 —— 不再登记端点;主动清掉存量 runtime.json 里的旧行,
+    # 否则系统服务页「受管服务」表会一直显示一条死的 8502。
+    runtime.remove_endpoint("config_panel")
 
-    return BootstrapResult(api=api_ep, config_panel=cp_ep, warnings=warnings)
+    return BootstrapResult(api=api_ep, warnings=warnings)
 
 
 def render_endpoints_table(result: BootstrapResult) -> str:
@@ -170,7 +134,7 @@ def render_endpoints_table(result: BootstrapResult) -> str:
         ("服务", "地址", "用户", "密码"),
         ("─" * 14, "─" * 32, "─" * 18, "─" * 12),
     ]
-    for ep in [result.api, result.config_panel, *result.vendor]:
+    for ep in [result.api, *result.vendor]:
         m = ep.masked()
         rows.append((
             str(m.get("name") or m.get("kind") or ""),
