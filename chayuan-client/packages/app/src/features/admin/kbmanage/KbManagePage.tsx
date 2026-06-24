@@ -12,7 +12,8 @@ import {
 import { Button } from '@chayuan/ui';
 import { RefreshCw, Plus, ArrowLeft, FileText, Trash2, Save, Lock, ChevronRight } from 'lucide-react';
 import { KbCard } from '../../kb/KbCard';
-import { GrantsDialog, CreateKbDialog } from '../kbacl/KbAclPage';
+import { CreateKbDialog } from '../kbacl/KbAclPage';
+import { GrantsDialog } from './GrantsDialog';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 import { confirmDialog } from '../../../store/confirmDialog';
 
