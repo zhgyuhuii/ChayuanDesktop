@@ -162,24 +162,44 @@ function Resolve-Vhdx {
         if (Test-Path $Override) { return $Override }
         throw "VhdxPath not found: $Override"
     }
-    $cands = @()
-    # Docker Desktop may relocate its data folder (e.g. to D:\). Read it from settings if present.
+    # Roots to search: Docker Desktop's configured dataFolder (may be relocated to D:\ etc.)
+    # plus the default LOCALAPPDATA location.
+    $roots = @()
     foreach ($name in @("settings-store.json", "settings.json")) {
         $cfg = Join-Path $env:APPDATA "Docker\$name"
         if (Test-Path $cfg) {
             try {
                 $df = (Get-Content -Raw $cfg | ConvertFrom-Json).dataFolder
-                if ($df) {
-                    $cands += (Join-Path $df "disk\docker_data.vhdx")
-                    $cands += (Join-Path $df "data\ext4.vhdx")
-                }
+                if ($df) { $roots += $df }
             }
             catch { }
         }
     }
-    $cands += (Join-Path $env:LOCALAPPDATA "Docker\wsl\disk\docker_data.vhdx")
-    $cands += (Join-Path $env:LOCALAPPDATA "Docker\wsl\data\ext4.vhdx")
-    foreach ($c in $cands) { if ($c -and (Test-Path $c)) { return $c } }
+    $roots += (Join-Path $env:LOCALAPPDATA "Docker")
+    $roots = $roots | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+    # Known relative layouts first (fast, exact). Newer Docker Desktop uses wsl\disk\,
+    # older uses wsl\data\ext4.vhdx; relocated data folders keep the same sub-layout.
+    $rels = @(
+        "wsl\disk\docker_data.vhdx",
+        "wsl\data\ext4.vhdx",
+        "disk\docker_data.vhdx",
+        "data\ext4.vhdx",
+        "docker_data.vhdx"
+    )
+    foreach ($r in $roots) {
+        foreach ($rel in $rels) {
+            $p = Join-Path $r $rel
+            if (Test-Path $p) { return $p }
+        }
+    }
+    # Last resort: bounded recursive search under each root.
+    foreach ($r in $roots) {
+        foreach ($fn in @("docker_data.vhdx", "ext4.vhdx")) {
+            $hit = Get-ChildItem -Path $r -Recurse -Filter $fn -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($hit) { return $hit.FullName }
+        }
+    }
     throw "Could not auto-detect docker_data.vhdx. Pass -VhdxPath '<full path>'."
 }
 
