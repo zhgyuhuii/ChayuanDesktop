@@ -221,9 +221,13 @@ async function runMigrations(db: any): Promise<void> {
   // 增量迁移；表结构与 packages/observability、packages/app 共用
   const stmts = [
     `CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)`,
+    // 历史对话按用户隔离(2026-06-24):旧表无 user_id,一次性丢弃重建(已与用户确认弃旧数据)
+    `DROP TABLE IF EXISTS messages`,
+    `DROP TABLE IF EXISTS conversations`,
     `CREATE TABLE IF NOT EXISTS conversations (
        id TEXT PRIMARY KEY,
        remote_id TEXT,
+       user_id TEXT NOT NULL DEFAULT 'guest',
        title TEXT NOT NULL,
        model TEXT NOT NULL,
        mode TEXT NOT NULL,
@@ -231,10 +235,11 @@ async function runMigrations(db: any): Promise<void> {
        created_at INTEGER NOT NULL,
        updated_at INTEGER NOT NULL
      )`,
-    `CREATE INDEX IF NOT EXISTS idx_conv_updated ON conversations(updated_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_conv_user_updated ON conversations(user_id, updated_at DESC)`,
     `CREATE TABLE IF NOT EXISTS messages (
        id TEXT PRIMARY KEY,
        conv_id TEXT NOT NULL,
+       user_id TEXT NOT NULL DEFAULT 'guest',
        role TEXT NOT NULL,
        parts JSON NOT NULL,
        trace_id TEXT,

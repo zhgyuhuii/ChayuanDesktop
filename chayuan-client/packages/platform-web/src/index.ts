@@ -158,6 +158,17 @@ class ChayuanDb extends Dexie {
       messages: 'id, conv_id, [conv_id+created_at]',
       lf_outbox: '++id, created_at',
     });
+    // v2(2026-06-24 历史对话按用户隔离):conversations 加 user_id 索引;旧数据弃(清空两表)
+    this.version(2)
+      .stores({
+        conversations: 'id, remote_id, updated_at, user_id',
+        messages: 'id, conv_id, [conv_id+created_at]',
+        lf_outbox: '++id, created_at',
+      })
+      .upgrade(async (tx) => {
+        await tx.table('conversations').clear();
+        await tx.table('messages').clear();
+      });
   }
 }
 
