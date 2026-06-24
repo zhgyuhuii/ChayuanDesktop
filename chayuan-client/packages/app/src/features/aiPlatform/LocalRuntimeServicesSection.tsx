@@ -112,8 +112,9 @@ function mapScannerCapability(
   }
 }
 
-export const LocalRuntimeServicesSection: React.FC<{ layout?: 'rows' | 'grid' }> = ({
+export const LocalRuntimeServicesSection: React.FC<{ layout?: 'rows' | 'grid'; alwaysVisible?: boolean }> = ({
   layout = 'rows',
+  alwaysVisible = false,
 }) => {
   const { statuses, pendingFor, reachable, startCapability, stopCapability, restartCapability } =
     useLocalRuntimeStore();
@@ -250,7 +251,10 @@ export const LocalRuntimeServicesSection: React.FC<{ layout?: 'rows' | 'grid' }>
   // 本地模型服务管理依赖本地 sidecar:单机桌面版机主始终可用;网络版(docker)
   // 仅管理员可见可操作(重启影响全局共享服务、下载走 /admin/*)。普通用户/游客隐藏。
   // 组件自带 reachable 探测,沙箱无 runtime 时显示友好错误而非崩。
-  if (!isDesktop() && !isAdmin) return null;
+  // alwaysVisible:父级(如后台「系统服务」页,本就 admin 门控)已确保管理员上下文,
+  // 不再用本组件自体 useIsAdmin 复查 —— 否则 myModules 查询加载/失败时 isAdmin=false 会把
+  // 「运行中的本地服务」整块误隐藏(用户报「不应该被隐藏」)。
+  if (!alwaysVisible && !isDesktop() && !isAdmin) return null;
 
   if (!reachable) {
     const lastError = useLocalRuntimeStore.getState().lastError;

@@ -94,7 +94,7 @@ export const SystemServicesPage: React.FC = () => {
           <Server className="h-4 w-4" /> 运行中的本地服务
         </h3>
         {/* 完整复用「模型服务」面板:每个 capability 一张卡,可启停/重启/重试/下载/自启;4 列 */}
-        <LocalRuntimeServicesSection layout="grid" />
+        <LocalRuntimeServicesSection layout="grid" alwaysVisible />
       </section>
       <LocalModelsSection />
       <ServiceSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
