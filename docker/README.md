@@ -137,6 +137,46 @@ cd docker
 docker compose up -d --build      # 重 build image + 平滑替换容器，数据保留
 ```
 
+## Windows 构建与磁盘清理（build.ps1 / clean.ps1）
+
+> 仅 Windows + Docker Desktop。上面的 `docker compose up -d --build` 跨平台通用；
+> 这两个 PowerShell 脚本是 Windows 下的便捷封装。
+
+### 构建集成镜像 `docker\build.ps1`
+
+```powershell
+powershell -ExecutionPolicy Bypass -File docker\build.ps1
+docker\build.ps1 -RebuildBase    # 强制重建 base(刷新 apt / poetry 依赖)
+docker\build.ps1 -NoCache        # app 镜像不用缓存(依赖仍走 base)
+docker\build.ps1 -NoClean        # 跳过构建前的历史镜像清理
+```
+
+base 镜像按 `poetry.lock` / `pnpm-lock.yaml` 内容哈希打 tag，依赖没变就复用、不重拉。
+默认构建前会清历史镜像 + build 缓存(保留 `:latest` / 当前 VERSION / 当前 base)。
+
+### 清理 + 压缩磁盘 `docker\clean.ps1`
+
+Docker Desktop 的 `docker_data.vhdx` **只涨不缩**：删镜像/缓存只腾内部空间、文件停在最高水位；
+而 **build 缓存常是暴涨主因**(可达几百 GB)。这个脚本一键清理并可压缩 vhdx，**始终保留 base 环境包**
+(`chayuan-base*` / `chayuan-web-base*`) 和当前 app 镜像(`:latest` / 当前 VERSION)。
+
+```powershell
+docker\clean.ps1                 # 清:停止容器/旧版本镜像/dangling/dangling缓存(保留base),打印前后 df
+docker\clean.ps1 -DeepCache      # 再清「全部」build 缓存(vhdx 暴涨主因)
+docker\clean.ps1 -Volumes        # 再清未用卷
+docker\clean.ps1 -DryRun         # 只打印要删什么,不动手
+
+# 压缩 docker_data.vhdx(需「管理员」PowerShell + Docker 开着):
+docker\clean.ps1 -DeepCache -Compact
+docker\clean.ps1 -DeepCache -Compact -ZeroFill   # 上面缩得不够时再加 -ZeroFill(强兜底)
+```
+
+`-Compact` 流程：自动探测 vhdx 路径 -> fstrim 释放块 -> 停 Docker + `wsl --shutdown` -> diskpart compact -> 重启 Docker，
+末尾打印 `XXX GB -> YY GB`。探测不到时用 `-VhdxPath "D:\...\docker_data.vhdx"` 显式指定。
+
+> WARN: **不要**用 `docker system/image prune -a` 或 Docker Desktop 的 Troubleshoot->Purge——
+> 那会把 base 环境包/全部镜像一起删掉，下次构建要重下所有依赖。本脚本只删旧版本与缓存、永远保留 base。
+
 ## 故障排查
 
 ```bash
