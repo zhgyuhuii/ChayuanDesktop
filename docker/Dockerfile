@@ -79,12 +79,14 @@ RUN pnpm -F web build:vite
 # 才会重建 base(build.sh 自动判定,或 ./build.sh --rebuild-base)。
 FROM ${BASE_IMAGE} AS runtime
 
-# ── 对象存储 minio 客户端打进镜像(base 的 `poetry install --only main` 不含 optional extra)──
-# docker 部署开箱即用:FILE_STORAGE_BACKEND=minio / 后台「对象存储 测试连通」,不再靠运行时 pip。
-# redis / arq 已在 main 依赖、base 已装,无需在此重复。
+# ── 对象存储 minio 客户端:已在基础镜像(Dockerfile.base)预装 ──────────────────
+# 这里仅做兜底:base 已含 minio → import 通过、【零拉取】(改业务代码重建主镜像不再下载
+# minio / argon2-cffi / pycryptodome);仅当 base 偏旧不含 minio 时才回退联网补装。
+# 让 base 真正带上 minio:跑一次 `./build.sh --rebuild-base`。
 # 国内默认源慢/不可达时:--build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG PIP_INDEX_URL=
-RUN python -m pip install --no-cache-dir ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} "minio>=7.2,<8.0" \
+RUN python -c "import minio" 2>/dev/null \
+    || python -m pip install --no-cache-dir ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} "minio>=7.2,<8.0" \
     || echo "[build] minio 预装失败(多半是网络),不阻断构建;运行时首次用对象存储会自动补装(ensure_pkg)"
 
 # ── 2. 后端源码 ───────────────────────────────────────────────────

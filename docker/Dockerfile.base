@@ -45,6 +45,13 @@ RUN --mount=type=cache,target=/tmp/poetry-cache \
     poetry install --only main --no-root \
     || (echo "[build.base] poetry.lock 失配,镜像内重锁..." && poetry lock && poetry install --only main --no-root)
 
+# 对象存储 minio 客户端:poetry main 不含此 optional extra(storage-minio),这里显式
+# 预装进 base,主镜像 FROM 继承即可 —— 改业务代码重建主镜像时【零拉取】,根治"每次
+# 打镜像都重新下载 minio / argon2-cffi / pycryptodome"。子依赖随之一并固化进 base。
+# 国内默认源慢/不可达:--build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_INDEX_URL=
+RUN pip install --no-cache-dir ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} "minio>=7.2,<8.0"
+
 # build.sh 写入本 base 对应的 poetry.lock 哈希,便于排查复用命中
 ARG LOCK_HASH=unknown
 LABEL chayuan.base.lock_hash=$LOCK_HASH
