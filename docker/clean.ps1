@@ -26,9 +26,11 @@
 
   Recommended one-shot for a bloated vhdx (elevated PowerShell, Docker Desktop running):
     docker\clean.ps1 -DeepCache -Compact
+    docker\clean.ps1 -DeepCache -Compact -ZeroFill   # add -ZeroFill only if the above under-shrinks
 
-  (-ZeroFill is deprecated/ignored: zero-filling a dynamic vhdx grows it and can crash the
-   daemon. Compact now TRIMs freed blocks via fstrim instead, which is safe.)
+  Compact TRIMs freed blocks via fstrim by default (safe, never grows the file). -ZeroFill is an
+  opt-in STRONGER fallback (zero-fills then frees) for when fstrim+compact does not reclaim
+  enough; it briefly fills the disk to 100% and grows the dynamic vhdx, so use it only if needed.
 
   Notes:
     - Keeps: chayuan:latest, chayuan:<VERSION>, and ALL chayuan-base* / chayuan-web-base* images.
@@ -209,17 +211,26 @@ $vhdx = Resolve-Vhdx -Override $VhdxPath
 $before = [math]::Round((Get-Item $vhdx).Length / 1GB, 1)
 Write-Host "[compact] target: $vhdx  (current ${before} GB)"
 
-# DO NOT zero-fill. On a dynamic vhdx, writing zeros GROWS the file to full and, if it hits
-# ENOSPC, can crash the daemon and orphan a giant container layer. The correct WSL2 way is to
-# TRIM the freed ext4 blocks (discard), which shrinks nothing on disk but lets diskpart reclaim
-# them afterwards -- without ever growing the file.
-if ($ZeroFill) {
-    Write-Warning "-ZeroFill is deprecated and ignored (it could grow/crash the vhdx). fstrim is used automatically."
-}
+# Reclaim freed space so diskpart can compact it. Two mechanisms:
+#  1) fstrim (default, always): TRIM/discard the freed ext4 blocks inside the WSL VM. Safe --
+#     never grows the vhdx.
+#  2) -ZeroFill (opt-in, stronger fallback): write zeros into the free space then free it, which
+#     also lets diskpart reclaim it. Use only if fstrim+compact did not reclaim enough -- it
+#     briefly fills the disk to 100% (the dd 'no space' / 'unexpected EOF' is EXPECTED) and
+#     momentarily grows the dynamic vhdx before compact shrinks it back.
 Write-Host "[compact] trimming freed blocks inside the Docker WSL VM (fstrim)..."
 # best-effort: docker-desktop distro may differ / lack fstrim; ignore failures.
 wsl -d docker-desktop sh -c "fstrim -av 2>/dev/null || true" 2>$null
 Start-Sleep -Seconds 2
+if ($ZeroFill) {
+    if ($engineUp) {
+        Write-Host "[compact] zero-fill fallback (-ZeroFill): fills free space briefly; 'no space' is expected..."
+        & $Docker run --rm alpine sh -c "dd if=/dev/zero of=/zero.tmp bs=1M 2>/dev/null; sync; rm -f /zero.tmp; sync"
+    }
+    else {
+        Write-Warning "-ZeroFill needs the engine running; skipped."
+    }
+}
 
 Write-Host "[compact] stopping Docker Desktop + WSL (releasing the vhdx lock)..."
 Get-Process "Docker Desktop" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -252,13 +263,23 @@ if ($after -ge ($before - 1)) {
 }
 
 if (-not $NoRestart) {
-    $dd = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
-    if (Test-Path $dd) {
+    $ddCands = @(
+        (Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Docker\Docker\Docker Desktop.exe"),
+        (Join-Path $env:ProgramW6432 "Docker\Docker\Docker Desktop.exe"),
+        (Join-Path $env:LOCALAPPDATA "Docker\Docker Desktop.exe")
+    )
+    $dd = $ddCands | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    if (-not $dd) {
+        $cmd = Get-Command "Docker Desktop.exe" -ErrorAction SilentlyContinue
+        if ($cmd) { $dd = $cmd.Source }
+    }
+    if ($dd) {
         Write-Host "[compact] restarting Docker Desktop..."
         Start-Process $dd
     }
     else {
-        Write-Host "[compact] Docker Desktop.exe not found at default path; start it manually."
+        Write-Host "[compact] Docker Desktop.exe not found; start Docker Desktop manually."
     }
 }
 Write-Host "[clean] all done."
