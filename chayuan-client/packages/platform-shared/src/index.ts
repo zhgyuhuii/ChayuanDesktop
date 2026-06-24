@@ -306,6 +306,12 @@ export interface SidecarApi {
   /** 主动停(关窗 / 切换数据目录向导)。 */
   kill(): Promise<SidecarStatus>;
   /**
+   * 真本地重启:杀掉当前 sidecar 进程树,用原数据目录重新 spawn。
+   * 单机版「重启服务」按钮调它(网络版没有本地 sidecar,该字段 / 平台不提供)。
+   * 返回重启后(starting)的快照;就绪由 subscribe / status 轮询观测。
+   */
+  restart(): Promise<SidecarStatus>;
+  /**
    * 订阅状态/日志事件(Tauri ``Emitter``):
    *   - ``cy:sidecar-state``: SidecarStateName
    *   - ``cy:sidecar-log``: string(stdout/stderr 单行)

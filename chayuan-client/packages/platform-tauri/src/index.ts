@@ -1011,6 +1011,11 @@ const tauriSidecar: SidecarApi = {
     const raw = await invoke<RawSidecarStatus>('chayuan_sidecar_kill');
     return normalizeSidecarStatus(raw);
   },
+  async restart() {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const raw = await invoke<RawSidecarStatus>('chayuan_sidecar_restart');
+    return normalizeSidecarStatus(raw);
+  },
   async subscribe(handlers) {
     const { listen } = await import('@tauri-apps/api/event');
     const unlistens: Array<() => void> = [];

@@ -14,7 +14,7 @@
  */
 
 import * as React from 'react';
-import { copyText, isWeb } from '@chayuan/platform-shared';
+import { copyText, isWeb, isDesktop, getPlatform } from '@chayuan/platform-shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle, Check, Copy, Eye, EyeOff, Folder, HardDrive, Plug, Power, RefreshCw, Server, Settings,
@@ -53,10 +53,18 @@ export const SystemServicesPage: React.FC = () => {
     if (!ok) return;
     setRestarting(true);
     try {
-      const r = await servicesConfig.restart();
-      notifySuccess(r.msg || '重启已触发，服务将在数秒后恢复');
+      if (isDesktop()) {
+        // 单机版:后端拒绝远程重启,改由桌面端真重启本地 sidecar(kill 进程树 + 重新 spawn)。
+        const sc = getPlatform().sidecar;
+        if (!sc?.restart) throw new Error('当前环境不支持本地重启');
+        await sc.restart();
+        notifySuccess('已触发本地重启，服务将在数秒后恢复');
+      } else {
+        const r = await servicesConfig.restart();
+        notifySuccess(r.msg || '重启已触发，服务将在数秒后恢复');
+      }
     } catch (e) {
-      reportError(e, 'services.restart 失败');
+      reportError(e, '重启失败');
     } finally {
       setRestarting(false);
     }
@@ -75,15 +83,13 @@ export const SystemServicesPage: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           {isWeb() && (
-            <>
-              <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
-                <Settings className="h-4 w-4 mr-1" /> 设置
-              </Button>
-              <Button variant="outline" size="sm" disabled={restarting} onClick={() => void onRestart()}>
-                <Power className="h-4 w-4 mr-1" /> 重启服务
-              </Button>
-            </>
+            <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
+              <Settings className="h-4 w-4 mr-1" /> 设置
+            </Button>
           )}
+          <Button variant="outline" size="sm" disabled={restarting} onClick={() => void onRestart()}>
+            <Power className="h-4 w-4 mr-1" /> 重启服务
+          </Button>
           <Button
             variant="outline"
             size="sm"

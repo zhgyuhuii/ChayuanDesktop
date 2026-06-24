@@ -342,7 +342,8 @@ pub fn run() {
             data_dir::chayuan_data_dir_reset,
             sidecar::chayuan_sidecar_start,
             sidecar::chayuan_sidecar_status,
-            sidecar::chayuan_sidecar_kill
+            sidecar::chayuan_sidecar_kill,
+            sidecar::chayuan_sidecar_restart
         ])
         .setup(|app| {
             // splash 改为内联在 index.html 的 #chayuan-splash(单窗口方案),

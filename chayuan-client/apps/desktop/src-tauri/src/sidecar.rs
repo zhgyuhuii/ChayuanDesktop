@@ -494,3 +494,57 @@ pub fn chayuan_sidecar_kill(
     Ok(state.snapshot())
 }
 
+/// 单机版「真本地重启」:杀掉当前 sidecar 进程树 -> 复位状态 -> 用原 data_dir 重新 spawn。
+///
+/// 背景:单机版后端 ``/api/v1/admin/services/restart`` 主动拒绝(``is_single_machine``),
+/// 因为单机没有容器编排兜底自重启。但桌面应用本身拥有 sidecar 生命周期,可由这里
+/// kill + respawn 实现真正的本地重启,供前端「重启服务」按钮在单机版调用,
+/// 满足「点了重启就要真重启服务」。
+///
+/// 流程:取原 data_dir(必须复用同一数据目录)-> kill_tree_on_exit() 收掉后端及其
+/// 模型子进程 -> set_state(Idle) 清掉 ready/starting(否则 start 的 no-op 守卫会拦)
+/// -> 轮询 /healthz 直到旧实例不再应答(最多 15s,避免新进程撞旧端口)-> 复用
+/// chayuan_sidecar_start 用原 data_dir 重新 spawn。
+#[tauri::command]
+pub fn chayuan_sidecar_restart<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, Arc<SidecarManager>>,
+) -> Result<SidecarStatus, String> {
+    // dev 模式:Tauri 不 spawn sidecar(开发者自己跑),重启是 no-op,返当前快照。
+    let force_spawn = std::env::var("CHAYUAN_DESKTOP_SPAWN_SIDECAR")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if cfg!(debug_assertions) && !force_spawn {
+        return Ok(state.snapshot());
+    }
+
+    let snap = state.snapshot();
+    let data_dir = snap.data_dir.clone();
+    if data_dir.is_empty() {
+        return Err("无法重启:尚未记录数据目录(sidecar 未曾启动)".to_string());
+    }
+    let port = snap.port;
+
+    // 1) 收掉后端整棵进程树(含 llama-server / whisper-server 等模型子进程)。
+    state.kill_tree_on_exit();
+    // 2) 复位状态,让 start 的「已 ready/starting 即 no-op」守卫不拦后续 spawn。
+    state.set_state(SidecarState::Idle, None);
+    // 3) 等旧实例真正下线(端口释放),最多 15s;一旦 /healthz 不再 200 即可继续。
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while std::time::Instant::now() < deadline {
+        if !poll_healthz_once(port) {
+            break;
+        }
+        thread::sleep(HEALTH_POLL_INTERVAL);
+    }
+    // 4) 用原 data_dir 重新 spawn(复用 start 全套:路径解析 + env + 监听 + 健康轮询)。
+    chayuan_sidecar_start(
+        app,
+        state,
+        SidecarStartArgs {
+            data_dir,
+            vendor_platform: None,
+        },
+    )
+}
+

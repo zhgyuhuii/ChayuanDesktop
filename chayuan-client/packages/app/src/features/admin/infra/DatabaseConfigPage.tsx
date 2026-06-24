@@ -8,6 +8,7 @@ import { dbConfig, servicesConfig, BizError, type DbForm, type DbType, type DbVa
 import { Button } from '@chayuan/ui';
 import { RefreshCw, Wifi, Save, DatabaseZap, RotateCcw, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { notifySuccess, notifyInfo, reportError } from '../../../store/errorDialog';
+import { isDesktop, getPlatform } from '@chayuan/platform-shared';
 import { confirmDialog } from '../../../store/confirmDialog';
 
 const FIELD =
@@ -196,7 +197,14 @@ export const DatabaseConfigPage: React.FC = () => {
     pollingAbortRef.current = guard;
 
     try {
-      await servicesConfig.restart();
+      if (isDesktop()) {
+        // 单机版:后端拒绝远程重启,改由桌面端真重启本地 sidecar。
+        const sc = getPlatform().sidecar;
+        if (!sc?.restart) throw new Error('当前环境不支持本地重启');
+        await sc.restart();
+      } else {
+        await servicesConfig.restart();
+      }
     } catch (e) {
       // Two very different failure modes:
       //  (a) DEFINITIVE HTTP REJECTION — the server answered and refused (e.g. single-machine
