@@ -31,6 +31,10 @@ export const KbCreateFlow: React.FC<KbCreateFlowProps> = ({
 }) => {
   // 「选择屏里点结构化」触发的内部开关
   const [pickerStructured, setPickerStructured] = React.useState(false);
+  // 外层关闭整个流程时,重置内部结构化开关,避免下次打开直飞结构化对话框
+  React.useEffect(() => {
+    if (!open) setPickerStructured(false);
+  }, [open]);
   // initialKind === 'structured':绕过 CreateKbDialog(它的 body 不渲染结构化),直接开结构化对话框
   const directStructured = open && initialKind === 'structured';
   const structuredOpen = pickerStructured || directStructured;
