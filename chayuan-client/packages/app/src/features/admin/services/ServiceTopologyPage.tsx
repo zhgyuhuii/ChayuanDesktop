@@ -1,9 +1,9 @@
 /**
  * ServiceTopologyPage —— 管理控制台「服务状态」域(S4,#11)。
  * 复用后端 GET /api/v1/admin/services/topology(包装 config_panel/service_page.build_snapshot)。
- * 三块:① SVG 拓扑图(节点状态色 + stroke-dasharray 流光动画连线,连线色随下游状态)
- *       ② 服务状态卡网格(点击可跳到对应配置域)
- *       ③「添加检测」弹窗(注册外部运行时端点,复用 servicesConfig.externalSet/externalProbe)。
+ * 两块:① SVG 拓扑图(节点状态色 + stroke-dasharray 流光动画连线,连线色随下游状态;
+ *          点击节点弹窗复用对应配置页)
+ *       ②「添加检测」弹窗(注册外部运行时端点,复用 servicesConfig.externalSet/externalProbe)。
  * 自动每 5s 刷新探活。
  */
 import * as React from 'react';
@@ -14,7 +14,7 @@ import { DatabaseConfigPage } from '../infra/DatabaseConfigPage';
 import { StorageConfigPage } from '../infra/StorageConfigPage';
 import { VectorStorePage } from '../config/VectorStorePage';
 import { LangfuseConfig } from '../config/LangfuseConfigPage';
-import { RefreshCw, Plus, X, Wifi, Settings2 } from 'lucide-react';
+import { RefreshCw, Plus, X, Wifi } from 'lucide-react';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 
 // 画布尺寸(与后端 service_page 坐标系一致:x≤~1040,y≤~520)
@@ -188,7 +188,7 @@ export const ServiceTopologyPage: React.FC = () => {
   const [posOverride, setPosOverride] = React.useState<Record<string, { x: number; y: number }>>(() => {
     try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch { return {}; }
   });
-  const [drag, setDrag] = React.useState<{ id: string; offX: number; offY: number } | null>(null);
+  const [drag, setDrag] = React.useState<{ id: string; offX: number; offY: number; startX: number; startY: number } | null>(null);
   const didDragRef = React.useRef(false);
   React.useEffect(() => {
     try { localStorage.setItem(LS_KEY, JSON.stringify(posOverride)); } catch { /* ignore quota */ }
@@ -213,14 +213,21 @@ export const ServiceTopologyPage: React.FC = () => {
     if (!p) return;
     const cur = posOf(n);
     didDragRef.current = false;
-    setDrag({ id: n.id, offX: p.x - cur.x, offY: p.y - cur.y });
+    setDrag({ id: n.id, offX: p.x - cur.x, offY: p.y - cur.y, startX: p.x, startY: p.y });
     try { svgRef.current?.setPointerCapture(e.pointerId); } catch { /* noop */ }
   };
   const onSvgPointerMove = (e: React.PointerEvent) => {
     if (!drag) return;
     const p = toSvg(e);
     if (!p) return;
-    didDragRef.current = true;
+    // 仅当移动超过阈值(5 svg 单位)才算拖动:普通点击常带 1-2px 抖动,
+    // 若一律视为拖动会吞掉 click → 点击节点弹配置窗失效(本次回归修复点)。
+    if (!didDragRef.current) {
+      const dx = p.x - drag.startX;
+      const dy = p.y - drag.startY;
+      if (dx * dx + dy * dy < 25) return;
+      didDragRef.current = true;
+    }
     const x = clampN(Math.round(p.x - drag.offX), NODE_W / 2, VB_W - NODE_W / 2);
     const y = clampN(Math.round(p.y - drag.offY), NODE_H / 2, VB_H - NODE_H / 2);
     setPosOverride((prev) => ({ ...prev, [drag.id]: { x, y } }));
@@ -366,49 +373,6 @@ export const ServiceTopologyPage: React.FC = () => {
             );
           })}
         </svg>
-      </div>
-
-      {/* 状态卡网格 */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {nodes
-          .filter((n) => n.group !== 'edge')
-          .map((n) => {
-            const st = STATUS_STYLE[n.status];
-            return (
-              <div
-                key={n.id}
-                className="rounded-lg border bg-[var(--cy-surface-1)] p-3"
-                style={{ borderColor: st.border }}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 text-sm font-medium">
-                    <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: st.dot }} />
-                    {n.label}
-                  </span>
-                  <span className="text-[10px] uppercase opacity-50">{n.group}</span>
-                </div>
-                <div className="mt-1 text-xs opacity-60">{n.summary || '—'}</div>
-                {n.detail && <div className="mt-0.5 text-[11px] opacity-45">{n.detail}</div>}
-                <div className="mt-2 flex items-center gap-2">
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[10px] font-medium"
-                    style={{ background: st.bg, color: st.dot }}
-                  >
-                    {STATUS_LABEL[n.status]}
-                  </span>
-                  {/* 仅 configurable=true 的节点显示「配置」按钮 */}
-                  {n.configurable && (
-                    <button
-                      className="ml-auto inline-flex items-center gap-1 text-[11px] text-[var(--cy-brand-600)] hover:underline"
-                      onClick={() => setCfgNode(n)}
-                    >
-                      <Settings2 className="h-3 w-3" /> 配置
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
       </div>
 
       {/* 节点弹窗:configurable=true 且 config_kind 在映射表中 → 配置表单;否则只读面板 */}
