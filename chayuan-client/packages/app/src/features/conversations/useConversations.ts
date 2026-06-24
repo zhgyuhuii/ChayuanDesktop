@@ -16,6 +16,7 @@ import {
   renameConversation as renameLocal,
   type ConversationRecord,
 } from './persistence';
+import { useLocalUserId } from './localUser';
 
 export const CONVERSATION_KEYS = {
   list: ['conversations', 'list'] as const,
@@ -27,8 +28,8 @@ export interface ConversationView extends ConversationRecord {
   synced: boolean;
 }
 
-async function loadAll(): Promise<ConversationView[]> {
-  const local = await listLocal(200);
+async function loadAll(userId: string): Promise<ConversationView[]> {
+  const local = await listLocal(userId, 200);
   let remote: ServerConversation[] = [];
   try {
     remote = await conversations.list(200);
@@ -47,6 +48,7 @@ async function loadAll(): Promise<ConversationView[]> {
     byRemote.set(r.id, {
       id: r.id,
       remote_id: r.id,
+      user_id: userId,
       title: r.name || '会话',
       model: '',
       mode: r.chat_type ?? 'agent',
@@ -62,9 +64,10 @@ async function loadAll(): Promise<ConversationView[]> {
 }
 
 export function useConversationList() {
+  const userId = useLocalUserId();
   return useQuery({
-    queryKey: CONVERSATION_KEYS.list,
-    queryFn: loadAll,
+    queryKey: [...CONVERSATION_KEYS.list, userId],
+    queryFn: () => loadAll(userId),
     staleTime: 30_000,
     retry: 0,
   });
