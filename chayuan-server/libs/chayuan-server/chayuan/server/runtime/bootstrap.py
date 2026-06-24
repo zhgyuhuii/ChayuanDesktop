@@ -1,4 +1,4 @@
-"""启动期把 ``Settings.API_SERVER`` / ``CONFIG_SERVER`` / vendor 端口
+"""启动期把 ``Settings.API_SERVER`` / vendor 端口
 统一过一遍 :class:`PortAllocator`，并把结果写进 ``runtime.json``。
 
 调用时机：``chayuan.startup.main`` / ``chayuan service start`` 在 fork
