@@ -26,7 +26,7 @@
 
 import * as React from 'react';
 import { AlertCircle, ChevronRight, Columns3, MessageSquare, PanelRightClose, PanelRightOpen, RefreshCw } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Button, cn } from '@chayuan/ui';
 import { useKuDetail, KU_LIST_KEY, KU_DETAIL_KEY } from './useKuDetail';
 import { KB_KIND_META, KbDetailHeader } from './KbDetailHeader';
@@ -36,6 +36,9 @@ import { ImageKbDetail } from './ImageKbDetail';
 import { StructuredKbDetail } from './StructuredKbDetail';
 import { VectorKbDetail } from './VectorKbDetail';
 import { ConversationView } from '../../chat/ConversationView';
+import { kb as kbApi } from '@chayuan/api';
+import { FileSummaryDialog } from './FileSummaryDialog';
+import { detectSummarizeIntent } from './detectSummarizeIntent';
 import { useComposerStore } from '../../../store/composer';
 import { PreviewPanel, usePreviewStore } from '../../preview';
 import { KbDropZone } from '../upload/KbDropZone';
@@ -136,6 +139,29 @@ export const KbDetailPage: React.FC<KbDetailPageProps> = ({ kuId }) => {
   // claim inline 模式
   React.useEffect(() => claimInline(), [claimInline]);
 
+  // M3:对话内「总结某文件」NL 轨 —— 仅文档库取文件清单用于意图匹配。
+  const [summaryFile, setSummaryFile] = React.useState<string | null>(null);
+  const summaryKbName =
+    detailQ.data?.kind === 'document' ? detailQ.data.meta.name : '';
+  const fileNamesQ = useQuery({
+    queryKey: ['kb.files.summary', summaryKbName],
+    queryFn: () => kbApi.listFiles(summaryKbName),
+    enabled: !!summaryKbName,
+    staleTime: 60_000,
+  });
+  const onBeforeSend = React.useCallback(
+    async (text: string): Promise<boolean> => {
+      const names = (fileNamesQ.data ?? []).map((f) => f.file_name);
+      const hit = detectSummarizeIntent(text, names);
+      if (hit) {
+        setSummaryFile(hit.fileName); // 命中 → 打开全文总结,拦截普通发送(返回 true)
+        return true;
+      }
+      return false;
+    },
+    [fileNamesQ.data],
+  );
+
   const onMutate = React.useCallback(() => {
     void qc.invalidateQueries({ queryKey: KU_DETAIL_KEY(kuId) });
     void qc.invalidateQueries({ queryKey: KU_LIST_KEY });
@@ -204,6 +230,12 @@ export const KbDetailPage: React.FC<KbDetailPageProps> = ({ kuId }) => {
       {/* 数据挂载 corpus_pending 待 ingest banner — 仅当目标是本 KB 且有待
           确认任务时才渲染;失败/为空时零侵入 */}
       {detail?.meta?.name && <PendingMountsBanner kbName={detail.meta.name} />}
+      <FileSummaryDialog
+        open={summaryFile != null}
+        kbName={detail.meta.name}
+        fileName={summaryFile ?? ''}
+        onOpenChange={(open) => { if (!open) setSummaryFile(null); }}
+      />
 
       {/* 中间区域:左列(Browse / Chat)| 右列(Preview),两列都从 header 下沿
           一直填到面板底部。 */}
@@ -289,6 +321,7 @@ export const KbDetailPage: React.FC<KbDetailPageProps> = ({ kuId }) => {
                   conversationId={convId}
                   onConversationCreated={handleConversationCreated}
                   mode="kb"
+                  onBeforeSend={onBeforeSend}
                   emptySlot={inChatMode ? <KbChatWelcome name={detail.meta.display_name} /> : null}
                   placeholder={
                     inChatMode
