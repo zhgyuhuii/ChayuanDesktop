@@ -34,6 +34,7 @@ from chayuan.server.knowledge_base.kb_doc_api import (
 )
 from chayuan.server.knowledge_base.kb_summary_api import (
     recreate_summary_vector_store,
+    summarize_file_now,
     summary_doc_ids_to_vector_store,
     summary_file_to_vector_store,
 )
@@ -1638,6 +1639,29 @@ def cancel_ingest_task(
 # ---------------------------------------------------------------------------
 
 summary_router = APIRouter(prefix="/kb_summary_api")
+
+
+@summary_router.post("/summarize_file_now", summary="按需对单文件做整篇总结(缓存/二次确认/流式)")
+def summarize_file_now_endpoint(
+    knowledge_base_name: str = Body(..., description="知识库名称"),
+    file_name: str = Body(..., description="文件名称"),
+    confirmed: bool = Body(False, description="超大文件二次确认后置 True"),
+    threshold: int = Body(60),
+    model_name: str = Body(None),
+    temperature: float = Body(0.01),
+    max_tokens: int = Body(None),
+    user=Depends(require_auth_enabled()),
+):
+    _require_write(user, knowledge_base_name)
+    return summarize_file_now(
+        knowledge_base_name=knowledge_base_name,
+        file_name=file_name,
+        confirmed=confirmed,
+        threshold=threshold,
+        model_name=model_name,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
 
 
 @summary_router.post("/summary_file_to_vector_store", summary="单个知识库根据文件名称摘要")
