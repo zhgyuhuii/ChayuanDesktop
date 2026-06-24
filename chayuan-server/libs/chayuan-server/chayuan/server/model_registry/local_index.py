@@ -234,6 +234,65 @@ class ScanDelta:
         return bool(self.added or self.updated or self.removed)
 
 
+# -- 去重(持久层不变量)----------------------------------------------------
+
+
+def _entry_preference(e: "LocalModelEntry") -> Tuple[float, int, str]:
+    """折叠重复时"保留谁"的排序键(越大越优先保留)。
+
+    与 ``scan_once`` 的根顺序一致:``models`` 顶层根最先扫到、其 ``model_id``
+    带最长的 ``models/...`` 前缀;同时与 ``/v1/models`` 去重"保留可路由全路径条、
+    丢裸 basename 条"的策略一致 —— 故同分时保留 ``model_id`` 更长(更全限定)的那条。
+    """
+    return (float(e.confidence or 0), len(e.model_id or ""), e.model_id or "")
+
+
+def _canonical_dedupe(entries: Iterable["LocalModelEntry"]) -> List["LocalModelEntry"]:
+    """把"同一物理模型的多条记录"折叠成一条。
+
+    ``model_id = f"{source_tag}/{relpath}"`` 随"哪个扫描根先扫到"而变 —— 同一份
+    磁盘模型因此可能有两个 model_id(全路径前缀 vs 短前缀)。原来去重只在
+    ``scan_once`` 内做,``_load`` / ``replace_all`` / ``list_entries`` 一律只按
+    model_id 当键,历史 ``local_models.json`` 里的重复会被原样加载,导致每个本地
+    模型下拉都出现"一条路径、一条名称"的重复。这里把 ``scan_once`` 的去重口径
+    (realpath + (capability, 文件名))提到持久层统一执行。
+
+    两遍:
+      1. **同物理文件**(``realpath`` 相同)→ 只留一条(对应 scan 的 ``seen_real``);
+      2. **同 capability + 同模型名(basename)**→ 只留一条(对应 ``seen_basename``,
+         兜住两份副本 / 两种根前缀)。
+
+    每一步都用 :func:`_entry_preference` 选保留谁。
+    """
+    items = [e for e in entries if e is not None and (e.model_id or "")]
+
+    # 第一遍:按 realpath 折叠同一物理文件。path 为空的无法判物理身份,直透到第二遍。
+    by_real: "Dict[str, LocalModelEntry]" = {}
+    passthrough: "List[LocalModelEntry]" = []
+    for e in items:
+        if not e.path:
+            passthrough.append(e)
+            continue
+        try:
+            rp = os.path.realpath(e.path)
+        except OSError:
+            rp = e.path
+        cur = by_real.get(rp)
+        if cur is None or _entry_preference(e) > _entry_preference(cur):
+            by_real[rp] = e
+    stage1 = list(by_real.values()) + passthrough
+
+    # 第二遍:按 (capability, 文件名) 折叠副本/根前缀差异。
+    by_name: "Dict[Tuple[str, str], LocalModelEntry]" = {}
+    for e in stage1:
+        base = os.path.basename(e.relpath or e.model_id or e.path or "").lower()
+        key = (e.capability or "", base)
+        cur = by_name.get(key)
+        if cur is None or _entry_preference(e) > _entry_preference(cur):
+            by_name[key] = e
+    return list(by_name.values())
+
+
 # -- 索引主体 --------------------------------------------------------------
 
 class LocalModelIndex:
@@ -259,10 +318,11 @@ class LocalModelIndex:
         try:
             with open(self._path, "r", encoding="utf-8") as f:
                 doc = json.load(f)
+            loaded: List[LocalModelEntry] = []
             for raw in (doc.get("items") or []):
                 if not isinstance(raw, dict):
                     continue
-                e = LocalModelEntry(
+                entry = LocalModelEntry(
                     model_id=str(raw.get("model_id") or ""),
                     path=str(raw.get("path") or ""),
                     relpath=str(raw.get("relpath") or ""),
@@ -276,8 +336,19 @@ class LocalModelIndex:
                     meta=dict(raw.get("meta") or {}),
                     source_tag=str(raw.get("source_tag") or ""),
                 )
-                if e.model_id:
-                    self._entries[e.model_id] = e
+                if entry.model_id:
+                    loaded.append(entry)
+            # 持久层强制"一物理模型一条":清掉历史(旧多根版本/两份副本)写进
+            # local_models.json 的重复,否则每个本地模型下拉都会出现"一条路径、
+            # 一条名称"的重复条目。
+            deduped = _canonical_dedupe(loaded)
+            self._entries = {e.model_id: e for e in deduped}
+            if len(deduped) < len(loaded):
+                logger.info(
+                    "[local-index] 读入时折叠重复条目 %d -> %d,回写自愈",
+                    len(loaded), len(deduped),
+                )
+                self._flush()
         except (OSError, ValueError) as e:
             logger.warning("[local-index] 解析 %s 失败：%s；按空索引继续", self._path, e)
 
@@ -345,7 +416,9 @@ class LocalModelIndex:
             return self._entries.pop(model_id, None) is not None
 
     def replace_all(self, entries: Iterable[LocalModelEntry]) -> ScanDelta:
-        new_map = {e.model_id: e for e in entries}
+        # 折叠同一物理模型的多条记录(scan_once 已去重,这里兜底别的写入路径,
+        # 并保证持久文件始终满足"一物理模型一条"不变量)。
+        new_map = {e.model_id: e for e in _canonical_dedupe(entries)}
         with self._lock:
             added: List[LocalModelEntry] = []
             updated: List[LocalModelEntry] = []
