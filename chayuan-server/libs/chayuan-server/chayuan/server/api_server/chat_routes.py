@@ -185,6 +185,30 @@ async def chatgraph_endpoint(
     uname = str((user or {}).get("username") or "") if isinstance(user, dict) else ""
     urole = str((user or {}).get("role") or "") if isinstance(user, dict) else ""
 
+    # 多用户隔离(与 /chat/completions 对齐):已存在会话校验归属(admin 放行);不存在则按客户端 id
+    # 建 ConversationModel 并 stamp user_id,使历史按用户可列/可同步。v2/chat 是客户端实际主路径。
+    if conversation_id:
+        try:
+            _conv = get_conversation_by_id(conversation_id=conversation_id)
+        except Exception:
+            _conv = None
+        if _conv is not None and uid is not None and _conv.user_id not in (None, uid):
+            if urole != "admin":
+                raise HTTPException(
+                    status_code=403, detail="conversation not owned by current user",
+                )
+        if _conv is None:
+            try:
+                _nm = (query or "").strip()[:50]
+                add_conversation_to_db(
+                    chat_type="agent_chat",
+                    name=_nm or "新会话",
+                    conversation_id=conversation_id,
+                    user_id=uid,
+                )
+            except Exception as _ce:
+                logger.warning("auto-create conversation (v2) failed: %r", _ce)
+
     # image_urls 优先；fallback 到单图 image_url；都无则 None
     _images: List[str] = list(image_urls or [])
     if not _images and image_url:
