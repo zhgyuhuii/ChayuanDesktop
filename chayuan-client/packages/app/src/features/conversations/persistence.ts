@@ -16,6 +16,7 @@ import type { ChatMessage } from '../chat/useChayuanChat';
 
 export interface ConversationRecord {
   id: string;
+  user_id: string;
   remote_id?: string | null;
   title: string;
   model: string;
@@ -31,11 +32,12 @@ const TBL_MSG = 'messages';
 export async function upsertConversation(c: ConversationRecord): Promise<void> {
   const db = getPlatform().db;
   await db.exec(
-    `INSERT OR REPLACE INTO ${TBL_CONV} (id, remote_id, title, model, mode, meta, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO ${TBL_CONV} (id, remote_id, user_id, title, model, mode, meta, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       c.id,
       c.remote_id ?? null,
+      c.user_id,
       c.title,
       c.model,
       c.mode,
@@ -50,6 +52,7 @@ export async function getConversation(id: string): Promise<ConversationRecord | 
   const db = getPlatform().db;
   const rows = await db.query<{
     id: string;
+    user_id: string;
     remote_id: string | null;
     title: string;
     model: string;
@@ -66,18 +69,22 @@ export async function getConversation(id: string): Promise<ConversationRecord | 
   };
 }
 
-export async function listConversations(limit = 100): Promise<ConversationRecord[]> {
+export async function listConversations(userId: string, limit = 100): Promise<ConversationRecord[]> {
   const db = getPlatform().db;
   const rows = await db.query<{
     id: string;
     remote_id: string | null;
+    user_id: string;
     title: string;
     model: string;
     mode: string;
     meta: string | null;
     created_at: number;
     updated_at: number;
-  }>(`SELECT * FROM ${TBL_CONV} ORDER BY updated_at DESC LIMIT ${Math.max(1, Math.min(limit, 1000))}`);
+  }>(
+    `SELECT * FROM ${TBL_CONV} WHERE user_id = ? ORDER BY updated_at DESC LIMIT ${Math.max(1, Math.min(limit, 1000))}`,
+    [userId],
+  );
   return rows.map((r) => ({
     ...r,
     meta: r.meta ? (JSON.parse(r.meta) as Record<string, unknown>) : null,
@@ -97,12 +104,12 @@ export async function renameConversation(id: string, title: string): Promise<voi
 
 // ── messages ────────────────────────────────────────────────
 
-export async function appendMessage(convId: string, msg: ChatMessage): Promise<void> {
+export async function appendMessage(convId: string, msg: ChatMessage, userId: string): Promise<void> {
   const db = getPlatform().db;
   await db.exec(
-    `INSERT OR REPLACE INTO ${TBL_MSG} (id, conv_id, role, parts, trace_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [msg.id, convId, msg.role, JSON.stringify(msg), msg.traceId ?? null, msg.createdAt],
+    `INSERT OR REPLACE INTO ${TBL_MSG} (id, conv_id, user_id, role, parts, trace_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [msg.id, convId, userId, msg.role, JSON.stringify(msg), msg.traceId ?? null, msg.createdAt],
   );
 }
 
