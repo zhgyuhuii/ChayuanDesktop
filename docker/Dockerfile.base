@@ -41,6 +41,14 @@ RUN if [ -n "$APT_MIRROR" ]; then \
         curl git ca-certificates tini \
     && rm -rf /var/lib/apt/lists/* /var/log/nginx/*
 
+# PyPI 国内加速:python:slim 默认走 pypi.org,国内拉 wheel 极慢/超时,pip resolver 会一路
+# 回退到远古 cryptography 2.6 源码包再编译,在 py3.12 新 setuptools 下因缺 pkg_resources 直接
+# 炸(ModuleNotFoundError: No module named 'pkg_resources')。默认换阿里云 PyPI 镜像(与 apt
+# 一致);海外构建 --build-arg PIP_INDEX_URL= 还原 pypi.org,或传 tuna 等其它镜像。设成 ENV,让
+# 本层 pip、下面 minio 那行、以及 FROM 本镜像的应用镜像都自动继承,无需逐行 -i。
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+
 # poetry 必须 >= 生成 poetry.lock 的版本(当前 lock 由 2.4.1 生成);低版本(2.2.0)
 # 读不懂 content-hash 会误判 "pyproject changed significantly" 而失败。
 RUN pip install --no-cache-dir poetry==2.4.1
@@ -57,9 +65,8 @@ RUN --mount=type=cache,target=/tmp/poetry-cache \
 # 对象存储 minio 客户端:poetry main 不含此 optional extra(storage-minio),这里显式
 # 预装进 base,主镜像 FROM 继承即可 —— 改业务代码重建主镜像时【零拉取】,根治"每次
 # 打镜像都重新下载 minio / argon2-cffi / pycryptodome"。子依赖随之一并固化进 base。
-# 国内默认源慢/不可达:--build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-ARG PIP_INDEX_URL=
-RUN pip install --no-cache-dir ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} "minio>=7.2,<8.0"
+# index 已由上面 ENV PIP_INDEX_URL 统一驱动(默认阿里云),这里不再逐行 -i。
+RUN pip install --no-cache-dir "minio>=7.2,<8.0"
 
 # build.sh 写入本 base 对应的 poetry.lock 哈希,便于排查复用命中
 ARG LOCK_HASH=unknown

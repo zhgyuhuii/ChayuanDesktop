@@ -31,6 +31,11 @@ RUN if [ -n "$APT_MIRROR" ]; then \
         curl git ca-certificates tini \
     && rm -rf /var/lib/apt/lists/*
 
+# PyPI 国内加速(同 Dockerfile.base):不走镜像时 pip resolver 会回退到远古 cryptography 2.6
+# 源码包,py3.12 下缺 pkg_resources 编译失败。默认阿里云;海外 --build-arg PIP_INDEX_URL= 还原。
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+
 RUN pip install --no-cache-dir poetry==2.4.1
 
 WORKDIR /chayuan/app
@@ -44,10 +49,9 @@ RUN --mount=type=cache,target=/tmp/poetry-cache \
 # ── 对象存储 minio 客户端(poetry main 不含此 optional extra)────────────────────
 # 本镜像无共享 base,改用 pip cache mount 固化 wheel:即便该层重建,也从 BuildKit
 # 缓存链接、【不再联网下载】minio / argon2-cffi / pycryptodome。
-# 国内默认源慢/不可达时:--build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-ARG PIP_INDEX_URL=
+# index 已由上面 ENV PIP_INDEX_URL 统一驱动(默认阿里云)。
 RUN --mount=type=cache,target=/root/.cache/pip \
-    PIP_NO_CACHE_DIR=0 python -m pip install ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} "minio>=7.2,<8.0" \
+    PIP_NO_CACHE_DIR=0 python -m pip install "minio>=7.2,<8.0" \
     || echo "[build] minio 预装失败(多半是网络),不阻断构建;运行时首次用对象存储会自动补装(ensure_pkg)"
 
 WORKDIR /chayuan/app
