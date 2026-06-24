@@ -42,7 +42,7 @@ export default {
     knowledgeBase: '知识库',
     materials: '素材中心',
     videos: '视频中心',
-    modelMarket: '模型',
+    modelMarket: '模型厂商',
     modelGallery: '模型广场',
     mcp: 'MCP服务',
     tools: '工具中心',

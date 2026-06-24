@@ -68,7 +68,7 @@ function localToCard(e: LocalModelEntry): HubModelCard {
 /** HF token 本地存储 key(私有仓 / 限流时附带)。 */
 const HF_TOKEN_KEY = 'chayuan.hf_token';
 
-export const ModelGalleryPage: React.FC = () => {
+export const ModelGalleryPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { t } = useTranslation();
   const qc = useQueryClient();
 
@@ -169,10 +169,12 @@ export const ModelGalleryPage: React.FC = () => {
   const isEmpty = !isFetching && !error && rows.length === 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden px-6 py-5">
-      <h1 className="mb-3 shrink-0 text-lg font-semibold text-[var(--cy-text-primary)]">
-        {t('nav.modelGallery')}
-      </h1>
+    <div className={'flex h-full min-h-0 flex-col overflow-hidden ' + (embedded ? 'p-0' : 'px-6 py-5')}>
+      {!embedded && (
+        <h1 className="mb-3 shrink-0 text-lg font-semibold text-[var(--cy-text-primary)]">
+          {t('nav.modelGallery')}
+        </h1>
+      )}
 
       <div className="shrink-0">
         <GalleryFilters

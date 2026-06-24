@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Gauge, Star, Layers, HardDrive, FolderTree, SlidersHorizontal, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, BookOpen, FileText, Cpu, Wand2 } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Gauge, Star, Layers, HardDrive, FolderTree, SlidersHorizontal, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, BookOpen, FileText, Cpu, Wand2, Store } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -17,6 +17,7 @@ import { AppsPage } from './apps/AppsPage';
 import { PerformancePage } from './performance/PerformancePage';
 import { DefaultModelsPage } from './defaults/DefaultModelsPage';
 import { MarketplacePage } from '../marketplace/MarketplacePage';
+import { ModelGalleryPage } from '../modelGallery/ModelGalleryPage';
 import { RedisConfigPage } from './infra/RedisConfigPage';
 import { StorageConfigPage } from './infra/StorageConfigPage';
 import { DatabaseConfigPage } from './infra/DatabaseConfigPage';
@@ -34,7 +35,7 @@ import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 import { SetupWizard } from './wizard/SetupWizard';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'kbmanage' | 'topology' | 'roles';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'gallery' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'kbmanage' | 'topology' | 'roles';
 
 type AdminItem = { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean; hidden?: boolean };
 type AdminGroup = { title: string; items: AdminItem[] };
@@ -45,7 +46,8 @@ const ADMIN_GROUPS: AdminGroup[] = [
   { title: '模型与服务', items: [
     { key: 'topology', label: '服务状态', icon: Gauge },
     { key: 'defaults', label: '默认模型', icon: Star },
-    { key: 'platforms', label: '模型平台', icon: Boxes },
+    { key: 'platforms', label: '模型厂商', icon: Boxes },
+    { key: 'gallery', label: '模型广场', icon: Store },
     { key: 'modelcfg', label: '模型参数', icon: Cpu },
     { key: 'prompttpl', label: 'Prompt 模板', icon: FileText },
     // WS 端点:从主菜单隐藏(#8),仍可经 URL /admin/ws 访问。
@@ -320,6 +322,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'defaults' && <DefaultModelsPage />}
           {tab === 'platforms' && <MarketplacePage embedded />}
           {tab === 'services' && <SystemServicesPage />}
+          {tab === 'gallery' && <ModelGalleryPage embedded />}
           {tab === 'topology' && <ServiceTopologyPage />}
           {tab === 'users' && <UsersPage />}
           {tab === 'roles' && <RoleManagementPage />}
