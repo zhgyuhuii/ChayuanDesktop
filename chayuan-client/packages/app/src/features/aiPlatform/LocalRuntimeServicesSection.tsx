@@ -1413,6 +1413,8 @@ const RuntimeServicesRow: React.FC = () => {
         </span>
       </div>
 
+      {/* 两个引擎卡片横向平铺(卡片渲染仍由下面这一处 map 复用,不重复实现) */}
+      <div className="grid grid-cols-2 gap-2">
       {status.engines.map((eng) => {
         const job = jobs[eng.engine] ?? null;
         const isDownloading =
@@ -1436,7 +1438,7 @@ const RuntimeServicesRow: React.FC = () => {
         return (
           <div
             key={eng.engine}
-            className="rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2.5 space-y-1.5"
+            className="min-w-0 rounded-sm border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2.5 space-y-1.5"
           >
             <div className="flex flex-wrap items-center gap-2">
               <span
@@ -1526,6 +1528,7 @@ const RuntimeServicesRow: React.FC = () => {
           </div>
         );
       })}
+      </div>
 
       {error && (
         <div className="text-[11px] text-rose-600 dark:text-rose-400">{error}</div>
