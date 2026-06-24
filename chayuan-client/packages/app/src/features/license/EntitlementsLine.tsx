@@ -2,6 +2,7 @@ import { licenseStatus } from '@chayuan/api';
 import { useQuery } from '@tanstack/react-query';
 import * as React from 'react';
 import { LicenseDialog } from './LicenseDialog';
+import { isDesktop } from '@chayuan/platform-shared';
 
 // 底部状态栏个人权益:有会员显有效期,否则显「免费体验中」。
 // 按产品要求**不显示任何剩余次数/余额**;次数用完由各能力入口自动弹购买窗(useUsageGate)。
@@ -46,15 +47,19 @@ export const EntitlementsLine: React.FC = () => {
         <span className="shrink-0 text-[var(--cy-text-tertiary)]">免费体验中</span>
       )}
 
-      {/* 解除限制:打开购买弹窗(复用 LicenseDialog,内含购买二维码 + 序列号激活) */}
-      <button
-        type="button"
-        onClick={() => setBuyOpen(true)}
-        className="shrink-0 rounded border border-[var(--cy-brand-500)] px-1.5 py-0.5 font-medium text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)]"
-      >
-        解除限制
-      </button>
-      <LicenseDialog app="chat" open={buyOpen} onOpenChange={setBuyOpen} />
+      {/* 解除限制:仅单机版提供授权扫码;服务版授权由后台「部署授权」统一管理,前端不暴露 */}
+      {isDesktop() && (
+        <>
+          <button
+            type="button"
+            onClick={() => setBuyOpen(true)}
+            className="shrink-0 rounded border border-[var(--cy-brand-500)] px-1.5 py-0.5 font-medium text-[var(--cy-brand-600)] hover:bg-[var(--cy-surface-2)]"
+          >
+            解除限制
+          </button>
+          <LicenseDialog app="chat" open={buyOpen} onOpenChange={setBuyOpen} />
+        </>
+      )}
     </span>
   );
 };

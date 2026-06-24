@@ -18,6 +18,7 @@
  */
 
 import * as React from 'react';
+import { isDesktop } from '@chayuan/platform-shared';
 import { useLicenseStore } from './licenseStore';
 import type { ConsumeResult } from './licenseStore';
 
@@ -71,6 +72,8 @@ export function useUsageGate(app: string): UseUsageGateReturn {
 
   const guard = React.useCallback(
     async (run: () => void | Promise<void>): Promise<void> => {
+      // 服务版(网络版):前端不做按次门控、不弹授权扫码 —— 授权按部署席位由后台统一管理。
+      if (!isDesktop()) { await run(); return; }
       let result: ConsumeResult;
       try {
         result = await consume(app);

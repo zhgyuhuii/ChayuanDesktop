@@ -25,6 +25,7 @@ import {
   AlertCircle, Film, Wand2,
 } from 'lucide-react';
 import { home, type ProviderCatalogEntry } from '@chayuan/api';
+import { isDesktop } from '@chayuan/platform-shared';
 import { useBuyQr } from '../license/useBuyQr';
 import { useAuthStore } from '../../store/auth';
 import { useTabsStore } from '../../store/tabs';
@@ -421,22 +422,24 @@ export const HomePage: React.FC = () => {
       <section className="relative z-10 flex flex-col items-center gap-3 pt-1">
         <div className="flex items-center justify-center gap-8">
           <QrCard label="关注我们" src={FOLLOW_QR_URL} />
-          <BuyQrCard />
+          {/* 服务版前端不暴露购买/授权扫码;仅单机版显示 */}
+          {isDesktop() && <BuyQrCard />}
         </div>
-        {/* 已购买的用户点这里输入序列号激活 — 弹出复用的 LicenseDialog
-            (扫码购买页 + 下方序列号输入框 + 关注公众号查询序列号)。 */}
-        <button
-          type="button"
-          onClick={() => setLicOpen(true)}
-          className="text-sm text-[var(--cy-brand-600)] hover:underline"
-        >
-          已购买？点此输入授权码激活
-        </button>
+        {/* 已购买激活入口:仅单机版;服务版授权由后台「部署授权」统一管理 */}
+        {isDesktop() && (
+          <button
+            type="button"
+            onClick={() => setLicOpen(true)}
+            className="text-sm text-[var(--cy-brand-600)] hover:underline"
+          >
+            已购买？点此输入授权码激活
+          </button>
+        )}
       </section>
 
       {/* 激活弹窗 — 复用 LicenseDialog。app 与购买二维码保持一致(chat);
           激活时后端按序列号自身编码的模块发放权益,不受此 app 限制。 */}
-      <LicenseDialog app="chat" open={licOpen} onOpenChange={setLicOpen} />
+      {isDesktop() && <LicenseDialog app="chat" open={licOpen} onOpenChange={setLicOpen} />}
       {/* 「AI视频生成」无 t2v 模型时引导:模型支持说明锚定文生视频段(与能力卡同一弹窗) */}
       <ModelSupportHelpDialog open={videoHelpOpen} onOpenChange={setVideoHelpOpen} initialCap={helpCap} />
       </div>

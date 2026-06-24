@@ -8,7 +8,7 @@
  */
 
 import { type LicenseGrant, type PayChannels, licenseBuyUrl, licenseFingerprint } from "@chayuan/api";
-import { copyText } from '@chayuan/platform-shared';
+import { copyText, isDesktop } from '@chayuan/platform-shared';
 import {
   Button,
   Dialog,
@@ -141,6 +141,10 @@ export function LicenseDialog({ app, open, onOpenChange }: LicenseDialogProps): 
   }
 
   const onConfirmSerial = () => run(() => store.activateSerial(app, serial.trim()));
+
+  // 服务版(网络版)前端不提供授权扫码/序列号激活 —— 授权由后台「部署授权」按席位统一管理。
+  // 按部署形态判断:仅单机版(isDesktop)渲染本激活弹窗。
+  if (!isDesktop()) return <></>;
 
   // ── 成功态 ────────────────────────────────────────────────────────────────
   if (showSuccess) {
