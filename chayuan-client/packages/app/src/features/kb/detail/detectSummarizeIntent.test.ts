@@ -19,6 +19,19 @@ describe('detectSummarizeIntent', () => {
   it('歧义:多个文件都命中 → null', () => {
     expect(detectSummarizeIntent('总结 产品手册 和 readme', files)).toBeNull();
   });
+  it('命中:说的是什么', () => {
+    expect(detectSummarizeIntent('产品手册 说的是什么', files)).toEqual({ fileName: '产品手册.docx' });
+  });
+  it('命中:讲的是什么', () => {
+    expect(detectSummarizeIntent('2024年报 讲的是什么?', files)).toEqual({ fileName: '2024年报.pdf' });
+  });
+  it('命中:内容是什么', () => {
+    expect(detectSummarizeIntent('readme 内容是什么', files)).toEqual({ fileName: 'readme.md' });
+  });
+  it('命中:主要讲了啥(口语)', () => {
+    expect(detectSummarizeIntent('产品手册主要讲了啥', files)).toEqual({ fileName: '产品手册.docx' });
+  });
+
   it('空 query → null', () => {
     expect(detectSummarizeIntent('', files)).toBeNull();
   });
