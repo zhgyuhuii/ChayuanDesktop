@@ -81,3 +81,18 @@
 ### 风险与回归保护
 - Step 1 是纯抽取,必须先保证前端 /kb 详情零行为变更再进 Step 2。
 - KbFilesBody 不得引入 composer/tabs 依赖(对话相关留在 KbDetailPage),保证后台可干净复用。
+
+
+---
+
+## M2 实施记录(比计划更优:免抽取)
+
+发现「文件列表+预览」本就是独立组件(DocumentKbDetail / Image/Structured/VectorKbDetail +
+PreviewPanel,只依赖全局 preview zustand,无 tabs/composer 耦合)。因此**无需从 KbDetailPage
+抽取**,直接在后台**组合复用**这些组件即可 —— 且**完全不动 KbDetailPage**,前端 /kb 零回归风险。
+
+落地:
+- 新增 `features/admin/kbmanage/KbAdminDetail.tsx`:useKuDetail + 按 kind 渲染前端同款详情体 +
+  右列 PreviewPanel + 头部管理员 acl(可见性/owner/授权 GrantsDialog),无 ConversationView。
+- `KbManagePage`:网格(KbCard)保留,点卡片 → KbAdminDetail,删掉原自实现的文件/分片内联详情。
+- 验证:`packages/app` `tsc --noEmit` 全绿(exit 0)。
