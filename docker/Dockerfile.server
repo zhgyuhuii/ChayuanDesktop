@@ -49,6 +49,18 @@ RUN chmod +x \
         /chayuan/app/chayuan-server/vendor/services/whisper-server/linux-x64/whisper-server \
         /chayuan/app/chayuan-server/vendor/services/imagemagick/linux-x64/magick \
     2>/dev/null || true
+# 修复软链:vendor/services 里的 .so 别名(libwhisper.so / libwhisper.so.1 等)在 git
+# 里是 symlink(mode 120000)。若构建上下文以 core.symlinks=false 方式 checkout(Windows
+# 克隆 / zip 传输丢失软链),git 会把软链还原成「内容=目标路径文本」的 19 字节小文件,
+# COPY 原样进镜像,运行时 ld.so 把 19 字节当 ELF 头读 -> "file too short"。这里把这类
+# 伪软链恢复成真正的 symlink,使镜像与 checkout 方式无关。
+RUN find /chayuan/app/chayuan-server/vendor/services -path '*/linux-x64/*' -type f ! -type l | while IFS= read -r f; do \
+        [ "$(stat -c%s "$f")" -le 256 ] || continue; \
+        [ "$(head -c4 "$f" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ] && continue; \
+        tgt=$(cat "$f"); d=$(dirname "$f"); \
+        [ -n "$tgt" ] && [ -e "$d/$tgt" ] || continue; \
+        rm -f "$f" && ln -s "$tgt" "$f" && echo "repaired symlink: $f -> $tgt"; \
+    done
 COPY chayuan-server/vendor/bundled_fonts ./chayuan-server/vendor/bundled_fonts
 COPY chayuan-server/vendor/bundled_bgm ./chayuan-server/vendor/bundled_bgm
 COPY chayuan-server/vendor/bundled_video_clips ./chayuan-server/vendor/bundled_video_clips
