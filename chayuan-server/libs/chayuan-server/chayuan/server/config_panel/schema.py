@@ -206,21 +206,6 @@ BASIC_SETTINGS = FileSchema(
                     max=65535,
                     step=1,
                 ),
-                Field(
-                    path="CONFIG_SERVER.host",
-                    label="配置面板 host (CONFIG_SERVER.host)",
-                    widget="text",
-                    help="本配置面板（NiceGUI）绑定 host。",
-                ),
-                Field(
-                    path="CONFIG_SERVER.port",
-                    label="配置面板 port (CONFIG_SERVER.port)",
-                    widget="number",
-                    help="本配置面板（NiceGUI）端口。修改后需要重启。",
-                    min=1,
-                    max=65535,
-                    step=1,
-                ),
             ],
         ),
         Section(
