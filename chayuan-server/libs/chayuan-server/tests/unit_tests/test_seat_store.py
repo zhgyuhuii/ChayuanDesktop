@@ -24,3 +24,41 @@ def test_model_roundtrip():
     with session_scope() as s:
         row = s.get(DeploymentIdentityModel, "deployment")
         assert row is not None and row.fingerprint == "abc123"
+
+from chayuan.server.license import seat_store
+
+
+def test_fresh_init_generates_stable_fp(tmp_path):
+    fp1 = seat_store.get_fingerprint(tmp_path)
+    fp2 = seat_store.get_fingerprint(tmp_path)
+    assert fp1 and fp1 == fp2
+    assert len(fp1) == 32
+
+
+def test_migrate_imports_old_id_file(tmp_path):
+    import json
+    (tmp_path / "deployment_id.json").write_text(json.dumps({"fp": "deadbeef" * 4}), encoding="utf-8")
+    assert seat_store.get_fingerprint(tmp_path) == "deadbeef" * 4
+
+
+def test_migrate_imports_old_license_file(tmp_path):
+    import json
+    (tmp_path / "deployment_id.json").write_text(json.dumps({"fp": "ab" * 16}), encoding="utf-8")
+    (tmp_path / "deployment_license.json").write_text(
+        json.dumps({"maxUsers": 7, "expireAt": 9999999999, "fp": "ab" * 16}), encoding="utf-8")
+    lic = seat_store.read_license(tmp_path)
+    assert lic and lic["maxUsers"] == 7
+
+
+def test_write_then_read_license(tmp_path):
+    seat_store.write_license(tmp_path, {"maxUsers": 5, "expireAt": 9999999999, "fp": "x"})
+    lic = seat_store.read_license(tmp_path)
+    assert lic and lic["maxUsers"] == 5
+
+
+def test_idempotent_does_not_overwrite(tmp_path):
+    fp1 = seat_store.get_fingerprint(tmp_path)
+    seat_store.get_fingerprint(tmp_path)
+    with session_scope() as s:
+        assert s.query(DeploymentIdentityModel).count() == 1
+        assert s.get(DeploymentIdentityModel, "deployment").fingerprint == fp1
