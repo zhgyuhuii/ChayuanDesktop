@@ -1,13 +1,21 @@
+/**
+ * 网络版「部署授权」面板 —— 参照单机版「激活授权」(LicenseDialog)的简洁单列设计:
+ * 居中扫码购买二维码 + 部署指纹信息条(可复制)+ 授权码激活 + 公众号折叠区。
+ * 去掉旧的「席位用量 / 到期」信息卡(用户反馈不需要、且原双列布局太丑)。
+ * 走席位授权后端:deploymentStatus(取指纹)/ deploymentActivate(短码或令牌)。单机版不渲染。
+ */
 import * as React from 'react';
 import { Button } from '@chayuan/ui';
-import { isWeb } from '@chayuan/platform-shared';
+import { isWeb, copyText } from '@chayuan/platform-shared';
 import QRCode from 'qrcode';
+import { Check, Copy, Fingerprint, KeyRound, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
 import {
   deploymentStatus,
   deploymentActivate,
   licenseBuyUrl,
   type DeploymentStatus,
 } from '@chayuan/api';
+import { FOLLOW_QR_URL } from '../../lib/brandAssets';
 
 function reasonText(reason?: string): string {
   switch (reason) {
@@ -34,7 +42,6 @@ function reasonText(reason?: string): string {
   }
 }
 
-/** 网络版部署席位面板：指纹 / 席位用量 / 到期 + 扫码购买 + 授权码(短码/令牌)激活。单机版不渲染。 */
 export const DeploymentStatusPanel: React.FC = () => {
   if (!isWeb()) return null;
 
@@ -44,7 +51,8 @@ export const DeploymentStatusPanel: React.FC = () => {
   const [err, setErr] = React.useState<string | null>(null);
   const [ok, setOk] = React.useState(false);
   const [qr, setQr] = React.useState('');
-  const [buyUrl, setBuyUrl] = React.useState('');
+  const [fpCopied, setFpCopied] = React.useState(false);
+  const [followOpen, setFollowOpen] = React.useState(false);
 
   const refresh = React.useCallback(async () => {
     try {
@@ -53,12 +61,9 @@ export const DeploymentStatusPanel: React.FC = () => {
       setErr((e as Error).message);
     }
   }, []);
+  React.useEffect(() => { void refresh(); }, [refresh]);
 
-  React.useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  // 扫码购买:用部署指纹拼 seat 购买链接并渲染二维码。买后获得 seat 短码,回此处激活。
+  // 扫码购买:用部署指纹拼 seat 购买链接并渲染二维码。买后获得授权码,回此处激活。
   React.useEffect(() => {
     const fp = status?.fingerprint;
     if (!fp) return;
@@ -68,18 +73,24 @@ export const DeploymentStatusPanel: React.FC = () => {
         const { url } = await licenseBuyUrl('web-seat');
         const origin = new URL(url).origin;
         const seatBuyUrl = `${origin}/buy?kind=seat&deployment_fp=${encodeURIComponent(fp)}`;
-        if (cancelled) return;
-        setBuyUrl(seatBuyUrl);
-        const dataUrl = await QRCode.toDataURL(seatBuyUrl, { margin: 1, width: 200 });
+        const dataUrl = await QRCode.toDataURL(seatBuyUrl, { margin: 1, width: 220 });
         if (!cancelled) setQr(dataUrl);
       } catch {
         /* 购买链接不可用时静默,仍可手动粘贴授权码 */
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [status?.fingerprint]);
+
+  const onCopyFp = async () => {
+    const fp = status?.fingerprint;
+    if (!fp) return;
+    try {
+      await copyText(fp);
+      setFpCopied(true);
+      setTimeout(() => setFpCopied(false), 2000);
+    } catch { /* 剪贴板不可用时静默 */ }
+  };
 
   const onActivate = async () => {
     setBusy(true);
@@ -87,13 +98,8 @@ export const DeploymentStatusPanel: React.FC = () => {
     setOk(false);
     try {
       const r = await deploymentActivate(code.trim());
-      if (r.ok) {
-        setOk(true);
-        setCode('');
-        await refresh();
-      } else {
-        setErr(reasonText(r.reason));
-      }
+      if (r.ok) { setOk(true); setCode(''); await refresh(); }
+      else setErr(reasonText(r.reason));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -101,58 +107,96 @@ export const DeploymentStatusPanel: React.FC = () => {
     }
   };
 
-  const used = status?.usedUsers ?? 0;
-  const max = status?.maxUsers;
-
   return (
-    <div className="space-y-4 p-4">
-      <div className="rounded-xl border p-4">
-        <h3 className="mb-2 text-sm font-semibold">部署授权</h3>
-        <dl className="grid grid-cols-2 gap-2 text-sm">
-          <dt className="text-muted-foreground">席位用量</dt>
-          <dd>{max == null ? '无限制（单机）' : `${used} / ${max}`}</dd>
-          <dt className="text-muted-foreground">到期</dt>
-          <dd>{status?.expireAt ? new Date(status.expireAt).toLocaleDateString() : '—'}</dd>
-          <dt className="text-muted-foreground">部署指纹（购买时上报）</dt>
-          <dd className="font-mono text-xs break-all">{status?.fingerprint ?? '…'}</dd>
-        </dl>
+    <div className="mx-auto max-w-md p-4">
+      <div className="mb-3">
+        <h2 className="text-lg font-semibold text-foreground">激活授权</h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">手机扫码购买后，把授权码填入下方激活。</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* 扫码购买 */}
-        <div className="rounded-xl border p-4">
-          <h4 className="mb-2 text-sm font-medium">扫码购买席位授权</h4>
-          {qr ? (
-            <div className="flex flex-col items-center gap-2">
+      <div className="flex flex-col gap-3">
+        {/* 扫码购买二维码:白底居中 */}
+        <div className="flex flex-col items-center gap-3 py-2">
+          <div className="inline-block rounded-xl bg-white p-2">
+            {qr ? (
               <img src={qr} alt="购买二维码" width={180} height={180} />
-              <p className="text-center text-xs text-muted-foreground">
-                微信/支付宝扫码购买席位，已绑定本部署指纹；支付后获得授权码，回此处粘贴激活。
-              </p>
+            ) : (
+              <div className="h-[180px] w-[180px] animate-pulse rounded bg-muted" />
+            )}
+          </div>
+          <p className="px-3 text-center text-xs leading-relaxed text-muted-foreground">
+            微信 / 支付宝扫码购买席位授权，已绑定本部署指纹；支付后获得授权码，回此处粘贴激活。
+          </p>
+
+          {/* 部署指纹信息条(可复制) */}
+          <div className="w-full">
+            <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs">
+              <Fingerprint className="size-4 shrink-0 text-muted-foreground" />
+              <span className="shrink-0 text-muted-foreground">部署指纹</span>
+              <code className="flex-1 truncate font-mono text-foreground">{status?.fingerprint ?? '…'}</code>
+              <button
+                type="button"
+                className="flex shrink-0 items-center gap-1 text-muted-foreground hover:text-primary"
+                onClick={() => void onCopyFp()}
+                disabled={!status?.fingerprint}
+              >
+                {fpCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                <span>{fpCopied ? '已复制' : '复制'}</span>
+              </button>
             </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              购买二维码加载中…若长时间无二维码，请直接联系销售获取授权码。
-            </p>
-          )}
+          </div>
         </div>
 
-        {/* 授权码激活 */}
-        <div className="rounded-xl border p-4">
-          <label className="mb-2 block text-sm font-medium">粘贴授权码激活（短码或令牌）</label>
+        {/* 分隔线 */}
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="h-px flex-1 bg-border" />
+          <span>或手动输入授权码</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
+        {/* 授权码激活(短码或令牌,可能较长 → textarea) */}
+        <div className="flex flex-col gap-2">
+          <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor="seat-code">
+            <KeyRound className="size-4" /> 授权码
+          </label>
           <textarea
-            className="w-full rounded-md border p-2 font-mono text-xs"
+            id="seat-code"
+            className="w-full rounded-md border bg-background p-2 font-mono text-xs outline-none focus:ring-2 focus:ring-[var(--cy-brand-400)]"
             rows={3}
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XX  或  base64url 令牌"
+            autoComplete="off"
           />
-          {err ? <p className="mt-2 text-sm text-destructive">{err}</p> : null}
-          {ok ? <p className="mt-2 text-sm text-emerald-600">激活成功，席位已更新。</p> : null}
-          <div className="mt-3 flex justify-end">
+          {err ? <p className="text-sm text-destructive">{err}</p> : null}
+          {ok ? (
+            <p className="flex items-center gap-1.5 text-sm text-emerald-600">
+              <CheckCircle2 className="size-4" /> 激活成功，授权已更新。
+            </p>
+          ) : null}
+          <div className="flex justify-end">
             <Button disabled={busy || !code.trim()} onClick={() => void onActivate()}>
               {busy ? '激活中…' : '激活'}
             </Button>
           </div>
+        </div>
+
+        {/* 公众号折叠区(默认收起) */}
+        <div className="rounded-lg border bg-muted/30">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setFollowOpen((v) => !v)}
+          >
+            <span>关注「智灵鸟科技」公众号查询授权码</span>
+            {followOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+          </button>
+          {followOpen ? (
+            <div className="flex flex-col items-center gap-2 pb-3">
+              <img src={FOLLOW_QR_URL} alt="智灵鸟科技公众号" className="size-24 rounded bg-white p-1" />
+              <p className="text-center text-xs text-muted-foreground">购买后如未记录授权码，可凭本部署指纹查询</p>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
