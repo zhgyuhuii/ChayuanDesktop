@@ -236,7 +236,7 @@ const adminRedirectRoute = createRoute({
   path: '/admin',
   beforeLoad: async ({ location }) => {
     await adminGuard(location.href);
-    throw redirect({ to: '/admin/$tab', params: { tab: 'users' } });
+    throw redirect({ to: '/admin/$tab', params: { tab: 'topology' } });
   },
 });
 

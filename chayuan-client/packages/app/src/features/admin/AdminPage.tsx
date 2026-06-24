@@ -40,29 +40,31 @@ export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' 
 type AdminItem = { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean; hidden?: boolean };
 type AdminGroup = { title: string; items: AdminItem[] };
 
-// 管理员专属菜单(分组)。默认落「用户与权限 · 用户」。
+// 管理员专属菜单(分组)。默认落「模型与服务 · 服务状态」。
 const ADMIN_GROUPS: AdminGroup[] = [
-  { title: '用户与权限', items: [
-    { key: 'users', label: '用户', icon: Users },
-    { key: 'roles', label: '角色', icon: Shield },
-    { key: 'kbacl', label: 'KB 授权', icon: Lock },
-    { key: 'apps', label: '应用', icon: AppWindow },
-  ] },
+  // 「模型与服务」置顶;服务状态(topology)作为本组第一个菜单,也是进入后台的默认页。
   { title: '模型与服务', items: [
+    { key: 'topology', label: '服务状态', icon: Gauge },
     { key: 'defaults', label: '默认模型', icon: Star },
     { key: 'platforms', label: '模型平台', icon: Boxes },
-    { key: 'mcp', label: 'MCP', icon: Plug },
-    { key: 'tools', label: '工具', icon: Wrench },
     { key: 'modelcfg', label: '模型参数', icon: Cpu },
     { key: 'prompttpl', label: 'Prompt 模板', icon: FileText },
     // WS 端点:从主菜单隐藏(#8),仍可经 URL /admin/ws 访问。
     { key: 'ws', label: 'WS 端点', icon: Radio, hidden: true },
     { key: 'services', label: '系统服务', icon: Server },
-    { key: 'topology', label: '服务状态', icon: Gauge },
+  ] },
+  // 应用 / MCP / 工具 合并到独立分组。
+  { title: '应用与扩展', items: [
+    { key: 'apps', label: '应用', icon: AppWindow },
+    { key: 'mcp', label: 'MCP', icon: Plug },
+    { key: 'tools', label: '工具', icon: Wrench },
   ] },
   { title: '知识库', items: [
     { key: 'kbcfg', label: '知识库配置', icon: BookOpen },
     { key: 'kbmanage', label: '知识库管理', icon: BookOpen },
+  ] },
+  { title: '部署', items: [
+    { key: 'deployment', label: '部署授权', icon: Cloud, webOnly: true },
   ] },
   // 监控:整组从主菜单隐藏。各 tab 仍可经 URL /admin/<key> 访问,组件不删
   // (与「基础设施」组同款:全部 hidden -> 渲染时该组无可见项,标题自动不出现)。
@@ -82,8 +84,11 @@ const ADMIN_GROUPS: AdminGroup[] = [
     { key: 'storage', label: '对象存储', icon: HardDrive, hidden: true },
     { key: 'datadir', label: '数据目录', icon: FolderTree, hidden: true },
   ] },
-  { title: '部署', items: [
-    { key: 'deployment', label: '部署授权', icon: Cloud, webOnly: true },
+  // 「用户与权限」置于最下方。
+  { title: '用户与权限', items: [
+    { key: 'users', label: '用户', icon: Users },
+    { key: 'roles', label: '角色', icon: Shield },
+    { key: 'kbacl', label: 'KB 授权', icon: Lock },
   ] },
 ];
 
@@ -91,7 +96,7 @@ const ADMIN_LABELS: Record<string, string> = Object.fromEntries(
   ADMIN_GROUPS.flatMap((g) => g.items.map((it) => [it.key, it.label])),
 );
 const KNOWN_TABS = new Set<AdminTab>(ADMIN_GROUPS.flatMap((g) => g.items.map((it) => it.key)));
-const normTab = (t?: string): AdminTab => (t && KNOWN_TABS.has(t as AdminTab) ? (t as AdminTab) : 'users');
+const normTab = (t?: string): AdminTab => (t && KNOWN_TABS.has(t as AdminTab) ? (t as AdminTab) : 'topology');
 
 const LS_COLLAPSED = 'cy-admin-sidebar-collapsed';
 const LS_GROUPS = 'cy-admin-collapsed-groups';
