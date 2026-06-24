@@ -21,12 +21,14 @@
     docker\clean.ps1 -DeepCache          # also remove ALL build cache (not just dangling)
     docker\clean.ps1 -Volumes            # also prune unused volumes (can delete data)
     docker\clean.ps1 -Compact            # also compact docker_data.vhdx (stops Docker; needs Admin)
-    docker\clean.ps1 -Compact -ZeroFill  # zero-fill free space first (when plain compact underperforms)
     docker\clean.ps1 -DryRun             # print what would be removed, do nothing
     docker\clean.ps1 -Compact -VhdxPath "D:\soft\DockerDesktop\wsl\disk\docker_data.vhdx"
 
   Recommended one-shot for a bloated vhdx (elevated PowerShell, Docker Desktop running):
-    docker\clean.ps1 -DeepCache -Compact -ZeroFill
+    docker\clean.ps1 -DeepCache -Compact
+
+  (-ZeroFill is deprecated/ignored: zero-filling a dynamic vhdx grows it and can crash the
+   daemon. Compact now TRIMs freed blocks via fstrim instead, which is safe.)
 
   Notes:
     - Keeps: chayuan:latest, chayuan:<VERSION>, and ALL chayuan-base* / chayuan-web-base* images.
@@ -207,18 +209,17 @@ $vhdx = Resolve-Vhdx -Override $VhdxPath
 $before = [math]::Round((Get-Item $vhdx).Length / 1GB, 1)
 Write-Host "[compact] target: $vhdx  (current ${before} GB)"
 
-# Optional zero-fill: WSL2 ext4 does not zero blocks on delete, so plain 'compact vdisk' often
-# reclaims little. Writing zeros into a throwaway container layer (on docker_data.vhdx) then
-# freeing it marks those blocks zeroed so diskpart can reclaim them. Needs the engine running.
+# DO NOT zero-fill. On a dynamic vhdx, writing zeros GROWS the file to full and, if it hits
+# ENOSPC, can crash the daemon and orphan a giant container layer. The correct WSL2 way is to
+# TRIM the freed ext4 blocks (discard), which shrinks nothing on disk but lets diskpart reclaim
+# them afterwards -- without ever growing the file.
 if ($ZeroFill) {
-    if ($engineUp) {
-        Write-Host "[compact] zero-filling free space inside docker_data (this can take a while)..."
-        & $Docker run --rm alpine sh -c "dd if=/dev/zero of=/zero.tmp bs=1M 2>/dev/null; sync; rm -f /zero.tmp; sync"
-    }
-    else {
-        Write-Warning "-ZeroFill needs the engine running; skipped. Start Docker Desktop and re-run if compact underperforms."
-    }
+    Write-Warning "-ZeroFill is deprecated and ignored (it could grow/crash the vhdx). fstrim is used automatically."
 }
+Write-Host "[compact] trimming freed blocks inside the Docker WSL VM (fstrim)..."
+# best-effort: docker-desktop distro may differ / lack fstrim; ignore failures.
+wsl -d docker-desktop sh -c "fstrim -av 2>/dev/null || true" 2>$null
+Start-Sleep -Seconds 2
 
 Write-Host "[compact] stopping Docker Desktop + WSL (releasing the vhdx lock)..."
 Get-Process "Docker Desktop" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
