@@ -63,33 +63,56 @@ Write-Host "[build] VERSION=$Version  BASE=$BaseTag  WEB_BASE=$WebBaseTag"
 
 # 2.5) clean historical images (default on; -NoClean to skip). Runs after VERSION
 #      and BaseTag are known and before any build, keeping latest / VERSION / BaseTag.
+# List ALL local image "Repository:Tag" pairs in a single call. We deliberately do NOT pass a
+# name/reference to 'docker images' -- the per-reference filter ({"reference":...}) can return
+# HTTP 500 on Docker Desktop's containerd image store. Enumerating everything and filtering in
+# PowerShell avoids that broken code path. Returns @() on any failure (non-fatal).
+function Get-AllImageTags {
+    try {
+        $out = & $Docker images --format "{{.Repository}}:{{.Tag}}" 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $out) { return @() }
+        return @($out | Where-Object { $_ -and ($_ -notmatch ":<none>$") })
+    }
+    catch { return @() }
+}
+
+# Remove historical build residue while KEEPING the current base env images (chayuan-base /
+# chayuan-web-base at the current lock hashes) and the current app image (chayuan:latest /
+# chayuan:$Version). Also prunes dangling layers AND build cache -- the build cache is usually
+# the single largest residue and is what keeps docker_data.vhdx growing every build.
 function Remove-OldImages {
-    Write-Host "[build] cleaning historical images (keep :latest / :$Version / $BaseTag)..."
-    $verEsc  = [regex]::Escape($Version)
-    $hashEsc = [regex]::Escape($LockHash)
-    # old chayuan version tags (not latest, not current VERSION)
-    (& $Docker images chayuan --format "{{.Repository}}:{{.Tag}}" 2>$null) |
-        Where-Object { $_ -and ($_ -notmatch ":(latest|$verEsc)$") -and ($_ -notmatch "<none>") } |
-        ForEach-Object { Write-Host "  - rmi $_"; & $Docker rmi $_ 2>$null | Out-Null }
-    # stale-hash chayuan-base (not current lock hash, not latest)
-    (& $Docker images chayuan-base --format "{{.Repository}}:{{.Tag}}" 2>$null) |
-        Where-Object { $_ -and ($_ -notmatch ":($hashEsc|latest)$") -and ($_ -notmatch "<none>") } |
-        ForEach-Object { Write-Host "  - rmi $_"; & $Docker rmi $_ 2>$null | Out-Null }
-    # stale-hash chayuan-web-base (not current pnpm-lock hash, not latest)
-    $pnpmEsc = [regex]::Escape($PnpmLockHash)
-    (& $Docker images chayuan-web-base --format "{{.Repository}}:{{.Tag}}" 2>$null) |
-        Where-Object { $_ -and ($_ -notmatch ":($pnpmEsc|latest)$") -and ($_ -notmatch "<none>") } |
-        ForEach-Object { Write-Host "  - rmi $_"; & $Docker rmi $_ 2>$null | Out-Null }
-    # dangling (<none>) layers left after tag replacement -- the biggest disk eater
-    & $Docker image prune -f 2>$null | Out-Null
+    Write-Host "[build] cleaning historical images + build cache (keep :latest / :$Version / $BaseTag / $WebBaseTag)..."
+    try {
+        $verEsc  = [regex]::Escape($Version)
+        $hashEsc = [regex]::Escape($LockHash)
+        $pnpmEsc = [regex]::Escape($PnpmLockHash)
+        $stale = Get-AllImageTags | Where-Object {
+            ($_ -match "^chayuan:"          -and $_ -notmatch "^chayuan:(latest|$verEsc)$") -or
+            ($_ -match "^chayuan-base:"      -and $_ -notmatch "^chayuan-base:(latest|$hashEsc)$") -or
+            ($_ -match "^chayuan-web-base:"  -and $_ -notmatch "^chayuan-web-base:(latest|$pnpmEsc)$")
+        }
+        foreach ($img in $stale) {
+            Write-Host "  - rmi $img"
+            & $Docker rmi $img 2>$null | Out-Null
+        }
+        # dangling (<none>) layers left after tag replacement
+        & $Docker image prune -f 2>$null | Out-Null
+        # build cache -- biggest disk eater, separate from images, not touched by image prune
+        & $Docker builder prune -f 2>$null | Out-Null
+    }
+    catch {
+        Write-Host "[build] cleanup skipped (non-fatal): $($_.Exception.Message)"
+    }
 }
 if (-not $NoClean) { Remove-OldImages } else { Write-Host "[build] skip historical image cleanup (-NoClean)" }
 
 # 3) base: build if missing or -RebuildBase (deps downloaded only here)
-# 'docker images -q <ref>' prints the image id if present, empty if not, and exits 0 either way
-# (unlike 'image inspect' which errors on a missing image). Avoids aborting on first run.
-$BaseId = (& $Docker images -q $BaseTag 2>$null | Select-Object -First 1)
-$BaseExists = -not [string]::IsNullOrWhiteSpace($BaseId)
+# Existence via a single full 'docker images' enumerate + client-side membership test. We avoid
+# 'docker images -q <ref>' because the per-reference filter can return HTTP 500 on Docker
+# Desktop's containerd image store; enumerating all tags once dodges that. $AllTags is reused
+# for the web base check below.
+$AllTags = Get-AllImageTags
+$BaseExists = $AllTags -contains $BaseTag
 if ($RebuildBase -or (-not $BaseExists)) {
     Write-Host "[build] building base env image $BaseTag (download all deps)..."
     $BaseArgs = @("build")
@@ -103,8 +126,7 @@ else {
 }
 
 # 3b) web base: build if missing or -RebuildBase (frontend deps pnpm-fetched only here)
-$WebBaseId = (& $Docker images -q $WebBaseTag 2>$null | Select-Object -First 1)
-$WebBaseExists = -not [string]::IsNullOrWhiteSpace($WebBaseId)
+$WebBaseExists = $AllTags -contains $WebBaseTag
 if ($RebuildBase -or (-not $WebBaseExists)) {
     Write-Host "[build] building web base image $WebBaseTag (pnpm fetch all deps)..."
     $WebArgs = @("build")
@@ -118,7 +140,7 @@ else {
 }
 
 # 4) app image: FROM base + web base, tag == VERSION + latest
-Write-Host "[build] building app image chayuan:$Version (前端+后端 all-in-one 单镜像) ..."
+Write-Host "[build] building app image chayuan:$Version (frontend + backend all-in-one single image) ..."
 $AppArgs = @("build")
 if ($Nocache) { $AppArgs += $Nocache }
 $AppArgs += @("-f", "docker/Dockerfile", "--build-arg", "BASE_IMAGE=$BaseTag", "--build-arg", "WEB_BASE_IMAGE=$WebBaseTag", "-t", "chayuan:$Version", "-t", "chayuan:latest", ".")
