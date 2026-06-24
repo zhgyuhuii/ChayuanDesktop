@@ -16,6 +16,7 @@ from chayuan.server.chat.feedback import chat_feedback
 from chayuan.server.chat.file_chat import file_chat
 from chayuan.server.db.repository import add_message_to_db
 from chayuan.server.db.repository.conversation_repository import (
+    add_conversation_to_db,
     delete_conversation,
     get_conversation_by_id,
     list_conversations_for_user,
@@ -454,17 +455,29 @@ async def chat_completions(
             logger.info("semcache hit (chat): uid=%s", uid)
             return hit
 
-    # 多用户隔离：拿到已存在会话时，校验归属；admin 放行
-    if conversation_id and uid is not None:
+    # 多用户隔离：已存在会话校验归属(admin 放行);不存在则按客户端 id 建行并 stamp user_id
+    if conversation_id:
         try:
             conv = get_conversation_by_id(conversation_id=conversation_id)
         except Exception:
             conv = None
-        if conv is not None and conv.user_id not in (None, uid):
+        if conv is not None and uid is not None and conv.user_id not in (None, uid):
             if (user or {}).get("role") != "admin":
                 raise HTTPException(
                     status_code=403, detail="conversation not owned by current user",
                 )
+        if conv is None:
+            # 首消息:统一「客户端 id = 服务端会话 id」,落 ConversationModel 让历史按用户可列/可同步
+            try:
+                _name = (body.messages[-1].get("content") or "").strip()[:50] if body.messages else ""
+                add_conversation_to_db(
+                    chat_type="agent_chat",
+                    name=_name or "新会话",
+                    conversation_id=conversation_id,
+                    user_id=uid,
+                )
+            except Exception as _ce:
+                logger.warning("auto-create conversation failed: %r", _ce)
 
     raw_chat_cfg = extra.get("chat_model_config") or {}
     selected_model = (body.model or "").strip() or hint or get_default_llm()
