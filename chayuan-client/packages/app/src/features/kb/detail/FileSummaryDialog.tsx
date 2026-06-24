@@ -20,7 +20,7 @@ export interface FileSummaryDialogProps {
 }
 
 type Phase =
-  | { kind: 'running'; chunkCount?: number }
+  | { kind: 'running'; chunkCount?: number; done?: number; total?: number }
   | { kind: 'needs_confirm'; chunkCount: number; estCalls: number }
   | { kind: 'ok'; summary: string; cached: boolean }
   | { kind: 'error'; msg: string };
@@ -39,7 +39,8 @@ export const FileSummaryDialog: React.FC<FileSummaryDialogProps> = ({
       unsubRef.current = subscribeFileSummary(
         { knowledge_base_name: kbName, file_name: fileName, confirmed },
         (f: FileSummaryFrame) => {
-          if (f.status === 'running') setPhase({ kind: 'running', chunkCount: f.chunk_count });
+          if (f.status === 'running') setPhase({ kind: 'running', chunkCount: f.chunk_count, total: f.total });
+          else if (f.status === 'progress') setPhase({ kind: 'running', done: f.done, total: f.total });
           else if (f.status === 'needs_confirm')
             setPhase({ kind: 'needs_confirm', chunkCount: f.chunk_count, estCalls: f.est_llm_calls });
           else if (f.status === 'ok')
@@ -83,7 +84,22 @@ export const FileSummaryDialog: React.FC<FileSummaryDialogProps> = ({
           {phase.kind === 'running' && (
             <div className="flex flex-col items-center gap-2 py-10 text-sm text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin" />
-              <span>正在通览整篇并归纳…{phase.chunkCount ? `(共 ${phase.chunkCount} 块)` : ''}</span>
+              <span>
+                正在通览整篇并归纳…
+                {phase.done != null && phase.total
+                  ? `(${Math.min(phase.done, phase.total)} / ${phase.total})`
+                  : phase.chunkCount
+                    ? `(共 ${phase.chunkCount} 块)`
+                    : ''}
+              </span>
+              {phase.done != null && phase.total ? (
+                <div className="h-1.5 w-48 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-sky-500 transition-all"
+                    style={{ width: `${Math.min(100, Math.round((phase.done / phase.total) * 100))}%` }}
+                  />
+                </div>
+              ) : null}
               <span className="text-xs">文件较长时需要多次模型调用,请稍候</span>
             </div>
           )}

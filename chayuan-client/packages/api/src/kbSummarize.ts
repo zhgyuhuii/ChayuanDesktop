@@ -23,7 +23,8 @@ export interface FileSummaryRequest {
 }
 
 export type FileSummaryFrame =
-  | { status: 'running'; chunk_count: number }
+  | { status: 'running'; chunk_count: number; total?: number }
+  | { status: 'progress'; done: number; total: number }
   | { status: 'needs_confirm'; chunk_count: number; est_llm_calls: number }
   | { status: 'ok'; summary: string; cached?: boolean }
   | { status: 'error'; msg: string };

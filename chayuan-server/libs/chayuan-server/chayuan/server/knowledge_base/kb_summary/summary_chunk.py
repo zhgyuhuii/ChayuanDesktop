@@ -100,7 +100,7 @@ class SummaryAdapter:
         return cls(overlap_size=overlap_size, chain=chain, token_max=token_max)
 
     def summarize(
-        self, file_description: str, docs: List[DocumentWithVSId] = []
+        self, file_description: str, docs: List[DocumentWithVSId] = [], callbacks=None
     ) -> List[Document]:
         if sys.version_info < (3, 10):
             loop = asyncio.get_event_loop()
@@ -113,11 +113,11 @@ class SummaryAdapter:
             asyncio.set_event_loop(loop)
         # 同步调用协程代码
         return loop.run_until_complete(
-            self.asummarize(file_description=file_description, docs=docs)
+            self.asummarize(file_description=file_description, docs=docs, callbacks=callbacks)
         )
 
     async def asummarize(
-        self, file_description: str, docs: List[DocumentWithVSId] = []
+        self, file_description: str, docs: List[DocumentWithVSId] = [], callbacks=None
     ) -> List[Document]:
         logger.info("start summary")
         """
@@ -137,6 +137,7 @@ class SummaryAdapter:
             docs=docs,
             task_briefing="描述不同方法之间的接近度和相似性，"
             "以帮助读者理解它们之间的关系。",
+            callbacks=callbacks,
         )
         print(summary_combine)
         print(summary_intermediate_steps)

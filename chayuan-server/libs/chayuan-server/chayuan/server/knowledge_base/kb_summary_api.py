@@ -368,8 +368,10 @@ def summarize_file_now(
                 )
                 return
 
+            total = len(doc_infos) + max(1, (len(doc_infos) + 4) // 5)  # map(每块)+ reduce 粗估
             yield json.dumps(
-                {"code": 100, "status": "running", "chunk_count": len(doc_infos), "doc": file_name},
+                {"code": 100, "status": "running", "chunk_count": len(doc_infos),
+                 "total": total, "doc": file_name},
                 ensure_ascii=False,
             )
 
@@ -382,7 +384,55 @@ def summarize_file_now(
             adapter = SummaryAdapter.form_summary(
                 llm=llm, reduce_llm=reduce_llm, overlap_size=Settings.kb_settings.OVERLAP_SIZE
             )
-            summary_docs = adapter.summarize(file_description="", docs=doc_infos)
+
+            # 逐块流式进度:把 map-reduce 放到后台线程跑,LangChain 每次 on_llm_end(每块摘要 /
+            # reduce 合并各一次)往队列推进度;本(同步)生成器边 drain 边 yield。
+            # 失败兜底:回调不触发 / 异常,也保证 finally 推 sentinel,生成器不会卡死;
+            # 此时退化为「running →(阻塞)→ ok」单段进度。
+            import queue as _queue
+            import threading as _threading
+            try:
+                from langchain_core.callbacks import BaseCallbackHandler as _BaseCB
+            except Exception:  # noqa: BLE001 — 老版本路径兜底
+                from langchain.callbacks.base import BaseCallbackHandler as _BaseCB  # type: ignore
+
+            _q: "_queue.Queue" = _queue.Queue()
+            _holder: dict = {}
+
+            class _ProgressCB(_BaseCB):  # type: ignore[misc]
+                def __init__(self) -> None:
+                    self.done = 0
+
+                def on_llm_end(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+                    self.done += 1
+                    _q.put(self.done)
+
+            def _run() -> None:
+                try:
+                    _holder["docs"] = adapter.summarize(
+                        file_description="", docs=doc_infos, callbacks=[_ProgressCB()]
+                    )
+                except Exception as _e:  # noqa: BLE001
+                    _holder["err"] = _e
+                finally:
+                    _q.put(None)  # sentinel:无论成败都收尾,防生成器卡死
+
+            _t = _threading.Thread(target=_run, daemon=True)
+            _t.start()
+            while True:
+                item = _q.get()
+                if item is None:
+                    break
+                yield json.dumps(
+                    {"code": 100, "status": "progress", "done": int(item),
+                     "total": total, "doc": file_name},
+                    ensure_ascii=False,
+                )
+            _t.join(timeout=5)
+
+            if _holder.get("err") is not None:
+                raise _holder["err"]
+            summary_docs = _holder.get("docs") or []
             summary_text = summary_docs[0].page_content if summary_docs else ""
 
             _fsc.put_summary(store, key, summary_text)
