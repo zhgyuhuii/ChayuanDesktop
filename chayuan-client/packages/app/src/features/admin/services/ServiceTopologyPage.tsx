@@ -235,7 +235,18 @@ export const ServiceTopologyPage: React.FC = () => {
   const onSvgPointerUp = (e: React.PointerEvent) => {
     if (!drag) return;
     try { svgRef.current?.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    const wasDrag = didDragRef.current;
+    const nodeId = drag.id;
     setDrag(null);
+    didDragRef.current = false;
+    // 在 pointerup(捕获目标 SVG 必定收到)里判定点击:节点 pointerdown 时调用了
+    // svg.setPointerCapture,会把随后的 click 事件重定向到 SVG/抑制掉,导致 <g> 的
+    // onClick 不触发 —— 这正是「点击拓扑节点弹不出配置」的根因。改在此处:未发生真实
+    // 拖动(位移未过阈值)即视为点击,直接打开对应节点配置弹窗,不再依赖 click 事件。
+    if (!wasDrag) {
+      const n = (snap?.nodes ?? []).find((x) => x.id === nodeId);
+      if (n) setCfgNode(n);
+    }
   };
   const resetLayout = () => {
     setPosOverride({});
@@ -266,10 +277,6 @@ export const ServiceTopologyPage: React.FC = () => {
   const nodes = snap?.nodes ?? [];
   const byId = React.useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
-  const clickNode = (n: TopologyNode) => {
-    if (didDragRef.current) { didDragRef.current = false; return; }  // 拖动结束的 click 不当点击
-    setCfgNode(n);
-  };
 
   return (
     <div className="space-y-5 p-6">
@@ -346,7 +353,6 @@ export const ServiceTopologyPage: React.FC = () => {
                 transform={`translate(${posOf(n).x - NODE_W / 2}, ${posOf(n).y - NODE_H / 2})`}
                 style={{ cursor: drag?.id === n.id ? 'grabbing' : 'grab' }}
                 onPointerDown={(e) => onNodePointerDown(e, n)}
-                onClick={() => clickNode(n)}
               >
                 <rect
                   width={NODE_W}
