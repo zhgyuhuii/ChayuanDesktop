@@ -71,6 +71,8 @@ def _reranker_preflight_available() -> bool:
     In offline/local-files-only deployments, a missing reranker is expected until
     the model is pre-warmed. Avoid touching sentence-transformers on every query.
     """
+    if _rerank_sidecar_base() is not None:
+        return True
     _model_name, _device, _max_length, local_files_only, key, resolved_model = _reranker_config()
     if local_files_only and not resolved_model:
         with _RERANKER_LOCK:
@@ -305,27 +307,101 @@ def invalidate_bm25_cache(kb_name: str = "") -> None:
 # Rerank
 # ---------------------------------------------------------------------------
 
+def _rerank_sidecar_base() -> Optional[Tuple[str, str]]:
+    """Resolve a running rerank sidecar: return (base_url, model_id) or None. In-memory only, no HTTP.
+
+    Prefer the actually-ready rerank sidecar from LocalRuntimeRegistry (endpoint=http://host:port,
+    GGUF llama-server --reranking); fall back to the configured default rerank model's platform
+    api_base_url (http://host:port/v1)."""
+    try:
+        from chayuan.server.model_registry.local_runtime_registry import get_registry
+        st = get_registry().all_statuses().get("rerank")
+        if st is not None and getattr(st, "state", "") == "ready":
+            ep = getattr(st, "endpoint", None)
+            if ep:
+                return str(ep), str(getattr(st, "model_id", "") or "")
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[reranker] registry rerank status resolve failed: %r", e)
+    try:
+        from chayuan.server.capability_router import resolve_model
+        from chayuan.server.utils import get_model_info
+        mid = resolve_model("rerank") or ""
+        if mid:
+            info = get_model_info(mid) or {}
+            base = info.get("api_base_url")
+            if base:
+                return str(base), str(mid)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[reranker] get_model_info rerank resolve failed: %r", e)
+    return None
+
+
+def _sidecar_rerank_scores(query: str, texts: List[str]) -> Optional[List[float]]:
+    """Score texts via the rerank sidecar (GGUF, llama.cpp /v1/rerank, Cohere-compatible).
+
+    Returns scores aligned to texts order, or None when unavailable/failed (caller falls back to
+    in-process CrossEncoder or passthrough)."""
+    if not texts:
+        return None
+    resolved = _rerank_sidecar_base()
+    if resolved is None:
+        return None
+    base, model_id = resolved
+    b = base.rstrip("/")
+    url = (b + "/rerank") if b.endswith("/v1") else (b + "/v1/rerank")
+    docs = [(t or "")[:4000] for t in texts]
+    payload = {"query": query, "documents": docs, "top_n": len(docs)}
+    if model_id:
+        payload["model"] = model_id
+    try:
+        import httpx
+        resp = httpx.post(url, json=payload, timeout=30.0)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[reranker] sidecar rerank call failed, fallback: %r", e)
+        return None
+    results = data.get("results") if isinstance(data, dict) else None
+    if not isinstance(results, list):
+        return None
+    scores = [0.0] * len(docs)
+    got = False
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        idx = item.get("index")
+        sc = item.get("relevance_score", item.get("score"))
+        if isinstance(idx, int) and 0 <= idx < len(scores) and sc is not None:
+            try:
+                scores[idx] = float(sc)
+                got = True
+            except (TypeError, ValueError):
+                pass
+    return scores if got else None
+
+
 def _rerank(query: str, docs: List[Document], top_n: int) -> List[Document]:
     if not docs or top_n <= 0:
         return docs[:top_n] if top_n > 0 else []
-    ce = _get_reranker()
-    if ce is None:
-        return docs[:top_n]
-    try:
-        pairs = [[query, (d.page_content or "")[:4000]] for d in docs]
-        scores = ce.predict(pairs, batch_size=16, convert_to_numpy=True)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("rerank predict 失败，fail-open 保留原顺序：%r", e)
-        return docs[:top_n]
-    scored = sorted(
-        zip(scores, docs), key=lambda x: float(x[0]), reverse=True,
-    )
+    texts = [(d.page_content or "")[:4000] for d in docs]
+    # rerank first via the running sidecar (GGUF); fall back to in-process CrossEncoder (HF).
+    scores = _sidecar_rerank_scores(query, texts)
+    if scores is None:
+        ce = _get_reranker()
+        if ce is None:
+            return docs[:top_n]
+        try:
+            pairs = [[query, t] for t in texts]
+            scores = ce.predict(pairs, batch_size=16, convert_to_numpy=True)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("rerank predict failed, fail-open keep order: %r", e)
+            return docs[:top_n]
+    scored = sorted(zip(scores, docs), key=lambda x: float(x[0]), reverse=True)
     out: List[Document] = []
     for sc, d in scored[:top_n]:
         d.metadata["rerank_score"] = float(sc)
         out.append(d)
     return out
-
 
 # ---------------------------------------------------------------------------
 # 上下文扩展（轻量版 Parent-Child）：把命中 chunk 的前后邻居合并到 page_content
