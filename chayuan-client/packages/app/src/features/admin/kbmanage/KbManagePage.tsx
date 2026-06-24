@@ -2,7 +2,7 @@
  * KbManagePage —— 管理控制台「知识库管理」域。
  * 复用前端知识中心的 KbCard 卡片界面;数据走 knowledgeUniverse.list()(admin 用户后端
  * 自动返回**全部** KB)。点卡片进入详情:授权(复用 GrantsDialog) + 文件 / 分片管理(admin 独有)。
- * 顶部「添加知识库」复用 KbAclPage 的 CreateKbDialog。
+ * 顶部「添加知识库」复用共享 KbCreateFlow(文档/数据库/外部向量库 3 类)。
  */
 import * as React from 'react';
 import {
@@ -12,8 +12,8 @@ import {
 import { Button } from '@chayuan/ui';
 import { RefreshCw, Plus, ArrowLeft, FileText, Trash2, Save, Lock, ChevronRight } from 'lucide-react';
 import { KbCard } from '../../kb/KbCard';
-import { CreateKbDialog } from '../kbacl/KbAclPage';
 import { GrantsDialog } from './GrantsDialog';
+import { KbCreateFlow } from '../../kb/create/KbCreateFlow';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 import { confirmDialog } from '../../../store/confirmDialog';
 
@@ -51,6 +51,15 @@ export const KbManagePage: React.FC = () => {
     }
   }, []);
   React.useEffect(() => { void load(); }, [load]);
+
+  const setVis = async (id: number, v: string) => {
+    try { await kbAcl.setVisibility(id, v); await load(); }
+    catch (e) { reportError(e, '修改可见性失败'); }
+  };
+  const setOwner = async (id: number, ownerId: number | null) => {
+    try { await kbAcl.setOwner(id, ownerId); await load(); }
+    catch (e) { reportError(e, '修改 owner 失败'); }
+  };
 
   const openKb = async (ku: KuItem) => {
     setSel(ku);
@@ -96,11 +105,24 @@ export const KbManagePage: React.FC = () => {
           <Button variant="ghost" size="sm" onClick={() => setSel(null)}><ArrowLeft className="mr-1 h-4 w-4" /> 返回</Button>
           <span className="text-sm font-semibold">{sel.display_name || sel.name}</span>
           <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] dark:bg-zinc-800">{sel.kind}</span>
-          <span className="text-[11px] opacity-50">{sel.visibility} · owner {sel.owner_id ?? '—'}</span>
           <span className="flex-1" />
           {acl ? (
-            <Button size="sm" variant="outline" onClick={() => setGrantsAcl(acl)}><Lock className="mr-1.5 h-4 w-4" /> 授权</Button>
-          ) : null}
+            <>
+              <label className="text-[11px] opacity-60">可见性</label>
+              <select className="rounded border p-1 text-xs" value={acl.visibility} onChange={(e) => void setVis(acl.id, e.target.value)}>
+                <option value="private">private</option>
+                <option value="public">public</option>
+              </select>
+              <label className="text-[11px] opacity-60">owner</label>
+              <select className="rounded border p-1 text-xs" value={acl.owner_id ?? 0} onChange={(e) => void setOwner(acl.id, Number(e.target.value) || null)}>
+                <option value={0}>（无）</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+              </select>
+              <Button size="sm" variant="outline" onClick={() => setGrantsAcl(acl)}><Lock className="mr-1.5 h-4 w-4" /> 授权</Button>
+            </>
+          ) : (
+            <span className="text-[11px] opacity-50">{sel.visibility} · owner {sel.owner_id ?? '—'}</span>
+          )}
         </div>
         {sel.kind !== 'document' ? (
           <div className="rounded-md bg-zinc-100 px-3 py-2 text-xs opacity-60 dark:bg-zinc-800">该类型知识库无文件/分片管理;可用上方「授权」管理访问权限。</div>
@@ -150,7 +172,7 @@ export const KbManagePage: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">知识库管理</h2>
-          <p className="mt-1 text-sm text-muted-foreground">全系统知识库(管理员视角)。点卡片进入:授权 / 文件 / 分片管理。</p>
+          <p className="mt-1 text-sm text-muted-foreground">全系统知识库(管理员视角)。可新建文档 / 数据库 / 外部向量库;点卡片进入:可见性 / owner / 授权 / 文件分片管理。</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}><RefreshCw className={`mr-1.5 h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> 刷新</Button>
@@ -168,7 +190,7 @@ export const KbManagePage: React.FC = () => {
           ))}
         </div>
       )}
-      {createOpen ? <CreateKbDialog users={users} onClose={() => setCreateOpen(false)} onCreated={() => void load()} /> : null}
+      <KbCreateFlow open={createOpen} onOpenChange={setCreateOpen} onCreated={() => void load()} />
     </div>
   );
 };
