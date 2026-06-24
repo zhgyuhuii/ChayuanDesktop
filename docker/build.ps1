@@ -47,16 +47,32 @@ $Nocache = if ($NoCache) { "--no-cache" } else { $null }
 $Version = (Get-Content -Raw (Join-Path $RepoRoot "VERSION")).Trim()
 if ([string]::IsNullOrWhiteSpace($Version)) { throw "VERSION is empty" }
 
-# 2) base tag = poetry.lock content hash (deps unchanged means reuse base)
+# Combined content hash of several files (concat each file's SHA256, then hash that).
+# Used so a base tag reflects BOTH the lockfile AND its Dockerfile -- editing the Dockerfile
+# (e.g. adding minio to Dockerfile.base) changes the tag, so the base auto-rebuilds without
+# needing -RebuildBase. Docker layer cache still hits unchanged apt/poetry layers, so only the
+# changed layer runs (no full dependency re-download).
+function Get-ComboHash([string[]]$Paths) {
+    $acc = ""
+    foreach ($p in $Paths) { $acc += (Get-FileHash -Algorithm SHA256 -Path $p).Hash }
+    $ms = [System.IO.MemoryStream]::new([System.Text.Encoding]::ASCII.GetBytes($acc))
+    return (Get-FileHash -InputStream $ms -Algorithm SHA256).Hash.Substring(0, 12).ToLower()
+}
+
+# 2) base tag = hash of (poetry.lock + Dockerfile.base)
 $Lock = Join-Path $RepoRoot "chayuan-server\libs\chayuan-server\poetry.lock"
 if (-not (Test-Path $Lock)) { throw "poetry.lock not found: $Lock" }
-$LockHash = (Get-FileHash -Algorithm SHA256 -Path $Lock).Hash.Substring(0, 12).ToLower()
+$DockerfileBase = Join-Path $RepoRoot "docker\Dockerfile.base"
+if (-not (Test-Path $DockerfileBase)) { throw "Dockerfile.base not found: $DockerfileBase" }
+$LockHash = Get-ComboHash @($Lock, $DockerfileBase)
 $BaseTag = "chayuan-base:$LockHash"
 
-# 2b) web base tag = pnpm-lock.yaml content hash (frontend deps cached/reused; pnpm fetch not re-pulled)
+# 2b) web base tag = hash of (pnpm-lock.yaml + Dockerfile.webbase)
 $PnpmLock = Join-Path $RepoRoot "chayuan-client\pnpm-lock.yaml"
 if (-not (Test-Path $PnpmLock)) { throw "pnpm-lock.yaml not found: $PnpmLock" }
-$PnpmLockHash = (Get-FileHash -Algorithm SHA256 -Path $PnpmLock).Hash.Substring(0, 12).ToLower()
+$DockerfileWebBase = Join-Path $RepoRoot "docker\Dockerfile.webbase"
+if (-not (Test-Path $DockerfileWebBase)) { throw "Dockerfile.webbase not found: $DockerfileWebBase" }
+$PnpmLockHash = Get-ComboHash @($PnpmLock, $DockerfileWebBase)
 $WebBaseTag = "chayuan-web-base:$PnpmLockHash"
 
 Write-Host "[build] VERSION=$Version  BASE=$BaseTag  WEB_BASE=$WebBaseTag"
