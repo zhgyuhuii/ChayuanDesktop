@@ -63,6 +63,7 @@ import {
   findLastAssistantImage,
 } from './imagePromptContext';
 import { reportError } from '../../store/errorDialog';
+import { useLocalUserId } from '../conversations/localUser';
 
 /**
  * ArrayBuffer → base64(浏览器原生 btoa 一次只能吃 8KB 左右 String 才稳,
@@ -167,6 +168,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   regenerateRef,
 }) => {
   const activeId = conversationId ?? null;
+  const localUserId = useLocalUserId();
   const composer = useComposerScopedStore();
   const setActive = useComposerS((s) => s.setActive);
   const modelId = useComposerS((s) => s.modelId);
@@ -188,14 +190,15 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       const now = Date.now();
       await upsertConversation({
         id: newConvId,
-        remote_id: null,
+        user_id: localUserId,
+        remote_id: newConvId,
         title: `${snapshot[0]?.content?.slice(0, 30) ?? '分支'} (分叉)`,
         model: modelId,
         mode: 'agent',
         created_at: now,
         updated_at: now,
       });
-      for (const m of snapshot) await appendMessage(newConvId, m);
+      for (const m of snapshot) await appendMessage(newConvId, m, localUserId);
       setActive(newConvId);
       void qc.invalidateQueries({ queryKey: CONVERSATION_KEYS.list });
     },
@@ -237,8 +240,8 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       const idx = msgs.findIndex((m) => m.id === asstMsgId);
       const user = idx > 0 ? msgs[idx - 1] : undefined;
       void (async () => {
-        if (user) await appendMessage(cid, user);
-        if (asst) await appendMessage(cid, asst);
+        if (user) await appendMessage(cid, user, localUserId);
+        if (asst) await appendMessage(cid, asst, localUserId);
       })();
     },
   });
@@ -325,7 +328,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       finishPersistedRef.current.add(sig);
       // 把这条 assistant 终态落库 — 同 id INSERT OR REPLACE,刷新 files /
       // text_out / streaming=false。前面的 user 消息已在 onTaskRegistered 时入过。
-      void appendMessage(cid, m);
+      void appendMessage(cid, m, localUserId);
     }
   }, [chat.messages]);
 
@@ -345,7 +348,8 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       const inferredMode = mode ?? (selectedKbsLen ? 'kb' : selectedToolsLen ? 'agent' : 'plain');
       await upsertConversation({
         id: cid,
-        remote_id: null,
+        user_id: localUserId,
+        remote_id: cid,
         title,
         model: modelId,
         mode: inferredMode,
@@ -354,8 +358,8 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       });
       // 模态消息(带 taskId)已经在 onTaskRegistered + finishPersistedRef 双
       // 钩子里精确落库,跳过避免 INSERT OR REPLACE 反复刷盘
-      if (second && !second.taskId) await appendMessage(cid, second);
-      if (last && !last.taskId) await appendMessage(cid, last);
+      if (second && !second.taskId) await appendMessage(cid, second, localUserId);
+      if (last && !last.taskId) await appendMessage(cid, last, localUserId);
       void qc.invalidateQueries({ queryKey: CONVERSATION_KEYS.list });
     })();
   }, [
@@ -398,7 +402,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         const now = Date.now();
         const title = text.slice(0, 40) || '新对话';
         await upsertConversation({
-          id, remote_id: null, title, model: modelId, mode: 'plain',
+          id, user_id: localUserId, remote_id: id, title, model: modelId, mode: 'plain',
           created_at: now, updated_at: now,
         });
         setActive(id);
@@ -475,7 +479,8 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       const inferredMode = mode ?? (selectedKbsLen ? 'kb' : selectedToolsLen ? 'agent' : 'plain');
       await upsertConversation({
         id,
-        remote_id: null,
+        user_id: localUserId,
+        remote_id: id,
         title,
         model: modelId,
         mode: inferredMode,

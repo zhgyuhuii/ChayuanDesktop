@@ -20,6 +20,7 @@ import { ChatComposer } from '../composer/ChatComposer';
 import { useComposerStore } from '../../store/composer';
 import { useTabsStore } from '../../store/tabs';
 import { upsertConversation } from '../conversations/persistence';
+import { useLocalUserId } from '../conversations/localUser';
 import { CONVERSATION_KEYS } from '../conversations/useConversations';
 import { useTranslation } from '../../i18n';
 
@@ -35,6 +36,7 @@ export const SkillTemplate: React.FC<SkillTemplateProps> = ({ slug }) => {
 
 const SkillView: React.FC<{ skill: SkillSpec }> = ({ skill }) => {
   const { t } = useTranslation();
+  const localUserId = useLocalUserId();
   const [active, setActive] = React.useState(skill.categories[0]?.id ?? 'recommended');
   const setDraft = useComposerStore((s) => s.setDraft);
   const setActiveConv = useComposerStore((s) => s.setActive);
@@ -70,7 +72,8 @@ const SkillView: React.FC<{ skill: SkillSpec }> = ({ skill }) => {
     const now = Date.now();
     await upsertConversation({
       id,
-      remote_id: null,
+      user_id: localUserId,
+      remote_id: id,
       title: `${skill.title} · ${content.slice(0, 30)}`,
       model: useComposerStore.getState().modelId,
       mode: 'agent',

@@ -71,6 +71,7 @@ import {
   upsertConversation,
   appendMessage,
 } from '../conversations/persistence';
+import { useLocalUserId } from '../conversations/localUser';
 import { CONVERSATION_KEYS } from '../conversations/useConversations';
 import { KbDetailDialog } from './KbDetailDialog';
 import { useKbImageSearch } from './shared/useKbImageSearch';
@@ -146,6 +147,7 @@ export const KbBoard: React.FC = () => {
   const selectedKuIds = useComposerStore((s) => s.selectedKuIds);
   const setKuIds = useComposerStore((s) => s.setKuIds);
   const userId = useAuthStore((s) => s.user?.id);
+  const localUserId = useLocalUserId();
 
   const filter = useKbBoardPrefs((s) => s.filter);
   const setFilter = useKbBoardPrefs((s) => s.setFilter);
@@ -555,7 +557,8 @@ export const KbBoard: React.FC = () => {
         setActive(id);
         void upsertConversation({
           id,
-          remote_id: null,
+          user_id: localUserId,
+          remote_id: id,
           title: text.slice(0, 40) || t('chat.newConversation'),
           model: modelId,
           mode: selectedKuIds.length ? 'kb' : 'plain',
@@ -573,8 +576,8 @@ export const KbBoard: React.FC = () => {
         const last = chat.messages[chat.messages.length - 1];
         const second = chat.messages[chat.messages.length - 2];
         try {
-          if (second) await appendMessage(cid, second);
-          if (last) await appendMessage(cid, last);
+          if (second) await appendMessage(cid, second, localUserId);
+          if (last) await appendMessage(cid, last, localUserId);
         } catch (e) {
           console.error('[chayuan] kb 落库失败:', e);
         }
