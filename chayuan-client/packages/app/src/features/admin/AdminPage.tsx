@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Lock, Gauge, Star, Layers, HardDrive, FolderTree, SlidersHorizontal, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, BookOpen, FileText, Cpu, Wand2 } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Gauge, Star, Layers, HardDrive, FolderTree, SlidersHorizontal, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, BookOpen, FileText, Cpu, Wand2 } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -14,7 +14,6 @@ import { McpPage } from './mcp/McpPage';
 import { ToolsBoard } from '../tools/ToolsBoard';
 import { WsEndpointsPage } from './wsendpoints/WsEndpointsPage';
 import { AppsPage } from './apps/AppsPage';
-import { KbAclPage } from './kbacl/KbAclPage';
 import { PerformancePage } from './performance/PerformancePage';
 import { DefaultModelsPage } from './defaults/DefaultModelsPage';
 import { MarketplacePage } from '../marketplace/MarketplacePage';
@@ -35,7 +34,7 @@ import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 import { SetupWizard } from './wizard/SetupWizard';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'kbacl' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'kbmanage' | 'topology' | 'roles';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'kbmanage' | 'topology' | 'roles';
 
 type AdminItem = { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean; hidden?: boolean };
 type AdminGroup = { title: string; items: AdminItem[] };
@@ -88,7 +87,6 @@ const ADMIN_GROUPS: AdminGroup[] = [
   { title: '用户与权限', items: [
     { key: 'users', label: '用户', icon: Users },
     { key: 'roles', label: '角色', icon: Shield },
-    { key: 'kbacl', label: 'KB 授权', icon: Lock },
   ] },
 ];
 
@@ -96,7 +94,10 @@ const ADMIN_LABELS: Record<string, string> = Object.fromEntries(
   ADMIN_GROUPS.flatMap((g) => g.items.map((it) => [it.key, it.label])),
 );
 const KNOWN_TABS = new Set<AdminTab>(ADMIN_GROUPS.flatMap((g) => g.items.map((it) => it.key)));
-const normTab = (t?: string): AdminTab => (t && KNOWN_TABS.has(t as AdminTab) ? (t as AdminTab) : 'topology');
+const normTab = (t?: string): AdminTab => {
+  if (t === 'kbacl') return 'kbmanage'; // 旧「KB 授权」页已并入「知识库管理」
+  return t && KNOWN_TABS.has(t as AdminTab) ? (t as AdminTab) : 'topology';
+};
 
 const LS_COLLAPSED = 'cy-admin-sidebar-collapsed';
 const LS_GROUPS = 'cy-admin-collapsed-groups';
@@ -325,7 +326,6 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'tools' && <ToolsBoard selectable={false} />}
           {tab === 'ws' && <WsEndpointsPage />}
           {tab === 'apps' && <AppsPage />}
-          {tab === 'kbacl' && <KbAclPage />}
           {tab === 'perf' && <PerformancePage />}
           {tab === 'redis' && <RedisConfigPage />}
           {tab === 'storage' && <StorageConfigPage />}
