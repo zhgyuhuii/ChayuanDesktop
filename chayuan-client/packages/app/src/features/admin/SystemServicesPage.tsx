@@ -17,7 +17,7 @@ import * as React from 'react';
 import { copyText, isWeb, isDesktop, getPlatform } from '@chayuan/platform-shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Check, Copy, Eye, EyeOff, HardDrive, Plug, Power, RefreshCw, Server, Settings,
+  Check, Copy, HardDrive, Plug, Power, RefreshCw, Server, Settings,
 } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import {
@@ -37,7 +37,6 @@ const SERVICES_KEY = ['runtime', 'services'] as const;
 const MODELS_KEY = ['runtime', 'models'] as const;
 
 export const SystemServicesPage: React.FC = () => {
-  const [reveal, setReveal] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [restarting, setRestarting] = React.useState(false);
 
@@ -86,19 +85,10 @@ export const SystemServicesPage: React.FC = () => {
           <Button variant="outline" size="sm" disabled={restarting} onClick={() => void onRestart()}>
             <Power className="h-4 w-4 mr-1" /> 重启服务
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setReveal((v) => !v)}
-            title={reveal ? '隐藏密码' : '显示明文密码'}
-          >
-            {reveal ? <EyeOff className="h-4 w-4 mr-1" /> : <Eye className="h-4 w-4 mr-1" />}
-            {reveal ? '隐藏密码' : '显示密码'}
-          </Button>
         </div>
       </header>
 
-      <ServicesSection reveal={reveal} />
+      <ServicesSection reveal={false} />
       <section>
         <h3 className="mb-2 text-sm font-medium flex items-center gap-2">
           <Server className="h-4 w-4" /> 运行中的本地服务
