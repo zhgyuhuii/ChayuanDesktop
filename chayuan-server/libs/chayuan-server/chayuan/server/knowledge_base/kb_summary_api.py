@@ -282,9 +282,24 @@ class _SummaryCacheStore:
         self._svc = svc
 
     def search_by_key(self, key: str):  # noqa: ANN001
-        # [INTEGRATION] 待实现:在摘要 FAISS 库里按 metadata.summary_key == key 命中并返回 page_content。
-        # 现返回 None = 缓存未命中 = 走重算(行为正确,只是没提速)。
-        return None
+        # 命中缓存:summary 落库时 add_summary_to_db 已把 meta_data=metadata(含 summary_key)写入
+        # SummaryChunkModel;这里按 meta_data["summary_key"] == key 精确查,返回 summary_context。
+        # 走 DB(而非 FAISS 内部 docstore)更稳;查不到 / 异常 → None(由上层当未命中重算)。
+        try:
+            from chayuan.server.db.repository.knowledge_metadata_repository import (
+                list_summary_from_db,
+            )
+            rows = list_summary_from_db(
+                kb_name=self._svc.kb_name, metadata={"summary_key": key}
+            )
+            for r in rows:
+                ctx = r.get("summary_context")
+                if ctx:
+                    return ctx
+            return None
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[summary-cache] search_by_key 失败,按未命中处理:%r", e)
+            return None
 
     def put(self, key: str, summary_text: str) -> None:
         from langchain_core.documents import Document
