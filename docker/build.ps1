@@ -102,10 +102,12 @@ function Remove-OldImages {
         $verEsc  = [regex]::Escape($Version)
         $hashEsc = [regex]::Escape($LockHash)
         $pnpmEsc = [regex]::Escape($PnpmLockHash)
+        # Only remove OLD app image versions. Base env images (chayuan-base / chayuan-web-base)
+        # are NEVER removed here: they are expensive to rebuild, and dropping them can also evict
+        # the cached apt/poetry layers and force a full dependency re-download. Stale-hash bases
+        # accumulate slowly (only on dep / Dockerfile.base changes); prune manually if disk matters.
         $stale = Get-AllImageTags | Where-Object {
-            ($_ -match "^chayuan:"          -and $_ -notmatch "^chayuan:(latest|$verEsc)$") -or
-            ($_ -match "^chayuan-base:"      -and $_ -notmatch "^chayuan-base:(latest|$hashEsc)$") -or
-            ($_ -match "^chayuan-web-base:"  -and $_ -notmatch "^chayuan-web-base:(latest|$pnpmEsc)$")
+            ($_ -match "^chayuan:" -and $_ -notmatch "^chayuan:(latest|$verEsc)$")
         }
         foreach ($img in $stale) {
             Write-Host "  - rmi $img"
@@ -113,8 +115,11 @@ function Remove-OldImages {
         }
         # dangling (<none>) layers left after tag replacement
         & $Docker image prune -f 2>$null | Out-Null
-        # build cache -- biggest disk eater, separate from images, not touched by image prune
-        & $Docker builder prune -f 2>$null | Out-Null
+        # build cache -- biggest disk eater, separate from images, not touched by image prune.
+        # Use --keep-storage to KEEP recent cache (incl. the large, stable base apt/poetry layers)
+        # so base rebuilds do NOT re-download all deps. Plain `builder prune -f` would evict the
+        # whole layer cache -> 11G re-download on every base rebuild.
+        & $Docker builder prune -f --keep-storage 20GB 2>$null | Out-Null
     }
     catch {
         Write-Host "[build] cleanup skipped (non-fatal): $($_.Exception.Message)"

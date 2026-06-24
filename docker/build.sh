@@ -69,18 +69,9 @@ clean_history() {
         | while read -r img; do
             echo "  - rmi $img"; $DOCKER rmi "$img" >/dev/null 2>&1 || true
           done
-    # 旧 hash 的 chayuan-base(非当前 lock hash、非 latest)
-    $DOCKER images chayuan-base --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
-        | grep -Ev ":(${LOCK_HASH}|latest)$|<none>" \
-        | while read -r img; do
-            echo "  - rmi $img"; $DOCKER rmi "$img" >/dev/null 2>&1 || true
-          done
-    # 旧 hash 的 chayuan-web-base(非当前 pnpm-lock hash、非 latest)
-    $DOCKER images chayuan-web-base --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
-        | grep -Ev ":(${PNPM_LOCK_HASH}|latest)$|<none>" \
-        | while read -r img; do
-            echo "  - rmi $img"; $DOCKER rmi "$img" >/dev/null 2>&1 || true
-          done
+    # base 环境镜像(chayuan-base / chayuan-web-base)一律不删 —— 重建代价大,且删它可能连带
+    # 清掉缓存的 apt/poetry 层导致全量重下依赖。旧 hash 的 base 增长很慢(仅依赖/Dockerfile.base
+    # 改动时),需要时手动 docker rmi chayuan-base:<oldhash> 即可。
     # 悬空(<none>)层 —— rebuild 替换 tag 后遗留的旧层,最占盘
     $DOCKER image prune -f >/dev/null 2>&1 || true
 }
