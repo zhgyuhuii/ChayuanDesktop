@@ -23,7 +23,16 @@ ENV PYTHONUNBUFFERED=1 \
 # 系统依赖(集成镜像:含 nginx;sidecar/ffmpeg/faiss 运行时库)
 #   build-essential / libgomp1 / libstdc++6 libgcc-s1 / ffmpeg libsndfile1 /
 #   libmagic1 / nginx-light / curl git ca-certificates tini
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# apt 国内加速:python:slim 默认 deb.debian.org 在国内极慢(实测 apt 步 >1h)。
+# 默认换阿里云 Debian 镜像;海外构建可 --build-arg APT_MIRROR=deb.debian.org 还原,
+# 或 --build-arg APT_MIRROR=mirrors.tuna.tsinghua.edu.cn 等。空字符串=不改源。
+ARG APT_MIRROR=mirrors.aliyun.com
+RUN if [ -n "$APT_MIRROR" ]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+            [ -f "$f" ] && sed -i "s|deb.debian.org|$APT_MIRROR|g; s|security.debian.org|$APT_MIRROR|g" "$f" || true; \
+        done; \
+    fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         libgomp1 libstdc++6 libgcc-s1 \
         ffmpeg libsndfile1 \
