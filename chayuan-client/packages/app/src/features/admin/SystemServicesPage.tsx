@@ -14,10 +14,10 @@
  */
 
 import * as React from 'react';
-import { copyText } from '@chayuan/platform-shared';
+import { copyText, isWeb } from '@chayuan/platform-shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertCircle, Check, Copy, Eye, EyeOff, Folder, HardDrive, Plug, RefreshCw, Server, Settings,
+  AlertCircle, Check, Copy, Eye, EyeOff, Folder, HardDrive, Plug, Power, RefreshCw, Server, Settings,
 } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import {
@@ -25,13 +25,16 @@ import {
   type RuntimeServiceEndpoint,
   type ScanDeltaPayload,
   type VendorEntry,
-  type RuntimeRunStatus,
   type VendorPayload,
   runtimeServices,
   runtimeVendor,
   runtimeModels,
+  servicesConfig,
 } from '@chayuan/api';
 import { notifySuccess, reportError } from '../../store/errorDialog';
+import { LocalRuntimeServicesSection } from '../aiPlatform/LocalRuntimeServicesSection';
+import { confirmDialog } from '../../store/confirmDialog';
+import { ServiceSettingsDialog } from './ServiceSettingsDialog';
 
 const SERVICES_KEY = ['runtime', 'services'] as const;
 const VENDOR_KEY = ['runtime', 'vendor'] as const;
@@ -39,6 +42,25 @@ const MODELS_KEY = ['runtime', 'models'] as const;
 
 export const SystemServicesPage: React.FC = () => {
   const [reveal, setReveal] = React.useState(false);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [restarting, setRestarting] = React.useState(false);
+
+  const onRestart = async () => {
+    const ok = await confirmDialog('重启会短暂中断服务，容器将自动拉起。确认重启？', {
+      title: '重启服务',
+      confirmText: '重启',
+    });
+    if (!ok) return;
+    setRestarting(true);
+    try {
+      const r = await servicesConfig.restart();
+      notifySuccess(r.msg || '重启已触发，服务将在数秒后恢复');
+    } catch (e) {
+      reportError(e, 'services.restart 失败');
+    } finally {
+      setRestarting(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -52,6 +74,16 @@ export const SystemServicesPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {isWeb() && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
+                <Settings className="h-4 w-4 mr-1" /> 设置
+              </Button>
+              <Button variant="outline" size="sm" disabled={restarting} onClick={() => void onRestart()}>
+                <Power className="h-4 w-4 mr-1" /> 重启服务
+              </Button>
+            </>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -65,9 +97,16 @@ export const SystemServicesPage: React.FC = () => {
       </header>
 
       <ServicesSection reveal={reveal} />
-      <RunningRuntimesSection />
+      <section>
+        <h3 className="mb-2 text-sm font-medium flex items-center gap-2">
+          <Server className="h-4 w-4" /> 运行中的本地服务
+        </h3>
+        {/* 完整复用「模型服务」面板:每个 capability 一张卡,可启停/重启/重试/下载/自启;4 列 */}
+        <LocalRuntimeServicesSection layout="grid" />
+      </section>
       <VendorSection />
       <LocalModelsSection />
+      <ServiceSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 };
@@ -187,61 +226,6 @@ const ServiceRow: React.FC<{ ep: RuntimeServiceEndpoint }> = ({ ep }) => {
         {ep.started_at ? new Date(ep.started_at * 1000).toLocaleString() : '—'}
       </Td>
     </tr>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// 运行中的本地 sidecar(llama/whisper/infinity 等)实时状态 —— 让"系统服务看到已启动"(#10)
-const RUN_STYLE: Record<string, { label: string; cls: string }> = {
-  ready: { label: '已启动', cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400' },
-  starting: { label: '启动中', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400' },
-  restarting: { label: '重启中', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400' },
-  failed: { label: '失败', cls: 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400' },
-  stopped: { label: '未启动', cls: 'bg-muted text-muted-foreground' },
-};
-
-const RunningRuntimesSection: React.FC = () => {
-  const vendor = useQuery<VendorPayload>({
-    queryKey: VENDOR_KEY,
-    queryFn: () => runtimeVendor.list(),
-    refetchInterval: 5000,
-  });
-  const running: Record<string, RuntimeRunStatus> = vendor.data?.running ?? {};
-  const entries = Object.entries(running);
-  return (
-    <section>
-      <h3 className="mb-2 text-sm font-medium flex items-center gap-2">
-        <Server className="h-4 w-4" /> 运行中的本地服务
-      </h3>
-      <p className="mb-3 text-xs text-muted-foreground">
-        vendor 二进制(llama-server / whisper-server / infinity 等)由后端按需拉起;此处显示其实时运行状态与监听端点。docker 部署下 vendor 已随镜像打包,启动后即在此可见。
-      </p>
-      {!entries.length ? (
-        <div className="rounded border bg-muted/40 p-3 text-xs text-muted-foreground">
-          暂无已拉起的本地服务(按需启动:发起对话 / 检索 / 语音任务时自动拉起对应 sidecar)。
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {entries.map(([cap, st]) => {
-            const sty = RUN_STYLE[st.state] ?? { label: st.state || '未知', cls: 'bg-muted text-muted-foreground' };
-            return (
-              <div key={cap} className="rounded border p-3 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{cap}</span>
-                  <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium', sty.cls)}>{sty.label}</span>
-                </div>
-                {st.endpoint ? <div className="mt-1 text-muted-foreground">端点: <code>{st.endpoint}</code></div> : null}
-                {st.model_id ? <div className="mt-0.5 text-muted-foreground truncate">模型: {st.model_id}</div> : null}
-                {st.pid ? <div className="mt-0.5 text-muted-foreground">PID: {st.pid}</div> : null}
-                {st.state === 'failed' && st.last_error ? (
-                  <div className="mt-1 text-rose-600">{st.last_error}</div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
   );
 };
 
