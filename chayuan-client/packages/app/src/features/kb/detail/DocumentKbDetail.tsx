@@ -353,8 +353,8 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
           {keyword ? '没有匹配的文件' : '还没有文件,点上传开始'}
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto">
-          <table className="w-full text-sm">
+        <div className="flex-1 overflow-auto">
+          <table className="w-full table-fixed text-sm">
             <thead className="sticky top-0 z-[1] bg-[var(--cy-surface-1)] text-xs text-[var(--cy-text-tertiary)]">
               <tr>
                 <th className="w-8 px-3 py-2 text-left">
@@ -367,9 +367,9 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
                 </th>
                 <th className="w-8 px-2 py-2"></th>
                 <th className="px-2 py-2 text-left font-medium">文件名</th>
-                <th className="hidden px-2 py-2 text-left font-medium md:table-cell">入库状态</th>
-                <th className="hidden px-2 py-2 text-left font-medium md:table-cell">大小</th>
-                <th className="w-24 px-2 py-2 text-right font-medium">操作</th>
+                <th className="hidden w-20 px-2 py-2 text-left font-medium md:table-cell">入库状态</th>
+                <th className="hidden w-16 px-2 py-2 text-left font-medium md:table-cell">大小</th>
+                <th className="w-28 px-2 py-2 text-right font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
