@@ -430,6 +430,9 @@ def summarize_file_now(
                 _FULL_PROMPT,
             )
 
+            import time as _wallclock
+            _t0 = _wallclock.time()
+
             _full = "\n\n".join(s for s in (t.strip() for t in texts_for_summary) if s)
             summary_text = ""
 
@@ -437,9 +440,20 @@ def summarize_file_now(
                 # —— 单次整篇:整篇能塞进 ctx → llm.stream() 逐 token 流式推送(像 ChatGPT),
                 #    用户 1-2 秒就看到字在动,不再对着进度条干等。每个 delta 即天然进度+心跳。
                 _acc: list = []
+                _reasoned = False
                 for _chunk in _reduce_llm.stream(_FULL_PROMPT.format(context=_full)):
                     _piece = getattr(_chunk, "content", "") or ""
                     if not _piece:
+                        # 推理模型在出答案前先"想"一大段:此时 content 为空、reasoning_content 在流。
+                        # 推一个 progress 心跳让前端显示「思考中…」,避免看着像卡死(只在首段推一次足够)。
+                        _ak = getattr(_chunk, "additional_kwargs", None) or {}
+                        if not _reasoned and (_ak.get("reasoning_content") or _ak.get("reasoning")):
+                            _reasoned = True
+                            yield json.dumps(
+                                {"code": 100, "status": "progress", "done": 0, "total": 1,
+                                 "message": "模型思考中…", "doc": file_name},
+                                ensure_ascii=False,
+                            )
                         continue
                     _acc.append(_piece)
                     yield json.dumps(
@@ -448,8 +462,10 @@ def summarize_file_now(
                     )
                 summary_text = "".join(_acc).strip()
                 logger.info(
-                    "[summary] done(stream) kb={!r} file={!r} summary_len={}",
-                    knowledge_base_name, file_name, len(summary_text),
+                    "[summary] done(stream) kb={!r} file={!r} model={!r} ctx={} reasoned={} "
+                    "elapsed={:.1f}s len={}",
+                    knowledge_base_name, file_name, model_name, ctx, _reasoned,
+                    _wallclock.time() - _t0, len(summary_text),
                 )
             else:
                 # —— map-reduce 兜底(超长文档,装不下单次整篇):线程跑 + 进度帧 ——
@@ -500,8 +516,10 @@ def summarize_file_now(
                     raise _holder["err"]
                 summary_text = _holder.get("summary") or ""
                 logger.info(
-                    "[summary] done kb={!r} file={!r} summary_len={}",
-                    knowledge_base_name, file_name, len(summary_text),
+                    "[summary] done(map-reduce) kb={!r} file={!r} model={!r} ctx={} "
+                    "elapsed={:.1f}s len={}",
+                    knowledge_base_name, file_name, model_name, ctx,
+                    _wallclock.time() - _t0, len(summary_text),
                 )
 
             _fsc.put_summary(store, key, summary_text)
