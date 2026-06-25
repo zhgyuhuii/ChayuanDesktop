@@ -44,6 +44,29 @@ def _split_to_budget(text: str, char_budget: int) -> List[str]:
     return parts
 
 
+def _repack_to_budget(docs: List[str], char_budget: int) -> List[str]:
+    """把多个 chunk 贪心合并成尽量少的、不超预算的单元:小块拼接、超长块先切分。
+
+    RAG 常切出大量小 chunk,逐块各调一次 LLM 在慢的本地模型上极慢(每块十几秒)。
+    这里把相邻小块合并填满输入预算,把 map 调用次数压到最少;每个单元字符数
+    <= char_budget,保证拼进 map prompt 后仍不超 ctx。
+    """
+    units: List[str] = []
+    buf = ""
+    for d in (docs or []):
+        for piece in _split_to_budget(d, char_budget):
+            if not buf:
+                buf = piece
+            elif len(buf) + 2 + len(piece) <= char_budget:
+                buf = buf + "\n\n" + piece
+            else:
+                units.append(buf)
+                buf = piece
+    if buf:
+        units.append(buf)
+    return units
+
+
 def summarize_budgeted(
     docs: List[str],
     *,
@@ -60,9 +83,8 @@ def summarize_budgeted(
     _, map_char_budget = map_input_char_budget(ctx)
     eff_budget = max(128, map_char_budget - len(_MAP_PROMPT))
 
-    units: List[str] = []
-    for d in (docs or []):
-        units.extend(_split_to_budget(d, eff_budget))
+    # 合并小 chunk 填满预算,显著减少 map 调用次数(原来逐 chunk 调用在慢模型上很慢)
+    units = _repack_to_budget(docs, eff_budget)
     if not units:
         return ""
     total = len(units) + max(0, (len(units) - 1))
