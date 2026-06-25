@@ -66,13 +66,13 @@ def recreate_summary_vector_store(
                         model_name=model_name,
                         temperature=temperature,
                         max_tokens=max_tokens,
-                        local_wrap=True,
+                        local_wrap=False,
                     )
                     reduce_llm = get_ChatOpenAI(
                         model_name=model_name,
                         temperature=temperature,
                         max_tokens=max_tokens,
-                        local_wrap=True,
+                        local_wrap=False,
                     )
                     # 文本摘要适配器
                     summary = SummaryAdapter.form_summary(
@@ -160,13 +160,13 @@ def summary_file_to_vector_store(
                     model_name=model_name,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    local_wrap=True,
+                    local_wrap=False,
                 )
                 reduce_llm = get_ChatOpenAI(
                     model_name=model_name,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    local_wrap=True,
+                    local_wrap=False,
                 )
                 # 文本摘要适配器
                 summary = SummaryAdapter.form_summary(
@@ -237,13 +237,13 @@ def summary_doc_ids_to_vector_store(
             model_name=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
-            local_wrap=True,
+            local_wrap=False,
         )
         reduce_llm = get_ChatOpenAI(
             model_name=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
-            local_wrap=True,
+            local_wrap=False,
         )
         # 文本摘要适配器
         summary = SummaryAdapter.form_summary(
@@ -406,11 +406,11 @@ def summarize_file_now(
             # 有界 max_tokens:给输出预留固定额度,避免 max_tokens=None 被删后输出无上限。
             _map_llm = get_ChatOpenAI(
                 model_name=model_name, temperature=temperature,
-                max_tokens=MAP_MAX_TOKENS, streaming=True, local_wrap=True, timeout=180,
+                max_tokens=MAP_MAX_TOKENS, streaming=True, local_wrap=False, timeout=180,
             )
             _reduce_llm = get_ChatOpenAI(
                 model_name=model_name, temperature=temperature,
-                max_tokens=REDUCE_MAX_TOKENS, streaming=True, local_wrap=True, timeout=180,
+                max_tokens=REDUCE_MAX_TOKENS, streaming=True, local_wrap=False, timeout=180,
             )
 
             def _map_call(prompt: str) -> str:

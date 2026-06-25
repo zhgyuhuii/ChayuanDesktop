@@ -44,9 +44,9 @@ async def stream_file_summary(state: Dict[str, Any]) -> AsyncIterator[str]:
             kb_name, file_name, model_name, ctx, len(texts),
         )
         map_llm = get_ChatOpenAI(model_name=model_name, temperature=0.01,
-                                 max_tokens=MAP_MAX_TOKENS, streaming=True, local_wrap=True)
+                                 max_tokens=MAP_MAX_TOKENS, streaming=True, local_wrap=False)
         reduce_llm = get_ChatOpenAI(model_name=model_name, temperature=0.01,
-                                    max_tokens=REDUCE_MAX_TOKENS, streaming=True, local_wrap=True)
+                                    max_tokens=REDUCE_MAX_TOKENS, streaming=True, local_wrap=False)
 
         def _map(p: str) -> str:
             r = map_llm.invoke(p)
