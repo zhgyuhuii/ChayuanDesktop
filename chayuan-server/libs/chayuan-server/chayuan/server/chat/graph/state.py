@@ -85,6 +85,9 @@ class ChatState(TypedDict, total=False):
 
     # classify 产出
     resolved_mode: str
+    # detect_summarize 产出:命中「整篇总结某文件」意图时填 {kb_name, file_name};
+    # 未命中不写。retrieve 见此则短路 RAG,generate 由 stream_file_summary 接管。
+    summarize_file: Dict[str, str]
 
     # retrieve 产出
     retrieved_chunks: List[Dict[str, Any]]          # 归一后的 chunk list（含 citation）

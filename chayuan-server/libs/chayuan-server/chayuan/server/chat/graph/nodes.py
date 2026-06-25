@@ -66,6 +66,9 @@ async def node_retrieve_async(state: ChatState) -> Dict[str, Any]:
     - kb / file / search_engine / multi_source：各 handler 自己实现，保留同步
       IO 走 ``run_in_threadpool`` 的硬约束，避免阻塞事件循环
     """
+    if state.get("summarize_file"):
+        # 命中整篇总结:跳过 RAG 检索(由 generate_override_stream 接管产出)
+        return {"retrieved_chunks": [], "retrieved_sources_meta": [], "retrieval_elapsed_ms": 0}
     t0 = time.time()
     mode = state.get("resolved_mode") or ChatMode.LLM.value
     try:
@@ -498,3 +501,57 @@ def node_finalize(state: ChatState) -> Dict[str, Any]:
         "output_masked_answer": masked if masked != answer else None,
         "lineage_id": lineage_id,
     }
+
+
+def _doc_kb_files(req):
+    """收集 ChatRequest 引用的文档 KB(取首个)及其文件名列表。
+
+    ku_ids 取 `doc:<kb>` 前缀;叠加 kb_name / kb_names。多个 KB 时只取第一个
+    文档 KB(跨库文件名歧义不处理)。失败 → ('', [])。
+    """
+    names = []
+    for kid in (getattr(req, "ku_ids", None) or []):
+        if isinstance(kid, str) and kid.startswith("doc:"):
+            names.append(kid[4:])
+    for n in (getattr(req, "kb_names", None) or []):
+        names.append(n)
+    if getattr(req, "kb_name", None):
+        names.append(req.kb_name)
+    names = [n for n in dict.fromkeys(names) if n]
+    if not names:
+        return "", []
+    kb_name = names[0]
+    try:
+        from chayuan.server.knowledge_base.kb_service.base import get_kb_file_details
+        details = get_kb_file_details(kb_name) or []
+        files = []
+        for d in details:
+            fn = (d.get("file_name") if isinstance(d, dict) else getattr(d, "file_name", None))
+            if fn:
+                files.append(fn)
+        return kb_name, files
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[detect_summarize] 列文件失败 kb=%s: %r", kb_name, e)
+        return kb_name, []
+
+
+def node_detect_summarize(state):
+    """classify 后:仅 kb / multi_source 模式判「整篇总结某文件」意图。
+
+    命中 → {"summarize_file": {kb_name, file_name}};否则 {}(走普通 RAG)。
+    """
+    mode = state.get("resolved_mode") or ""
+    if mode not in ("kb", "multi_source"):
+        return {}
+    req = state["request"]
+    try:
+        kb_name, files = _doc_kb_files(req)
+        if not kb_name or not files:
+            return {}
+        from chayuan.server.knowledge_base.kb_summary.intent import detect_summarize_intent
+        hit = detect_summarize_intent(req.query or "", files)
+        if hit:
+            return {"summarize_file": {"kb_name": kb_name, "file_name": hit}}
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[detect_summarize] 异常(走普通 RAG): %r", e)
+    return {}
