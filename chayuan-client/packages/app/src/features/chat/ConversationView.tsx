@@ -618,6 +618,23 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     };
   }, [setMessagesRef, setChatMessages]);
 
+  // 用户点赞/踩反馈:更新内存消息 + 重持久化(appendMessage 是 INSERT OR REPLACE),
+  // 历史重开时随消息 parts 回显。
+  const handleFeedback = React.useCallback(
+    (messageId: string, value: 1 | -1) => {
+      let target: ChatMessage | undefined;
+      setChatMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== messageId) return m;
+          target = { ...m, feedback: value };
+          return target;
+        }),
+      );
+      if (activeId && target) void appendMessage(activeId, target, localUserId);
+    },
+    [activeId, localUserId, setChatMessages],
+  );
+
   return (
     <div className={`flex h-full flex-col ${className ?? ''}`}>
       {headerSlot}
@@ -639,6 +656,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
           onBranch={(id) => void chat.branchFrom(id)}
           extraSlot={combinedExtraSlot}
           onAction={onActionOpen}
+          onFeedback={handleFeedback}
           assistantEditable={assistantEditable}
         />
       ) : convMissing ? (

@@ -16,6 +16,8 @@ export interface ThreadProps {
   assistantEditable?: boolean;
   /** 逐条 assistant 消息的「产出」按钮回调(对话内联产出);传入才显示 */
   onAction?: (message: ChatMessage) => void;
+  /** 用户点赞/踩反馈;本地持久化(历史回显)。 */
+  onFeedback?: (messageId: string, value: 1 | -1) => void;
 }
 
 /**
@@ -34,7 +36,7 @@ const ESTIMATED_ROW_HEIGHT = 220;
 const OVERSCAN = 6;
 const TAIL_PIN = 24;
 
-export const Thread: React.FC<ThreadProps> = ({ messages, onRegenerate, onResume, onEdit, onBranch, extraSlot, assistantEditable = false, onAction }) => {
+export const Thread: React.FC<ThreadProps> = ({ messages, onRegenerate, onResume, onEdit, onBranch, extraSlot, assistantEditable = false, onAction, onFeedback }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const stickRef = React.useRef(true);
   const [scrollTop, setScrollTop] = React.useState(0);
@@ -103,6 +105,7 @@ export const Thread: React.FC<ThreadProps> = ({ messages, onRegenerate, onResume
               onBranch={m.role === 'assistant' ? onBranch : undefined}
               extraSlot={m.role === 'assistant' && extraSlot ? extraSlot(m) : undefined}
               onAction={m.role === 'assistant' && onAction ? () => onAction(m) : undefined}
+              onFeedback={m.role === 'assistant' ? onFeedback : undefined}
             />
           </div>
         ))}
