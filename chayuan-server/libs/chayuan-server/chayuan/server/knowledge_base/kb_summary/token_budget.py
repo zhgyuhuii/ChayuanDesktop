@@ -11,10 +11,13 @@ import math
 from typing import Tuple
 
 DEFAULT_CTX: int = 4096
-# 云端模型在 model_metadata 查不到 context_length 时的保守默认。取 8192:低于几乎所有
-# 主流云端 chat 模型的真实 ctx(绝大多数 ≥32K),不会溢出;又足够让典型文档走「单次整篇」
-# 快路径(避免退化成多次 map-reduce 往返)。能查到真实 context_length 时优先用真实值。
-CLOUD_DEFAULT_CTX: int = 8192
+# 云端模型在 model_metadata 查不到 context_length 时的默认。取 32768:几乎所有主流云端
+# chat 模型真实 ctx 都 ≥32K(DeepSeek 64K、Qwen/GLM/Kimi/GPT 等 32K~200K),用 32768 既
+# 不会溢出,又能让绝大多数文档走「单次整篇」快路径(1 次调用)而非退化成多次 map-reduce。
+# ⚠ 早期取 8192 过于保守:小文档(如几页答辩状)估算 token 仍 >8192 单次预算 → 被迫
+# map-reduce 多次往返 → 慢(2.0.317 实测 deepseek-v4-pro 仍 3 次调用 26s)。能查到真实
+# context_length 时永远优先用真实值;这只是查不到时的兜底。
+CLOUD_DEFAULT_CTX: int = 32768
 MAP_MAX_TOKENS: int = 384
 REDUCE_MAX_TOKENS: int = 768
 # map 阶段并行度上限,**仅用于云端模型**(见 map_concurrency_for)。云端每个请求是
