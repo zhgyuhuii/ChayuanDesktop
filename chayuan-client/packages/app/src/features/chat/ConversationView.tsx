@@ -39,9 +39,10 @@ import {
   appendMessage,
   getConversation,
   listMessages,
+  patchServerConfigSnapshot,
   upsertConversation,
 } from '../conversations/persistence';
-import { CONVERSATION_KEYS } from '../conversations/useConversations';
+import { CONVERSATION_KEYS, type ConversationView as ConversationListItem } from '../conversations/useConversations';
 import { AttachmentBar } from './AttachmentBar';
 import { Thread } from './Thread';
 import { buildChatRequest } from './buildRequest';
@@ -285,8 +286,19 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       // 草稿态/旧会话无 meta → 不动 composer(默认兜底)。
       const seedConv = await getConversation(activeId);
       if (cancelled) return;
-      if (seedConv?.meta) {
-        applySnapshotToComposer(composer.getState(), seedConv.meta as ConvConfigSnapshot);
+      let seedMeta = seedConv?.meta as ConvConfigSnapshot | null | undefined;
+      // 漫游兜底:本地无 meta(换设备/浏览器)时,从会话列表缓存里取服务端
+      // config_snapshot(useConversations 已把它合并进 meta)。
+      if (!seedMeta) {
+        const cached = qc.getQueryData<ConversationListItem[]>([
+          ...CONVERSATION_KEYS.list,
+          localUserId,
+        ]);
+        const remote = cached?.find((c) => c.id === activeId || c.remote_id === activeId);
+        if (remote?.meta) seedMeta = remote.meta as ConvConfigSnapshot;
+      }
+      if (seedMeta) {
+        applySnapshotToComposer(composer.getState(), seedMeta);
       }
       const msgs = await listMessages(activeId);
       if (cancelled) return;
@@ -355,6 +367,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       const now = Date.now();
       const title = chat.messages.find((m) => m.role === 'user')?.content.slice(0, 40) || '新对话';
       const inferredMode = mode ?? (selectedKbsLen ? 'kb' : selectedToolsLen ? 'agent' : 'plain');
+      const snapshot = snapshotFromComposer(composer.getState());
       await upsertConversation({
         id: cid,
         user_id: localUserId,
@@ -362,10 +375,12 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         title,
         model: modelId,
         mode: inferredMode,
-        meta: snapshotFromComposer(composer.getState()),
+        meta: snapshot,
         created_at: now,
         updated_at: now,
       });
+      // 漫游:把配置快照 best-effort PATCH 到服务端,跨设备还原 composer
+      void patchServerConfigSnapshot(cid, snapshot as Record<string, unknown>);
       // 模态消息(带 taskId)已经在 onTaskRegistered + finishPersistedRef 双
       // 钩子里精确落库,跳过避免 INSERT OR REPLACE 反复刷盘
       if (second && !second.taskId) await appendMessage(cid, second, localUserId);
@@ -487,6 +502,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       const now = Date.now();
       const title = text.slice(0, 40) || '新对话';
       const inferredMode = mode ?? (selectedKbsLen ? 'kb' : selectedToolsLen ? 'agent' : 'plain');
+      const snapshot = snapshotFromComposer(composer.getState());
       await upsertConversation({
         id,
         user_id: localUserId,
@@ -494,10 +510,12 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         title,
         model: modelId,
         mode: inferredMode,
-        meta: snapshotFromComposer(composer.getState()),
+        meta: snapshot,
         created_at: now,
         updated_at: now,
       });
+      // 漫游:配置快照 best-effort PATCH 到服务端
+      void patchServerConfigSnapshot(id, snapshot as Record<string, unknown>);
       setActive(id);
       onConversationCreated?.(id, title);
       void qc.invalidateQueries({ queryKey: CONVERSATION_KEYS.list });

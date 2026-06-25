@@ -161,6 +161,8 @@ export interface ServerConversation {
   name: string;
   chat_type?: string;
   user_id?: number | null;
+  /** 对话配置快照(model/kb/参数);跨设备漫游用,旧会话为 null */
+  config_snapshot?: Record<string, unknown> | null;
   create_time?: string | null;
 }
 
@@ -170,6 +172,11 @@ export const conversations = {
   delete: (id: string) => http.del<void>(`/chat/conversations/${encodeURIComponent(id)}`),
   rename: (id: string, name: string) =>
     http.patch<void>(`/chat/conversations/${encodeURIComponent(id)}`, { name }),
+  /** 写入对话配置快照(漫游用);best-effort,调用方自行吞错 */
+  patchConfigSnapshot: (id: string, configSnapshot: Record<string, unknown>) =>
+    http.patch<void>(`/chat/conversations/${encodeURIComponent(id)}`, {
+      config_snapshot: configSnapshot,
+    }),
 };
 
 // ──────────────────────────────────────────────────────────────

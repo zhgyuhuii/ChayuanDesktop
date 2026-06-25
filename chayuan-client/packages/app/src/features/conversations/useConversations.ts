@@ -52,7 +52,8 @@ async function loadAll(userId: string): Promise<ConversationView[]> {
       title: r.name || '会话',
       model: '',
       mode: r.chat_type ?? 'agent',
-      meta: null,
+      // 漫游:服务端配置快照作为 meta,本地无 meta 时供 seed 兜底还原 composer
+      meta: r.config_snapshot ?? null,
       created_at: r.create_time ? Date.parse(r.create_time) : Date.now(),
       updated_at: r.create_time ? Date.parse(r.create_time) : Date.now(),
       synced: true,

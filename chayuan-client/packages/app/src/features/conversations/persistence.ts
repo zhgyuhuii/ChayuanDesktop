@@ -12,6 +12,7 @@
  */
 
 import { getPlatform } from '@chayuan/platform-shared';
+import { conversations as conversationsApi } from '@chayuan/api';
 import type { ChatMessage } from '../chat/useChayuanChat';
 
 export interface ConversationRecord {
@@ -100,6 +101,21 @@ export async function deleteConversation(id: string): Promise<void> {
 export async function renameConversation(id: string, title: string): Promise<void> {
   const db = getPlatform().db;
   await db.exec(`UPDATE ${TBL_CONV} SET title = ?, updated_at = ? WHERE id = ?`, [title, Date.now(), id]);
+}
+
+/**
+ * 把对话配置快照漫游到服务端(跨设备/浏览器还原)。
+ * best-effort:游客态 / 离线 / 接口不可达时静默吞错,不影响本地体验。
+ */
+export async function patchServerConfigSnapshot(
+  id: string,
+  snapshot: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await conversationsApi.patchConfigSnapshot(id, snapshot);
+  } catch {
+    /* 漫游失败不影响本地;tolerate */
+  }
 }
 
 // ── messages ────────────────────────────────────────────────
