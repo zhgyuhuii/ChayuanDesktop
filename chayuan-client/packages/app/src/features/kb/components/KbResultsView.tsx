@@ -32,15 +32,13 @@ import {
 } from 'lucide-react';
 import { cn } from '@chayuan/ui';
 import {
-  getAccessToken,
-  getClientConfig,
   type RetrievalGroup,
   type RetrievalKind,
   type RetrievalSnippet,
   type RetrievalSource,
   summarizeSources,
 } from '@chayuan/api';
-import { getPlatform, copyText } from '@chayuan/platform-shared';
+import { copyText } from '@chayuan/platform-shared';
 import { usePreviewStore } from '../../preview/previewStore';
 
 const KIND_META: Record<
@@ -241,21 +239,11 @@ const GroupCard: React.FC<{
     async (e: React.MouseEvent) => {
       e.stopPropagation();
       if (!group.download) return;
-      const cfg = getClientConfig();
-      const base = (cfg.baseURL || '').replace(/\/+$/, '');
-      const qs = new URLSearchParams({
-        knowledge_base_name: group.download.kbName,
-        file_name: group.download.fileName,
-      });
-      const tok = await getAccessToken();
-      if (tok) qs.set('token', tok);
-      const url = `${base}/knowledge_base/download_doc?${qs.toString()}`;
-      // Tauri webview 下 ``<a download>`` 不可靠 — WebView2 默认拦截下载、不走
-      // 标准浏览器下载流程,用户感知就是"点了下载没反应"。改走 platform.shell.openExternal
-      // 把 URL 交给系统默认浏览器,浏览器拿到 Content-Disposition: attachment 自然
-      // 触发下载,文件落到用户的下载目录。
-      // platform-web 的 openExternal 兜底 window.open,行为对 Web 端也合理(新 tab 触发下载)。
-      void getPlatform().shell.openExternal(url);
+      const { downloadFile } = await import('../../files/fileRef');
+      await downloadFile(
+        { kind: 'kb-doc', kb: group.download.kbName, file: group.download.fileName },
+        group.download.fileName,
+      );
     },
     [group.download],
   );
