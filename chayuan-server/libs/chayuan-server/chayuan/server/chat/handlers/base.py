@@ -57,6 +57,11 @@ class BaseModeHandler:
         token SSE。video_generation 用这条路径 — LLM 流式逐 token 出脚本,
         最后 yield 一个 [[VG_META]]...[[/VG_META]] sentinel 给前端解析。
         """
+        # 命中「整篇总结某文件」→ 复用共享产出器(所有未自定义本方法的 handler
+        # 自动获得该能力;video_generation 覆写了本方法故不受影响)。
+        if state.get("summarize_file"):
+            from chayuan.server.chat.handlers.file_summary_stream import stream_file_summary
+            return stream_file_summary(state)
         return None
 
 
