@@ -18,10 +18,20 @@ describe('applySummaryFrame', () => {
     expect(m.metadata?.summary).toEqual({ state: 'needs_confirm', fileName: 'x.docx', chunkCount: 80, estCalls: 17 });
   });
 
-  it('ok 帧 → 停流 + 100% + ok 态(content 由打字机负责,不在此设)', () => {
-    const m = applySummaryFrame({ ...base, content: '部分' }, { status: 'ok', summary: '完整总结' }, 'x.docx');
+  it('delta 帧 → 逐 token 追加 content + 撤进度条 + running', () => {
+    const m1 = applySummaryFrame(base, { status: 'delta', text: '本案' }, 'x.docx');
+    expect(m1.content).toBe('本案');
+    expect(m1.streaming).toBe(true);
+    expect(m1.taskProgress).toBeUndefined();
+    const m2 = applySummaryFrame(m1, { status: 'delta', text: '事实' }, 'x.docx');
+    expect(m2.content).toBe('本案事实');
+  });
+
+  it('ok 帧 → 停流 + 用 summary 落定全文(覆盖增量)+ ok 态', () => {
+    const m = applySummaryFrame({ ...base, content: '本案事实' }, { status: 'ok', summary: '完整总结' }, 'x.docx');
     expect(m.streaming).toBe(false);
-    expect(m.taskProgress?.percent).toBe(100);
+    expect(m.content).toBe('完整总结');
+    expect(m.taskProgress).toBeUndefined();
     expect(m.metadata?.summary?.state).toBe('ok');
   });
 

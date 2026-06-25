@@ -28,8 +28,6 @@ export interface UseFileSummaryTurnReturn {
 
 interface Pair { fileName: string; userMsg: ChatMessage; createdAt: number; }
 
-const TYPE_TICK_MS = 16;
-
 export function useFileSummaryTurn(opts: UseFileSummaryTurnOptions): UseFileSummaryTurnReturn {
   const { kbName, modelId, localUserId, convIdRef, setMessagesRef, onConversationCreated } = opts;
   const unsubRef = React.useRef<Map<string, () => void>>(new Map());
@@ -44,18 +42,6 @@ export function useFileSummaryTurn(opts: UseFileSummaryTurnOptions): UseFileSumm
     const t = typeRef.current.get(id);
     if (t) { clearInterval(t); typeRef.current.delete(id); }
   }, []);
-
-  const typewriter = React.useCallback((id: string, full: string) => {
-    stopType(id);
-    const step = Math.max(2, Math.ceil(full.length / 120));
-    let i = 0;
-    const timer = setInterval(() => {
-      i = Math.min(full.length, i + step);
-      patch(id, (m) => ({ ...m, content: full.slice(0, i) }));
-      if (i >= full.length) stopType(id);
-    }, TYPE_TICK_MS);
-    typeRef.current.set(id, timer);
-  }, [patch, stopType]);
 
   const persist = React.useCallback((assistantId: string, fullSummary: string) => {
     const convId = convIdRef.current;
@@ -81,8 +67,8 @@ export function useFileSummaryTurn(opts: UseFileSummaryTurnOptions): UseFileSumm
       (f: FileSummaryFrame) => {
         patch(assistantId, (m) => applySummaryFrame(m, f, fileName));
         if (f.status === 'ok') {
+          // 正文已由 applySummaryFrame('ok') 用 summary 落定(流式时即增量拼接的权威覆盖)
           unsubRef.current.delete(assistantId);
-          typewriter(assistantId, f.summary);
           persist(assistantId, f.summary);
         } else if (f.status === 'error') {
           unsubRef.current.delete(assistantId);
@@ -95,7 +81,7 @@ export function useFileSummaryTurn(opts: UseFileSummaryTurnOptions): UseFileSumm
       },
     );
     unsubRef.current.set(assistantId, unsub);
-  }, [kbName, modelId, patch, persist, typewriter]);
+  }, [kbName, modelId, patch, persist]);
 
   const startSummary = React.useCallback(async (fileName: string) => {
     const setMessages = setMessagesRef.current;

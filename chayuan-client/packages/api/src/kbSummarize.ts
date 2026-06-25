@@ -4,8 +4,9 @@
  *
  * 后端事件(json,带 status):
  *   - { code:100, status:"running", chunk_count }      开始(已取全文,准备归纳)
+ *   - { code:100, status:"delta", text }                单次整篇流式:逐 token 增量(实时显示)
  *   - { code:200, status:"needs_confirm", chunk_count, est_llm_calls }  超大文件待确认
- *   - { code:200, status:"ok", summary, cached }        完成,summary 是整篇摘要文本
+ *   - { code:200, status:"ok", summary, cached }        完成,summary 是整篇摘要全文(权威值)
  *   - { code:4xx/5xx, status:"error", msg }             失败
  *
  * 用法与 subscribeHybridSearch 一致:返回 unsubscribe()。
@@ -25,6 +26,7 @@ export interface FileSummaryRequest {
 export type FileSummaryFrame =
   | { status: 'running'; chunk_count: number; total?: number }
   | { status: 'progress'; done: number; total: number }
+  | { status: 'delta'; text: string }
   | { status: 'needs_confirm'; chunk_count: number; est_llm_calls: number }
   | { status: 'ok'; summary: string; cached?: boolean }
   | { status: 'error'; msg: string };

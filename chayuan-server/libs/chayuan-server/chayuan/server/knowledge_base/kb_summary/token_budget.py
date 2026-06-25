@@ -113,3 +113,9 @@ def reduce_group_token_budget(ctx: int) -> int:
     """reduce 合并阶段:一组待合并摘要的 token 预算上界。"""
     # 防御性下限;本系统 ctx 恒 >= 4096,不会触发
     return max(256, ctx - REDUCE_MAX_TOKENS - _TEMPLATE_OVERHEAD - _SAFETY_MARGIN)
+
+
+def fits_single_pass(text: str, ctx: int) -> bool:
+    """整篇能否一次塞进 ctx(单次整篇快路径判据;与 summarize_budgeted 内部一致)。
+    True → 一次 LLM 调用即可流式出全文摘要;False → 退回分块 map-reduce。"""
+    return estimate_tokens(text) <= reduce_group_token_budget(ctx)

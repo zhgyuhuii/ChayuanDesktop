@@ -423,56 +423,86 @@ def summarize_file_now(
 
             texts_for_summary = [getattr(d, "page_content", "") or "" for d in doc_infos]
 
-            import queue as _queue
-            import threading as _threading
-
-            _q: "_queue.Queue" = _queue.Queue()
-            _holder: dict = {}
-
-            def _run() -> None:
-                try:
-                    _holder["summary"] = summarize_budgeted(
-                        texts_for_summary, ctx=ctx,
-                        map_call=_map_call, reduce_call=_reduce_call,
-                        concurrency=map_concurrency_for(model_name),
-                        progress_cb=lambda done, _total: _q.put(done),
-                    )
-                except Exception as _e:  # noqa: BLE001
-                    _holder["err"] = _e
-                finally:
-                    _q.put(None)  # sentinel:无论成败都收尾,防生成器卡死
-
-            import time as _time
-            _t = _threading.Thread(target=_run, daemon=True)
-            _t.start()
-            _deadline = _time.time() + 900  # 整体硬超时 15min,保证 SSE 一定收尾、不无限转圈
-            while True:
-                try:
-                    item = _q.get(timeout=30)
-                except _queue.Empty:
-                    if not _t.is_alive():
-                        break  # 线程已退出却没放 sentinel(异常路径)→ 收尾
-                    if _time.time() > _deadline:
-                        _holder["err"] = TimeoutError("全文总结超时(>900s),已中止")
-                        break
-                    continue
-                if item is None:
-                    break
-                yield json.dumps(
-                    {"code": 100, "status": "progress", "done": int(item),
-                     "total": total, "doc": file_name},
-                    ensure_ascii=False,
-                )
-                logger.info("[summary] progress {}/{} kb={!r} file={!r}", item, total, knowledge_base_name, file_name)
-            _t.join(timeout=5)
-
-            if _holder.get("err") is not None:
-                raise _holder["err"]
-            summary_text = _holder.get("summary") or ""
-            logger.info(
-                "[summary] done kb={!r} file={!r} summary_len={}",
-                knowledge_base_name, file_name, len(summary_text),
+            from chayuan.server.knowledge_base.kb_summary.token_budget import (
+                fits_single_pass,
             )
+            from chayuan.server.knowledge_base.kb_summary.budgeted_reduce import (
+                _FULL_PROMPT,
+            )
+
+            _full = "\n\n".join(s for s in (t.strip() for t in texts_for_summary) if s)
+            summary_text = ""
+
+            if _full and fits_single_pass(_full, ctx):
+                # —— 单次整篇:整篇能塞进 ctx → llm.stream() 逐 token 流式推送(像 ChatGPT),
+                #    用户 1-2 秒就看到字在动,不再对着进度条干等。每个 delta 即天然进度+心跳。
+                _acc: list = []
+                for _chunk in _reduce_llm.stream(_FULL_PROMPT.format(context=_full)):
+                    _piece = getattr(_chunk, "content", "") or ""
+                    if not _piece:
+                        continue
+                    _acc.append(_piece)
+                    yield json.dumps(
+                        {"code": 100, "status": "delta", "text": _piece, "doc": file_name},
+                        ensure_ascii=False,
+                    )
+                summary_text = "".join(_acc).strip()
+                logger.info(
+                    "[summary] done(stream) kb={!r} file={!r} summary_len={}",
+                    knowledge_base_name, file_name, len(summary_text),
+                )
+            else:
+                # —— map-reduce 兜底(超长文档,装不下单次整篇):线程跑 + 进度帧 ——
+                import queue as _queue
+                import threading as _threading
+
+                _q: "_queue.Queue" = _queue.Queue()
+                _holder: dict = {}
+
+                def _run() -> None:
+                    try:
+                        _holder["summary"] = summarize_budgeted(
+                            texts_for_summary, ctx=ctx,
+                            map_call=_map_call, reduce_call=_reduce_call,
+                            concurrency=map_concurrency_for(model_name),
+                            progress_cb=lambda done, _total: _q.put(done),
+                        )
+                    except Exception as _e:  # noqa: BLE001
+                        _holder["err"] = _e
+                    finally:
+                        _q.put(None)  # sentinel:无论成败都收尾,防生成器卡死
+
+                import time as _time
+                _t = _threading.Thread(target=_run, daemon=True)
+                _t.start()
+                _deadline = _time.time() + 900  # 整体硬超时 15min,保证 SSE 一定收尾、不无限转圈
+                while True:
+                    try:
+                        item = _q.get(timeout=30)
+                    except _queue.Empty:
+                        if not _t.is_alive():
+                            break  # 线程已退出却没放 sentinel(异常路径)→ 收尾
+                        if _time.time() > _deadline:
+                            _holder["err"] = TimeoutError("全文总结超时(>900s),已中止")
+                            break
+                        continue
+                    if item is None:
+                        break
+                    yield json.dumps(
+                        {"code": 100, "status": "progress", "done": int(item),
+                         "total": total, "doc": file_name},
+                        ensure_ascii=False,
+                    )
+                    logger.info("[summary] progress {}/{} kb={!r} file={!r}", item, total, knowledge_base_name, file_name)
+                _t.join(timeout=5)
+
+                if _holder.get("err") is not None:
+                    raise _holder["err"]
+                summary_text = _holder.get("summary") or ""
+                logger.info(
+                    "[summary] done kb={!r} file={!r} summary_len={}",
+                    knowledge_base_name, file_name, len(summary_text),
+                )
 
             _fsc.put_summary(store, key, summary_text)
 
