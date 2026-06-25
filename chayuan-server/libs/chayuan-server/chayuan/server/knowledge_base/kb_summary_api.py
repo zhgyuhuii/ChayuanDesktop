@@ -328,7 +328,18 @@ def summarize_file_now(
 
     def output():
         try:
-            kb = KBServiceFactory.get_service(knowledge_base_name, vs_type, embed_model)
+            # 用 get_service_by_name 从 DB 读该 KB 真实的 vs_type / embed_model。
+            # 不能用 get_service(kb, vs_type, embed_model)：本函数是被当普通函数调用的，
+            # vs_type/embed_model 形参的 Body(...) 默认值在非 FastAPI 调用下是 Body 对象而非字符串，
+            # 会让 get_service 的 if/elif 链全落空隐式返回 None（→ 'NoneType' has no attribute 'list_docs'）。
+            kb = KBServiceFactory.get_service_by_name(knowledge_base_name)
+            if kb is None:
+                yield json.dumps(
+                    {"code": 404, "status": "error", "msg": f"未找到知识库 ‘{knowledge_base_name}’"},
+                    ensure_ascii=False,
+                )
+                return
+            resolved_embed = kb.embed_model
             doc_infos = kb.list_docs(file_name=file_name)
             if not doc_infos:
                 yield json.dumps(
@@ -340,7 +351,7 @@ def summarize_file_now(
             texts = [getattr(d, "page_content", "") for d in doc_infos]
             key = file_summary_cache_key(file_name, content_hash(texts))
 
-            kb_summary = KBSummaryService(knowledge_base_name, embed_model)
+            kb_summary = KBSummaryService(knowledge_base_name, resolved_embed)
             kb_summary.create_kb_summary()
             store = _SummaryCacheStore(kb_summary)
 
