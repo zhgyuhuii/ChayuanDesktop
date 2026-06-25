@@ -32,6 +32,7 @@ from typing import Any, Dict, Optional
 from chayuan.server.chat.graph.nodes import (
     node_apply_mounted_ranking,
     node_classify,
+    node_detect_summarize,
     node_finalize,
     node_generate,
     node_load_mounted_context,
@@ -153,6 +154,7 @@ def build_chat_graph():
     g = StateGraph(ChatState)
     g.add_node("quota_check", node_quota_check)
     g.add_node("classify", node_classify)
+    g.add_node("detect_summarize", node_detect_summarize)
     g.add_node("guardrail_in", node_guardrail_in)
     # 用 async retrieve；LangGraph 1.x StateGraph 接受 async 节点，
     # 配合 ainvoke / astream 使用，可以并发处理多源检索的 IO
@@ -169,7 +171,8 @@ def build_chat_graph():
         "quota_check", _after_quota,
         {"classify": "classify", "finalize": "finalize"},
     )
-    g.add_edge("classify", "guardrail_in")
+    g.add_edge("classify", "detect_summarize")
+    g.add_edge("detect_summarize", "guardrail_in")
     g.add_conditional_edges(
         "guardrail_in", _after_guardrail_in,
         {"retrieve": "retrieve", "finalize": "finalize"},
@@ -217,6 +220,7 @@ def run_graph_linear(initial_state: ChatState) -> ChatState:
         s.update(node_finalize(s))
         return s
     s.update(node_classify(s))
+    s.update(node_detect_summarize(s))
     s.update(node_guardrail_in(s))
     if s.get("input_blocked"):
         s.update(node_finalize(s))
@@ -242,6 +246,7 @@ async def run_graph_linear_async(initial_state: ChatState) -> ChatState:
         s.update(node_finalize(s))
         return s
     s.update(node_classify(s))
+    s.update(node_detect_summarize(s))
     s.update(node_guardrail_in(s))
     if s.get("input_blocked"):
         s.update(node_finalize(s))

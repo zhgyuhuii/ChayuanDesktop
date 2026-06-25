@@ -30,6 +30,7 @@ from chayuan.server.chat.graph.graph import (
 )
 from chayuan.server.chat.graph.nodes import (
     node_apply_mounted_ranking,
+    node_detect_summarize,
     node_load_mounted_context,
     node_prepare_messages,
     node_retrieve_async,
@@ -106,6 +107,10 @@ async def run_chat_stream(req: ChatRequest) -> AsyncIterator[Dict[str, str]]:
     # 2) classify + guardrail_in
     _patch(state, node_classify(state))
     yield make_sse("stage", {"stage": "classified", "mode": state.get("resolved_mode")})
+    _patch(state, node_detect_summarize(state))
+    if state.get("summarize_file"):
+        yield make_sse("stage", {"stage": "summarizing",
+                                 "file": state["summarize_file"].get("file_name")})
 
     _patch(state, node_guardrail_in(state))
     if state.get("input_blocked"):
