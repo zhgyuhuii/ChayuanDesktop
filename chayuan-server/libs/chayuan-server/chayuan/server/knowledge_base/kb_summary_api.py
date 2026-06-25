@@ -398,6 +398,11 @@ def summarize_file_now(
             )
 
             ctx = resolve_model_ctx(model_name)
+            logger.info(
+                "[summary] model={!r} ctx={} concurrency={} (model 为空/本地 → 用本地慢模型;"
+                "想用云端请在对话框模型选择里选中云端模型)",
+                model_name, ctx, map_concurrency_for(model_name),
+            )
             # 有界 max_tokens:给输出预留固定额度,避免 max_tokens=None 被删后输出无上限。
             _map_llm = get_ChatOpenAI(
                 model_name=model_name, temperature=temperature,
