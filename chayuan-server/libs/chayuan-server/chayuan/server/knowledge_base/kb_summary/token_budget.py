@@ -50,6 +50,12 @@ def resolve_model_ctx(model_name: str | None) -> int:
         return DEFAULT_CTX
     # 剥 platform::model 命名空间,按裸 model_id 匹配
     bare = name.split("::", 1)[1].strip() if "::" in name else name
+    low = bare.lower()
+    # ⚠ 本地/bundled 模型实际跑的是 llama-server `--ctx-size`(默认 4096),不能用
+    # model_metadata 的 context_length(那是模型训练上下文,如 32768)——否则预算
+    # 远超运行时窗口 → Context size exceeded + 重试 + 巨慢。本地一律用 DEFAULT_CTX。
+    if low.startswith("models/") or low.startswith("local-") or "bundled" in low:
+        return DEFAULT_CTX
     try:
         from chayuan.server.db.repository import model_metadata_repository as _mmr
         for md in (_mmr.list_all() or []):

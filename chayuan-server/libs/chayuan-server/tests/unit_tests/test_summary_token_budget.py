@@ -45,3 +45,14 @@ def test_map_input_char_budget_leaves_room_for_output_and_template():
     budget_tokens, budget_chars = map_input_char_budget(DEFAULT_CTX)
     assert 0 < budget_tokens < DEFAULT_CTX - MAP_MAX_TOKENS
     assert budget_chars > 0
+
+
+def test_resolve_model_ctx_local_bundled_uses_default_not_metadata(monkeypatch):
+    pytest_mod = __import__("pytest"); pytest_mod.importorskip("sqlalchemy")
+    from chayuan.server.db.repository import model_metadata_repository as mmr
+    # 即便 metadata 给本地模型标了 32768(训练上下文),本地也必须用运行时 DEFAULT_CTX
+    monkeypatch.setattr(mmr, "list_all",
+        lambda: [{"model_id": "models/bundled/chat/Qwen3-4B-Instruct-2507-GGUF", "context_length": 32768}])
+    from chayuan.server.knowledge_base.kb_summary import token_budget
+    assert token_budget.resolve_model_ctx("models/bundled/chat/Qwen3-4B-Instruct-2507-GGUF") == token_budget.DEFAULT_CTX
+    assert token_budget.resolve_model_ctx("local-chat/foo") == token_budget.DEFAULT_CTX
