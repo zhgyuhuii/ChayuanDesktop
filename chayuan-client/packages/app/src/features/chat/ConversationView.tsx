@@ -280,6 +280,14 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     setInitialLoading(true);
     let cancelled = false;
     void (async () => {
+      // 先读会话 meta seed composer(知识库/模型/检索模式/深度思考/高级参数),
+      // 让点开历史对话时输入区状态先就位,再 listMessages 渲染消息。
+      // 草稿态/旧会话无 meta → 不动 composer(默认兜底)。
+      const seedConv = await getConversation(activeId);
+      if (cancelled) return;
+      if (seedConv?.meta) {
+        applySnapshotToComposer(composer.getState(), seedConv.meta as ConvConfigSnapshot);
+      }
       const msgs = await listMessages(activeId);
       if (cancelled) return;
       // 仅当"内存为空 或 本地确实有消息"时覆盖;否则保留内存(草稿首发场景)
