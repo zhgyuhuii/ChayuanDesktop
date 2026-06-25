@@ -3,3 +3,5 @@ volumes/
 
 # .env 本身在仓库根 .gitignore 已忽略;这里把网络部署的模板重新放行(要入库)
 !.env.network.example
+.env.release
+!.env.release.example
