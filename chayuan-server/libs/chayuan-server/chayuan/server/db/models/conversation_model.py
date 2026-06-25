@@ -14,6 +14,7 @@ class ConversationModel(Base):
     chat_type = Column(String(50), comment="聊天类型")
     # P3 多用户隔离：历史数据为 NULL 视为"匿名/legacy"会话，仅管理员可见
     user_id = Column(Integer, nullable=True, index=True, comment="归属用户 users.id")
+    config_snapshot = Column(JSON, nullable=True, comment="对话配置快照(model/kb/参数)漫游用")
     create_time = Column(DateTime, default=func.now(), comment="创建时间")
 
     def __repr__(self):
