@@ -842,7 +842,7 @@ def list_files_endpoint(
 
 
 @kb_router.get(
-    "/list_files_paged", response_model=ListResponse,
+    "/list_files_paged",
     summary="分页+关键词获取知识库文件列表",
 )
 def list_files_paged_endpoint(

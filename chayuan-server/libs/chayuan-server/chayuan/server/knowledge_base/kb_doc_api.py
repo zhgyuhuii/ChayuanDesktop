@@ -107,18 +107,19 @@ def list_files_paged(
     page: int = 0,
     page_size: int = 20,
     keyword: str = "",
-) -> ListResponse:
+) -> dict:
     """分页 + 关键词的文件列表。page 从 0 起;keyword 对 file_name 子串(忽略大小写)。
 
+    返回普通 dict(不能用 ListResponse——它的 data 字段是 List[Any],装不下分页 dict
+    会 pydantic 校验失败 500)。形状:{code, msg, data:{items,total,page,page_size,has_more}}。
     v1 内部基于 get_kb_file_details 全量再过滤切片(契约即分页)。
-    返回 data={items,total,page,page_size,has_more}。
     """
     if not validate_kb_name(knowledge_base_name):
-        return ListResponse(code=403, msg="Don't attack me", data=[])
+        return {"code": 403, "msg": "Don't attack me", "data": None}
     knowledge_base_name = urllib.parse.unquote(knowledge_base_name)
     kb = KBServiceFactory.get_service_by_name(knowledge_base_name)
     if kb is None:
-        return ListResponse(code=404, msg=f"未找到知识库 {knowledge_base_name}", data=[])
+        return {"code": 404, "msg": f"未找到知识库 {knowledge_base_name}", "data": None}
 
     all_docs = get_kb_file_details(knowledge_base_name) or []
     kw = (keyword or "").strip().lower()
@@ -134,10 +135,10 @@ def list_files_paged(
     pg = page if page and page > 0 else 0
     start = pg * ps
     items = all_docs[start:start + ps]
-    return ListResponse(data={
+    return {"code": 200, "msg": "success", "data": {
         "items": items, "total": total, "page": pg,
         "page_size": ps, "has_more": start + ps < total,
-    })
+    }}
 
 
 def _save_files_in_thread(

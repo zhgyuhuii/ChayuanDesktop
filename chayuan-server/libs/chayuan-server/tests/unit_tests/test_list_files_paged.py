@@ -133,14 +133,14 @@ def test_paged_slice_and_has_more(monkeypatch):
     files = [{"file_name": f"f{i}.txt"} for i in range(25)]
     _setup(monkeypatch, files)
     r = api.list_files_paged("kb", page=0, page_size=10, keyword="")
-    assert r.code == 200
-    assert r.data["total"] == 25
-    assert len(r.data["items"]) == 10
-    assert r.data["items"][0]["file_name"] == "f0.txt"
-    assert r.data["has_more"] is True
+    assert r["code"] == 200
+    assert r["data"]["total"] == 25
+    assert len(r["data"]["items"]) == 10
+    assert r["data"]["items"][0]["file_name"] == "f0.txt"
+    assert r["data"]["has_more"] is True
     r2 = api.list_files_paged("kb", page=2, page_size=10, keyword="")
-    assert len(r2.data["items"]) == 5
-    assert r2.data["has_more"] is False
+    assert len(r2["data"]["items"]) == 5
+    assert r2["data"]["has_more"] is False
 
 
 def test_paged_keyword_filter(monkeypatch):
@@ -151,11 +151,11 @@ def test_paged_keyword_filter(monkeypatch):
     ]
     _setup(monkeypatch, files)
     r = api.list_files_paged("kb", page=0, page_size=10, keyword="答辩")
-    assert r.data["total"] == 2
-    assert {i["file_name"] for i in r.data["items"]} == {"答辩状.docx", "答辩补充.docx"}
+    assert r["data"]["total"] == 2
+    assert {i["file_name"] for i in r["data"]["items"]} == {"答辩状.docx", "答辩补充.docx"}
 
 
 def test_paged_invalid_kb(monkeypatch):
     monkeypatch.setattr(api, "validate_kb_name", lambda n: False)
     r = api.list_files_paged("kb", page=0, page_size=10, keyword="")
-    assert r.code == 403
+    assert r["code"] == 403
