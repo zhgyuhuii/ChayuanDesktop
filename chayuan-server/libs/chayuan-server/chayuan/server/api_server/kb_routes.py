@@ -25,6 +25,7 @@ from chayuan.server.knowledge_base.kb_doc_api import (
     delete_docs,
     download_doc,
     list_files,
+    list_files_paged,
     recreate_vector_store,
     search_docs,
     update_docs,
@@ -838,6 +839,21 @@ def list_files_endpoint(
 ):
     _require_read(user, knowledge_base_name)
     return _kb_call(list_files, knowledge_base_name)
+
+
+@kb_router.get(
+    "/list_files_paged", response_model=ListResponse,
+    summary="分页+关键词获取知识库文件列表",
+)
+def list_files_paged_endpoint(
+    knowledge_base_name: str,
+    page: int = 0,
+    page_size: int = 20,
+    keyword: str = "",
+    user=Depends(require_auth_enabled()),
+):
+    _require_read(user, knowledge_base_name)
+    return list_files_paged(knowledge_base_name, page=page, page_size=page_size, keyword=keyword)
 
 
 @kb_router.post("/search_docs", response_model=List[dict], summary="搜索知识库")
