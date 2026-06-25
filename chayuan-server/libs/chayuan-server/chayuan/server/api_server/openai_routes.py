@@ -87,6 +87,14 @@ async def get_model_client(model_name: str) -> AsyncGenerator[AsyncClient]:
             selected_platform = c["platform_name"]
             selected_model = m
 
+    # 兜底:当所有候选模型的信号量都被占满(_value==0)时,上面循环的两个分支
+    # 都不会命中,selected_platform 会保持初始空串 → 下面 model_semaphores[(model,
+    # "")] 是从未插入过的键 → KeyError 崩(并发打满 bundled 本地模型时复现)。
+    # 回退到第一个候选(其信号量已在循环里建好),让请求去 acquire 排队等待。
+    if not selected_platform:
+        _first_m, _first_c = next(iter(model_infos.items()))
+        selected_model = _first_m
+        selected_platform = _first_c["platform_name"]
     key = (selected_model, selected_platform)
     semaphore = model_semaphores[key]
     platform_info = get_config_platforms().get(selected_platform) or {}
