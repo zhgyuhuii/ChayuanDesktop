@@ -57,7 +57,7 @@ export function subscribeHybridSearch(
   void (async () => {
     try {
       const cfg = getClientConfig();
-      const token = getAccessToken();
+      const token = await getAccessToken();
       const url = `${cfg.baseURL.replace(/\/+$/, '')}/knowledge_base/hybrid_search`;
       const resp = await fetch(url, {
         method: 'POST',

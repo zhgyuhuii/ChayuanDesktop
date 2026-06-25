@@ -38,7 +38,7 @@ export function subscribeFileSummary(
   void (async () => {
     try {
       const cfg = getClientConfig();
-      const token = getAccessToken();
+      const token = await getAccessToken();
       const url = `${cfg.baseURL.replace(/\/+$/, '')}/knowledge_base/kb_summary_api/summarize_file_now`;
       const resp = await fetch(url, {
         method: 'POST',
