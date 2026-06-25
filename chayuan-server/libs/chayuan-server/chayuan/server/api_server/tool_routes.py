@@ -84,6 +84,59 @@ async def list_tools(
     return {"data": data}
 
 
+@tool_router.get("/my", response_model=BaseResponse)
+async def list_my_tools(request: Request):
+    """当前用户视角的工具清单:全局启用工具逐个标 enabled(= 该用户未关闭)。
+
+    供对话框工具选择器(只展示 enabled)与工具页个人开关使用。
+    guest/未鉴权(单机)→ 关闭集为空 → 全部 enabled,保持现状。
+    """
+    from chayuan.server.auth.deps import get_current_user_optional, owner_id_of
+    from chayuan.server.db.repository import user_tool_pref_repository as repo
+
+    uid = owner_id_of(get_current_user_optional(request))
+    disabled = repo.list_disabled(uid) if uid is not None else set()
+    items = []
+    for t in get_tool().values():
+        cfg = get_tool_config(_effective_config_key(t.name)) or {}
+        if not bool(cfg.get("use", False)):
+            continue
+        items.append({
+            "name": t.name,
+            "title": getattr(t, "title", t.name),
+            "description": t.description,
+            "enabled": t.name not in disabled,
+        })
+    return {"data": items}
+
+
+class _MyToolUpdate(BaseModel):
+    enabled: bool
+
+
+@tool_router.put("/my/{name}", response_model=BaseResponse)
+async def set_my_tool(
+    request: Request,
+    name: str = PathParam(..., min_length=1),
+    payload: _MyToolUpdate = Body(...),
+):
+    """开/关当前用户的某个工具(只影响自己)。enabled=false → 关闭集加一行;true → 删一行。
+
+    仅允许操作"全局启用"的工具。guest/单机 uid 为空 → 不持久化、返回 enabled=true(全开)。
+    """
+    from chayuan.server.auth.deps import get_current_user_optional, owner_id_of
+    from chayuan.server.db.repository import user_tool_pref_repository as repo
+    from chayuan.server.tools.user_tools import global_enabled_tool_names
+
+    uid = owner_id_of(get_current_user_optional(request))
+    if uid is None:
+        return {"data": {"name": name, "enabled": True, "persisted": False}}
+    if name not in global_enabled_tool_names():
+        raise HTTPException(status_code=404, detail=f"工具 {name!r} 未全局启用,无法设置")
+    repo.set_tool_disabled(uid, name, disabled=not payload.enabled)
+    return {"data": {"name": name, "enabled": bool(payload.enabled), "persisted": True}}
+
+
 @tool_router.post("/call", response_model=BaseResponse)
 async def call_tool(
     name: str = Body(examples=["calculate"]),
