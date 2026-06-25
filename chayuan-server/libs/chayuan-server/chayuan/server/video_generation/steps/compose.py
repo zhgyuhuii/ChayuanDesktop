@@ -1498,7 +1498,21 @@ def generate_video(
                 _cands += ["/System/Library/Fonts/STHeiti Medium.ttc",
                            "/System/Library/Fonts/PingFang.ttc"]
             else:
-                _cands += _glob.glob("/usr/share/fonts/**/*.tt[cf]", recursive=True)
+                # 先放已知 CJK 字体绝对路径(fonts-noto-cjk / wqy 装在这),避免下面 glob
+                # 先命中 DejaVu/Liberation 等非中文字体 → 中文字幕渲染成方框。
+                _cands += [
+                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+                    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+                    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+                ]
+                # 再扫系统字体,**CJK 关键字优先**(noto/cjk/wqy/sourcehan/han/hei/song/ming/kai)
+                _all = (_glob.glob("/usr/share/fonts/**/*.tt[cf]", recursive=True)
+                        + _glob.glob("/usr/share/fonts/**/*.otf", recursive=True))
+                _kw = ("cjk", "noto", "wqy", "sourcehan", "source-han", "han",
+                       "hei", "song", "ming", "kai", "微软", "宋", "黑")
+                _cjk = [p for p in _all if any(k in p.lower() for k in _kw)]
+                _cands += _cjk + [p for p in _all if p not in _cjk]
             for _c in _cands:
                 if _c and os.path.isfile(_c):
                     _resolved = _c.replace("\\", "/") if os.name == "nt" else _c

@@ -123,6 +123,8 @@ RUN find /chayuan/app/chayuan-server/vendor/services -path '*/linux-x64/*' -type
 COPY chayuan-server/vendor/bundled_fonts ./chayuan-server/vendor/bundled_fonts
 COPY chayuan-server/vendor/bundled_bgm ./chayuan-server/vendor/bundled_bgm
 COPY chayuan-server/vendor/bundled_video_clips ./chayuan-server/vendor/bundled_video_clips
+# 片尾 video_end.mp4(非会员视频自动拼接);单机版走 PyInstaller datas,docker 需显式 COPY 命中 _outro_source 源码树探测
+COPY chayuan-server/video ./chayuan-server/video
 
 # ── 4. 拷前端 dist (来自 stage 1) ──────────────────────────────────
 COPY --from=web-builder /chayuan-client/apps/web/dist /chayuan/web

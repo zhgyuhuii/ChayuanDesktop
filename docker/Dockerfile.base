@@ -37,6 +37,7 @@ RUN if [ -n "$APT_MIRROR" ]; then \
         libgomp1 libstdc++6 libgcc-s1 \
         ffmpeg libsndfile1 \
         libmagic1 \
+        fonts-noto-cjk \
         nginx-light \
         curl git ca-certificates tini \
     && rm -rf /var/lib/apt/lists/* /var/log/nginx/*
