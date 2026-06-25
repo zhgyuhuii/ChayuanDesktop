@@ -176,10 +176,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
               <StreamMarkdown content={message.content || ''} streaming={message.streaming} />
             )}
             {/* 模态路由异步任务进度条 — 仅在尚未完成 + 还在 streaming 时展示;
-                完成后(percent=100 且有 files 落地)或非 streaming 时收起 */}
+                完成后(percent=100 且有 files 落地)或非 streaming 时收起。
+                全文总结消息(metadata.summary)由 extraSlot 渲染自带的紧凑进度条 +
+                X 取消,这里跳过通用大进度条,避免出现两条重复的进度条。 */}
             {message.taskProgress
               && message.streaming
-              && message.taskProgress.percent < 100 && (
+              && message.taskProgress.percent < 100
+              && !message.metadata?.summary && (
                 <div className="mt-2">
                   <TaskProgressPart
                     percent={message.taskProgress.percent}
