@@ -6,7 +6,9 @@ from chayuan.server.file_service import registry
 from chayuan.server.file_service.base import FileRequestError
 import chayuan.server.file_service.adapters as _adapters_pkg  # noqa: F401  触发自注册
 
-file_router = APIRouter(prefix="/v1/files", tags=["Files"])
+# 用 /api/v1/files 而非 /v1/files:后者被 OpenAI 兼容路由占用
+# (openai_router 的 GET /v1/files = list_files(purpose 必填),先注册会抢匹配 → 422)。
+file_router = APIRouter(prefix="/api/v1/files", tags=["Files"])
 
 
 @file_router.get("", summary="统一文件下载/预览(kind 分发到各来源 adapter)")

@@ -8,9 +8,9 @@ vi.mock('@chayuan/api', () => ({
 import { resolveFileUrl } from '../fileRef';
 
 describe('resolveFileUrl', () => {
-  it('kb-doc 拼 /v1/files?kind=kb-doc + token', async () => {
+  it('kb-doc 拼 /api/v1/files?kind=kb-doc + token', async () => {
     const u = await resolveFileUrl({ kind: 'kb-doc', kb: 'KB', file: 'a.pdf' });
-    expect(u).toContain('https://h/v1/files?');
+    expect(u).toContain('https://h/api/v1/files?');
     expect(u).toContain('kind=kb-doc');
     expect(u).toContain('kb=KB');
     expect(u).toContain('file=a.pdf');
