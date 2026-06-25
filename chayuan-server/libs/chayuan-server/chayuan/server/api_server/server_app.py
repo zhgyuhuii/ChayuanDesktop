@@ -175,6 +175,9 @@ def create_app(run_mode: str = None):
     # /v1/artifacts/<sha>.<ext> — 模态路由产物(图/音/视)内容寻址下载,Range 支持
     # 详见 chayuan/server/modality/router/artifacts.py 模块 docstring
     app.include_router(artifacts_router)
+    # /v1/files?kind=... — 统一文件下载/预览端点(kind 分发到各来源 adapter)
+    from chayuan.server.api_server.file_routes import file_router
+    app.include_router(file_router)
     # 模型厂商公开 API（/v1/providers/*）—— 单机版「模型广场」前端入口；
     # 鉴权放宽为 optional，全局共享配置，详见 provider_routes.py 模块 docstring。
     app.include_router(provider_router)
