@@ -398,10 +398,11 @@ def summarize_file_now(
             )
 
             ctx = resolve_model_ctx(model_name)
+            from chayuan.server.knowledge_base.kb_summary.token_budget import _is_local_model
+            _routing = "本地(若慢,想快请在对话框选云端模型)" if (not model_name or _is_local_model(model_name)) else "云端直连"
             logger.info(
-                "[summary] model={!r} ctx={} concurrency={} (model 为空/本地 → 用本地慢模型;"
-                "想用云端请在对话框模型选择里选中云端模型)",
-                model_name, ctx, map_concurrency_for(model_name),
+                "[summary] model={!r} ctx={} concurrency={} routing={}",
+                model_name, ctx, map_concurrency_for(model_name), _routing,
             )
             # 有界 max_tokens:给输出预留固定额度,避免 max_tokens=None 被删后输出无上限。
             _map_llm = get_ChatOpenAI(
