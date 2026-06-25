@@ -40,19 +40,26 @@ def estimate_tokens(text: str) -> int:
 
 
 def resolve_model_ctx(model_name: str | None) -> int:
-    """解析模型有效上下文窗口;拿不到则保守取 DEFAULT_CTX。"""
+    """解析模型有效上下文窗口;拿不到则保守取 DEFAULT_CTX。
+
+    按裸 model_id 在 model_metadata 里查 context_length;查不到 / 无 DB / 任何
+    异常 → DEFAULT_CTX(本地 chat 默认 4096,保守不溢出)。
+    """
     name = (model_name or "").strip()
     if not name:
         return DEFAULT_CTX
+    # 剥 platform::model 命名空间,按裸 model_id 匹配
+    bare = name.split("::", 1)[1].strip() if "::" in name else name
     try:
-        from chayuan.server.db.repository.model_metadata_repository import (
-            get_model_metadata,
-        )
-        md = get_model_metadata(name)
-        ctx = getattr(md, "context_length", None) if md else None
-        if ctx and int(ctx) > 0:
-            return int(ctx)
-    except Exception:  # noqa: BLE001
+        from chayuan.server.db.repository import model_metadata_repository as _mmr
+        for md in (_mmr.list_all() or []):
+            if not isinstance(md, dict):
+                continue
+            if str(md.get("model_id") or "") in (bare, name):
+                ctx = md.get("context_length")
+                if ctx and int(ctx) > 0:
+                    return int(ctx)
+    except Exception:  # noqa: BLE001 — 无 DB / 异常一律保守回退
         pass
     return DEFAULT_CTX
 

@@ -18,6 +18,19 @@ def test_resolve_model_ctx_falls_back_to_default():
     assert resolve_model_ctx("nonexistent-model-xyz") == DEFAULT_CTX
 
 
+def test_resolve_model_ctx_reads_metadata(monkeypatch):
+    from chayuan.server.db.repository import model_metadata_repository as mmr
+    monkeypatch.setattr(
+        mmr, "list_all",
+        lambda: [{"model_id": "qwen-max", "context_length": 32768}],
+    )
+    from chayuan.server.knowledge_base.kb_summary import token_budget
+    assert token_budget.resolve_model_ctx("qwen-max") == 32768
+    assert token_budget.resolve_model_ctx("platform::qwen-max") == 32768
+    # 未知模型仍回退
+    assert token_budget.resolve_model_ctx("unknown-zzz") == token_budget.DEFAULT_CTX
+
+
 def test_reduce_group_token_budget_in_range():
     from chayuan.server.knowledge_base.kb_summary.token_budget import (
         reduce_group_token_budget, DEFAULT_CTX, REDUCE_MAX_TOKENS,
