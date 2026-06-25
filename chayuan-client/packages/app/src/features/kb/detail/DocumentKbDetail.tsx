@@ -33,6 +33,7 @@ import { usePreviewStore } from '../../preview';
 import { RemoteSyncDialog } from '../sync/RemoteSyncDialog';
 import { confirmDuplicateUpload } from '../upload/duplicateCheck';
 import type { DetailPanelProps } from './types';
+import { FileCard } from './FileCard';
 
 interface ReindexTaskState {
   taskId: string;
@@ -51,12 +52,14 @@ interface ReindexTaskState {
 export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
   onToggleCollapse?: () => void;
   onSummarizeFile?: (fileName: string) => void;
+  narrow?: boolean;
 }> = ({
   detail,
   mine,
   onMutate,
   onToggleCollapse,
   onSummarizeFile,
+  narrow,
 }) => {
   const [keyword, setKeyword] = React.useState('');
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -346,7 +349,27 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
         <div className="flex flex-1 items-center justify-center text-sm text-[var(--cy-text-tertiary)]">
           {keyword ? '没有匹配的文件' : '还没有文件,点上传开始'}
         </div>
+      ) : narrow ? (
+        /* 窄列(与对话共存)→ 卡片纵向可滚动列表 */
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
+          {filtered.map((f) => (
+            <FileCard
+              key={f.file_name}
+              file={f}
+              kbName={detail.meta.name}
+              ingestTask={reindexTask}
+              mine={mine}
+              selected={selected.has(f.file_name)}
+              onToggle={() => toggle(f.file_name)}
+              onChunks={() => setChunkFile(f.file_name)}
+              onReindex={() => runReindex([f.file_name])}
+              onDelete={() => void onDeleteOne(f.file_name)}
+              onSummarize={onSummarizeFile ? () => onSummarizeFile(f.file_name) : undefined}
+            />
+          ))}
+        </div>
       ) : (
+        /* 宽列 → 原有表格,保持不变 */
         <div className="flex-1 overflow-auto">
           <table className="w-full table-fixed text-sm">
             <thead className="sticky top-0 z-[1] bg-[var(--cy-surface-1)] text-xs text-[var(--cy-text-tertiary)]">

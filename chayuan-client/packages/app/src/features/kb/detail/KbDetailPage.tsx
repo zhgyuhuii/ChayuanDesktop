@@ -321,6 +321,7 @@ export const KbDetailPage: React.FC<KbDetailPageProps> = ({ kuId }) => {
                     onMutate={onMutate}
                     onToggleCollapse={toggleBody}
                     onSummarizeFile={(f) => { void summaryTurn.startSummary(f); }}
+                    narrow={inChatMode && !bodyCollapsed && !chatCollapsed}
                   />
                 )}
               </div>
