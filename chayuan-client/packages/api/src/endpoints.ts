@@ -184,6 +184,14 @@ export interface ToolInfo {
   config?: Record<string, unknown>;
 }
 
+/** ``GET /tools/my`` 单项:全局启用工具 + 当前用户是否启用 */
+export interface MyToolInfo {
+  name: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+}
+
 /** 单个字段的 widget — 与 catalog.json 里的 ``widget`` 字段一一对应 */
 export type ToolFieldWidget =
   | 'text'
@@ -312,6 +320,16 @@ export const tools = {
     const data = await http.get<Record<string, ToolInfo>>('/tools', { query: { enabled: false } });
     return Object.values(data ?? {});
   },
+  async listMine(): Promise<MyToolInfo[]> {
+    // 后端 data 直接是数组
+    return (await http.get<MyToolInfo[]>('/tools/my')) ?? [];
+  },
+  setMine: (name: string, enabled: boolean) =>
+    http.put<{ name: string; enabled: boolean; persisted: boolean }>(
+      `/tools/my/${encodeURIComponent(name)}`,
+      { enabled },
+    ),
+
   call: (name: string, toolInput: Record<string, unknown>) =>
     http.post<unknown>('/tools/call', { name, tool_input: toolInput }),
 
