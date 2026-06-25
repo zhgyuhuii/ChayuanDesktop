@@ -546,12 +546,15 @@ def node_detect_summarize(state):
     req = state["request"]
     try:
         kb_name, files = _doc_kb_files(req)
-        if not kb_name or not files:
-            return {}
         from chayuan.server.knowledge_base.kb_summary.intent import detect_summarize_intent
-        hit = detect_summarize_intent(req.query or "", files)
+        hit = detect_summarize_intent(req.query or "", files) if (kb_name and files) else None
+        # 诊断日志(INFO):一眼看清命中/落空原因(mode/kb/文件数/query/hit)。
+        logger.info(
+            "[detect_summarize] mode=%s kb=%r files=%d query=%r hit=%r",
+            mode, kb_name, len(files or []), (req.query or "")[:50], hit,
+        )
         if hit:
             return {"summarize_file": {"kb_name": kb_name, "file_name": hit}}
     except Exception as e:  # noqa: BLE001
-        logger.debug("[detect_summarize] 异常(走普通 RAG): %r", e)
+        logger.warning("[detect_summarize] 异常(走普通 RAG): %r", e, exc_info=True)
     return {}
