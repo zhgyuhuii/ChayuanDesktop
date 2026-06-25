@@ -207,7 +207,8 @@ async def chatgraph_endpoint(
                     user_id=uid,
                 )
             except Exception as _ce:
-                logger.warning("auto-create conversation (v2) failed: %r", _ce)
+                # f-string:build_logger 是 loguru(用 {} 不识别 %),原 %r 把异常吞了看不到真因
+                logger.warning(f"auto-create conversation (v2) failed: {_ce!r}")
 
     # image_urls 优先；fallback 到单图 image_url；都无则 None
     _images: List[str] = list(image_urls or [])
