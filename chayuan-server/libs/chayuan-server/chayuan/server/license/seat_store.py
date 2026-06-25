@@ -24,14 +24,15 @@ _DEPLOYMENT_LICENSE_FILE = "deployment_license.json"
 
 def _migrate_from_files(root: Path) -> Tuple[str, Optional[str]]:
     """首次建行的初值:优先导入旧文件 fp(保已购令牌),否则新生成;license 同理。"""
+    from chayuan.server.license.seat import normalize_fingerprint
     fp = ""
     try:
         data = json.loads((root / _DEPLOYMENT_ID_FILE).read_text(encoding="utf-8"))
         fp = str(data.get("fp") or "")
     except Exception:
         fp = ""
-    if not fp:
-        fp = secrets.token_hex(16)
+    # 规范化为 16 位 hex(空→新生成,历史 32 位→确定性截断),与客户端位数一致
+    fp = normalize_fingerprint(fp)
     lic_json: Optional[str] = None
     try:
         lic = json.loads((root / _DEPLOYMENT_LICENSE_FILE).read_text(encoding="utf-8"))
@@ -57,9 +58,15 @@ def _ensure_row(root: Path) -> None:
 
 def get_fingerprint(root: Path) -> str:
     _ensure_row(root)
+    from chayuan.server.license.seat import normalize_fingerprint
     with session_scope() as s:
         row = s.get(DeploymentIdentityModel, _KEY)
-        return row.fingerprint if row else ""
+        if not row:
+            return ""
+        norm = normalize_fingerprint(row.fingerprint or "")
+        if norm != (row.fingerprint or ""):  # 自愈:历史 32 位 → 16 位,回写持久
+            row.fingerprint = norm
+        return norm
 
 
 def read_license(root: Path) -> Optional[dict]:
@@ -80,6 +87,6 @@ def write_license(root: Path, data: dict) -> None:
     with session_scope() as s:
         row = s.get(DeploymentIdentityModel, _KEY)
         if row is None:  # 极端竞态兜底
-            row = DeploymentIdentityModel(key=_KEY, fingerprint=secrets.token_hex(16))
+            row = DeploymentIdentityModel(key=_KEY, fingerprint=secrets.token_hex(8))
             s.add(row)
         row.license_json = json.dumps(data)

@@ -18,6 +18,23 @@ DEFAULT_WEB_MAX_USERS = 10
 _DEPLOYMENT_ID_FILE = "deployment_id.json"
 _DEPLOYMENT_LICENSE_FILE = "deployment_license.json"
 
+# 部署指纹位数:16 位小写 hex(8 字节),与客户端 device 指纹(fingerprint.py:
+# sha256()[:16])保持一致。历史上曾用 token_hex(16)=32 位,统一收敛到 16 位。
+_FP_HEX_LEN = 16
+
+
+def normalize_fingerprint(fp: str) -> str:
+    """规范化部署指纹为 16 位小写 hex。
+
+    - 已是合法 16 位(或更长的合法 hex)→ 取前 16 位(对历史 32 位做*确定性*截断,
+      同一部署每次得到同值,稳定可复现)。
+    - 为空/非法 → 新生成 16 位 hex。
+    """
+    s = (fp or "").strip().lower()
+    if len(s) >= _FP_HEX_LEN and all(c in "0123456789abcdef" for c in s[:_FP_HEX_LEN]):
+        return s[:_FP_HEX_LEN]
+    return secrets.token_hex(_FP_HEX_LEN // 2)
+
 
 class SeatLimitReached(Exception):
     def __init__(self, used: int, limit: int):
@@ -31,21 +48,22 @@ def _seat_disabled() -> bool:
 
 
 def _file_deployment_fingerprint(root: Path) -> str:
-    """单机版:部署指纹存本地 deployment_id.json(原逻辑,保桌面零变化)。"""
+    """单机版:部署指纹存本地 deployment_id.json。规范化为 16 位 hex,
+    历史 32 位会被*确定性*截断为 16 位并回写,保证位数与客户端一致且稳定。"""
     p = root / _DEPLOYMENT_ID_FILE
+    raw = ""
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
-        fp = str(data.get("fp") or "")
-        if fp:
-            return fp
+        raw = str(data.get("fp") or "")
     except Exception:
-        pass
-    fp = secrets.token_hex(16)
-    try:
-        root.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"fp": fp}), encoding="utf-8")
-    except Exception:
-        pass
+        raw = ""
+    fp = normalize_fingerprint(raw)
+    if fp != raw:  # 新生成 / 截断历史 32 位 → 回写持久化
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({"fp": fp}), encoding="utf-8")
+        except Exception:
+            pass
     return fp
 
 
