@@ -1652,7 +1652,9 @@ def summarize_file_now_endpoint(
     max_tokens: int = Body(None),
     user=Depends(require_auth_enabled()),
 ):
-    _require_write(user, knowledge_base_name)
+    # 总结是读操作(归纳已入库内容;写 summary 缓存只是内部副作用),
+    # 能查看/检索该 KB 的用户就应能总结 → 用读权限而非写权限,避免只读用户 403。
+    _require_read(user, knowledge_base_name)
     return summarize_file_now(
         knowledge_base_name=knowledge_base_name,
         file_name=file_name,
