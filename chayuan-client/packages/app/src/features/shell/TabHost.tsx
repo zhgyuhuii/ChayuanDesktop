@@ -53,6 +53,11 @@ export const TabHost: React.FC = () => {
   const currentPath = routeLocationToPath(location);
 
   const lastSyncedPath = React.useRef<string | null>(null);
+  // Chrome 会在进入 admin(顶层独立路由)时卸载、返回前台时重新挂载。重新挂载的首帧,
+  // activeId 是 persist 的「上次前台 tab」(可能非当前 URL),而 URL 是外部 navigate 的新目标
+  // (如点「返回前台」→ /home)。必须认 URL 为权威,否则 effect 2 会用 stale activeId 把 URL
+  // 反向拉回旧 tab → 首次点击像「没反应」,要点第二次。mountedRef 让首帧跳过反向投影。
+  const mountedRef = React.useRef(false);
 
   // 1) URL → tabsStore:URL 变化时,找到/创建对应 Tab 并激活
   React.useEffect(() => {
@@ -81,6 +86,13 @@ export const TabHost: React.FC = () => {
   const activeTabPath = tabs.find((t) => t.id === activeId)?.path;
   React.useEffect(() => {
     if (!activeId || !activeTabPath) return;
+    // 首帧(挂载/从 admin 返回前台):URL 为权威,不用 persist 的 stale activeId 反向覆盖。
+    // 只记基线,交给 effect 1 把 activeId 对齐 URL;否则首次「返回前台」会被拉回上次的 tab。
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      lastSyncedPath.current = currentPath;
+      return;
+    }
     if (activeTabPath === currentPath) return;
     if (activeTabPath === lastSyncedPath.current) return;
     lastSyncedPath.current = activeTabPath;
