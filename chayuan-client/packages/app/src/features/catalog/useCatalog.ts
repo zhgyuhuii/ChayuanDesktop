@@ -112,7 +112,11 @@ function mapKb(k: KnowledgeBase): KbCardItem {
 export function useTools(): UseQueryResult<ToolCardItem[]> {
   return useQuery({
     queryKey: CATALOG_KEYS.tools,
-    queryFn: async () => (await tools.listEnabled()).map(mapTool),
+    // 只展示"当前用户启用"的工具(/tools/my 的 enabled 项);guest/单机后端返回全部 enabled
+    queryFn: async () =>
+      (await tools.listMine())
+        .filter((t) => t.enabled)
+        .map((t) => mapTool({ name: t.name, title: t.title, description: t.description } as ToolInfo)),
     staleTime: 60_000,
     retry: 0,
   });
@@ -148,7 +152,14 @@ export function useModels(): UseQueryResult<RawModelItem[]> {
 /** 启动后预拉，减少首次进对话区时的等待 */
 export async function prefetchCatalog(qc: import('@tanstack/react-query').QueryClient): Promise<void> {
   await Promise.allSettled([
-    qc.prefetchQuery({ queryKey: CATALOG_KEYS.tools, queryFn: async () => (await tools.listEnabled()).map(mapTool) }),
+    qc.prefetchQuery({
+      queryKey: CATALOG_KEYS.tools,
+      // 与 useTools 保持一致:只预拉"当前用户启用"的工具
+      queryFn: async () =>
+        (await tools.listMine())
+          .filter((t) => t.enabled)
+          .map((t) => mapTool({ name: t.name, title: t.title, description: t.description } as ToolInfo)),
+    }),
     qc.prefetchQuery({ queryKey: CATALOG_KEYS.mcps, queryFn: async () => (await mcp.list({ enabled: true, limit: 50 })).map(mapMcp) }),
     qc.prefetchQuery({ queryKey: CATALOG_KEYS.kbs, queryFn: async () => (await kb.list()).map(mapKb) }),
     qc.prefetchQuery({ queryKey: CATALOG_KEYS.models, queryFn: () => models.list() }),
