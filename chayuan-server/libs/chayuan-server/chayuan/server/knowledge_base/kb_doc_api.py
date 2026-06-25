@@ -474,25 +474,24 @@ def download_doc(
         # —— 那时是浏览器另开下载,跨域 / 直链都没问题。
         try:
             from chayuan.server.file_storage import NS, get_storage
-            from fastapi.responses import RedirectResponse, StreamingResponse
+            from fastapi.responses import StreamingResponse
             storage = get_storage()
             key = f"{knowledge_base_name}/{file_name}"
             in_storage = storage.exists(NS.KB_CONTENT, key)
             is_minio = storage.name == "minio"
 
-            if is_minio and in_storage and not preview:
-                # 显式下载:走 presigned URL,让浏览器另起连接拉,省服务器带宽
-                url = storage.presigned_url(NS.KB_CONTENT, key, expires_sec=3600)
-                return RedirectResponse(url)
-
-            if is_minio and in_storage and preview:
-                # 预览:同源 stream;先把 bytes 拉回来再回送(服务端中转,
-                # 对浏览器来说就是"我们自己服务的文件",CORS / 网络可达性都不再是问题)
+            if is_minio and in_storage:
+                # 预览和下载都走同源 stream(服务端从 MinIO 拉回再透传)。
+                # 之前下载走 presigned 直链,但其 host 是 docker 网内的 'minio:9000',
+                # 浏览器解析不到 → 打不开(注释①的坑当时只修了预览、漏了下载)。
+                # 同源 stream 对浏览器就是"我们自己的文件",网络可达性/CORS 都不成问题;
+                # 仅 Content-Disposition 不同:预览 inline,下载 attachment。
                 import mimetypes
                 data = storage.get(NS.KB_CONTENT, key)
                 guessed = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+                disp_type = "inline" if preview else "attachment"
                 disposition = (
-                    f'inline; filename*=UTF-8\'\'{urllib.parse.quote(file_name)}'
+                    f"{disp_type}; filename*=UTF-8''{urllib.parse.quote(file_name)}"
                 )
                 return StreamingResponse(
                     iter([data]),
