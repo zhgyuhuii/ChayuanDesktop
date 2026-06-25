@@ -251,3 +251,21 @@ Docker image 跑的是同一份 `chayuan-server` 源码（不是 frozen PyInstal
 - 跑 Linux 版 `llama-server` / `whisper-server` 二进制（Linux x64 only）
 
 ARM64 / Windows / Mac 二进制不打进 docker image（用 `.dockerignore` 排除了，省 image 体积）。
+
+## 发布 release 瘦身镜像(推阿里云 ACR)
+
+dev 日常用 `./build.sh`(本地,~4GB)。对外发布用 release 瘦身镜像(~2-2.5GB):
+
+1. 复制配置:`cp .env.release.example .env.release`,填 `REGISTRY` / `NAMESPACE`。
+2. 设凭证(不入库):`export ACR_USERNAME=...; export ACR_PASSWORD=...`。
+3. 构建 + 推:`DOCKER="sudo docker" ./build-release.sh`
+   - 只本地验体积不推:`./build-release.sh --no-push`
+   - 首次(或改过 base torch)需:`./build-release.sh --rebuild-base`
+
+release 镜像比 dev 小,因为 runtime `FROM python:3.12-slim` 不继承构建工具链,
+且 site-packages 已 strip。torch 已是 CPU 版(见 `Dockerfile.base`)。
+tag:本地 `chayuan:<ver>-slim`、远程 `${REGISTRY}/${NAMESPACE}/chayuan:<ver>` 与 `:latest`。
+
+> 镜像曾达 11.6GB,根因是 PyPI 默认 torch 是 CUDA 版,拖进 16 个 nvidia-cu13 库(~7-8GB)。
+> 服务器无 GPU,已在 `Dockerfile.base` 换成 `torch==2.11.0+cpu`,dev 镜像降到 ~4GB,
+> release 再 slim 到 ~2-2.5GB。详见 `docs/superpowers/specs/2026-06-25-docker-slim-release-image-design.md`。
