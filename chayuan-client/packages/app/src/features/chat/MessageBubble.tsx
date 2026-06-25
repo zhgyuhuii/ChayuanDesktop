@@ -26,11 +26,13 @@ export interface MessageBubbleProps {
   onBranch?: (id: string) => void;
   /** 「产出」按钮(对话内联产出:语音/图像/视频);父级提供时显示 */
   onAction?: () => void;
+  /** 用户点赞/踩反馈;父级提供时本地持久化(历史回显)。 */
+  onFeedback?: (messageId: string, value: 1 | -1) => void;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegenerate, onResume, onEdit, onBranch, extraSlot, onAction }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegenerate, onResume, onEdit, onBranch, extraSlot, onAction, onFeedback }) => {
   const isUser = message.role === 'user';
-  const [feedback, setFeedback] = React.useState<1 | -1 | null>(null);
+  const [feedback, setFeedback] = React.useState<1 | -1 | null>(message.feedback ?? null);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(message.content);
   React.useEffect(() => setDraft(message.content), [message.content]);
@@ -87,8 +89,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onRegener
   };
 
   const submitFeedback = async (value: 1 | -1) => {
-    if (!message.traceId) return;
     setFeedback(value);
+    onFeedback?.(message.id, value); // 本地持久化(无条件)
+    if (!message.traceId) return; // Langfuse 需 traceId
     logEvent(Events.ChatFeedback, { traceId: message.traceId, metadata: { value } });
     await logScore({
       traceId: message.traceId,

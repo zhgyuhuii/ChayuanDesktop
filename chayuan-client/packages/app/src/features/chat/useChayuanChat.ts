@@ -98,6 +98,8 @@ export interface ChatMessage {
   interrupt?: { reason?: string; payload?: unknown };
   /** Langfuse trace；用于深链 / 反馈 */
   traceId?: string;
+  /** 用户反馈:1 赞 / -1 踩 / null 未评。随消息 parts 持久化,历史回显。 */
+  feedback?: 1 | -1 | null;
   createdAt: number;
   streaming?: boolean;
   error?: string;
