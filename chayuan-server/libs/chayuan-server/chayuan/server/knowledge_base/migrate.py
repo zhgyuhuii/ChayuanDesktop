@@ -69,6 +69,7 @@ def create_tables():
 
     Base.metadata.create_all(bind=get_engine())
     _repair_postgres_column_widths(get_engine())
+    _repair_add_missing_columns(get_engine())
 
 
 def _repair_postgres_column_widths(engine) -> None:
@@ -97,9 +98,51 @@ def _repair_postgres_column_widths(engine) -> None:
                 conn.execute(_sql_text(s))
             widened += 1
         except Exception as e:  # noqa: BLE001 — 表/列不存在、已更宽都无害
-            logger.debug("[db-repair] 跳过 %s:%r", s, e)
+            logger.debug("[db-repair] 跳过 {}:{!r}", s, e)
     if widened:
-        logger.info("[db-repair] conversation/message id 列已确保 varchar(64)(%d/3)", widened)
+        logger.info("[db-repair] conversation/message id 列已确保 varchar(64)({}/3)", widened)
+
+
+def _repair_add_missing_columns(engine) -> None:
+    """create_all 只建**缺失的表**,**从不给已存在的表补新列**。新版本给老表加列(如
+    conversation.config_snapshot)在 create_all 模式(单机/dev、桌面持久 sqlite、未跑 alembic 的
+    postgres)不会生效 → 运行时 ``column ... does not exist`` 500。
+
+    这里把「ORM 里有、DB 里缺」的列自动 ``ADD COLUMN``(**只新增、可空、幂等**;绝不改类型/删列)。
+    一劳永逸解决"以后任何新列在 create_all 环境不生效"。postgres/sqlite 均支持 ADD COLUMN;
+    每列独立事务,失败跳过(交给真 alembic);加列一律可空,避免在已有数据的表上 NOT NULL 失败。"""
+    try:
+        from sqlalchemy import inspect as _inspect, text as _sql_text
+        insp = _inspect(engine)
+        dialect = engine.dialect
+        added = 0
+        for table in Base.metadata.sorted_tables:
+            try:
+                if not insp.has_table(table.name):
+                    continue  # create_all 刚建的新表已含全部列
+                existing = {c["name"] for c in insp.get_columns(table.name)}
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[db-repair] 读列失败 {}:{!r}", table.name, e)
+                continue
+            for col in table.columns:
+                if col.name in existing:
+                    continue
+                try:
+                    coltype = col.type.compile(dialect=dialect)
+                except Exception:  # noqa: BLE001 — 编不出类型就交给真迁移
+                    continue
+                ddl = 'ALTER TABLE {} ADD COLUMN {} {}'.format(table.name, col.name, coltype)
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(_sql_text(ddl))
+                    added += 1
+                    logger.info("[db-repair] 补缺失列 {}.{} {}", table.name, col.name, coltype)
+                except Exception as e:  # noqa: BLE001 — 已存在/不支持都跳过
+                    logger.debug("[db-repair] 跳过补列 {}.{}:{!r}", table.name, col.name, e)
+        if added:
+            logger.info("[db-repair] 共补 {} 个缺失列", added)
+    except Exception as e:  # noqa: BLE001 — 整体失败不挡启动
+        logger.warning("[db-repair] 补缺失列失败(忽略):{!r}", e)
 
 
 def reset_tables():
