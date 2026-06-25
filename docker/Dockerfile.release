@@ -1,0 +1,109 @@
+# syntax=docker/dockerfile:1.6
+# ====================================================================
+# 察元 一体化镜像 — release slim 版(体积优化,推 ACR 用)
+#   与 docker/Dockerfile 的区别:runtime 不继承胖 base,而是 FROM python:3.12-slim,
+#   只 COPY deps-builder 清洗(strip)后的 site-packages → 甩掉 build-essential /
+#   poetry / pip 缓存。torch 已在 Dockerfile.base 换成 CPU(Task 1),这里只做 strip。
+#   预期 ~2-2.5GB(对照 dev ~4GB)。构建较慢(不复用 base 层缓存),发布偶发可接受。
+#   build context 必须是 repo 根。一般用 docker/build-release.sh 驱动。
+# ====================================================================
+ARG BASE_IMAGE=chayuan-base:latest
+ARG WEB_BASE_IMAGE=chayuan-web-base:latest
+
+# ── Stage 1: 前端(与 docker/Dockerfile 的 web-builder 完全一致) ──
+FROM ${WEB_BASE_IMAGE} AS web-builder
+ENV CI=1
+WORKDIR /chayuan-client
+COPY chayuan-client/pnpm-workspace.yaml chayuan-client/package.json chayuan-client/pnpm-lock.yaml ./
+COPY chayuan-client/tsconfig.base.json ./
+COPY chayuan-client/packages ./packages
+COPY chayuan-client/apps    ./apps
+COPY chayuan-client/e2e-desktop ./e2e-desktop
+COPY chayuan-client/images ./images
+ENV TAURI_SKIP_DEVSERVER_CHECK=1
+RUN pnpm install --offline --frozen-lockfile || pnpm install
+ENV VITE_API_BASE="" \
+    VITE_THIN_CLIENT="0"
+RUN pnpm -F web build:vite
+
+# ── Stage 2: 清洗依赖(strip site-packages,产出干净树) ──
+FROM ${BASE_IMAGE} AS deps-builder
+# strip:删 tests/__pycache__/docs/examples、静态库/头文件,strip .so 调试符号。
+# 保留 .dist-info(importlib.metadata 要用)。失败一律容错,不阻断构建。
+RUN SP="$(python -c 'import sysconfig;print(sysconfig.get_paths()["purelib"])')" && set -x \
+ && find "$SP" -depth -type d \( -name tests -o -name test -o -name __pycache__ -o -name docs -o -name examples \) -exec rm -rf {} + 2>/dev/null || true \
+ && find "$SP" -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '*.a' -o -name '*.h' -o -name '*.hpp' \) -delete 2>/dev/null || true \
+ && find "$SP" -type f -name '*.so' -exec strip --strip-unneeded {} + 2>/dev/null || true \
+ && du -sh "$SP" || true
+
+# ── Stage 3: slim runtime(全新瘦底,不继承 base) ──
+FROM python:3.12-slim AS runtime
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 DEBIAN_FRONTEND=noninteractive
+ARG APT_MIRROR=mirrors.aliyun.com
+# 只装运行时库(无 build-essential / git / poetry / pip 缓存)。
+# libgl1 / libglib2.0-0 是 opencv-python 运行时 dlopen 需要。
+RUN if [ -n "$APT_MIRROR" ]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+            [ -f "$f" ] && sed -i "s|deb.debian.org|$APT_MIRROR|g; s|security.debian.org|$APT_MIRROR|g" "$f" || true; \
+        done; \
+    fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
+        libgomp1 libstdc++6 libgcc-s1 \
+        ffmpeg libsndfile1 libmagic1 \
+        libgl1 libglib2.0-0 \
+        nginx-light curl ca-certificates tini \
+    && rm -rf /var/lib/apt/lists/* /var/log/nginx/*
+
+# 拷清洗后的 site-packages(python:3.12-slim 的 purelib 即此固定路径,与 base 同基底,路径一致)
+COPY --from=deps-builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+
+# 后端源码
+WORKDIR /chayuan/app
+COPY chayuan-server/libs/chayuan-server/chayuan ./chayuan-server/libs/chayuan-server/chayuan
+COPY chayuan-server/libs/chayuan-server/langchain_chayuan ./chayuan-server/libs/chayuan-server/langchain_chayuan
+
+# sidecar 二进制 + 伪软链自修复(照搬 docker/Dockerfile)
+COPY chayuan-server/vendor/services ./chayuan-server/vendor/services
+RUN chmod +x \
+        /chayuan/app/chayuan-server/vendor/services/llama-server/linux-x64/llama-server \
+        /chayuan/app/chayuan-server/vendor/services/whisper-server/linux-x64/whisper-server \
+        /chayuan/app/chayuan-server/vendor/services/imagemagick/linux-x64/magick \
+    2>/dev/null || true
+RUN find /chayuan/app/chayuan-server/vendor/services -path '*/linux-x64/*' -type f ! -type l | while IFS= read -r f; do \
+        [ "$(stat -c%s "$f")" -le 256 ] || continue; \
+        [ "$(head -c4 "$f" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ] && continue; \
+        tgt=$(cat "$f"); d=$(dirname "$f"); \
+        [ -n "$tgt" ] && [ -e "$d/$tgt" ] || continue; \
+        rm -f "$f" && ln -s "$tgt" "$f" && echo "repaired symlink: $f -> $tgt"; \
+    done
+
+# bundled 资产
+COPY chayuan-server/vendor/bundled_fonts ./chayuan-server/vendor/bundled_fonts
+COPY chayuan-server/vendor/bundled_bgm ./chayuan-server/vendor/bundled_bgm
+COPY chayuan-server/vendor/bundled_video_clips ./chayuan-server/vendor/bundled_video_clips
+
+# 前端 dist + nginx + entrypoint
+COPY --from=web-builder /chayuan-client/apps/web/dist /chayuan/web
+COPY docker/nginx.conf      /etc/nginx/nginx.conf
+COPY docker/entrypoint.sh   /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+RUN mkdir -p /chayuan/app/chayuan-server/vendor/bundled_models \
+             /chayuan/data /chayuan/logs
+
+ENV CHAYUAN_ROOT=/chayuan/data \
+    CHAYUAN_PROFILE=single-machine \
+    CHAYUAN_AUTH=anonymous \
+    CHAYUAN_REDIS=disabled \
+    CHAYUAN_QUEUE=inproc \
+    CHAYUAN_VECTOR_STORE=sqlite-vec \
+    CHAYUAN_AUTO_INSTALL_DEPS=false \
+    CHAYUAN_ROOT_IGNORE_STATE=1 \
+    CHAYUAN_VENDOR_PLATFORM=linux-x64 \
+    PYTHONPATH=/chayuan/app/chayuan-server/libs/chayuan-server
+
+EXPOSE 80 62581 8502
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=5 \
+    CMD curl -fsS http://127.0.0.1/healthz >/dev/null || exit 1
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+CMD ["start", "-a", "--single-machine"]
