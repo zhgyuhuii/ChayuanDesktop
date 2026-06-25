@@ -217,9 +217,9 @@ async def chatgraph_endpoint(
     _primary_image = _images[0] if _images else None
 
     # 按用户的工具启用集服务端强制:丢弃该用户未启用的工具(防前端绕过)。
-    # uid 为空(guest/单机)→ effective_enabled_tools 返回全部全局启用,不过滤,保持现状。
+    # 仅对真实登录用户(uid>0)过滤;guest/单机(uid=-1 或 None)完全不过滤,保持现状。
     _req_tools = list(tools or [])
-    if uid is not None and _req_tools:
+    if uid is not None and int(uid) > 0 and _req_tools:
         try:
             from chayuan.server.tools.user_tools import effective_enabled_tools
             _allowed = effective_enabled_tools(int(uid))
