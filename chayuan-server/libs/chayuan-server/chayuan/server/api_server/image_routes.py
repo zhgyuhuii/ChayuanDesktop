@@ -382,12 +382,11 @@ async def reindex_image_endpoint(
     return {"code": 0, "data": _item_to_wire(store.get(image_id), int(source_id))}
 
 
-@image_router.get("/{source_id}/image/{image_id}", summary="下载/预览图像文件")
-def image_file_endpoint(
-    source_id: int, image_id: str,
-    download: bool = Query(False),
-    user=Depends(require_auth_enabled()),
-):
+def serve_image_file(source_id: int, image_id: str, *, download: bool, user) -> FileResponse:
+    """图像下载/预览的复用核心:authz + 定位(minio 同源 stream / 本地回填) + Response。
+
+    供 /knowledge_source/{id}/image/{id} 旧端点与 /v1/files(image adapter)共用。
+    """
     if not can_read(user, int(source_id)):
         raise HTTPException(403, "no read permission")
     _get_source_or_404(int(source_id))
@@ -430,6 +429,15 @@ def image_file_endpoint(
         filename=fname if download else None,
         media_type=None,
     )
+
+
+@image_router.get("/{source_id}/image/{image_id}", summary="下载/预览图像文件")
+def image_file_endpoint(
+    source_id: int, image_id: str,
+    download: bool = Query(False),
+    user=Depends(require_auth_enabled()),
+):
+    return serve_image_file(int(source_id), image_id, download=download, user=user)
 
 
 # ---------------------------------------------------------------------------
