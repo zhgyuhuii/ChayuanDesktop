@@ -13,9 +13,11 @@ from typing import Tuple
 DEFAULT_CTX: int = 4096
 MAP_MAX_TOKENS: int = 384
 REDUCE_MAX_TOKENS: int = 768
-# map 阶段并行度(真正并行取决于本地 llama-server --parallel 槽位+网关 api_concurrencies;
-# 单槽 CPU 下会在网关排队,不提速也不出错)。
-MAP_CONCURRENCY: int = 4
+# map 阶段并行度。⚠ 默认 1(串行):本地只有一个 llama-server,llama.cpp 把并发请求
+# 连续批处理、**共享同一个 n_ctx KV 缓存**——并行发 N 个各 ~budget token 的 prompt 会
+# N×budget 远超 ctx → "Context size has been exceeded"(2.0.310 并行化在此适得其反)。
+# 仅当部署了「总 ctx 足够大的 llama-server」(--parallel N 且 ctx≥N×单块预算)才该调大。
+MAP_CONCURRENCY: int = 1
 _TEMPLATE_OVERHEAD: int = 96
 _SAFETY_MARGIN: int = 256
 
