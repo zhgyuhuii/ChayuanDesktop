@@ -10,6 +10,7 @@
  */
 
 import * as React from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   CloudDownload,
   Download,
@@ -34,6 +35,8 @@ import { RemoteSyncDialog } from '../sync/RemoteSyncDialog';
 import { confirmDuplicateUpload } from '../upload/duplicateCheck';
 import type { DetailPanelProps } from './types';
 import { FileCard } from './FileCard';
+import { useKbFilesPaged } from './useKbFilesPaged';
+import type { KbFile } from '@chayuan/api';
 
 interface ReindexTaskState {
   taskId: string;
@@ -47,6 +50,20 @@ interface ReindexTaskState {
   currentFile?: string;
   failedFiles?: Record<string, string>;
   error?: string;
+}
+
+function useInfiniteSentinel(onHit: () => void, enabled: boolean) {
+  const ref = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el || !enabled) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) onHit();
+    }, { rootMargin: '120px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [enabled, onHit]);
+  return ref;
 }
 
 export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
@@ -68,12 +85,29 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
   const [chunkFile, setChunkFile] = React.useState<string | null>(null);
   const [reindexTask, setReindexTask] = React.useState<ReindexTaskState | null>(null);
 
-  const filtered = React.useMemo<DocumentFile[]>(() => {
-    const arr = detail.files ?? [];
-    if (!keyword.trim()) return arr;
-    const q = keyword.toLowerCase();
-    return arr.filter((f) => f.file_name.toLowerCase().includes(q));
-  }, [detail.files, keyword]);
+  // 300ms 防抖 → 服务端关键词过滤
+  const [debouncedKeyword, setDebouncedKeyword] = React.useState('');
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedKeyword(keyword.trim()), 300);
+    return () => clearTimeout(t);
+  }, [keyword]);
+
+  // 服务端分页查询
+  const paged = useKbFilesPaged(detail.meta.name, debouncedKeyword);
+  const filtered: KbFile[] = paged.items;
+
+  const queryClient = useQueryClient();
+
+  // 失效分页缓存并通知父组件
+  const invalidateAndMutate = React.useCallback(() => {
+    onMutate();
+    void queryClient.invalidateQueries({ queryKey: ['kb.files.paged', detail.meta.name] });
+  }, [onMutate, queryClient, detail.meta.name]);
+
+  const canLoadMore = paged.hasNextPage && !paged.isFetchingNextPage;
+  const fetchNext = React.useCallback(() => paged.fetchNextPage(), [paged]);
+  const cardSentinelRef = useInfiniteSentinel(fetchNext, canLoadMore);
+  const tableSentinelRef = useInfiniteSentinel(fetchNext, canLoadMore);
 
   const toggle = (name: string) =>
     setSelected((s) => {
@@ -180,7 +214,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
         ? `已上传 ${picked.length} 个文件(含子目录),正在向量化…`
         : `已上传 ${picked.length} 个文件,正在向量化…`;
       notifySuccess(msg);
-      onMutate();
+      invalidateAndMutate();
     } catch (e) {
       reportError(e, '上传失败');
     } finally {
@@ -207,7 +241,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
       });
       notifySuccess(`已删除 ${selected.size} 个文件`);
       setSelected(new Set());
-      onMutate();
+      invalidateAndMutate();
     } catch (e) {
       reportError(e, '删除失败');
     } finally {
@@ -236,7 +270,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
         next.delete(fileName);
         return next;
       });
-      onMutate();
+      invalidateAndMutate();
     } catch (e) {
       reportError(e, '删除失败');
     } finally {
@@ -277,7 +311,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
         notifySuccess(`已提交 ${label} 的重新向量化`);
       }
       if (fileNames.length > 1) setSelected(new Set());
-      window.setTimeout(onMutate, 1200);
+      window.setTimeout(invalidateAndMutate, 1200);
     } catch (e) {
       reportError(e, '重新生成向量数据失败');
     } finally {
@@ -288,7 +322,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
   return (
     <div className="flex h-full flex-col">
       <Toolbar
-        total={filtered.length}
+        total={paged.total}
         selectedCount={selected.size}
         keyword={keyword}
         onKeyword={setKeyword}
@@ -299,7 +333,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
         onSync={() => setSyncOpen(true)}
         onDeleteSelected={onDeleteSelected}
         onReindexSelected={() => runReindex([...selected])}
-        onRefresh={onMutate}
+        onRefresh={invalidateAndMutate}
         onToggleCollapse={onToggleCollapse}
       />
 
@@ -307,7 +341,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
         open={syncOpen}
         kbName={detail.meta.name}
         onClose={() => setSyncOpen(false)}
-        onCompleted={() => onMutate()}
+        onCompleted={() => invalidateAndMutate()}
       />
       <FileChunksDialog
         open={chunkFile != null}
@@ -315,7 +349,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
         fileName={chunkFile ?? ''}
         editable={isAdmin}
         onClose={() => setChunkFile(null)}
-        onSaved={() => onMutate()}
+        onSaved={() => invalidateAndMutate()}
       />
 
       {uploadRatio !== null && (
@@ -345,7 +379,9 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
         <ReindexProgressStrip task={reindexTask} onClose={() => setReindexTask(null)} />
       )}
 
-      {filtered.length === 0 ? (
+      {paged.isLoading ? (
+        <div className="flex flex-1 items-center justify-center text-sm text-[var(--cy-text-tertiary)]">加载中…</div>
+      ) : filtered.length === 0 ? (
         <div className="flex flex-1 items-center justify-center text-sm text-[var(--cy-text-tertiary)]">
           {keyword ? '没有匹配的文件' : '还没有文件,点上传开始'}
         </div>
@@ -355,7 +391,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
           {filtered.map((f) => (
             <FileCard
               key={f.file_name}
-              file={f}
+              file={f as import('@chayuan/api').DocumentFile}
               kbName={detail.meta.name}
               ingestTask={reindexTask}
               mine={mine}
@@ -367,6 +403,10 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
               onSummarize={onSummarizeFile ? () => onSummarizeFile(f.file_name) : undefined}
             />
           ))}
+          <div ref={cardSentinelRef} aria-hidden="true" />
+          {paged.isFetchingNextPage && (
+            <div className="py-2 text-center text-xs text-[var(--cy-text-tertiary)]">加载中…</div>
+          )}
         </div>
       ) : (
         /* 宽列 → 原有表格,保持不变 */
@@ -393,7 +433,7 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
               {filtered.map((f) => (
                 <FileRow
                   key={f.file_name}
-                  file={f}
+                  file={f as import('@chayuan/api').DocumentFile}
                   kbName={detail.meta.name}
                   ingestTask={reindexTask}
                   mine={mine}
@@ -405,6 +445,14 @@ export const DocumentKbDetail: React.FC<DetailPanelProps<KuDocumentDetail> & {
                   onSummarize={onSummarizeFile ? () => onSummarizeFile(f.file_name) : undefined}
                 />
               ))}
+              <tr aria-hidden="true">
+                <td colSpan={6}>
+                  <div ref={tableSentinelRef} />
+                  {paged.isFetchingNextPage && (
+                    <div className="py-2 text-center text-xs text-[var(--cy-text-tertiary)]">加载中…</div>
+                  )}
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
