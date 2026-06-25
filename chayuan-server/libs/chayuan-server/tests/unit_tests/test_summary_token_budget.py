@@ -19,6 +19,8 @@ def test_resolve_model_ctx_falls_back_to_default():
 
 
 def test_resolve_model_ctx_reads_metadata(monkeypatch):
+    import pytest
+    pytest.importorskip("sqlalchemy")  # 该用例需 DB 栈(真实 py312 测试环境有);缺依赖则跳过
     from chayuan.server.db.repository import model_metadata_repository as mmr
     monkeypatch.setattr(
         mmr, "list_all",
