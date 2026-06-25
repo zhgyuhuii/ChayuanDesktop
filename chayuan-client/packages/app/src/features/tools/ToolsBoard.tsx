@@ -13,7 +13,7 @@
 
 import * as React from 'react';
 import { Download, Loader2, Plus, Search, Wrench } from 'lucide-react';
-import { Button, Input, cn } from '@chayuan/ui';
+import { Button, Input, Switch, cn } from '@chayuan/ui';
 import type { CustomToolSpec, ToolCard as ToolCardData } from '@chayuan/api';
 import { useComposerStore } from '../../store/composer';
 import { ToolCard } from './ToolCard';
@@ -21,7 +21,7 @@ import { ToolConfigDialog } from './components/ToolConfigDialog';
 import { CustomToolFormDialog, type CustomToolFormMode } from './components/CustomToolFormDialog';
 import { OpenApiImportDialog } from './components/OpenApiImportDialog';
 import { customToCard } from './lib/customToCard';
-import { useCustomTools, useToolsCatalog } from './hooks';
+import { useCustomTools, useMyTools, useSetMyTool, useToolsCatalog } from './hooks';
 
 type StatusTab = 'all' | 'enabled' | 'custom';
 
@@ -45,6 +45,15 @@ export const ToolsBoard: React.FC<{ selectable?: boolean }> = ({ selectable = tr
 
   const catalogQ = useToolsCatalog();
   const customQ = useCustomTools();
+
+  // 按用户工具开关:/tools/my 返回"全局启用工具 + 当前用户是否启用"
+  const myToolsQ = useMyTools();
+  const setMyTool = useSetMyTool();
+  const myEnabled = React.useMemo(() => {
+    const m = new Map<string, boolean>();
+    for (const t of myToolsQ.data ?? []) m.set(t.name, t.enabled);
+    return m;
+  }, [myToolsQ.data]);
 
   const builtinCards: ToolCardData[] = catalogQ.data?.cards ?? [];
   const customSpecs: CustomToolSpec[] = customQ.data ?? [];
@@ -188,16 +197,34 @@ export const ToolsBoard: React.FC<{ selectable?: boolean }> = ({ selectable = tr
             className="grid gap-3"
             style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}
           >
-            {filtered.map((c, i) => (
-              <ToolCard
-                key={c.key}
-                tool={c}
-                index={i}
-                selected={selectable && selected.includes(c.key)}
-                onToggle={() => toggle(c.key)}
-                onOpenConfig={() => openConfig(c)}
-              />
-            ))}
+            {filtered.map((c, i) => {
+              const hasMine = myEnabled.has(c.key);
+              const mineOn = myEnabled.get(c.key) ?? false;
+              return (
+                <div key={c.key} className="flex flex-col">
+                  <ToolCard
+                    tool={c}
+                    index={i}
+                    selected={selectable && selected.includes(c.key)}
+                    onToggle={() => toggle(c.key)}
+                    onOpenConfig={() => openConfig(c)}
+                  />
+                  {hasMine && (
+                    <label className="mt-1 flex items-center justify-between gap-2 rounded-lg border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-3 py-1.5 text-[11px] text-[var(--cy-text-secondary)]">
+                      <span className="truncate">在我的对话中启用</span>
+                      <Switch
+                        checked={mineOn}
+                        disabled={setMyTool.isPending}
+                        onCheckedChange={(next) =>
+                          setMyTool.mutate({ name: c.key, enabled: next })
+                        }
+                        aria-label="在我的对话中启用此工具"
+                      />
+                    </label>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

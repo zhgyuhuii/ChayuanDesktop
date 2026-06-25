@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   tools as toolsApi,
   type CustomToolSpec,
+  type MyToolInfo,
   type OpenApiDraft,
   type ToolCard,
   type ToolConfigUpdate,
@@ -115,6 +116,30 @@ export function useImportOpenApiCommit() {
       toolsApi.importOpenApiCommit(req),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK_TOOLS_CUSTOM });
+    },
+  });
+}
+
+// ─── 按用户工具开关 ────────────────────────────────────────────
+
+export const QK_TOOLS_MY = ['tools', 'my'] as const;
+
+export function useMyTools() {
+  return useQuery<MyToolInfo[]>({
+    queryKey: QK_TOOLS_MY,
+    queryFn: () => toolsApi.listMine(),
+    staleTime: 60_000,
+  });
+}
+
+export function useSetMyTool() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, enabled }: { name: string; enabled: boolean }) =>
+      toolsApi.setMine(name, enabled),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: QK_TOOLS_MY });
+      void qc.invalidateQueries({ queryKey: ['catalog', 'tools'] }); // 对话框工具列表同步刷新
     },
   });
 }
