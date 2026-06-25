@@ -506,6 +506,14 @@ export interface KbFile {
   doc_count?: number;
 }
 
+export interface PagedFiles {
+  items: KbFile[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}
+
 export interface KbFileChunk {
   chunk_index: number;
   chunk_id: string;
@@ -575,6 +583,12 @@ export const kb = {
   /** 列文件 */
   listFiles: (knowledge_base_name: string) =>
     http.get<KbFile[]>('/knowledge_base/list_files', { query: { knowledge_base_name } }),
+
+  /** 分页 + 关键词列文件(服务端分页;page 从 0 起) */
+  listFilesPaged: (knowledge_base_name: string, page: number, page_size: number, keyword: string) =>
+    http.get<PagedFiles>('/knowledge_base/list_files_paged', {
+      query: { knowledge_base_name, page, page_size, keyword },
+    }),
 
   /** 上传文件到 KB；同时向量化。
    *  支持可选的 onProgress 回调:走 XHR + xhr.upload.onprogress 拿到真实进度。
