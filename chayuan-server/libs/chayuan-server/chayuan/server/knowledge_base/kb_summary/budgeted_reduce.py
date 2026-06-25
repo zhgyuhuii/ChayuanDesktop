@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Callable, List, Optional
 
 from chayuan.server.knowledge_base.kb_summary.token_budget import (
-    estimate_tokens, map_input_char_budget, reduce_group_token_budget,
+    estimate_tokens, map_input_char_budget, reduce_group_token_budget, MAP_CONCURRENCY,
 )
 
 _MAP_PROMPT = "请用简洁中文概括下面这段文字的要点,只输出概括内容:\n\n{context}"
@@ -89,14 +89,35 @@ def summarize_budgeted(
         return ""
     total = len(units) + max(0, (len(units) - 1))
     done = 0
-    summaries: List[str] = []
-    for u in units:
-        s = map_call(_MAP_PROMPT.format(context=u))
-        if s and s.strip():
-            summaries.append(s.strip())
-        done += 1
-        if progress_cb:
-            progress_cb(done, total)
+
+    # map:并行执行(顺序由 results[i] 保留,供 reduce 保持文档连贯)。真正并行度
+    # 取决于本地 llama-server 是否开 --parallel 槽位 + 网关 api_concurrencies;单槽
+    # CPU 下各调用在网关排队(等价串行、不报错),多槽/GPU 下显著提速。
+    import concurrent.futures as _cf
+    workers = max(1, min(MAP_CONCURRENCY, len(units)))
+    results: List[str] = [""] * len(units)
+    if workers == 1:
+        for i, u in enumerate(units):
+            r = map_call(_MAP_PROMPT.format(context=u))
+            results[i] = (r or "").strip()
+            done += 1
+            if progress_cb:
+                progress_cb(done, total)
+    else:
+        with _cf.ThreadPoolExecutor(max_workers=workers) as _ex:
+            _futs = {_ex.submit(map_call, _MAP_PROMPT.format(context=u)): i
+                     for i, u in enumerate(units)}
+            for _fut in _cf.as_completed(_futs):
+                i = _futs[_fut]
+                try:
+                    r = _fut.result()
+                except Exception:  # noqa: BLE001 — 单块失败不拖垮整篇
+                    r = ""
+                results[i] = (r or "").strip()
+                done += 1
+                if progress_cb:
+                    progress_cb(done, total)
+    summaries: List[str] = [r for r in results if r]
     if not summaries:
         return ""
     if len(summaries) == 1:

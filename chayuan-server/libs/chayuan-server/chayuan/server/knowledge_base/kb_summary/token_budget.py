@@ -13,6 +13,9 @@ from typing import Tuple
 DEFAULT_CTX: int = 4096
 MAP_MAX_TOKENS: int = 384
 REDUCE_MAX_TOKENS: int = 768
+# map 阶段并行度(真正并行取决于本地 llama-server --parallel 槽位+网关 api_concurrencies;
+# 单槽 CPU 下会在网关排队,不提速也不出错)。
+MAP_CONCURRENCY: int = 4
 _TEMPLATE_OVERHEAD: int = 96
 _SAFETY_MARGIN: int = 256
 
