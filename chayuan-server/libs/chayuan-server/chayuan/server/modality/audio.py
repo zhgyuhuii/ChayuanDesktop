@@ -1610,35 +1610,71 @@ class AudioPipeline:
             raise
 
     def _resolve_sherpa_voice_dir(self, voice_id: str) -> Optional[str]:
-        """voice_id → 含 model.onnx 的目录路径。
+        """voice_id → 含 tokens.txt + *.onnx 的模型目录。
 
-        查找顺序:
-          1) CHAYUAN_ROOT/models/bundled/tts/sherpa-onnx/<voice_id>/(装机 seed)
-          2) <vendor>/bundled_models/tts/sherpa-onnx/<voice_id>/(开发期 / 直拷)
-        """
-
-        import os as _os
+        ① 精确:<base>/sherpa-onnx/<voice_id>/,base ∈ {CHAYUAN_ROOT/models/bundled/tts(装机/数据卷),
+           <vendor>/bundled_models/tts(开发/挂载)}。
+        ② 宽松兜底:离线手动放模型时层级常对不上(少了 sherpa-onnx 层、或 <voice_id> 名不一致)。
+           在 base 下递归找**任意**含 tokens.txt + *.onnx 的目录,优先路径里含 voice_id 的,否则取首个。
+        找不到时 WARNING 打印查过的 base + 期望布局,便于用户把模型放对位置。"""
+        bases = []
         try:
             from chayuan.settings import CHAYUAN_ROOT
-            roots = [Path(CHAYUAN_ROOT) / "models" / "bundled" / "tts" / "sherpa-onnx" / voice_id]
+            bases.append(Path(CHAYUAN_ROOT) / "models" / "bundled" / "tts")
         except Exception:  # noqa: BLE001
-            roots = []
-
+            pass
         try:
             here = Path(__file__).resolve()
             for parent in here.parents:
-                vd = parent / "vendor" / "bundled_models" / "tts" / "sherpa-onnx" / voice_id
-                if vd.is_dir():
-                    roots.append(vd)
+                vb = parent / "vendor" / "bundled_models" / "tts"
+                if vb.is_dir():
+                    bases.append(vb)
                     break
         except Exception:  # noqa: BLE001
             pass
 
-        for r in roots:
-            if r.is_dir() and (r / "tokens.txt").is_file() and (
-                (r / "model.onnx").is_file() or any(r.glob("*.onnx"))
-            ):
-                return str(r)
+        def _valid(d) -> bool:
+            try:
+                return d.is_dir() and (d / "tokens.txt").is_file() and (
+                    (d / "model.onnx").is_file() or any(d.glob("*.onnx"))
+                )
+            except Exception:  # noqa: BLE001
+                return False
+
+        # ① 精确命中 <base>/sherpa-onnx/<voice_id>
+        for b in bases:
+            d = b / "sherpa-onnx" / voice_id
+            if _valid(d):
+                return str(d)
+
+        # ② 宽松递归兜底:任意含 tokens.txt+*.onnx 的目录,优先路径含 voice_id
+        vid = (voice_id or "").lower()
+        fallback = None
+        for b in bases:
+            for scope in (b / "sherpa-onnx", b):
+                if not scope.is_dir():
+                    continue
+                try:
+                    for d in sorted(p for p in scope.rglob("*") if p.is_dir()):
+                        if not _valid(d):
+                            continue
+                        if vid and vid in str(d).lower():
+                            logger.warning("[tts:sherpa] voice=%r 宽松命中 %s", voice_id, d)
+                            return str(d)
+                        if fallback is None:
+                            fallback = d
+                except Exception:  # noqa: BLE001
+                    continue
+        if fallback is not None:
+            logger.warning("[tts:sherpa] voice=%r 未精确命中,回退首个可用模型 %s", voice_id, fallback)
+            return str(fallback)
+
+        _expect = " 或 ".join(str(b / "sherpa-onnx" / "<voice_id>") for b in bases) or "(无可用根目录)"
+        logger.warning(
+            "[tts:sherpa] 未找到 voice=%r 的模型(目录需含 tokens.txt + *.onnx)。"
+            "请把模型目录放到:%s;已查根=%s",
+            voice_id, _expect, [str(b) for b in bases],
+        )
         return None
 
     def _wav_to_format(self, wav_bytes: bytes, fmt: str) -> Optional[bytes]:
