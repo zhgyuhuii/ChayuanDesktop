@@ -397,11 +397,11 @@ def summarize_file_now(
             # 有界 max_tokens:给输出预留固定额度,避免 max_tokens=None 被删后输出无上限。
             _map_llm = get_ChatOpenAI(
                 model_name=model_name, temperature=temperature,
-                max_tokens=MAP_MAX_TOKENS, streaming=False, local_wrap=True,
+                max_tokens=MAP_MAX_TOKENS, streaming=True, local_wrap=True,
             )
             _reduce_llm = get_ChatOpenAI(
                 model_name=model_name, temperature=temperature,
-                max_tokens=REDUCE_MAX_TOKENS, streaming=False, local_wrap=True,
+                max_tokens=REDUCE_MAX_TOKENS, streaming=True, local_wrap=True,
             )
 
             def _map_call(prompt: str) -> str:

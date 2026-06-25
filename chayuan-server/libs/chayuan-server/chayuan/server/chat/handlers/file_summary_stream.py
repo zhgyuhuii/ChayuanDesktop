@@ -40,9 +40,9 @@ async def stream_file_summary(state: Dict[str, Any]) -> AsyncIterator[str]:
             raise RuntimeError(f"未找到文件 {file_name!r} 的内容")
         ctx = resolve_model_ctx(model_name)
         map_llm = get_ChatOpenAI(model_name=model_name, temperature=0.01,
-                                 max_tokens=MAP_MAX_TOKENS, streaming=False, local_wrap=True)
+                                 max_tokens=MAP_MAX_TOKENS, streaming=True, local_wrap=True)
         reduce_llm = get_ChatOpenAI(model_name=model_name, temperature=0.01,
-                                    max_tokens=REDUCE_MAX_TOKENS, streaming=False, local_wrap=True)
+                                    max_tokens=REDUCE_MAX_TOKENS, streaming=True, local_wrap=True)
 
         def _map(p: str) -> str:
             r = map_llm.invoke(p)
