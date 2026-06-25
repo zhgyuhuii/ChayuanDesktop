@@ -386,42 +386,46 @@ def summarize_file_now(
                 ensure_ascii=False,
             )
 
-            llm = get_ChatOpenAI(
-                model_name=model_name, temperature=temperature, max_tokens=max_tokens, local_wrap=True
+            from chayuan.server.knowledge_base.kb_summary.token_budget import (
+                resolve_model_ctx, MAP_MAX_TOKENS, REDUCE_MAX_TOKENS,
             )
-            reduce_llm = get_ChatOpenAI(
-                model_name=model_name, temperature=temperature, max_tokens=max_tokens, local_wrap=True
-            )
-            adapter = SummaryAdapter.form_summary(
-                llm=llm, reduce_llm=reduce_llm, overlap_size=Settings.kb_settings.OVERLAP_SIZE
+            from chayuan.server.knowledge_base.kb_summary.budgeted_reduce import (
+                summarize_budgeted,
             )
 
-            # 逐块流式进度:把 map-reduce 放到后台线程跑,LangChain 每次 on_llm_end(每块摘要 /
-            # reduce 合并各一次)往队列推进度;本(同步)生成器边 drain 边 yield。
-            # 失败兜底:回调不触发 / 异常,也保证 finally 推 sentinel,生成器不会卡死;
-            # 此时退化为「running →(阻塞)→ ok」单段进度。
+            ctx = resolve_model_ctx(model_name)
+            # 有界 max_tokens:给输出预留固定额度,避免 max_tokens=None 被删后输出无上限。
+            _map_llm = get_ChatOpenAI(
+                model_name=model_name, temperature=temperature,
+                max_tokens=MAP_MAX_TOKENS, streaming=False, local_wrap=True,
+            )
+            _reduce_llm = get_ChatOpenAI(
+                model_name=model_name, temperature=temperature,
+                max_tokens=REDUCE_MAX_TOKENS, streaming=False, local_wrap=True,
+            )
+
+            def _map_call(prompt: str) -> str:
+                r = _map_llm.invoke(prompt)
+                return getattr(r, "content", None) or str(r)
+
+            def _reduce_call(prompt: str) -> str:
+                r = _reduce_llm.invoke(prompt)
+                return getattr(r, "content", None) or str(r)
+
+            texts_for_summary = [getattr(d, "page_content", "") or "" for d in doc_infos]
+
             import queue as _queue
             import threading as _threading
-            try:
-                from langchain_core.callbacks import BaseCallbackHandler as _BaseCB
-            except Exception:  # noqa: BLE001 — 老版本路径兜底
-                from langchain.callbacks.base import BaseCallbackHandler as _BaseCB  # type: ignore
 
             _q: "_queue.Queue" = _queue.Queue()
             _holder: dict = {}
 
-            class _ProgressCB(_BaseCB):  # type: ignore[misc]
-                def __init__(self) -> None:
-                    self.done = 0
-
-                def on_llm_end(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
-                    self.done += 1
-                    _q.put(self.done)
-
             def _run() -> None:
                 try:
-                    _holder["docs"] = adapter.summarize(
-                        file_description="", docs=doc_infos, callbacks=[_ProgressCB()]
+                    _holder["summary"] = summarize_budgeted(
+                        texts_for_summary, ctx=ctx,
+                        map_call=_map_call, reduce_call=_reduce_call,
+                        progress_cb=lambda done, _total: _q.put(done),
                     )
                 except Exception as _e:  # noqa: BLE001
                     _holder["err"] = _e
@@ -443,8 +447,7 @@ def summarize_file_now(
 
             if _holder.get("err") is not None:
                 raise _holder["err"]
-            summary_docs = _holder.get("docs") or []
-            summary_text = summary_docs[0].page_content if summary_docs else ""
+            summary_text = _holder.get("summary") or ""
 
             _fsc.put_summary(store, key, summary_text)
 
