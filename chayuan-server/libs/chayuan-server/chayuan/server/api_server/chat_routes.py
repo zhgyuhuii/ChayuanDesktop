@@ -216,6 +216,17 @@ async def chatgraph_endpoint(
         _images = [image_url]
     _primary_image = _images[0] if _images else None
 
+    # 按用户的工具启用集服务端强制:丢弃该用户未启用的工具(防前端绕过)。
+    # uid 为空(guest/单机)→ effective_enabled_tools 返回全部全局启用,不过滤,保持现状。
+    _req_tools = list(tools or [])
+    if uid is not None and _req_tools:
+        try:
+            from chayuan.server.tools.user_tools import effective_enabled_tools
+            _allowed = effective_enabled_tools(int(uid))
+            _req_tools = [t for t in _req_tools if t in _allowed]
+        except Exception:  # noqa: BLE001 — 过滤失败不挡对话(退回不过滤)
+            _req_tools = list(tools or [])
+
     req = ChatRequest(
         query=query, mode=_mode, history=history or [], stream=stream, model=model,
         temperature=float(temperature),
@@ -232,7 +243,7 @@ async def chatgraph_endpoint(
         top_k=int(top_k or 5), score_threshold=float(score_threshold),
         rewrite_strategy=rewrite_strategy,
         use_hybrid=use_hybrid, use_rerank=use_rerank,
-        tools=list(tools or []), use_mcp=bool(use_mcp),
+        tools=_req_tools, use_mcp=bool(use_mcp),
         user_id=int(uid) if uid is not None else None,
         username=uname, user_role=urole,
         conversation_id=conversation_id or "",
