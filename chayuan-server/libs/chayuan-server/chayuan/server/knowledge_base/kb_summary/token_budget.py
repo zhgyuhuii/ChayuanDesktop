@@ -17,12 +17,23 @@ _TEMPLATE_OVERHEAD: int = 96
 _SAFETY_MARGIN: int = 256
 
 
+def _is_cjk(ch: str) -> bool:
+    o = ord(ch)
+    return (
+        0x4E00 <= o <= 0x9FFF      # CJK Unified Ideographs
+        or 0x3400 <= o <= 0x4DBF   # CJK Extension A
+        or 0x3000 <= o <= 0x303F   # CJK symbols & punctuation
+        or 0xFF00 <= o <= 0xFFEF   # fullwidth forms & punctuation
+        or 0xF900 <= o <= 0xFAFF   # CJK Compatibility Ideographs
+    )
+
+
 def estimate_tokens(text: str) -> int:
     """保守(偏高)估算 token 数。中文/CJK 按 1 token/字,其余按 4 字符/token,
     再取与「总字符数/3」的较大者作上界。"""
     if not text:
         return 0
-    cjk = sum(1 for ch in text if "一" <= ch <= "鿿")
+    cjk = sum(1 for ch in text if _is_cjk(ch))
     other = len(text) - cjk
     est = cjk + math.ceil(other / 4)
     return max(est, math.ceil(len(text) / 3))
@@ -49,10 +60,12 @@ def resolve_model_ctx(model_name: str | None) -> int:
 def map_input_char_budget(ctx: int) -> Tuple[int, int]:
     """返回 (输入 token 预算, 输入字符预算上界) 供 map 阶段切块。
     字符预算用最保守口径(1 token/字)反推。"""
+    # 防御性下限;本系统 ctx 恒 >= 4096,不会触发
     budget_tokens = max(256, ctx - MAP_MAX_TOKENS - _TEMPLATE_OVERHEAD - _SAFETY_MARGIN)
     return budget_tokens, budget_tokens
 
 
 def reduce_group_token_budget(ctx: int) -> int:
     """reduce 合并阶段:一组待合并摘要的 token 预算上界。"""
+    # 防御性下限;本系统 ctx 恒 >= 4096,不会触发
     return max(256, ctx - REDUCE_MAX_TOKENS - _TEMPLATE_OVERHEAD - _SAFETY_MARGIN)
