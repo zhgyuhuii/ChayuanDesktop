@@ -58,7 +58,7 @@ export const ErrorDialogRoot: React.FC = () => {
   return (
     <Dialog open onOpenChange={(o) => !o && dismiss()}>
       {/* z-[1000]/z-[999]:确保此弹窗浮于拓扑页 z-[500] 手写 modal 之上 */}
-      <DialogContent className="z-[1000] max-w-md" overlayClassName="z-[999]">
+      <DialogContent className="z-[1000] max-w-md max-h-[85vh] overflow-y-auto" overlayClassName="z-[999]">
         <div className="flex items-start gap-3">
           <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${style.bg} ${style.fg}`}>
             <Icon className="h-5 w-5" />
@@ -87,7 +87,7 @@ export const ErrorDialogRoot: React.FC = () => {
                   {showRaw ? '收起详情' : '查看详情'}
                 </button>
                 {showRaw && (
-                  <pre className="mt-2 max-h-48 overflow-auto rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-[11px] text-[var(--cy-text-secondary)]">
+                  <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] p-2 text-[11px] text-[var(--cy-text-secondary)]">
                     {current.raw}
                   </pre>
                 )}
