@@ -391,7 +391,7 @@ def summarize_file_now(
             )
 
             from chayuan.server.knowledge_base.kb_summary.token_budget import (
-                resolve_model_ctx, MAP_MAX_TOKENS, REDUCE_MAX_TOKENS,
+                resolve_model_ctx, MAP_MAX_TOKENS, REDUCE_MAX_TOKENS, map_concurrency_for,
             )
             from chayuan.server.knowledge_base.kb_summary.budgeted_reduce import (
                 summarize_budgeted,
@@ -429,6 +429,7 @@ def summarize_file_now(
                     _holder["summary"] = summarize_budgeted(
                         texts_for_summary, ctx=ctx,
                         map_call=_map_call, reduce_call=_reduce_call,
+                        concurrency=map_concurrency_for(model_name),
                         progress_cb=lambda done, _total: _q.put(done),
                     )
                 except Exception as _e:  # noqa: BLE001

@@ -11,13 +11,18 @@ import math
 from typing import Tuple
 
 DEFAULT_CTX: int = 4096
+# 云端模型在 model_metadata 查不到 context_length 时的保守默认。取 8192:低于几乎所有
+# 主流云端 chat 模型的真实 ctx(绝大多数 ≥32K),不会溢出;又足够让典型文档走「单次整篇」
+# 快路径(避免退化成多次 map-reduce 往返)。能查到真实 context_length 时优先用真实值。
+CLOUD_DEFAULT_CTX: int = 8192
 MAP_MAX_TOKENS: int = 384
 REDUCE_MAX_TOKENS: int = 768
-# map 阶段并行度。⚠ 默认 1(串行):本地只有一个 llama-server,llama.cpp 把并发请求
-# 连续批处理、**共享同一个 n_ctx KV 缓存**——并行发 N 个各 ~budget token 的 prompt 会
-# N×budget 远超 ctx → "Context size has been exceeded"(2.0.310 并行化在此适得其反)。
-# 仅当部署了「总 ctx 足够大的 llama-server」(--parallel N 且 ctx≥N×单块预算)才该调大。
-MAP_CONCURRENCY: int = 1
+# map 阶段并行度上限,**仅用于云端模型**(见 map_concurrency_for)。云端每个请求是
+# 独立上下文、能真正并发,并行发 N 个 map 请求可成倍提速。
+# ⚠ 本地模型一律被 map_concurrency_for 强制为 1:本地只有一个 llama-server,llama.cpp
+# 把并发请求连续批处理、**共享同一个 n_ctx KV 缓存**——并行发 N 个各 ~budget token 的
+# prompt 会 N×budget 远超 ctx → "Context size has been exceeded"(2.0.310 教训)。
+MAP_CONCURRENCY: int = 4
 _TEMPLATE_OVERHEAD: int = 96
 _SAFETY_MARGIN: int = 256
 
@@ -44,23 +49,40 @@ def estimate_tokens(text: str) -> int:
     return max(est, math.ceil(len(text) / 3))
 
 
+def _bare_id(model_name: str | None) -> str:
+    """剥掉 platform::model 命名空间,返回裸 model_id。"""
+    name = (model_name or "").strip()
+    return name.split("::", 1)[1].strip() if "::" in name else name
+
+
+def _is_local_model(model_name: str | None) -> bool:
+    """本地/bundled 模型:实际跑本地单一 llama-server(`--ctx-size` 默认 4096、
+    并发请求共享同一 n_ctx KV 缓存)。云端模型反之。"""
+    low = _bare_id(model_name).lower()
+    return low.startswith("models/") or low.startswith("local-") or "bundled" in low
+
+
+def map_concurrency_for(model_name: str | None) -> int:
+    """map 阶段并行度:本地单 llama-server 共享 ctx → 串行(1)避免溢出;
+    云端模型每请求独立 ctx 且能真正并发 → 并行(MAP_CONCURRENCY)提速。"""
+    return 1 if _is_local_model(model_name) else MAP_CONCURRENCY
+
+
 def resolve_model_ctx(model_name: str | None) -> int:
     """解析模型有效上下文窗口;拿不到则保守取 DEFAULT_CTX。
 
     按裸 model_id 在 model_metadata 里查 context_length;查不到 / 无 DB / 任何
     异常 → DEFAULT_CTX(本地 chat 默认 4096,保守不溢出)。
     """
-    name = (model_name or "").strip()
-    if not name:
+    bare = _bare_id(model_name)
+    if not bare:
         return DEFAULT_CTX
-    # 剥 platform::model 命名空间,按裸 model_id 匹配
-    bare = name.split("::", 1)[1].strip() if "::" in name else name
-    low = bare.lower()
     # ⚠ 本地/bundled 模型实际跑的是 llama-server `--ctx-size`(默认 4096),不能用
     # model_metadata 的 context_length(那是模型训练上下文,如 32768)——否则预算
     # 远超运行时窗口 → Context size exceeded + 重试 + 巨慢。本地一律用 DEFAULT_CTX。
-    if low.startswith("models/") or low.startswith("local-") or "bundled" in low:
+    if _is_local_model(model_name):
         return DEFAULT_CTX
+    name = (model_name or "").strip()
     try:
         from chayuan.server.db.repository import model_metadata_repository as _mmr
         for md in (_mmr.list_all() or []):
@@ -72,7 +94,8 @@ def resolve_model_ctx(model_name: str | None) -> int:
                     return int(ctx)
     except Exception:  # noqa: BLE001 — 无 DB / 异常一律保守回退
         pass
-    return DEFAULT_CTX
+    # 云端模型查不到真实 ctx:用 CLOUD_DEFAULT_CTX(8192)而非 4096,使典型文档仍能单次整篇
+    return CLOUD_DEFAULT_CTX
 
 
 def map_input_char_budget(ctx: int) -> Tuple[int, int]:

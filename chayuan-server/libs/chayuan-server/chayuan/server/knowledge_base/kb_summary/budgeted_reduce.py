@@ -17,6 +17,10 @@ _REDUCE_PROMPT = (
     "下面是同一篇文档若干段落的概括,请把它们合并成一段连贯、完整的中文摘要,"
     "保留关键信息,不要重复:\n\n{context}"
 )
+_FULL_PROMPT = (
+    "请阅读下面这篇完整文档,用简洁、连贯的中文写一段全面的摘要,"
+    "覆盖主要内容与关键信息,只输出摘要内容:\n\n{context}"
+)
 
 
 def _split_to_budget(text: str, char_budget: int) -> List[str]:
@@ -74,12 +78,30 @@ def summarize_budgeted(
     map_call: Callable[[str], str],
     reduce_call: Callable[[str], str],
     progress_cb: Optional[Callable[[int, int], None]] = None,
+    concurrency: Optional[int] = None,
 ) -> str:
     """按上下文窗口预算的 map-reduce 全文总结(不依赖 LangChain token 计数)。
 
+    先走「单次整篇」快路径:整篇能塞进模型上下文(云端大 ctx 模型几乎总是如此)就
+    一次 reduce_call 直接出全文摘要——map-reduce 多次往返正是慢的根因,只有整篇超过
+    ctx(超长文档 / 本地小 ctx)才退回下面的分块 map-reduce。
+
     map:每块(超预算先切)→ map_call;reduce:贪心分组,每组 token 预算内 →
     reduce_call,递归直到剩一段。map_call/reduce_call 由调用方注入。
+    concurrency:map 阶段并行度(本地 1 / 云端 N,由调用方按模型传入)。
     """
+    # —— 单次整篇快路径 ——
+    full = "\n\n".join(s for s in ((d or "").strip() for d in (docs or [])) if s)
+    if not full:
+        return ""
+    if estimate_tokens(full) <= reduce_group_token_budget(ctx):
+        if progress_cb:
+            progress_cb(0, 1)
+        r = reduce_call(_FULL_PROMPT.format(context=full))
+        if progress_cb:
+            progress_cb(1, 1)
+        return (r or "").strip()
+
     _, map_char_budget = map_input_char_budget(ctx)
     eff_budget = max(128, map_char_budget - len(_MAP_PROMPT))
 
@@ -94,7 +116,7 @@ def summarize_budgeted(
     # 取决于本地 llama-server 是否开 --parallel 槽位 + 网关 api_concurrencies;单槽
     # CPU 下各调用在网关排队(等价串行、不报错),多槽/GPU 下显著提速。
     import concurrent.futures as _cf
-    workers = max(1, min(MAP_CONCURRENCY, len(units)))
+    workers = max(1, min(concurrency if concurrency else MAP_CONCURRENCY, len(units)))
     results: List[str] = [""] * len(units)
     if workers == 1:
         for i, u in enumerate(units):

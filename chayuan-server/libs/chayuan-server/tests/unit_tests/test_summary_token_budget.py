@@ -1,7 +1,22 @@
 from chayuan.server.knowledge_base.kb_summary.token_budget import (
     estimate_tokens, resolve_model_ctx, map_input_char_budget, DEFAULT_CTX,
-    MAP_MAX_TOKENS, REDUCE_MAX_TOKENS,
+    CLOUD_DEFAULT_CTX, MAP_MAX_TOKENS, REDUCE_MAX_TOKENS, map_concurrency_for,
+    MAP_CONCURRENCY,
 )
+
+
+def test_map_concurrency_local_is_serial():
+    # 本地单 llama-server 共享 ctx → 必须串行(1),否则并发会 N×budget 溢出
+    assert map_concurrency_for("models/bundled/chat/Qwen3-4B") == 1
+    assert map_concurrency_for("local-chat/foo") == 1
+    assert map_concurrency_for("openai::models/bundled/x") == 1
+
+
+def test_map_concurrency_cloud_is_parallel():
+    # 云端模型每请求独立 ctx 且能并发 → 并行提速
+    assert map_concurrency_for("deepseek-r1") == MAP_CONCURRENCY
+    assert map_concurrency_for("siliconflow::deepseek-ai/DeepSeek-R1") == MAP_CONCURRENCY
+    assert MAP_CONCURRENCY > 1
 
 
 def test_estimate_tokens_chinese_is_conservative():
@@ -14,8 +29,13 @@ def test_estimate_tokens_ascii_words():
     assert estimate_tokens("hello world foo") >= 5
 
 
-def test_resolve_model_ctx_falls_back_to_default():
-    assert resolve_model_ctx("nonexistent-model-xyz") == DEFAULT_CTX
+def test_resolve_model_ctx_falls_back_to_cloud_default():
+    # 未知的「云端」模型(无 metadata)→ CLOUD_DEFAULT_CTX(8192),使典型文档仍能单次整篇;
+    # 空名 → DEFAULT_CTX(4096,最保守)
+    assert resolve_model_ctx("nonexistent-model-xyz") == CLOUD_DEFAULT_CTX
+    assert resolve_model_ctx("") == DEFAULT_CTX
+    assert resolve_model_ctx(None) == DEFAULT_CTX
+    assert CLOUD_DEFAULT_CTX > DEFAULT_CTX
 
 
 def test_resolve_model_ctx_reads_metadata(monkeypatch):
@@ -29,8 +49,8 @@ def test_resolve_model_ctx_reads_metadata(monkeypatch):
     from chayuan.server.knowledge_base.kb_summary import token_budget
     assert token_budget.resolve_model_ctx("qwen-max") == 32768
     assert token_budget.resolve_model_ctx("platform::qwen-max") == 32768
-    # 未知模型仍回退
-    assert token_budget.resolve_model_ctx("unknown-zzz") == token_budget.DEFAULT_CTX
+    # 未知云端模型回退到 CLOUD_DEFAULT_CTX(不是 4096)
+    assert token_budget.resolve_model_ctx("unknown-zzz") == token_budget.CLOUD_DEFAULT_CTX
 
 
 def test_reduce_group_token_budget_in_range():

@@ -24,7 +24,7 @@ async def stream_file_summary(state: Dict[str, Any]) -> AsyncIterator[str]:
     def _compute() -> str:
         from chayuan.server.knowledge_base.kb_service.base import KBServiceFactory
         from chayuan.server.knowledge_base.kb_summary.token_budget import (
-            resolve_model_ctx, MAP_MAX_TOKENS, REDUCE_MAX_TOKENS,
+            resolve_model_ctx, MAP_MAX_TOKENS, REDUCE_MAX_TOKENS, map_concurrency_for,
         )
         from chayuan.server.knowledge_base.kb_summary.budgeted_reduce import (
             summarize_budgeted,
@@ -39,6 +39,10 @@ async def stream_file_summary(state: Dict[str, Any]) -> AsyncIterator[str]:
         if not texts:
             raise RuntimeError(f"未找到文件 {file_name!r} 的内容")
         ctx = resolve_model_ctx(model_name)
+        logger.info(
+            "[file_summary] kb=%s file=%s model=%s ctx=%s docs=%d",
+            kb_name, file_name, model_name, ctx, len(texts),
+        )
         map_llm = get_ChatOpenAI(model_name=model_name, temperature=0.01,
                                  max_tokens=MAP_MAX_TOKENS, streaming=True, local_wrap=True)
         reduce_llm = get_ChatOpenAI(model_name=model_name, temperature=0.01,
@@ -54,6 +58,7 @@ async def stream_file_summary(state: Dict[str, Any]) -> AsyncIterator[str]:
 
         return summarize_budgeted(
             texts, ctx=ctx, map_call=_map, reduce_call=_reduce,
+            concurrency=map_concurrency_for(model_name),
         )
 
     summary = await run_in_threadpool(_compute)
