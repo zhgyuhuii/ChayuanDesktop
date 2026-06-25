@@ -52,3 +52,28 @@ def test_image_missing_params_raises():
     with pytest.raises(FileRequestError) as ei:
         ImageAdapter().handle({"source_id": "x", "image_id": ""}, {"id": "u"}, download=False)
     assert ei.value.status_code == 400
+
+
+def test_kbdoc_delegates(monkeypatch):
+    from chayuan.server.file_service.adapters import kb_doc as mod
+    from chayuan.server.file_service.adapters.kb_doc import KbDocAdapter
+    monkeypatch.setattr(mod, "can_read_kb", lambda u, kb: True)
+    seen = {}
+    def _fake_download(knowledge_base_name, file_name, preview):
+        seen.update(kb=knowledge_base_name, file=file_name, preview=preview)
+        return "DOC_RESP"
+    monkeypatch.setattr(mod, "download_doc", _fake_download)
+    out = KbDocAdapter().handle({"kb": "kbA", "file": "a.pdf"}, {"id": "u"}, download=False)
+    assert out == "DOC_RESP"
+    assert seen == {"kb": "kbA", "file": "a.pdf", "preview": True}
+
+
+def test_kbdoc_denied(monkeypatch):
+    from chayuan.server.file_service.adapters import kb_doc as mod
+    from chayuan.server.file_service.adapters.kb_doc import KbDocAdapter
+    from chayuan.server.file_service.base import FileRequestError
+    import pytest
+    monkeypatch.setattr(mod, "can_read_kb", lambda u, kb: False)
+    with pytest.raises(FileRequestError) as ei:
+        KbDocAdapter().handle({"kb": "kbA", "file": "a.pdf"}, {"id": "u"}, download=True)
+    assert ei.value.status_code == 403
