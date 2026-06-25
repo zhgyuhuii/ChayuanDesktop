@@ -401,12 +401,23 @@ def image_file_endpoint(
 
     # N 补丁：minio 后端优先走预签名 302；local 本地缺失时从 storage 拉回
     try:
+        import mimetypes
+        import urllib.parse as _ulp
         from chayuan.server.file_storage import NS, get_storage
-        from fastapi.responses import RedirectResponse
+        from fastapi.responses import StreamingResponse
         storage = get_storage()
         key = f"{int(source_id)}/{fname}"
         if storage.name == "minio" and storage.exists(NS.IMAGE_FILES, key):
-            return RedirectResponse(storage.presigned_url(NS.IMAGE_FILES, key, expires_sec=3600))
+            # 同源 stream:不能 302 到 presigned 直链(host=docker 内网 'minio:9000',
+            # 浏览器解析不到 → 图片/缩略图/下载全打不开,与 kb_doc_api 旧坑同款)。
+            data = storage.get(NS.IMAGE_FILES, key)
+            guessed = mimetypes.guess_type(fname)[0] or "application/octet-stream"
+            headers = {}
+            if download:
+                headers["Content-Disposition"] = (
+                    f"attachment; filename*=UTF-8''{_ulp.quote(fname)}"
+                )
+            return StreamingResponse(iter([data]), media_type=guessed, headers=headers)
         if local_path and not os.path.isfile(local_path) and storage.exists(NS.IMAGE_FILES, key):
             storage.copy_to_local(NS.IMAGE_FILES, key, local_path)
     except Exception:  # noqa: BLE001
