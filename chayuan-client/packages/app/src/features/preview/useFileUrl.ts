@@ -7,18 +7,12 @@
  *   - 切换文件时,外层用 React.useEffect 的 cleanup 触发 abort。
  */
 
-import { getAccessToken, getClientConfig } from '@chayuan/api';
 import { getPlatform } from '@chayuan/platform-shared';
 import * as React from 'react';
+import { resolveFileUrl } from '../files/fileRef';
 import { getCachedBlob, putCachedBlob } from './blobCache';
 import type { PreviewFile } from './types';
 import { previewFileKey } from './types';
-
-/** 同步拼 baseURL + path(后端 query token 白名单) */
-function joinBase(path: string): string {
-  const base = (getClientConfig().baseURL || '').replace(/\/+$/, '');
-  return `${base}${path.startsWith('/') ? '' : '/'}${path}`;
-}
 
 /** 把 PreviewFile 转成可直接 GET 的 URL(包含 token query) */
 export async function buildPreviewUrl(file: PreviewFile): Promise<string> {
@@ -26,25 +20,13 @@ export async function buildPreviewUrl(file: PreviewFile): Promise<string> {
     // 直 URL 已由调用方负责 token 化(例如 ImageKbDetail 的 absImageUrl)
     return file.url;
   }
-  const tok = await getAccessToken();
-  const qs = new URLSearchParams({
-    knowledge_base_name: file.kbName,
-    file_name: file.fileName,
-  });
-  if (tok) qs.set('token', tok);
-  return joinBase(`/knowledge_base/preview_doc?${qs.toString()}`);
+  return resolveFileUrl({ kind: 'kb-doc', kb: file.kbName, file: file.fileName });
 }
 
-/** 同上,但走 download_doc(强制 attachment) */
+/** 同上,但走 download(强制 attachment) */
 export async function buildDownloadUrl(file: PreviewFile): Promise<string> {
   if (file.source === 'direct') return file.url;
-  const tok = await getAccessToken();
-  const qs = new URLSearchParams({
-    knowledge_base_name: file.kbName,
-    file_name: file.fileName,
-  });
-  if (tok) qs.set('token', tok);
-  return joinBase(`/knowledge_base/download_doc?${qs.toString()}`);
+  return resolveFileUrl({ kind: 'kb-doc', kb: file.kbName, file: file.fileName }, { download: true });
 }
 
 /**
