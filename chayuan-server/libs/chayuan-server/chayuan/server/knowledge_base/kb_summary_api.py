@@ -386,7 +386,7 @@ def summarize_file_now(
                 ensure_ascii=False,
             )
             logger.info(
-                "[summary] start kb=%r file=%r chunks=%d total≈%d",
+                "[summary] start kb={!r} file={!r} chunks={} total≈{}",
                 knowledge_base_name, file_name, len(doc_infos), total,
             )
 
@@ -401,11 +401,11 @@ def summarize_file_now(
             # 有界 max_tokens:给输出预留固定额度,避免 max_tokens=None 被删后输出无上限。
             _map_llm = get_ChatOpenAI(
                 model_name=model_name, temperature=temperature,
-                max_tokens=MAP_MAX_TOKENS, streaming=True, local_wrap=True,
+                max_tokens=MAP_MAX_TOKENS, streaming=True, local_wrap=True, timeout=180,
             )
             _reduce_llm = get_ChatOpenAI(
                 model_name=model_name, temperature=temperature,
-                max_tokens=REDUCE_MAX_TOKENS, streaming=True, local_wrap=True,
+                max_tokens=REDUCE_MAX_TOKENS, streaming=True, local_wrap=True, timeout=180,
             )
 
             def _map_call(prompt: str) -> str:
@@ -436,10 +436,20 @@ def summarize_file_now(
                 finally:
                     _q.put(None)  # sentinel:无论成败都收尾,防生成器卡死
 
+            import time as _time
             _t = _threading.Thread(target=_run, daemon=True)
             _t.start()
+            _deadline = _time.time() + 900  # 整体硬超时 15min,保证 SSE 一定收尾、不无限转圈
             while True:
-                item = _q.get()
+                try:
+                    item = _q.get(timeout=30)
+                except _queue.Empty:
+                    if not _t.is_alive():
+                        break  # 线程已退出却没放 sentinel(异常路径)→ 收尾
+                    if _time.time() > _deadline:
+                        _holder["err"] = TimeoutError("全文总结超时(>900s),已中止")
+                        break
+                    continue
                 if item is None:
                     break
                 yield json.dumps(
@@ -447,14 +457,14 @@ def summarize_file_now(
                      "total": total, "doc": file_name},
                     ensure_ascii=False,
                 )
-                logger.info("[summary] progress %s/%s kb=%r file=%r", item, total, knowledge_base_name, file_name)
+                logger.info("[summary] progress {}/{} kb={!r} file={!r}", item, total, knowledge_base_name, file_name)
             _t.join(timeout=5)
 
             if _holder.get("err") is not None:
                 raise _holder["err"]
             summary_text = _holder.get("summary") or ""
             logger.info(
-                "[summary] done kb=%r file=%r summary_len=%d",
+                "[summary] done kb={!r} file={!r} summary_len={}",
                 knowledge_base_name, file_name, len(summary_text),
             )
 
