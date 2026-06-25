@@ -385,6 +385,10 @@ def summarize_file_now(
                  "total": total, "doc": file_name},
                 ensure_ascii=False,
             )
+            logger.info(
+                "[summary] start kb=%r file=%r chunks=%d total≈%d",
+                knowledge_base_name, file_name, len(doc_infos), total,
+            )
 
             from chayuan.server.knowledge_base.kb_summary.token_budget import (
                 resolve_model_ctx, MAP_MAX_TOKENS, REDUCE_MAX_TOKENS,
@@ -443,11 +447,16 @@ def summarize_file_now(
                      "total": total, "doc": file_name},
                     ensure_ascii=False,
                 )
+                logger.info("[summary] progress %s/%s kb=%r file=%r", item, total, knowledge_base_name, file_name)
             _t.join(timeout=5)
 
             if _holder.get("err") is not None:
                 raise _holder["err"]
             summary_text = _holder.get("summary") or ""
+            logger.info(
+                "[summary] done kb=%r file=%r summary_len=%d",
+                knowledge_base_name, file_name, len(summary_text),
+            )
 
             _fsc.put_summary(store, key, summary_text)
 
