@@ -68,6 +68,38 @@ def create_tables():
         logger.warning(f"[db-bootstrap] 跳过自动建库：{type(e).__name__}: {e}")
 
     Base.metadata.create_all(bind=get_engine())
+    _repair_postgres_column_widths(get_engine())
+
+
+def _repair_postgres_column_widths(engine) -> None:
+    """create_all 只建缺失的表、**从不 ALTER 已存在列**。历史上 conversation/message 的
+    id 列以 varchar(32) 建好,而客户端生成的带连字符 UUID 是 36 字符 → postgres 插入截断
+    (StringDataRightTruncation)→ v2 自动建会话失败。这里幂等加宽到 64,等价迁移 0026。
+
+    仅 postgres(sqlite 不强制 varchar 长度、无需);加宽 varchar 在 PG 是元数据操作不重写表;
+    每条独立事务,表/列不存在或已更宽都无害(catch 后跳过)。create_all 模式(单机/dev)不跑
+    alembic,故在此兜底;alembic 模式由 0026 完成、本函数对已是 64 的列也是无副作用 no-op。"""
+    try:
+        if engine.dialect.name != "postgresql":
+            return
+    except Exception:  # noqa: BLE001
+        return
+    from sqlalchemy import text as _sql_text
+    stmts = (
+        "ALTER TABLE conversation ALTER COLUMN id TYPE varchar(64)",
+        "ALTER TABLE message ALTER COLUMN id TYPE varchar(64)",
+        "ALTER TABLE message ALTER COLUMN conversation_id TYPE varchar(64)",
+    )
+    widened = 0
+    for s in stmts:
+        try:
+            with engine.begin() as conn:
+                conn.execute(_sql_text(s))
+            widened += 1
+        except Exception as e:  # noqa: BLE001 — 表/列不存在、已更宽都无害
+            logger.debug("[db-repair] 跳过 %s:%r", s, e)
+    if widened:
+        logger.info("[db-repair] conversation/message id 列已确保 varchar(64)(%d/3)", widened)
 
 
 def reset_tables():
