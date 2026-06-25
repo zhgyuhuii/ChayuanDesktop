@@ -21,6 +21,7 @@ from chayuan.server.db.repository.conversation_repository import (
     get_conversation_by_id,
     list_conversations_for_user,
     rename_conversation,
+    set_conversation_config_snapshot,
 )
 from chayuan.server.utils import (
     get_default_llm,
@@ -353,16 +354,31 @@ def delete_my_conversation(
     return {"code": 0, "msg": "ok", "deleted": int(deleted or 0)}
 
 
-@chat_router.patch("/conversations/{conversation_id}", summary="重命名会话")
+@chat_router.patch("/conversations/{conversation_id}", summary="重命名会话 / 更新配置快照")
 def rename_my_conversation(
     conversation_id: str,
-    name: str = Body(..., embed=True, max_length=64, description="新标题"),
+    name: Optional[str] = Body(
+        default=None, embed=True, max_length=64, description="新标题(可选)",
+    ),
+    config_snapshot: Optional[Dict[str, Any]] = Body(
+        default=None, embed=True, description="对话配置快照(model/kb/参数);跨设备漫游用",
+    ),
     user=Depends(require_auth_enabled()),
 ):
+    """同时支持重命名(name)与写入配置快照(config_snapshot),二者皆可选。"""
     _assert_conv_owner(user, conversation_id)
-    ok = rename_conversation(conversation_id=conversation_id, name=name)
-    if not ok:
-        raise HTTPException(status_code=404, detail="conversation not found")
+    if name is None and config_snapshot is None:
+        raise HTTPException(status_code=400, detail="name 或 config_snapshot 至少提供一个")
+    if name is not None:
+        ok = rename_conversation(conversation_id=conversation_id, name=name)
+        if not ok:
+            raise HTTPException(status_code=404, detail="conversation not found")
+    if config_snapshot is not None:
+        ok = set_conversation_config_snapshot(
+            conversation_id=conversation_id, config_snapshot=config_snapshot,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="conversation not found")
     return {"code": 0, "msg": "ok"}
 
 

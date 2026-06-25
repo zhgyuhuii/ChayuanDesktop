@@ -57,6 +57,20 @@ def rename_conversation(session, conversation_id, name: str):
     return True
 
 
+@with_session
+def set_conversation_config_snapshot(session, conversation_id, config_snapshot):
+    """写入对话配置快照(漫游用)。snapshot 为任意 JSON-able dict 或 None。"""
+    c = (
+        session.query(ConversationModel)
+        .filter(ConversationModel.id == conversation_id)
+        .one_or_none()
+    )
+    if c is None:
+        return False
+    c.config_snapshot = config_snapshot
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Async hot-path（T7-c）
 # ---------------------------------------------------------------------------
@@ -99,6 +113,7 @@ def list_conversations_for_user(session, user_id, limit: int = 100, offset: int 
             "name": r.name,
             "chat_type": r.chat_type,
             "user_id": r.user_id,
+            "config_snapshot": r.config_snapshot,
             "create_time": r.create_time.isoformat() if r.create_time else None,
         }
         for r in rows
