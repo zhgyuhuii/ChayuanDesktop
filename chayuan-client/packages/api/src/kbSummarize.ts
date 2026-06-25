@@ -1,6 +1,6 @@
 /**
  * 单文件「全文总结」流式客户端 —— 消费后端
- * ``POST /kb_summary_api/summarize_file_now``(EventSourceResponse,SSE 帧)。
+ * ``POST /knowledge_base/kb_summary_api/summarize_file_now``(EventSourceResponse,SSE 帧)。
  *
  * 后端事件(json,带 status):
  *   - { code:100, status:"running", chunk_count }      开始(已取全文,准备归纳)
@@ -39,7 +39,7 @@ export function subscribeFileSummary(
     try {
       const cfg = getClientConfig();
       const token = getAccessToken();
-      const url = `${cfg.baseURL.replace(/\/+$/, '')}/kb_summary_api/summarize_file_now`;
+      const url = `${cfg.baseURL.replace(/\/+$/, '')}/knowledge_base/kb_summary_api/summarize_file_now`;
       const resp = await fetch(url, {
         method: 'POST',
         headers: {
