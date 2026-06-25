@@ -9,6 +9,8 @@ export interface ConvConfigSnapshot {
   rewriteStrategy?: string; embedModelId?: string;
   temperature?: number; maxTokens?: number;
   topK?: number; scoreThreshold?: number; promptName?: string;
+  // index signature:让快照可直接当 ConversationRecord.meta(Record<string,unknown>)落库。
+  [k: string]: unknown;
 }
 
 /** composer 当前 state 的字段子集(只取我们要快照的) */

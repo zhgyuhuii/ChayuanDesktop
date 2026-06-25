@@ -64,6 +64,7 @@ import {
 } from './imagePromptContext';
 import { reportError } from '../../store/errorDialog';
 import { useLocalUserId } from '../conversations/localUser';
+import { snapshotFromComposer, applySnapshotToComposer, type ConvConfigSnapshot } from '../conversations/configSnapshot';
 
 /**
  * ArrayBuffer → base64(浏览器原生 btoa 一次只能吃 8KB 左右 String 才稳,
@@ -353,6 +354,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         title,
         model: modelId,
         mode: inferredMode,
+        meta: snapshotFromComposer(composer.getState()),
         created_at: now,
         updated_at: now,
       });
@@ -484,6 +486,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         title,
         model: modelId,
         mode: inferredMode,
+        meta: snapshotFromComposer(composer.getState()),
         created_at: now,
         updated_at: now,
       });
