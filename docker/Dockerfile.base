@@ -58,32 +58,33 @@ WORKDIR /chayuan/app/chayuan-server/libs/chayuan-server
 # version 字段不进 poetry content-hash,bump 不会让本层失配。
 COPY chayuan-server/libs/chayuan-server/pyproject.toml ./
 COPY chayuan-server/libs/chayuan-server/poetry.lock* ./
+# ── poetry 安装 + torch CUDA→CPU(必须同一个 RUN 层!)──────────────
+# ⚠ Docker 分层语义:镜像大小是所有层累加。若在「后续 RUN」里 pip uninstall
+# 掉 poetry 装的 CUDA torch,被删文件仍躺在 poetry install 那层里计入总大小
+# (只多加一层 whiteout + CPU torch),镜像反而更大(实测 11.23→12.62GB)。
+# 所以 torch 替换必须和 poetry install 在【同一个 RUN】:同层内创建又删除的
+# CUDA 字节不进最终 layer diff,镜像才真正从 ~11GB 降到 ~4GB。
+# poetry 默认源 torch 2.11.0 是 CUDA 版,拖 16 个 nvidia-cu13 库(~7-8GB);服务器
+# 无 GPU 用不到。桌面打包早用 torch+cpu。【不改 pyproject/poetry.lock,只 pip 层替换】。
+# 国内拉 download.pytorch.org 慢时:--build-arg TORCH_CPU_INDEX=<国内 cpu 镜像>。
+ARG TORCH_CPU_INDEX=https://download.pytorch.org/whl/cpu
 RUN --mount=type=cache,target=/tmp/poetry-cache \
-    poetry install --only main --no-root \
-    || (echo "[build.base] poetry.lock 失配,镜像内重锁..." && poetry lock && poetry install --only main --no-root)
+    ( poetry install --only main --no-root \
+      || ( echo "[build.base] poetry.lock 失配,镜像内重锁..." && poetry lock && poetry install --only main --no-root ) ) \
+ && ( pip uninstall -y torch triton \
+        nvidia-cublas-cu13 nvidia-cuda-cupti-cu13 nvidia-cuda-nvrtc-cu13 \
+        nvidia-cuda-runtime-cu13 nvidia-cudnn-cu13 nvidia-cufft-cu13 nvidia-cufile-cu13 \
+        nvidia-curand-cu13 nvidia-cusolver-cu13 nvidia-cusparse-cu13 nvidia-cusparselt-cu13 \
+        nvidia-nccl-cu13 nvidia-nvjitlink-cu13 nvidia-nvshmem-cu13 nvidia-nvtx-cu13 \
+        2>/dev/null || true ) \
+ && pip install --no-cache-dir "torch==2.11.0+cpu" --index-url "${TORCH_CPU_INDEX}" \
+ && python -c "import torch; assert torch.version.cuda is None, torch.version.cuda; print('[base] torch', torch.__version__, 'cuda=', torch.version.cuda)"
 
 # 对象存储 minio 客户端:poetry main 不含此 optional extra(storage-minio),这里显式
 # 预装进 base,主镜像 FROM 继承即可 —— 改业务代码重建主镜像时【零拉取】,根治"每次
 # 打镜像都重新下载 minio / argon2-cffi / pycryptodome"。子依赖随之一并固化进 base。
 # index 已由上面 ENV PIP_INDEX_URL 统一驱动(默认阿里云),这里不再逐行 -i。
 RUN pip install --no-cache-dir "minio>=7.2,<8.0"
-
-# ── torch CUDA → CPU ───────────────────────────────────────────────
-# poetry 从 PyPI 默认源装的 torch 2.11.0 是 CUDA 版,强制拖进 16 个 nvidia-cu13
-# 运行时库(cublas/cudnn/nccl/cufft/cusolver/cusparse/cusparselt/nvshmem/triton…),
-# 装机后 ~7-8GB。服务器/容器无 GPU,这些 CUDA 库一字节用不到 —— 桌面打包早用
-# torch+cpu。这里把 CUDA torch 替换为 CPU 版,镜像从 ~11GB 降到 ~4GB。
-# 【不改 pyproject/poetry.lock,只在 pip 层替换,不影响桌面打包】。
-# 国内拉 download.pytorch.org 慢时:--build-arg TORCH_CPU_INDEX=<国内 cpu 镜像>。
-ARG TORCH_CPU_INDEX=https://download.pytorch.org/whl/cpu
-RUN pip uninstall -y torch triton \
-        nvidia-cublas-cu13 nvidia-cuda-cupti-cu13 nvidia-cuda-nvrtc-cu13 \
-        nvidia-cuda-runtime-cu13 nvidia-cudnn-cu13 nvidia-cufft-cu13 nvidia-cufile-cu13 \
-        nvidia-curand-cu13 nvidia-cusolver-cu13 nvidia-cusparse-cu13 nvidia-cusparselt-cu13 \
-        nvidia-nccl-cu13 nvidia-nvjitlink-cu13 nvidia-nvshmem-cu13 nvidia-nvtx-cu13 \
-        2>/dev/null || true \
-    && pip install --no-cache-dir "torch==2.11.0+cpu" --index-url "${TORCH_CPU_INDEX}" \
-    && python -c "import torch; assert torch.version.cuda is None, torch.version.cuda; print('[base] torch', torch.__version__, 'cuda=', torch.version.cuda)"
 
 # build.sh 写入本 base 对应的 poetry.lock 哈希,便于排查复用命中
 ARG LOCK_HASH=unknown
