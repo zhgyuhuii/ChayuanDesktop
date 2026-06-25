@@ -60,8 +60,21 @@ def _rolled_back(state: dict, now: float) -> bool:
     return now < state.get("seenMax", 0) - ROLLBACK_TOLERANCE
 
 
+def _seat_unlimited(root, now) -> bool:
+    """本部署已激活席位授权 → 功能不限次(部署级授权覆盖 per-module 配额)。"""
+    try:
+        from chayuan.server.license import seat as _seat
+        return _seat.has_active_deployment_license(root, now=now)
+    except Exception:
+        return False
+
+
 def status(root, app: str, cfg: dict, *, now=None) -> dict:
     now = _now() if now is None else now
+    # 网络版已购席位授权:任意模块视为已授权、不限次(部署级覆盖)。
+    if _seat_unlimited(root, now):
+        return {"app": app, "free": False, "licensed": True, "source": "seat",
+                "timeExpireAt": None, "counts": 0, "dailyFree": 0, "remainingFree": 0}
     # 免费模块:整模块不门控、不限次,直接可用(不读/不写状态)。
     if app in set(cfg.get("free_modules", [])):
         return {"app": app, "free": True, "licensed": True,
@@ -82,6 +95,10 @@ def status(root, app: str, cfg: dict, *, now=None) -> dict:
 
 def consume(root, app: str, cfg: dict, *, now=None) -> dict:
     now = _now() if now is None else now
+    # 网络版已购席位授权:功能不限次、不扣、不弹购买(部署级授权覆盖 per-module 配额)。
+    if _seat_unlimited(root, now):
+        return {"allowed": True, "source": "seat", "remainingFree": 0,
+                "counts": 0, "timeExpireAt": None}
     # 免费模块:无条件放行,不扣不记。
     if app in set(cfg.get("free_modules", [])):
         _rec(root, app, "free", cfg)

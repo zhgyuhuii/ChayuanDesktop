@@ -113,7 +113,7 @@ export interface ConsumeResult {
   /** 是否允许执行(false → 需弹购买对话框)。 */
   allowed: boolean;
   /** 本次消耗来源:'free'|'count'|'time'|'none' */
-  source: 'free' | 'count' | 'time' | 'none';
+  source: 'free' | 'count' | 'time' | 'seat' | 'none';
   /** 今日剩余免费次数。 */
   remainingFree: number;
   /** 购买剩余次数。 */

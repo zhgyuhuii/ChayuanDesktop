@@ -126,6 +126,21 @@ def effective_max_users(root: Path, now: Optional[float] = None) -> Optional[int
     return DEFAULT_WEB_MAX_USERS
 
 
+def has_active_deployment_license(root: Path, now: Optional[float] = None) -> bool:
+    """本部署是否激活了有效(未过期)席位授权。
+
+    - 单机版恒 False(席位是网络版/部署级概念,单机不适用,功能门控走单机自身 license)。
+    - 网络版:存在未过期的 deployment_license 即 True(默认未购席位时 license 为空→False)。
+
+    用于功能级门控:有席位授权→per-module 配额/每日免费次数全放行(部署级授权覆盖),
+    对话/音转文/视频等不再弹扫码购买。
+    """
+    if is_single_machine():
+        return False
+    lic = read_deployment_license(root)
+    return bool(lic) and not _expired(lic, now)
+
+
 def assert_seat_available(root: Optional[Path] = None) -> None:
     """create_user 写库前调用。网络版达上限抛 SeatLimitReached；单机/未约束 no-op。"""
     if root is None:
