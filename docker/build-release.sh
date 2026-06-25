@@ -41,7 +41,7 @@ VER="$(tr -d ' \t\r\n' < VERSION)"
 
 # 确保 base / web-base 就绪(复用 build.sh 的哈希判定逻辑:直接调它构建依赖镜像)
 echo "[release] 确保 base / web-base 就绪..."
-DOCKER="$DOCKER" ./docker/build.sh ${PASS_REBUILD} --no-clean >/tmp/_release_base.log 2>&1 \
+DOCKER="$DOCKER" ./docker/build.sh ${PASS_REBUILD} --base-only --no-clean >/tmp/_release_base.log 2>&1 \
     || { echo "[release] base/web-base 准备失败,见 /tmp/_release_base.log" >&2; tail -20 /tmp/_release_base.log; exit 1; }
 
 LOCAL_TAG="chayuan:${VER}-slim"

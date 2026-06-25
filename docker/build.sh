@@ -28,11 +28,13 @@ DOCKER="${DOCKER:-docker}"
 REBUILD_BASE=0
 NOCACHE=""
 CLEAN=1
+BASE_ONLY=0
 for a in "$@"; do
     case "$a" in
         --rebuild-base) REBUILD_BASE=1 ;;
         --no-cache)     NOCACHE="--no-cache" ;;
         --no-clean)     CLEAN=0 ;;
+        --base-only)    BASE_ONLY=1 ;;
         -h|--help)      sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "[build] 未知参数:$a(支持 --rebuild-base / --no-cache / --no-clean)" >&2; exit 2 ;;
     esac
@@ -99,6 +101,11 @@ if [ "$REBUILD_BASE" = "1" ] || ! $DOCKER image inspect "$WEB_BASE_TAG" >/dev/nu
         .
 else
     echo "[build] 复用已存在的前端依赖基础镜像 ${WEB_BASE_TAG}(依赖未变,零拉取)"
+fi
+
+if [ "$BASE_ONLY" = "1" ]; then
+    echo "[build] --base-only:base / web-base 已就绪,跳过应用镜像构建"
+    exit 0
 fi
 
 # 4) 应用镜像:FROM base + web base,只跑 COPY + 离线 install + 前端 build
