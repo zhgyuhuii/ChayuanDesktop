@@ -77,7 +77,7 @@ export function useFileSummaryTurn(opts: UseFileSummaryTurnOptions): UseFileSumm
       metadata: { ...(m.metadata ?? {}), summary: { state: 'running', fileName } },
     }));
     const unsub = subscribeFileSummary(
-      { knowledge_base_name: kbName, file_name: fileName, confirmed },
+      { knowledge_base_name: kbName, file_name: fileName, confirmed, model_name: modelId || undefined },
       (f: FileSummaryFrame) => {
         patch(assistantId, (m) => applySummaryFrame(m, f, fileName));
         if (f.status === 'ok') {
@@ -95,7 +95,7 @@ export function useFileSummaryTurn(opts: UseFileSummaryTurnOptions): UseFileSumm
       },
     );
     unsubRef.current.set(assistantId, unsub);
-  }, [kbName, patch, persist, typewriter]);
+  }, [kbName, modelId, patch, persist, typewriter]);
 
   const startSummary = React.useCallback(async (fileName: string) => {
     const setMessages = setMessagesRef.current;
