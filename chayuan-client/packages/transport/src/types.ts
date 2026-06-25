@@ -168,6 +168,14 @@ export interface VgMessageMeta {
   videoAspect?: '16:9' | '9:16' | '1:1';
 }
 
+export interface SummaryMessageMeta {
+  state: 'running' | 'needs_confirm' | 'ok' | 'error';
+  fileName: string;
+  chunkCount?: number;
+  estCalls?: number;
+  msg?: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // 数字人
 // ─────────────────────────────────────────────────────────────────────

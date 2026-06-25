@@ -30,6 +30,7 @@ import {
   type StructuredSSEEvent,
   type ResumeDecision,
   type VgMessageMeta,
+  type SummaryMessageMeta,
 } from '@chayuan/transport';
 import { parseAndStripVgMeta } from './parseVgMeta';
 import { Events, logEvent, logScore, startSpan, startTrace } from '@chayuan/observability';
@@ -124,7 +125,7 @@ export interface ChatMessage {
    * [[VG_META]]...[[/VG_META]] sentinel;SSE 完成后 parseAndStripVgMeta 抽出并写入这里。
    * R3 VgMessageExtras 读 message.metadata.videoMeta 渲染视频组件套。
    */
-  metadata?: { videoMeta?: VgMessageMeta; [k: string]: unknown };
+  metadata?: { videoMeta?: VgMessageMeta; summary?: SummaryMessageMeta; [k: string]: unknown };
 }
 
 export interface UseChayuanChatOptions {
