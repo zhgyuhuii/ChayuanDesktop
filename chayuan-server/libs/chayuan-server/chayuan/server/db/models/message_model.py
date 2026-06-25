@@ -9,8 +9,8 @@ class MessageModel(Base):
     """
 
     __tablename__ = "message"
-    id = Column(String(32), primary_key=True, comment="聊天记录ID")
-    conversation_id = Column(String(32), default=None, index=True, comment="对话框ID")
+    id = Column(String(64), primary_key=True, comment="聊天记录ID")
+    conversation_id = Column(String(64), default=None, index=True, comment="对话框ID")
     # 冗余一份 user_id 到 message，避免跨表 JOIN 拦截
     user_id = Column(Integer, nullable=True, index=True, comment="归属用户 users.id")
     chat_type = Column(String(50), comment="聊天类型")

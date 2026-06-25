@@ -9,7 +9,7 @@ class ConversationModel(Base):
     """
 
     __tablename__ = "conversation"
-    id = Column(String(32), primary_key=True, comment="对话框ID")
+    id = Column(String(64), primary_key=True, comment="对话框ID")  # 客户端 UUID 36 字符,加宽避免截断
     name = Column(String(50), comment="对话框名称")
     chat_type = Column(String(50), comment="聊天类型")
     # P3 多用户隔离：历史数据为 NULL 视为"匿名/legacy"会话，仅管理员可见
