@@ -98,14 +98,17 @@ function Get-AllImageTags {
 # the single largest residue and is what keeps docker_data.vhdx growing every build.
 function Remove-OldImages {
     Write-Host "[build] cleaning historical images + build cache (keep :latest / :$Version / $BaseTag / $WebBaseTag)..."
+    # Each step is isolated in its own try/catch: on Docker Desktop's containerd image store a
+    # single step (e.g. the dangling prune below) can return HTTP 500, and we must NOT let that
+    # abort the later 'builder prune' -- the build cache is the single largest disk eater and what
+    # keeps docker_data.vhdx growing every build.
+
+    # 1) Only remove OLD app image versions. Base env images (chayuan-base / chayuan-web-base)
+    # are NEVER removed here: they are expensive to rebuild, and dropping them can also evict
+    # the cached apt/poetry layers and force a full dependency re-download. Stale-hash bases
+    # accumulate slowly (only on dep / Dockerfile.base changes); prune manually if disk matters.
     try {
-        $verEsc  = [regex]::Escape($Version)
-        $hashEsc = [regex]::Escape($LockHash)
-        $pnpmEsc = [regex]::Escape($PnpmLockHash)
-        # Only remove OLD app image versions. Base env images (chayuan-base / chayuan-web-base)
-        # are NEVER removed here: they are expensive to rebuild, and dropping them can also evict
-        # the cached apt/poetry layers and force a full dependency re-download. Stale-hash bases
-        # accumulate slowly (only on dep / Dockerfile.base changes); prune manually if disk matters.
+        $verEsc = [regex]::Escape($Version)
         $stale = Get-AllImageTags | Where-Object {
             ($_ -match "^chayuan:" -and $_ -notmatch "^chayuan:(latest|$verEsc)$")
         }
@@ -113,17 +116,29 @@ function Remove-OldImages {
             Write-Host "  - rmi $img"
             & $Docker rmi $img 2>$null | Out-Null
         }
-        # dangling (<none>) layers left after tag replacement
-        & $Docker image prune -f 2>$null | Out-Null
-        # build cache -- biggest disk eater, separate from images, not touched by image prune.
-        # Use --keep-storage to KEEP recent cache (incl. the large, stable base apt/poetry layers)
-        # so base rebuilds do NOT re-download all deps. Plain `builder prune -f` would evict the
-        # whole layer cache -> 11G re-download on every base rebuild.
+    }
+    catch { Write-Host "[build] old-image cleanup skipped (non-fatal): $($_.Exception.Message)" }
+
+    # 2) dangling (<none>) layers left after tag replacement. NOTE: 'docker image prune -f' issues
+    # a dangling-filter request that can return HTTP 500 on the containerd image store (same broken
+    # filter code path as 'images -q <ref>'). Enumerate <none>:<none> images WITHOUT a filter and
+    # rmi them by ID, so this step never 500s and never aborts the builder-prune below.
+    try {
+        $dangling = & $Docker images --format "{{.ID}} {{.Repository}}:{{.Tag}}" 2>$null |
+            Where-Object { $_ -match "<none>:<none>$" } |
+            ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -Unique
+        foreach ($id in $dangling) { & $Docker rmi $id 2>$null | Out-Null }
+    }
+    catch { Write-Host "[build] dangling prune skipped (non-fatal): $($_.Exception.Message)" }
+
+    # 3) build cache -- biggest disk eater, separate from images, not touched by image prune.
+    # Use --keep-storage to KEEP recent cache (incl. the large, stable base apt/poetry layers)
+    # so base rebuilds do NOT re-download all deps. Plain `builder prune -f` would evict the
+    # whole layer cache -> 11G re-download on every base rebuild.
+    try {
         & $Docker builder prune -f --keep-storage 20GB 2>$null | Out-Null
     }
-    catch {
-        Write-Host "[build] cleanup skipped (non-fatal): $($_.Exception.Message)"
-    }
+    catch { Write-Host "[build] builder prune skipped (non-fatal): $($_.Exception.Message)" }
 }
 if (-not $NoClean) { Remove-OldImages } else { Write-Host "[build] skip historical image cleanup (-NoClean)" }
 

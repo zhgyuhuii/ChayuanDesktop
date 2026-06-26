@@ -185,10 +185,13 @@ function Resolve-Vhdx {
     # Known relative layouts first (fast, exact). Newer Docker Desktop uses wsl\disk\,
     # older uses wsl\data\ext4.vhdx; relocated data folders keep the same sub-layout.
     $rels = @(
+        "wsl\disk\docker_desktop_data.vhdx",
         "wsl\disk\docker_data.vhdx",
         "wsl\data\ext4.vhdx",
+        "disk\docker_desktop_data.vhdx",
         "disk\docker_data.vhdx",
         "data\ext4.vhdx",
+        "docker_desktop_data.vhdx",
         "docker_data.vhdx"
     )
     foreach ($r in $roots) {
@@ -199,12 +202,12 @@ function Resolve-Vhdx {
     }
     # Last resort: bounded recursive search under each root.
     foreach ($r in $roots) {
-        foreach ($fn in @("docker_data.vhdx", "ext4.vhdx")) {
+        foreach ($fn in @("docker_desktop_data.vhdx", "docker_data.vhdx", "ext4.vhdx")) {
             $hit = Get-ChildItem -Path $r -Recurse -Filter $fn -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($hit) { return $hit.FullName }
         }
     }
-    throw "Could not auto-detect docker_data.vhdx. Pass -VhdxPath '<full path>'."
+    throw "Could not auto-detect the Docker WSL data disk (docker_desktop_data.vhdx / docker_data.vhdx / ext4.vhdx). Pass -VhdxPath '<full path>'."
 }
 
 $vhdx = Resolve-Vhdx -Override $VhdxPath
