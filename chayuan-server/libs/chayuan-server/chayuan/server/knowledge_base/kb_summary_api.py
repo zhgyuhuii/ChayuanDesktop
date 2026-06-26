@@ -328,6 +328,9 @@ def summarize_file_now(
     """
 
     def output():
+        # model_name 是外层 summarize_file_now 的参数;下面对它有赋值(空时回退默认模型),
+        # 不声明 nonlocal 会被 Python 判成 output 局部变量、遮蔽参数 → 首次读即 UnboundLocalError。
+        nonlocal model_name
         try:
             # 用 get_service_by_name 从 DB 读该 KB 真实的 vs_type / embed_model。
             # 不能用 get_service(kb, vs_type, embed_model)：本函数是被当普通函数调用的，
