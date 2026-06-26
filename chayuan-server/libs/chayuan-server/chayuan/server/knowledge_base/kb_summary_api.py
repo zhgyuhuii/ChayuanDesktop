@@ -9,12 +9,13 @@ from chayuan.settings import Settings
 from chayuan.server.knowledge_base.kb_service.base import KBServiceFactory
 from chayuan.server.knowledge_base.kb_summary.base import KBSummaryService
 from chayuan.server.knowledge_base.kb_summary.summary_chunk import SummaryAdapter
-from chayuan.server.knowledge_base.kb_summary.cache_key import content_hash, file_summary_cache_key
+from chayuan.server.knowledge_base.kb_summary.cache_key import file_summary_cache_key, summary_discriminator
 from chayuan.server.knowledge_base.kb_summary.oversize import summarize_precheck
 from chayuan.server.knowledge_base.kb_summary import file_summary_cache as _fsc
 from chayuan.server.knowledge_base.model.kb_document_model import DocumentWithVSId
 from chayuan.server.knowledge_base.utils import list_files_from_folder
-from chayuan.server.utils import BaseResponse, get_ChatOpenAI, wrap_done, get_default_embedding
+from chayuan.server.utils import BaseResponse, get_ChatOpenAI, wrap_done, get_default_embedding, get_default_llm
+from chayuan.server.db.repository.knowledge_file_repository import get_file_detail
 from chayuan.utils import build_logger
 
 
@@ -349,7 +350,10 @@ def summarize_file_now(
                 return
 
             texts = [getattr(d, "page_content", "") for d in doc_infos]
-            key = file_summary_cache_key(file_name, content_hash(texts))
+            _detail = get_file_detail(knowledge_base_name, file_name) or {}
+            key = file_summary_cache_key(
+                file_name, summary_discriminator(_detail.get("file_hash"), texts)
+            )
 
             kb_summary = KBSummaryService(knowledge_base_name, resolved_embed)
             kb_summary.create_kb_summary()
@@ -397,6 +401,10 @@ def summarize_file_now(
                 summarize_budgeted,
             )
 
+            # model_name 为空时,resolve_model_ctx 会退到本地 4096 → 几页文档被迫 map-reduce。
+            # 回退到默认 chat 模型(通常云端,真实 ctx≥32K)→ 走单次整篇快路径。
+            if not model_name:
+                model_name = get_default_llm()
             ctx = resolve_model_ctx(model_name)
             from chayuan.server.knowledge_base.kb_summary.token_budget import _is_local_model
             _routing = "本地(若慢,想快请在对话框选云端模型)" if (not model_name or _is_local_model(model_name)) else "云端直连"
