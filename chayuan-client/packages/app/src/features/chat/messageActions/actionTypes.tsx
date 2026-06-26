@@ -41,7 +41,7 @@ const TTS_DEF: ActionTypeDef<TtsSettings> = {
     voice_name: s.voice || undefined,
     voice_rate: s.rate,
     voice_volume: s.volume,
-    language: s.language || undefined,
+    language: s.language || 'zh',
   }),
   artifactKind: 'audio',
 };

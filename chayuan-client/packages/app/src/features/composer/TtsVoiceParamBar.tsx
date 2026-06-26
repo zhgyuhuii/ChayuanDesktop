@@ -57,7 +57,7 @@ const LOCAL_ENGINES: Array<{ id: VgVoiceProvider; label: string }> = [
   { id: 'clone', label: '克隆(本地)' },
 ];
 const LANG_OPTIONS = [
-  { v: '', l: '自动' }, { v: 'zh', l: '中文' }, { v: 'en', l: 'English' },
+  { v: 'zh', l: '中文' }, { v: 'en', l: 'English' },
   { v: 'ja', l: '日本語' }, { v: 'ko', l: '한국어' },
 ];
 
@@ -101,6 +101,10 @@ export const TtsVoiceParamBar: React.FC<{ compact?: boolean }> = ({ compact = fa
     const looksLocalBundled = !modelId || modelId.startsWith('models/') || modelId.includes('bundled/');
     if (looksLocalBundled) setModel(LOCAL_PREFIX + 'piper', undefined, 'tts');
   }, [modelId, isLocal]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 音色语言默认中文(不再 auto):空/未设时落库 zh,既显示中文又随 TTS 请求发送
+  React.useEffect(() => {
+    if (!params.language) setParams({ language: 'zh' });
+  }, [params.language]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rate = typeof params.voice_rate === 'number' ? params.voice_rate
     : typeof params.speed === 'number' ? params.speed : 1.0;
@@ -217,7 +221,7 @@ export const TtsVoiceParamBar: React.FC<{ compact?: boolean }> = ({ compact = fa
   // ── 本地引擎分支:复用 VoicePicker(含引擎 chips)+ 语速/音量/语言 ──────
   const vpProvider = (isLocal ? modelId.slice(LOCAL_PREFIX.length)
     : (typeof params.voice_provider === 'string' ? params.voice_provider : 'piper')) as VgVoiceProvider;
-  const language = typeof params.language === 'string' ? params.language : '';
+  const language = (typeof params.language === 'string' && params.language) ? params.language : 'zh';
   const voiceName = typeof params.voice_name === 'string' ? params.voice_name : '';
   return (
     <div role="toolbar" aria-label="TTS 参数(本地)" className={cn('flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]', compact && 'gap-1')}>

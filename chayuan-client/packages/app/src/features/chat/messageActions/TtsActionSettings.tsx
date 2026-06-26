@@ -16,14 +16,14 @@ export interface TtsSettings {
   volume: number;
   language: string;
 }
-export const DEFAULT_TTS_SETTINGS: TtsSettings = { engine: 'piper', voice: '', rate: 1, volume: 1, language: '' };
+export const DEFAULT_TTS_SETTINGS: TtsSettings = { engine: 'piper', voice: '', rate: 1, volume: 1, language: 'zh' };
 
 const LOCAL_ENGINES: Array<{ id: VgVoiceProvider; label: string }> = [
   { id: 'piper', label: 'Piper(本地)' }, { id: 'edge', label: 'Edge(联网)' },
   { id: 'sherpa', label: 'Sherpa(本地)' }, { id: 'clone', label: '克隆(本地)' },
 ];
 const LANG_OPTIONS = [
-  { v: '', l: '自动' }, { v: 'zh', l: '中文' }, { v: 'en', l: 'English' },
+  { v: 'zh', l: '中文' }, { v: 'en', l: 'English' },
   { v: 'ja', l: '日本語' }, { v: 'ko', l: '한국어' },
 ];
 const selCls = cn('h-6 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1.5 text-[10px] text-[var(--cy-text-primary)] focus-visible:outline-none');
@@ -32,7 +32,7 @@ export const TtsActionSettings: React.FC<{ value: TtsSettings; onChange: (v: Tts
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--cy-text-secondary)]">
       <span className="opacity-60">语言</span>
-      <select value={value.language} onChange={(e) => onChange({ ...value, language: e.target.value })} className={selCls} title="语言">
+      <select value={value.language || 'zh'} onChange={(e) => onChange({ ...value, language: e.target.value })} className={selCls} title="语言">
         {LANG_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
       </select>
       <span className="mx-1 opacity-30">·</span>

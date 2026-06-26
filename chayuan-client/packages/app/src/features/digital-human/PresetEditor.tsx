@@ -170,7 +170,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   const addIfAbsentAndFocus = (a: DhAvatar) => {
     setSlots((prev) => (prev.some((x) => x.ref === a.ref)
       ? prev
-      : [...prev, { ref: a.ref, kind: a.kind, label: a.name, lines: '', name: a.name || ('角色' + (prev.length + 1)) }]));
+      : [...prev, { ref: a.ref, kind: a.kind, label: a.name, lines: '', name: a.name || ('角色' + (prev.length + 1)), language: 'zh-CN' }]));
     setFocusedRef(a.ref);
   };
   // 移出阵容(不删除形象资产),点序号徽标触发。
@@ -182,7 +182,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
   // 单形象:点格子 = 替换为该形象(恰好 1 个 slot),并聚焦。统一走 slot 模型,
   // 复用多形象的聚焦配置(语言在音色前)+ 可拖拽缩放画布。
   const pickSingle = (a: DhAvatar) => {
-    setSlots([{ ref: a.ref, kind: a.kind, label: a.name, lines: '' }]);
+    setSlots([{ ref: a.ref, kind: a.kind, label: a.name, lines: '', language: 'zh-CN' }]);
     setAvatarRef(a.ref);
     setFocusedRef(a.ref);
   };
@@ -576,11 +576,10 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ initial, onSaved, on
                     composeMode !== 'single' && !(fSlot.name ?? '').trim() && 'border-[var(--cy-danger-500)]')} />
               </div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--cy-text-tertiary)]">
-                <select value={fSlot.language ?? ''}
+                <select value={fSlot.language || 'zh-CN'}
                   onChange={(e) => setSlotField(fSlot.ref, { language: e.target.value })}
                   title="语言(影响可选音色)"
                   className="h-6 w-16 shrink-0 rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-1)] px-1 text-[10px] text-[var(--cy-text-primary)] focus-visible:outline-none">
-                  <option value="">自动</option>
                   <option value="zh-CN">中文</option>
                   <option value="en-US">英文</option>
                   <option value="ja-JP">日文</option>
