@@ -26,6 +26,9 @@ REDUCE_MAX_TOKENS: int = 768
 # 把并发请求连续批处理、**共享同一个 n_ctx KV 缓存**——并行发 N 个各 ~budget token 的
 # prompt 会 N×budget 远超 ctx → "Context size has been exceeded"(2.0.310 教训)。
 MAP_CONCURRENCY: int = 4
+# Tier 3 触发阈值:单文件 chunk 数超过它 → 走按文件 RAPTOR 层次摘要(per_file_raptor),
+# 而非线性 map-reduce。约几十万字。低于此走 Tier 1 单次整篇 / Tier 2 map-reduce。
+RAPTOR_CHUNK_THRESHOLD: int = 200
 _TEMPLATE_OVERHEAD: int = 96
 _SAFETY_MARGIN: int = 256
 

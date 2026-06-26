@@ -76,3 +76,8 @@ def test_resolve_model_ctx_local_bundled_uses_default_not_metadata(monkeypatch):
     from chayuan.server.knowledge_base.kb_summary import token_budget
     assert token_budget.resolve_model_ctx("models/bundled/chat/Qwen3-4B-Instruct-2507-GGUF") == token_budget.DEFAULT_CTX
     assert token_budget.resolve_model_ctx("local-chat/foo") == token_budget.DEFAULT_CTX
+
+
+def test_raptor_threshold_constant():
+    from chayuan.server.knowledge_base.kb_summary.token_budget import RAPTOR_CHUNK_THRESHOLD
+    assert RAPTOR_CHUNK_THRESHOLD == 200
