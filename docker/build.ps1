@@ -84,12 +84,17 @@ Write-Host "[build] VERSION=$Version  BASE=$BaseTag  WEB_BASE=$WebBaseTag"
 # HTTP 500 on Docker Desktop's containerd image store. Enumerating everything and filtering in
 # PowerShell avoids that broken code path. Returns @() on any failure (non-fatal).
 function Get-AllImageTags {
+    # Returns: $null if 'docker images' FAILED (engine 500 / hung / _ping timeout) -- the caller
+    # must NOT treat that as "no images" (a failed list would look like the base is missing and
+    # trigger a needless ~11G base rebuild). @() means the engine answered and there are genuinely
+    # no tags (e.g. a fresh machine), which is a legitimate "build everything" signal.
     try {
         $out = & $Docker images --format "{{.Repository}}:{{.Tag}}" 2>$null
-        if ($LASTEXITCODE -ne 0 -or -not $out) { return @() }
+        if ($LASTEXITCODE -ne 0) { return $null }
+        if (-not $out) { return @() }
         return @($out | Where-Object { $_ -and ($_ -notmatch ":<none>$") })
     }
-    catch { return @() }
+    catch { return $null }
 }
 
 # Remove historical build residue while KEEPING the current base env images (chayuan-base /
@@ -148,6 +153,9 @@ if (-not $NoClean) { Remove-OldImages } else { Write-Host "[build] skip historic
 # Desktop's containerd image store; enumerating all tags once dodges that. $AllTags is reused
 # for the web base check below.
 $AllTags = Get-AllImageTags
+if ($null -eq $AllTags) {
+    throw "[build] 'docker images' failed (engine returned 500 / _ping timed out) -- the Docker engine looks unhealthy. Fully quit Docker Desktop, run 'wsl --shutdown', restart Docker Desktop, and confirm 'docker images' lists cleanly before re-running. Refusing to proceed: a failed image list would be mistaken for 'base missing' and trigger a full ~11G base rebuild."
+}
 $BaseExists = $AllTags -contains $BaseTag
 if ($RebuildBase -or (-not $BaseExists)) {
     Write-Host "[build] building base env image $BaseTag (download all deps)..."
