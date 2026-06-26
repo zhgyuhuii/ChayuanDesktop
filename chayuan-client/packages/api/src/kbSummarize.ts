@@ -64,12 +64,19 @@ export function subscribeFileSummary(
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buffer.indexOf('\n\n')) >= 0) {
-          const raw = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 2);
+        // SSE 事件分隔符:sse_starlette 默认 \r\n\r\n,也容忍 \n\n(取最早出现的)。
+        // 与 home.ts / aiVideo.ts 等其它 SSE 消费者一致;此前只切 \n\n → 对 \r\n\r\n
+        // 永远匹配不到 → 一帧都解析不出 → 总结正文永不显示(网络版 docker 真机 bug)。
+        while (true) {
+          const a = buffer.indexOf('\n\n');
+          const b = buffer.indexOf('\r\n\r\n');
+          if (a < 0 && b < 0) break;
+          const isCRLF = b >= 0 && (a < 0 || b <= a);
+          const sepIdx = isCRLF ? b : a;
+          const raw = buffer.slice(0, sepIdx);
+          buffer = buffer.slice(sepIdx + (isCRLF ? 4 : 2));
           const line = raw
-            .split('\n')
+            .split(/\r?\n/)
             .filter((l) => l.startsWith('data:'))
             .map((l) => l.slice(5).trim())
             .join('\n');
