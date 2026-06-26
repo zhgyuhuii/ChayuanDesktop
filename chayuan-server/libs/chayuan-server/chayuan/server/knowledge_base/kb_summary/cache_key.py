@@ -11,5 +11,13 @@ def content_hash(chunk_texts: List[str]) -> str:
         h.update(b"\x00")
     return h.hexdigest()[:16]
 
+def summary_discriminator(file_hash: str | None, ordered_chunk_texts: List[str]) -> str:
+    """缓存键的判别部分:优先用文件已存的内容 SHA-256(file_hash);
+    历史文件无 file_hash 时回退到"按给定(已排序)顺序的 chunk 文本哈希"。
+    两者都只随文件内容变,不随查询顺序漂移(前提:调用方传入的 chunk 已稳定排序)。"""
+    if file_hash:
+        return file_hash
+    return content_hash(ordered_chunk_texts)
+
 def file_summary_cache_key(file_name: str, chash: str) -> str:
     return f"summary::{file_name}::{chash}"
