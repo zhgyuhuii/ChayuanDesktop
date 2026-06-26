@@ -501,12 +501,13 @@ def summarize_file_now(
                             )
                             from chayuan.server.file_rag.raptor.clustering import gmm_cluster
                             from chayuan.server.utils import get_Embeddings
+                            from chayuan.server.knowledge_base.kb_summary.budgeted_reduce import _REDUCE_PROMPT
                             _emb = get_Embeddings(resolved_embed)
                             _holder["summary"] = summarize_file_hierarchical(
                                 texts_for_summary,
                                 embed_fn=lambda ts: _emb.embed_documents(ts),
                                 cluster_fn=gmm_cluster,
-                                summarize_fn=_reduce_call,
+                                summarize_fn=lambda t: _reduce_call(_REDUCE_PROMPT.format(context=t)),
                                 progress_cb=lambda done, _total: _q.put(done),
                             )
                         else:
