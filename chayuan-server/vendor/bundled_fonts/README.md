@@ -4,6 +4,16 @@ video_generation 模块 + moviepy TextClip 渲染字幕时,从这里挑字体文
 路径解析由 `chayuan/server/video_generation/binaries.py::get_fonts_dir()`
 导出给 `/api/v1/video-generation/fonts` endpoint 列表使用。
 
+## 已随仓库提交的中文字体(开箱即用)
+
+- **`NotoSansCJKsc-Regular.otf`**(Noto Sans CJK SC,Google,OFL,~16 MB)已
+  **入仓**。它保证 docker / dev / 离线构建出的镜像里**始终有一个可分发的中文
+  字体**:字幕渲染按 `steps/compose.py` 与 `digital_human/overlay.py` 的字体
+  回退链,**第一顺位**就是 `get_fonts_dir()`(本目录),所以当镜像/系统**没有**
+  任何 CJK 系统字体时,字幕会**自动回退用这个随包字体**,不会再出方框。
+- 这是唯一入仓的字体;其它(平台原生 STHeiti/雅黑、商用体)仍**不入仓**,
+  按需 seed。换更小的(如文泉驿微米黑)或加字重,放进本目录即可被自动识别。
+
 ## 推荐字体清单
 
 | 文件名 | 体积 | 来源 | 许可 | 用途 |
@@ -53,5 +63,7 @@ curl -L https://github.com/adobe-fonts/source-han-sans/raw/release/OTC/SourceHan
 ## .gitignore 行为
 
 * 本 README + `.gitkeep` 入 git 仓库
-* `*.ttf / *.ttc / *.otf` **不入 git**(大文件 + 许可不一定允许),开
-  发者用 `scripts/seed-bundled-assets.{sh,ps1}` 拉齐(M3.D5 加)
+* **例外**:`NotoSansCJKsc-Regular.otf`(OFL,可自由分发)**入 git**,
+  保证开箱即有中文字幕字体(见 `.gitignore` 的 `!...NotoSansCJKsc-Regular.otf`)
+* 其它 `*.ttf / *.ttc / *.otf` **不入 git**(大文件 + 许可不一定允许),
+  开发者用 `scripts/seed-bundled-assets.{sh,ps1}` 或 `scripts/seed_fonts.py` 拉齐

@@ -136,6 +136,10 @@ chayuan-server/vendor/bundled_models/**
 chayuan-server/vendor/bundled_fonts/**
 !chayuan-server/vendor/bundled_fonts/.gitkeep
 !chayuan-server/vendor/bundled_fonts/README.md
+# 例外:随包带的开源 OFL 中文字体(Noto Sans CJK SC)入仓,保证 docker/dev/离线
+# 构建出的镜像里始终有中文字体 -- 字幕渲染回退第一顺位 get_fonts_dir -> bundled_fonts
+# (steps/compose.py / digital_human/overlay.py)。其它字体仍按需 seed,不入仓。
+!chayuan-server/vendor/bundled_fonts/NotoSansCJKsc-Regular.otf
 chayuan-server/vendor/bundled_bgm/**
 !chayuan-server/vendor/bundled_bgm/.gitkeep
 !chayuan-server/vendor/bundled_bgm/README.md
