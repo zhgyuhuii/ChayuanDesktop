@@ -390,8 +390,8 @@ def summarize_file_now(
                 ensure_ascii=False,
             )
             logger.info(
-                "[summary] start kb={!r} file={!r} chunks={} total≈{}",
-                knowledge_base_name, file_name, len(doc_infos), total,
+                "[summary] start kb={!r} file={!r} chunks={} total≈{} model_in={!r}",
+                knowledge_base_name, file_name, len(doc_infos), total, model_name,
             )
 
             from chayuan.server.knowledge_base.kb_summary.token_budget import (
@@ -404,7 +404,11 @@ def summarize_file_now(
             # model_name 为空时,resolve_model_ctx 会退到本地 4096 → 几页文档被迫 map-reduce。
             # 回退到默认 chat 模型(通常云端,真实 ctx≥32K)→ 走单次整篇快路径。
             if not model_name:
-                model_name = get_default_llm()
+                try:
+                    model_name = get_default_llm() or None
+                except Exception as _e:  # noqa: BLE001 — 解析默认模型失败不该让总结崩,保持空(走本地)
+                    logger.warning("[summary] get_default_llm 失败,保持空 model_name(走本地): {!r}", _e)
+                    model_name = None
             ctx = resolve_model_ctx(model_name)
             from chayuan.server.knowledge_base.kb_summary.token_budget import _is_local_model
             _routing = "本地(若慢,想快请在对话框选云端模型)" if (not model_name or _is_local_model(model_name)) else "云端直连"
