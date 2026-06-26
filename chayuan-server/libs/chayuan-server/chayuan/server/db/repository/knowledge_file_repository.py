@@ -53,7 +53,10 @@ def list_docs_from_db(
     for k, v in metadata.items():
         docs = docs.filter(FileDocModel.meta_data[k].as_string() == str(v))
 
-    return [{"id": x.doc_id, "metadata": x.metadata} for x in docs.all()]
+    return [
+        {"id": x.doc_id, "metadata": x.metadata}
+        for x in docs.order_by(FileDocModel.id).all()
+    ]
 
 
 @with_session
