@@ -541,7 +541,7 @@ def summarize_file_now(
             logger.warning("summarize_file_now interrupted by user.")
             return
         except Exception as e:  # noqa: BLE001
-            logger.exception("summarize_file_now 失败")
+            logger.exception("summarize_file_now 失败: {!r}", e)
             yield json.dumps(
                 {"code": 500, "status": "error", "msg": f"全文总结失败:{e}"}, ensure_ascii=False
             )
