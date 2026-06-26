@@ -399,6 +399,7 @@ def summarize_file_now(
 
             from chayuan.server.knowledge_base.kb_summary.token_budget import (
                 resolve_model_ctx, MAP_MAX_TOKENS, REDUCE_MAX_TOKENS, map_concurrency_for,
+                RAPTOR_CHUNK_THRESHOLD,
             )
             from chayuan.server.knowledge_base.kb_summary.budgeted_reduce import (
                 summarize_budgeted,
@@ -493,12 +494,28 @@ def summarize_file_now(
 
                 def _run() -> None:
                     try:
-                        _holder["summary"] = summarize_budgeted(
-                            texts_for_summary, ctx=ctx,
-                            map_call=_map_call, reduce_call=_reduce_call,
-                            concurrency=map_concurrency_for(model_name),
-                            progress_cb=lambda done, _total: _q.put(done),
-                        )
+                        if len(doc_infos) > RAPTOR_CHUNK_THRESHOLD:
+                            # Tier 3:海量文档 → 按文件层次聚类摘要(纯内存,不写回 KB)
+                            from chayuan.server.knowledge_base.kb_summary.per_file_raptor import (
+                                summarize_file_hierarchical,
+                            )
+                            from chayuan.server.file_rag.raptor.clustering import gmm_cluster
+                            from chayuan.server.utils import get_Embeddings
+                            _emb = get_Embeddings(resolved_embed)
+                            _holder["summary"] = summarize_file_hierarchical(
+                                texts_for_summary,
+                                embed_fn=lambda ts: _emb.embed_documents(ts),
+                                cluster_fn=gmm_cluster,
+                                summarize_fn=_reduce_call,
+                                progress_cb=lambda done, _total: _q.put(done),
+                            )
+                        else:
+                            _holder["summary"] = summarize_budgeted(
+                                texts_for_summary, ctx=ctx,
+                                map_call=_map_call, reduce_call=_reduce_call,
+                                concurrency=map_concurrency_for(model_name),
+                                progress_cb=lambda done, _total: _q.put(done),
+                            )
                     except Exception as _e:  # noqa: BLE001
                         _holder["err"] = _e
                     finally:
