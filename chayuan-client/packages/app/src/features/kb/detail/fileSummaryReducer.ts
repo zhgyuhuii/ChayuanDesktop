@@ -19,17 +19,17 @@ export function applySummaryFrame(
     case 'running':
       return {
         ...msg, streaming: true, error: undefined,
-        taskProgress: { percent: frame.total ? 1 : 0, message: '正在通览整篇并归纳…' },
+        // 进度条已移除:等待期与普通对话一致,由 MessageBubble 的"输入中"指示器展示
+        taskProgress: undefined,
         metadata: withSummary({ state: 'running' }),
       };
-    case 'progress': {
-      const percent = frame.total ? Math.min(99, Math.round((frame.done / frame.total) * 100)) : 0;
+    case 'progress':
+      // 长任务(map-reduce/RAPTOR)也不再显示进度条,与普通对话等待一致;正文在 delta/ok 出现
       return {
-        ...msg, streaming: true,
-        taskProgress: { percent, message: '正在归纳…' },
+        ...msg, streaming: true, error: undefined,
+        taskProgress: undefined,
         metadata: withSummary({ state: 'running' }),
       };
-    }
     case 'delta':
       // 单次整篇流式:逐 token 追加;首个 delta 起就显示正文,撤掉进度条
       return {

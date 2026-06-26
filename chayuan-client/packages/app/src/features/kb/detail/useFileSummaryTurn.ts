@@ -59,7 +59,6 @@ export function useFileSummaryTurn(opts: UseFileSummaryTurnOptions): UseFileSumm
     unsubRef.current.get(assistantId)?.();
     patch(assistantId, (m) => ({
       ...m, streaming: true, content: '', error: undefined,
-      taskProgress: { percent: 0, message: '正在通览整篇并归纳…' },
       metadata: { ...(m.metadata ?? {}), summary: { state: 'running', fileName } },
     }));
     const unsub = subscribeFileSummary(
@@ -102,7 +101,6 @@ export function useFileSummaryTurn(opts: UseFileSummaryTurnOptions): UseFileSumm
     const userMsg: ChatMessage = { id: uuid(), role: 'user', content: `请整篇总结《${fileName}》`, createdAt: now };
     const asstMsg: ChatMessage = {
       id: assistantId, role: 'assistant', content: '', createdAt: now + 1, streaming: true,
-      taskProgress: { percent: 0, message: '正在通览整篇并归纳…' },
       metadata: { summary: { state: 'running', fileName } },
     };
     setMessages((prev) => [...prev, userMsg, asstMsg]);
