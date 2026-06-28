@@ -24,6 +24,7 @@
 > - **Architecture, microservices & Docker deployment**
 >
 > I work **async-friendly** and communicate in **clear written English**. I scope honestly, deliver complete and reliable software, and stick around for iteration. Message me with what you're building.
+> **Live product:** https://aidooo.com · **Open-source releases:** github.com/zhgyuhuii/chayuan-desktop-releases · github.com/zhgyuhuii/chayuan-wps-releases
 
 **中文说明**:这是"AI Apps"专项档案用的加长概述;比主 Overview 更长更展开。Upwork 一个账号可建多个 Specialized Profile,建议建 **①AI & LLM Development ②Full-Stack Development** 两个,各放对应侧重的版本(AI 版用上面这段,全栈版把 AI 段缩短、突出微服务/跨端)。
 
@@ -39,6 +40,7 @@
 
 **Tech:** Python, FastAPI, LangChain, RAG, React, TypeScript, Vue, Tauri, PostgreSQL, Milvus, Redis, Docker
 **Skills tags:** `LLM` `RAG` `Python` `FastAPI` `React` `AI Chatbot` `Full-Stack` `Docker`
+**Links:** Live https://aidooo.com · Releases: github.com/zhgyuhuii/chayuan-desktop-releases, github.com/zhgyuhuii/chayuan-wps-releases
 
 ---
 

@@ -10,6 +10,7 @@
 ## Yuhui Zhang
 **Senior Full-Stack Engineer · AI / LLM Application Specialist**
 Beijing, China (Remote, GMT+8) · cmdbird@163.com · 19 years of experience
+🔗 **Live product:** https://aidooo.com · **Open-source releases:** github.com/zhgyuhuii/chayuan-desktop-releases · github.com/zhgyuhuii/chayuan-wps-releases
 
 ---
 
@@ -38,6 +39,7 @@ End-to-end AI platform unifying document RAG, structured-data Q&A, multimodal ge
 - Delivered **multimodal** features: text-to-image/video, digital human, TTS & voice cloning, ASR — with a model gateway running **local inference (llama.cpp / whisper)** alongside **170+ cloud models**.
 - Implemented **RBAC multi-tenant** auth, seat licensing, unified file service, and **Docker** deployment; published images to Docker Hub & Aliyun ACR. **5 repositories, 3700+ commits.**
 - Shipped **4 product editions** (WPS add-in, desktop, team/service, enterprise) on one engine; full **domestic-stack** support (Kylin/UOS OS, Dameng/Kingbase DB, LoongArch CPU).
+- **Live / Releases:** https://aidooo.com · github.com/zhgyuhuii/chayuan-desktop-releases · github.com/zhgyuhuii/chayuan-wps-releases
 
 **Shanglang Tianwang — Cloud-Native O2O Commerce Platform** · Full-Stack Engineer · 2021–2022
 O2O platform linking physical stores and e-commerce via WeChat/Alipay/Douyin mini-programs, multi-role supply chain.
@@ -77,6 +79,7 @@ PMBOK-based full-lifecycle PM & audit across web/PC/Android/iOS/server; 20+ modu
 ## 张玉辉
 **资深全栈工程师 · AI / 大模型应用专家**
 中国 · 北京(远程,GMT+8) · cmdbird@163.com · 19 年经验
+🔗 **在线产品:** https://aidooo.com · **开源发布:** github.com/zhgyuhuii/chayuan-desktop-releases · github.com/zhgyuhuii/chayuan-wps-releases
 
 ---
 
@@ -105,6 +108,7 @@ PMBOK-based full-lifecycle PM & audit across web/PC/Android/iOS/server; 20+ modu
 - **多模态**:文生图/文生视频、数字人、TTS 与克隆音色、ASR;模型网关支持**本地推理(llama.cpp/whisper)** 与 **170+ 云端模型**。
 - **RBAC 多租户**、席位授权、统一文件服务、**Docker** 部署;镜像发布到 Docker Hub 与阿里云 ACR。**5 个仓库、3700+ 提交。**
 - 同一引擎交付 **4 个产品形态**(WPS 加载项/桌面/团队服务/企业版);全栈**国产化**(麒麟/UOS、达梦/金仓、龙芯)。
+- **在线 / 发布:** https://aidooo.com · github.com/zhgyuhuii/chayuan-desktop-releases · github.com/zhgyuhuii/chayuan-wps-releases
 
 **商郎天网 — 云原生 O2O 电商融合平台** · 全栈工程师 · 2021–2022
 连接实体门店与电商的 O2O 平台,微信/支付宝/抖音小程序下单,多角色供应链互通。

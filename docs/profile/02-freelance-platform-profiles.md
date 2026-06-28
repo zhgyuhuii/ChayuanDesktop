@@ -1,7 +1,7 @@
 # 自由职业平台档案 · Freelance Platform Profiles (Bilingual)
 
 > 同一个人,8 个平台,各按平台格式与受众优化。每段英文为主(国际平台)+ 中文版。
-> 通用事实:Yuhui Zhang(张玉辉)· 19 年经验 · 资深全栈 + AI/LLM · 北京远程 GMT+8 · cmdbird@163.com
+> 通用事实:Yuhui Zhang(张玉辉)· 19 年经验 · 资深全栈 + AI/LLM · 北京远程 GMT+8 · cmdbird@163.com  · 作品 https://aidooo.com · github.com/zhgyuhuii
 > ⚠️ 时薪为**建议值**,按你定位自行调整;沟通:书面英语为主,偏好文字/异步协作。
 
 ---
@@ -37,6 +37,7 @@ I communicate in clear **written English**, work async-friendly, scope honestly,
 `Python` `FastAPI` `LangChain` `RAG` `LLM` `OpenAI API` `React` `TypeScript` `Vue.js` `Java` `Spring Cloud` `Electron` `Tauri` `PostgreSQL` `Elasticsearch` `Redis` `Milvus` `Docker` `Microservices` `Full-Stack Development`
 
 ### 时薪:**$35/hr 起**(冷启动价,快速攒好评;站稳后升 $55–70;AI 项目走固定价)
+**Portfolio:** Live https://aidooo.com · Open-source releases: github.com/zhgyuhuii/chayuan-desktop-releases · github.com/zhgyuhuii/chayuan-wps-releases
 
 ---
 
