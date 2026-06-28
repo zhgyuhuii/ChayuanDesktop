@@ -130,6 +130,16 @@
 **Tech:** C# / .NET, networking (socket, web services), high-concurrency design
 **Skills tags:** `High Concurrency` `Backend` `C#` `System Architecture`
 
+### Card 10 — AI Writing & Review Assistant Inside Word/Office (Add-in)
+**Title:** AI Writing & Review Assistant Inside Microsoft Word / Office
+
+**Description:**
+> **The problem:** professionals draft, review, and proofread documents all day — but switching to ChatGPT breaks their flow and loses the document's context. **What I built:** an AI assistant that lives **inside the Word/WPS editor** as a side-panel add-in. Users chat with an LLM about the open document, draft and rewrite text, run proofreading and compliance checks, and query a connected knowledge base (RAG) with citations — all without leaving the document. AI output writes back into the document in **8 ways** (replace / insert / append / comment / linked comment, and more), preserving the original formatting. API keys and data stay local or in-network. **Result:** writing, review, and research happen in one place, in-context, with no copy-paste.
+
+**Tech:** JavaScript, Vue, Office/WPS Add-in API, LLM, RAG, OpenAI-compatible endpoints
+**Skills tags:** `Microsoft Office Add-in` `Microsoft Word` `AI` `LLM` `JavaScript` `Automation`
+**Links:** Releases: github.com/zhgyuhuii/chayuan-wps-releases · https://aidooo.com
+
 ---
 
 ## C. 上传到 Upwork 的小贴士(中文)
