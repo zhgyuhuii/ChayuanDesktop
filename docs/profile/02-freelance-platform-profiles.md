@@ -1,8 +1,8 @@
 # 自由职业平台档案 · Freelance Platform Profiles (Bilingual)
 
 > 同一个人,8 个平台,各按平台格式与受众优化。每段英文为主(国际平台)+ 中文版。
-> 通用事实:Yuhui Zhang(张玉辉)· 19 年经验 · 资深全栈 + AI/LLM · 北京远程 GMT+8 · zhgyuhuig@gmail.com
-> ⚠️ 时薪为**建议值**,按你定位自行调整;英语沟通水平请按实际填写。
+> 通用事实:Yuhui Zhang(张玉辉)· 19 年经验 · 资深全栈 + AI/LLM · 北京远程 GMT+8 · cmdbird@163.com
+> ⚠️ 时薪为**建议值**,按你定位自行调整;沟通:书面英语为主,偏好文字/异步协作。
 
 ---
 
@@ -18,7 +18,7 @@
 
 Most recently I architected **Chayuan**, a complete enterprise AI assistant platform — document RAG with grounded citations, Text2SQL, multimodal generation (text-to-image/video, digital human, TTS/ASR), and a unified model gateway running **local inference (llama.cpp/whisper) + 170+ cloud models**. Stack: Python/FastAPI, React/TypeScript monorepo, Vue, Tauri, Docker, Milvus/PostgreSQL/Redis. 5 repos, 3700+ commits, multiple product editions.
 
-Before AI, I spent 16+ years building enterprise platforms: cloud-native microservices (Java/Spring Cloud), O2O commerce, a smart-agriculture platform I built solo, and large project-management/audit systems for ministry-level and university clients — plus high-concurrency systems (an exam platform serving thousands of simultaneous users).
+Before AI, I spent 16+ years building enterprise platforms: cloud-native microservices (Java/Spring Cloud), O2O commerce, a smart-agriculture platform I built solo, and large project-management/audit systems for government and university clients — plus high-concurrency systems (an exam platform serving thousands of simultaneous users).
 
 **What I can do for you:**
 - 🤖 RAG / LLM apps: chatbots over your data, Text2SQL, agents, multimodal
@@ -26,12 +26,12 @@ Before AI, I spent 16+ years building enterprise platforms: cloud-native microse
 - 🖥️ Cross-platform desktop: Electron / Tauri
 - ☁️ Architecture, microservices, Docker deployment
 
-I communicate clearly, scope honestly, and ship. Let's talk about your project.
+I communicate in clear **written English**, work async-friendly, scope honestly, and ship. Message me and let's talk about your project.
 
 ### Overview(中文)
 > **我能把 AI 应用从架构到上线一手交付——而且我已经写了 19 年代码。** 需要 RAG、大模型产品,或一个真正能上线的全栈应用?整套我都能做:架构、后端、前端、部署。
 
-近期主导研发**察元**企业级 AI 助手平台:带引用溯源的文档 RAG、Text2SQL、多模态生成(文生图/视频、数字人、TTS/ASR)、本地推理(llama.cpp/whisper)+170+ 云端模型的统一网关。技术栈 Python/FastAPI、React/TS monorepo、Vue、Tauri、Docker、Milvus/PostgreSQL/Redis。AI 之前有 16+ 年企业平台经验:Spring Cloud 云原生微服务、O2O 电商、独立搭建的智慧农业平台、面向部委与高校的项目管理/审计系统,以及支持数千人同时在线的高并发考试系统。
+近期主导研发**察元**企业级 AI 助手平台:带引用溯源的文档 RAG、Text2SQL、多模态生成(文生图/视频、数字人、TTS/ASR)、本地推理(llama.cpp/whisper)+170+ 云端模型的统一网关。技术栈 Python/FastAPI、React/TS monorepo、Vue、Tauri、Docker、Milvus/PostgreSQL/Redis。AI 之前有 16+ 年企业平台经验:Spring Cloud 云原生微服务、O2O 电商、独立搭建的智慧农业平台、面向政府与高校的项目管理/审计系统,以及支持数千人同时在线的高并发考试系统。
 
 ### Skills 标签
 `Python` `FastAPI` `LangChain` `RAG` `LLM` `OpenAI API` `React` `TypeScript` `Vue.js` `Java` `Spring Cloud` `Electron` `Tauri` `PostgreSQL` `Elasticsearch` `Redis` `Milvus` `Docker` `Microservices` `Full-Stack Development`
@@ -117,15 +117,15 @@ I communicate clearly, scope honestly, and ship. Let's talk about your project.
 ### Professional Summary(英文)
 > Senior full-stack engineer with **19 years** of experience architecting and delivering production systems end-to-end. I specialize in **AI/LLM engineering** — having designed and built a complete enterprise AI platform spanning RAG, Text2SQL, multimodal generation, and a unified local+cloud model gateway — backed by **16+ years of deep Java/Spring Cloud microservices** and cross-platform engineering (React, Vue, Electron, Tauri, C#/WPF).
 
-> I have repeatedly owned systems from requirements and architecture through implementation and deployment, including a smart-agriculture platform I built single-handedly, cloud-native O2O commerce, and lifecycle project-management/audit systems delivered to **ministry-level, military, and top-university** clients. I bring rigorous architecture, high-concurrency experience, and the rare ability to ship complete products alone or lead a stack.
+> I have repeatedly owned systems from requirements and architecture through implementation and deployment, including a smart-agriculture platform I built single-handedly, cloud-native O2O commerce, and lifecycle project-management/audit systems delivered to **government, defense-sector, and top-university** clients. I bring rigorous architecture, high-concurrency experience, and the rare ability to ship complete products alone or lead a stack.
 
 ### 关键项目(Highlights)
 - **Chayuan AI Platform** — architected RAG + multimodal + model gateway; Python/FastAPI, React/TS monorepo, Tauri; 5 repos, 3700+ commits, 4 product editions.
 - **Cloud-native O2O & smart-agriculture platforms** — Spring Cloud microservices (Nacos, Seata, RocketMQ), Elasticsearch, solo/lead delivery.
-- **Enterprise PM & audit systems** — multi-platform (web/PC/Android/iOS), ministry & university clients.
+- **Enterprise PM & audit systems** — multi-platform (web/PC/Android/iOS), government & university clients.
 
 ### Professional Summary(中文)
-> 19 年资深全栈工程师,擅长端到端架构与交付生产系统。专长 **AI/大模型工程**:独立设计并构建完整企业 AI 平台(RAG、Text2SQL、多模态生成、本地+云端统一模型网关),并有 **16+ 年深厚的 Java/Spring Cloud 微服务**与跨平台工程(React、Vue、Electron、Tauri、C#/WPF)经验。多次从需求、架构到实现、部署全程负责,包括独立搭建的智慧农业平台、云原生 O2O 电商,以及交付给**部委、军方、顶尖高校**的全生命期项目管理/审计系统。架构严谨、有高并发经验,且具备少见的"独立交付完整产品"能力。
+> 19 年资深全栈工程师,擅长端到端架构与交付生产系统。专长 **AI/大模型工程**:独立设计并构建完整企业 AI 平台(RAG、Text2SQL、多模态生成、本地+云端统一模型网关),并有 **16+ 年深厚的 Java/Spring Cloud 微服务**与跨平台工程(React、Vue、Electron、Tauri、C#/WPF)经验。多次从需求、架构到实现、部署全程负责,包括独立搭建的智慧农业平台、云原生 O2O 电商,以及交付给**政府、国防领域及顶尖高校**客户的全生命期项目管理/审计系统。架构严谨、有高并发经验,且具备少见的"独立交付完整产品"能力。
 
 ---
 
@@ -168,27 +168,29 @@ I communicate clearly, scope honestly, and ship. Let's talk about your project.
 ### CV Highlights
 - Chayuan enterprise AI platform — RAG + multimodal + model gateway (Python/FastAPI, React/TS, Tauri)
 - Cloud-native O2O & smart-agriculture platforms (Spring Cloud microservices)
-- Enterprise PM/audit systems for ministry & university clients
+- Enterprise PM/audit systems for government & university clients
 - 19 yrs · 20+ platforms · B.S. Computer Science (Zhengzhou University)
 
 ---
 
 ## 各平台建议时薪 / 定位速查
 
-| 平台 | 类型 | 建议起步时薪 | 备注 |
-|---|---|---|---|
-| Upwork | 开放市场 | $45–65 | 先攒评价再涨;Specialized Profile 选"AI Apps" |
-| Fiverr | 服务产品 | 见 Gig 套餐 | 用三档套餐锚定价值 |
-| Freelancer | 开放竞标 | $30–50 | 竞标突出"独立全交付" |
-| Guru | 开放市场 | $40–60 | 服务清单要清楚 |
-| Toptal | 精英(平台定价) | 不写 | 重资历/深度,先过筛选 |
-| Arc.dev | 精选远程 | $50–80 | 偏长期合同/全职 |
-| CloudDevs | 精选资深 | $50–80 | 强调 senior + 端到端 |
-| Index.dev | AI 匹配精选 | $50–80 | 关键词要全,利于匹配 |
+> 📌 **重要(按你"仅书面英语"的实际)**:优先做**文字/异步为主、无需英语通话**的平台 → **Upwork / Fiverr / Freelancer / Guru**。精英网(Toptal/Arc/CloudDevs/Index.dev)普遍含**英文视频面试**,口语弱较难过,建议**暂缓**或先确认能否纯文字评估。
+
+| 平台 | 类型 | 建议起步时薪 | 需英语口语? | 适配 / 备注 |
+|---|---|---|---|---|
+| Upwork | 开放市场 | $45–65 | 基本不需要(文字为主) | ★★★ 最适合;Specialized Profile 选"AI Apps" |
+| Fiverr | 服务产品 | 见 Gig 套餐 | 不需要 | ★★★ 最适合;三档套餐锚定价值 |
+| Freelancer | 开放竞标 | $30–50 | 基本不需要 | ★★ 适合;突出"独立全交付" |
+| Guru | 开放市场 | $40–60 | 基本不需要 | ★★ 适合;服务清单清楚 |
+| Toptal | 精英(平台定价) | 不写 | **需要(英文视频面试)** | ⚠ 口语弱难过筛,暂缓 |
+| Arc.dev | 精选远程 | $50–80 | 多数有筛选通话 | ⚠ 先确认能否文字面试 |
+| CloudDevs | 精选资深 | $50–80 | 多有视频面试 | ⚠ 同上 |
+| Index.dev | AI 匹配精选 | $50–80 | 可能有通话 | ⚠ 以文字沟通为先 |
 
 ## 待你确认 / 完善
-1. **联系邮箱**:国际平台建议用 `zhgyuhuig@gmail.com`(比 163 更通)——确认用哪个。
-2. **英语水平**:Upwork/Arc/Index 等会问;按实际填(口语/书面)。Toptal 面试是英文。
+1. **联系邮箱**:`cmdbird@163.com`(已定)。
+2. **英语水平(已定)**:书面/技术英语熟练、口语有限 → 各档案已写 "written/technical English, async-first"。**优先文字异步平台**(Upwork/Fiverr/Freelancer/Guru);遇到要通话的客户,可礼貌说明"prefer text/async communication"(很多客户接受)。Toptal/Arc/CloudDevs/Index 的英文面试是主要门槛,口语提升前暂缓。
 3. **时薪**:上表是建议,按你的目标收入和议价意愿定。
 4. **作品集**:察元若有可公开的截图/视频/GitHub,放进各平台 Portfolio 能显著提升转化(注意脱敏:部委/军方类项目只写"government/defense client",不写具体名称)。
 5. **头像**:用专业正脸照(PDF 里那张可用),各平台都建议真人头像。

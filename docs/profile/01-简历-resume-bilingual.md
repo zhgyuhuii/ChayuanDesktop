@@ -9,7 +9,7 @@
 
 ## Yuhui Zhang
 **Senior Full-Stack Engineer · AI / LLM Application Specialist**
-Beijing, China (Remote, GMT+8) · zhgyuhuig@gmail.com · 19 years of experience
+Beijing, China (Remote, GMT+8) · cmdbird@163.com · 19 years of experience
 
 ---
 
@@ -25,6 +25,7 @@ Senior full-stack engineer with **19 years** of hands-on experience taking produ
 - **Desktop / Cross-platform**: Electron, Tauri, WPF, WinForm, C#, C/C++, Objective-C; Android / iOS
 - **Data & Infra**: PostgreSQL, MySQL, Redis, Elasticsearch, Milvus, MinIO, Dameng (达梦), SQLite; Docker, cloud-native, Linux, CI/CD
 - **Strengths**: end-to-end independent delivery · system architecture · high-concurrency · domestic-stack (信创) adaptation · client-facing solutioning
+- **Languages / Communication**: Chinese (native); professional **written & technical English** — async / text-first collaboration (chat, email, issues, docs)
 
 ---
 
@@ -75,7 +76,7 @@ PMBOK-based full-lifecycle PM & audit across web/PC/Android/iOS/server; 20+ modu
 
 ## 张玉辉
 **资深全栈工程师 · AI / 大模型应用专家**
-中国 · 北京(远程,GMT+8) · zhgyuhuig@gmail.com · 19 年经验
+中国 · 北京(远程,GMT+8) · cmdbird@163.com · 19 年经验
 
 ---
 
@@ -91,6 +92,7 @@ PMBOK-based full-lifecycle PM & audit across web/PC/Android/iOS/server; 20+ modu
 - **桌面/跨平台**:Electron、Tauri、WPF、WinForm、C#、C/C++、Objective-C;Android/iOS
 - **数据与基础设施**:PostgreSQL、MySQL、Redis、Elasticsearch、Milvus、MinIO、达梦、SQLite;Docker、云原生、Linux、CI/CD
 - **优势**:端到端独立交付 · 系统架构 · 高并发 · 信创国产化适配 · 面向客户的方案设计
+- **语言 / 沟通**:中文(母语);熟练**书面与技术英语**——偏好文字/异步协作(IM、邮件、工单、文档)
 
 ---
 
@@ -136,4 +138,4 @@ PMBOK-based full-lifecycle PM & audit across web/PC/Android/iOS/server; 20+ modu
 
 ---
 
-> 待你确认的项:①联系邮箱用 gmail(国际)还是 163;②英语沟通水平(写进档案);③期望时薪(见平台档案里的建议)。
+> 备注:邮箱 cmdbird@163.com;英语以书面/技术沟通为主(偏好文字异步);期望时薪见 02 平台档案建议。

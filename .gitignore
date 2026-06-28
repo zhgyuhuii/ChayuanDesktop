@@ -155,3 +155,4 @@ chayuan-server/vendor/bundled_video_clips/**
 chayuan-server/vendor/services/imagemagick/**
 !chayuan-server/vendor/services/imagemagick/.gitkeep
 !chayuan-server/vendor/services/imagemagick/README.md
+docs/profile/profile.pdf
