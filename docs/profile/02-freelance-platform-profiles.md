@@ -36,7 +36,7 @@ I communicate in clear **written English**, work async-friendly, scope honestly,
 ### Skills 标签
 `Python` `FastAPI` `LangChain` `RAG` `LLM` `OpenAI API` `React` `TypeScript` `Vue.js` `Java` `Spring Cloud` `Electron` `Tauri` `PostgreSQL` `Elasticsearch` `Redis` `Milvus` `Docker` `Microservices` `Full-Stack Development`
 
-### 建议时薪:**$45–65/hr**(资深 + AI;先 $45 起量,有评价后提价)
+### 时薪:**$35/hr 起**(冷启动价,快速攒好评;站稳后升 $55–70;AI 项目走固定价)
 
 ---
 
@@ -179,10 +179,10 @@ I communicate in clear **written English**, work async-friendly, scope honestly,
 
 | 平台 | 类型 | 建议起步时薪 | 需英语口语? | 适配 / 备注 |
 |---|---|---|---|---|
-| Upwork | 开放市场 | $45–65 | 基本不需要(文字为主) | ★★★ 最适合;Specialized Profile 选"AI Apps" |
+| Upwork | 开放市场 | $35 起 | 基本不需要(文字为主) | ★★★ 最适合;Specialized Profile 选"AI Apps" |
 | Fiverr | 服务产品 | 见 Gig 套餐 | 不需要 | ★★★ 最适合;三档套餐锚定价值 |
-| Freelancer | 开放竞标 | $30–50 | 基本不需要 | ★★ 适合;突出"独立全交付" |
-| Guru | 开放市场 | $40–60 | 基本不需要 | ★★ 适合;服务清单清楚 |
+| Freelancer | 开放竞标 | $35 起 | 基本不需要 | ★★ 适合;突出"独立全交付" |
+| Guru | 开放市场 | $35 起 | 基本不需要 | ★★ 适合;服务清单清楚 |
 | Toptal | 精英(平台定价) | 不写 | **需要(英文视频面试)** | ⚠ 口语弱难过筛,暂缓 |
 | Arc.dev | 精选远程 | $50–80 | 多数有筛选通话 | ⚠ 先确认能否文字面试 |
 | CloudDevs | 精选资深 | $50–80 | 多有视频面试 | ⚠ 同上 |
@@ -191,6 +191,6 @@ I communicate in clear **written English**, work async-friendly, scope honestly,
 ## 待你确认 / 完善
 1. **联系邮箱**:`cmdbird@163.com`(已定)。
 2. **英语水平(已定)**:书面/技术英语熟练、口语有限 → 各档案已写 "written/technical English, async-first"。**优先文字异步平台**(Upwork/Fiverr/Freelancer/Guru);遇到要通话的客户,可礼貌说明"prefer text/async communication"(很多客户接受)。Toptal/Arc/CloudDevs/Index 的英文面试是主要门槛,口语提升前暂缓。
-3. **时薪**:上表是建议,按你的目标收入和议价意愿定。
+3. **时薪(已定)**:冷启动 **$35/hr 起**,快速攒 5 星好评/JSS;站稳后升 $55–70;AI 项目优先按项目固定价。
 4. **作品集**:察元若有可公开的截图/视频/GitHub,放进各平台 Portfolio 能显著提升转化(注意脱敏:部委/军方类项目只写"government/defense client",不写具体名称)。
 5. **头像**:用专业正脸照(PDF 里那张可用),各平台都建议真人头像。
