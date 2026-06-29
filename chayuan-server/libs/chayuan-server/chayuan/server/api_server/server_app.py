@@ -75,6 +75,34 @@ from chayuan.server.api_server._startup_timing import phase
 
 
 def create_app(run_mode: str = None):
+    # ── Phase 5 profile bootstrap(mp spawn 修复)──────────────────────────
+    # API server 由 startup.py 以 ``mp.set_start_method("spawn")`` 在**独立子进程**
+    # 拉起；spawn = 全新解释器,**不继承父进程 main() 里 apply_profile() 的内存改动**。
+    # 单机 profile 的 ``apply_single_machine``(把 AUTH_REQUIRED 强制 False 并
+    # ``set_auto_reload(False)``)若只在启动器父进程跑,本 API 进程的 Settings 仍是
+    # ``auto_reload=True`` —— 每次访问从 basic_settings.yaml 重读。一旦该 yaml 里残留
+    # ``AUTH_REQUIRED: true``(例如 CHAYUAN_ROOT 被 ``chayuan init --profile prod`` 跑过、
+    # 或用户在配置面板开过强制登录),``deps.get_current_user`` 就会对匿名访问 401,
+    # 单机版"默认匿名免登录"彻底失效(现象:打包后所有接口报 AuthRequired)。
+    # 故在构建 app 的最早阶段(读任何 Settings 之前)按 CHAYUAN_PROFILE **再应用一次**
+    # profile —— 幂等、env 门控,非单机(CHAYUAN_PROFILE 未设)时 apply_profile() no-op。
+    try:
+        from chayuan.server.profiles import apply_profile
+
+        _applied = apply_profile()
+        if _applied:
+            import logging as _lg
+
+            _lg.getLogger("chayuan.server_app").info(
+                "create_app: 已在 API 子进程应用 profile:%s", _applied
+            )
+    except Exception:  # noqa: BLE001
+        import logging as _lg
+
+        _lg.getLogger("chayuan.server_app").warning(
+            "create_app: profile bootstrap 失败(降级走默认形态)", exc_info=True
+        )
+
     # P2：日志 / tracing 在最早阶段初始化；缺依赖会自动降级为 no-op。
     setup_observability()
 
