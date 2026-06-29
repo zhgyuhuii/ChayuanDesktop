@@ -5,6 +5,7 @@ export * from './wizard';
 export * from './configSchema';
 export * from './vectorStore';
 export * from './roles';
+export * from './orgs';
 export * from './errors';
 export * from './auth-store';
 export * from './endpoints';

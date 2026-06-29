@@ -62,13 +62,19 @@ export interface AdminUserPublic {
   is_active: boolean;
   created_at: string | null;
   last_login_at: string | null;
+  /** 多角色(org-RBAC P5,后端已返回) */
+  roles?: string[];
+  /** 所属部门 id(org-RBAC P5) */
+  dept_id?: number | null;
 }
 
 export function adminCreateUser(body: {
   username: string;
   password: string;
   role?: string;
+  roles?: string[];
   email?: string;
+  dept_id?: number | null;
 }): Promise<AdminUserPublic> {
   return http.post<AdminUserPublic>('/auth/users', body);
 }
@@ -81,6 +87,26 @@ export function adminSetUserActive(userId: number, isActive: boolean): Promise<{
 
 export function adminSetUserPassword(userId: number, newPassword: string): Promise<{ code: number }> {
   return http.patch<{ code: number }>(`/auth/users/${userId}/password`, { new_password: newPassword });
+}
+
+/** 设置用户的多角色(org-RBAC P5)。 */
+export function adminSetUserRoles(userId: number, roles: string[]): Promise<{ roles: string[] }> {
+  return http.put<{ roles: string[] }>(`/auth/users/${userId}/roles`, { roles });
+}
+
+/** 设置用户所属部门(org-RBAC P5)。 */
+export function adminSetUserDept(userId: number, deptId: number | null): Promise<{ code: number }> {
+  return http.patch<{ code: number }>(`/auth/users/${userId}/dept`, { dept_id: deptId });
+}
+
+/** 删除用户(org-RBAC P5)。 */
+export function adminDeleteUser(userId: number): Promise<{ code: number }> {
+  return http.del<{ code: number }>(`/auth/users/${userId}`);
+}
+
+/** 列出全部用户(含 roles/dept_id)(org-RBAC P5)。 */
+export function adminListUsers(): Promise<AdminUserPublic[]> {
+  return http.get<AdminUserPublic[]>('/auth/users');
 }
 
 

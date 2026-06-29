@@ -846,7 +846,17 @@ export const apps = {
 // ── 知识库 ACL(admin) ───────────────────────────────────────────
 export interface KbAclItem { id: number; kb_name: string; owner_id: number | null; visibility: string }
 export interface KbAclUser { id: number; label: string }
-export interface KbGrant { user_id: number; user: string; role: string; granted_by: number | null }
+// 授权主体泛化(org-RBAC P5):支持 user / role / dept 三类主体 + 部门子树继承。
+// 旧字段 user_id/user 在 subject_type==='user' 时由后端附带,保留可选兼容。
+export interface KbGrant {
+  subject_type: 'user' | 'role' | 'dept';
+  subject_id: string;
+  role: string;
+  include_subtree?: boolean;
+  user_id?: number;   // user 主体时后端附带
+  user?: string;      // user 主体时后端附带用户名
+  granted_by?: number | null;
+}
 export const kbAcl = {
   // http.get 会剥 {code,msg,data} 信封直接返回 data;旧实现用 raw:true 不剥壳,
   // 返回整信封 → 前端 q.data.kbs 为 undefined → KB 列表恒空(看着像"没实现")。
@@ -857,10 +867,18 @@ export const kbAcl = {
     http.patch<unknown>(`/api/v1/admin/kb-acl/${kbId}/visibility`, { visibility }).then(() => undefined),
   setOwner: (kbId: number, ownerId: number | null) =>
     http.patch<unknown>(`/api/v1/admin/kb-acl/${kbId}/owner`, { owner_id: ownerId }).then(() => undefined),
+  // 旧签名:按 user_id 授权(兼容保留)。
   addGrant: (kbId: number, userId: number, role: string) =>
     http.post<unknown>(`/api/v1/admin/kb-acl/${kbId}/grants`, { user_id: userId, role }).then(() => undefined),
+  // 新:泛化主体授权(user/role/dept + 子树)。
+  addSubjectGrant: (kbId: number, subjectType: 'user' | 'role' | 'dept', subjectId: string, role: string, includeSubtree = false) =>
+    http.post<unknown>(`/api/v1/admin/kb-acl/${kbId}/grants`, { subject_type: subjectType, subject_id: subjectId, role, include_subtree: includeSubtree }).then(() => undefined),
+  // 旧签名:撤销 user 授权(改走 query,后端泛化端点)。
   revokeGrant: (kbId: number, userId: number) =>
-    http.del<unknown>(`/api/v1/admin/kb-acl/${kbId}/grants/${userId}`).then(() => undefined),
+    http.del<unknown>(`/api/v1/admin/kb-acl/${kbId}/grants`, { query: { subject_type: 'user', subject_id: String(userId) } }).then(() => undefined),
+  // 新:泛化主体撤销。
+  revokeSubjectGrant: (kbId: number, subjectType: string, subjectId: string) =>
+    http.del<unknown>(`/api/v1/admin/kb-acl/${kbId}/grants`, { query: { subject_type: subjectType, subject_id: subjectId } }).then(() => undefined),
 };
 
 
