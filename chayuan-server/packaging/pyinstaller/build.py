@@ -584,6 +584,28 @@ def sync_bundled_models(
         (DESKTOP_BUNDLED_MODELS_DIR / ".gitkeep").touch()
         return
 
+    # ── 自包含护栏:full/pro 档要求核心能力(chat/embedding)随包,否则装机后
+    #    「开箱即用」名存实亡(运行时 bundled_seed 无源可拷,且空 cap 只 warning),
+    #    用户会以为「机制坏了」。源为空就在打包阶段 fail-fast,给出确切填充命令。
+    #    想要模型走云/一键下载的,请改打 --release standard。
+    if is_full:
+        def _cap_has_model(cap_dir: Path) -> bool:
+            if not cap_dir.is_dir():
+                return False
+            for p in cap_dir.rglob("*"):
+                if p.is_file() and p.name != ".gitkeep" and "__pycache__" not in p.parts:
+                    return True
+            return False
+        _essential = [c for c in ("chat", "embedding") if c in caps]
+        _missing = [c for c in _essential if not _cap_has_model(src / c)]
+        if _missing:
+            raise SystemExit(
+                f"[build] full/pro 自包含档要求核心模型随包,但这些能力的源为空:"
+                f"{', '.join(_missing)}(源根={src})。\n"
+                f"  先填充再打包:install-bundled-models(把 GGUF 放进 "
+                f"vendor/bundled_models/<cap>/),或改打 --release standard(模型走云/一键下载)。"
+            )
+
     # full 模式整树分流 — 仅 Windows 目标平台需要:
     #   - Windows full:整个 bundled_models 走 EXTERNAL_SEED_DIR(ISO 旁挂,装机后从光驱拷),
     #     MSI 里一个模型文件都不放 —— 否则上万模型小文件灌进 MSI File 表把 32 位 light.exe

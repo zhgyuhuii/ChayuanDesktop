@@ -50,6 +50,10 @@ class SeedReport:
     # 这次成功扫描到并使用的外部介质路径(光驱根/models_seed 这种)。
     # 不是 None = 这次至少试过从外部介质拷过文件;是 None = 没找到匹配介质 / 不需要。
     external_source: Optional[str] = None
+    # 源目录里存在但为空(只有 .gitkeep / 占位)的 cap。装机即用最常见的「为啥没模型」
+    # 真因:打包时 vendor/bundled_models/<cap>/ 没放 GGUF。单独记下来,末尾显式 warning,
+    # 不再像以前那样静默 continue 让用户完全看不到线索。
+    empty_caps: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -60,6 +64,7 @@ class SeedReport:
             "errors": list(self.errors),
             "external_pending": list(self.external_pending),
             "external_source": self.external_source,
+            "empty_caps": list(self.empty_caps),
         }
 
 
@@ -366,6 +371,8 @@ def seed_bundled_models(*, target_dir: Optional[Path] = None) -> SeedReport:
         except OSError:
             real_children = []
         if not real_children:
+            # 源里这个 cap 是空的(只有 .gitkeep)——记下来,末尾统一 warning。
+            report.empty_caps.append(cap)
             continue
         _copy_tree(sub_src, dst_root / cap, f"bundled/{cap}", report)
 
@@ -382,6 +389,16 @@ def seed_bundled_models(*, target_dir: Optional[Path] = None) -> SeedReport:
             report.source, report.target,
             len(report.copied), len(report.skipped), len(report.errors),
             len(report.external_pending), report.external_source,
+        )
+    if report.empty_caps:
+        # 显式告警:这些能力的随包模型源为空,装机后这些 cap 不会有任何模型。
+        # 这是「装好了却没模型」最常见的真因,以前是静默 continue,完全看不到。
+        logger.warning(
+            "[bundled-seed] 以下能力随包模型源为空、未 seed 任何文件:%s(源根=%s)。"
+            "若要单机自包含开箱即用,需在打包前往 vendor/bundled_models/<cap>/ 放 GGUF"
+            "(用 install-bundled-models);若本档位本就不带模型(lite/standard,模型走云)"
+            "则可忽略本条。",
+            ", ".join(report.empty_caps), report.source,
         )
     return report
 
