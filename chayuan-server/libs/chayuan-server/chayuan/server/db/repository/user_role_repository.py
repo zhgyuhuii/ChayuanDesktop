@@ -76,3 +76,36 @@ def effective_roles(user_id: int, dept_id: Optional[int]) -> List[str]:
                             DeptRoleModel.include_subtree.is_(True)).all():
                         inherited.add(r[0])
         return sorted(direct | inherited)
+
+
+def data_scope(user_id: int, dept_id: Optional[int]):
+    """返回 (mode, dept_ids):
+      ("all", None)                全部数据,不过滤
+      ("depts", frozenset(ids))    仅这些部门
+      ("self", None)               只看自己
+    取所有有效角色里最宽的范围(全部 > 部门集 > 仅本人)。
+    """
+    from chayuan.server.db.repository import role_repository as rr
+    from chayuan.server.db.repository import dept_repository as dr
+    roles = effective_roles(user_id, dept_id)
+    # admin 恒为全部数据(等同 data_scope=1);迁移 seed admin→1,此处对未 seed 的
+    # 库(如 create_all 测试库默认 3)也兜底,与主角色判定一致。
+    if "admin" in roles:
+        return ("all", None)
+    depts: set = set()
+    for rn in roles:
+        sc, custom = rr.get_role_scope(rn)
+        if sc == 1:
+            return ("all", None)
+        if sc == 4:
+            if dept_id is not None:
+                depts |= set(dr.subtree_ids(dept_id))
+        elif sc == 3:
+            if dept_id is not None:
+                depts.add(dept_id)
+        elif sc == 2:
+            depts |= set(custom)
+        # sc == 5 仅本人:不贡献部门
+    if depts:
+        return ("depts", frozenset(depts))
+    return ("self", None)

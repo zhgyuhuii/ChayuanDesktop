@@ -353,9 +353,28 @@ def logout():
 @auth_router.get(
     "/users", response_model=List[UserPublicSchema], summary="[admin] 列用户"
 )
-def admin_list_users(_=Depends(require_role("admin")), limit: int = 100, offset: int = 0):
-    users = svc.list_users(limit=limit, offset=offset)
-    return [_user_public(u) for u in users]
+def admin_list_users(cur: Dict[str, Any] = Depends(require_role("admin")), limit: int = 100, offset: int = 0):
+    from chayuan.server.db.repository import user_role_repository as urr
+    from chayuan.server.db.session import session_scope
+    from chayuan.server.db.models.user_model import UserModel as _U
+    uid = int(cur.get("id") or 0)
+    # admin 主角色一律看全部(覆盖 data_scope:既符合现实,也避免注入态 admin 无 DB 行时退化成 self)
+    if cur.get("role") == "admin":
+        mode, ids = "all", None
+    elif uid > 0:
+        full = svc.get_user_by_id(uid)
+        dept_id = getattr(full, "dept_id", None) if full else None
+        mode, ids = urr.data_scope(uid, dept_id)
+    else:
+        mode, ids = "all", None
+    with session_scope() as s:
+        q = s.query(_U)
+        if mode == "depts":
+            q = q.filter(_U.dept_id.in_(list(ids)))
+        elif mode == "self":
+            q = q.filter(_U.id == uid)
+        rows = q.order_by(_U.id).offset(offset).limit(limit).all()
+        return [_user_public(u) for u in rows]
 
 
 @auth_router.post(
