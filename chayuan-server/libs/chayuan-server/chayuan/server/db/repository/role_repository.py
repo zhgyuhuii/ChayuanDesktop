@@ -120,3 +120,17 @@ def effective_modules(role_name: Optional[str]) -> List[str]:
         if r.is_system and r.name == "admin":
             return list(ALL_MODULE_KEYS)
         return list(r.modules or [])
+
+
+def effective_modules_multi(role_names: List[str]) -> List[str]:
+    """多角色合并可见模块。含 admin → 全部;否则各角色 modules 的并集。"""
+    names = [n for n in (role_names or []) if n]
+    if "admin" in names:
+        return list(ALL_MODULE_KEYS)
+    out: List[str] = []
+    seen = set()
+    for n in names:
+        for m in effective_modules(n):
+            if m not in seen:
+                seen.add(m); out.append(m)
+    return out
