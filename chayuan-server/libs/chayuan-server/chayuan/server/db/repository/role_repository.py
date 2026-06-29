@@ -58,7 +58,16 @@ def get_role(name: str) -> Optional[Dict[str, Any]]:
         return r.to_dict() if r else None
 
 
-def create_role(name: str, description: str, modules: List[str]) -> Dict[str, Any]:
+def _clamp_scope(data_scope: Optional[int]) -> int:
+    """data_scope 限制在 1..5,越界/非法回退 3(本部门)。"""
+    try:
+        v = int(data_scope or 3)
+    except (TypeError, ValueError):
+        return 3
+    return v if 1 <= v <= 5 else 3
+
+
+def create_role(name: str, description: str, modules: List[str], data_scope: int = 3) -> Dict[str, Any]:
     ensure_builtin_roles()
     err = validate_name(name)
     if err:
@@ -67,13 +76,16 @@ def create_role(name: str, description: str, modules: List[str]) -> Dict[str, An
         if s.query(RoleModel).filter(RoleModel.name == name).one_or_none():
             raise ValueError(f"角色已存在：{name}")
         r = RoleModel(name=name, description=description or "",
-                      is_system=False, modules=sanitize_modules(modules))
+                      is_system=False, modules=sanitize_modules(modules),
+                      data_scope=_clamp_scope(data_scope))
         s.add(r)
         s.flush()
         return r.to_dict()
 
 
-def update_role(name: str, *, description: Optional[str], modules: Optional[List[str]]) -> Dict[str, Any]:
+def update_role(name: str, *, description: Optional[str], modules: Optional[List[str]],
+                data_scope: Optional[int] = None,
+                scope_dept_ids: Optional[List[int]] = None) -> Dict[str, Any]:
     with session_scope() as s:
         r = s.query(RoleModel).filter(RoleModel.name == name).one_or_none()
         if not r:
@@ -87,7 +99,12 @@ def update_role(name: str, *, description: Optional[str], modules: Optional[List
             r.description = description
         if modules is not None:
             r.modules = sanitize_modules(modules)
-        return r.to_dict()
+        if data_scope is not None:
+            r.data_scope = _clamp_scope(data_scope)
+        result = r.to_dict()
+    if scope_dept_ids is not None:
+        set_role_scope_depts(name, scope_dept_ids)
+    return result
 
 
 def delete_role(name: str) -> bool:
@@ -134,3 +151,32 @@ def effective_modules_multi(role_names: List[str]) -> List[str]:
             if m not in seen:
                 seen.add(m); out.append(m)
     return out
+
+
+def get_role_scope(name: str):
+    """返回 (data_scope:int, [dept_ids])。"""
+    from chayuan.server.db.models.role_scope_dept_model import RoleScopeDeptModel
+    with session_scope() as s:
+        r = s.query(RoleModel).filter(RoleModel.name == name).one_or_none()
+        if not r:
+            return (5, [])
+        depts = [row[0] for row in s.query(RoleScopeDeptModel.dept_id).filter(
+            RoleScopeDeptModel.role_name == name).all()]
+        return (int(r.data_scope or 3), depts)
+
+
+def set_role_scope_depts(name: str, dept_ids):
+    from chayuan.server.db.models.role_scope_dept_model import RoleScopeDeptModel
+    ids = []
+    for d in (dept_ids or []):
+        try:
+            di = int(d)
+        except (TypeError, ValueError):
+            continue
+        if di not in ids:
+            ids.append(di)
+    with session_scope() as s:
+        s.query(RoleScopeDeptModel).filter(RoleScopeDeptModel.role_name == name).delete()
+        for di in ids:
+            s.add(RoleScopeDeptModel(role_name=name, dept_id=di))
+    return ids

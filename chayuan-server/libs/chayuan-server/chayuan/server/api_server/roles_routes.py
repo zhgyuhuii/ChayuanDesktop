@@ -37,8 +37,14 @@ def create_role(body: Dict[str, Any] = Body(...), _=Depends(_ADMIN)) -> Dict[str
     modules = body.get("modules") or []
     if not isinstance(modules, list):
         raise HTTPException(status_code=400, detail="modules 必须是数组")
+    data_scope = body.get("data_scope", 3)
+    scope_dept_ids = body.get("scope_dept_ids")
+    if scope_dept_ids is not None and not isinstance(scope_dept_ids, list):
+        raise HTTPException(status_code=400, detail="scope_dept_ids 必须是数组")
     try:
-        role = repo.create_role(name, description, modules)
+        role = repo.create_role(name, description, modules, data_scope=data_scope)
+        if role.get("data_scope") == 2 and scope_dept_ids:
+            repo.set_role_scope_depts(name, scope_dept_ids)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"code": 0, "msg": "ok", "data": role}
@@ -51,8 +57,13 @@ def update_role(name: str, body: Dict[str, Any] = Body(...), _=Depends(_ADMIN)) 
     modules: Optional[List[str]] = body.get("modules")
     if modules is not None and not isinstance(modules, list):
         raise HTTPException(status_code=400, detail="modules 必须是数组")
+    data_scope: Optional[int] = body.get("data_scope")
+    scope_dept_ids: Optional[List[int]] = body.get("scope_dept_ids")
+    if scope_dept_ids is not None and not isinstance(scope_dept_ids, list):
+        raise HTTPException(status_code=400, detail="scope_dept_ids 必须是数组")
     try:
-        role = repo.update_role(name, description=description, modules=modules)
+        role = repo.update_role(name, description=description, modules=modules,
+                                data_scope=data_scope, scope_dept_ids=scope_dept_ids)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"code": 0, "msg": "ok", "data": role}
