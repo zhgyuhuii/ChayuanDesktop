@@ -8,8 +8,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@chayuan/ui';
-import { adminCreateUser, roles as rolesApi } from '@chayuan/api';
+import {
+  adminCreateUser,
+  roles as rolesApi,
+  orgs as orgsApi,
+  depts as deptsApi,
+} from '@chayuan/api';
 import { useQuery } from '@tanstack/react-query';
+import { DeptSelect } from '../orgs/DeptTree';
 
 /** 管理控制台「用户」页新建用户 —— 真·弹窗(Radix Dialog),点「新建用户」弹出。 */
 export const CreateUserDialog: React.FC<{ onCreated(): void }> = ({ onCreated }) => {
@@ -17,11 +23,15 @@ export const CreateUserDialog: React.FC<{ onCreated(): void }> = ({ onCreated })
   const [username, setU] = React.useState('');
   const [password, setP] = React.useState('');
   const [email, setE] = React.useState('');
-  const [role, setR] = React.useState('user');
+  // 多角色复选(org-RBAC P5):默认 user。
+  const [roleSet, setRoleSet] = React.useState<Set<string>>(new Set(['user']));
+  // 部门归属:组织下拉 + 部门下拉。
+  const [orgId, setOrgId] = React.useState<number | null>(null);
+  const [deptId, setDeptId] = React.useState<number | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
-  // 角色下拉用真实角色表(含自定义角色,RBAC #2);未加载时回退内置 user/admin。
+  // 角色复选用真实角色表(含自定义角色,RBAC #2);未加载时回退内置 user/admin。
   const rolesQ = useQuery({
     queryKey: ['admin', 'roles', 'for-create'],
     queryFn: () => rolesApi.list(),
@@ -33,11 +43,41 @@ export const CreateUserDialog: React.FC<{ onCreated(): void }> = ({ onCreated })
     { name: 'admin', description: '管理员' },
   ];
 
+  // 组织 / 部门:仅弹窗打开时拉取。
+  const orgsQ = useQuery({
+    queryKey: ['admin', 'orgs', 'for-create'],
+    queryFn: () => orgsApi.list(),
+    staleTime: 60_000,
+    enabled: open,
+  });
+  React.useEffect(() => {
+    if (orgId === null && orgsQ.data && orgsQ.data.length > 0) {
+      setOrgId(orgsQ.data[0]!.id);
+    }
+  }, [orgsQ.data, orgId]);
+
+  const treeQ = useQuery({
+    queryKey: ['admin', 'depts', 'for-create', orgId],
+    queryFn: () => deptsApi.tree(orgId as number),
+    enabled: open && orgId !== null,
+  });
+
+  const toggleRole = (name: string) => {
+    setRoleSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
   const reset = () => {
     setU('');
     setP('');
     setE('');
-    setR('user');
+    setRoleSet(new Set(['user']));
+    setOrgId(null);
+    setDeptId(null);
     setErr(null);
   };
 
@@ -48,8 +88,9 @@ export const CreateUserDialog: React.FC<{ onCreated(): void }> = ({ onCreated })
       await adminCreateUser({
         username: username.trim(),
         password,
-        role,
+        roles: Array.from(roleSet),
         email: email.trim() || undefined,
+        dept_id: deptId,
       });
       setOpen(false);
       reset();
@@ -97,19 +138,42 @@ export const CreateUserDialog: React.FC<{ onCreated(): void }> = ({ onCreated })
             value={password}
             onChange={(e) => setP(e.target.value)}
           />
-          <label className="block text-xs opacity-60">角色</label>
+
+          <label className="block text-xs opacity-60">角色（可多选）</label>
+          <div className="max-h-40 space-y-1 overflow-auto rounded border p-2">
+            {roleList.map((r) => (
+              <label key={r.name} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={roleSet.has(r.name)}
+                  onChange={() => toggleRole(r.name)}
+                />
+                <span>{r.name}</span>
+                {r.description ? (
+                  <span className="text-xs opacity-60">—— {r.description}</span>
+                ) : null}
+              </label>
+            ))}
+          </div>
+
+          <label className="block text-xs opacity-60">所属部门（可选）</label>
           <select
             className="w-full rounded border p-2 text-sm"
-            value={role}
-            onChange={(e) => setR(e.target.value)}
+            value={orgId ?? ''}
+            onChange={(e) => {
+              setOrgId(e.target.value === '' ? null : Number(e.target.value));
+              setDeptId(null);
+            }}
           >
-            {roleList.map((r) => (
-              <option key={r.name} value={r.name}>
-                {r.name}
-                {r.description ? ` —— ${r.description}` : ''}
+            <option value="">（选择组织）</option>
+            {(orgsQ.data ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
               </option>
             ))}
           </select>
+          <DeptSelect nodes={treeQ.data ?? []} value={deptId} onChange={setDeptId} />
+
           {err ? <p className="text-sm text-destructive">{err}</p> : null}
         </div>
         <DialogFooter>
