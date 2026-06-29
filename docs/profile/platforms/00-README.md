@@ -1,4 +1,4 @@
-# 12 平台简历 · 索引与填表手册
+# 11 平台简历 · 索引与填表手册
 
 > 主角:**Yuhui Zhang(张玉辉)· Senior Full-Stack & AI/LLM Engineer · 19 年 · 远程 GMT+8**
 > 联系 **cmdbird@163.com** · 在线 **https://aidooo.com** · 开源 github.com/zhgyuhuii
@@ -17,7 +17,6 @@
 | 04 | `04-toptal.md` | Toptal | 精英网(平台定价) | **需英文视频+实时编码** | ⚠ 口语关 |
 | 05 | `05-arc.md` | Arc.dev | 精选远程 | 多含英文面试 | ⚠ |
 | 06 | `06-peopleperhour.md` | PeoplePerHour | 服务+竞标(欧洲) | 基本不需要 | ★★ |
-| 07 | `07-codeable.md` | Codeable | **WordPress 专属** | 需英文面试 | ✗ 不匹配,如实弱化/建议跳过 |
 | 08 | `08-upstack.md` | UpStack | 精选远程 | **需英文沟通评估** | ⚠ |
 | 09 | `09-yeeply.md` | Yeeply | App 项目匹配(欧洲) | 视项目 | ★ |
 | 10 | `10-scalable-path.md` | Scalable Path | 精选网 | **需英文面试** | ⚠ |
@@ -36,8 +35,7 @@
 **第二批 · 口语提升前先放着或谨慎尝试(普遍含英文视频面试/实时编码)**
 `Toptal` · `Arc` · `UpStack` · `Scalable Path`
 
-**不建议投**
-`Codeable`(WordPress 专属,你不主攻 WP,且入会要 WP 实操 + 英文面试;档案给了诚实版,但建议跳过,把时间投到上面有把握的平台)。
+> 注:`Codeable`(WordPress 专属)已从清单移除 —— 你不主攻 WP,入会要 WP 实操 + 英文面试,投产比低,不投。编号 07 留空。
 
 ---
 
