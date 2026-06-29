@@ -22,10 +22,14 @@ _ADMIN = require_role("admin")
 def list_roles(_=Depends(_ADMIN)) -> Dict[str, Any]:
     from chayuan.server.db.repository import role_repository as repo
     from chayuan.server.admin.role_modules import MODULE_CATALOG
+    roles = repo.list_roles()
+    # data_scope==2(自定义)时,前端需要回显已选部门 id;统一补 scope_dept_ids。
+    for r in roles:
+        r["scope_dept_ids"] = repo.get_role_scope(r["name"])[1]
     return {
         "code": 0,
         "msg": "ok",
-        "data": {"roles": repo.list_roles(), "module_catalog": MODULE_CATALOG},
+        "data": {"roles": roles, "module_catalog": MODULE_CATALOG},
     }
 
 

@@ -4,14 +4,32 @@
  * 复用后端 /api/v1/admin/roles。模块目录由后端 module_catalog 提供(与后台域对齐)。
  */
 import * as React from 'react';
-import { roles as rolesApi, type Role, type ModuleCatalogItem } from '@chayuan/api';
+import {
+  roles as rolesApi,
+  orgs as orgsApi,
+  depts as deptsApi,
+  type Role,
+  type ModuleCatalogItem,
+  type Org,
+  type DeptNode,
+} from '@chayuan/api';
 import { Button } from '@chayuan/ui';
 import { RefreshCw, Plus, Trash2, Pencil, X, Shield, Check } from 'lucide-react';
 import { notifySuccess, reportError } from '../../../store/errorDialog';
 import { confirmDialog } from '../../../store/confirmDialog';
+import { DeptTree } from '../orgs/DeptTree';
 
 const FIELD =
   'mt-1 w-full rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-base)] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--cy-brand-400)] dark:bg-zinc-800';
+
+// 数据权限范围:与后端 data_scope 取值对齐(1全部/4本部门及以下/3本部门/5仅本人/2自定义)。
+const DATA_SCOPE_OPTS: { value: number; label: string }[] = [
+  { value: 1, label: '全部' },
+  { value: 4, label: '本部门及以下' },
+  { value: 3, label: '本部门' },
+  { value: 5, label: '仅本人' },
+  { value: 2, label: '自定义' },
+];
 
 const RoleEditDialog: React.FC<{
   role: Role | null; // null = 新建
@@ -24,6 +42,11 @@ const RoleEditDialog: React.FC<{
   const [name, setName] = React.useState(role?.name ?? '');
   const [description, setDescription] = React.useState(role?.description ?? '');
   const [modules, setModules] = React.useState<Set<string>>(new Set(role?.modules ?? []));
+  const [dataScope, setDataScope] = React.useState<number>(role?.data_scope ?? 3);
+  const [scopeDepts, setScopeDepts] = React.useState<Set<number>>(new Set(role?.scope_dept_ids ?? []));
+  const [orgList, setOrgList] = React.useState<Org[]>([]);
+  const [scopeOrgId, setScopeOrgId] = React.useState<number | null>(null);
+  const [deptTree, setDeptTree] = React.useState<DeptNode[]>([]);
   const [busy, setBusy] = React.useState(false);
 
   const groups = React.useMemo(() => {
@@ -48,14 +71,54 @@ const RoleEditDialog: React.FC<{
       items.forEach((it) => (on ? n.add(it.key) : n.delete(it.key)));
       return n;
     });
+  const toggleScopeDept = (id: number) =>
+    setScopeDepts((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  // data_scope==自定义(2) 时拉组织列表(默认选第一个)。
+  React.useEffect(() => {
+    if (dataScope !== 2 || orgList.length) return;
+    orgsApi
+      .list()
+      .then((list) => {
+        setOrgList(list);
+        const first = list[0];
+        if (first && scopeOrgId === null) setScopeOrgId(first.id);
+      })
+      .catch((e) => reportError(e, '读取组织失败'));
+  }, [dataScope, orgList.length, scopeOrgId]);
+
+  // 选中组织变化时拉部门树。
+  React.useEffect(() => {
+    if (scopeOrgId === null) return;
+    deptsApi
+      .tree(scopeOrgId)
+      .then(setDeptTree)
+      .catch((e) => reportError(e, '读取部门失败'));
+  }, [scopeOrgId]);
 
   const save = async () => {
     setBusy(true);
     try {
       if (editing) {
-        await rolesApi.update(role!.name, { description, modules: Array.from(modules) });
+        await rolesApi.update(role!.name, {
+          description,
+          modules: Array.from(modules),
+          data_scope: dataScope,
+          scope_dept_ids: Array.from(scopeDepts),
+        });
       } else {
-        await rolesApi.create({ name: name.trim(), description, modules: Array.from(modules) });
+        await rolesApi.create({
+          name: name.trim(),
+          description,
+          modules: Array.from(modules),
+          data_scope: dataScope,
+          scope_dept_ids: Array.from(scopeDepts),
+        });
       }
       notifySuccess(editing ? '已保存角色' : '已创建角色');
       onSaved();
@@ -131,6 +194,45 @@ const RoleEditDialog: React.FC<{
               </div>
             </div>
           )}
+
+          {/* 数据权限范围 —— 决定该角色能看到哪些用户/部门的数据(行级)。 */}
+          <div>
+            <div className="mb-2 text-xs font-medium opacity-70">数据权限范围</div>
+            <div className="flex flex-wrap gap-2">
+              {DATA_SCOPE_OPTS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setDataScope(opt.value)}
+                  className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
+                    dataScope === opt.value
+                      ? 'border-[var(--cy-brand-500)] bg-[var(--cy-brand-500)]/10 text-[var(--cy-brand-600)]'
+                      : 'border-[var(--cy-border-subtle)] hover:bg-[var(--cy-surface-2)]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {dataScope === 2 ? (
+              <div className="mt-3 rounded-lg border border-[var(--cy-border-subtle)] p-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="text-xs opacity-60">组织</span>
+                  <select
+                    className="flex-1 rounded border p-1.5 text-sm"
+                    value={scopeOrgId ?? ''}
+                    onChange={(e) => setScopeOrgId(e.target.value === '' ? null : Number(e.target.value))}
+                  >
+                    {orgList.map((o) => (
+                      <option key={o.id} value={o.id}>{o.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <DeptTree nodes={deptTree} checkedIds={scopeDepts} onToggle={toggleScopeDept} />
+                {!deptTree.length ? <div className="text-xs opacity-50">该组织暂无部门</div> : null}
+              </div>
+            ) : null}
+          </div>
         </div>
         <div className="flex items-center gap-2 border-t border-[var(--cy-border-subtle)] px-5 py-3">
           <Button size="sm" onClick={() => void save()} disabled={busy || (!editing && !name.trim())}>
