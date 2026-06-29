@@ -11,6 +11,7 @@
 |---|---|
 | `01-简历-resume-bilingual.md` + PDF/DOCX(双语/英/中) | 简历母版,投平台/发客户 |
 | `02-freelance-platform-profiles.md` | 8 平台档案(Upwork/Fiverr/Freelancer/Guru/Toptal/Arc/CloudDevs/Index.dev) |
+| `platforms/`(新) | **12 平台逐字段独立档案**(Fiverr/Freelancer/Guru/Toptal/Arc/PeoplePerHour/Codeable/UpStack/Yeeply/Scalable Path/Remote OK/We Work Remotely),每平台一个文件、对齐其真实表单;入口见 `platforms/00-README.md` |
 | `03-upwork-portfolio-cards.md` | Upwork 加长 Specialized Profile + 9 张作品集卡 |
 | `04-upwork-proposal-templates.md` | 5 类岗位投标 proposal 模板 |
 | `05-portfolio-screenshots-checklist.md` | 作品集每张卡要截哪些图 + 脱敏 |
