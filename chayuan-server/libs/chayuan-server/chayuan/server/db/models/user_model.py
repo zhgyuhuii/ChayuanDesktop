@@ -10,7 +10,7 @@
 - created_at / updated_at / last_login_at。
 """
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, func
@@ -27,6 +27,7 @@ class UserModel(Base):
     password_hash = Column(String(255), nullable=False, comment="密码哈希")
     role = Column(String(16), default="user", nullable=False, comment="角色：admin/user")
     is_active = Column(Boolean, default=True, nullable=False, comment="是否启用")
+    dept_id = Column(Integer, nullable=True, index=True, comment="所属部门 id(可空,未分配=NULL)")
 
     created_at = Column(DateTime, default=func.now(), comment="创建时间")
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), comment="更新时间")
@@ -47,6 +48,8 @@ class UserPublicSchema(BaseModel):
     email: Optional[str] = None
     role: str
     is_active: bool
+    dept_id: Optional[int] = None
+    roles: List[str] = []
     created_at: Optional[datetime] = None
     last_login_at: Optional[datetime] = None
 

@@ -43,3 +43,5 @@ from chayuan.server.video_generation.sources import config_store as _vg_sources_
 from chayuan.server.db.models import deployment_identity_model  # noqa: F401
 from chayuan.server.db.models import org_model  # noqa: F401
 from chayuan.server.db.models import dept_model  # noqa: F401
+from chayuan.server.db.models import user_role_model  # noqa: F401
+from chayuan.server.db.models import dept_role_model  # noqa: F401
