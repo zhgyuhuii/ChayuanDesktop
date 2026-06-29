@@ -917,7 +917,11 @@ def render_proxy_from_timeline(
         # "At least one output file must be specified");走 ImageClip 定格成片段。
         if p.get("is_image"):
             img_dur = p["end_s"] if p["end_s"] and p["end_s"] > 0 else 3.0
-            seg = ImageClip(p["path"]).with_duration(img_dur).resized(new_size=(pw, ph))
+            # 主轨几何(crop/flip/rotate/scale/位置/opacity)同最终 render_from_edl,
+            # 否则代理预览忽略缩放/定位、把素材铺满全屏,与实时预览/成片不一致。
+            seg = _render_main_segment(
+                ImageClip(p["path"]).with_duration(img_dur), p, pw, ph, _bg_rgb(params)
+            )
             try:
                 seg.write_videofile(seg_path, logger=None, fps=15, codec=video_codec, preset=_X264_PRESET)
                 clip_files.append(seg_path)
@@ -932,7 +936,11 @@ def render_proxy_from_timeline(
             end_s = min(end_s, src_dur)
             if end_s <= start_s:
                 end_s = min(start_s + 1.0, src_dur)
-            seg = clip.subclipped(start_s, end_s).resized(new_size=(pw, ph))
+            # 主轨几何 + 变速同最终 render_from_edl,保证代理预览所见即成片所得。
+            seg = _render_main_segment(
+                _speed_scaled(clip.subclipped(start_s, end_s), p.get("speed", 1.0)),
+                p, pw, ph, _bg_rgb(params),
+            )
             seg.write_videofile(seg_path, logger=None, fps=15, codec=video_codec, preset=_X264_PRESET)
             clip_files.append(seg_path)
         finally:
