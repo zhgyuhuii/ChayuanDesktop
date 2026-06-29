@@ -124,3 +124,30 @@ def dept_tree(org_id) -> List[Dict[str, Any]]:
             else:
                 roots.append(node)
         return roots
+
+
+def get_dept_roles(dept_id) -> List[Dict[str, Any]]:
+    from chayuan.server.db.models.dept_role_model import DeptRoleModel
+    with session_scope() as s:
+        rows = s.query(DeptRoleModel).filter(
+            DeptRoleModel.dept_id == dept_id
+        ).order_by(DeptRoleModel.role_name).all()
+        return [{"role_name": r.role_name, "include_subtree": bool(r.include_subtree)} for r in rows]
+
+
+def set_dept_roles(dept_id, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """整体替换某部门的继承角色映射。items: [{role_name, include_subtree}]。"""
+    from chayuan.server.db.models.dept_role_model import DeptRoleModel
+    norm = []
+    seen = set()
+    for it in (items or []):
+        name = str((it or {}).get("role_name") or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        norm.append((name, bool((it or {}).get("include_subtree"))))
+    with session_scope() as s:
+        s.query(DeptRoleModel).filter(DeptRoleModel.dept_id == dept_id).delete()
+        for name, inc in norm:
+            s.add(DeptRoleModel(dept_id=dept_id, role_name=name, include_subtree=inc))
+    return [{"role_name": n, "include_subtree": i} for n, i in norm]
