@@ -63,7 +63,9 @@ def create_user(
     password: str,
     *,
     role: str = "user",
+    roles: Optional[List[str]] = None,
     email: Optional[str] = None,
+    dept_id: Optional[int] = None,
 ) -> UserModel:
     username = (username or "").strip()
     if not username:
@@ -72,17 +74,28 @@ def create_user(
         raise ValueError("username too long")
     if len(password) < 6:
         raise ValueError("password too short (>= 6)")
-    # 角色:接受任何已存在的角色名(含自定义角色,RBAC #2);未知回退 user。
-    role = (role or "user").strip() or "user"
-    if role not in ("admin", "user"):
+
+    # 角色列表:roles 优先,否则单 role;逐个对已存在角色校验,未知丢弃;空 → ["user"]
+    raw = list(roles) if roles else [role]
+    valid: List[str] = []
+    for r in raw:
+        r = (r or "").strip()
+        if not r:
+            continue
+        if r in ("admin", "user"):
+            if r not in valid:
+                valid.append(r)
+            continue
         try:
             from chayuan.server.db.repository import role_repository as _roles
-            if _roles.get_role(role) is None:
-                role = "user"
-        except Exception:  # noqa: BLE001 - 角色表不可用时保守回退
-            role = "user"
+            if _roles.get_role(r) is not None and r not in valid:
+                valid.append(r)
+        except Exception:  # noqa: BLE001
+            pass
+    if not valid:
+        valid = ["user"]
+    primary = "admin" if "admin" in valid else valid[0]
 
-    # 网络版席位上限（单机/未约束 no-op；只拦新增，绝不拦登录）
     from chayuan.server.license.seat import assert_seat_available
     assert_seat_available()
 
@@ -91,15 +104,35 @@ def create_user(
         with session_scope() as s:
             u = UserModel(
                 username=username, email=email, password_hash=pw,
-                role=role, is_active=True,
+                role=primary, is_active=True, dept_id=dept_id,
             )
             s.add(u)
             s.flush()
             s.refresh(u)
             s.expunge(u)
-            return u
     except IntegrityError as e:
         raise ValueError(f"username '{username}' already exists") from e
+
+    from chayuan.server.db.repository import user_role_repository as urr
+    urr.set_user_roles(u.id, valid)
+    return u
+
+
+def set_user_dept(user_id: int, dept_id: Optional[int]) -> None:
+    with session_scope() as s:
+        u = s.query(UserModel).filter(UserModel.id == user_id).one_or_none()
+        if u is None:
+            raise ValueError("user not found")
+        u.dept_id = dept_id
+
+
+def soft_delete_user(user_id: int) -> None:
+    """软删:停用账号(保留数据与角色)。"""
+    with session_scope() as s:
+        u = s.query(UserModel).filter(UserModel.id == user_id).one_or_none()
+        if u is None:
+            raise ValueError("user not found")
+        u.is_active = False
 
 
 def set_password(user_id: int, new_password: str) -> None:
