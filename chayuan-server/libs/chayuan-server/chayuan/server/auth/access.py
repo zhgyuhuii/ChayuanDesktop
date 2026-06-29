@@ -44,6 +44,61 @@ def _grant_role(kb_id: int, user_id: int) -> Optional[str]:
         return g.role if g else None
 
 
+def _ancestors_set(ancestors):
+    if not ancestors:
+        return set()
+    return {int(x) for x in str(ancestors).split(",") if x.strip().isdigit()}
+
+
+def _grant_role_multi(kb_id, user):
+    """多主体(user/role/dept)聚合,返回 'editor'|'reader'|None。editor 优先。"""
+    from chayuan.server.db.repository import kb_grant_repository as kg
+    grants = kg.list_grants(int(kb_id))
+    if not grants:
+        return None
+    uid = (user.get("id") if isinstance(user, dict) else getattr(user, "id", None)) if user else None
+    rank = {"reader": 1, "editor": 2}
+    best = 0
+
+    def _bump(r):
+        nonlocal best
+        best = max(best, rank.get(r, 0))
+
+    # 用户直接授权
+    if uid is not None:
+        sid = str(uid)
+        for g in grants:
+            if g["subject_type"] == "user" and g["subject_id"] == sid:
+                _bump(g["role"])
+
+    # 仅当存在 role/dept 授权才查有效角色/部门链(省热路径开销)
+    has_rd = any(g["subject_type"] in ("role", "dept") for g in grants)
+    if has_rd and uid is not None and uid > 0:
+        from chayuan.server.db.repository import user_role_repository as urr
+        from chayuan.server.auth import service as _svc
+        full = _svc.get_user_by_id(int(uid))
+        dept_id = getattr(full, "dept_id", None) if full else None
+        eff = set(urr.effective_roles(int(uid), dept_id))
+        for g in grants:
+            if g["subject_type"] == "role" and g["subject_id"] in eff:
+                _bump(g["role"])
+        if dept_id is not None:
+            from chayuan.server.db.repository import dept_repository as dr
+            d = dr.get_dept(int(dept_id))
+            chain = _ancestors_set(d["ancestors"]) if d else {int(dept_id)}
+            for g in grants:
+                if g["subject_type"] != "dept":
+                    continue
+                try:
+                    gd = int(g["subject_id"])
+                except (TypeError, ValueError):
+                    continue
+                if gd in chain and (gd == int(dept_id) or g["include_subtree"]):
+                    _bump(g["role"])
+
+    return {2: "editor", 1: "reader"}.get(best)
+
+
 def kb_access_for(user, kb_name: str) -> Optional[str]:
     """返回用户对指定 KB 的有效角色："owner" / "editor" / "reader" / None。
 
@@ -75,7 +130,7 @@ def kb_access_for(user, kb_name: str) -> Optional[str]:
         return "owner"
 
     if uid is not None:
-        role = _grant_role(kb.id, uid)
+        role = _grant_role_multi(kb.id, user)
         if role:
             return role
 
@@ -128,17 +183,9 @@ def list_accessible_kbs(user) -> List[str]:
                 if uid is not None and kb.owner_id == uid:
                     out.append(kb.kb_name)
                     continue
-                if uid is not None:
-                    grant = (
-                        s.query(KBAccessGrantModel.id)
-                        .filter(
-                            KBAccessGrantModel.kb_id == kb.id,
-                            KBAccessGrantModel.user_id == uid,
-                        )
-                        .first()
-                    )
-                    if grant is not None:
-                        out.append(kb.kb_name)
+                if uid is not None and _grant_role_multi(kb.id, user) is not None:
+                    out.append(kb.kb_name)
+                    continue
         return out
 
 
