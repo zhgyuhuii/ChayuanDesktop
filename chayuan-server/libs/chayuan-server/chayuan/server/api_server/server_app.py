@@ -63,6 +63,7 @@ from chayuan.server.api_server.services_config_routes import services_config_rou
 from chayuan.server.api_server.config_routes import config_router
 from chayuan.server.api_server.vs_config_routes import vs_config_router
 from chayuan.server.api_server.roles_routes import roles_router
+from chayuan.server.api_server.orgs_routes import orgs_router, depts_router
 from chayuan.server.api_server.wizard_routes import wizard_router
 from chayuan.server.auth.middleware import AuthMiddleware
 from chayuan.server.chat.completion import completion
@@ -187,6 +188,8 @@ def create_app(run_mode: str = None):
     app.include_router(config_router)
     app.include_router(vs_config_router)
     app.include_router(roles_router)
+    app.include_router(orgs_router)
+    app.include_router(depts_router)
     app.include_router(wizard_router)
     # 72 题诊断:/api/debug/dump_platforms — 排查 deepseek 等厂商在哪一层卡住
     app.include_router(debug_router)
