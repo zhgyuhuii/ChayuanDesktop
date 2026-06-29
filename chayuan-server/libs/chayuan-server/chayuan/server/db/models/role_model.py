@@ -19,6 +19,7 @@ class RoleModel(Base):
     description = Column(Text, nullable=True, comment="角色说明")
     is_system = Column(Boolean, default=False, nullable=False, comment="内置角色(admin/user)不可删")
     modules = Column(JSON, nullable=False, default=list, comment="授权的后台模块 key 列表")
+    data_scope = Column(Integer, nullable=False, server_default="3", default=3, comment="数据权限:1全部/2自定义/3本部门/4本部门及以下/5仅本人")
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -29,4 +30,5 @@ class RoleModel(Base):
             "description": self.description or "",
             "is_system": bool(self.is_system),
             "modules": list(self.modules or []),
+            "data_scope": int(self.data_scope or 3),
         }

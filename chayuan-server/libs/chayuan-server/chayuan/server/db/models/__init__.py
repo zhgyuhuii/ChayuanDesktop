@@ -45,3 +45,4 @@ from chayuan.server.db.models import org_model  # noqa: F401
 from chayuan.server.db.models import dept_model  # noqa: F401
 from chayuan.server.db.models import user_role_model  # noqa: F401
 from chayuan.server.db.models import dept_role_model  # noqa: F401
+from chayuan.server.db.models import role_scope_dept_model  # noqa: F401
