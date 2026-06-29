@@ -103,11 +103,22 @@ class _CreateUserBody(BaseModel):
     password: str = Field(..., min_length=6, max_length=256)
     role: str = "user"
     email: Optional[str] = None
+    dept_id: Optional[int] = None
+    roles: Optional[List[str]] = None
 
 
 class _ChangePasswordBody(BaseModel):
     new_password: str = Field(..., min_length=6, max_length=256)
     old_password: Optional[str] = None
+
+
+def _user_public(u) -> "UserPublicSchema":
+    """序列化用户为公开 schema,附带多角色与所属部门(向后兼容)。"""
+    from chayuan.server.db.repository import user_role_repository as urr
+    data = UserPublicSchema.model_validate(u).model_dump()
+    data["roles"] = urr.get_user_roles(int(u.id))
+    data["dept_id"] = getattr(u, "dept_id", None)
+    return UserPublicSchema.model_validate(data)
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +256,7 @@ def me(user: Dict[str, Any] = Depends(get_current_user)):
     full = svc.get_user_by_id(int(user["id"]))
     if full is None:
         raise HTTPException(status_code=404, detail="user not found")
-    return UserPublicSchema.model_validate(full)
+    return _user_public(full)
 
 
 @auth_router.get("/me/modules", summary="当前用户可见的模块(后台 + 前端功能,RBAC #2)")
@@ -259,8 +270,18 @@ def my_modules(user: Dict[str, Any] = Depends(get_current_user)):
       admin 可通过配置「user」角色的前端功能勾选项来限制游客可见功能。
     """
     from chayuan.server.db.repository import role_repository as repo
-    role = str(user.get("role") or "")
-    modules = repo.effective_modules(role)
+    uid = int(user.get("id") or 0)
+    if uid > 0:
+        from chayuan.server.db.repository import user_role_repository as urr
+        full = svc.get_user_by_id(uid)
+        dept_id = getattr(full, "dept_id", None) if full else None
+        eff_roles = urr.effective_roles(uid, dept_id)
+        if not eff_roles:
+            eff_roles = [str(user.get("role") or "user")]
+    else:
+        eff_roles = [str(user.get("role") or "user")]  # 游客:用其默认角色
+    modules = repo.effective_modules_multi(eff_roles)
+    primary = "admin" if "admin" in eff_roles else (eff_roles[0] if eff_roles else "user")
     try:
         from chayuan.server.profiles import is_single_machine
         single_machine = bool(is_single_machine())
@@ -270,8 +291,9 @@ def my_modules(user: Dict[str, Any] = Depends(get_current_user)):
         "code": 0,
         "msg": "ok",
         "data": {
-            "role": role,
-            "is_admin": role == "admin",
+            "role": primary,
+            "roles": eff_roles,
+            "is_admin": "admin" in eff_roles,
             "is_guest": bool(user.get("is_guest")),
             "single_machine": single_machine,
             "modules": modules,
@@ -333,7 +355,7 @@ def logout():
 )
 def admin_list_users(_=Depends(require_role("admin")), limit: int = 100, offset: int = 0):
     users = svc.list_users(limit=limit, offset=offset)
-    return [UserPublicSchema.model_validate(u) for u in users]
+    return [_user_public(u) for u in users]
 
 
 @auth_router.post(
@@ -345,10 +367,13 @@ def admin_create_user(
     _=Depends(require_role("admin")),
 ):
     try:
-        u = svc.create_user(body.username, body.password, role=body.role, email=body.email)
+        u = svc.create_user(
+            body.username, body.password,
+            role=body.role, roles=body.roles, email=body.email, dept_id=body.dept_id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return UserPublicSchema.model_validate(u)
+    return _user_public(u)
 
 
 @auth_router.patch("/users/{user_id}/password", summary="改密（admin 或本人）")
@@ -389,4 +414,37 @@ def set_active(
         svc.set_active(user_id, is_active)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return {"code": 0, "msg": "ok"}
+
+
+class _SetRolesBody(BaseModel):
+    roles: List[str] = []
+
+
+@auth_router.put("/users/{user_id}/roles", summary="[admin] 设置用户多角色")
+def set_user_roles_route(user_id: int, body: _SetRolesBody, _=Depends(require_role("admin"))):
+    from chayuan.server.db.repository import user_role_repository as urr
+    urr.set_user_roles(user_id, body.roles)
+    return {"code": 0, "msg": "ok", "data": {"roles": urr.get_user_roles(user_id)}}
+
+
+class _SetDeptBody(BaseModel):
+    dept_id: Optional[int] = None
+
+
+@auth_router.patch("/users/{user_id}/dept", summary="[admin] 设置用户所属部门")
+def set_user_dept_route(user_id: int, body: _SetDeptBody, _=Depends(require_role("admin"))):
+    try:
+        svc.set_user_dept(user_id, body.dept_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"code": 0, "msg": "ok"}
+
+
+@auth_router.delete("/users/{user_id}", summary="[admin] 软删用户(停用)")
+def delete_user_route(user_id: int, _=Depends(require_role("admin"))):
+    try:
+        svc.soft_delete_user(user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return {"code": 0, "msg": "ok"}

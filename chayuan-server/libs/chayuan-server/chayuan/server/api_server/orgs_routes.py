@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from fastapi import APIRouter, Body, Depends, HTTPException
+from pydantic import BaseModel
 
 from chayuan.server.auth.deps import require_role
 
@@ -128,3 +129,41 @@ def delete_dept(dept_id: int, _=Depends(_ADMIN)) -> Dict[str, Any]:
     if not ok:
         raise HTTPException(status_code=404, detail=f"部门不存在：{dept_id}")
     return {"code": 0, "msg": "ok", "data": {"deleted": dept_id}}
+
+
+# ---- 部门继承角色 + 成员 ----
+class _DeptRolesBody(BaseModel):
+    roles: list = []
+
+
+@depts_router.put("/{dept_id}/roles", summary="[admin] 设置部门继承角色")
+def set_dept_roles_route(dept_id: int, body: "_DeptRolesBody", _=Depends(_ADMIN)) -> Dict[str, Any]:
+    from chayuan.server.db.repository import dept_repository as repo
+    saved = repo.set_dept_roles(dept_id, body.roles)
+    return {"code": 0, "msg": "ok", "data": {"roles": saved}}
+
+
+@depts_router.get("/{dept_id}/roles", summary="[admin] 部门继承角色")
+def get_dept_roles_route(dept_id: int, _=Depends(_ADMIN)) -> Dict[str, Any]:
+    from chayuan.server.db.repository import dept_repository as repo
+    return {"code": 0, "msg": "ok", "data": {"roles": repo.get_dept_roles(dept_id)}}
+
+
+@depts_router.get("/{dept_id}/members", summary="[admin] 部门成员")
+def dept_members_route(dept_id: int, include_subtree: bool = False, keyword: str = "",
+                       _=Depends(_ADMIN)) -> Dict[str, Any]:
+    from chayuan.server.db.repository import dept_repository as repo
+    from chayuan.server.db.repository import user_role_repository as urr
+    from chayuan.server.db.models.user_model import UserModel
+    from chayuan.server.db.session import session_scope
+    dept_ids = repo.subtree_ids(dept_id) if include_subtree else [dept_id]
+    with session_scope() as s:
+        q = s.query(UserModel).filter(UserModel.dept_id.in_(dept_ids))
+        if keyword:
+            like = f"%{keyword}%"
+            q = q.filter(UserModel.username.like(like))
+        rows = q.order_by(UserModel.id).all()
+        members = [{"id": u.id, "username": u.username, "email": u.email,
+                    "dept_id": u.dept_id, "is_active": bool(u.is_active),
+                    "roles": urr.get_user_roles(u.id)} for u in rows]
+    return {"code": 0, "msg": "ok", "data": {"members": members}}
