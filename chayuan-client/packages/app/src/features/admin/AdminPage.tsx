@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Gauge, Star, Layers, HardDrive, FolderTree, SlidersHorizontal, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, BookOpen, FileText, Cpu, Wand2, Store } from 'lucide-react';
+import { ExternalLink, Activity, Shield, Database, TrendingUp, Boxes, Server, Cloud, Users, Plug, Wrench, Radio, AppWindow, Gauge, Star, Layers, HardDrive, FolderTree, SlidersHorizontal, ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen, BookOpen, FileText, Cpu, Wand2, Store, Building2 } from 'lucide-react';
 import { Button, cn } from '@chayuan/ui';
 import { deepLinkTrace } from '@chayuan/observability';
 import { getPlatform, isWeb } from '@chayuan/platform-shared';
@@ -27,6 +27,7 @@ import { SchemaForm } from './config/SchemaForm';
 import { KbManagePage } from './kbmanage/KbManagePage';
 import { ServiceTopologyPage } from './services/ServiceTopologyPage';
 import { RoleManagementPage } from './roles/RoleManagementPage';
+import { OrgManagementPage } from './orgs/OrgManagementPage';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { roles as rolesApi, wizard } from '@chayuan/api';
@@ -35,7 +36,7 @@ import { PromptRoot } from '../../store/promptDialog';
 import { ErrorDialogRoot } from '../shell/ErrorDialog';
 import { SetupWizard } from './wizard/SetupWizard';
 
-export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'gallery' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'kbmanage' | 'topology' | 'roles';
+export type AdminTab = 'traces' | 'outbox' | 'prompts' | 'scores' | 'platforms' | 'gallery' | 'services' | 'deployment' | 'users' | 'mcp' | 'tools' | 'ws' | 'apps' | 'perf' | 'defaults' | 'redis' | 'storage' | 'database' | 'datadir' | 'basic' | 'kbcfg' | 'modelcfg' | 'prompttpl' | 'kbmanage' | 'topology' | 'roles' | 'orgs';
 
 type AdminItem = { key: AdminTab; label: string; icon: React.ComponentType<{ className?: string }>; webOnly?: boolean; hidden?: boolean };
 type AdminGroup = { title: string; items: AdminItem[] };
@@ -87,6 +88,7 @@ const ADMIN_GROUPS: AdminGroup[] = [
   ] },
   // 「用户与权限」置于最下方。
   { title: '用户与权限', items: [
+    { key: 'orgs', label: '组织机构', icon: Building2 },
     { key: 'users', label: '用户', icon: Users },
     { key: 'roles', label: '角色', icon: Shield },
   ] },
@@ -326,6 +328,7 @@ export const AdminPage: React.FC<{ tab?: AdminTab }> = ({ tab: tabProp }) => {
           {tab === 'topology' && <ServiceTopologyPage />}
           {tab === 'users' && <UsersPage />}
           {tab === 'roles' && <RoleManagementPage />}
+          {tab === 'orgs' && <OrgManagementPage />}
           {tab === 'mcp' && <McpPage />}
           {tab === 'tools' && <ToolsBoard selectable={false} />}
           {tab === 'ws' && <WsEndpointsPage />}

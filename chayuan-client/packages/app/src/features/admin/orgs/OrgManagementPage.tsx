@@ -1,0 +1,131 @@
+import * as React from 'react';
+import { Button } from '@chayuan/ui';
+import { useQuery } from '@tanstack/react-query';
+import { orgs as orgsApi, depts as deptsApi, roles as rolesApi, type DeptNode } from '@chayuan/api';
+import { reportError, notifySuccess } from '../../../store/errorDialog';
+import { promptDialog } from '../../../store/promptDialog';
+import { DeptTree } from './DeptTree';
+
+// 组织机构页(org-RBAC P5)。左:组织下拉 + 部门树 + 建组织/部门/删;
+// 右:选中部门的成员列表 + 部门继承角色(成员自动获得这些角色功能权)。
+// 仅网络版后台用;输入框走统一 promptDialog(已由 AdminPage 挂 PromptRoot)。
+export const OrgManagementPage: React.FC = () => {
+  const [orgId, setOrgId] = React.useState<number | null>(null);
+  const [sel, setSel] = React.useState<DeptNode | null>(null);
+  const [includeSub, setIncludeSub] = React.useState(false);
+
+  const orgsQ = useQuery({ queryKey: ['admin', 'orgs'], queryFn: () => orgsApi.list(), staleTime: 60_000 });
+  React.useEffect(() => {
+    const first = orgsQ.data?.[0];
+    if (orgId === null && first) setOrgId(first.id);
+  }, [orgsQ.data, orgId]);
+
+  const treeQ = useQuery({
+    queryKey: ['admin', 'depts', orgId],
+    queryFn: () => deptsApi.tree(orgId as number),
+    enabled: orgId !== null,
+  });
+  const membersQ = useQuery({
+    queryKey: ['admin', 'dept-members', sel?.id, includeSub],
+    queryFn: () => deptsApi.members(sel!.id, includeSub),
+    enabled: !!sel,
+  });
+  const deptRolesQ = useQuery({
+    queryKey: ['admin', 'dept-roles', sel?.id],
+    queryFn: () => deptsApi.roles(sel!.id),
+    enabled: !!sel,
+  });
+  const allRolesQ = useQuery({ queryKey: ['admin', 'roles', 'all'], queryFn: () => rolesApi.list(), staleTime: 60_000 });
+
+  const addOrg = async () => {
+    const nm = await promptDialog('组织名称', { title: '新建组织' });
+    if (!nm) return;
+    const code = await promptDialog('组织编码(唯一,英文)', { title: '新建组织' });
+    if (!code) return;
+    try { await orgsApi.create({ name: nm, code }); notifySuccess('已创建组织'); void orgsQ.refetch(); }
+    catch (e) { reportError(e, '创建组织失败'); }
+  };
+  const addDept = async (parentId: number | null) => {
+    if (orgId === null) return;
+    const nm = await promptDialog('部门名称', { title: '新建部门' });
+    if (!nm) return;
+    try { await deptsApi.create({ org_id: orgId, parent_id: parentId, name: nm }); notifySuccess('已创建部门'); void treeQ.refetch(); }
+    catch (e) { reportError(e, '创建部门失败'); }
+  };
+  const delDept = async (d: DeptNode) => {
+    try { await deptsApi.remove(d.id); notifySuccess('已删除'); setSel(null); void treeQ.refetch(); }
+    catch (e) { reportError(e, '删除部门失败(可能有子部门/成员)'); }
+  };
+  const toggleDeptRole = async (roleName: string, on: boolean) => {
+    if (!sel) return;
+    const cur = deptRolesQ.data ?? [];
+    const next = on
+      ? [...cur, { role_name: roleName, include_subtree: false }]
+      : cur.filter((r) => r.role_name !== roleName);
+    try { await deptsApi.setRoles(sel.id, next); void deptRolesQ.refetch(); }
+    catch (e) { reportError(e, '保存部门角色失败'); }
+  };
+  const toggleDeptRoleSubtree = async (roleName: string, sub: boolean) => {
+    if (!sel) return;
+    const next = (deptRolesQ.data ?? []).map((r) => r.role_name === roleName ? { ...r, include_subtree: sub } : r);
+    try { await deptsApi.setRoles(sel.id, next); void deptRolesQ.refetch(); }
+    catch (e) { reportError(e, '保存失败'); }
+  };
+
+  return (
+    <div className="flex h-full gap-4 p-4">
+      <div className="w-72 shrink-0 rounded-lg border border-[var(--cy-border-subtle)] p-3">
+        <div className="mb-2 flex items-center gap-2">
+          <select className="flex-1 rounded border p-1.5 text-sm" value={orgId ?? ''} onChange={(e) => { setOrgId(e.target.value === '' ? null : Number(e.target.value)); setSel(null); }}>
+            {(orgsQ.data ?? []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+          <Button variant="ghost" size="sm" onClick={() => void addOrg()}>+组织</Button>
+        </div>
+        <div className="mb-2 flex gap-1">
+          <Button variant="ghost" size="sm" onClick={() => void addDept(null)}>+根部门</Button>
+          {sel ? <Button variant="ghost" size="sm" onClick={() => void addDept(sel.id)}>+子部门</Button> : null}
+          {sel ? <Button variant="ghost" size="sm" onClick={() => void delDept(sel)}>删</Button> : null}
+        </div>
+        <DeptTree nodes={treeQ.data ?? []} selectedId={sel?.id ?? null} onSelect={setSel} />
+      </div>
+
+      <div className="flex-1 rounded-lg border border-[var(--cy-border-subtle)] p-3">
+        {!sel ? (
+          <div className="text-sm text-muted-foreground">请选择左侧部门</div>
+        ) : (
+          <>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="font-medium">{sel.name} · 成员</div>
+              <label className="text-xs"><input type="checkbox" checked={includeSub} onChange={(e) => setIncludeSub(e.target.checked)} /> 含下级</label>
+            </div>
+            <table className="w-full text-sm">
+              <thead><tr className="text-left text-muted-foreground"><th className="p-1">用户名</th><th className="p-1">角色</th><th className="p-1">状态</th></tr></thead>
+              <tbody>
+                {(membersQ.data ?? []).map((m) => (
+                  <tr key={m.id} className="border-t"><td className="p-1">{m.username}</td><td className="p-1">{m.roles.join(', ')}</td><td className="p-1">{m.is_active ? '正常' : '停用'}</td></tr>
+                ))}
+                {!(membersQ.data ?? []).length ? <tr><td colSpan={3} className="p-2 text-muted-foreground">暂无成员</td></tr> : null}
+              </tbody>
+            </table>
+
+            <div className="mt-4">
+              <div className="mb-1 text-xs font-medium opacity-70">部门继承角色（成员自动获得这些角色的功能权）</div>
+              <div className="space-y-1">
+                {(allRolesQ.data?.roles ?? []).map((r) => {
+                  const dr = (deptRolesQ.data ?? []).find((x) => x.role_name === r.name);
+                  const on = !!dr;
+                  return (
+                    <div key={r.name} className="flex items-center gap-2 text-sm">
+                      <label className="flex items-center gap-1"><input type="checkbox" checked={on} onChange={(e) => void toggleDeptRole(r.name, e.target.checked)} />{r.name}</label>
+                      {on && dr ? <label className="flex items-center gap-1 text-xs opacity-70"><input type="checkbox" checked={dr.include_subtree} onChange={(e) => void toggleDeptRoleSubtree(r.name, e.target.checked)} />传给下级</label> : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
