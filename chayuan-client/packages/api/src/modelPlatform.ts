@@ -124,6 +124,7 @@ export interface ProviderCatalogEntry {
     embed_models: string[];
     rerank_models: string[];
     text2image_models: string[];
+    image2image_models: string[];
     text2video_models: string[];
     image2text_models: string[];
     speech2text_models: string[];
