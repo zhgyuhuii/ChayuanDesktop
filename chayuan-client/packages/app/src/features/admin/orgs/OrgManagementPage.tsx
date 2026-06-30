@@ -76,6 +76,10 @@ export const OrgManagementPage: React.FC = () => {
     try { await deptsApi.update(d.id, { name: nm.trim() }); notifySuccess('已重命名'); void treeQ.refetch(); }
     catch (e) { reportError(e, '重命名部门失败'); }
   };
+  const moveDept = async (dragId: number, newParentId: number | null) => {
+    try { await deptsApi.move(dragId, newParentId); notifySuccess('已移动部门'); void treeQ.refetch(); }
+    catch (e) { reportError(e, '移动部门失败（不能移到自身或其子部门下）'); }
+  };
   const toggleDeptRole = async (roleName: string, on: boolean) => {
     if (!sel) return;
     const cur = deptRolesQ.data ?? [];
@@ -95,45 +99,56 @@ export const OrgManagementPage: React.FC = () => {
   return (
     <div className="flex h-full gap-4 p-4">
       <div className="w-72 shrink-0 rounded-lg border border-[var(--cy-border-subtle)] p-3">
-        <div className="mb-2 flex items-center gap-2">
-          <select className="flex-1 rounded border p-1.5 text-sm" value={orgId ?? ''} onChange={(e) => { setOrgId(e.target.value === '' ? null : Number(e.target.value)); setSel(null); }}>
+        <div className="mb-2 flex items-center gap-1">
+          <select className="min-w-0 flex-1 rounded border p-1.5 text-sm" value={orgId ?? ''} onChange={(e) => { setOrgId(e.target.value === '' ? null : Number(e.target.value)); setSel(null); }}>
             {(orgsQ.data ?? []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
-          <Button variant="outline" size="sm" className="shrink-0" onClick={() => { setEditOrg(null); setOrgFormOpen(true); }} title="新建组织">
+          <Button variant="outline" size="sm" className="shrink-0 px-2" onClick={() => { setEditOrg(null); setOrgFormOpen(true); }} title="新建组织">
             <Building2 className="h-4 w-4" />
           </Button>
           {orgId !== null ? (
-            <Button variant="outline" size="sm" className="shrink-0" onClick={() => { const o = (orgsQ.data ?? []).find((x) => x.id === orgId) ?? null; setEditOrg(o); setOrgFormOpen(true); }} title="编辑当前组织">
+            <Button variant="outline" size="sm" className="shrink-0 px-2" onClick={() => { const o = (orgsQ.data ?? []).find((x) => x.id === orgId) ?? null; setEditOrg(o); setOrgFormOpen(true); }} title="编辑当前组织">
               <Pencil className="h-4 w-4" />
             </Button>
           ) : null}
           {orgId !== null ? (
-            <Button variant="outline" size="sm" className="shrink-0 text-red-500 hover:text-red-600" onClick={() => void delOrg()} title="删除当前组织">
+            <Button variant="outline" size="sm" className="shrink-0 px-2 text-red-500 hover:text-red-600" onClick={() => void delOrg()} title="删除当前组织">
               <Trash2 className="h-4 w-4" />
             </Button>
           ) : null}
         </div>
         <div className="mb-2 flex gap-1">
-          <Button variant="ghost" size="sm" onClick={() => void addDept(null)}>
-            <FolderPlus className="mr-1 h-4 w-4" /> 根部门
+          <Button variant="ghost" size="sm" className="px-2" onClick={() => void addDept(null)} title="新建根部门">
+            <FolderPlus className="h-4 w-4" />
           </Button>
           {sel ? (
-            <Button variant="ghost" size="sm" onClick={() => void addDept(sel.id)}>
-              <FolderTree className="mr-1 h-4 w-4" /> 子部门
+            <Button variant="ghost" size="sm" className="px-2" onClick={() => void addDept(sel.id)} title="新建子部门">
+              <FolderTree className="h-4 w-4" />
             </Button>
           ) : null}
           {sel ? (
-            <Button variant="ghost" size="sm" onClick={() => void renameDept(sel)}>
-              <Pencil className="mr-1 h-4 w-4" /> 重命名
+            <Button variant="ghost" size="sm" className="px-2" onClick={() => void renameDept(sel)} title="重命名部门">
+              <Pencil className="h-4 w-4" />
             </Button>
           ) : null}
           {sel ? (
-            <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-600" onClick={() => void delDept(sel)}>
-              <Trash2 className="mr-1 h-4 w-4" /> 删除
+            <Button variant="ghost" size="sm" className="px-2 text-red-500 hover:text-red-600" onClick={() => void delDept(sel)} title="删除部门">
+              <Trash2 className="h-4 w-4" />
             </Button>
           ) : null}
         </div>
-        <DeptTree nodes={treeQ.data ?? []} selectedId={sel?.id ?? null} onSelect={setSel} />
+        <div
+          className="mb-1 rounded border border-dashed border-[var(--cy-border-subtle)] px-2 py-1 text-center text-xs text-muted-foreground"
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const dragId = Number(e.dataTransfer.getData('application/x-chayuan-dept-id'));
+            if (dragId) void moveDept(dragId, null);
+          }}
+        >
+          拖到此处 = 设为顶级部门
+        </div>
+        <DeptTree nodes={treeQ.data ?? []} selectedId={sel?.id ?? null} onSelect={setSel} onMove={(d, p) => void moveDept(d, p)} />
       </div>
 
       <div className="flex-1 rounded-lg border border-[var(--cy-border-subtle)] p-3">

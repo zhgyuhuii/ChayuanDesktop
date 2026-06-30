@@ -2,15 +2,42 @@ import * as React from 'react';
 import type { DeptNode } from '@chayuan/api';
 
 // 递归部门树:可点选(onSelect)、可显示勾选框(checked/onToggle 用于多选范围)。
+// 传入 onMove 时启用拖拽改父级:拖某节点到目标节点上=移动为其子部门。
+// 拖拽 id 走 dataTransfer(跨递归实例安全);每层本地 dragOverId 高亮放置目标。
+const DRAG_MIME = 'application/x-chayuan-dept-id';
 export const DeptTree: React.FC<{
   nodes: DeptNode[];
   selectedId?: number | null;
   onSelect?: (d: DeptNode) => void;
   checkedIds?: Set<number>;
   onToggle?: (id: number) => void;
+  onMove?: (dragId: number, newParentId: number | null) => void;
   depth?: number;
-}> = ({ nodes, selectedId, onSelect, checkedIds, onToggle, depth = 0 }) => {
+}> = ({ nodes, selectedId, onSelect, checkedIds, onToggle, onMove, depth = 0 }) => {
   const [collapsed, setCollapsed] = React.useState<Set<number>>(new Set());
+  const [dragOverId, setDragOverId] = React.useState<number | null>(null);
+  const dnd = onMove
+    ? (n: DeptNode) => ({
+        draggable: true,
+        onDragStart: (e: React.DragEvent) => {
+          e.dataTransfer.setData(DRAG_MIME, String(n.id));
+          e.dataTransfer.effectAllowed = 'move';
+        },
+        onDragOver: (e: React.DragEvent) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          if (dragOverId !== n.id) setDragOverId(n.id);
+        },
+        onDragLeave: () => setDragOverId((cur) => (cur === n.id ? null : cur)),
+        onDrop: (e: React.DragEvent) => {
+          e.preventDefault();
+          setDragOverId(null);
+          const raw = e.dataTransfer.getData(DRAG_MIME);
+          const dragId = Number(raw);
+          if (dragId && dragId !== n.id) onMove(dragId, n.id);
+        },
+      })
+    : () => ({});
   return (
     <ul className="text-sm">
       {nodes.map((n) => {
@@ -19,8 +46,11 @@ export const DeptTree: React.FC<{
         return (
           <li key={n.id}>
             <div
+              {...dnd(n)}
               className={`flex items-center gap-1 rounded px-1 py-0.5 ${
-                selectedId === n.id ? 'bg-[var(--cy-brand-500)]/10 text-[var(--cy-brand-600)]' : 'hover:bg-[var(--cy-surface-2)]'
+                dragOverId === n.id
+                  ? 'ring-1 ring-[var(--cy-brand-500)] bg-[var(--cy-brand-500)]/10'
+                  : selectedId === n.id ? 'bg-[var(--cy-brand-500)]/10 text-[var(--cy-brand-600)]' : 'hover:bg-[var(--cy-surface-2)]'
               }`}
               style={{ paddingLeft: depth * 14 + 4 }}
             >
@@ -55,6 +85,7 @@ export const DeptTree: React.FC<{
                 onSelect={onSelect}
                 checkedIds={checkedIds}
                 onToggle={onToggle}
+                onMove={onMove}
                 depth={depth + 1}
               />
             ) : null}
