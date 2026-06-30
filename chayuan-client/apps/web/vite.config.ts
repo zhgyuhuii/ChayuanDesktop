@@ -44,6 +44,10 @@ const chayuanAliases = [
  */
 const BACKEND_PROXY_PREFIXES = [
   '/admin',
+  // 后台 admin REST 全套(redis/db/datadir/services/roles/orgs/kb-acl…)都挂在
+  // /api/v1/admin/* 下;漏配会让 ServiceTopology / RoleManagement 等页面在 web
+  // dev 模式打到 vite dev server 返 404。一条前缀全覆盖,新增 admin 子路由免再加。
+  '/api/v1/admin',
   '/auth',
   '/annotation',
   // chat:精确到子路径,避免吃掉 SPA 路由
