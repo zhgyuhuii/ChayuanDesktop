@@ -1,18 +1,21 @@
 import * as React from 'react';
 import { Button } from '@chayuan/ui';
+import { Building2, FolderPlus, FolderTree, Trash2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { orgs as orgsApi, depts as deptsApi, roles as rolesApi, type DeptNode } from '@chayuan/api';
 import { reportError, notifySuccess } from '../../../store/errorDialog';
 import { promptDialog } from '../../../store/promptDialog';
 import { DeptTree } from './DeptTree';
+import { OrgFormDialog } from './OrgFormDialog';
 
 // 组织机构页(org-RBAC P5)。左:组织下拉 + 部门树 + 建组织/部门/删;
 // 右:选中部门的成员列表 + 部门继承角色(成员自动获得这些角色功能权)。
-// 仅网络版后台用;输入框走统一 promptDialog(已由 AdminPage 挂 PromptRoot)。
+// 仅网络版后台用;部门输入走统一 promptDialog,新建组织走 OrgFormDialog(双字段+自动编码)。
 export const OrgManagementPage: React.FC = () => {
   const [orgId, setOrgId] = React.useState<number | null>(null);
   const [sel, setSel] = React.useState<DeptNode | null>(null);
   const [includeSub, setIncludeSub] = React.useState(false);
+  const [orgFormOpen, setOrgFormOpen] = React.useState(false);
 
   const orgsQ = useQuery({ queryKey: ['admin', 'orgs'], queryFn: () => orgsApi.list(), staleTime: 60_000 });
   React.useEffect(() => {
@@ -37,14 +40,8 @@ export const OrgManagementPage: React.FC = () => {
   });
   const allRolesQ = useQuery({ queryKey: ['admin', 'roles', 'all'], queryFn: () => rolesApi.list(), staleTime: 60_000 });
 
-  const addOrg = async () => {
-    const nm = await promptDialog('组织名称', { title: '新建组织' });
-    if (!nm) return;
-    const code = await promptDialog('组织编码(唯一,英文)', { title: '新建组织' });
-    if (!code) return;
-    try { await orgsApi.create({ name: nm, code }); notifySuccess('已创建组织'); void orgsQ.refetch(); }
-    catch (e) { reportError(e, '创建组织失败'); }
-  };
+  const existingCodes = React.useMemo(() => (orgsQ.data ?? []).map((o) => o.code), [orgsQ.data]);
+
   const addDept = async (parentId: number | null) => {
     if (orgId === null) return;
     const nm = await promptDialog('部门名称', { title: '新建部门' });
@@ -79,12 +76,24 @@ export const OrgManagementPage: React.FC = () => {
           <select className="flex-1 rounded border p-1.5 text-sm" value={orgId ?? ''} onChange={(e) => { setOrgId(e.target.value === '' ? null : Number(e.target.value)); setSel(null); }}>
             {(orgsQ.data ?? []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
-          <Button variant="ghost" size="sm" onClick={() => void addOrg()}>+组织</Button>
+          <Button variant="outline" size="sm" className="shrink-0" onClick={() => setOrgFormOpen(true)}>
+            <Building2 className="mr-1 h-4 w-4" /> 新建组织
+          </Button>
         </div>
         <div className="mb-2 flex gap-1">
-          <Button variant="ghost" size="sm" onClick={() => void addDept(null)}>+根部门</Button>
-          {sel ? <Button variant="ghost" size="sm" onClick={() => void addDept(sel.id)}>+子部门</Button> : null}
-          {sel ? <Button variant="ghost" size="sm" onClick={() => void delDept(sel)}>删</Button> : null}
+          <Button variant="ghost" size="sm" onClick={() => void addDept(null)}>
+            <FolderPlus className="mr-1 h-4 w-4" /> 根部门
+          </Button>
+          {sel ? (
+            <Button variant="ghost" size="sm" onClick={() => void addDept(sel.id)}>
+              <FolderTree className="mr-1 h-4 w-4" /> 子部门
+            </Button>
+          ) : null}
+          {sel ? (
+            <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-600" onClick={() => void delDept(sel)}>
+              <Trash2 className="mr-1 h-4 w-4" /> 删除
+            </Button>
+          ) : null}
         </div>
         <DeptTree nodes={treeQ.data ?? []} selectedId={sel?.id ?? null} onSelect={setSel} />
       </div>
@@ -126,6 +135,13 @@ export const OrgManagementPage: React.FC = () => {
           </>
         )}
       </div>
+
+      <OrgFormDialog
+        open={orgFormOpen}
+        existingCodes={existingCodes}
+        onClose={() => setOrgFormOpen(false)}
+        onCreated={() => void orgsQ.refetch()}
+      />
     </div>
   );
 };
