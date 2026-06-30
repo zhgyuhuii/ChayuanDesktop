@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { Button } from '@chayuan/ui';
-import { Building2, FolderPlus, FolderTree, Trash2 } from 'lucide-react';
+import { Building2, FolderPlus, FolderTree, Pencil, Trash2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { orgs as orgsApi, depts as deptsApi, roles as rolesApi, type DeptNode } from '@chayuan/api';
+import { orgs as orgsApi, depts as deptsApi, roles as rolesApi, type DeptNode, type Org } from '@chayuan/api';
 import { reportError, notifySuccess } from '../../../store/errorDialog';
 import { promptDialog } from '../../../store/promptDialog';
 import { confirmDialog } from '../../../store/confirmDialog';
@@ -17,6 +17,8 @@ export const OrgManagementPage: React.FC = () => {
   const [sel, setSel] = React.useState<DeptNode | null>(null);
   const [includeSub, setIncludeSub] = React.useState(false);
   const [orgFormOpen, setOrgFormOpen] = React.useState(false);
+  // 非空=编辑该组织;为 null 且 orgFormOpen=新建。
+  const [editOrg, setEditOrg] = React.useState<Org | null>(null);
 
   const orgsQ = useQuery({ queryKey: ['admin', 'orgs'], queryFn: () => orgsApi.list(), staleTime: 60_000 });
   React.useEffect(() => {
@@ -68,6 +70,12 @@ export const OrgManagementPage: React.FC = () => {
     try { await deptsApi.remove(d.id); notifySuccess('已删除'); setSel(null); void treeQ.refetch(); }
     catch (e) { reportError(e, '删除部门失败(可能有子部门/成员)'); }
   };
+  const renameDept = async (d: DeptNode) => {
+    const nm = await promptDialog('部门名称', { title: '重命名部门', defaultValue: d.name });
+    if (!nm || nm.trim() === d.name) return;
+    try { await deptsApi.update(d.id, { name: nm.trim() }); notifySuccess('已重命名'); void treeQ.refetch(); }
+    catch (e) { reportError(e, '重命名部门失败'); }
+  };
   const toggleDeptRole = async (roleName: string, on: boolean) => {
     if (!sel) return;
     const cur = deptRolesQ.data ?? [];
@@ -91,9 +99,14 @@ export const OrgManagementPage: React.FC = () => {
           <select className="flex-1 rounded border p-1.5 text-sm" value={orgId ?? ''} onChange={(e) => { setOrgId(e.target.value === '' ? null : Number(e.target.value)); setSel(null); }}>
             {(orgsQ.data ?? []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
-          <Button variant="outline" size="sm" className="shrink-0" onClick={() => setOrgFormOpen(true)} title="新建组织">
+          <Button variant="outline" size="sm" className="shrink-0" onClick={() => { setEditOrg(null); setOrgFormOpen(true); }} title="新建组织">
             <Building2 className="h-4 w-4" />
           </Button>
+          {orgId !== null ? (
+            <Button variant="outline" size="sm" className="shrink-0" onClick={() => { const o = (orgsQ.data ?? []).find((x) => x.id === orgId) ?? null; setEditOrg(o); setOrgFormOpen(true); }} title="编辑当前组织">
+              <Pencil className="h-4 w-4" />
+            </Button>
+          ) : null}
           {orgId !== null ? (
             <Button variant="outline" size="sm" className="shrink-0 text-red-500 hover:text-red-600" onClick={() => void delOrg()} title="删除当前组织">
               <Trash2 className="h-4 w-4" />
@@ -107,6 +120,11 @@ export const OrgManagementPage: React.FC = () => {
           {sel ? (
             <Button variant="ghost" size="sm" onClick={() => void addDept(sel.id)}>
               <FolderTree className="mr-1 h-4 w-4" /> 子部门
+            </Button>
+          ) : null}
+          {sel ? (
+            <Button variant="ghost" size="sm" onClick={() => void renameDept(sel)}>
+              <Pencil className="mr-1 h-4 w-4" /> 重命名
             </Button>
           ) : null}
           {sel ? (
@@ -159,7 +177,8 @@ export const OrgManagementPage: React.FC = () => {
       <OrgFormDialog
         open={orgFormOpen}
         existingCodes={existingCodes}
-        onClose={() => setOrgFormOpen(false)}
+        editOrg={editOrg}
+        onClose={() => { setOrgFormOpen(false); setEditOrg(null); }}
         onCreated={() => void orgsQ.refetch()}
       />
     </div>
