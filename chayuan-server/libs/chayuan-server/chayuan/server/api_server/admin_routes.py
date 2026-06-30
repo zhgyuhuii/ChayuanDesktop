@@ -945,6 +945,14 @@ async def get_capability_defaults(
 
     # 汇总所有平台的模型清单
     candidates: Dict[str, List[Dict[str, Any]]] = {cap: [] for cap in capabilities}
+    # catalog 内置默认清单(按 pid=platform_name)。视频/图像编辑模型无法自动探测,
+    # 且 text2video 未落 DB 列,故启用厂商对应字段为空时回退 catalog —— 与
+    # /model_platforms/catalog 的 _models_for 口径一致,否则默认模型页「文生视频」永远空。
+    try:
+        from chayuan.server.config_panel.model_config import PROVIDER_CATALOG as _PC
+        _catalog_by_pid: Dict[str, Dict[str, Any]] = {m.pid: (m.default_models or {}) for m in _PC}
+    except Exception:  # noqa: BLE001
+        _catalog_by_pid = {}
     try:
         platforms = repo.list_platforms() or []
     except Exception as e:  # noqa: BLE001
@@ -965,6 +973,8 @@ async def get_capability_defaults(
             models = p.get(field) or []
             if isinstance(models, str):
                 models = [m.strip() for m in models.split(",") if m.strip()]
+            if not models and field in ("text2video_models", "image2image_models"):
+                models = list(_catalog_by_pid.get(platform_name, {}).get(field) or [])
             for mid in models:
                 if not isinstance(mid, str) or not mid or mid in seen[cap]:
                     continue
