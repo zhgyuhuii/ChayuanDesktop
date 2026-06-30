@@ -42,7 +42,9 @@ def test_snapshot_users_and_kpi():
     assert by["bob"]["msg_count"] == 1
     # alice est = int(7/1.5)+int(30/1.5) = 4 + 20 = 24
     assert by["alice"]["est_tokens"] == _est_tokens(7) + _est_tokens(30)
-    assert snap["total_tokens"] == by["alice"]["est_tokens"] + by["bob"]["est_tokens"]
+    # total_tokens 按「总字符数」整体取整(_est_tokens(37+2)),与逐用户取整求和
+    # 因取整顺序不同可能差 1,故对总字符口径断言而非 per-user 求和。
+    assert snap["total_tokens"] == _est_tokens(7 + 30 + 2)
     assert "generated_at" in snap
 
 
