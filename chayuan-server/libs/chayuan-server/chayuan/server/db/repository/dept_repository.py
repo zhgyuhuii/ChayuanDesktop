@@ -97,9 +97,21 @@ def delete_dept(dept_id) -> bool:
         child_count = s.query(DepartmentModel).filter(DepartmentModel.parent_id == dept_id).count()
         if child_count:
             raise ValueError(f"部门下仍有 {child_count} 个子部门,请先删除子部门")
-        # 注: P2 给 users 加 dept_id 后,这里要再拦"部门下有用户"
+        # 借鉴 RuoYi:部门存在用户不允许删除(P2 已给 users 加 dept_id)。
+        user_count = _dept_user_count(s, dept_id)
+        if user_count:
+            raise ValueError(f"部门下仍有 {user_count} 个用户,请先移出或改派用户")
         s.delete(r)
         return True
+
+
+def _dept_user_count(s, dept_id) -> int:
+    """部门直属用户数(org-RBAC,删部门守卫)。users 表缺 dept_id 列时返回 0。"""
+    try:
+        from chayuan.server.db.models.user_model import UserModel
+        return s.query(UserModel).filter(UserModel.dept_id == dept_id).count()
+    except Exception:
+        return 0
 
 
 def subtree_ids(dept_id) -> List[int]:

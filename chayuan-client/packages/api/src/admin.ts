@@ -15,6 +15,10 @@ export interface AdminUserRow {
   msg_count: number;
   est_tokens: number;
   last_active: string | null;
+  // —— org-RBAC P5:部门 + 多角色 ——
+  dept_id?: number | null;
+  dept_name?: string | null;
+  roles?: string[];
   // —— P2/P3 富字段 ——
   total_chars?: number;
   avg_feedback?: number | null;

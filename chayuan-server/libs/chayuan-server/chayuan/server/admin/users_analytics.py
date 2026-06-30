@@ -73,6 +73,27 @@ def _extract_kb_name(chat_type: str, meta: Dict[str, Any], conv_name: str = "") 
     return None
 
 
+def _dept_name_map(s) -> Dict[int, str]:
+    """部门 id->name(org-RBAC P5)。表缺失时静默返回空。"""
+    try:
+        from chayuan.server.db.models.dept_model import DepartmentModel
+        return {int(d.id): d.name for d in s.query(DepartmentModel.id, DepartmentModel.name).all()}
+    except Exception:
+        return {}
+
+
+def _user_roles_map(s) -> Dict[int, List[str]]:
+    """用户 id->[role_name](org-RBAC P5 多角色)。表缺失时静默返回空。"""
+    try:
+        from chayuan.server.db.models.user_role_model import UserRoleModel
+        out: Dict[int, List[str]] = collections.defaultdict(list)
+        for r in s.query(UserRoleModel.user_id, UserRoleModel.role_name).all():
+            out[int(r.user_id)].append(r.role_name)
+        return out
+    except Exception:
+        return {}
+
+
 def _new_stats(info: dict) -> dict:
     return {
         **info, "msg_count": 0, "est_tokens": 0, "total_chars": 0,
@@ -107,13 +128,21 @@ def build_users_snapshot(now: Optional[datetime] = None) -> dict:
 
     with session_scope() as s:
         users = s.query(UserModel).order_by(UserModel.id).all()
+        # org-RBAC P5:部门名映射 + 用户多角色映射(批量,避免 N 次查询)
+        dept_name_map = _dept_name_map(s)
+        user_roles_map = _user_roles_map(s)
         umap: Dict[int, dict] = {}
         for u in users:
-            umap[int(u.id)] = _new_stats({
-                "id": int(u.id), "username": u.username, "role": u.role or "user",
+            uid = int(u.id)
+            dept_id = getattr(u, "dept_id", None)
+            umap[uid] = _new_stats({
+                "id": uid, "username": u.username, "role": u.role or "user",
                 "email": u.email or "", "is_active": bool(u.is_active),
                 "created_at": u.created_at.isoformat() if u.created_at else None,
                 "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+                "dept_id": int(dept_id) if dept_id else None,
+                "dept_name": dept_name_map.get(int(dept_id)) if dept_id else None,
+                "roles": user_roles_map.get(uid) or ([u.role] if u.role else []),
             })
         total_users = len(users)
 

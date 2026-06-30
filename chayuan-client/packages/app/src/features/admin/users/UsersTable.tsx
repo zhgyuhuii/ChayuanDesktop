@@ -10,11 +10,13 @@ import {
 } from '@chayuan/api';
 import { CreateUserDialog } from './CreateUserDialog';
 import { UserPersonaDialog } from './UserPersonaDialog';
+import { EditUserDialog } from './EditUserDialog';
 import { confirmDialog } from '../../../store/confirmDialog';
 
 export const UsersTable: React.FC = () => {
   const [kw, setKw] = React.useState('');
   const [personaUser, setPersonaUser] = React.useState<AdminUserRow | null>(null);
+  const [editUser, setEditUser] = React.useState<AdminUserRow | null>(null);
   const snap = useQuery({ queryKey: ['admin', 'users', 'snapshot'], queryFn: adminUsersSnapshot, staleTime: 30_000 });
   const seat = useQuery<DeploymentStatus>({ queryKey: ['admin', 'deployment', 'status'], queryFn: deploymentStatus, staleTime: 30_000 });
 
@@ -72,6 +74,7 @@ export const UsersTable: React.FC = () => {
           <tr className="text-left text-muted-foreground">
             <th className="p-2">用户</th>
             <th className="p-2">角色/状态</th>
+            <th className="p-2">部门</th>
             <th className="p-2">消息</th>
             <th className="p-2">~tokens</th>
             <th className="p-2">最近活跃</th>
@@ -86,12 +89,14 @@ export const UsersTable: React.FC = () => {
                 <div className="text-xs text-muted-foreground">{u.email}</div>
               </td>
               <td className="p-2">
-                {u.role} · {u.is_active ? '启用' : '停用'}
+                {(u.roles && u.roles.length ? u.roles.join('/') : u.role)} · {u.is_active ? '启用' : '停用'}
               </td>
+              <td className="p-2">{u.dept_name ?? '—'}</td>
               <td className="p-2">{u.msg_count}</td>
               <td className="p-2">{u.est_tokens}</td>
               <td className="p-2">{u.last_active ? new Date(u.last_active).toLocaleString() : '—'}</td>
               <td className="p-2 flex gap-1">
+                <Button variant="ghost" onClick={() => setEditUser(u)}>编辑</Button>
                 <Button variant="ghost" onClick={() => setPersonaUser(u)}>画像</Button>
                 <Button variant="ghost" onClick={() => void toggle(u)}>
                   {u.is_active ? '停用' : '启用'}
@@ -103,6 +108,13 @@ export const UsersTable: React.FC = () => {
       </table>
       {snap.isLoading ? <p className="text-sm text-muted-foreground">加载中…</p> : null}
       {personaUser ? <UserPersonaDialog user={personaUser} onClose={() => setPersonaUser(null)} /> : null}
+      {editUser ? (
+        <EditUserDialog
+          user={editUser}
+          onClose={() => setEditUser(null)}
+          onSaved={() => void snap.refetch()}
+        />
+      ) : null}
     </div>
   );
 };

@@ -141,3 +141,25 @@ def test_cross_org_move_propagates_org_id():
     assert a2["org_id"] == o2["id"] and child2["org_id"] == o2["id"]
     assert a2["ancestors"] == f",{target['id']},{a['id']},"
     assert child2["ancestors"] == f",{target['id']},{a['id']},{child['id']},"
+
+
+def test_delete_dept_with_users_blocked():
+    """借鉴 RuoYi:部门下有用户不允许删除。"""
+    from chayuan.server.db.models.user_model import UserModel
+    o = _new_org("du")
+    d = depts.create_dept(o["id"], None, "有人部门")
+    with session_scope() as s:
+        u = UserModel(username="dept_member_x", password_hash="x", role="user",
+                      is_active=True, dept_id=d["id"])
+        s.add(u); s.flush(); uid = u.id
+    try:
+        with pytest.raises(ValueError):
+            depts.delete_dept(d["id"])
+        # 用户改派走后,可正常删
+        with session_scope() as s:
+            row = s.query(UserModel).filter(UserModel.id == uid).first()
+            row.dept_id = None
+        assert depts.delete_dept(d["id"]) is True
+    finally:
+        with session_scope() as s:
+            s.query(UserModel).filter(UserModel.id == uid).delete()

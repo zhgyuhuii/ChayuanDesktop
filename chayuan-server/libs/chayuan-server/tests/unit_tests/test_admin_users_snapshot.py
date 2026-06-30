@@ -81,3 +81,37 @@ def test_snapshot_rich_aggregation():
     carol = next(u for u in snap["users"] if u["username"] == "carol")
     assert carol["model_usage"]["qwen"] == 2
     assert len(carol["recent_queries"]) == 2
+
+
+def test_snapshot_carries_dept_and_roles():
+    """org-RBAC P5:snapshot 行带 dept_id/dept_name/roles。"""
+    from chayuan.server.db.repository import org_repository as orgs
+    from chayuan.server.db.repository import dept_repository as depts
+    from chayuan.server.db.repository import user_role_repository as urr
+    from chayuan.server.db.models.org_model import OrganizationModel
+    from chayuan.server.db.models.dept_model import DepartmentModel
+    from chayuan.server.db.models.user_role_model import UserRoleModel
+
+    def _purge_org():
+        with session_scope() as s:
+            for M in (UserRoleModel, DepartmentModel, OrganizationModel):
+                s.query(M).delete()
+
+    _purge_org()
+    try:
+        org = orgs.create_org("总公司X", "hqx")
+        dept = depts.create_dept(org["id"], None, "研发部X")
+        u = svc.create_user("dave", "secret123", role="user")
+        # 设部门 + 多角色
+        with session_scope() as s:
+            row = s.query(UserModel).filter(UserModel.id == u.id).first()
+            row.dept_id = dept["id"]
+        urr.set_user_roles(u.id, ["user", "admin"])
+
+        snap = build_users_snapshot()
+        dave = next(x for x in snap["users"] if x["username"] == "dave")
+        assert dave["dept_id"] == dept["id"]
+        assert dave["dept_name"] == "研发部X"
+        assert set(dave["roles"]) == {"user", "admin"}
+    finally:
+        _purge_org()
