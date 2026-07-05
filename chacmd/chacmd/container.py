@@ -40,6 +40,7 @@ class Container:
     ingest: EventIngest
     dispatcher: Dispatcher
     provisioner: Provisioner
+    stream_hub: Any
     workspace: Workspace
 
 
@@ -80,7 +81,10 @@ async def build_container(settings: Settings, use_fakes: bool = False) -> Contai
         bus: Any = NatsEventBus(url=settings.nats_url)
     else:
         bus = InMemoryEventBus()
-    ingest = EventIngest(bus, jobs, audit)
+    from chacmd.api.stream import EventStreamHub
+
+    stream_hub = EventStreamHub()
+    ingest = EventIngest(bus, jobs, audit, stream_hub=stream_hub)
     from chacmd.orchestrator.budget import BudgetGuard
 
     dispatcher = Dispatcher(jobs, containers, chayuan, adapter, ingest, budget=BudgetGuard(jobs))
@@ -91,6 +95,6 @@ async def build_container(settings: Settings, use_fakes: bool = False) -> Contai
         registry=InProcessServiceRegistry(), config=InProcessConfigSource({}),
         bus=bus, transport=InProcessTransport(), adapter=adapter, sandbox=sandbox,
         auth=auth, jobs=jobs, containers=containers, audit=audit, ingest=ingest,
-        dispatcher=dispatcher, provisioner=provisioner,
+        dispatcher=dispatcher, provisioner=provisioner, stream_hub=stream_hub,
         workspace=Workspace(root=Path(settings.workspace_root)),
     )

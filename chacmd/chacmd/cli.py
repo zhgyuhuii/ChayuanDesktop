@@ -17,7 +17,7 @@ async def _serve(settings: Settings) -> None:
     gateway.on_event(lambda env: container.ingest.handle(_env_to_event(env)))
     await gateway.start()
     try:
-        app = create_app(container.db, chayuan=container.chayuan)
+        app = create_app(container.db, chayuan=container.chayuan, stream_hub=container.stream_hub)
         config = uvicorn.Config(app, host=settings.api_host, port=settings.api_port, log_level="info")
         await uvicorn.Server(config).serve()
     finally:

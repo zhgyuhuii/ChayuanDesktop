@@ -63,6 +63,21 @@ async def test_bus_events_carry_traceparent(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_dispatch_events_reach_sse_hub(tmp_path):
+    c = await build_container(_settings(tmp_path), use_fakes=True)
+    assert c.stream_hub is not None
+    q = c.stream_hub.register()
+    await c.containers.upsert(nickname="dev", session="s1", dept="d1")
+    job = await c.jobs.create(code="c", goal="g", dept="d1")
+    await c.dispatcher.dispatch(job_id=job.id, nickname="dev", subject="u1", system_prompt="p")
+    kinds = []
+    while not q.empty():
+        kinds.append((await q.get())["kind"])
+    assert "started" in kinds and "succeeded" in kinds
+    await c.db.dispose()
+
+
+@pytest.mark.asyncio
 async def test_audit_trail_full_sequence(tmp_path):
     c = await build_container(_settings(tmp_path), use_fakes=True)
     await c.containers.upsert(nickname="dev", session="s1", dept="d1")
