@@ -13,9 +13,11 @@
  */
 
 import * as React from 'react';
+import { getActiveBrand } from '../../brand/registry';
 import { useTabsStore } from '../../store/tabs';
 import { LicenseGate } from '../license';
 import { tabsStaticTitle } from './tab-titles';
+import { effectiveRouteEntries } from './routeMerge';
 
 export interface RouteParams {
   [key: string]: string;
@@ -405,7 +407,7 @@ export const ROUTE_ENTRIES: ReadonlyArray<RouteEntry> = [
 /** 解析 path,返回 entry + params;命中不到时返回 null */
 export function resolveRoute(path: string): { entry: RouteEntry; params: RouteParams } | null {
   const pathname = path.split(/[?#]/, 1)[0] || path;
-  for (const entry of ROUTE_ENTRIES) {
+  for (const entry of effectiveRouteEntries(ROUTE_ENTRIES, getActiveBrand())) {
     const m = entry.pattern.exec(pathname);
     if (m) {
       const params: RouteParams = { ...(m.groups ?? {}) };
