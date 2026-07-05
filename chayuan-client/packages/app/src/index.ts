@@ -1,4 +1,7 @@
 export { Shell, type ShellEnv } from './Shell';
+// SKU 注入 seam 公开面（§3.7）：新 SKU 用这些类型构造 brand + routeExtensions
+export type { BrandConfig } from './brand/types';
+export type { RouteEntry, RouteParams } from './features/shell/page-registry';
 export { ScreenshotOverlayApp } from './features/composer/ScreenshotOverlayApp';
 export { useAuthStore } from './store/auth';
 export { useComposerStore } from './store/composer';

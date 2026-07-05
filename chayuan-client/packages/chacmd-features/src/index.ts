@@ -6,3 +6,5 @@ export {
   applyStreamEvent,
   initialCommandState,
 } from './stream/streamReducer';
+export { chacmdBrand, commandRoute } from './route';
+export { CommandDashboard } from './dashboard/CommandDashboard';
