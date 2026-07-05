@@ -25,6 +25,8 @@ import {
   useParams,
 } from '@tanstack/react-router';
 import * as React from 'react';
+import { getActiveBrand, resolveLandingPath, setActiveBrand } from '../brand/registry';
+import type { BrandConfig } from '../brand/types';
 import { useAuthStore } from '../store/auth';
 import { useLoginModalStore } from '../store/loginModal';
 import { isSingleMachineMode } from '../features/first-run/useSingleMachineMode';
@@ -112,7 +114,8 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   beforeLoad: () => {
-    throw redirect({ to: '/home' });
+    // landing 由当前 SKU 品牌决定：察元=/home，ChaCMD=/command（§3.7）
+    throw redirect({ to: resolveLandingPath(getActiveBrand()) });
   },
 });
 
@@ -266,7 +269,8 @@ const routeTree = rootRoute.addChildren([
   ] as unknown as AnyRoute[]),
 ]);
 
-export function createAppRouter(queryClient: QueryClient) {
+export function createAppRouter(queryClient: QueryClient, brand?: BrandConfig) {
+  if (brand) setActiveBrand(brand);
   return createRouter({
     routeTree,
     context: { queryClient },

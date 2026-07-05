@@ -15,7 +15,7 @@ describe('effectiveRouteEntries', () => {
   it('有 routeExtensions → 追加到末尾', () => {
     const merged = effectiveRouteEntries(base, { appName: 'x', routeExtensions: [ext] });
     expect(merged).toHaveLength(2);
-    expect(merged[1].pattern.source).toBe(/^\/command$/.source);
+    expect(merged[1]?.pattern.source).toBe(/^\/command$/.source);
   });
 
   it('brand 无 routeExtensions → 等同内置', () => {

@@ -21,6 +21,8 @@ import {
   isSingleMachineMode,
   useSingleMachineMode,
 } from './features/first-run/useSingleMachineMode';
+import { setActiveBrand } from './brand/registry';
+import type { BrandConfig } from './brand/types';
 import { PreviewMount } from './features/preview';
 import { LocaleBridge } from './features/settings/LocaleBridge';
 import { ThemeBridge } from './features/settings/ThemeBridge';
@@ -50,6 +52,8 @@ export interface ShellEnv {
    * 默认 false（向后兼容现有桌面构建）。
    */
   thinClient?: boolean;
+  /** SKU 品牌 + 路由扩展注入（§3.7）。缺省 undefined = 察元现状。 */
+  brand?: BrandConfig;
 }
 
 /**
@@ -59,8 +63,10 @@ export interface ShellEnv {
  * - 所有页面切换通过 useNavigate；登录/admin 守卫在路由 beforeLoad 完成。
  */
 export const Shell: React.FC<{ env: ShellEnv }> = ({ env }) => {
+  // SKU 品牌注册一次（模块级，供 resolveRoute/landing 读取）；缺省 undefined = 察元现状。
+  setActiveBrand(env.brand);
   const routerRef = React.useRef<ReturnType<typeof createAppRouter> | null>(null);
-  if (!routerRef.current) routerRef.current = createAppRouter(queryClient);
+  if (!routerRef.current) routerRef.current = createAppRouter(queryClient, env.brand);
 
   const telemetry = useSettingsStore((s) => s.telemetry);
   const apiOverride = useSettingsStore((s) => s.apiBaseOverride);
