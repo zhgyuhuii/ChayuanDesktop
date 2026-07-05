@@ -17,7 +17,9 @@ from chacmd.domain.state import JobState
 from chacmd.interfaces.db import Database
 
 
-def create_app(db: Database, chayuan: object | None = None) -> FastAPI:
+def create_app(
+    db: Database, chayuan: object | None = None, stream_hub: object | None = None
+) -> FastAPI:
     app = FastAPI(title="ChaCMD Orchestrator", version="0.1.0")
     jobs = JobRepository(db)
 
@@ -80,5 +82,15 @@ def create_app(db: Database, chayuan: object | None = None) -> FastAPI:
             extra = {k: v for k, v in oai.items() if k not in ("model", "messages")}
             resp = await chayuan.chat_completions(oai["model"], oai["messages"], **extra)
             return openai_to_anthropic(resp, model=req["model"])
+
+    if stream_hub is not None:
+        from fastapi.responses import StreamingResponse
+
+        from chacmd.api.stream import stream_events
+
+        @app.get("/api/v1/stream", response_class=StreamingResponse)
+        async def event_stream():
+            # 大屏 v1 数据源：把 EventStreamHub 事件按 EventSource 帧推给浏览器
+            return StreamingResponse(stream_events(stream_hub), media_type="text/event-stream")
 
     return app

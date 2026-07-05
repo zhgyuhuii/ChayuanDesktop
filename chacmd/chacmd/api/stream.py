@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 
 
 def sse_format(event: dict) -> str:
@@ -35,3 +36,17 @@ class EventStreamHub:
                 except asyncio.QueueEmpty:
                     pass
             q.put_nowait(event)
+
+
+async def stream_events(hub: EventStreamHub) -> AsyncIterator[str]:
+    """把 hub 事件按 EventSource 帧逐个 yield（供 StreamingResponse 用，可独立单测）。
+
+    注：无限流；调用方（HTTP 客户端断开）或 GeneratorExit 时经 finally 注销队列。
+    """
+    q = hub.register()
+    try:
+        while True:
+            event = await q.get()
+            yield sse_format(event)
+    finally:
+        hub.unregister(q)
