@@ -17,11 +17,14 @@
   },
   "dependencies": {
     "@chayuan/app": "workspace:*",
-    "@chayuan/ui": "workspace:*"
+    "@chayuan/ui": "workspace:*",
+    "3d-force-graph": "^1.73.0",
+    "three": "^0.170.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.2",
+    "@types/three": "^0.170.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.7.2"

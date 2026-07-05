@@ -19,6 +19,12 @@ const STATUS_LABEL: Record<AgentLifecycle, string> = {
   interrupted: '已中断',
 };
 
+// 3D 星群皮肤只在浏览器/webview 运行且体积大（three），用 React.lazy 延迟：
+// node/测试环境永不加载，2D 栅格作 Suspense 兜底 + 无 WebGL 时的降级视图。
+const StarfieldL0 = React.lazy(() =>
+  import('./StarfieldL0').then((m) => ({ default: m.StarfieldL0 })),
+);
+
 const AgentCard: React.FC<{ agent: AgentState }> = ({ agent }) => (
   <div
     data-testid={`agent-${agent.nickname}`}
@@ -50,9 +56,24 @@ const AgentCard: React.FC<{ agent: AgentState }> = ({ agent }) => (
   </div>
 );
 
+/** 2D 员工节点栅格（降级视图 / 3D 加载兜底）。 */
+export const AgentGrid: React.FC<{ agents: AgentState[] }> = ({ agents }) => {
+  if (agents.length === 0) {
+    return <div style={{ color: '#64748b', padding: 24 }}>暂无在线员工（等待事件流…）</div>;
+  }
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, padding: 24 }}>
+      {agents.map((a) => (
+        <AgentCard key={a.nickname} agent={a} />
+      ))}
+    </div>
+  );
+};
+
 /**
- * ChaCMD 指挥大屏 L0（v1）：数字员工节点栅格 + 状态灯 + 头顶 emoji。
- * 实时数据经 useCommandStream 消费后端 SSE。3D 星群皮肤（3d-force-graph）见 StarfieldL0（Task 5）。
+ * ChaCMD 指挥大屏 L0（v1）：数字员工星群 + 状态灯 + 头顶 emoji。
+ * 实时数据经 useCommandStream 消费后端 SSE(/api/v1/stream)。
+ * 主视图 = 3D 星群（StarfieldL0，需 GPU）；2D 栅格作 Suspense 兜底与降级。
  */
 export const CommandDashboard: React.FC<{ streamUrl?: string }> = ({ streamUrl }) => {
   const state = useCommandStream(streamUrl);
@@ -61,21 +82,16 @@ export const CommandDashboard: React.FC<{ streamUrl?: string }> = ({ streamUrl }
   return (
     <div
       data-testid="command-dashboard"
-      style={{ width: '100%', height: '100%', padding: 24, background: '#0b1020', overflow: 'auto' }}
+      style={{ position: 'relative', width: '100%', height: '100%', background: '#0b1020', overflow: 'hidden' }}
     >
-      <h1 style={{ color: '#e5e7eb', fontSize: 20, marginBottom: 4 }}>ChaCMD 指挥大屏</h1>
-      <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 20 }}>
-        在线数字员工：{agents.length}
+      {/* 悬浮标题条（覆盖在星群上） */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '16px 24px', zIndex: 2, pointerEvents: 'none' }}>
+        <h1 style={{ color: '#e5e7eb', fontSize: 20, margin: 0 }}>ChaCMD 指挥大屏</h1>
+        <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 2 }}>在线数字员工：{agents.length}</div>
       </div>
-      {agents.length === 0 ? (
-        <div style={{ color: '#64748b' }}>暂无在线员工（等待事件流…）</div>
-      ) : (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-          {agents.map((a) => (
-            <AgentCard key={a.nickname} agent={a} />
-          ))}
-        </div>
-      )}
+      <React.Suspense fallback={<AgentGrid agents={agents} />}>
+        <StarfieldL0 agents={agents} />
+      </React.Suspense>
     </div>
   );
 };

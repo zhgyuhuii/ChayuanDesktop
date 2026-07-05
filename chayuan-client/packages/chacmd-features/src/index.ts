@@ -7,5 +7,6 @@ export {
   initialCommandState,
 } from './stream/streamReducer';
 export { chacmdBrand, commandRoute } from './route';
-export { CommandDashboard } from './dashboard/CommandDashboard';
+export { CommandDashboard, AgentGrid } from './dashboard/CommandDashboard';
+export { StarfieldL0 } from './dashboard/StarfieldL0';
 export { useCommandStream } from './stream/useCommandStream';
