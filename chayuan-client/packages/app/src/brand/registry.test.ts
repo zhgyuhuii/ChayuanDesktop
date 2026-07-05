@@ -21,4 +21,8 @@ describe('brand registry', () => {
   it('landing 可被 brand 覆盖', () => {
     expect(resolveLandingPath({ appName: 'x', landingPath: '/command' })).toBe('/command');
   });
+
+  it('无 brand 时 landing 与察元现状一致', () => {
+    expect(resolveLandingPath(getActiveBrand())).toBe('/home');
+  });
 });
