@@ -23,9 +23,15 @@ interface StarNode {
  * 每个数字员工 = 一颗星，颜色随生命周期；命令式挂载在 useEffect（仅浏览器/webview 运行）。
  * 视觉需 GPU/显示环境验证；node/测试环境本组件只经 React.lazy 延迟，不会被加载。
  */
-export const StarfieldL0: React.FC<{ agents: AgentState[] }> = ({ agents }) => {
+export const StarfieldL0: React.FC<{ agents: AgentState[]; onSelect?: (id: string) => void }> = ({
+  agents,
+  onSelect,
+}) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const graphRef = React.useRef<InstanceType<typeof ForceGraph3D> | null>(null);
+  // 持最新 onSelect，避免因回调变化重挂 WebGL 图。
+  const onSelectRef = React.useRef(onSelect);
+  onSelectRef.current = onSelect;
 
   React.useEffect(() => {
     const el = containerRef.current;
@@ -36,6 +42,7 @@ export const StarfieldL0: React.FC<{ agents: AgentState[] }> = ({ agents }) => {
       .nodeLabel((n) => `${(n as StarNode).emoji ?? ''} ${(n as StarNode).name}`)
       .nodeColor((n) => (n as StarNode).color)
       .nodeOpacity(0.9)
+      .onNodeClick((n) => onSelectRef.current?.(String((n as StarNode).id)))
       .warmupTicks(20);
     graphRef.current = graph;
     return () => {
