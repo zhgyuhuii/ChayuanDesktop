@@ -13,3 +13,4 @@ export { KpiBar } from './dashboard/KpiBar';
 export { AgentCard } from './dashboard/AgentCard';
 export { computeKpis, type DashboardKpis } from './dashboard/kpis';
 export { useCommandStream } from './stream/useCommandStream';
+export { lerp, sampleHistorical, type Sample } from './scene/interpolate';
