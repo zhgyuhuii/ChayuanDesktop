@@ -22,18 +22,24 @@ _KIND_TO_STATE = {
 class EventIngest:
     """Unified event sink: publish to bus + append audit + drive job state (§6.6/§C9)."""
 
-    def __init__(self, bus: EventBus, jobs: JobRepository, audit: AuditRepository) -> None:
+    def __init__(
+        self, bus: EventBus, jobs: JobRepository, audit: AuditRepository, stream_hub: object | None = None
+    ) -> None:
         self._bus = bus
         self._jobs = jobs
         self._audit = audit
+        self._stream_hub = stream_hub
 
     async def handle(self, e: Event) -> None:
         from chacmd.observability.otel import inject_traceparent
 
         msg = inject_traceparent(
-            {"kind": e.kind, "seq": e.seq, "payload": e.payload}, job_id=e.job_id
+            {"kind": e.kind, "seq": e.seq, "payload": e.payload,
+             "job_id": e.job_id, "container": e.container}, job_id=e.job_id
         )
         await self._bus.publish(e.subject(), msg)
+        if self._stream_hub is not None:
+            await self._stream_hub.broadcast(msg)
         await self._audit.append(e)
         target = _KIND_TO_STATE.get(e.kind)
         if target is not None:

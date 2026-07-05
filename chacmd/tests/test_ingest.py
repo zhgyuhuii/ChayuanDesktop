@@ -1,7 +1,9 @@
+import asyncio
 import logging
 
 import pytest
 
+from chacmd.api.stream import EventStreamHub
 from chacmd.domain.events import Event
 from chacmd.domain.repository import AuditRepository, JobRepository
 from chacmd.domain.state import JobState
@@ -44,6 +46,21 @@ async def test_ingest_publishes_persists_and_transitions(db):
     assert (await jobs.get(job.id)).state == JobState.SUCCEEDED.value
     audit = await AuditRepository(db).list_for_job(job.id)
     assert audit[-1].kind == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_ingest_broadcasts_each_event_to_stream_hub(db):
+    jobs = JobRepository(db)
+    job = await jobs.create(code="c", goal="g", dept="d1")
+    hub = EventStreamHub()
+    q = hub.register()
+    ingest = EventIngest(InMemoryEventBus(), jobs, AuditRepository(db), stream_hub=hub)
+    await ingest.handle(Event(job.id, job.id, "dev", "started", 0, {}))
+    got = await asyncio.wait_for(q.get(), 1)
+    assert got["kind"] == "started"
+    assert got["job_id"] == job.id
+    assert got["container"] == "dev"
+    assert "traceparent" in got  # 复用已注入的 traceparent
 
 
 @pytest.mark.asyncio
