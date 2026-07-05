@@ -34,7 +34,7 @@ class Dispatcher:
         self._rbac = rbac
 
     async def dispatch(
-        self, job_id: str, nickname: str, subject: "str | Subject", system_prompt: str
+        self, job_id: str, nickname: str, subject: str | Subject, system_prompt: str
     ) -> None:
         container = await self._containers.resolve(nickname)
         if container is None:

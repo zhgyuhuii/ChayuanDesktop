@@ -3,7 +3,17 @@
 察元无资源级 authz 端点（scope-based）→ container/agent/view/kb 派活鉴权归 ChaCMD 本地域。
 """
 
+import pytest
+
+from chacmd.domain.repository import AuditRepository, ContainerRepository, JobRepository
+from chacmd.domain.state import JobState
+from chacmd.interfaces.agent_adapter import FakeAgentAdapter
+from chacmd.interfaces.chayuan_client import FakeChayuanClient
+from chacmd.interfaces.db import Database
+from chacmd.interfaces.eventbus import InMemoryEventBus
 from chacmd.interfaces.rbac import Grant, RbacPolicy, Resource, Subject
+from chacmd.orchestrator.dispatcher import Dispatcher
+from chacmd.orchestrator.ingest import EventIngest
 
 
 def _policy(*grants):
@@ -62,7 +72,13 @@ def test_admin_crosses_tenant():
 def test_deny_grant_wins_over_allow():
     pol = _policy(
         Grant(role="operator", resource_type="container", actions=frozenset({"dispatch"})),
-        Grant(role="operator", resource_type="container", resource_id="prod-*", actions=frozenset({"dispatch"}), effect="deny"),
+        Grant(
+            role="operator",
+            resource_type="container",
+            resource_id="prod-*",
+            actions=frozenset({"dispatch"}),
+            effect="deny",
+        ),
     )
     s = Subject("u1", roles=("operator",))
     assert pol.check(s, Resource("container", "dev-1"), "dispatch") is True
@@ -79,17 +95,6 @@ def test_deny_beats_admin():
 
 
 # --- dispatcher 接入本地 RBAC（替 FakeChayuanClient 恒 allow 盲区）---
-
-import pytest
-
-from chacmd.domain.repository import AuditRepository, ContainerRepository, JobRepository
-from chacmd.domain.state import JobState
-from chacmd.interfaces.agent_adapter import FakeAgentAdapter
-from chacmd.interfaces.chayuan_client import FakeChayuanClient
-from chacmd.interfaces.db import Database
-from chacmd.interfaces.eventbus import InMemoryEventBus
-from chacmd.orchestrator.dispatcher import Dispatcher
-from chacmd.orchestrator.ingest import EventIngest
 
 
 @pytest.fixture
