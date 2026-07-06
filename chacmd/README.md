@@ -66,26 +66,31 @@ python -m chacmd.cli start
 
 **任务调度器**（`chacmd/scheduler/`）：九步工单状态机 · ready 队列取单（优先级/并发/互斥）· 三级成本熔断 · 模型分层+涉密路由 · GitLab/CI webhook 事件源 · 调度循环 `scheduler_tick`。当前为库模块（经 `Dispatcher` 复用反连网关派活）；周期 tick 守护进程 + 真 Redis 互斥锁/GitLab webhook 接线待真基建环境。
 
-### 2. 前端（chayuan-client，指挥大屏 SKU）
+### 2. 前端（chayuan-client，双 SKU 切换打包）
 
-要求 Node ≥ 20 + pnpm。
+要求 Node ≥ 20 + pnpm。**同一份代码、两档构建**——只差构建命令与主页（§3.7）：
 
 ```bash
 cd /work/chayuan-desktop/chayuan-client
 pnpm install
 
-# 指挥大屏 SKU 开发
-pnpm --filter @chayuan/chacmd dev            # vite dev server
+# ── 切换开发 ──
+pnpm dev:desktop      # 察元 SKU（主页 察元 AI）
+pnpm dev:chacmd       # ChaCMD SKU（主页 指挥大屏）
 
-# 校验（本环境可跑）
+# ── 切换打包（实证：产物 title 分别为「察元 AI」/「ChaCMD 指挥台」）──
+pnpm build:desktop    # 察元 SKU → apps/desktop/dist
+pnpm build:chacmd     # ChaCMD SKU → apps/chacmd/dist（实测 ✓ built，独立 61M 产物）
+
+# 校验
+pnpm --filter @chayuan/chacmd typecheck
 pnpm --filter @chayuan/chacmd-features typecheck
 pnpm exec vitest run packages/chacmd-features/src   # 35 tests
-
-# 打包
-pnpm --filter @chayuan/chacmd build
 ```
 
-大屏默认落地 `/command`（3D 星群 + KPI + 员工卡 + 驾驶舱/投墙双模式）；`?mode=kiosk` 进投墙。数据源 = 后端 `/api/v1/stream`。首启走察元基座的数据目录/DB 配置门（单机 SQLite / 网络版后台配置），不被 SKU 绕过。
+察元 SKU 脚本零改动、行为不变；`dev:chacmd`/`build:chacmd` 为**新增档**（additive）。大屏默认落地 `/command`（3D 星群 + KPI + 员工卡 + 驾驶舱/投墙双模式），`?mode=kiosk` 进投墙；数据源 = 后端 `/api/v1/stream`；首启仍走察元基座 DB 配置门，不被 SKU 绕过。
+
+> **桌面（Tauri）档待建**：`apps/chacmd` 目前是网络版 SKU（有 vite，无 `src-tauri/`）。桌面安装包档需补 `apps/chacmd/src-tauri/`（独立 `productName/identifier/icon` = 独立安装包）+ 一个平行 `build-chacmd.sh`（不改已有 `build-desktop.sh`）。属打包阶段独立任务。
 
 ---
 

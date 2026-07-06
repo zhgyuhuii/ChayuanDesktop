@@ -19,6 +19,8 @@
     "build:desktop:full-fast": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/desktop build:full-fast",
     "build:desktop:integrated": "pnpm run build:desktop:full",
     "build:desktop:fast": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/desktop build:fast",
+    "dev:chacmd": "pnpm --filter @chayuan/chacmd dev",
+    "build:chacmd": "pnpm -r --filter './packages/*' build && pnpm --filter @chayuan/chacmd build",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
