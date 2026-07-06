@@ -11,6 +11,12 @@ class SandboxSpec:
     image: str
     mounts: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)  # 配置下发(#10)：模型/Key/BaseURL
+    # #2 复制/供给参数化：端口映射/用户名/密码/权限/动态装应用/工作目录 bind
+    ports: dict[int, int] = field(default_factory=dict)  # container_port -> host_port(0=自动)
+    username: str | None = None
+    password: str | None = None
+    permissions: tuple[str, ...] = ()
+    install_apps: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for m in self.mounts:

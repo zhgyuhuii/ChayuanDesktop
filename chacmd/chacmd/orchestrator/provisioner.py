@@ -15,9 +15,38 @@ class Provisioner:
         self._image = image
 
     async def provision(
-        self, nickname: str, dept: str, env: dict | None = None
+        self,
+        nickname: str,
+        dept: str,
+        env: dict | None = None,
+        *,
+        ports: dict[int, int] | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        permissions: tuple[str, ...] = (),
+        install_apps: tuple[str, ...] = (),
+        job_id: str | None = None,
+        code: str | None = None,
     ) -> SandboxHandle:
-        spec = SandboxSpec(nickname=nickname, image=self._image, env=env or {})
+        """一键从基座镜像供给 agent 容器（#2）+ 配置下发（#10）。
+
+        提供 job_id + code 时，把共享卷 per-job 子目录 bind 进容器 ``$HOME/<code>``
+        （统一工作空间 #4，禁整卷挂载 NFR-T1）。
+        """
+        mounts: list[str] = []
+        if job_id is not None and code is not None:
+            mounts.append(f"/workspace/{job_id}:/home/{nickname}/{code}")
+        spec = SandboxSpec(
+            nickname=nickname,
+            image=self._image,
+            env=env or {},
+            mounts=mounts,
+            ports=ports or {},
+            username=username,
+            password=password,
+            permissions=permissions,
+            install_apps=install_apps,
+        )
         handle = await self._sandbox.create(spec)
         await self._containers.upsert(nickname=nickname, session=handle.id, dept=dept)
         return handle
