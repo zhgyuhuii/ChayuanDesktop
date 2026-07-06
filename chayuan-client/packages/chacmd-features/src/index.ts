@@ -32,3 +32,4 @@ export {
   type DraftError,
 } from './task/newTaskModel';
 export { NewTaskWizard } from './task/NewTaskWizard';
+export { EmployeeView, type Artifact } from './employee/EmployeeView';
