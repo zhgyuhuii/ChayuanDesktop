@@ -225,3 +225,33 @@ pnpm exec vitest run packages/chacmd-features/src        # 35 tests
 - `chatop`（独立仓）`/work/chatop/README.md` — KasmVNC 工位镜像（执行侧）。
 - `docs/superpowers/specs/2026-06-30-chacmd-design.md` — 架构真源（§3.5 母体复用 / §3.6 集成治理 / §3.7 前端双 SKU / §3.8 双 SKU 命令 / §3.9 三形态）。
 - `docs/superpowers/specs/2026-07-05-chacmd-placement-and-requirements-master.md` — 落点与需求总纲。
+
+---
+
+## 8. 打包机 checklist —— ChaCMD 桌面全量安装包（形态 B）
+
+以下步骤**必须在装齐工具链的打包机上执行**（前面几节里凡标「需打包机」的都汇总在此）。以 🪟 Windows 为主（你的平台），bash 差异随附。每步给**验证命令 + 预期产物**，一步不过不进下一步。
+
+**前置（打包机装齐）**：Node ≥ 20.10 + pnpm 9.15.4 · Python 3.11/3.12（统一 env，含 chacmd 与 PyInstaller）· Rust stable + Tauri CLI。验证：
+
+```powershell
+node -v ; pnpm -v ; python --version
+python -c "import PyInstaller; print('PyInstaller', PyInstaller.__version__)"
+cargo --version ; pnpm --filter @chayuan/desktop exec tauri --version
+```
+
+| # | 步骤 | 命令（🪟 Windows PowerShell） | 验证 / 预期产物 |
+|---|---|---|---|
+| 1 | 大屏前端构建 | `cd chayuan-client ; pnpm build:chacmd` | `apps/chacmd/dist/index.html` 存在，`<title>` 为 `ChaCMD 指挥台` |
+| 2 | 冻结 chacmd sidecar | `cd chacmd ; python packaging/pyinstaller/build.py` | 生成 `dist/chacmd-server/chacmd-server.exe`，并拷到 `chayuan-client/apps/desktop/src-tauri/resources/chacmd-server/`；命令尾行打印「已拷到」 |
+| 3 | 冒烟 sidecar（可选但推荐） | `.\chacmd\dist\chacmd-server\chacmd-server.exe start`（另设 `$env:CHACMD_DB_URL`） | 进程起、`GET http://127.0.0.1:8100/healthz` 返 200 |
+| 4 | 打开 resources 声明 | 编辑 `apps/desktop/src-tauri/tauri.chacmd.conf.json`，`bundle` 加 `"resources": ["chacmd-server/**/*"]` | JSON 合法（`python -c "import json;json.load(open(...))"`） |
+| 5 | sidecar.rs 接第二进程 | 按 §4.3 配方改 `src-tauri/src/sidecar.rs`（identifier 门控 `ai.chayuan.chacmd`）→ `cd apps/desktop/src-tauri ; cargo check` | `cargo check` 通过（察元 SKU 路径不变）|
+| 6 | 打桌面安装包 | `cd chayuan-client ; pnpm build:chacmd:desktop` | `apps/desktop/src-tauri/target/release/bundle/` 下出 `ChaCMD 指挥台` NSIS `.exe`（Win）/ AppImage（Linux）/ DMG（mac）|
+| 7 | 装机验证 | 双击安装 → 启动 | 主页=指挥大屏；察元后端(:62581) + chacmd(:8100) 两 sidecar 都起；大屏星群有数据 |
+
+> **🐧 bash 差异**：`;` → `&&`；exe 名去 `.exe`（`chacmd/dist/chacmd-server/chacmd-server`）；桌面脚本 Windows 用 `.\build-desktop.ps1`、Unix 用 `./build-desktop.sh`（但 ChaCMD 档统一走跨平台 `pnpm build:chacmd:desktop`）。
+
+**回退**：第 5 步 `cargo check` 不过时，先不改 sidecar.rs、跳过第 5 步——桌面包仍可出（只含察元 sidecar），chacmd orchestrator 暂以独立进程 `python -m chacmd.cli start` 并跑（形态 B 过渡形态，功能不缺）。
+
+**察元 SKU 不受影响**：全程只新增 `apps/chacmd`、`tauri.chacmd.conf.json`、`chacmd-server` 资源与**门控后的** sidecar.rs 分支；`.\build-desktop.ps1` 察元三档产物逐字节不变（§3.6 硬约束）。
