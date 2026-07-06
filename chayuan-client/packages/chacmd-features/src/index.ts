@@ -14,3 +14,14 @@ export { AgentCard } from './dashboard/AgentCard';
 export { computeKpis, type DashboardKpis } from './dashboard/kpis';
 export { useCommandStream } from './stream/useCommandStream';
 export { lerp, sampleHistorical, type Sample } from './scene/interpolate';
+export {
+  toFlowGraph,
+  type TaskNode,
+  type TaskEdge,
+  type TaskLifecycle,
+  type FlowNode,
+  type FlowEdge,
+} from './orchestration/flowModel';
+export { TaskOrchestrationView } from './task/TaskOrchestrationView';
+export { RoleCard, type RoleCardData } from './task/RoleCard';
+export { ActivityTimeline, type TimelineStep } from './task/ActivityTimeline';
