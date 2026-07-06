@@ -27,7 +27,7 @@ def test_nine_step_happy_path():
         WorkOrderState.RELEASED,
     ]
     assert len(chain) == 9
-    for a, b in zip(chain, chain[1:], strict=True):
+    for a, b in zip(chain, chain[1:], strict=False):
         assert can_transition(a, b), f"{a}->{b} 应合法"
 
 
