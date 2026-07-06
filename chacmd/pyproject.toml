@@ -3,21 +3,22 @@ name = "chacmd"
 version = "0.0.0"
 requires-python = ">=3.11"
 dependencies = [
-  # fastapi 对齐察元区间（chayuan-server/gateway 锁 <0.110）：chacmd 骨架不依赖新版特性，
-  # 对齐后可与察元共存于同一 env、并打开 chayuan-core 直依赖(§3.6-C2)。见 README 与 §3.8。
-  "fastapi>=0.109.2,<0.110",
-  "uvicorn>=0.32",
-  "sqlalchemy>=2.0",
-  "aiosqlite>=0.20",
-  "asyncpg>=0.29",
-  "pydantic>=2.9",
-  "httpx>=0.27",
-  "websockets>=13",
-  "nats-py>=2.9",
+  # 全部对齐察元 env（libs/chayuan-server/pyproject.toml 区间），使 chacmd 可装进
+  # 察元同一个 Python 环境、不顶掉察元任何依赖 —— 统一环境（§3.6 母体复用）。
+  "fastapi>=0.109.2,<0.110",   # 察元 <0.110
+  "uvicorn>=0.27",             # 察元 >=0.27.0.post1
+  "sqlalchemy>=2.0.25,<2.1",   # 察元 ~2.0.25
+  "aiosqlite>=0.19,<1.0",      # 察元 >=0.19,<1.0
+  "asyncpg>=0.29,<1.0",        # 察元 >=0.29,<1.0
+  "pydantic>=2.11,<2.12",      # 察元 ~2.11.1
+  "httpx>=0.27",               # 察元 0.27.2
+  "websockets>=12",            # 察元 >=12.0
+  "nats-py>=2.9",              # 察元不含（chacmd 专属，可选事件总线，additive 不冲突）
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7"]
+# 开发工具对齐察元区间，装 chacmd[dev] 也不顶掉察元的 pytest/ruff。
+dev = ["pytest>=7.3,<8", "pytest-asyncio>=0.23,<0.24", "ruff>=0.1.5"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

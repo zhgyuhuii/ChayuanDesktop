@@ -1,8 +1,8 @@
 # ChaCMD 指挥调度平台 — 运行说明
 
-> ℹ️ **依赖已对齐察元，运行时可共存。** chacmd 的 `fastapi` 已锁到察元区间 `>=0.109.2,<0.110`，装 chacmd **不再顶掉/破坏察元的运行时依赖**。二者仍是**两个独立进程经 HTTP 对接**（§3.8，察元 :8000 / chacmd :8100），推荐各用独立 venv（进程本就独立 + 隔离 dev 工具版本 pytest/ruff）；但即便误装进同一 env，也不会再破坏察元运行时。
+> ✅ **统一环境：chacmd 与察元共用同一个 Python env。** chacmd 的**全部依赖（含 dev 工具）已对齐察元区间**（`fastapi<0.110` / `uvicorn>=0.27` / `sqlalchemy~2.0.25` / `pydantic~2.11.1` / `websockets>=12` / `pytest^7.3` / `ruff^0.1.5`），**直接装进察元的 env 不会顶掉察元任何依赖**。实测：在察元原版版本（fastapi 0.109.2 / uvicorn 0.27.1 / pydantic 2.11.10 / pytest 7.4.4 / ruff 0.1.15）下 **238 tests + ruff 全绿**。装进察元 env 后，察元后端与 chacmd orchestrator 从**同一 env** 各起进程（:8000 / :8100）。
 >
-> 若曾用旧版（`fastapi>=0.115`）把察元 py312 env 装坏，恢复：`pip install "fastapi==0.109.2" "starlette==0.36.3" "pytest==7.4.4" "pytest-asyncio==0.23.8"`。
+> 若曾用早期版本（`fastapi>=0.115`）把察元 py312 env 装坏，恢复：`pip install "fastapi==0.109.2" "starlette==0.36.3" "pytest==7.4.4" "pytest-asyncio==0.23.8"`，再 `pip install -e <chacmd>` 即可回到统一环境。
 
 ChaCMD（察CMD）= 察元母体（chayuan-desktop）之上的「跨容器横向调度」增量，作为 monorepo 内一个 SKU。
 本系统由**两个项目**协作：
@@ -20,16 +20,19 @@ ChaCMD（察CMD）= 察元母体（chayuan-desktop）之上的「跨容器横向
 
 ### 1. 后端（chacmd）
 
-要求 Python ≥ 3.11。
+要求 Python ≥ 3.11。依赖已全对齐察元，**推荐直接装进察元的同一个 Python env（统一环境）**。
 
 ```bash
-cd /work/chayuan-desktop/chacmd
+# 统一环境（推荐）：激活察元的 env（poetry venv 或 conda py312），直接装 chacmd
+#   —— 全部依赖已对齐察元区间，不会顶掉察元任何依赖
+conda activate py312            # 或察元的 poetry shell
+pip install -e "/work/chayuan-desktop/chacmd[dev]"
 
-# 安装（含开发依赖：pytest/ruff）
-python -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]"
+# 或独立 env（纯逻辑开发/CI，不联调察元时）
+# python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
 
 # 跑测试（238 tests，全部纯逻辑，无需基建）
+cd /work/chayuan-desktop/chacmd
 pytest -q
 ruff check .
 ```
