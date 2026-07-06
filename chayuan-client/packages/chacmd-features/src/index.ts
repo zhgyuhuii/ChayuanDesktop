@@ -25,3 +25,10 @@ export {
 export { TaskOrchestrationView } from './task/TaskOrchestrationView';
 export { RoleCard, type RoleCardData } from './task/RoleCard';
 export { ActivityTimeline, type TimelineStep } from './task/ActivityTimeline';
+export {
+  parseNlDraft,
+  validateDraft,
+  type TaskDraft,
+  type DraftError,
+} from './task/newTaskModel';
+export { NewTaskWizard } from './task/NewTaskWizard';
