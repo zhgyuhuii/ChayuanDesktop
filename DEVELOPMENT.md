@@ -150,10 +150,33 @@ pnpm dev:chacmd:desktop       # 桌面开发（tauri dev）
 
 > **两处诚实说明**：①ChaCMD 桌面档目前打的是 §3.9 **形态 B** 的前端 + 察元后端 sidecar（继承察元 `resources`）；把 **chacmd orchestrator 也做成随包 sidecar** 需补 PyInstaller spec + `src-tauri/src/sidecar.rs` 起第二个进程——待做（在此之前 orchestrator 以独立进程 `python -m chacmd.cli start` 运行）。②本机无 Rust/Tauri 工具链时 `pnpm build:*:desktop` 不会产出安装包，需在打包机执行。
 
-### 4.3 后端打包
+### 4.3 后端打包（chacmd orchestrator 随包 sidecar，形态 B）
 
-- 开发：`python -m chacmd.cli start`（察元 `chayuan start -a`）。
-- 打包：桌面 SKU 后端以 PyInstaller sidecar 随包；ChaCMD 全量（形态 B）= 察元 sidecar + chacmd orchestrator（同机同 env 两进程）；轻量挂载（形态 C）= 只打指挥 UI，全 HTTP 对接已部署察元。
+开发态后端直接 `python -m chacmd.cli start`（察元 `chayuan start -a`），不用打包。
+
+桌面全量（形态 B）要把 chacmd orchestrator 冻结成**第二个 sidecar**，与察元后端 sidecar 同装同起。三步（**均在打包机执行、需 PyInstaller + Rust/Tauri 工具链**）：
+
+```bash
+# ① 冻结 chacmd → dist/chacmd-server/ 并拷到 desktop src-tauri/resources/
+#    （在装了 chacmd 的统一 env 里；spec 见 chacmd/packaging/pyinstaller/chacmd.spec）
+cd chacmd && python packaging/pyinstaller/build.py
+
+# ② 在 apps/desktop/src-tauri/tauri.chacmd.conf.json 的 bundle 里打开 resources：
+#      "resources": ["chacmd-server/**/*"]
+#    （察元后端 sidecar 的 resources 由基础 conf 继承，二者并存）
+
+# ③ 打包（会把两个 sidecar 都 bundle 进安装包）
+cd chayuan-client && pnpm build:chacmd:desktop
+```
+
+**③ 依赖 sidecar.rs 接线（察元核心 Rust，需手工加 + 编译验证）**：`apps/desktop/src-tauri/src/sidecar.rs` 现只起察元后端；要它在 **ChaCMD SKU** 下**也**起 chacmd orchestrator，需照它已有的察元 spawn 范式加一个平行启动——
+
+- **镜像现有模式**：`app.path().resolve("chacmd-server/chacmd-server.exe", BaseDirectory::Resource)` → `Command::new(path)`，注入 env `CHAYUAN_BASE_URL=http://127.0.0.1:62581`（察元桌面 sidecar 口）+ `CHACMD_DB_URL=sqlite+aiosqlite:///<dataDir>/chacmd.db` + `CHACMD_API_PORT=8100`，后台线程 poll `http://127.0.0.1:8100/healthz`（chacmd 已有健康端点）。
+- **必须 flag 门控**：只在 ChaCMD SKU 起（按 `app.config().identifier == "ai.chayuan.chacmd"` 判断，或编译期 feature / `CHACMD_ENABLED` env）。**察元 SKU 路径零改动**，保持逐字节纯净（§3.6 硬约束）。
+
+> **诚实边界**：①②（spec + 冻结脚本 + resources 声明）已备好、可审；③ 的 sidecar.rs 改动**未落地**——它是察元核心 Rust，**我无法在本环境编译验证**，硬塞编译不过的 Rust 会连察元 SKU 的构建一起弄坏，故留作打包机上按上述配方应用 + `cargo build` 验证的一步。在此之前，桌面包里 chacmd orchestrator 可作**独立进程** `python -m chacmd.cli start` 与桌面 App 并跑（形态 B 的过渡形态）。
+
+轻量挂载（形态 C）= 只打指挥 UI、全 HTTP 对接已部署察元，**不需要**本节的 sidecar 打包。
 
 ---
 
