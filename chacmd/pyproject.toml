@@ -3,9 +3,9 @@ name = "chacmd"
 version = "0.0.0"
 requires-python = ">=3.11"
 dependencies = [
-  # 注意：fastapi>=0.115 与察元(chayuan-server/gateway 锁 <0.110)不兼容。
-  # chacmd 必须装在独立 venv/conda env，切勿装进察元环境（会破坏察元）。见 README 顶部警告与 §3.8。
-  "fastapi>=0.115",
+  # fastapi 对齐察元区间（chayuan-server/gateway 锁 <0.110）：chacmd 骨架不依赖新版特性，
+  # 对齐后可与察元共存于同一 env、并打开 chayuan-core 直依赖(§3.6-C2)。见 README 与 §3.8。
+  "fastapi>=0.109.2,<0.110",
   "uvicorn>=0.32",
   "sqlalchemy>=2.0",
   "aiosqlite>=0.20",

@@ -1,7 +1,8 @@
 # ChaCMD 指挥调度平台 — 运行说明
 
-> ⚠️ **必须用独立 Python 环境安装 chacmd，切勿装进察元的环境。**
-> chacmd 要 `fastapi>=0.115`，而 chayuan-server / chayuan-gateway 锁 `fastapi<0.110`——**同一个 venv/conda env 装不下**，误装会把 fastapi 顶成新版、**破坏察元**（nicegui/prometheus/gateway 一并挂）。二者本就是**两个独立进程经 HTTP 对接**（§3.8），各用各的环境。装 chacmd 前务必先 `conda create -n chacmd python=3.11` 或 `python -m venv .venv`。
+> ℹ️ **依赖已对齐察元，运行时可共存。** chacmd 的 `fastapi` 已锁到察元区间 `>=0.109.2,<0.110`，装 chacmd **不再顶掉/破坏察元的运行时依赖**。二者仍是**两个独立进程经 HTTP 对接**（§3.8，察元 :8000 / chacmd :8100），推荐各用独立 venv（进程本就独立 + 隔离 dev 工具版本 pytest/ruff）；但即便误装进同一 env，也不会再破坏察元运行时。
+>
+> 若曾用旧版（`fastapi>=0.115`）把察元 py312 env 装坏，恢复：`pip install "fastapi==0.109.2" "starlette==0.36.3" "pytest==7.4.4" "pytest-asyncio==0.23.8"`。
 
 ChaCMD（察CMD）= 察元母体（chayuan-desktop）之上的「跨容器横向调度」增量，作为 monorepo 内一个 SKU。
 本系统由**两个项目**协作：
