@@ -15,8 +15,11 @@ def test_normalize_pipeline_failed():
 
 
 def test_normalize_mr_approved_and_merge():
-    assert normalize_gitlab({"object_kind": "merge_request", "object_attributes": {"action": "approve"}}) == "review_approved"
-    assert normalize_gitlab({"object_kind": "merge_request", "object_attributes": {"action": "merge"}}) == "merged"
+    def mr(action):
+        return {"object_kind": "merge_request", "object_attributes": {"action": action}}
+
+    assert normalize_gitlab(mr("approve")) == "review_approved"
+    assert normalize_gitlab(mr("merge")) == "merged"
 
 
 def test_normalize_unknown_returns_none():
