@@ -1,0 +1,14 @@
+# 用户私有配置（只提交 chacmd.example.yaml，不提交实际配置）
+chacmd.yaml
+
+# 本地状态库 / 冻结产物 / 缓存
+*.db
+*.db-journal
+dist/
+build/
+*.spec.bak
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/

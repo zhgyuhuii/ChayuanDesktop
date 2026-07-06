@@ -78,42 +78,23 @@ poetry run pip install -e /work/chayuan-desktop/chacmd[dev]
 
 两 SKU 前后端各自独立、端口错开、可并存对比。前端命令跨平台一致：`pnpm dev:desktop`（察元）/ `pnpm dev:chacmd`（指挥台）。两个 vite 默认端口都是 5173（`strictPort:false`，同时跑时第二个自动占 5174）。
 
-后端 + 环境变量按系统区分。**ChaCMD 联调需三个进程**（察元后端 + chacmd orchestrator + 大屏前端）：
-
-#### 🪟 Windows（PowerShell）
-
-```powershell
-# 终端 1：察元后端
-cd chayuan-server\libs\chayuan-server ; poetry run chayuan start -a          # :8000
-
-# 终端 2：chacmd orchestrator（$env: 设变量，逐行，不用 &&）
-$env:CHAYUAN_BASE_URL   = "http://127.0.0.1:8000"
-$env:CHACMD_DB_URL      = "sqlite+aiosqlite:///./chacmd.db"
-$env:CHACMD_EVENT_BUS   = "memory"
-$env:CHACMD_SANDBOX     = "fake"
-$env:CHACMD_AGENT_ADAPTER = "fake"
-python -m chacmd.cli start                                                   # :8100 (+ 网关 :8767)
-
-# 终端 3：指挥大屏前端
-cd chayuan-client ; pnpm dev:chacmd
-```
-
-#### 🐧 Linux / macOS（bash）
+**chacmd 后端配置改用 yaml（不用再逐行设环境变量）**：`cp chacmd/chacmd.example.yaml chacmd/chacmd.yaml`，改里面的 `chayuan_base_url` / `db_url` 等即可（分层：默认 < yaml < env）。**ChaCMD 联调需三个进程**（察元后端 + chacmd orchestrator + 大屏前端），命令跨平台基本一致（PowerShell 用 `;` 连、bash 用 `&&`）：
 
 ```bash
 # 终端 1：察元后端
-cd chayuan-server/libs/chayuan-server && poetry run chayuan start -a         # :8000
+cd chayuan-server/libs/chayuan-server   # PS: chayuan-server\libs\chayuan-server
+poetry run chayuan start -a                                                  # :8000
 
-# 终端 2：chacmd orchestrator
-export CHAYUAN_BASE_URL=http://127.0.0.1:8000
-export CHACMD_DB_URL="sqlite+aiosqlite:///./chacmd.db" CHACMD_EVENT_BUS=memory CHACMD_SANDBOX=fake CHACMD_AGENT_ADAPTER=fake
+# 终端 2：chacmd orchestrator（读 ./chacmd.yaml，无需设 env）
+cd chacmd
 python -m chacmd.cli start                                                   # :8100 (+ 网关 :8767)
+#   启动后浏览器开 http://localhost:8100/ 有状态页；/healthz 健康；/docs API 文档
 
 # 终端 3：指挥大屏前端
-cd chayuan-client && pnpm dev:chacmd
+cd chayuan-client && pnpm dev:chacmd    # PS: cd chayuan-client ; pnpm dev:chacmd
 ```
 
-单 SKU 察元开发：起察元后端 + `pnpm dev:desktop` 即可。chacmd 后端环境变量全表见 `chacmd/README.md`。
+> 联调时把 `chacmd.yaml` 的 `chayuan_base_url` 指向察元（开发 `http://127.0.0.1:8000`；桌面形态 B `http://127.0.0.1:62581`）。仍要临时覆盖某项时，环境变量优先级最高（如 PS `$env:CHACMD_API_PORT="8101"`）。单 SKU 察元开发：起察元后端 + `pnpm dev:desktop` 即可。全部配置项见 `chacmd/README.md`。
 
 ---
 

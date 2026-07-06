@@ -23,6 +23,28 @@ def create_app(
     app = FastAPI(title="ChaCMD Orchestrator", version="0.1.0")
     jobs = JobRepository(db)
 
+    @app.get("/healthz")
+    async def healthz() -> dict:
+        return {"status": "ok", "service": "chacmd"}
+
+    @app.get("/")
+    async def root() -> dict:
+        # 根路径给个明确状态页，避免浏览器打开 :8100 看到 404 以为没起来。
+        return {
+            "service": "ChaCMD Orchestrator",
+            "version": "0.1.0",
+            "status": "ok",
+            "docs": "/docs",
+            "health": "/healthz",
+            "endpoints": [
+                "GET  /healthz",
+                "POST /api/v1/tasks/{code}/runs",
+                "GET  /api/v1/runs/{job_id}",
+                "GET  /api/v1/containers",
+                "GET  /api/v1/stream   (SSE 大屏事件流)",
+            ],
+        }
+
     @app.post("/api/v1/tasks/{code}/runs", response_model=RunCreated, status_code=201)
     async def create_run(code: str, req: CreateRunRequest) -> RunCreated:
         # #20 Task-as-API: external caller passes `code` → spawn a new run instance.

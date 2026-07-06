@@ -37,32 +37,31 @@ pytest -q
 ruff check .
 ```
 
-**零基建快速启动**（SQLite + 内存总线 + Fake 沙箱/适配器，本机即可跑）：
+**零基建快速启动（推荐用 yaml，免每次设一堆环境变量）**：
 
 ```bash
-export CHACMD_DB_URL="sqlite+aiosqlite:///./chacmd.db"
-export CHACMD_EVENT_BUS=memory        # memory | nats
-export CHACMD_SANDBOX=fake             # fake | docker
-export CHACMD_AGENT_ADAPTER=fake       # fake | openhands
-python -m chacmd.cli start
+cp chacmd.example.yaml chacmd.yaml     # 已内置 sqlite + memory + fake，开箱即跑
+python -m chacmd.cli start             # 自动读 ./chacmd.yaml；或 -c 路径/chacmd.yaml
 ```
 
-启动后：
-- **HTTP API**：`http://0.0.0.0:8100`（任务/审批/容器）
-- **大屏事件流 SSE**：`GET http://localhost:8100/api/v1/stream`
-- **反连网关**（agent-bridge 连这里）：`ws://0.0.0.0:8767/bridge`
+> 配置分层（对齐察元 `chayuan_core.config`）：**字段默认值 < yaml < 环境变量**。yaml 搜索顺序 `-c 参数` → `$CHACMD_CONFIG` → `./chacmd.yaml`。Windows 上不用再逐行 `$env:`——改 `chacmd.yaml` 即可。
 
-**生产/联调配置**（按需覆盖 env）：
+启动后终端会打印 banner（配置来源 / 各端口），并可访问：
+- **状态页**：`http://localhost:8100/`（浏览器打开有 JSON 状态页，不再 404）· **健康**：`/healthz` · **API 文档**：`/docs`
+- **大屏事件流 SSE**：`GET /api/v1/stream`
+- **反连网关**（agent-bridge 连这里）：`ws://localhost:8767/bridge`
 
-| env | 默认 | 说明 |
-|---|---|---|
-| `CHACMD_DB_URL` | `postgresql+asyncpg://chacmd:chacmd@127.0.0.1:5432/chacmd` | 状态库（方言无关，支持 SQLite/PG/达梦）|
-| `CHACMD_EVENT_BUS` | `memory` | `nats` 时用 `CHACMD_NATS_URL`（默认 `nats://127.0.0.1:4222`）|
-| `CHACMD_SANDBOX` | `fake` | `docker` 时真起容器，镜像 `CHACMD_SANDBOX_IMAGE`（默认 `chatop-ai:latest`）|
-| `CHACMD_AGENT_ADAPTER` | `fake` | `openhands` 接真 agent 运行时 |
-| `CHAYUAN_BASE_URL` / `CHAYUAN_WEB_URL` | `http://127.0.0.1:8000` / `:5173` | 察元网关/前端（模型/kb-query 经此）|
-| `CHACMD_API_PORT` / `CHACMD_GATEWAY_PORT` | `8100` / `8767` | 端口 |
-| `CHACMD_JOB_TOKEN_BUDGET` | `100000` | per-job token 硬预算（0=不限）|
+**配置项**（yaml 键名 = 下表；对应环境变量可覆盖，样例见 `chacmd.example.yaml`）：
+
+| yaml 键 | 环境变量 | 默认 | 说明 |
+|---|---|---|---|
+| `db_url` | `CHACMD_DB_URL` | `postgresql+asyncpg://…:5432/chacmd` | 状态库（方言无关，SQLite/PG/达梦）|
+| `chayuan_base_url` | `CHAYUAN_BASE_URL` | `http://127.0.0.1:8000` | 察元后端（模型/kb-query 经此；形态 B 桌面用 `:62581`）|
+| `event_bus` | `CHACMD_EVENT_BUS` | `memory` | `nats` 时用 `nats_url` |
+| `sandbox` | `CHACMD_SANDBOX` | `fake` | `docker` 时真起容器（`sandbox_image`）|
+| `agent_adapter` | `CHACMD_AGENT_ADAPTER` | `fake` | `openhands` 接真 agent |
+| `api_port` / `gateway_port` | `CHACMD_API_PORT` / `CHACMD_GATEWAY_PORT` | `8100` / `8767` | 端口 |
+| `default_token_budget` | `CHACMD_JOB_TOKEN_BUDGET` | `100000` | per-job token 硬预算（0=不限）|
 
 **任务调度器**（`chacmd/scheduler/`）：九步工单状态机 · ready 队列取单（优先级/并发/互斥）· 三级成本熔断 · 模型分层+涉密路由 · GitLab/CI webhook 事件源 · 调度循环 `scheduler_tick`。当前为库模块（经 `Dispatcher` 复用反连网关派活）；周期 tick 守护进程 + 真 Redis 互斥锁/GitLab webhook 接线待真基建环境。
 
