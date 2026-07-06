@@ -10,6 +10,8 @@
 > 两 SKU **只差**：开发/构建命令、产出物、docker 镜像名、主页。依赖单向 `chacmd → 察元`，察元核心永不 import chacmd（详见 `docs/superpowers/specs/2026-06-30-chacmd-design.md` §3.5–3.9）。
 > 子容器工位镜像（KasmVNC 数字员工）在独立仓 `/work/chatop`，不在本仓。
 
+> ⚠️ **平台语法**：下文命令默认给 **Windows PowerShell** 与 **bash(Linux/macOS)** 两种。PowerShell 里 **不能用 `&&` 连命令**（PS 5.1 报错），要分行或用 `;`；设环境变量用 `$env:X="v"`（不是 `export X=v`）；激活 venv 是 `.venv\Scripts\Activate.ps1`（不是 `. .venv/bin/activate`）。
+
 ---
 
 ## 1. 前置要求
@@ -25,9 +27,9 @@
 
 ---
 
-## 2. 一次性环境搭建
+## 2. 一次性环境搭建（按系统区分）
 
-### 2.1 前端（chayuan-client）
+### 2.1 前端（所有系统相同）
 
 ```bash
 cd chayuan-client
@@ -36,55 +38,88 @@ pnpm install          # 安装整个 workspace（察元 + ChaCMD 两个 app 壳�
 
 ### 2.2 后端 —— 统一 Python 环境（察元 + chacmd 同一个 env）
 
-chacmd 全部依赖已对齐察元区间，**装进察元同一个 env 不会顶掉察元任何依赖**（实测 238 tests + ruff 在察元原版版本下全绿）。
+chacmd 全部依赖已对齐察元区间，**装进察元同一个 env 不会顶掉察元任何依赖**（实测 238 tests + ruff 在察元原版版本下全绿）。分系统操作：
 
-```bash
-# ① 察元后端（Poetry，重依赖含 langchain/torch 等，依察元自身说明）
-cd chayuan-server/libs/chayuan-server
-poetry install                 # 建/装察元后端 env
+#### 🪟 Windows（PowerShell）
 
-# ② 在同一个 env 里装 chacmd（统一环境）
-poetry run pip install -e /work/chayuan-desktop/chacmd[dev]
-#   或激活该 env 后： pip install -e /work/chayuan-desktop/chacmd[dev]
+```powershell
+# ① 察元后端（Poetry，重依赖含 langchain/torch，依察元自身说明）
+cd chayuan-server\libs\chayuan-server
+poetry install
+
+# ② 在同一个 env 里装 chacmd —— 用已有 conda env 也可（推荐，你现有 py312）
+conda activate py312                              # 或 poetry shell
+pip install -e "D:\...\chayuan-desktop\chacmd[dev]"   # 路径按你本机；[dev] 必须带引号
+
+# （备选）给 chacmd 单独建 venv —— 注意 PS 不能用 && ，要分行
+# python -m venv .venv
+# .venv\Scripts\Activate.ps1
+# pip install -e ".[dev]"
 ```
 
-> 也可给 chacmd 单独建 env（`python -m venv .venv && pip install -e ".[dev]"`）做纯逻辑开发/CI；联调察元时用统一 env 最省事。
+#### 🐧 Linux / macOS（bash）
+
+```bash
+# ① 察元后端
+cd chayuan-server/libs/chayuan-server
+poetry install
+
+# ② 同一个 env 里装 chacmd（统一环境）
+poetry run pip install -e /work/chayuan-desktop/chacmd[dev]
+#   或激活该 env 后： pip install -e /work/chayuan-desktop/chacmd[dev]
+
+# （备选）单独 venv：
+# python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
+```
 
 ---
 
 ## 3. 开发态运行（切换运行）
 
-两 SKU 前后端各自独立、端口错开、可并存对比。
+两 SKU 前后端各自独立、端口错开、可并存对比。前端命令跨平台一致：`pnpm dev:desktop`（察元）/ `pnpm dev:chacmd`（指挥台）。两个 vite 默认端口都是 5173（`strictPort:false`，同时跑时第二个自动占 5174）。
 
-| SKU | 前端 | 后端 | 端口（前/后） |
-|---|---|---|---|
-| **察元** | `pnpm dev:desktop`（或 `pnpm dev` 网络版） | `poetry run chayuan start -a`（或 `python cli.py start -a`） | 5173 / 8000 |
-| **ChaCMD** | `pnpm dev:chacmd` | `python -m chacmd.cli start` | 5173* / 8100 |
+后端 + 环境变量按系统区分。**ChaCMD 联调需三个进程**（察元后端 + chacmd orchestrator + 大屏前端）：
 
-`*` 两个前端 vite 默认端口都是 5173（`strictPort:false`）——同时跑时第二个自动占 5174；要固定可 `pnpm dev:chacmd -- --port 5174`。
+#### 🪟 Windows（PowerShell）
 
-**ChaCMD 联调**（大屏 + 调度 + 察元能力）需三个进程：
+```powershell
+# 终端 1：察元后端
+cd chayuan-server\libs\chayuan-server ; poetry run chayuan start -a          # :8000
+
+# 终端 2：chacmd orchestrator（$env: 设变量，逐行，不用 &&）
+$env:CHAYUAN_BASE_URL   = "http://127.0.0.1:8000"
+$env:CHACMD_DB_URL      = "sqlite+aiosqlite:///./chacmd.db"
+$env:CHACMD_EVENT_BUS   = "memory"
+$env:CHACMD_SANDBOX     = "fake"
+$env:CHACMD_AGENT_ADAPTER = "fake"
+python -m chacmd.cli start                                                   # :8100 (+ 网关 :8767)
+
+# 终端 3：指挥大屏前端
+cd chayuan-client ; pnpm dev:chacmd
+```
+
+#### 🐧 Linux / macOS（bash）
 
 ```bash
-# 终端 1：察元后端（模型网关/kb-query/RBAC 的真源）
-cd chayuan-server/libs/chayuan-server && poetry run chayuan start -a       # :8000
+# 终端 1：察元后端
+cd chayuan-server/libs/chayuan-server && poetry run chayuan start -a         # :8000
 
-# 终端 2：chacmd orchestrator（配 CHAYUAN_BASE_URL 指向察元）
+# 终端 2：chacmd orchestrator
 export CHAYUAN_BASE_URL=http://127.0.0.1:8000
 export CHACMD_DB_URL="sqlite+aiosqlite:///./chacmd.db" CHACMD_EVENT_BUS=memory CHACMD_SANDBOX=fake CHACMD_AGENT_ADAPTER=fake
-python -m chacmd.cli start                                                 # :8100（+ 反连网关 :8767）
+python -m chacmd.cli start                                                   # :8100 (+ 网关 :8767)
 
 # 终端 3：指挥大屏前端
 cd chayuan-client && pnpm dev:chacmd
 ```
 
-chacmd 后端环境变量全表见 `chacmd/README.md`。
+单 SKU 察元开发：起察元后端 + `pnpm dev:desktop` 即可。chacmd 后端环境变量全表见 `chacmd/README.md`。
 
 ---
 
 ## 4. 打包 / 编译（切换打包）
 
-### 4.1 前端（两档，已验证）
+### 4.1 前端网络版（两档，跨平台，已验证）
 
 ```bash
 cd chayuan-client
@@ -94,31 +129,52 @@ pnpm build:chacmd      # ChaCMD SKU → apps/chacmd/dist （产物 <title>ChaCMD
 
 同一份 `packages/*` 基座，只换 app 壳 + BrandConfig（主页）。察元脚本零改动，`*:chacmd` 为新增档。
 
-### 4.2 桌面安装包
+### 4.2 桌面安装包（Tauri）
+
+**ChaCMD 桌面档**（跨平台 pnpm 脚本，复用察元 src-tauri + `tauri.chacmd.conf.json` 配置覆盖，贴察元 thin 范式）：
 
 ```bash
-# 察元 SKU（现有，三档 flavor 互斥，不带 = 三档都打）
-./build-desktop.sh --lite-only        # 轻量版（不嵌模型）
-./build-desktop.sh --standard-only    # 标准版
-./build-desktop.sh --full-only        # 全量版（随包带模型权重）
+cd chayuan-client
+pnpm build:chacmd:desktop     # = 构建大屏前端 + tauri build --config src-tauri/tauri.chacmd.conf.json
+pnpm dev:chacmd:desktop       # 桌面开发（tauri dev）
 ```
 
-> **ChaCMD 桌面安装包档：待建。** `apps/chacmd` 目前是网络版 SKU（有 vite，无 `src-tauri/`）。桌面档需补 `apps/chacmd/src-tauri/`（独立 `productName/identifier/icon` = 独立安装包）+ 平行 `build-chacmd.sh`（复用 `build-desktop.sh` 公共步骤，**不改**已有脚本）。属打包阶段独立任务。
+产出：`ChaCMD 指挥台` 品牌安装包（identifier `ai.chayuan.chacmd`，NSIS/.exe·AppImage·DMG），主页=指挥大屏。需本机装 Rust + Tauri CLI。
 
-### 4.3 后端
+**察元桌面档**（现有，三档 flavor 互斥，不带 = 三档都打）——**按系统用不同脚本**：
+
+| 系统 | 命令 |
+|---|---|
+| 🪟 Windows | `.\build-desktop.ps1 -LiteOnly` / `-StandardOnly` / `-FullOnly` |
+| 🐧 Linux/macOS | `./build-desktop.sh --lite-only` / `--standard-only` / `--full-only` |
+
+> **两处诚实说明**：①ChaCMD 桌面档目前打的是 §3.9 **形态 B** 的前端 + 察元后端 sidecar（继承察元 `resources`）；把 **chacmd orchestrator 也做成随包 sidecar** 需补 PyInstaller spec + `src-tauri/src/sidecar.rs` 起第二个进程——待做（在此之前 orchestrator 以独立进程 `python -m chacmd.cli start` 运行）。②本机无 Rust/Tauri 工具链时 `pnpm build:*:desktop` 不会产出安装包，需在打包机执行。
+
+### 4.3 后端打包
 
 - 开发：`python -m chacmd.cli start`（察元 `chayuan start -a`）。
-- 打包：桌面 SKU 里后端以 PyInstaller sidecar 随包；ChaCMD 全量形态 = 察元 sidecar + chacmd orchestrator（同机同环境两进程，§3.9 形态 B）。轻量挂载形态（形态 C）= 只打指挥 UI，全 HTTP 对接已部署察元。
+- 打包：桌面 SKU 后端以 PyInstaller sidecar 随包；ChaCMD 全量（形态 B）= 察元 sidecar + chacmd orchestrator（同机同 env 两进程）；轻量挂载（形态 C）= 只打指挥 UI，全 HTTP 对接已部署察元。
 
 ---
 
 ## 5. 测试与校验
 
-```bash
-# chacmd 后端（238 tests，纯逻辑无需基建）
-cd chacmd && pytest -q && ruff check .
+后端（PowerShell 分行；bash 可用 `&&` 连）：
 
-# 前端
+```powershell
+# 🪟 Windows
+cd chacmd
+pytest -q
+ruff check .
+```
+```bash
+# 🐧 Linux/macOS
+cd chacmd && pytest -q && ruff check .        # 238 tests，纯逻辑无需基建
+```
+
+前端（跨平台一致）：
+
+```bash
 cd chayuan-client
 pnpm --filter @chayuan/chacmd typecheck
 pnpm --filter @chayuan/chacmd-features typecheck

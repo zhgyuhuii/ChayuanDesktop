@@ -1,0 +1,69 @@
+{
+  "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
+  "// 说明": "ChaCMD 指挥台桌面 SKU —— Tauri 配置覆盖，深合并到 tauri.conf.json 之上（复用察元 Rust/sidecar/图标/installer 基建，贴 tauri.thin.conf.json 同一范式）。只改品牌 + 前端产物指向大屏。用法见根 DEVELOPMENT.md（build:chacmd:desktop）。",
+  "productName": "ChaCMD 指挥台",
+  "version": "0.1.0",
+  "identifier": "ai.chayuan.chacmd",
+  "build": {
+    "// beforeBuildCommand": "置空：大屏前端由 build:chacmd 单独构建，此处不再重跑察元前端。",
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "pnpm --filter @chayuan/chacmd dev",
+    "devUrl": "http://localhost:5173",
+    "// frontendDist": "相对 src-tauri：../../chacmd/dist = apps/chacmd/dist（大屏产物）。",
+    "frontendDist": "../../chacmd/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "ChaCMD 指挥台",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "decorations": true,
+        "fullscreen": false,
+        "maximized": true,
+        "resizable": true,
+        "transparent": false,
+        "backgroundColor": "#0b1020",
+        "visible": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "// CSP 注释": "指挥台需连 chacmd orchestrator(:8100 含 SSE /api/v1/stream) 与察元后端(:8000)，且大屏后台可配置外部实例，故 connect-src 放开 http(s)/ws；img/media 仍限 self+blob+data 防 XSS。",
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: http: https:; connect-src 'self' blob: data: http://* https://* ws://* wss://* ipc: https://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "// targets 注释": "指挥台发轻量目标：NSIS .exe (Windows)、AppImage (Linux)、DMG (macOS)。resources 不覆盖 → 继承基础配置（含察元 backend sidecar），即 §3.9 形态 B 全量：察元后端随包。",
+    "targets": ["nsis", "appimage", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": { "languages": ["SimpChinese", "English"] }
+    },
+    "linux": {
+      "deb": { "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"] },
+      "appimage": { "bundleMediaFramework": true }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "hardenedRuntime": true
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": false,
+      "endpoints": ["https://example.com/updates/{{target}}/{{current_version}}"],
+      "pubkey": ""
+    }
+  }
+}
