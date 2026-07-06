@@ -72,13 +72,59 @@ poetry run pip install -e /work/chayuan-desktop/chacmd[dev]
 # python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
 ```
 
+### 2.3 chacmd 配置文件 `chacmd.yaml`（按系统区分）
+
+chacmd 后端配置走 yaml（**默认值 < yaml < 环境变量**），不用每次设一堆 env。搜索顺序：`-c 参数` → `$CHACMD_CONFIG` → `./chacmd.yaml`（启动目录）。yaml 内容跨平台一致，但**拷贝命令 / 路径写法**按系统不同。
+
+#### 🪟 Windows（PowerShell）
+
+```powershell
+cd chacmd
+copy chacmd.example.yaml chacmd.yaml       # 生成本地配置（不进 git）
+notepad chacmd.yaml                         # 改 chayuan_base_url / db_url 等
+
+# 放到别处也行，用 $env 指定（当前会话）：
+$env:CHACMD_CONFIG = "D:\chatop-data\chacmd.yaml"
+python -m chacmd.cli start
+```
+
+`chacmd.yaml` 里 Windows 路径注意（SQLAlchemy URL **一律用正斜杠 `/`**，即便在 Windows）：
+
+```yaml
+# 相对路径（启动目录下）——最简单
+db_url: "sqlite+aiosqlite:///./chacmd.db"
+# 绝对路径：三斜杠 + 盘符 + 正斜杠（不是反斜杠）
+# db_url: "sqlite+aiosqlite:///D:/chatop-data/chacmd.db"
+workspace_root: "D:/chatop-data/workspace"   # sandbox=docker 时才用到
+```
+
+#### 🐧 Linux / macOS（bash）
+
+```bash
+cd chacmd
+cp chacmd.example.yaml chacmd.yaml
+${EDITOR:-vi} chacmd.yaml
+
+# 放到别处：
+export CHACMD_CONFIG=/etc/chacmd/chacmd.yaml
+python -m chacmd.cli start
+```
+
+```yaml
+db_url: "sqlite+aiosqlite:///./chacmd.db"        # 相对
+# db_url: "sqlite+aiosqlite:////var/lib/chacmd/chacmd.db"   # 绝对：注意四斜杠（/// + /var）
+workspace_root: "/workspace"
+```
+
+> 临时只覆盖某一项时，环境变量优先级最高：PS `$env:CHACMD_API_PORT="8101"` / bash `export CHACMD_API_PORT=8101`。全部键 = `chacmd/README.md` 配置表；样例 = `chacmd/chacmd.example.yaml`。
+
 ---
 
 ## 3. 开发态运行（切换运行）
 
 两 SKU 前后端各自独立、端口错开、可并存对比。前端命令跨平台一致：`pnpm dev:desktop`（察元）/ `pnpm dev:chacmd`（指挥台）。两个 vite 默认端口都是 5173（`strictPort:false`，同时跑时第二个自动占 5174）。
 
-**chacmd 后端配置改用 yaml（不用再逐行设环境变量）**：`cp chacmd/chacmd.example.yaml chacmd/chacmd.yaml`，改里面的 `chayuan_base_url` / `db_url` 等即可（分层：默认 < yaml < env）。**ChaCMD 联调需三个进程**（察元后端 + chacmd orchestrator + 大屏前端），命令跨平台基本一致（PowerShell 用 `;` 连、bash 用 `&&`）：
+**chacmd 后端配置改用 yaml**（先按 §2.3 生成 `chacmd.yaml`，Windows/Unix 拷贝命令与路径写法见该节；分层：默认 < yaml < env，不用再逐行设 env）。**ChaCMD 联调需三个进程**（察元后端 + chacmd orchestrator + 大屏前端），命令跨平台基本一致（PowerShell 用 `;` 连、bash 用 `&&`）：
 
 ```bash
 # 终端 1：察元后端

@@ -10,6 +10,10 @@ chayuan_web_url: "http://127.0.0.1:5173"
 
 # ── 状态库 ──
 # 开发/单机：sqlite（零基建）；生产：postgres+asyncpg://user:pass@host:5432/chacmd
+# ⚠ SQLAlchemy URL 一律用正斜杠 /（Windows 也是）：
+#   相对          sqlite+aiosqlite:///./chacmd.db
+#   Windows 绝对  sqlite+aiosqlite:///D:/chatop-data/chacmd.db      （/// + 盘符）
+#   Unix 绝对     sqlite+aiosqlite:////var/lib/chacmd/chacmd.db     （//// 四斜杠）
 db_url: "sqlite+aiosqlite:///./chacmd.db"
 
 # ── 监听 ──
