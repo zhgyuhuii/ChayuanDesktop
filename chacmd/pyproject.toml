@@ -3,6 +3,8 @@ name = "chacmd"
 version = "0.0.0"
 requires-python = ">=3.11"
 dependencies = [
+  # 注意：fastapi>=0.115 与察元(chayuan-server/gateway 锁 <0.110)不兼容。
+  # chacmd 必须装在独立 venv/conda env，切勿装进察元环境（会破坏察元）。见 README 顶部警告与 §3.8。
   "fastapi>=0.115",
   "uvicorn>=0.32",
   "sqlalchemy>=2.0",
