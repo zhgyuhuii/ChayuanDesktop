@@ -417,15 +417,30 @@ if [[ "$SKIP_MODEL_CHECK" != "1" ]] && command -v poetry >/dev/null 2>&1; then
                 || { fail 'torch 安装失败(数字人/图像向量需要;spec _collect_required 会 fail-fast)'; exit 6; }
             _torch_complete || { fail 'torch 重装后仍非完整 -- 别打残包(装机 import torch 会崩)。先修 torch 再打。'; exit 6; }
         fi
-        if ( cd "$SERVER_PKG_DIR" && poetry run python -c "import voxcpm" ) >/dev/null 2>&1; then
-            note 'voxcpm 已就绪,跳过安装(免 gradio 依赖反复 churn 整个环境)'
+        if ( cd "$SERVER_PKG_DIR" && poetry run python -c "from voxcpm import VoxCPM" ) >/dev/null 2>&1; then
+            note 'voxcpm 已就绪,跳过安装'
         else
-            ( cd "$SERVER_PKG_DIR" && poetry run pip install voxcpm ) \
-                || { fail 'voxcpm 安装失败(克隆音色框架;spec _collect_required 会 fail-fast)'; exit 6; }
-            # 只用 voxcpm 推理(不碰 gradio),装完还原被 gradio6 顶掉的 web 栈
-            # (fastapi ~0.109.2 / python-multipart 0.0.9;nicegui 1.4.x 也要 fastapi<0.110)。
-            ( cd "$SERVER_PKG_DIR" && poetry run pip install "fastapi~=0.109.2" "python-multipart==0.0.9" ) \
-                || note 'web 栈还原失败 — sidecar 可能因 fastapi/nicegui 不匹配起不来'
+            # voxcpm 2.0.x 硬依赖 gradio<7,>=6,而 gradio6 要 fastapi>=0.115.2;本项目锁
+            # fastapi~0.109.2 + nicegui<2(也要 fastapi<0.110),区间完全不相交 → 直接
+            # `pip install voxcpm` 必 ResolutionImpossible(回溯末尾常报到 pydantic 头上,
+            # 但根因是 fastapi)。voxcpm 推理只用 `from voxcpm import VoxCPM`,根本不碰
+            # gradio/spaces 那套 webui,所以 --no-deps 装本体 + 显式补推理真正需要的运行时
+            # 依赖(独缺 gradio),既不引入 gradio→fastapi 升版链,也不必再「还原 web 栈」。
+            # torch/torchvision/torchaudio 上面已装好(含 native 库完整性校验),这里不重列
+            # 以免被改动;torchcodec 也走 --no-deps,防它反过来挪 torch 版本。
+            ( cd "$SERVER_PKG_DIR" && poetry run pip install --no-deps voxcpm ) \
+                || { fail 'voxcpm(--no-deps)安装失败(克隆音色框架;spec _collect_required 会 fail-fast)'; exit 6; }
+            ( cd "$SERVER_PKG_DIR" && poetry run pip install --no-deps torchcodec ) \
+                || { fail 'torchcodec 安装失败(voxcpm 音频解码需要;arm64/x86_64 均有 manylinux_2_28 轮子)'; exit 6; }
+            ( cd "$SERVER_PKG_DIR" && poetry run pip install \
+                einops inflect addict wetext "modelscope>=1.22.0" "datasets>=3,<4" huggingface-hub \
+                tqdm simplejson sortedcontainers soundfile librosa matplotlib funasr spaces argbind safetensors ) \
+                || { fail 'voxcpm 运行时依赖安装失败(克隆音色框架;spec _collect_required 会 fail-fast)'; exit 6; }
+            # 校验①:依赖安装别把上面装好的 torch native 库搞坏(torchcodec/torch 版本须配套)
+            _torch_complete || { fail 'voxcpm 依赖装完后 torch 反而坏了 — 别打残包,检查 torchcodec/torch 版本配套。'; exit 6; }
+            # 校验②:import 不过别打残包(spec _collect_required 也会 fail-fast)
+            ( cd "$SERVER_PKG_DIR" && poetry run python -c "from voxcpm import VoxCPM" ) >/dev/null 2>&1 \
+                || { fail 'voxcpm 装后 import VoxCPM 仍失败 — 缺运行时依赖,别打残包。按报错补齐缺失模块再重试。'; exit 6; }
         fi
         # sherpa-onnx 完整性:.py 与 .pyd 版本必须一致。半成品(新 .py + 旧 .pyd,常因
         # 升级时 .pyd 被占用没覆盖成)装机后 ImportError: cannot import name
@@ -783,6 +798,34 @@ else
         ALL_ARTIFACTS+=("$FLAVOR|$a|$dest|$sz")
         echo "    $a → $dest (${sz} MB)"
     done
+
+    # ── 组装麒麟V10 ARM 离线安装包(仅当产物里有 arm64 .deb 时)──────────────
+    # Chayuan 桌面壳是 Tauri v2,运行时绑死 libwebkit2gtk-4.1.so.0,无法降级到
+    # webkit2gtk-4.0。麒麟V10 若系统没预装 4.1,离线机 `dpkg -i` 会报「依赖关系
+    # 不满足:libwebkit2gtk-4.1-0, libayatana-appindicator3-1」。这里把
+    # scripts/kylin-offline/ 的收集/安装脚本 + 该 arm64 deb 组装成一个开箱即用的
+    # 离线包骨架;deps/ 留空,由麒麟【联网】机跑其中 fetch-deps.sh 填充后,拷到
+    # 【离线】麒麟机跑 install-offline.sh 安装。用 KYLIN_OFFLINE=0 关闭本步。
+    if [[ "${KYLIN_OFFLINE:-1}" != "0" ]]; then
+        ko_src="$WORKSPACE/scripts/kylin-offline"
+        if [[ -d "$ko_src" ]]; then
+            for deb in "$flavor_out"/*arm64*.deb "$flavor_out"/*aarch64*.deb; do
+                [[ -f "$deb" ]] || continue   # glob 无匹配时是字面量,-f 挡掉
+                deb_base="$(basename "$deb")"
+                ko_out="$flavor_out/${deb_base%.deb}_kylin-offline"
+                rm -rf "$ko_out"; mkdir -p "$ko_out/deps"
+                cp -f "$ko_src/fetch-deps.sh" "$ko_src/install-offline.sh" \
+                      "$ko_src/README.md" "$ko_out/"
+                cp -f "$deb" "$ko_out/"
+                : > "$ko_out/deps/.gitkeep"
+                ko_sz=$(du -m "$ko_out" | tail -1 | awk '{print $1}')
+                ALL_ARTIFACTS+=("$FLAVOR|$ko_out|$ko_out|$ko_sz")
+                echo "    组装麒麟离线包 → $ko_out/ (deps/ 待麒麟联网机 fetch-deps.sh 填充)"
+            done
+        else
+            note "scripts/kylin-offline 不存在,跳过麒麟离线包组装"
+        fi
+    fi
 
     # mac:从 .app 再产 .dmg —— Tauri 内置 bundle_dmg.sh 在新 macOS 容易挂
     # (Privacy/Automation 权限、hdiutil 版本兼容),改用 scripts/make-mac-dmg.sh
