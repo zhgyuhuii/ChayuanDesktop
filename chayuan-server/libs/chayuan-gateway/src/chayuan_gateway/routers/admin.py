@@ -876,7 +876,9 @@ def _platform_install_recipes() -> dict[str, dict[str, list[str]]]:
             "linux-apt":   ["wget -qO/usr/local/bin/minio https://dl.min.io/server/minio/release/linux-amd64/minio", "chmod +x /usr/local/bin/minio"],
             "mac-brew":    ["brew install minio/stable/minio"],
             "win-winget":  ["winget install -e --id MinIO.Server"],
-            "docker":      ["docker run -d --name chayuan-minio -p 39000:9000 -p 39001:9001 -e MINIO_ROOT_USER=chayuan -e MINIO_ROOT_PASSWORD=chayuan-mi-pwd minio/minio server /data --console-address :9001"],
+            # 控制台内外同号(39001):浏览器打 API 口时 MinIO 会拿 --console-address
+            # 里的【容器内】端口号构造 307;写 :9001 会把人送去 <host>:9001(撞别的容器)
+            "docker":      ["docker run -d --name chayuan-minio -p 39000:9000 -p 39001:39001 -e MINIO_ROOT_USER=chayuan -e MINIO_ROOT_PASSWORD=chayuan-mi-pwd minio/minio server /data --console-address :39001"],
         },
         "milvus": {
             "docker":      ["bash <(curl -fsSL https://raw.githubusercontent.com/milvus-io/milvus/master/scripts/standalone_embed.sh) start"],
