@@ -374,6 +374,27 @@ def _set_app_event(app: FastAPI, started_event: mp.Event = None):
     app.router.lifespan_context = lifespan
 
 
+def _detach_stdin_if_not_inheritable() -> None:
+    """`sys.stdin` 挂在 worker 继承不到的 fd 上时置 None。
+
+    `run_api_server` 由 `mp.Process`(spawn)启动,mp 的 `_bootstrap` 会调
+    `util._close_stdin()`:CPython 建 `sys.stdin` 用的是 closefd=False,它关不掉
+    fd 0,于是退而 `os.open(devnull)` 拿到一个高位 fd(实测 6)挂上去。而 uvicorn
+    多 worker 时会把 `sys.stdin.fileno()` 传给 worker 去 `os.fdopen()`,worker 由
+    `spawnv_passfds` 启动、>=3 的 fd 全被关 → EBADF,起一个死一个,supervisor 无限
+    重启,端口永远不监听。uvicorn 允许 `sys.stdin is None`,置 None 即跳过 reopen。
+    """
+    if sys.stdin is None:
+        return
+    try:
+        if sys.stdin.fileno() == 0:
+            # fd 0 是标准输入本尊,worker 能正常继承,留着(uvicorn 靠它支持调试环境)
+            return
+    except (AttributeError, OSError):
+        pass
+    sys.stdin = None
+
+
 def run_api_server(
     started_event: mp.Event = None, run_mode: str = None
 ):
@@ -420,6 +441,7 @@ def run_api_server(
             except Exception:
                 pass
         logger.info("API Server 以多 worker 模式启动：workers=%d", workers)
+        _detach_stdin_if_not_inheritable()
         uvicorn.run(
             "chayuan.server.api_server.server_app:app",
             host=host,

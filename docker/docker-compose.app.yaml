@@ -35,9 +35,9 @@ services:
     image: ${CHAYUAN_IMAGE:-cmdbird/chayuan}:${CHAYUAN_TAG:-latest}
     container_name: chayuan
     restart: unless-stopped
-    # uvicorn 多 worker(网络形态下 init 会写 UVICORN_WORKERS=4)在 `up -d`(无 stdin)
-    # 下会 os.fdopen(stdin) 报「Bad file descriptor」。保持 stdin 打开给子进程一个有效 fd 0。
-    stdin_open: true
+    # 注:别再往这加 stdin_open —— uvicorn 多 worker 报「Bad file descriptor」跟容器
+    # 有没有 stdin 无关(管道/devnull 实测都崩),出事的是 mp 子进程里的高位 fd 而非 fd 0。
+    # 已在 chayuan/startup.py:_detach_stdin_if_not_inheritable 修掉。
 
     # ★★ 必须覆盖 command ★★
     # 镜像内置 CMD 是 ["start","-a","--single-machine"](docker/Dockerfile:161),
