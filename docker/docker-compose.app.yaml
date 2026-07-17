@@ -1,0 +1,129 @@
+# 察元 AI — 察元本体 compose(拉取式一体化镜像 + 接外部基础设施)
+# ====================================================================
+# 与 docker-compose.env.yaml 成套使用:那份起基础设施,这份起察元本体。
+# 察元只有【一个容器】,里面同时跑 nginx(前端) + Python(API + 配置面板)。
+#
+# ── 启动顺序(必须)───────────────────────────────────────────────
+#   1) docker compose -f docker-compose.env.yaml up -d
+#   2) 等基础设施 healthy(Milvus 冷启动要 1~2 分钟):
+#        docker compose -f docker-compose.env.yaml ps
+#      —— 五个都是 healthy 再走下一步。
+#   3) mkdir -p data models config logs
+#   4) docker compose -f docker-compose.app.yaml up -d
+#   5) 浏览器 http://<服务器IP>:8880
+#
+# ⚠ 为什么不能一条命令一起起:两份文件是两个 compose project,
+#   depends_on 只能引用【同一个 project 内】的服务,跨文件引用不了。
+#   真想一把梭:docker compose -f docker-compose.env.yaml -f docker-compose.app.yaml up -d
+#   (两份会被合并成一个 project,但 name 以后一份为准)。
+#   本容器是 restart: unless-stopped,基础设施没就绪时它会自己重启重试,
+#   所以顺序错了也能自愈,只是日志会先刷一阵连接错误。
+#
+# ── 端口 ──────────────────────────────────────────────────────────
+#   8880  → 浏览器主入口(nginx,容器内 80)
+#   62581 → 后端 API 直连。★ WPS 加载项 / Tauri 桌面端 / 三方都固定连这个,不可改
+#   8502  → 后台配置面板。公网部署建议改成 "127.0.0.1:8502:8502" 只开本机,
+#           或用防火墙挡住,别裸奔在公网上。
+# ====================================================================
+name: chayuan-app
+
+services:
+  chayuan:
+    # 海外/通用 Docker Hub;国内换 ACR 更快:
+    #   CHAYUAN_IMAGE=crpi-4i9j7th8clu2wz0j.cn-beijing.personal.cr.aliyuncs.com/cmdbird/chayuan
+    # 想钉版本:CHAYUAN_TAG=2.0.336;想用瘦身版:CHAYUAN_TAG=latest-slim
+    image: ${CHAYUAN_IMAGE:-cmdbird/chayuan}:${CHAYUAN_TAG:-latest}
+    container_name: chayuan
+    restart: unless-stopped
+    # uvicorn 多 worker(网络形态下 init 会写 UVICORN_WORKERS=4)在 `up -d`(无 stdin)
+    # 下会 os.fdopen(stdin) 报「Bad file descriptor」。保持 stdin 打开给子进程一个有效 fd 0。
+    stdin_open: true
+
+    # ★★ 必须覆盖 command ★★
+    # 镜像内置 CMD 是 ["start","-a","--single-machine"](docker/Dockerfile:161),
+    # 光把 CHAYUAN_PROFILE 设空【不够】—— 那个 flag 会把它按回单机内核。
+    # 这里改成:先 init 写好 pg/redis/milvus 连接 + 建表(幂等),再跑原 entrypoint。
+    # init 会把 CHAYUAN_PG_* / CHAYUAN_REDIS_URL / CHAYUAN_MILVUS_* 落进
+    # basic_settings.yaml / kb_settings.yaml(见 chayuan/init_prod_profile.py)。
+    entrypoint: ["/usr/bin/tini", "--", "/bin/bash", "-c"]
+    command:
+      - >-
+        cd /chayuan/app/chayuan-server/libs/chayuan-server &&
+        (python -m chayuan init -q --profile prod || echo '[init] 非致命,start 会再建表') &&
+        exec /usr/local/bin/entrypoint.sh start -a
+
+    environment:
+      CHAYUAN_ROOT: /chayuan/data
+      # ★ 空字符串 = 网络形态。镜像里烤死了 CHAYUAN_PROFILE=single-machine
+      #   (Dockerfile:144),这里必须显式覆盖成空,否则业务库回退 sqlite。
+      CHAYUAN_PROFILE: ""
+      CHAYUAN_AUTO_INSTALL_DEPS: "false"
+
+      # ── 业务库 = PostgreSQL ── 用【服务名 + 容器内端口 5432】,不是宿主机 35432
+      CHAYUAN_PG_HOST: chayuan-postgres
+      CHAYUAN_PG_PORT: "5432"
+      CHAYUAN_PG_USER: ${POSTGRES_USER:-chayuan}
+      CHAYUAN_PG_PASSWORD: ${POSTGRES_PASSWORD:-chayuan}
+      CHAYUAN_PG_DB: ${POSTGRES_DB:-chayuan}
+      # 换 MySQL:注释上面 PG_*,放开下面(并放开 env.yaml 里的 chayuan-mysql 服务)
+      # CHAYUAN_DB_URI: "mysql+pymysql://${MYSQL_USER:-chayuan}:${MYSQL_PASSWORD:-chayuan}@chayuan-mysql:3306/${MYSQL_DB:-chayuan}"
+
+      # ── 缓存 / 限流 / 语义缓存 = Redis ── 容器内端口 6379,不是宿主机 36379
+      CHAYUAN_REDIS_URL: redis://chayuan-redis:6379/0
+
+      # ── 向量库 = Milvus ── 容器内端口 19530,不是宿主机 39530
+      CHAYUAN_MILVUS_HOST: chayuan-milvus
+      CHAYUAN_MILVUS_PORT: "19530"
+
+      # ── 鉴权:多用户登录 ──
+      # AUTH_REQUIRED / AUTH_ALLOW_REGISTRATION 由 init --profile prod 写进
+      # basic_settings.yaml(分别是 true / false),【故意不在这里设 env】——
+      # env 优先级高于 yaml(pydantic_settings_file.py:210 源顺序 [init,env,dotenv,yaml]),
+      # 在这写死会导致以后在 :8502 面板里改不动。要临时强制匿名再加 AUTH_REQUIRED: "false"。
+      # 注:CHAYUAN_AUTH_REQUIRED 只在 single-machine profile 里被读(profiles/single_machine.py:102),
+      #    网络形态下是【空操作】,别用它。
+      #
+      # JWT 密钥:留空则 init 随机生成一次并持久化进 yaml(重启不失效)。
+      # 多机/多副本要一致,或想自己掌控,就在 .env 里设 JWT_SECRET=$(openssl rand -hex 64)。
+      CHAYUAN_JWT_SECRET: ${JWT_SECRET:-}
+      # 首次启动且库里没有用户时,按这个建管理员。密码留空 = 随机生成并打到容器日志
+      # (docker compose -f docker-compose.app.yaml logs chayuan | grep -i password)。
+      AUTH_DEFAULT_ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      AUTH_DEFAULT_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+
+      # 单容器没有独立 worker → 入库走同步。要高并发后台入库再单拆一个 worker 容器。
+      INGEST_ASYNC_ENABLED: "false"
+
+      # ── 对象存储:默认走【本地】(文件落 ./data,浏览器经 62581 同源取,开箱即用) ──
+      # ⚠ 别随手打开 FILE_STORAGE_BACKEND=minio:察元的下载/预览要求服务端同源 stream,
+      #   直接吐 MinIO 内网 presigned URL 会让浏览器打不开。要接 MinIO 请另行评估。
+      # FILE_STORAGE_BACKEND: minio
+      # MINIO_ENDPOINT: chayuan-minio:9000
+
+    ports:
+      - "${CHAYUAN_WEB_PORT:-8880}:80"        # 浏览器主入口
+      - "62581:62581"                         # ★ 后端 API 直连,固定不可改
+      - "${CHAYUAN_PANEL_PORT:-8502}:8502"    # 后台配置面板(公网部署建议只开本机)
+
+    volumes:
+      - ./data:/chayuan/data
+      - ./models:/chayuan/app/chayuan-server/vendor/bundled_models
+      - ./config:/chayuan/config
+      - ./logs:/chayuan/logs
+      # 注:nginx.conf 已烤进镜像(Dockerfile:133),拉取式部署【不需要】外挂它。
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 5
+
+# ★★ 这一段是「基础设施连不上」的根因所在 ★★
+# 不写 networks,compose 会把本容器丢进本 project 自己的默认网桥(chayuan-app_default),
+# 跟 docker-compose.env.yaml 的 chayuan-net 是两张互不相通的网 ——
+# DNS 根本解析不到 chayuan-postgres / chayuan-milvus,连接必然失败。
+# 指到同名 chayuan-net 后,两份文件的容器才能用服务名互访。
+networks:
+  default:
+    name: chayuan-net
