@@ -353,6 +353,82 @@ class InstallModelJob:
         }
 
 
+class _DownloadProgressPoller:
+    """下载期间后台轮询目标目录体积,把进度从 10% 填到 ~90%。
+
+    modelscope / huggingface_hub 的 snapshot 下载是**阻塞调用、不暴露逐字节
+    回调**,历史上 progress_pct 写死 10% 直到整仓下完才跳 90%(观感=永久卡
+    10%)。这里起一个 daemon 线程,每 2s 按「已落盘字节 / 预估总量」实时刷新
+    progress_pct + progress_message。
+
+    预估总量 ``expected_bytes`` 由前端从 Hub detail 传入;无预估总量时退化成
+    显示已下字节 + 百分比缓慢爬升(上限 85),至少让用户看到"在动",不再永久卡
+    在 10%。进度上报任何异常都被吞掉,绝不影响下载本身。
+    """
+
+    _LOW = 10.0   # 下载开始锚点(调用方在启动前已置 10)
+    _HIGH = 90.0  # 下载结束锚点(调用方在 SDK 返回后置 90)
+
+    def __init__(self, job: "InstallModelJob", lock: "threading.RLock",
+                 target_dir: Path, expected_bytes: Optional[int]) -> None:
+        self._job = job
+        self._lock = lock
+        self._dir = Path(target_dir)
+        self._expected = expected_bytes if (expected_bytes and expected_bytes > 0) else None
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    def _dir_bytes(self) -> int:
+        total = 0
+        try:
+            for p in self._dir.rglob("*"):
+                try:
+                    if p.is_file():
+                        total += p.stat().st_size
+                except OSError:
+                    pass
+        except OSError:
+            pass
+        return total
+
+    def _tick(self) -> None:
+        got = self._dir_bytes()
+        gb = got / (1024 ** 3)
+        with self._lock:
+            if self._expected:
+                frac = min(0.995, got / self._expected)
+                self._job.progress_pct = round(
+                    self._LOW + (self._HIGH - self._LOW) * frac, 1
+                )
+                self._job.progress_message = (
+                    f"下载中 {gb:.2f}/{self._expected / (1024 ** 3):.2f} GB"
+                )
+            else:
+                # 无预估总量:百分比按已下量缓升(上限 85,给收尾/校验留余量)
+                self._job.progress_pct = round(min(85.0, self._LOW + gb * 12.0), 1)
+                self._job.progress_message = f"下载中 {gb:.2f} GB"
+
+    def _run(self) -> None:
+        while not self._stop.wait(2.0):
+            try:
+                self._tick()
+            except Exception:  # noqa: BLE001 — 进度上报绝不能影响下载
+                pass
+
+    def start(self) -> "_DownloadProgressPoller":
+        self._thread = threading.Thread(
+            target=self._run, name="install-model-progress", daemon=True
+        )
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
+
+
 class InstallModelJobManager:
     """跟 InstallJobManager 解耦的单模型下载管理器。"""
 
@@ -662,6 +738,10 @@ class InstallModelJobManager:
         self._check_cancel(job)
         with self._lock:
             job.progress_pct = 10.0
+        # 阻塞下载期间后台轮询目录体积刷真实进度(修「永久卡 10%」)
+        _poller = _DownloadProgressPoller(
+            job, self._lock, target_dir, job.expected_bytes
+        ).start()
 
         # modelscope SDK 在 repo 不存在时会先做 repo_exists 检查,命中后抛裸
         # requests.HTTPError(<Response [404]>)。这里整段包一层:404 转人话
@@ -728,6 +808,8 @@ class InstallModelJobManager:
         except Exception as e:  # noqa: BLE001
             # 404 → 人话;其它(网络超时 / 限流 / 鉴权)原样上抛。
             _raise_if_repo_404(e, source="modelscope", model_id=job.model_id)
+        finally:
+            _poller.stop()
 
         with self._lock:
             job.progress_pct = 90.0
@@ -737,11 +819,14 @@ class InstallModelJobManager:
             from huggingface_hub import hf_hub_download, snapshot_download
         except ImportError as e:
             raise RuntimeError("huggingface_hub 未安装") from e
-        # 强制走 hf-mirror —— 国内直连 huggingface.co 常 "Network is unreachable"。
-        # 必须运行时覆盖 huggingface_hub 各子模块缓存的 ENDPOINT(import 时已
-        # 固化,只设环境变量太晚)。install_model / install_job 共用此函数。
+        # 端点选择:国内默认强制走 hf-mirror(直连 huggingface.co 常
+        # "Network is unreachable")。海外/美西等部署可设环境变量
+        # CHAYUAN_HF_ENDPOINT=https://huggingface.co 直连 HF 官方(国内不设 →
+        # 仍走 hf-mirror,默认行为不变)。必须运行时覆盖 huggingface_hub 各子模块
+        # 缓存的 ENDPOINT(import 时已固化,只设环境变量太晚)。
         from chayuan.server.model_registry.hf_mirror import force_hf_mirror_endpoint
-        endpoint = force_hf_mirror_endpoint()
+        _hf_ep = os.environ.get("CHAYUAN_HF_ENDPOINT", "").strip() or None
+        endpoint = force_hf_mirror_endpoint(_hf_ep)
         with self._lock:
             job.log_tail.append(f"[install_model] HF endpoint = {endpoint}")
 
@@ -751,6 +836,10 @@ class InstallModelJobManager:
             job.log_tail.append(
                 f"[install_model] HF_ENDPOINT={os.environ['HF_ENDPOINT']}"
             )
+        # 阻塞下载期间后台轮询目录体积刷真实进度(修「永久卡 10%」)
+        _poller = _DownloadProgressPoller(
+            job, self._lock, target_dir, job.expected_bytes
+        ).start()
 
         # huggingface_hub 在 repo 不存在时抛 RepositoryNotFoundError /
         # HfHubHTTPError(同样挂 .response.status_code=404)。与 modelscope
@@ -784,6 +873,8 @@ class InstallModelJobManager:
             raise
         except Exception as e:  # noqa: BLE001
             _raise_if_repo_404(e, source="huggingface", model_id=job.model_id)
+        finally:
+            _poller.stop()
 
         with self._lock:
             job.progress_pct = 90.0

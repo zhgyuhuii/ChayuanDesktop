@@ -178,7 +178,18 @@ def _build_engine():
 
 engine = _build_engine()
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# expire_on_commit=False:与 async 引擎(见 create_async_engine 处)保持一致。
+# 默认 True 会在 commit 后 expire 所有已加载对象的属性;而仓储层多处用
+# @with_session 装饰器(commit 后立即 close),再把 ORM 对象返回给上层(如
+# get_conversation_by_id)。上层访问 conv.user_id 等标量时会触发对 expired
+# 属性的 refresh,但 session 已关 → DetachedInstanceError:「Instance ... is not
+# bound to a Session; attribute refresh operation cannot proceed」(会话按用户
+# 隔离的归属校验触发,ChatGraph 500)。设 False 后 commit 不 expire,已加载的
+# 标量在对象 detached 后仍可读,从根上消除该错。热切换 SessionLocal.configure(
+# bind=new) 只改 bind,保留此选项。
+SessionLocal = sessionmaker(
+    autocommit=False, autoflush=False, expire_on_commit=False, bind=engine,
+)
 
 
 def get_engine():

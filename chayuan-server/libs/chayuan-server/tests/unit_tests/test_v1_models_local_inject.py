@@ -175,3 +175,58 @@ def test_local_and_cloud_coexist(client):
     platforms = {m.get("platform_name") for m in items}
     assert "local" in platforms
     assert "deepseek" in platforms
+
+
+def test_local_platform_alias_and_prefix_dupes_collapse(client):
+    """local-<cap> 平台行的「全路径 + basename 别名 + 旧前缀全路径」折成一条。
+
+    背景:_register_local_platform 给 DB 平台行同时写全路径 model_id 和
+    basename 别名(路由需要);历史根前缀变更还可能残留另一条全路径。
+    /v1/models 必须按 (model_type, basename) 把这些同物理模型折成一条,
+    保留 id 最长的可路由全路径;云厂商同名模型不受影响。
+    """
+    fake_idx = _idx_with([_entry("models/bundled/chat/qwen3-4b.gguf", "chat")])
+    with mock.patch(
+        "chayuan.server.model_registry.local_index.get_local_index",
+        return_value=fake_idx,
+    ), mock.patch(
+        "chayuan.server.api_server.openai_routes.get_config_platforms",
+        return_value={
+            "local-chat": {
+                "enabled": True,
+                "platform_type": "openai",
+                "llm_models": [
+                    "models/bundled/chat/qwen3-4b.gguf",  # local_index 全路径
+                    "qwen3-4b.gguf",                      # basename 别名
+                    "custom/qwen3-4b.gguf",               # 旧前缀残留
+                ],
+                "embed_models": [],
+                "rerank_models": [],
+                "text2image_models": [],
+                "image2text_models": [],
+                "speech2text_models": [],
+                "text2speech_models": [],
+                "disabled_models": [],
+            },
+            "bailian": {
+                "enabled": True,
+                "platform_type": "openai",
+                "llm_models": ["qwen3-4b.gguf"],  # 云厂商同名,不能被折叠
+                "embed_models": [],
+                "rerank_models": [],
+                "text2image_models": [],
+                "image2text_models": [],
+                "speech2text_models": [],
+                "text2speech_models": [],
+                "disabled_models": [],
+            },
+        },
+    ):
+        r = client.get("/v1/models")
+    items = r.json()["data"]
+    local_rows = [m for m in items
+                  if str(m.get("platform_name", "")).startswith("local")]
+    cloud_rows = [m for m in items if m.get("platform_name") == "bailian"]
+    assert len(local_rows) == 1, f"本地同物理模型应只剩一条: {local_rows}"
+    assert local_rows[0]["id"] == "models/bundled/chat/qwen3-4b.gguf"
+    assert len(cloud_rows) == 1

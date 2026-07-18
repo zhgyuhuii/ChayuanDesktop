@@ -43,6 +43,7 @@ import {
   DialogTitle,
   Input,
 } from '@chayuan/ui';
+import { CliDownloadHint } from '../../components/CliDownloadHint';
 import {
   type InstallModelCapability,
   type InstallModelSource,
@@ -488,6 +489,11 @@ export const InstallModelDialog: React.FC<InstallModelDialogProps> = ({
                 </Button>
               )}
             </div>
+
+            {/* 命令行下载兜底:应用内下载卡住时可复制命令直连下载 */}
+            {modelId.trim() && (
+              <CliDownloadHint source={source} modelId={modelId} file={specificFile} />
+            )}
 
             {job && (
               <div className="rounded-md border border-[var(--cy-border-subtle)] bg-[var(--cy-surface-elev1)] p-2 text-xs">

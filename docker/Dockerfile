@@ -126,6 +126,15 @@ COPY chayuan-server/vendor/bundled_video_clips ./chayuan-server/vendor/bundled_v
 # 片尾 video_end.mp4(非会员视频自动拼接);单机版走 PyInstaller datas,docker 需显式 COPY 命中 _outro_source 源码树探测
 COPY chayuan-server/video ./chayuan-server/video
 
+# ── 3c. 内置模型种子(开箱即用)────────────────────────────────────
+#   把「系统运行必须模型」(chat/embedding/rerank/asr/tts/ocr)打进镜像的种子区
+#   /chayuan/bundled_seed(不被 volume 覆盖的位置)。entrypoint 启动时按 cap 铺到
+#   挂载的 vendor/bundled_models(目标空则铺,幂等)→ 零下载开箱即用 + 宿主机可见。
+#   docker/seed_models 由 docker/build-push-bundled.sh 用硬链接填入真实模型;普通
+#   build.sh 时该目录只有 .gitkeep → 种子为空,行为等同「不打模型」(向后兼容)。
+COPY docker/seed_models /chayuan/bundled_seed
+RUN find /chayuan/bundled_seed -name .gitkeep -delete 2>/dev/null || true
+
 # ── 4. 拷前端 dist (来自 stage 1) ──────────────────────────────────
 COPY --from=web-builder /chayuan-client/apps/web/dist /chayuan/web
 
@@ -140,12 +149,18 @@ RUN mkdir -p /chayuan/app/chayuan-server/vendor/bundled_models \
              /chayuan/logs
 
 # 运行时环境
+# ⚠ 容器铁律(2026-07-18):只要从镜像启动就一定是【服务版】—— 单机版只存在于
+#   桌面 App(PyInstaller,不走镜像)。故:
+#   · CHAYUAN_PROFILE 默认留空(=服务/网络形态,不再烤 single-machine);
+#   · CHAYUAN_IN_CONTAINER=1 作为容器标记,profiles.active_profile() 据此即便被误设
+#     single-machine 也强制按服务版处理;
+#   · AUTH_REQUIRED=true 默认强制开启登录(多用户服务形态)。
+#   业务库/Redis/向量库连接由 compose(docker-compose.yaml / app.yaml)按服务名注入。
 ENV CHAYUAN_ROOT=/chayuan/data \
-    CHAYUAN_PROFILE=single-machine \
-    CHAYUAN_AUTH=anonymous \
-    CHAYUAN_REDIS=disabled \
+    CHAYUAN_PROFILE= \
+    CHAYUAN_IN_CONTAINER=1 \
+    AUTH_REQUIRED=true \
     CHAYUAN_QUEUE=inproc \
-    CHAYUAN_VECTOR_STORE=sqlite-vec \
     CHAYUAN_AUTO_INSTALL_DEPS=false \
     CHAYUAN_ROOT_IGNORE_STATE=1 \
     CHAYUAN_VENDOR_PLATFORM=linux-x64 \
@@ -157,5 +172,7 @@ EXPOSE 80 62581 8502
 HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=5 \
     CMD curl -fsS http://127.0.0.1/healthz >/dev/null || exit 1
 
+# 默认命令:不带 --single-machine(容器一律服务版)。compose 可覆盖 command
+# 追加 init(写 pg/redis/milvus 连接)等步骤;裸 docker run 也走服务版内核。
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
-CMD ["start", "-a", "--single-machine"]
+CMD ["start", "-a"]

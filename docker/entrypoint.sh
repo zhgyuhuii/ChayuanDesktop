@@ -16,6 +16,31 @@ mkdir -p "${CHAYUAN_ROOT}" \
          /chayuan/logs \
          /chayuan/app/chayuan-server/vendor/bundled_models
 
+# 开箱即用:把镜像内置的「种子模型」铺到挂载的 bundled_models 目录。
+# 背景:模型打进镜像时放在 /chayuan/bundled_seed(不被 volume 覆盖的位置);
+# 而 compose 通常把宿主机目录挂到 vendor/bundled_models(会盖住镜像内容)。
+# 这里在启动时把种子按 cap 拷进挂载目录 —— 目标 cap 为空才拷(尊重用户自备模型),
+# 幂等。这样:① 零下载开箱即用 ② 模型出现在宿主机挂载目录(可见/可换) ③ 持久化。
+SEED_DIR=/chayuan/bundled_seed
+TARGET_MODELS=/chayuan/app/chayuan-server/vendor/bundled_models
+if [ -d "$SEED_DIR" ]; then
+    for capdir in "$SEED_DIR"/*/; do
+        [ -d "$capdir" ] || continue
+        cap="$(basename "$capdir")"
+        # 种子该 cap 有实际内容才处理(空 cap 跳过)
+        [ -n "$(ls -A "$capdir" 2>/dev/null)" ] || continue
+        # 目标 cap 为空才铺(用户已放模型则保留其自备)
+        if [ -z "$(ls -A "$TARGET_MODELS/$cap" 2>/dev/null)" ]; then
+            mkdir -p "$TARGET_MODELS/$cap"
+            if cp -a "$capdir". "$TARGET_MODELS/$cap/" 2>/dev/null; then
+                echo "[entrypoint] 已铺设内置模型到挂载目录: $cap"
+            else
+                echo "[entrypoint] 警告:铺设内置模型失败: $cap(不阻断启动)"
+            fi
+        fi
+    done
+fi
+
 # 用户可以 bind mount 自己的 yaml 配置到 /chayuan/config,这里 symlink 到 CHAYUAN_ROOT
 if [ -d /chayuan/config ] && [ "$(ls -A /chayuan/config 2>/dev/null)" ]; then
     echo "[entrypoint] /chayuan/config 有内容,符号链接到 ${CHAYUAN_ROOT}/"

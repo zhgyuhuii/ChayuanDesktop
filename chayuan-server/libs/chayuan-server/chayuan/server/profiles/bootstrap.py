@@ -22,12 +22,40 @@ _KNOWN_PROFILES = {
 }
 
 
+def _in_container() -> bool:
+    """是否在容器(镜像)里运行。
+
+    真源:镜像 ``docker/Dockerfile`` 里 ENV ``CHAYUAN_IN_CONTAINER=1``;另兜底
+    探测 ``/.dockerenv``(几乎所有 docker 运行时都会建)。
+    """
+    v = (os.environ.get("CHAYUAN_IN_CONTAINER") or "").strip().lower()
+    if v and v not in ("0", "false", "no"):
+        return True
+    try:
+        return os.path.exists("/.dockerenv")
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def active_profile() -> Optional[str]:
-    """读 ``CHAYUAN_PROFILE`` 并归一化;未设 / 不识别返回 None(SaaS 默认形态)。"""
+    """读 ``CHAYUAN_PROFILE`` 并归一化;未设 / 不识别返回 None(SaaS / 服务版默认形态)。
+
+    **容器铁律**:只要在容器里启动就一定是服务版 —— 单机版只存在于桌面 App
+    (PyInstaller,不走镜像)。因此即使有人在容器里误设/继承了旧镜像的
+    ``CHAYUAN_PROFILE=single-machine``,也强制按服务版(返回 None)处理,避免
+    容器被当单机(sqlite / 匿名 / 「单机版无需部署授权」)。
+    """
     raw = (os.environ.get("CHAYUAN_PROFILE") or "").strip().lower()
     if not raw:
         return None
-    return _KNOWN_PROFILES.get(raw)
+    prof = _KNOWN_PROFILES.get(raw)
+    if prof == "single-machine" and _in_container():
+        logger.warning(
+            "[profiles] 容器内检测到 CHAYUAN_PROFILE=single-machine —— 容器一律按"
+            "服务版运行(单机版只在桌面 App),已忽略该 profile。",
+        )
+        return None
+    return prof
 
 
 def is_single_machine() -> bool:

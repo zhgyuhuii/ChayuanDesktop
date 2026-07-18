@@ -27,6 +27,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { FileDown, Loader2, Sparkles } from 'lucide-react';
 import * as React from 'react';
+import { CliDownloadHint } from '../../components/CliDownloadHint';
 import { formatBytes } from './ModelHubRow';
 import { annotateQuants } from './quantInfo';
 
@@ -168,6 +169,14 @@ export const HubFilePickerDialog: React.FC<HubFilePickerDialogProps> = ({
               </ul>
             )}
           </div>
+
+          {/* 命令行下载兜底:选中文件后给出等价命令,应用内下载卡住时用 */}
+          <CliDownloadHint
+            source={card.source}
+            modelId={card.model_id}
+            file={selected ?? undefined}
+            revision={rev}
+          />
         </div>
 
         <DialogFooter className="gap-2 border-t border-[var(--cy-border-subtle)] px-4 py-3">

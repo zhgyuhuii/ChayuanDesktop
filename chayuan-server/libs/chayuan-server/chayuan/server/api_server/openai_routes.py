@@ -412,35 +412,39 @@ async def list_models(type: Optional[str] = None, check_access: bool = False) ->
     except Exception as e:  # noqa: BLE001
         logger.debug("local_index 注入失败,跳过:%r", e)
 
-    # 折叠「全路径 vs 裸 basename」的本地重复:同一本地模型有时被两条命名路径
-    # 各列一次 —— 一条 local-<cap> 平台用全路径 models/bundled/chat/<name>(sidecar /
-    # auto_assign / local_index 都用它,可路由),一条裸 <name>(老 local 命名空间)。
-    # 「脚本选模型」等下拉因此出现两条同名。按 (model_type, basename) 分组,仅当同组
-    # 同时存在「带路径分隔符的全路径条」+「裸 basename 条」且两条都属本地(platform_name
-    # 以 'local' 开头)时,丢弃裸 basename 条、保留全路径条。只动本地条,绝不碰厂商平台,
-    # 避免误删不同厂商的同名模型。
+    # 折叠本地模型的「同一物理模型多条 id」重复:local-<cap> 平台 DB 行同时含
+    # 「local_index 全路径」+「basename 别名」(别名供 get_config_models(basename)
+    # 路由命中,不能从 DB 行里去掉);历史根前缀变更还可能造成两条**不同前缀的
+    # 全路径**。「脚本选模型 / 聊天创建」等下拉因此出现同名重复。按
+    # (model_type, basename) 分组 —— 与 local_index._canonical_dedupe /
+    # candidates_bridge._dedupe_local_by_basename 同口径 —— 同组只留一条,
+    # 优先保留「带路径分隔符且 id 最长」的全路径条(可路由)。只动本地条
+    # (platform_name 以 'local' 开头),绝不碰厂商平台,避免误删不同厂商的同名模型。
+    # 注意:历史版本这里写的是 ``os.basename``(os 模块没有 basename)——
+    # AttributeError 被下面的 except 静默吞掉,整段去重从未生效过,这就是
+    # 「/v1/models 修过还是多一条」的直接原因。必须用 ``os.path.basename``。
     try:
-        import os as _os_dedup
+        import os.path as _osp_dedup
         _grp: Dict[Tuple[str, str], List[int]] = {}
         for _i, _r in enumerate(data):
             _id = str(_r.get("id") or "")
             if not _id or not str(_r.get("platform_name") or "").startswith("local"):
                 continue
             _grp.setdefault(
-                (str(_r.get("model_type") or ""), _os_dedup.basename(_id)), []
+                (str(_r.get("model_type") or ""),
+                 _osp_dedup.basename(_id.replace("\\", "/")).lower()), []
             ).append(_i)
         _drop_idx: set = set()
         for _key, _members in _grp.items():
             if len(_members) < 2:
                 continue
-            _full = [j for j in _members
-                     if ("/" in str(data[j].get("id") or "")
-                         or "\\" in str(data[j].get("id") or ""))]
-            _bare = [j for j in _members
-                     if "/" not in str(data[j].get("id") or "")
-                     and "\\" not in str(data[j].get("id") or "")]
-            if _full and _bare:
-                _drop_idx.update(_bare)  # 保留全路径(可路由),丢裸 basename
+
+            def _keep_pref(j: int) -> tuple:
+                _mid = str(data[j].get("id") or "")
+                return (1 if ("/" in _mid or "\\" in _mid) else 0, len(_mid), _mid)
+
+            _keep = max(_members, key=_keep_pref)
+            _drop_idx.update(j for j in _members if j != _keep)
         if _drop_idx:
             data = [_r for _i, _r in enumerate(data) if _i not in _drop_idx]
     except Exception as _e:  # noqa: BLE001

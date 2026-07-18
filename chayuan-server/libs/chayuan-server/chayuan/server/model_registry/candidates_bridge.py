@@ -114,6 +114,68 @@ def local_candidates_for(panel_cap: str, *, do_scan: bool = True) -> List[Dict[s
     return out
 
 
+def _display_basename(model_id: Any) -> str:
+    """model_id → 前端展示用的 basename(小写),与 local_index
+    ``_canonical_dedupe`` 第二遍 (capability, basename) 的口径一致。"""
+    s = str(model_id or "").replace("\\", "/").rstrip("/")
+    return s.rsplit("/", 1)[-1].lower()
+
+
+def _is_local_candidate(c: Dict[str, Any]) -> bool:
+    """本条候选是否指向本地 sidecar / local_index(而非云厂商)。
+
+    与 ``/v1/models`` 去重 band-aid 的判定一致:``platform_name`` 为 ``local``
+    或 ``local-<cap>``;另兜住 bridge 自产条目的 ``source='local_index'``。
+    """
+    pn = str(c.get("platform_name") or "")
+    return pn == "local" or pn.startswith("local-") or c.get("source") == "local_index"
+
+
+def _dedupe_local_by_basename(
+    items: List[Dict[str, Any]], *, default_id: Any = None
+) -> None:
+    """就地折叠「同一物理本地模型的多条候选」。
+
+    背景:``_register_local_platform``(local_runtime.py)把本地平台 DB 行的
+    模型清单写成「local_index 全路径 + basename 别名」两份(别名用于
+    ``get_config_models(basename)`` 路由命中,不能从 DB 行里去掉)。别名 id
+    与全路径 id 不同,精确 id 去重抓不住 → 「默认模型」每个下拉多一条。
+    这里按 basename(物理模型同一性,与 local_index ``_canonical_dedupe``、
+    ``/v1/models`` 的 basename 去重口径统一)只保留一条。
+
+    保留优先级:``id == default_id``(别把用户已选默认折没,否则上层会误判
+    默认失效并自动重设)> id 更长(全路径条,可路由,与 ``_entry_preference``
+    一致)。被丢条目的 ``is_default`` 合并到保留条上。**只折叠本地条**,
+    云厂商同名模型绝不误伤。
+    """
+    groups: Dict[str, List[int]] = {}
+    for i, c in enumerate(items):
+        if not _is_local_candidate(c):
+            continue
+        key = _display_basename(c.get("id"))
+        if key:
+            groups.setdefault(key, []).append(i)
+
+    drop: set = set()
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+
+        def _pref(j: int) -> tuple:
+            cid = str(items[j].get("id") or "")
+            return (1 if (default_id and cid == default_id) else 0, len(cid), cid)
+
+        keep = max(members, key=_pref)
+        for j in members:
+            if j == keep:
+                continue
+            if items[j].get("is_default"):
+                items[keep]["is_default"] = True
+            drop.add(j)
+    if drop:
+        items[:] = [c for i, c in enumerate(items) if i not in drop]
+
+
 def merge_local_into_candidates(
     candidates: Dict[str, List[Dict[str, Any]]],
     *,
@@ -134,8 +196,14 @@ def merge_local_into_candidates(
 
     去重策略
     --------
-    用 ``id`` 字段（model_id）做唯一键。若某 model_id 已经从 platforms 进来，
-    本地条目就**不再**追加（platform 端往往带 runtime/format 更丰富的字段）。
+    1. 追加阶段:``id`` 精确匹配已存在则跳过;此外若已有**本地**候选与本条
+       basename 相同(同一物理模型,只是路径前缀不同,如平台行是旧根前缀、
+       local_index 是新前缀),也跳过 —— 平台行的 id 是路由真源,优先保留。
+       例外:本条 id 恰是 ``defaults[panel_cap]`` 时仍追加,交给第 2 步按
+       默认优先折叠,保证用户已选默认不丢。
+    2. 收尾对每个 cap 跑 :func:`_dedupe_local_by_basename`,把平台行自带的
+       「全路径 + basename 别名」双条折成一条(根治「默认模型」下拉每个
+       本地模型多一条 / rerank 多几条)。
     """
     defaults = defaults or {}
     scan_done = False
@@ -143,16 +211,27 @@ def merge_local_into_candidates(
         ds = do_scan and not scan_done
         local = local_candidates_for(panel_cap, do_scan=ds)
         scan_done = scan_done or ds
-        if not local:
-            continue
-        existing_ids = {c.get("id") for c in candidates[panel_cap]}
         default_id = defaults.get(panel_cap)
+        existing_ids = {c.get("id") for c in candidates[panel_cap]}
+        existing_local_bns = {
+            _display_basename(c.get("id"))
+            for c in candidates[panel_cap]
+            if _is_local_candidate(c)
+        }
         for entry in local:
             if entry["id"] in existing_ids:
+                continue
+            if (
+                _display_basename(entry["id"]) in existing_local_bns
+                and entry["id"] != default_id
+            ):
                 continue
             if default_id and entry["id"] == default_id:
                 entry["is_default"] = True
             candidates[panel_cap].append(entry)
+        # 平台行自带的「全路径 + basename 别名」重复不依赖 local 是否为空,
+        # 一律收尾折叠。
+        _dedupe_local_by_basename(candidates[panel_cap], default_id=default_id)
     return candidates
 
 
@@ -160,4 +239,5 @@ __all__ = [
     "LOCAL_TO_PANEL_CAP",
     "local_candidates_for",
     "merge_local_into_candidates",
+    "_dedupe_local_by_basename",
 ]

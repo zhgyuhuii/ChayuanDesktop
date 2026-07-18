@@ -156,3 +156,7 @@ chayuan-server/vendor/services/imagemagick/**
 !chayuan-server/vendor/services/imagemagick/.gitkeep
 !chayuan-server/vendor/services/imagemagick/README.md
 docs/profile/profile.pdf
+
+# docker 发布种子模型(build-push-bundled.sh 用硬链接临时填入,不入库)
+docker/seed_models/*
+!docker/seed_models/.gitkeep
