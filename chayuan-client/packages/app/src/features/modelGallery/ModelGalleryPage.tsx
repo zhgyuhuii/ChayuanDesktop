@@ -19,11 +19,12 @@ import {
   runtimeModels,
 } from '@chayuan/api';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Loader2, PackageOpen } from 'lucide-react';
+import { AlertCircle, Loader2, PackageOpen, Trash2 } from 'lucide-react';
 import * as React from 'react';
 import { useTranslation } from '../../i18n';
 import { GalleryFilters } from './GalleryFilters';
 import { GalleryPagination } from './GalleryPagination';
+import { ModelCleanupDialog } from './ModelCleanupDialog';
 import { ModelHubRow } from './ModelHubRow';
 import { useInstallJobsStore } from './installJobsStore';
 
@@ -123,6 +124,8 @@ export const ModelGalleryPage: React.FC<{ embedded?: boolean }> = ({ embedded = 
     void qc.invalidateQueries({ queryKey: ['model-hub.search'] });
   }, [qc]);
 
+  const [cleanupOpen, setCleanupOpen] = React.useState(false);
+
   // 远程检索。
   const searchQuery = useQuery({
     queryKey: [
@@ -177,6 +180,16 @@ export const ModelGalleryPage: React.FC<{ embedded?: boolean }> = ({ embedded = 
       )}
 
       <div className="shrink-0">
+        <div className="mb-2 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setCleanupOpen(true)}
+            className="inline-flex items-center gap-1 rounded-lg border border-[var(--cy-border-subtle)] px-2.5 py-1 text-xs text-[var(--cy-text-secondary)] transition-colors hover:border-[var(--cy-border-strong)] hover:text-[var(--cy-text-primary)]"
+            title="清理已下载的本地模型，释放磁盘空间（内置模型不可删）"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> 清理模型
+          </button>
+        </div>
         <GalleryFilters
           source={source}
           onSourceChange={setSource}
@@ -194,6 +207,10 @@ export const ModelGalleryPage: React.FC<{ embedded?: boolean }> = ({ embedded = 
           onHfTokenChange={onHfTokenChange}
         />
       </div>
+
+      {cleanupOpen && (
+        <ModelCleanupDialog onClose={() => setCleanupOpen(false)} onMutated={onMutated} />
+      )}
 
       {/* 列表区 */}
       <div className="min-h-0 flex-1 overflow-y-auto py-4">
