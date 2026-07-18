@@ -123,11 +123,16 @@ def _should_overwrite_kb(doc: Any, key: str, value: Any) -> bool:
     cur = get_by_path(doc, key, default=None)
     if key == "DEFAULT_VS_TYPE":
         return cur in (None, "", _LOCAL_DEFAULT_VS_TYPE)
-    # milvus 子字段：空值 / 默认 127.0.0.1 才覆盖；避免覆盖用户手填的远端地址
+    # milvus 子字段：空值 / 本地默认地址才覆盖;避免覆盖用户手填的远端地址。
+    # ⚠ 血泪:milvus.uri 的值是完整 URI(如 http://127.0.0.1:19530),不是裸
+    # "127.0.0.1",原来的 `cur in ("127.0.0.1","localhost")` 精确匹配抓不住 →
+    # 全量版设了 CHAYUAN_MILVUS_HOST 也覆盖不掉旧 yaml 里的 127.0.0.1,一直连本机失败。
+    # 这里改成【包含】判定:本地地址(127.0.0.1 / localhost,含 uri 形式)一律覆盖为
+    # 配置的容器地址;只有【非本地】远端地址才保留用户手填。
     if key.startswith("kbs_config.milvus."):
         if cur in (None, ""):
             return True
-        if isinstance(cur, str) and cur in ("127.0.0.1", "localhost"):
+        if isinstance(cur, str) and ("127.0.0.1" in cur or "localhost" in cur):
             return True
         return False
     return cur in (None, "")

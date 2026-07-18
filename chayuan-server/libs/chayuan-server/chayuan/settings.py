@@ -744,10 +744,19 @@ class KBSettings(BaseFileSettings):
                 # Milvus 2.6 起 langchain-milvus 走 MilvusClient(uri=...);host/port
                 # 仍兼容(底层 connections.connect 会拼 uri),但 uri 是头等公民。
                 # 老配置(host/port)会被 milvus_kb_service._load_milvus 自动归一为 uri。
-                "uri": "http://127.0.0.1:19530",
-                "user": "",
-                "password": "",
-                "secure": False
+                # ⚠ 不写死 127.0.0.1:默认直接读 env(CHAYUAN_MILVUS_URI 优先,否则
+                # CHAYUAN_MILVUS_HOST/PORT 拼),这样即便没跑 init、也「配的是什么地址
+                # 就用什么」(容器名固定端口不固定 → 读 HOST/PORT);都没配才回退本机。
+                "uri": (
+                    os.environ.get("CHAYUAN_MILVUS_URI")
+                    or "http://%s:%s" % (
+                        os.environ.get("CHAYUAN_MILVUS_HOST") or "127.0.0.1",
+                        os.environ.get("CHAYUAN_MILVUS_PORT") or "19530",
+                    )
+                ),
+                "user": os.environ.get("CHAYUAN_MILVUS_USER", ""),
+                "password": os.environ.get("CHAYUAN_MILVUS_PASSWORD", ""),
+                "secure": (os.environ.get("CHAYUAN_MILVUS_SECURE", "") or "").lower() in ("1", "true", "yes"),
             },
             "zilliz": {
                 "host": "in01-a7ce524e41e3935.ali-cn-hangzhou.vectordb.zilliz.com.cn",
