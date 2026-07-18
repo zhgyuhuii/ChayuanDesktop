@@ -51,17 +51,34 @@ def seed_help_kb() -> Dict[str, Any]:
     返回结果快照 ``{"action": "created"|"skipped"|"failed", "files": [...], ...}``。
     """
     result: Dict[str, Any] = {"action": "skipped", "kb": HELP_KB_NAME, "files": []}
+    claimed_marker = False  # 本次调用是否抢到了 seed 锁(失败时要回滚 marker)
     try:
         marker = _manuals_dir() / _MARKER_NAME
         if marker.exists():
             result["reason"] = "already seeded (marker exists)"
             return result
 
-        from chayuan.server.knowledge_base.kb_service.base import KBServiceFactory
-        # 已存在同名库 → 不抢占用户的库,写标记后跳过
-        if KBServiceFactory.get_service_by_name(HELP_KB_NAME) is not None:
+        # 已存在同名库(用户自建 or 上次已 seed 但 marker 丢了)→ 不重复建、不抢占,
+        # 补写标记后跳过。
+        # ⚠ 血泪:原来用 KBServiceFactory.get_service_by_name() 判存在,它会去【构造】
+        # KBService;milvus 类型 + milvus 连不上时返回 None → 把已存在的库误判成「不
+        # 存在」→ 重启又建一个。改用纯 DB 存在性检查 kb_exists(),不碰向量库/嵌入。
+        from chayuan.server.db.repository.knowledge_base_repository import kb_exists
+        if kb_exists(HELP_KB_NAME):
             _write_marker(marker)
-            result["reason"] = "kb name already taken"
+            result["reason"] = "kb already exists in db"
+            return result
+
+        # 原子占锁:prod 多 worker(UVICORN_WORKERS>1)会各自跑首启 hook,若都过了
+        # 上面的检查会【并发建库】→ 同名多行(触发 MultipleResultsFound)。用 O_EXCL
+        # 独占创建 marker 当锁,只有一个 worker 抢到、其余直接跳过。
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            with open(marker, "x", encoding="utf-8") as f:
+                f.write("seeding\n")
+            claimed_marker = True
+        except FileExistsError:
+            result["reason"] = "another worker is seeding"
             return result
 
         from chayuan.settings import Settings
@@ -119,4 +136,10 @@ def seed_help_kb() -> Dict[str, Any]:
         logger.warning("[help-kb] seed_help_kb 失败(忽略): %r", e)
         result["action"] = "failed"
         result["error"] = repr(e)
+        # 抢到锁后中途失败 → 回滚 marker,让下次启动能重试,别把「使用帮助」永久卡没。
+        if claimed_marker:
+            try:
+                (_manuals_dir() / _MARKER_NAME).unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
     return result
