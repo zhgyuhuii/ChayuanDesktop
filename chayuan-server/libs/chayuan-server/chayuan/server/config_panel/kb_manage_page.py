@@ -286,7 +286,7 @@ def _create_kb(kb_name: str, vs_type: str, embed_model: str, kb_info: str,
         with session_scope() as s:
             kb = s.query(KnowledgeBaseModel).filter(
                 KnowledgeBaseModel.kb_name == kb_name
-            ).one_or_none()
+            ).order_by(KnowledgeBaseModel.id.asc()).first()  # kb_name 非唯一,取首行防 MultipleResultsFound
             if kb is not None:
                 if visibility in ("private", "public"):
                     kb.visibility = visibility

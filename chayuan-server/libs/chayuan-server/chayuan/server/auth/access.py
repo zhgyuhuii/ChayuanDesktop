@@ -19,16 +19,28 @@ from chayuan.server.db.session import session_scope
 logger = logging.getLogger("chayuan.auth.access")
 
 
-def _get_kb_by_name(name: str) -> Optional[KnowledgeBaseModel]:
+def _get_kbs_by_name(name: str) -> List[KnowledgeBaseModel]:
+    """按名取 KB。返回【列表】——kb_name 没有唯一约束(只有 vector_namespace
+    唯一),多用户服务版里不同 owner 可建同名 KB,历史数据也可能有重复行。
+    ⚠ 血泪:原来用 .one_or_none() 假设全局唯一,同名多行时直接
+    MultipleResultsFound 500(删库/鉴权全崩)。改成取全部,由调用方按用户
+    聚合权限。按 id 升序保证确定性。"""
     with session_scope() as s:
-        kb = (
+        kbs = (
             s.query(KnowledgeBaseModel)
             .filter(KnowledgeBaseModel.kb_name == name)
-            .one_or_none()
+            .order_by(KnowledgeBaseModel.id.asc())
+            .all()
         )
-        if kb is not None:
+        for kb in kbs:
             s.expunge(kb)
-        return kb
+        return kbs
+
+
+def _get_kb_by_name(name: str) -> Optional[KnowledgeBaseModel]:
+    """兼容旧调用:同名多行时取 id 最小的一行,不再崩溃。"""
+    kbs = _get_kbs_by_name(name)
+    return kbs[0] if kbs else None
 
 
 def _grant_role(kb_id: int, user_id: int) -> Optional[str]:
@@ -112,8 +124,8 @@ def kb_access_for(user, kb_name: str) -> Optional[str]:
     if _app_acl.is_app_user(user):
         return _app_acl.app_kb_role(_app_acl.extract_app_id(user), kb_name)
 
-    kb = _get_kb_by_name(kb_name)
-    if kb is None:
+    kbs = _get_kbs_by_name(kb_name)
+    if not kbs:
         return None
 
     # admin 通吃
@@ -122,22 +134,30 @@ def kb_access_for(user, kb_name: str) -> Optional[str]:
 
     uid = (user.get("id") if isinstance(user, dict) else getattr(user, "id", None)) if user else None
 
-    # legacy KB（owner_id 为空）：默认所有登录用户 reader；admin 可写（上面已处理）
-    if kb.owner_id is None:
-        return "reader" if uid is not None else ("reader" if kb.visibility == "public" else None)
+    # 同名可能有多行（kb_name 非唯一）：对每一行算出用户的有效角色，取最高。
+    # 任一行 owner_id 命中即 owner —— 保证用户能删/管自己那一个。
+    _rank = {"owner": 3, "editor": 2, "reader": 1}
+    best: Optional[str] = None
 
-    if uid is not None and kb.owner_id == uid:
-        return "owner"
+    def _bump(role: Optional[str]):
+        nonlocal best
+        if role and (_rank.get(role, 0) > _rank.get(best, 0)):
+            best = role
 
-    if uid is not None:
-        role = _grant_role_multi(kb.id, user)
-        if role:
-            return role
+    for kb in kbs:
+        # legacy KB（owner_id 为空）：所有登录用户 reader；未登录仅 public 可读
+        if kb.owner_id is None:
+            _bump("reader" if uid is not None else ("reader" if kb.visibility == "public" else None))
+            continue
+        if uid is not None and kb.owner_id == uid:
+            _bump("owner")
+            continue
+        if uid is not None:
+            _bump(_grant_role_multi(kb.id, user))
+        if kb.visibility == "public":
+            _bump("reader")
 
-    if kb.visibility == "public":
-        return "reader"
-
-    return None
+    return best
 
 
 def can_read_kb(user, kb_name: str) -> bool:
@@ -194,12 +214,13 @@ def set_kb_owner_if_missing(kb_name: str, user_id: Optional[int]) -> None:
     if user_id is None:
         return
     with session_scope() as s:
-        kb = (
+        # kb_name 非唯一,同名可能多行;给所有【缺 owner】的同名行补上,不用
+        # .one_or_none()(会 MultipleResultsFound 崩)。
+        kbs = (
             s.query(KnowledgeBaseModel)
             .filter(KnowledgeBaseModel.kb_name == kb_name)
-            .one_or_none()
+            .all()
         )
-        if kb is None:
-            return
-        if kb.owner_id is None:
-            kb.owner_id = int(user_id)
+        for kb in kbs:
+            if kb.owner_id is None:
+                kb.owner_id = int(user_id)

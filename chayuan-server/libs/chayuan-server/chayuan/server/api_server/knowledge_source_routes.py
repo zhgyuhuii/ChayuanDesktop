@@ -249,7 +249,7 @@ def create_source_endpoint(
         with session_scope() as s:
             kb = s.query(KnowledgeBaseModel).filter(
                 KnowledgeBaseModel.kb_name == name
-            ).one_or_none()
+            ).order_by(KnowledgeBaseModel.id.asc()).first()  # kb_name 非唯一,取首行防 MultipleResultsFound
             if kb is None:
                 raise HTTPException(404, f"向量知识库 {name!r} 不存在，请先创建")
             kb_id = int(kb.id)

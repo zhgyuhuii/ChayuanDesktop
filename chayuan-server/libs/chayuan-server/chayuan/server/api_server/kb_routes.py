@@ -643,7 +643,7 @@ def create_kb_endpoint(
             with session_scope() as s:
                 kb = s.query(KnowledgeBaseModel).filter(
                     KnowledgeBaseModel.kb_name == knowledge_base_name
-                ).one_or_none()
+                ).order_by(KnowledgeBaseModel.id.asc()).first()  # kb_name 非唯一,取首行防 MultipleResultsFound
                 if kb and visibility in ("private", "public"):
                     kb.visibility = visibility
                 if kb and storage_backend and storage_backend in ("local", "minio"):
@@ -1986,7 +1986,7 @@ def list_grants(
     with session_scope() as s:
         kb = s.query(KnowledgeBaseModel).filter(
             KnowledgeBaseModel.kb_name == knowledge_base_name
-        ).one_or_none()
+        ).order_by(KnowledgeBaseModel.id.asc()).first()  # kb_name 非唯一,取首行防 MultipleResultsFound
         if kb is None:
             raise HTTPException(status_code=404, detail="kb not found")
         kb_id = kb.id
@@ -2018,7 +2018,7 @@ def grant_access(
     with session_scope() as s:
         kb = s.query(KnowledgeBaseModel).filter(
             KnowledgeBaseModel.kb_name == knowledge_base_name
-        ).one_or_none()
+        ).order_by(KnowledgeBaseModel.id.asc()).first()  # kb_name 非唯一,取首行防 MultipleResultsFound
         if kb is None:
             raise HTTPException(status_code=404, detail="kb not found")
         kb_id = kb.id
@@ -2042,7 +2042,7 @@ def revoke_access(
     with session_scope() as s:
         kb = s.query(KnowledgeBaseModel).filter(
             KnowledgeBaseModel.kb_name == knowledge_base_name
-        ).one_or_none()
+        ).order_by(KnowledgeBaseModel.id.asc()).first()  # kb_name 非唯一,取首行防 MultipleResultsFound
         if kb is None:
             raise HTTPException(status_code=404, detail="kb not found")
         kb_id = kb.id
@@ -2064,7 +2064,7 @@ def set_visibility(
     with session_scope() as s:
         kb = s.query(KnowledgeBaseModel).filter(
             KnowledgeBaseModel.kb_name == knowledge_base_name
-        ).one_or_none()
+        ).order_by(KnowledgeBaseModel.id.asc()).first()  # kb_name 非唯一,取首行防 MultipleResultsFound
         if kb is None:
             raise HTTPException(status_code=404, detail="kb not found")
         kb.visibility = visibility

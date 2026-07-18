@@ -81,10 +81,13 @@ def _get_kb_by_name(name: str) -> Optional[KnowledgeBaseModel]:
     if not name:
         return None
     with session_scope() as s:
+        # ⚠ kb_name 无唯一约束,同名可能多行。不能用 .one_or_none()(会
+        # MultipleResultsFound 崩)。取 id 最小的一行,确定性兜底。
         kb = (
             s.query(KnowledgeBaseModel)
             .filter(KnowledgeBaseModel.kb_name == name)
-            .one_or_none()
+            .order_by(KnowledgeBaseModel.id.asc())
+            .first()
         )
         if kb is not None:
             s.expunge(kb)

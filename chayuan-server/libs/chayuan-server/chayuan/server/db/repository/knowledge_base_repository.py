@@ -127,12 +127,14 @@ def load_kb_from_db(session, kb_name):
 
 @with_session
 def delete_kb_from_db(session, kb_name):
-    kb = (
+    # kb_name 无唯一约束,历史/多用户可能有同名多行。删除时把同名的【全部】清掉,
+    # 否则删一次只删一行,库还在、下次鉴权又撞 MultipleResultsFound。
+    kbs = (
         session.query(KnowledgeBaseModel)
         .filter(KnowledgeBaseModel.kb_name.ilike(kb_name))
-        .first()
+        .all()
     )
-    if kb:
+    for kb in kbs:
         session.delete(kb)
     return True
 
