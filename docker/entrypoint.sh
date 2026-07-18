@@ -29,14 +29,14 @@ if [ -d "$SEED_DIR" ]; then
         cap="$(basename "$capdir")"
         # 种子该 cap 有实际内容才处理(空 cap 跳过)
         [ -n "$(ls -A "$capdir" 2>/dev/null)" ] || continue
-        # 目标 cap 为空才铺(用户已放模型则保留其自备)
-        if [ -z "$(ls -A "$TARGET_MODELS/$cap" 2>/dev/null)" ]; then
-            mkdir -p "$TARGET_MODELS/$cap"
-            if cp -a "$capdir". "$TARGET_MODELS/$cap/" 2>/dev/null; then
-                echo "[entrypoint] 已铺设内置模型到挂载目录: $cap"
-            else
-                echo "[entrypoint] 警告:铺设内置模型失败: $cap(不阻断启动)"
-            fi
+        # 【按子项增量铺】:缺哪个补哪个,已存在的用 -n 不覆盖(尊重用户自备/自换)。
+        # ⚠ 不能再用「整个 cap 空才铺」—— 否则镜像里【新增】的模型(如 tts 下新打进的
+        # sherpa-onnx)永远进不了已有 piper 的挂载目录,老部署更新镜像后拿不到新模型。
+        mkdir -p "$TARGET_MODELS/$cap"
+        if cp -a -n "$capdir". "$TARGET_MODELS/$cap/" 2>/dev/null; then
+            echo "[entrypoint] 已同步内置模型(仅补缺失项): $cap"
+        else
+            echo "[entrypoint] 警告:同步内置模型失败: $cap(不阻断启动)"
         fi
     done
 fi

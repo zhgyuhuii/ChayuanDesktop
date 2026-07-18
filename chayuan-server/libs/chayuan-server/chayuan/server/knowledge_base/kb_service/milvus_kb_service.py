@@ -562,6 +562,25 @@ class MilvusKBService(KBService):
         docs = retriever.get_relevant_documents(query)
         return docs
 
+    def _existing_collection_field_names(self) -> set:
+        """读【已存在】collection 的真实标量字段名(不依赖 langchain_milvus.fields
+        的懒加载)。用于 do_add_doc 前把既有 schema 字段并进 unify,避免上一批带了
+        某字段(如 source)、这一批没带时 DataNotMatchException。任何失败都返回已收集
+        到的部分,绝不阻塞写入。"""
+        names: set = set()
+        try:
+            cname = self._collection_name()
+            client = getattr(self.milvus, "client", None)
+            if client is not None and cname and client.has_collection(cname):
+                desc = client.describe_collection(cname) or {}
+                for f in (desc.get("fields") or []):
+                    n = f.get("name") if isinstance(f, dict) else getattr(f, "name", None)
+                    if n:
+                        names.add(n)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[milvus] describe 既有 collection 字段失败(忽略): %r", e)
+        return names
+
     def do_add_doc(self, docs: List[Document], **kwargs) -> List[Dict]:
         # add_documents → add_texts → add_embeddings → self._init(**kwargs) →
         # _extract_fields → Collection(name, using=alias)
@@ -584,11 +603,17 @@ class MilvusKBService(KBService):
                 skip_fields.add(v)
 
         # strict-schema collection 要求同一批每行带齐所有标量字段。把整批 metadata 键统一成
-        # (本批所有键 ∪ 既有 schema 字段) - skip,缺失补 "":既覆盖既有 collection
-        # (self.milvus.fields 已填),也修「新建 collection 时 fields 为空、首批键不一致致
-        # langchain_milvus 按首条建 schema 后别的行缺字段炸 DataNotMatchException」。
+        # (本批所有键 ∪ 既有 schema 字段) - skip,缺失补 "":既覆盖既有 collection,也修
+        # 「新建 collection 时 fields 为空、首批键不一致致 langchain_milvus 按首条建 schema
+        # 后别的行缺字段炸 DataNotMatchException」。
+        # ⚠ 血泪:不能只用 self.milvus.fields —— langchain_milvus 懒加载,首批 insert 前
+        # 它是空的,拿不到既有 collection 里像 `source` 这种字段。于是当上一批文档带了
+        # `source` 元数据(建了该字段)、这一批文档没带时,就炸「Insert missed an field
+        # `source`」。所以要【主动 describe 既有 collection】把真实字段名并进来。
+        schema_fields = set(getattr(self.milvus, "fields", []) or [])
+        schema_fields |= self._existing_collection_field_names()
         from chayuan.server.knowledge_base.kb_service._milvus_metadata import unify_metadata_keys
-        unify_metadata_keys(docs, getattr(self.milvus, "fields", []) or [], skip_fields)
+        unify_metadata_keys(docs, schema_fields, skip_fields)
 
         try:
             ids = self.milvus.add_documents(docs)
