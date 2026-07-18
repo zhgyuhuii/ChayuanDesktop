@@ -514,6 +514,47 @@ def llama_config_post(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     return _ok(_dc.asdict(new_settings))
 
 
+def _threads_payload() -> Dict[str, Any]:
+    import os as _os
+    from chayuan.server.runtime import auto_start_store
+    cpu = _os.cpu_count() or 4
+    configured = auto_start_store.get_llama_threads()  # 0 = 未设置
+    auto_default = min(32, cpu)
+    effective = min(configured, cpu) if configured > 0 else auto_default
+    return {
+        "threads": configured,        # 后台设置值(0=未设置,走自动/ env)
+        "effective": effective,       # 实际生效值
+        "auto_default": auto_default,  # 未设置时的自动默认
+        "cpu_count": cpu,             # 物理核数(上限)
+    }
+
+
+@runtime_router.get("/llama/threads", summary="获取本地模型 sidecar 线程数设置")
+def llama_threads_get() -> Dict[str, Any]:
+    return _ok(_threads_payload())
+
+
+@runtime_router.post(
+    "/llama/threads",
+    summary="设置本地模型 sidecar 线程数（0=清除,恢复自动）;需重启对应服务生效",
+    dependencies=[Depends(require_admin_when_auth_enabled())],
+)
+def llama_threads_post(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    from chayuan.server.runtime import auto_start_store
+    if not isinstance(body, dict) or "threads" not in body:
+        raise HTTPException(status_code=400, detail="body 需含 threads")
+    try:
+        n = int(body["threads"])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="threads 必须是整数")
+    import os as _os
+    cpu = _os.cpu_count() or 4
+    if n > cpu:
+        n = cpu  # 不超过物理核
+    auto_start_store.set_llama_threads(max(0, n))
+    return _ok(_threads_payload())
+
+
 @runtime_router.get("/llama/install-info")
 def llama_install_info() -> Dict[str, Any]:
     """透出关键路径给设置页"模型存放路径" section 显示。

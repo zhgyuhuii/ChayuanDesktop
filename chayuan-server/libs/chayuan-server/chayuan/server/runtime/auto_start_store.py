@@ -95,6 +95,37 @@ def _write_raw(data: Dict[str, Any]) -> None:
     os.replace(tmp, p)
 
 
+def get_llama_threads() -> int:
+    """后台配置的 llama/whisper sidecar 线程数。0 = 未设置(交给 env / 自动默认)。
+    存在 sidecar_settings.json 的 ``llama_threads`` 字段。"""
+    with _LOCK:
+        raw = _read_raw()
+        v = raw.get("llama_threads")
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            return 0
+        return n if n > 0 else 0
+
+
+def set_llama_threads(n: int) -> int:
+    """设置后台线程数并持久化。n<=0 视为清除(恢复 env/自动默认)。返回写入后的值。"""
+    with _LOCK:
+        raw = _read_raw()
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            n = 0
+        if n > 0:
+            raw["llama_threads"] = n
+        else:
+            raw.pop("llama_threads", None)
+            n = 0
+        _write_raw(raw)
+        logger.info("[auto-start-store] llama_threads := %s", n)
+        return n
+
+
 def get(key: str) -> bool:
     """返回 key 的 auto-start 值;未设过返默认。"""
     with _LOCK:

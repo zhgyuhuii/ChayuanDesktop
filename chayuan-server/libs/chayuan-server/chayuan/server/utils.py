@@ -839,6 +839,7 @@ def _normalize_ollama_base(api_base_url: Optional[str]) -> str:
     return base
 
 
+@cached(max_size=8, ttl=60, algorithm=CachingAlgorithmFlag.LRU)
 def get_Embeddings(
         embed_model: str = None,
         local_wrap: bool = False,  # use local wrapped api

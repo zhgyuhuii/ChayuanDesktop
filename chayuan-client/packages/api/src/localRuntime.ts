@@ -189,6 +189,31 @@ async function setAutoStart(capability: AutoStartKey, enabled: boolean): Promise
   ).data;
 }
 
+// ─── sidecar 线程数(CPU 利用)───
+// llama-server / whisper-server 的 --threads。设了就用后台值(最高优先级),
+// 0 = 未设置,走 env / 自动默认 min(32, cpu)。改完需重启对应服务生效。
+// 持久化到 sidecar_settings.json,桌面版 + 服务版共用。
+
+export interface LlamaThreads {
+  threads: number;       // 后台设置值(0=未设置)
+  effective: number;     // 实际生效值
+  auto_default: number;  // 未设置时的自动默认
+  cpu_count: number;     // 物理核数(上限)
+}
+
+async function getThreads(): Promise<LlamaThreads> {
+  return (await request<LlamaThreads>('/runtime/llama/threads')).data;
+}
+
+async function setThreads(threads: number): Promise<LlamaThreads> {
+  return (
+    await request<LlamaThreads>('/runtime/llama/threads', {
+      method: 'POST',
+      body: { threads },
+    })
+  ).data;
+}
+
 // ─── PyTorch 检测 + 安装 ───
 // transformers image 链的硬依赖,wheel 体积巨大不打包进 installer,装机时按需下载。
 // 走「设置 → 本地模型服务 → PyTorch」一键检测 + 安装,跟 OCR 体验一致。
@@ -503,6 +528,9 @@ export const localRuntime = {
   // auto-start 开关(5 cap + rapidocr 共用一份字典)
   listAutoStart,
   setAutoStart,
+  // sidecar 线程数(CPU 利用)
+  getThreads,
+  setThreads,
   // PyTorch 检测 + 安装(transformers image 链硬依赖)
   pytorchStatus,
   pytorchScan,

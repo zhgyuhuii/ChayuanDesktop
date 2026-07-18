@@ -343,6 +343,47 @@ def _deregister_local_platform(*, capability: str) -> None:
         )
 
 
+def _resolve_llama_threads(capability: str) -> int:
+    """llama-server / whisper-server 的 ``--threads`` 值,可配置以吃满多核。
+
+    ⚠ 血泪:原来写死 ``min(8, os.cpu_count())`` —— 64 核机器每个 sidecar 也只用 8
+    线程,CPU 严重吃不满,知识库向量化(embedding)慢。桌面单机版与服务版共用本
+    代码,两边都受影响。现在按优先级解析:
+      0. **后台「运行时服务」面板设的线程数**(存 sidecar_settings.json.llama_threads)
+         —— 设了就用它,最高优先级,改完重启对应 sidecar 生效。
+      1. ``CHAYUAN_LLAMA_THREADS_<CAP>``（如 ``CHAYUAN_LLAMA_THREADS_EMBEDDING=48``）
+         —— 按能力单独给,embedding 是向量化热点,可单独调最大。
+      2. ``CHAYUAN_LLAMA_THREADS`` —— 全局覆盖,所有 llama/whisper sidecar 统一。
+      3. 自动默认 ``min(32, cpu)`` —— 未配置时按核数自适应:小机器(≤32 核)用满、
+         大机器(如 64 核)单个活跃 sidecar 用到 32 线程。比原来写死 8 大幅提升,
+         桌面版不改任何配置也自动吃多核;各 sidecar 时分复用 CPU,不会真同时占满。
+    解析出的值统一不超过物理核数(避免手滑写 1000)。服务版在 docker-compose 的
+    chayuan 服务 ``environment`` 段设 env;或直接在后台面板设(最省事,单机版也能用)。
+    """
+    cpu = os.cpu_count() or 4
+    # 0. 后台面板设置最高优先级
+    try:
+        from chayuan.server.runtime import auto_start_store
+        panel_n = auto_start_store.get_llama_threads()
+        if panel_n and panel_n > 0:
+            return min(panel_n, cpu)
+    except Exception as e:  # noqa: BLE001 — 读设置失败绝不阻塞起服务
+        logger.debug("[sidecar] 读后台 llama_threads 失败(忽略): %r", e)
+    # 1-2. env 覆盖
+    for name in (f"CHAYUAN_LLAMA_THREADS_{capability.upper()}", "CHAYUAN_LLAMA_THREADS"):
+        raw = (os.environ.get(name) or "").strip()
+        if raw:
+            try:
+                n = int(raw)
+            except ValueError:
+                logger.warning("[sidecar] %s=%r 不是整数,忽略", name, raw)
+                continue
+            if n > 0:
+                return min(n, cpu)
+    # 3. 自动默认
+    return min(32, cpu)
+
+
 def _resolve_args_for(
     capability: str,
     *,
@@ -576,7 +617,7 @@ class SidecarRuntimeManager:
             args = [str(exe), "--host", host, "--port", str(port)]
             args.extend(resolution.args)
             if "--threads" not in resolution.args:
-                args.extend(["--threads", str(min(8, os.cpu_count() or 4))])
+                args.extend(["--threads", str(_resolve_llama_threads(self.capability))])
         else:
             # llama-server:支持 --log-disable / --api-key,resolution.args 含 --model 等
             args = [str(exe), "--host", host, "--port", str(port), "--log-disable"]
@@ -584,7 +625,7 @@ class SidecarRuntimeManager:
             if self._settings.api_key:
                 args.extend(["--api-key", self._settings.api_key])
             if "--threads" not in resolution.args:
-                args.extend(["--threads", str(min(8, os.cpu_count() or 4))])
+                args.extend(["--threads", str(_resolve_llama_threads(self.capability))])
 
         # 动态链接的 vendor binary(如 Docker 提取的 whisper-server / linux-arm64
         # llama-server)依赖同目录 .so / .dylib;loader 默认不看 exe 旁路径,需要

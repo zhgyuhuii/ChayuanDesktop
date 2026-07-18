@@ -35,6 +35,7 @@ import {
   type AutoStartDict,
   type AutoStartKey,
   localRuntime,
+  type LlamaThreads,
   type LocalModelEntry,
   type LocalRuntimeCapability,
   modality,
@@ -190,6 +191,34 @@ export const LocalRuntimeServicesSection: React.FC<{ layout?: 'rows' | 'grid'; a
     }
   }, []);
 
+  // 本地模型服务线程数(CPU 利用)。设了就用后台值,0=自动。改完重启服务生效。
+  const [threads, setThreadsState] = React.useState<LlamaThreads | null>(null);
+  const [threadsInput, setThreadsInput] = React.useState<string>('');
+  const [threadsSaving, setThreadsSaving] = React.useState(false);
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const t = await localRuntime.getThreads();
+        setThreadsState(t);
+        setThreadsInput(t.threads > 0 ? String(t.threads) : '');
+      } catch {
+        // 老服务端没这个端点 — 静默隐藏该设置
+      }
+    })();
+  }, []);
+  const saveThreads = React.useCallback(async () => {
+    const n = threadsInput.trim() === '' ? 0 : Number(threadsInput);
+    if (!Number.isFinite(n) || n < 0) return;
+    setThreadsSaving(true);
+    try {
+      const t = await localRuntime.setThreads(Math.floor(n));
+      setThreadsState(t);
+      setThreadsInput(t.threads > 0 ? String(t.threads) : '');
+    } finally {
+      setThreadsSaving(false);
+    }
+  }, [threadsInput]);
+
   const reloadModels = React.useCallback(async () => {
     setModelsLoading(true);
     setModelsError(null);
@@ -338,6 +367,35 @@ export const LocalRuntimeServicesSection: React.FC<{ layout?: 'rows' | 'grid'; a
 
       {!collapsed && (
       <div id="local-runtime-services-body" className="space-y-3">
+      {threads && (
+        <div className="rounded-sm border border-[var(--cy-border-default)] bg-[var(--cy-surface-1)] px-3 py-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="text-xs font-medium text-[var(--cy-text-primary)]">CPU 线程数</span>
+            <input
+              type="number"
+              min={0}
+              max={threads.cpu_count}
+              value={threadsInput}
+              onChange={(e) => setThreadsInput(e.target.value)}
+              placeholder="自动"
+              className="h-7 w-24 rounded border border-[var(--cy-border-default)] bg-[var(--cy-surface-base)] px-2 text-xs text-[var(--cy-text-primary)]"
+              title="留空 = 自动;设置后所有本地模型服务(对话/向量化/重排/语音)用此线程数"
+            />
+            <Button size="sm" variant="outline" onClick={() => void saveThreads()} disabled={threadsSaving}>
+              {threadsSaving ? '保存中…' : '保存'}
+            </Button>
+            <span className="text-xs text-[var(--cy-text-tertiary)]">
+              当前生效 <b className="text-[var(--cy-text-secondary)]">{threads.effective}</b> 线程 · 本机共 {threads.cpu_count} 核
+              {threads.threads === 0 && <>(自动 {threads.auto_default})</>}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-[var(--cy-text-tertiary)]">
+            提示:知识库向量化 / 对话 / 重排 / 语音识别都在本机 CPU 上算。线程数越大越能吃满多核、
+            向量化越快(不超过 {threads.cpu_count} 核)。留空为自动(min 32,核)。<b>改完需重启对应服务生效</b>
+            (下方各服务点「重启」,或重启容器/应用)。
+          </p>
+        </div>
+      )}
       {modelsError && (
         <div className="rounded-sm border border-amber-400/40 bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
           模型清单加载失败:{modelsError} ·

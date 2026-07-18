@@ -60,8 +60,10 @@ def _basic_overrides() -> Dict[str, Any]:
         "DB_POOL_RECYCLE": 3600,
         "DB_POOL_PRE_PING": True,
         "DB_POOL_TIMEOUT": 30,
-        # 进程：默认 4 worker；GPU 机可改成 2*cores+1
-        "UVICORN_WORKERS": 4,
+        # 进程：默认 4 worker；可用 CHAYUAN_UVICORN_WORKERS 覆盖（多核机调大以提并发）。
+        # 注意：多 worker 只提高【并发请求】吞吐；单次知识库向量化速度由 embedding
+        # sidecar 的 --threads 决定（见 CHAYUAN_LLAMA_THREADS_EMBEDDING）。
+        "UVICORN_WORKERS": int(_env("CHAYUAN_UVICORN_WORKERS", "4") or "4"),
         # 共享状态 / 限流 / 队列都靠 redis
         "REDIS_URL": redis_url,
         "RATE_LIMIT_ENABLED": True,
