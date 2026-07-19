@@ -663,6 +663,38 @@ def create_app(run_mode: str = None):
             _say(f"import 失败:{type(e).__name__}: {e}")
             return
 
+        # ── 跨 worker 单实例锁(UVICORN_WORKERS>1 必须)──────────────────────
+        # ⚠ 血泪:服务版多 worker(默认 4)时,每个 worker 的 lifespan 都会跑本 hook →
+        # 各自拉起 chat/embedding/rerank/asr sidecar → 4×4=16 个 llama-server:
+        #   ① 抢固定端口(62582 起只 bump 20 次)→ RuntimeError 没找到空闲端口;
+        #   ② N 份模型同时加载挤爆内存 → llama-server 被 OOM 杀,退出码 1 无输出。
+        # sidecar 是固定端口的【共享服务】,ready 后注册进 model_platform DB 表(所有
+        # worker 都能读到并路由),所以只需【抢到锁的那一个 worker】拉起,其余 worker
+        # 直接走 DB 路由到同一个 sidecar。用 flock(进程退出自动释放,owner 挂了别的
+        # worker 能接管);Windows/桌面单 worker 无 fcntl 也无争用,退化为不加锁。
+        _autostart_lock_fd = None
+        if _sys.platform != "win32":
+            try:
+                import fcntl as _fcntl
+                from pathlib import Path as _Path
+                from chayuan.settings import CHAYUAN_ROOT as _CROOT
+                _lp = _Path(_CROOT) / "runtime" / ".autostart.lock"
+                _lp.parent.mkdir(parents=True, exist_ok=True)
+                _autostart_lock_fd = open(_lp, "w")
+                try:
+                    _fcntl.flock(_autostart_lock_fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+                    # 持有 fd 到进程退出(挂模块级防 GC 关闭 → 提前释放锁)
+                    globals().setdefault("_AUTOSTART_LOCK_FDS", []).append(_autostart_lock_fd)
+                except (OSError, BlockingIOError):
+                    _say("另一 worker 已在拉起 sidecar,本 worker 跳过(走 DB 路由到共享 sidecar)")
+                    try:
+                        _autostart_lock_fd.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    return
+            except Exception as e:  # noqa: BLE001 — fcntl/路径异常:退化为不加锁(单 worker 无碍)
+                log.warning("[auto-start] 单实例锁不可用,退化为不加锁: %r", e)
+
         # 兜底 bootstrap:即便 _model_first_launch 没跑成,这里仍能让装机即用生效
         try:
             from chayuan.server.model_registry.first_launch import (
