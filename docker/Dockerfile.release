@@ -9,6 +9,9 @@
 # ====================================================================
 ARG BASE_IMAGE=chayuan-base:latest
 ARG WEB_BASE_IMAGE=chayuan-web-base:latest
+# BuildKit 按 --platform 自动注入 TARGETARCH(amd64/arm64);用于选 sidecar 二进制目录。
+# 手动 docker build(无 buildx 注入)时可用 --build-arg TARGETARCH=arm64 显式指定。
+ARG TARGETARCH
 
 # ── Stage 1: 前端(与 docker/Dockerfile 的 web-builder 完全一致) ──
 FROM ${WEB_BASE_IMAGE} AS web-builder
@@ -62,14 +65,20 @@ WORKDIR /chayuan/app
 COPY chayuan-server/libs/chayuan-server/chayuan ./chayuan-server/libs/chayuan-server/chayuan
 COPY chayuan-server/libs/chayuan-server/langchain_chayuan ./chayuan-server/libs/chayuan-server/langchain_chayuan
 
-# sidecar 二进制 + 伪软链自修复(照搬 docker/Dockerfile)
+# sidecar 二进制 + 伪软链自修复(照搬 docker/Dockerfile)。按 TARGETARCH 选目录:
+# amd64→linux-x64 / arm64→linux-arm64(whisper/imagemagick 缺该目录时 chmod 容错跳过)
 COPY chayuan-server/vendor/services ./chayuan-server/vendor/services
-RUN chmod +x \
-        /chayuan/app/chayuan-server/vendor/services/llama-server/linux-x64/llama-server \
-        /chayuan/app/chayuan-server/vendor/services/whisper-server/linux-x64/whisper-server \
-        /chayuan/app/chayuan-server/vendor/services/imagemagick/linux-x64/magick \
-    2>/dev/null || true
-RUN find /chayuan/app/chayuan-server/vendor/services -path '*/linux-x64/*' -type f ! -type l | while IFS= read -r f; do \
+RUN case "${TARGETARCH:-amd64}" in \
+        amd64)         VDIR=linux-x64 ;; \
+        arm64|aarch64) VDIR=linux-arm64 ;; \
+        *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    chmod +x \
+        /chayuan/app/chayuan-server/vendor/services/llama-server/$VDIR/llama-server \
+        /chayuan/app/chayuan-server/vendor/services/whisper-server/$VDIR/whisper-server \
+        /chayuan/app/chayuan-server/vendor/services/imagemagick/$VDIR/magick \
+    2>/dev/null || true; \
+    find /chayuan/app/chayuan-server/vendor/services -path "*/$VDIR/*" -type f ! -type l | while IFS= read -r f; do \
         [ "$(stat -c%s "$f")" -le 256 ] || continue; \
         [ "$(head -c4 "$f" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ] && continue; \
         tgt=$(cat "$f"); d=$(dirname "$f"); \
@@ -101,10 +110,9 @@ ENV CHAYUAN_ROOT=/chayuan/data \
     CHAYUAN_VECTOR_STORE=sqlite-vec \
     CHAYUAN_AUTO_INSTALL_DEPS=false \
     CHAYUAN_ROOT_IGNORE_STATE=1 \
-    CHAYUAN_VENDOR_PLATFORM=linux-x64 \
     PYTHONPATH=/chayuan/app/chayuan-server/libs/chayuan-server
 
-EXPOSE 80 62581 8502
+EXPOSE 80 62581
 HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=5 \
     CMD curl -fsS http://127.0.0.1/healthz >/dev/null || exit 1
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]

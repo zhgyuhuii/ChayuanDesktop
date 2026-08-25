@@ -34,6 +34,9 @@
 # 否则在 multi-stage 里它只属于某个 stage,后面 `FROM ${BASE_IMAGE}` 取不到 → 空。
 ARG BASE_IMAGE=chayuan-base:latest
 ARG WEB_BASE_IMAGE=chayuan-web-base:latest
+# BuildKit 按 --platform 自动注入 TARGETARCH(amd64/arm64);用于选 sidecar 二进制目录。
+# 手动 docker build(无 buildx 注入)时可用 --build-arg TARGETARCH=arm64 显式指定。
+ARG TARGETARCH
 
 # 前端依赖来自 web 基础镜像(docker/Dockerfile.webbase,build.sh 按 pnpm-lock 哈希
 # 构建/复用):pnpm fetch 已把所有依赖拉进 store。这里只 COPY 源码 + 离线 install,
@@ -95,19 +98,31 @@ COPY chayuan-server/libs/chayuan-server/chayuan ./chayuan-server/libs/chayuan-se
 COPY chayuan-server/libs/chayuan-server/langchain_chayuan ./chayuan-server/libs/chayuan-server/langchain_chayuan
 
 # ── 3. Sidecar 二进制 (.dockerignore 已排除非 linux 平台) ──────────
+# 按 TARGETARCH 选目录:amd64→linux-x64 / arm64→linux-arm64
+# (whisper/imagemagick 缺 arm64 目录时 chmod 容错跳过)
 WORKDIR /chayuan/app
 COPY chayuan-server/vendor/services ./chayuan-server/vendor/services
-RUN chmod +x \
-        /chayuan/app/chayuan-server/vendor/services/llama-server/linux-x64/llama-server \
-        /chayuan/app/chayuan-server/vendor/services/whisper-server/linux-x64/whisper-server \
-        /chayuan/app/chayuan-server/vendor/services/imagemagick/linux-x64/magick \
+RUN case "${TARGETARCH:-amd64}" in \
+        amd64)         VDIR=linux-x64 ;; \
+        arm64|aarch64) VDIR=linux-arm64 ;; \
+        *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    chmod +x \
+        /chayuan/app/chayuan-server/vendor/services/llama-server/$VDIR/llama-server \
+        /chayuan/app/chayuan-server/vendor/services/whisper-server/$VDIR/whisper-server \
+        /chayuan/app/chayuan-server/vendor/services/imagemagick/$VDIR/magick \
     2>/dev/null || true
 # 修复软链:vendor/services 里的 .so 别名(libwhisper.so / libwhisper.so.1 等)在 git
 # 里是 symlink(mode 120000)。若构建上下文以 core.symlinks=false 方式 checkout(Windows
 # 克隆 / zip 传输丢失软链),git 会把软链还原成「内容=目标路径文本」的 19 字节小文件,
 # COPY 原样进镜像,运行时 ld.so 把 19 字节当 ELF 头读 -> "file too short"。这里把这类
 # 伪软链恢复成真正的 symlink,使镜像与 checkout 方式无关。
-RUN find /chayuan/app/chayuan-server/vendor/services -path '*/linux-x64/*' -type f ! -type l | while IFS= read -r f; do \
+RUN case "${TARGETARCH:-amd64}" in \
+        amd64)         VDIR=linux-x64 ;; \
+        arm64|aarch64) VDIR=linux-arm64 ;; \
+        *) VDIR=linux-x64 ;; \
+    esac; \
+    find /chayuan/app/chayuan-server/vendor/services -path "*/$VDIR/*" -type f ! -type l | while IFS= read -r f; do \
         [ "$(stat -c%s "$f")" -le 256 ] || continue; \
         [ "$(head -c4 "$f" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ] && continue; \
         tgt=$(cat "$f"); d=$(dirname "$f"); \
@@ -163,10 +178,9 @@ ENV CHAYUAN_ROOT=/chayuan/data \
     CHAYUAN_QUEUE=inproc \
     CHAYUAN_AUTO_INSTALL_DEPS=false \
     CHAYUAN_ROOT_IGNORE_STATE=1 \
-    CHAYUAN_VENDOR_PLATFORM=linux-x64 \
     PYTHONPATH=/chayuan/app/chayuan-server/libs/chayuan-server
 
-EXPOSE 80 62581 8502
+EXPOSE 80 62581
 
 # nginx 反代后,健康检查打 nginx 80 即等价后端 ready
 HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=5 \
