@@ -22,8 +22,7 @@
 # ── 端口 ──────────────────────────────────────────────────────────
 #   8880  → 浏览器主入口(nginx,容器内 80)
 #   62581 → 后端 API 直连。★ WPS 加载项 / Tauri 桌面端 / 三方都固定连这个,不可改
-#   8502  → 后台配置面板。公网部署建议改成 "127.0.0.1:8502:8502" 只开本机,
-#           或用防火墙挡住,别裸奔在公网上。
+#   (新版已移除 NiceGUI 配置面板,无 :8502;配置在前端网页里完成)
 # ====================================================================
 name: chayuan-app
 
@@ -79,7 +78,7 @@ services:
       # AUTH_REQUIRED / AUTH_ALLOW_REGISTRATION 由 init --profile prod 写进
       # basic_settings.yaml(分别是 true / false),【故意不在这里设 env】——
       # env 优先级高于 yaml(pydantic_settings_file.py:210 源顺序 [init,env,dotenv,yaml]),
-      # 在这写死会导致以后在 :8502 面板里改不动。要临时强制匿名再加 AUTH_REQUIRED: "false"。
+      # 在这写死会导致以后在前端配置页里改不动。要临时强制匿名再加 AUTH_REQUIRED: "false"。
       # 注:CHAYUAN_AUTH_REQUIRED 只在 single-machine profile 里被读(profiles/single_machine.py:102),
       #    网络形态下是【空操作】,别用它。
       #
@@ -103,7 +102,6 @@ services:
     ports:
       - "${CHAYUAN_WEB_PORT:-8880}:80"        # 浏览器主入口
       - "62581:62581"                         # ★ 后端 API 直连,固定不可改
-      - "${CHAYUAN_PANEL_PORT:-8502}:8502"    # 后台配置面板(公网部署建议只开本机)
 
     volumes:
       - ./data:/chayuan/data

@@ -2,7 +2,8 @@
 # (这就是 `docker compose up -d` 起的那套;单机版见 docker-compose.single.yaml)
 # ====================================================================
 # 察元只有【一个容器 chayuan-server】(就是你打的那一个镜像 chayuan:<版本>(默认 chayuan:latest)),
-# 起来后【前端(:8080) + 后端 API(:62581) + 配置面板(:8502)】全都能访问。
+# 起来后【前端(:8080) + 后端 API(:62581)】都能访问。
+# (新版已移除 NiceGUI 配置面板,不再有 :8502 端口;配置在前端网页里完成)
 # 它一个容器内同时跑 nginx(前端) + Python(API/面板),并在启动时自动初始化
 # (写好 postgres/redis/milvus 连接 + 建表),无需单独的 init / worker 容器。
 #
@@ -14,8 +15,8 @@
 # 启动:
 #   cd docker
 #   docker compose up -d                       # 默认就是这套网络部署
-#   浏览器 http://<host>:8080/   后端 API http://<host>:62581/  面板 :8502
-#   (端口遵循原有约定:8080 网页 / 62581 后端 API(WPS 等固定连它,别改) / 8502 面板)
+#   浏览器 http://<host>:8080/   后端 API http://<host>:62581/
+#   (端口遵循原有约定:8080 网页 / 62581 后端 API(WPS 等固定连它,别改))
 #
 # ⚠ 报「8080 already allocated」= 有别的容器(多半是单机版或旧残留)占着端口。
 #    先 `docker compose -f docker-compose.single.yaml down` + 清掉同名容器,别和单机版同起
@@ -202,7 +203,6 @@ services:
     ports:
       - "${CHAYUAN_WEB_PORT:-8080}:80"      # 前端 + API 反代 ← 浏览器主入口
       - "62581:62581"                       # ★ 后端 API 直连:WPS / Tauri / 三方都连这个,固定不可改
-      - "8502:8502"                         # 后台配置面板(NiceGUI)
     depends_on:
       postgres:
         condition: service_healthy
