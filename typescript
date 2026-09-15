@@ -1,0 +1,78 @@
+Script started on Wed Jun 17 14:35:53 2026
+[1m[7m%[27m[1m[0m                                                                                ]7;file://zyh-2.local/Users/zyh/work/chayuan-desktop-own[0m[27m[24m[J(base) zyh@zyh-2 chayuan-desktop-own % [K[?2004hccd ./scripts[1m/[0m[0m [?2004l
+[1m[7m%[27m[1m[0m                                                                                ]7;file://zyh-2.local/Users/zyh/work/chayuan-desktop-own/scripts[0m[27m[24m[J(base) zyh@zyh-2 scripts % [K[?2004hlls[?2004l
+build-sidecar.sh			diagnose-tts-http.py
+bump-version.py				diagnose-tts.sh
+check-bundled-models.py			diagnose.ps1
+check-services.py			diagnose.sh
+check-torch-wheels.py			e2e-frozen-kb-smoke.ps1
+check-tts.sh				e2e-frozen-kb-smoke.sh
+debug-wix-light.ps1			install-bundled-models.ps1
+dev-all.cmd				install-bundled-models.py
+dev-all.ps1				install-llama-server.ps1
+dev-start.cmd				install-llama-server.sh
+dev-start.ps1				install-vendor.ps1
+dev-start.sh				install-vendor.sh
+diagnose-all.ps1			install-whisper-server.ps1
+diagnose-auto-start.ps1			install-whisper-server.sh
+diagnose-embed-model-mismatch.ps1	make-iso.ps1
+diagnose-embed-route.ps1		make-mac-dmg.sh
+diagnose-kb-vectorize.ps1		rebuild-and-verify-kb.ps1
+diagnose-kb-vectorize.sh		report-version.mjs
+diagnose-models.ps1			repro-tts-crash.sh
+diagnose-msi-env.cmd			run-tts-debug.sh
+diagnose-msi-env.ps1			seed-bundled-assets.py
+diagnose-msi-install.cmd		test-local-runtime.ps1
+diagnose-msi-install.ps1		verify_dh_ffcompose.py
+[1m[7m%[27m[1m[0m                                                                                ]7;file://zyh-2.local/Users/zyh/work/chayuan-desktop-own/scripts[0m[27m[24m[J(base) zyh@zyh-2 scripts % [K[?2004hccheck-tts.sh[?2004l
+zsh: command not found: check-tts.sh
+[1m[7m%[27m[1m[0m                                                                                ]7;file://zyh-2.local/Users/zyh/work/chayuan-desktop-own/scripts[0m[27m[24m[J(base) zyh@zyh-2 scripts % [K[?2004hcheck-tts.sh.check-tts.sh[12D./check-tts.sh[12D[12C[1m [0m[0m [?2004l
+
+================ 察元语音合成体检 @ http://127.0.0.1:62581 ================
+/healthz: 200  (服务在跑)
+运行中构建版本: 2.0.125
+  -> >= 2.0.114,含『重复 start 不杀健康实例』修复  [OK]
+
+-- piper --
+  [OK]   出声=piper  wav=101KB  (/var/folders/kw/_1vr3rwx4zx4sh0nbvbd28br0000gn/T/chayuan-tts-probe/piper.wav)
+
+-- edge --
+  [FAIL] 请求 edge 却由 [piper] 出声 = edge 坏了被静默回退(根因: chayuan diagnose-tts)
+
+-- sherpa --
+  [OK]   出声=sherpa  wav=98KB  (/var/folders/kw/_1vr3rwx4zx4sh0nbvbd28br0000gn/T/chayuan-tts-probe/sherpa.wav)
+
+-- clone --
+  [OK]   出声=clone  wav=60KB  (/var/folders/kw/_1vr3rwx4zx4sh0nbvbd28br0000gn/T/chayuan-tts-probe/clone.wav)
+
+读法:[OK]=真出声;[FAIL]=坏了回退 piper;[CRASH?]=把服务打挂。
+音频: /var/folders/kw/_1vr3rwx4zx4sh0nbvbd28br0000gn/T/chayuan-tts-probe/  (afplay /var/folders/kw/_1vr3rwx4zx4sh0nbvbd28br0000gn/T/chayuan-tts-probe/sherpa.wav)。仍 [CRASH?] 且版本 >=114 -> 把 /Users/zyh/work/xxx/data/logs/crash.log + 主日志末尾贴来。
+=========================================================
+[1m[7m%[27m[1m[0m                                                                                ]7;file://zyh-2.local/Users/zyh/work/chayuan-desktop-own/scripts[0m[27m[24m[J(base) zyh@zyh-2 scripts % [K[?2004hggit pull[?2004l
+Already up to date.
+[1m[7m%[27m[1m[0m                                                                                ]7;file://zyh-2.local/Users/zyh/work/chayuan-desktop-own/scripts[0m[27m[24m[J(base) zyh@zyh-2 scripts % [K[?2004hccd [7m/Applications/Chayuan.app/Contents/Resources/chayu[7ma[7mn-server [27m[K[A[20C[27m/[27mA[27mp[27mp[27ml[27mi[27mc[27ma[27mt[27mi[27mo[27mn[27ms[27m/[27mC[27mh[27ma[27my[27mu[27ma[27mn[27m.[27ma[27mp[27mp[27m/[27mC[27mo[27mn[27mt[27me[27mn[27mt[27ms[27m/[27mR[27me[27ms[27mo[27mu[27mr[27mc[27me[27ms[27m/[27mc[27mh[27ma[27my[27mua[27mn[27m-[27ms[27me[27mr[27mv[27me[27mr[K[1C[?2004l
+[1m[7m%[27m[1m[0m                                                                                ]7;file://zyh-2.local/Applications/Chayuan.app/Contents/Resources/chayuan-server[0m[27m[24m[J(base) zyh@zyh-2 chayuan-server % [K[?2004hcchayuan-ser         c  ../chayuan-server[1m [0m[0m diagnose-tts[?2004l
+[tiktoken-rthook] 已 patch _available_plugin_modules;openai_public 提供 encoding=['cl100k_base', 'gpt2', 'o200k_base', 'o200k_harmony', 'p50k_base', 'p50k_edit', 'r50k_base']
+[mp-freeze] argv=['./chayuan-server', 'diagnose-tts']  frozen=True  exe='/Applications/Chayuan.app/Contents/Resources/chayuan-server/chayuan-server'
+[mp-freeze] spawn.freeze_support 返回(主进程或非 mp 子进程)
+[chayuan] CHAYUAN_ROOT=/Users/zyh/work/xxx（未设置 $CHAYUAN_ROOT，使用最近一次 `chayuan init` 选择（时间未知）；如需切换请 `export CHAYUAN_ROOT=...` 或运行 `chayuan init`）
+[torch-syspath] /Users/zyh/work/xxx/py_packages 缺 torch/ 子目录(半套安装),不加进 sys.path —— 避免 torch / torchvision 跨目录版本错配。
+[mp-freeze] py_packages 已加入 sys.path:/Users/zyh/work/xxx/py_packages
+[mp-freeze] 没拦截任何 spawn 协议,继续 user code
+[distlib-finder] PyInstaller loader 类 = pyimod02_importers.PyiFrozenLoader
+[distlib-finder] 已注册 PyiFrozenLoader → ResourceFinder
+[chayuan-rthook-openssl] === runtime hook entered ===
+[chayuan-rthook-openssl] sys.platform = darwin
+[chayuan-rthook-openssl] sys._MEIPASS = /Applications/Chayuan.app/Contents/Resources/chayuan-server/_internal
+[chayuan-rthook-openssl] 藏区源 = /Applications/Chayuan.app/Contents/Resources/chayuan-server/_internal/_chayuan_openssl
+[chayuan-rthook-openssl] 物化目标 = ['/Applications/Chayuan.app/Contents/Resources/chayuan-server/_internal', '/Applications/Chayuan.app/Contents/Resources/chayuan-server/_internal/cv2/.dylibs']
+[chayuan-rthook-openssl] OK 物化 /Applications/Chayuan.app/Contents/Resources/chayuan-server/_internal/libcrypto.3.dylib
+[chayuan-rthook-openssl] OK 物化 /Applications/Chayuan.app/Contents/Resources/chayuan-server/_internal/cv2/.dylibs/libcrypto.3.dylib
+[chayuan-rthook-openssl] OK 物化 /Applications/Chayuan.app/Contents/Resources/chayuan-server/_internal/libssl.3.dylib
+[chayuan-rthook-openssl] OK 物化 /Applications/Chayuan.app/Contents/Resources/chayuan-server/_internal/cv2/.dylibs/libssl.3.dylib
+[chayuan-rthook-openssl] OK CDLL 预加载 libcrypto.3.dylib ← /Applications/Chayuan.app/Contents/Resources/chayuan-server/_internal/libcrypto.3.dylib
+[chayuan-rthook-openssl] OK CDLL 预加载 libssl.3.dylib ← /Applications/Chayuan.app/Contents/Resources/chayuan-server/_internal/libssl.3.dylib
+[chayuan-rthook-openssl] === runtime hook done ===
+Error processing file '/Users/runner/work/piper1-gpl/piper1-gpl/_skbuild/macosx-11.0-arm64-3.9/cmake-build/espeak_ng-install/share/espeak-ng-data/phontab': No such file or directory.
+[1m[7m%[27m[1m[0m                                                                                ]7;file://zyh-2.local/Applications/Chayuan.app/Contents/Resources/chayuan-server[0m[27m[24m[J(base) zyh@zyh-2 chayuan-server % [K[?2004hcclear[?2004l
+[H[2J[3J[1m[7m%[27m[1m[0m                                                                                ]7;file://zyh-2.local/Applications/Chayuan.app/Contents/Resources/chayuan-server[0m[27m[24m[J(base) zyh@zyh-2 chayuan-server % [K[?2004h

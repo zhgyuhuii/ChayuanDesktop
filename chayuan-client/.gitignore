@@ -16,7 +16,7 @@ test-results
 
 # tauri
 apps/desktop/src-tauri/target
-apps/desktop/src-tauri/Cargo.lock
+apps/*/src-tauri/Cargo.lock
 
 # os
 .DS_Store
